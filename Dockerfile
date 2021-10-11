@@ -7,3 +7,4 @@ RUN \
 
 FROM alpine:3 AS mono
 COPY --from=build /usr/bin/depot /usr/bin/depot
+ENTRYPOINT [ "/usr/bin/depot" ]
