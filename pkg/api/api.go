@@ -17,7 +17,7 @@ type InitResponse struct {
 }
 
 const ApiUri = "https://api.depot.dev/builds"
-const SimpleAuthToken = "4a4bd8307b37497b906d7b92574ccac45"
+const SimpleAuthToken = "4a4bd8307b37497b906d7b92574ccac4"
 
 func InitBuild(sshKey ssh.PublicKey) (*InitResponse, error) {
 	client := &http.Client{}
