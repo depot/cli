@@ -45,7 +45,7 @@ func (s *socketProxyServer) Listen(onListening chan<- error) error {
 	defer listener.Close()
 	onListening <- nil
 
-	builderURL, err := url.Parse(s.apiHost + "/" + s.builderID)
+	builderURL, err := url.Parse(s.apiHost + "/builder/" + s.builderID)
 	if err != nil {
 		return err
 	}
