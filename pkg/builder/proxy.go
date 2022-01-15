@@ -1,5 +1,11 @@
 package builder
 
+import (
+	"time"
+
+	"github.com/depot/cli/pkg/dialstdio"
+)
+
 func NewProxy(apiKey string, builderID string) error {
 	socketServer, err := newSocketProxyServer("https://api.depot.dev", apiKey, builderID)
 	if err != nil {
@@ -20,7 +26,7 @@ func NewProxy(apiKey string, builderID string) error {
 	}
 
 	go func() {
-		socket2stdioChan <- socket2stdio(socketServer.socketPath)
+		socket2stdioChan <- dialstdio.DialStdioTimeout("unix://"+socketServer.socketPath, 10*time.Second)
 	}()
 
 	select {

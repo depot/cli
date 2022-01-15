@@ -3,6 +3,8 @@ module github.com/depot/cli
 go 1.17
 
 require (
+	github.com/pkg/errors v0.8.1
+	github.com/sirupsen/logrus v1.8.1
 	github.com/spf13/cobra v1.2.1
 	golang.org/x/crypto v0.0.0-20200622213623-75b288015ac9
 	golang.org/x/net v0.0.0-20210405180319-a5a99cb37ef4
