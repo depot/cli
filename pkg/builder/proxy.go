@@ -1,7 +1,5 @@
 package builder
 
-import "fmt"
-
 func NewProxy(apiKey string, builderID string) error {
 	socketServer, err := newSocketProxyServer("https://api.depot.dev", apiKey, builderID)
 	if err != nil {
@@ -29,7 +27,6 @@ func NewProxy(apiKey string, builderID string) error {
 	case err := <-socketServerChan:
 		return err
 	case err := <-socket2stdioChan:
-		fmt.Printf("socket2stdio: %v\n", err)
 		return err
 	}
 }

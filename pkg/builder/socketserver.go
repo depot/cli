@@ -1,7 +1,6 @@
 package builder
 
 import (
-	"fmt"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -39,18 +38,12 @@ func newSocketProxyServer(apiHost string, apiKey string, builderID string) (*soc
 }
 
 func (s *socketProxyServer) Listen(onListening chan<- error) error {
-	fmt.Fprintln(os.Stderr, s.socketPath)
 	listener, err := net.Listen("unix", s.socketPath)
-	fmt.Fprintf(os.Stderr, "listening on %s %v\n", s.socketPath, err)
 	if err != nil {
 		return err
 	}
 	defer listener.Close()
-	fmt.Fprintln(os.Stderr, "listening...")
 	onListening <- nil
-	fmt.Fprintln(os.Stderr, "reported...")
-
-	fmt.Fprintln(os.Stderr, s.apiHost+"/"+s.builderID)
 
 	builderURL, err := url.Parse(s.apiHost + "/" + s.builderID)
 	if err != nil {
@@ -61,7 +54,6 @@ func (s *socketProxyServer) Listen(onListening chan<- error) error {
 	h2s := &http2.Server{}
 	h1s := &http.Server{Handler: h2c.NewHandler(proxy, h2s)}
 
-	fmt.Fprintln(os.Stderr, "Starting proxy...")
 	return h1s.Serve(listener)
 }
 
