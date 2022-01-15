@@ -2,8 +2,8 @@ package builder
 
 import "fmt"
 
-func NewProxy(apiKey string) error {
-	socketServer, err := newSocketProxyServer("https://api.depot.dev", "xxx", "healthz")
+func NewProxy(apiKey string, builderID string) error {
+	socketServer, err := newSocketProxyServer("https://api.depot.dev", apiKey, builderID)
 	if err != nil {
 		return err
 	}

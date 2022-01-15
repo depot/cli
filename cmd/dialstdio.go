@@ -1,8 +1,6 @@
 package cmd
 
 import (
-	"fmt"
-
 	"github.com/depot/cli/pkg/builder"
 	"github.com/spf13/cobra"
 )
@@ -12,9 +10,9 @@ var dialStdioCommand = &cobra.Command{
 	Hidden: true,
 	Run: func(cmd *cobra.Command, args []string) {
 		apiKey := "xxx"
+		builderID := "healthz"
 
-		err := builder.NewProxy(apiKey)
-		fmt.Printf("%v\n", err)
+		err := builder.NewProxy(apiKey, builderID)
 		if err != nil {
 			panic(err)
 		}
