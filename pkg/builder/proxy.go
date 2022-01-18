@@ -6,8 +6,8 @@ import (
 	"github.com/depot/cli/pkg/dialstdio"
 )
 
-func NewProxy(apiKey string, builderID string) error {
-	socketServer, err := newSocketProxyServer("https://api.depot.dev", apiKey, builderID)
+func NewProxy(apiHost string, apiKey string, builderID string) error {
+	socketServer, err := newSocketProxyServer(apiHost, apiKey, builderID)
 	if err != nil {
 		return err
 	}
