@@ -60,9 +60,9 @@ func (s *socketProxyServer) Listen(onListening chan<- error) error {
 func newSingleHostReverseProxy(target *url.URL, apiKey string) *httputil.ReverseProxy {
 	targetQuery := target.RawQuery
 	director := func(req *http.Request) {
+		req.Host = target.Host
 		req.URL.Scheme = target.Scheme
 		req.URL.Host = target.Host
-		req.Host = target.Host
 		req.URL.Path, req.URL.RawPath = joinURLPath(target, req.URL)
 		if targetQuery == "" || req.URL.RawQuery == "" {
 			req.URL.RawQuery = targetQuery + req.URL.RawQuery
@@ -74,7 +74,6 @@ func newSingleHostReverseProxy(target *url.URL, apiKey string) *httputil.Reverse
 			req.Header.Set("User-Agent", "")
 		}
 		req.Header.Set("Authorization", "bearer "+apiKey)
-		req.Header.Set("Host", target.Host)
 	}
 	return &httputil.ReverseProxy{Director: director}
 }
