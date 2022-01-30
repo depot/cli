@@ -7,11 +7,18 @@ import (
 
 var loginCommand = &cobra.Command{
 	Use: "login",
-	Run: func(cmd *cobra.Command, args []string) {
-		err := api.AuthorizeDevice()
+	RunE: func(cmd *cobra.Command, args []string) error {
+		depot, err := api.NewDepotFromEnv()
 		if err != nil {
-			panic(err)
+			return err
 		}
+
+		err = depot.AuthorizeDevice()
+		if err != nil {
+			return err
+		}
+
+		return nil
 	},
 }
 

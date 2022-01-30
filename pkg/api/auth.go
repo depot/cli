@@ -46,7 +46,7 @@ type DeviceAccessTokenErrorResponse struct {
 	ErrorDescription string `json:"error_description"`
 }
 
-func AuthorizeDevice() error {
+func (d *Depot) AuthorizeDevice() error {
 	requestPayload := DeviceAuthorizationRequest{
 		ClientID: "cli",
 	}
@@ -56,7 +56,7 @@ func AuthorizeDevice() error {
 		return err
 	}
 
-	res, err := http.Post("http://localhost:3000/api/cli/auth/device", "application/json", bytes.NewBuffer(requestBody))
+	res, err := http.Post(fmt.Sprintf("%s/api/cli/auth/device", d.BaseURL), "application/json", bytes.NewBuffer(requestBody))
 	if err != nil {
 		return err
 	}
@@ -100,7 +100,7 @@ func AuthorizeDevice() error {
 			return err
 		}
 
-		res, err := http.Post("http://localhost:3000/api/cli/auth/token", "application/json", bytes.NewBuffer(tokenRequestBody))
+		res, err := http.Post(fmt.Sprintf("%s/api/cli/auth/token", d.BaseURL), "application/json", bytes.NewBuffer(tokenRequestBody))
 		if err != nil {
 			return err
 		}
