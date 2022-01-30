@@ -45,7 +45,7 @@ func (s *socketProxyServer) Listen(onListening chan<- error) error {
 	defer listener.Close()
 	onListening <- nil
 
-	builderURL, err := url.Parse(s.computeHost + "/builder/" + s.builderID)
+	builderURL, err := url.Parse(s.computeHost + "/" + s.builderID)
 	if err != nil {
 		return err
 	}
@@ -62,6 +62,7 @@ func newSingleHostReverseProxy(target *url.URL, apiKey string) *httputil.Reverse
 	director := func(req *http.Request) {
 		req.URL.Scheme = target.Scheme
 		req.URL.Host = target.Host
+		req.Host = target.Host
 		req.URL.Path, req.URL.RawPath = joinURLPath(target, req.URL)
 		if targetQuery == "" || req.URL.RawQuery == "" {
 			req.URL.RawQuery = targetQuery + req.URL.RawQuery
@@ -72,7 +73,8 @@ func newSingleHostReverseProxy(target *url.URL, apiKey string) *httputil.Reverse
 			// explicitly disable User-Agent so it's not set to default value
 			req.Header.Set("User-Agent", "")
 		}
-		req.Header.Set("Authorization", "Bearer "+apiKey)
+		req.Header.Set("Authorization", "bearer "+apiKey)
+		req.Header.Set("Host", target.Host)
 	}
 	return &httputil.ReverseProxy{Director: director}
 }
