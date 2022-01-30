@@ -14,13 +14,13 @@ import (
 
 // socketProxyServer represents a server that proxies a local unix socket to a remote builder
 type socketProxyServer struct {
-	apiHost    string
-	apiKey     string
-	builderID  string
-	socketPath string
+	computeHost string
+	apiKey      string
+	builderID   string
+	socketPath  string
 }
 
-func newSocketProxyServer(apiHost string, apiKey string, builderID string) (*socketProxyServer, error) {
+func newSocketProxyServer(computeHost string, apiKey string, builderID string) (*socketProxyServer, error) {
 	socketFile, err := os.CreateTemp("", "depot-builder-*.sock")
 	if err != nil {
 		return nil, err
@@ -30,10 +30,10 @@ func newSocketProxyServer(apiHost string, apiKey string, builderID string) (*soc
 	os.Remove(socketPath)
 
 	return &socketProxyServer{
-		apiHost:    apiHost,
-		apiKey:     apiKey,
-		builderID:  builderID,
-		socketPath: socketPath,
+		computeHost: computeHost,
+		apiKey:      apiKey,
+		builderID:   builderID,
+		socketPath:  socketPath,
 	}, nil
 }
 
@@ -45,7 +45,7 @@ func (s *socketProxyServer) Listen(onListening chan<- error) error {
 	defer listener.Close()
 	onListening <- nil
 
-	builderURL, err := url.Parse(s.apiHost + "/builder/" + s.builderID)
+	builderURL, err := url.Parse(s.computeHost + "/builder/" + s.builderID)
 	if err != nil {
 		return err
 	}
