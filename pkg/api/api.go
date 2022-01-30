@@ -64,3 +64,24 @@ func (d *Depot) InitBuild(projectID string) (*InitResponse, error) {
 	json.Unmarshal([]byte(body), &response)
 	return &response, nil
 }
+
+func (d *Depot) FinishBuild(buildID string) error {
+	client := &http.Client{}
+	payload := fmt.Sprintf(`{"id": "%s"}`, buildID)
+	jsonStr := []byte(payload)
+
+	req, err := http.NewRequest("DELETE", fmt.Sprintf("%s/api/builds", d.BaseURL), bytes.NewBuffer(jsonStr))
+	if err != nil {
+		return err
+	}
+	req.Header.Add("Authorization", SimpleAuthToken)
+	req.Header.Add("Content-Type", "application/json")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	return nil
+}

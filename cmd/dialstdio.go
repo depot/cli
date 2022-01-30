@@ -32,6 +32,9 @@ var dialStdioCommand = &cobra.Command{
 			return fmt.Errorf("failed to init build")
 		}
 
+		// TODO: attempt to run this on CTRL+C
+		// defer depot.FinishBuild(build.ID)
+
 		err = builder.NewProxy(build.BaseURL, build.AccessToken, build.ID)
 		if err != nil {
 			return err
