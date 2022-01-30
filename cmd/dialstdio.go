@@ -1,37 +1,43 @@
 package cmd
 
 import (
+	"fmt"
 	"os"
 
+	"github.com/depot/cli/pkg/api"
 	"github.com/depot/cli/pkg/builder"
-	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
 
 var dialStdioCommand = &cobra.Command{
 	Use:    "dial-stdio",
 	Hidden: true,
-	Run: func(cmd *cobra.Command, args []string) {
-		apiHost := os.Getenv("DEPOT_API_HOST")
-		apiKey := os.Getenv("DEPOT_API_KEY")
-		builderID := os.Getenv("DEPOT_BUILDER_ID")
-
-		if apiHost == "" {
-			apiHost = "https://depot.dev"
-		}
-
-		if apiKey == "" {
-			logrus.Fatalf("DEPOT_API_KEY env var is not set\n")
-		}
-
-		if builderID == "" {
-			logrus.Fatalf("DEPOT_BUILDER_ID env var is not set\n")
-		}
-
-		err := builder.NewProxy(apiHost, apiKey, builderID)
+	RunE: func(cmd *cobra.Command, args []string) error {
+		depot, err := api.NewDepotFromEnv()
 		if err != nil {
-			panic(err)
+			return err
 		}
+
+		projectID := os.Getenv("DEPOT_PROJECT_ID")
+		if projectID == "" {
+			return fmt.Errorf("DEPOT_PROJECT_ID is not set")
+		}
+
+		build, err := depot.InitBuild(projectID)
+		if err != nil {
+			return err
+		}
+
+		if !build.OK {
+			return fmt.Errorf("failed to init build")
+		}
+
+		err = builder.NewProxy(build.BaseURL, build.AccessToken, build.ID)
+		if err != nil {
+			return err
+		}
+
+		return nil
 	},
 }
 

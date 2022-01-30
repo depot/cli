@@ -29,6 +29,7 @@ func NewDepotFromEnv() (*Depot, error) {
 
 type InitResponse struct {
 	OK          bool   `json:"ok"`
+	BaseURL     string `json:"baseURL"`
 	ID          string `json:"id"`
 	AccessToken string `json:"accessToken"`
 }
