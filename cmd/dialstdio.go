@@ -2,7 +2,9 @@ package cmd
 
 import (
 	"fmt"
+	"net/http"
 	"os"
+	"time"
 
 	"github.com/depot/cli/pkg/api"
 	"github.com/depot/cli/pkg/builder"
@@ -32,6 +34,11 @@ var dialStdioCommand = &cobra.Command{
 			return fmt.Errorf("failed to init build")
 		}
 
+		err = waitForReady(build)
+		if err != nil {
+			return err
+		}
+
 		// TODO: attempt to run this on CTRL+C
 		// defer depot.FinishBuild(build.ID)
 
@@ -46,4 +53,35 @@ var dialStdioCommand = &cobra.Command{
 
 func init() {
 	rootCmd.AddCommand(dialStdioCommand)
+}
+
+func waitForReady(build *api.InitResponse) error {
+	client := &http.Client{}
+
+	count := 0
+
+	for {
+		req, err := http.NewRequest("GET", fmt.Sprintf("%s/ready-%s/", build.BaseURL, build.ID), nil)
+		if err != nil {
+			return err
+		}
+		req.Header.Add("Authorization", fmt.Sprintf("bearer %s", build.AccessToken))
+
+		resp, err := client.Do(req)
+		if err != nil {
+			return err
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode == http.StatusOK {
+			return nil
+		}
+
+		count++
+		if count > 30 {
+			return fmt.Errorf("timed out waiting for build to be ready")
+		}
+
+		time.Sleep(time.Second)
+	}
 }
