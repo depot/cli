@@ -7,6 +7,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"os"
+	"time"
 )
 
 type Depot struct {
@@ -32,6 +33,7 @@ type InitResponse struct {
 	BaseURL     string `json:"baseURL"`
 	ID          string `json:"id"`
 	AccessToken string `json:"accessToken"`
+	Busy        bool   `json:"busy"`
 }
 
 // TODO: use access token fetched from `depot auth`
@@ -42,27 +44,38 @@ func (d *Depot) InitBuild(projectID string) (*InitResponse, error) {
 	payload := fmt.Sprintf(`{"projectID": "%s"}`, projectID)
 	jsonStr := []byte(payload)
 
-	req, err := http.NewRequest("POST", fmt.Sprintf("%s/api/builds", d.BaseURL), bytes.NewBuffer(jsonStr))
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Add("Authorization", SimpleAuthToken)
-	req.Header.Add("Content-Type", "application/json")
+	for {
+		req, err := http.NewRequest("POST", fmt.Sprintf("%s/api/builds", d.BaseURL), bytes.NewBuffer(jsonStr))
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Add("Authorization", SimpleAuthToken)
+		req.Header.Add("Content-Type", "application/json")
 
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
+		resp, err := client.Do(req)
+		if err != nil {
+			return nil, err
+		}
+		defer resp.Body.Close()
 
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
+		body, err := ioutil.ReadAll(resp.Body)
+		if err != nil {
+			return nil, err
+		}
 
-	var response InitResponse
-	json.Unmarshal([]byte(body), &response)
-	return &response, nil
+		var response InitResponse
+		err = json.Unmarshal([]byte(body), &response)
+		if err != nil {
+			return nil, err
+		}
+
+		if response.OK && response.Busy {
+			time.Sleep(1 * time.Second)
+			continue
+		}
+
+		return &response, nil
+	}
 }
 
 func (d *Depot) FinishBuild(buildID string) error {
