@@ -2,13 +2,22 @@ package jump
 
 import (
 	"context"
+	"errors"
 
+	"github.com/depot/cli/pkg/config"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/client"
 )
 
+var ErrNoApiToken = errors.New("no API token found")
+
 func EnsureJump(projectID string) error {
+	apiToken := config.GetApiToken()
+	if apiToken == "" {
+		return ErrNoApiToken
+	}
+
 	ctx := context.Background()
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
@@ -37,7 +46,7 @@ func EnsureJump(projectID string) error {
 		Image: "ghcr.io/depot/cli:local",
 		Cmd:   []string{"jump"},
 		Env: []string{
-			"DEPOT_API_KEY=xxx",
+			"DEPOT_API_KEY=" + apiToken,
 			"DEPOT_PROJECT_ID=" + projectID,
 			"DEPOT_API_HOST=https://app.depot.dev",
 		},

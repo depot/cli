@@ -46,29 +46,29 @@ type DeviceAccessTokenErrorResponse struct {
 	ErrorDescription string `json:"error_description"`
 }
 
-func (d *Depot) AuthorizeDevice() error {
+func (d *Depot) AuthorizeDevice() (*DeviceAccessTokenResponse, error) {
 	requestPayload := DeviceAuthorizationRequest{
 		ClientID: "cli",
 	}
 
 	requestBody, err := json.Marshal(requestPayload)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	res, err := http.Post(fmt.Sprintf("%s/api/cli/auth/device", d.BaseURL), "application/json", bytes.NewBuffer(requestBody))
+	res, err := http.Post(fmt.Sprintf("%s/api/auth/cli/device", d.BaseURL), "application/json", bytes.NewBuffer(requestBody))
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	if res.StatusCode != http.StatusOK {
-		return fmt.Errorf("unexpected status code: %d", res.StatusCode)
+		return nil, fmt.Errorf("unexpected status code: %d", res.StatusCode)
 	}
 
 	var response DeviceAuthorizationResponse
 	err = json.NewDecoder(res.Body).Decode(&response)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	if response.Interval == 0 {
@@ -82,7 +82,7 @@ func (d *Depot) AuthorizeDevice() error {
 
 	err = browser.OpenURL(response.VerificationURI)
 	if err != nil {
-		return fmt.Errorf("error opening the web browser: %w", err)
+		return nil, fmt.Errorf("error opening the web browser: %w", err)
 	}
 
 	checkInterval := time.Duration(response.Interval) * time.Second
@@ -97,28 +97,28 @@ func (d *Depot) AuthorizeDevice() error {
 
 		tokenRequestBody, err := json.Marshal(tokenRequestPayload)
 		if err != nil {
-			return err
+			return nil, err
 		}
 
-		res, err := http.Post(fmt.Sprintf("%s/api/cli/auth/token", d.BaseURL), "application/json", bytes.NewBuffer(tokenRequestBody))
+		res, err := http.Post(fmt.Sprintf("%s/api/auth/cli/token", d.BaseURL), "application/json", bytes.NewBuffer(tokenRequestBody))
 		if err != nil {
-			return err
+			return nil, err
 		}
 
 		if res.StatusCode == http.StatusOK {
 			var tokenResponse DeviceAccessTokenResponse
 			err = json.NewDecoder(res.Body).Decode(&tokenResponse)
 			if err != nil {
-				return err
+				return nil, err
 			}
 			fmt.Printf("Successfully authorized device! %v\n", tokenResponse)
-			return nil
+			return &tokenResponse, nil
 		}
 
 		var errorResponse DeviceAccessTokenErrorResponse
 		err = json.NewDecoder(res.Body).Decode(&errorResponse)
 		if err != nil {
-			return err
+			return nil, err
 		}
 
 		if errorResponse.Error == "authorization_pending" {
@@ -126,7 +126,7 @@ func (d *Depot) AuthorizeDevice() error {
 			continue
 		}
 
-		return fmt.Errorf("error getting device access token: %s, %s", errorResponse.Error, errorResponse.ErrorDescription)
+		return nil, fmt.Errorf("error getting device access token: %s, %s", errorResponse.Error, errorResponse.ErrorDescription)
 	}
 }
 
