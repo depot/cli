@@ -23,8 +23,7 @@ func NewDepot(baseURL string) *Depot {
 func NewDepotFromEnv() (*Depot, error) {
 	baseURL := os.Getenv("DEPOT_API_HOST")
 	if baseURL == "" {
-		// TODO: don't default to localhost
-		baseURL = "http://localhost:3000"
+		baseURL = "https://app.depot.dev"
 		// return nil, fmt.Errorf("DEPOT_API_HOST is not set")
 	}
 	return NewDepot(baseURL), nil
