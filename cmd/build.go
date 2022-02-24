@@ -13,7 +13,7 @@ var buildCmd = &cobra.Command{
 	Short:              "run a Docker build on Depot",
 	DisableFlagParsing: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		err := jump.EnsureJump("ckz0c6tu306811i9ko3x7c9id")
+		err := jump.EnsureJump("ckziwgsdn0125e6gx9yp3tfaq")
 		if err != nil {
 			return err
 		}
