@@ -1,62 +1,37 @@
 package api
 
 import (
-	"bufio"
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
-	"os"
 	"time"
 
-	"github.com/cli/browser"
+	"github.com/briandowns/spinner"
 )
 
-type DeviceAuthorizationRequest struct {
-	ClientID string `json:"client_id"`
-	Scopes   string `json:"scopes"`
+type CLIAuthenticationResponse struct {
+	RequestID  string `json:"requestID"`
+	ExpiresIn  int    `json:"expiresIn"`
+	Interval   int    `json:"interval"`
+	ApproveURL string `json:"approveURL"`
+	TokenURL   string `json:"tokenURL"`
 }
 
-type DeviceAuthorizationResponse struct {
-	DeviceCode              string `json:"device_code"`
-	UserCode                string `json:"user_code"`
-	VerificationURI         string `json:"verification_uri"`
-	VerificationURIComplete string `json:"verification_uri_complete"`
-	ExpiresIn               int    `json:"expires_in"`
-	Interval                int    `json:"interval"`
+type TokenRequest struct {
+	RequestID string `json:"requestID"`
 }
 
-type DeviceAccessTokenRequest struct {
-	GrantType  string `json:"grant_type"`
-	ClientID   string `json:"client_id"`
-	DeviceCode string `json:"device_code"`
+type TokenResponse struct {
+	Token string `json:"token"`
 }
 
-type DeviceAccessTokenResponse struct {
-	AccessToken  string `json:"access_token"`
-	TokenType    string `json:"token_type"`
-	ExpiresIn    int    `json:"expires_in"`
-	Scope        string `json:"scope"`
-	RefreshToken string `json:"refresh_token"`
+type TokenErrorResponse struct {
+	Error string `json:"error"`
 }
 
-type DeviceAccessTokenErrorResponse struct {
-	Error            string `json:"error"`
-	ErrorDescription string `json:"error_description"`
-}
-
-func (d *Depot) AuthorizeDevice() (*DeviceAccessTokenResponse, error) {
-	requestPayload := DeviceAuthorizationRequest{
-		ClientID: "cli",
-	}
-
-	requestBody, err := json.Marshal(requestPayload)
-	if err != nil {
-		return nil, err
-	}
-
-	res, err := http.Post(fmt.Sprintf("%s/api/auth/cli/device", d.BaseURL), "application/json", bytes.NewBuffer(requestBody))
+func (d *Depot) AuthorizeDevice() (*TokenResponse, error) {
+	res, err := http.Post(fmt.Sprintf("%s/api/auth/cli/request", d.BaseURL), "application/json", nil)
 	if err != nil {
 		return nil, err
 	}
@@ -65,7 +40,7 @@ func (d *Depot) AuthorizeDevice() (*DeviceAccessTokenResponse, error) {
 		return nil, fmt.Errorf("unexpected status code: %d", res.StatusCode)
 	}
 
-	var response DeviceAuthorizationResponse
+	var response CLIAuthenticationResponse
 	err = json.NewDecoder(res.Body).Decode(&response)
 	if err != nil {
 		return nil, err
@@ -75,24 +50,19 @@ func (d *Depot) AuthorizeDevice() (*DeviceAccessTokenResponse, error) {
 		response.Interval = 5
 	}
 
-	fmt.Printf("First, copy your one-time code: %s\n", response.UserCode)
-	fmt.Printf("Then press [Enter] to continue in the web browser... ")
+	fmt.Printf("Please visit the following URL in your browser to authenticate the CLI:\n\n    %s\n\n", response.ApproveURL)
 
-	_ = waitForEnter(os.Stdin)
-
-	err = browser.OpenURL(response.VerificationURI)
-	if err != nil {
-		return nil, fmt.Errorf("error opening the web browser: %w", err)
-	}
+	spinner := spinner.New(spinner.CharSets[14], 100*time.Millisecond)
+	spinner.Prefix = "Waiting for approval "
+	spinner.Start()
+	defer spinner.Stop()
 
 	checkInterval := time.Duration(response.Interval) * time.Second
 	for {
 		time.Sleep(checkInterval)
 
-		tokenRequestPayload := DeviceAccessTokenRequest{
-			GrantType:  "urn:ietf:params:oauth:grant-type:device_code",
-			ClientID:   "cli",
-			DeviceCode: response.DeviceCode,
+		tokenRequestPayload := TokenRequest{
+			RequestID: response.RequestID,
 		}
 
 		tokenRequestBody, err := json.Marshal(tokenRequestPayload)
@@ -100,38 +70,30 @@ func (d *Depot) AuthorizeDevice() (*DeviceAccessTokenResponse, error) {
 			return nil, err
 		}
 
-		res, err := http.Post(fmt.Sprintf("%s/api/auth/cli/token", d.BaseURL), "application/json", bytes.NewBuffer(tokenRequestBody))
+		res, err := http.Post(response.TokenURL, "application/json", bytes.NewBuffer(tokenRequestBody))
 		if err != nil {
 			return nil, err
 		}
 
 		if res.StatusCode == http.StatusOK {
-			var tokenResponse DeviceAccessTokenResponse
+			var tokenResponse TokenResponse
 			err = json.NewDecoder(res.Body).Decode(&tokenResponse)
 			if err != nil {
 				return nil, err
 			}
-			fmt.Printf("Successfully authorized device! %v\n", tokenResponse)
 			return &tokenResponse, nil
 		}
 
-		var errorResponse DeviceAccessTokenErrorResponse
+		var errorResponse TokenErrorResponse
 		err = json.NewDecoder(res.Body).Decode(&errorResponse)
 		if err != nil {
 			return nil, err
 		}
 
 		if errorResponse.Error == "authorization_pending" {
-			fmt.Printf("Waiting for authorization...\n")
 			continue
 		}
 
-		return nil, fmt.Errorf("error getting device access token: %s, %s", errorResponse.Error, errorResponse.ErrorDescription)
+		return nil, fmt.Errorf("error getting access token: %s", errorResponse.Error)
 	}
-}
-
-func waitForEnter(r io.Reader) error {
-	scanner := bufio.NewScanner(r)
-	scanner.Scan()
-	return scanner.Err()
 }

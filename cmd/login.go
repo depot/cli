@@ -11,6 +11,12 @@ import (
 var loginCommand = &cobra.Command{
 	Use: "login",
 	RunE: func(cmd *cobra.Command, args []string) error {
+		clear, _ := cmd.Flags().GetBool("clear")
+
+		if clear {
+			config.ClearApiToken()
+		}
+
 		existingToken := config.GetApiToken()
 		if existingToken != "" {
 			fmt.Println("You are already logged in.")
@@ -27,7 +33,9 @@ var loginCommand = &cobra.Command{
 			return err
 		}
 
-		err = config.SetApiToken(tokenResponse.AccessToken)
+		fmt.Println("Successfully authenticated!")
+
+		err = config.SetApiToken(tokenResponse.Token)
 		if err != nil {
 			return err
 		}
@@ -38,4 +46,5 @@ var loginCommand = &cobra.Command{
 
 func init() {
 	rootCmd.AddCommand(loginCommand)
+	loginCommand.Flags().Bool("clear", false, "Clear any existing token before logging in")
 }

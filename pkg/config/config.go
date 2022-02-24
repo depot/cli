@@ -29,3 +29,8 @@ func SetApiToken(token string) error {
 	viper.Set("api_token", token)
 	return viper.WriteConfig()
 }
+
+func ClearApiToken() error {
+	viper.Set("api_token", "")
+	return viper.WriteConfig()
+}
