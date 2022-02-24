@@ -13,7 +13,12 @@ var buildCmd = &cobra.Command{
 	Short:              "run a Docker build on Depot",
 	DisableFlagParsing: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		err := jump.EnsureJump("ckziwgsdn0125e6gx9yp3tfaq")
+		projectID := os.Getenv("DEPOT_PROJECT_ID")
+		if projectID == "" {
+			projectID = "ckzvubrmp05214iu5u6q7lnrw"
+		}
+
+		err := jump.EnsureJump(projectID)
 		if err != nil {
 			return err
 		}

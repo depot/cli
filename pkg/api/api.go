@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"os"
 	"time"
+
+	"github.com/depot/cli/pkg/config"
 )
 
 type Depot struct {
@@ -36,9 +38,6 @@ type InitResponse struct {
 	Busy        bool   `json:"busy"`
 }
 
-// TODO: use access token fetched from `depot auth`
-const SimpleAuthToken = "4a4bd8307b37497b906d7b92574ccac4"
-
 func (d *Depot) InitBuild(projectID string) (*InitResponse, error) {
 	client := &http.Client{}
 	payload := fmt.Sprintf(`{"projectID": "%s"}`, projectID)
@@ -49,7 +48,7 @@ func (d *Depot) InitBuild(projectID string) (*InitResponse, error) {
 		if err != nil {
 			return nil, err
 		}
-		req.Header.Add("Authorization", SimpleAuthToken)
+		req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", config.GetApiToken()))
 		req.Header.Add("Content-Type", "application/json")
 
 		resp, err := client.Do(req)
@@ -87,7 +86,7 @@ func (d *Depot) FinishBuild(buildID string) error {
 	if err != nil {
 		return err
 	}
-	req.Header.Add("Authorization", SimpleAuthToken)
+	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", config.GetApiToken()))
 	req.Header.Add("Content-Type", "application/json")
 
 	resp, err := client.Do(req)

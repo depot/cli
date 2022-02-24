@@ -46,7 +46,7 @@ func EnsureJump(projectID string) error {
 		Image: "ghcr.io/depot/cli:local",
 		Cmd:   []string{"jump"},
 		Env: []string{
-			"DEPOT_API_KEY=" + apiToken,
+			"DEPOT_API_TOKEN=" + apiToken,
 			"DEPOT_PROJECT_ID=" + projectID,
 			"DEPOT_API_HOST=https://app.depot.dev",
 		},
