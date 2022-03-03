@@ -18,4 +18,4 @@ jobs:
             ${{ runner.os }}-
       - run: go mod download
       - run: go test -race ./...
-      - run: go build -v ./cmd/gh
+      - run: go build -v ./cmd/depot
