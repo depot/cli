@@ -1,4 +1,4 @@
-name: Lint
+name: lint
 on:
   push:
     paths:
@@ -13,8 +13,7 @@ on:
 
 jobs:
   lint:
-    runs-on: ubuntu-latest
-
+    runs-on: ubuntu-20.04
     steps:
       - uses: actions/checkout@v3
       - uses: actions/setup-go@v2
