@@ -5,6 +5,7 @@ go 1.17
 require (
 	github.com/adrg/xdg v0.4.0
 	github.com/briandowns/spinner v1.18.1
+	github.com/cli/safeexec v1.0.0
 	github.com/docker/docker v20.10.12+incompatible
 	github.com/pkg/errors v0.9.1
 	github.com/sirupsen/logrus v1.8.1
