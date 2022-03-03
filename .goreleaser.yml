@@ -1,0 +1,26 @@
+project_name: depot
+
+release:
+  name_template: "Depot CLI {{.Version}}"
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - <<: &build_defaults
+      binary: bin/depot
+      main: ./cmd/depot
+      ldflags:
+        - -s -w -X github.com/depot/cli/internal/build.Version={{.Version}} -X github.com/depot/cli/internal/build.Date={{time "2006-01-02"}}
+        - -X main.updaterEnabled=depot/cli
+    id: macos
+    goos: [darwin]
+    goarch: [amd64, arm64]
+
+  - <<: *build_defaults
+    id: linux
+    goos: [linux]
+    goarch: ["386", arm, amd64, arm64]
+    env:
+      - CGO_ENABLED=0

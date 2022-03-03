@@ -1,5 +1,4 @@
-*.log
+bin/
 dist/
 /cli
-/bin
 /depot
