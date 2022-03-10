@@ -24,7 +24,7 @@ func NewCmdRoot(version string) *cobra.Command {
 	}
 
 	// Initialize config
-	config.NewConfig()
+	_ = config.NewConfig()
 
 	formattedVersion := versionCmd.Format(version)
 	cmd.SetVersionTemplate(formattedVersion)
