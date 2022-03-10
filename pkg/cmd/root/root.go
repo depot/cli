@@ -9,19 +9,22 @@ import (
 	jumpCmd "github.com/depot/cli/pkg/cmd/jump"
 	loginCmd "github.com/depot/cli/pkg/cmd/login"
 	versionCmd "github.com/depot/cli/pkg/cmd/version"
+	"github.com/depot/cli/pkg/config"
 )
 
 func NewCmdRoot(version string) *cobra.Command {
 	var cmd = &cobra.Command{
-		Use:           "depot <command> [flags]",
-		Short:         "Depot CLI",
-		SilenceErrors: true,
-		// SilenceUsage:  true,
+		Use:          "depot <command> [flags]",
+		Short:        "Depot CLI",
+		SilenceUsage: true,
 
 		Run: func(cmd *cobra.Command, args []string) {
 			_ = cmd.Usage()
 		},
 	}
+
+	// Initialize config
+	config.NewConfig()
 
 	formattedVersion := versionCmd.Format(version)
 	cmd.SetVersionTemplate(formattedVersion)
