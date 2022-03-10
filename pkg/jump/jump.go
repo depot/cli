@@ -48,7 +48,7 @@ func EnsureJump(projectID string) error {
 		Env: []string{
 			"DEPOT_API_TOKEN=" + apiToken,
 			"DEPOT_PROJECT_ID=" + projectID,
-			"DEPOT_API_HOST=https://app.depot.dev",
+			"DEPOT_API_HOST=https://depot.dev",
 		},
 	}, &container.HostConfig{
 		AutoRemove: true,

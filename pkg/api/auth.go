@@ -31,7 +31,7 @@ type TokenErrorResponse struct {
 }
 
 func (d *Depot) AuthorizeDevice() (*TokenResponse, error) {
-	res, err := http.Post(fmt.Sprintf("%s/api/auth/cli/request", d.BaseURL), "application/json", nil)
+	res, err := http.Post(fmt.Sprintf("%s/api/internal/cli/auth-request", d.BaseURL), "application/json", nil)
 	if err != nil {
 		return nil, err
 	}
