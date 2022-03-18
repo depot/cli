@@ -4,10 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
 
+	depotapi "github.com/depot/cli/pkg/api"
+	"github.com/depot/cli/pkg/builder"
 	"github.com/docker/buildx/build"
 	"github.com/docker/buildx/driver"
 	"github.com/docker/buildx/store/storeutil"
@@ -217,15 +220,32 @@ func runBuild(dockerCli command.Cli, in buildOptions) (err error) {
 }
 
 func buildTargets(ctx context.Context, dockerCli command.Cli, opts map[string]build.Options, progressMode, contextPathHash, metadataFile string, in buildOptions) (imageID string, err error) {
-	dis, err := getDrivers(ctx, dockerCli, contextPathHash, in)
-	if err != nil {
-		return "", err
-	}
-
 	ctx2, cancel := context.WithCancel(context.TODO())
 	defer cancel()
 
 	printer := progress.NewPrinter(ctx2, os.Stderr, progressMode)
+
+	depot, err := depotapi.NewDepotFromEnv(in.token)
+	if err != nil {
+		return "", err
+	}
+
+	b := builder.NewBuilder(depot)
+	addr, err := b.Acquire(printer.Write, in.project)
+	if err != nil {
+		return "", err
+	}
+	defer func() {
+		err := b.Release()
+		if err != nil {
+			log.Printf("error releasing builder: %v", err)
+		}
+	}()
+
+	dis, err := getDrivers(ctx, dockerCli, contextPathHash, addr)
+	if err != nil {
+		return "", err
+	}
 
 	resp, err := build.Build(ctx, dis, opts, dockerAPI(dockerCli), confutil.ConfigDir(dockerCli), printer)
 	err1 := printer.Wait()
@@ -249,15 +269,14 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, opts map[string]bu
 	return resp[defaultTargetName].ExporterResponse["containerimage.digest"], err
 }
 
-func getDrivers(ctx context.Context, dockerCli command.Cli, contextPathHash string, in buildOptions) ([]build.DriverInfo, error) {
+func getDrivers(ctx context.Context, dockerCli command.Cli, contextPathHash string, addr string) ([]build.DriverInfo, error) {
 	imageopt, err := storeutil.GetImageConfig(dockerCli, nil)
 	if err != nil {
 		return nil, err
 	}
 
 	driverOpts := make(map[string]string)
-	driverOpts["project"] = in.project
-	driverOpts["token"] = in.token
+	driverOpts["addr"] = addr
 
 	d, err := driver.GetDriver(ctx, "buildx_buildkit_depot", nil, dockerCli.Client(), imageopt.Auth, nil, nil, nil, driverOpts, nil, contextPathHash)
 	if err != nil {

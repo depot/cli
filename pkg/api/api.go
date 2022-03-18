@@ -7,9 +7,6 @@ import (
 	"io/ioutil"
 	"net/http"
 	"os"
-	"time"
-
-	"github.com/depot/cli/pkg/config"
 )
 
 type Depot struct {
@@ -43,40 +40,32 @@ func (d *Depot) InitBuild(projectID string) (*InitResponse, error) {
 	payload := fmt.Sprintf(`{"projectID": "%s"}`, projectID)
 	jsonStr := []byte(payload)
 
-	for {
-		req, err := http.NewRequest("POST", fmt.Sprintf("%s/api/builds", d.BaseURL), bytes.NewBuffer(jsonStr))
-		if err != nil {
-			return nil, err
-		}
-
-		req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", d.token))
-		req.Header.Add("Content-Type", "application/json")
-
-		resp, err := client.Do(req)
-		if err != nil {
-			return nil, err
-		}
-		defer resp.Body.Close()
-
-		body, err := ioutil.ReadAll(resp.Body)
-		if err != nil {
-			return nil, err
-		}
-
-		var response InitResponse
-		err = json.Unmarshal([]byte(body), &response)
-		if err != nil {
-			return nil, err
-		}
-
-		if response.OK && response.Busy {
-			fmt.Fprintf(os.Stderr, "Builder is busy, waiting for concurrency...\n")
-			time.Sleep(1 * time.Second)
-			continue
-		}
-
-		return &response, nil
+	req, err := http.NewRequest("POST", fmt.Sprintf("%s/api/builds", d.BaseURL), bytes.NewBuffer(jsonStr))
+	if err != nil {
+		return nil, err
 	}
+
+	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", d.token))
+	req.Header.Add("Content-Type", "application/json")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	var response InitResponse
+	err = json.Unmarshal([]byte(body), &response)
+	if err != nil {
+		return nil, err
+	}
+
+	return &response, nil
 }
 
 func (d *Depot) FinishBuild(buildID string) error {
@@ -88,7 +77,7 @@ func (d *Depot) FinishBuild(buildID string) error {
 	if err != nil {
 		return err
 	}
-	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", config.GetApiToken()))
+	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", d.token))
 	req.Header.Add("Content-Type", "application/json")
 
 	resp, err := client.Do(req)

@@ -3,7 +3,6 @@ package buildxdriver
 import (
 	"context"
 
-	"github.com/depot/cli/pkg/api"
 	"github.com/docker/buildx/driver"
 	dockerclient "github.com/docker/docker/client"
 )
@@ -34,15 +33,8 @@ func (*factory) Priority(ctx context.Context, api dockerclient.APIClient) int {
 }
 
 func (f *factory) New(ctx context.Context, cfg driver.InitConfig) (driver.Driver, error) {
-	project := cfg.DriverOpts["project"]
-	token := cfg.DriverOpts["token"]
-
-	depot, err := api.NewDepotFromEnv(token)
-	if err != nil {
-		return nil, err
-	}
-
-	d := &Driver{factory: f, InitConfig: cfg, project: project, token: token, depot: depot}
+	addr := cfg.DriverOpts["addr"]
+	d := &Driver{factory: f, InitConfig: cfg, addr: addr}
 	return d, nil
 }
 
