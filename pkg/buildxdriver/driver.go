@@ -51,7 +51,7 @@ func (d *Driver) Bootstrap(ctx context.Context, l progress.Logger) error {
 		proxy.Start()
 
 		return sub.Wrap("Connecting to builder "+d.Name, func() error {
-			err = waitForReady(resp)
+			err = waitForReady(resp, proxy)
 			return err
 		})
 	})
@@ -121,9 +121,12 @@ func (d *Driver) Features() map[driver.Feature]bool {
 	}
 }
 
-func waitForReady(build *api.InitResponse) error {
-	fmt.Fprintf(os.Stderr, "Waiting for buildkit to be ready...\n")
-	client := &http.Client{}
+func waitForReady(build *api.InitResponse, proxy *proxyServer) error {
+	fmt.Fprintf(os.Stderr, "Waiting for connection to BuildKit...\n")
+	httpClient := &http.Client{}
+
+	fmt.Println(build.ID)
+	fmt.Println(build.AccessToken)
 
 	count := 0
 
@@ -134,7 +137,7 @@ func waitForReady(build *api.InitResponse) error {
 		}
 		req.Header.Add("Authorization", fmt.Sprintf("bearer %s", build.AccessToken))
 
-		resp, err := client.Do(req)
+		resp, err := httpClient.Do(req)
 		if err != nil {
 			return err
 		}
@@ -143,7 +146,7 @@ func waitForReady(build *api.InitResponse) error {
 		fmt.Fprintf(os.Stderr, "Got status code %d\n", resp.StatusCode)
 
 		if resp.StatusCode == http.StatusOK {
-			return nil
+			break
 		}
 
 		count++
@@ -152,5 +155,46 @@ func waitForReady(build *api.InitResponse) error {
 		}
 
 		time.Sleep(time.Second)
+	}
+
+	fmt.Fprintf(os.Stderr, "Waiting for BuildKit to report ready...\n")
+
+	count = 0
+
+	for {
+		if count > 30 {
+			return fmt.Errorf("timed out waiting for buildkit to be ready")
+		}
+
+		if count > 0 {
+			time.Sleep(time.Second)
+		}
+
+		count++
+
+		fmt.Println("Checking if buildkit is ready")
+
+		conn, err := net.Dial("tcp", proxy.Addr().String())
+		if err != nil {
+			continue
+		}
+
+		testClient, err := client.New(context.TODO(), "", client.WithContextDialer(func(context.Context, string) (net.Conn, error) {
+			return conn, nil
+		}))
+		if err != nil {
+			continue
+		}
+
+		workers, err := testClient.ListWorkers(context.TODO())
+		if err != nil {
+			continue
+		}
+
+		fmt.Printf("%+v\n", workers)
+
+		if len(workers) > 0 {
+			return nil
+		}
 	}
 }
