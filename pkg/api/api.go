@@ -18,7 +18,7 @@ type Depot struct {
 }
 
 func NewDepot(baseURL string, token string) *Depot {
-	return &Depot{BaseURL: baseURL}
+	return &Depot{BaseURL: baseURL, token: token}
 }
 
 func NewDepotFromEnv(token string) (*Depot, error) {
@@ -48,6 +48,7 @@ func (d *Depot) InitBuild(projectID string) (*InitResponse, error) {
 		if err != nil {
 			return nil, err
 		}
+
 		req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", d.token))
 		req.Header.Add("Content-Type", "application/json")
 
