@@ -59,7 +59,6 @@ type buildOptions struct {
 }
 
 type commonOptions struct {
-	builder      string
 	metadataFile string
 	noCache      *bool
 	progress     string
@@ -206,7 +205,7 @@ func runBuild(dockerCli command.Cli, in buildOptions) (err error) {
 		contextPathHash = in.contextPath
 	}
 
-	imageID, err := buildTargets(ctx, dockerCli, map[string]build.Options{defaultTargetName: opts}, in.progress, contextPathHash, in.builder, in.metadataFile, in)
+	imageID, err := buildTargets(ctx, dockerCli, map[string]build.Options{defaultTargetName: opts}, in.progress, contextPathHash, in.metadataFile, in)
 	if err != nil {
 		return err
 	}
@@ -217,7 +216,7 @@ func runBuild(dockerCli command.Cli, in buildOptions) (err error) {
 	return nil
 }
 
-func buildTargets(ctx context.Context, dockerCli command.Cli, opts map[string]build.Options, progressMode, contextPathHash, instance string, metadataFile string, in buildOptions) (imageID string, err error) {
+func buildTargets(ctx context.Context, dockerCli command.Cli, opts map[string]build.Options, progressMode, contextPathHash, metadataFile string, in buildOptions) (imageID string, err error) {
 	dis, err := getDrivers(ctx, dockerCli, contextPathHash, in)
 	if err != nil {
 		return "", err

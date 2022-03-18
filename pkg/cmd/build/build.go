@@ -44,7 +44,11 @@ func NewCmdBuild() *cobra.Command {
 				os.Exit(1)
 			}
 			opts := cliflags.NewClientOptions()
-			dockerCli.Initialize(opts)
+			err = dockerCli.Initialize(opts)
+			if err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				os.Exit(1)
+			}
 
 			options.contextPath = args[0]
 			return runBuild(dockerCli, options)
