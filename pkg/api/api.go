@@ -14,19 +14,20 @@ import (
 
 type Depot struct {
 	BaseURL string
+	token   string
 }
 
-func NewDepot(baseURL string) *Depot {
+func NewDepot(baseURL string, token string) *Depot {
 	return &Depot{BaseURL: baseURL}
 }
 
-func NewDepotFromEnv() (*Depot, error) {
+func NewDepotFromEnv(token string) (*Depot, error) {
 	baseURL := os.Getenv("DEPOT_API_HOST")
 	if baseURL == "" {
 		baseURL = "https://depot.dev"
 		// return nil, fmt.Errorf("DEPOT_API_HOST is not set")
 	}
-	return NewDepot(baseURL), nil
+	return NewDepot(baseURL, token), nil
 }
 
 type InitResponse struct {
@@ -47,7 +48,7 @@ func (d *Depot) InitBuild(projectID string) (*InitResponse, error) {
 		if err != nil {
 			return nil, err
 		}
-		req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", config.GetApiToken()))
+		req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", d.token))
 		req.Header.Add("Content-Type", "application/json")
 
 		resp, err := client.Do(req)
@@ -68,6 +69,7 @@ func (d *Depot) InitBuild(projectID string) (*InitResponse, error) {
 		}
 
 		if response.OK && response.Busy {
+			fmt.Fprintf(os.Stderr, "Builder is busy, waiting for concurrency...\n")
 			time.Sleep(1 * time.Second)
 			continue
 		}

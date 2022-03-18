@@ -27,7 +27,7 @@ func NewCmdLogin() *cobra.Command {
 				return nil
 			}
 
-			depot, err := api.NewDepotFromEnv()
+			depot, err := api.NewDepotFromEnv("")
 			if err != nil {
 				return err
 			}
