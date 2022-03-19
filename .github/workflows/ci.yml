@@ -47,14 +47,18 @@ jobs:
           go-version: "1.17"
       - uses: actions/cache@v2
         with:
-          path: ~/go
-          key: ${{ runner.os }}-build-${{ hashFiles('go.mod') }}
+          path: |
+            ~/go
+            ~/.cache/go-build
+            ~/Library/Caches/go-build
+            %LocalAppData%\go-build
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
           restore-keys: |
-            ${{ runner.os }}-build-
-            ${{ runner.os }}-
-      - run: go mod download
-      - run: go test -race ./...
-      - run: go build -v ./cmd/depot
+            ${{ runner.os }}-go
+      - uses: goreleaser/goreleaser-action@v2
+        with:
+          version: 1.6.3
+          args: build --rm-dist --snapshot
 
   release:
     runs-on: ubuntu-20.04
