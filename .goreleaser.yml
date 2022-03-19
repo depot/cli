@@ -49,7 +49,7 @@ brews:
     license: MIT
     skip_upload: auto
     install: |
-      bin.install "depot"
+      bin.install "bin/depot"
 
       bash_comp = Utils.safe_popen_read("#{bin}/depot", "completion", "bash")
       fish_comp = Utils.safe_popen_read("#{bin}/depot", "completion", "fish")
