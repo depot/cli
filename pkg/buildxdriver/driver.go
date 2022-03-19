@@ -38,7 +38,7 @@ func (d *Driver) Stop(ctx context.Context, force bool) error {
 	return nil
 }
 
-func (d *Driver) Rm(ctx context.Context, force bool, rmVolume bool) error {
+func (d *Driver) Rm(ctx context.Context, force bool, rmVolume bool, rmDaemon bool) error {
 	fmt.Println("RM CALLED")
 	return nil
 }
