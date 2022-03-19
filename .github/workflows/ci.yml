@@ -39,6 +39,7 @@ jobs:
 
   release:
     runs-on: ubuntu-20.04
+    needs: [lint, build]
     steps:
       - uses: actions/checkout@v3
       - name: Generate changelog
