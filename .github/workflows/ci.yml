@@ -49,6 +49,7 @@ jobs:
   release:
     runs-on: ubuntu-20.04
     needs: [lint, build]
+    if: startsWith(github.ref, 'refs/tags/v') && !contains(github.ref, 'dev-')
     steps:
       - uses: actions/checkout@v3
       - name: Generate changelog
@@ -60,5 +61,11 @@ jobs:
             -f target_commitish=main \
             -q .body > CHANGELOG.md
         env:
-          GITHUB_TOKEN: ${{secrets.GITHUB_TOKEN}}
-      - run: cat CHANGELOG.md
+          GITHUB_TOKEN: ${{ secrets.BOT_PUBLIC_GITHUB_TOKEN }}
+      - uses: goreleaser/goreleaser-action@v2
+        with:
+          version: 1.6.3
+          args: release --release-notes=CHANGELOG.md
+        env:
+          GITHUB_TOKEN: ${{ secrets.BOT_PUBLIC_GITHUB_TOKEN }}
+          GORELEASER_CURRENT_TAG: ${{ steps.changelog.outputs.tag-name }}

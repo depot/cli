@@ -2,6 +2,7 @@ project_name: depot
 
 release:
   name_template: "Depot CLI {{.Version}}"
+  prerelease: auto
 
 before:
   hooks:
@@ -17,6 +18,8 @@ builds:
     id: macos
     goos: [darwin]
     goarch: [amd64, arm64]
+    env:
+      - CGO_ENABLED=0
 
   - <<: *build_defaults
     id: linux
@@ -24,3 +27,36 @@ builds:
     goarch: ["386", arm, amd64, arm64]
     env:
       - CGO_ENABLED=0
+
+archives:
+  - id: nix
+    builds: [macos, linux]
+    <<: &archive_defaults
+      name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}{{ if .Arm }}v{{ .Arm }}{{ end }}"
+    replacements:
+      darwin: macOS
+    format: tar.gz
+
+brews:
+  - tap:
+      owner: depot
+      name: homebrew-tap
+    commit_author:
+      name: depot-bot
+      email: automation@depot.dev
+    homepage: https://depot.dev
+    description: The official CLI for Depot.
+    license: MIT
+    skip_upload: auto
+    install: |
+      bin.install "depot"
+
+      bash_comp = Utils.safe_popen_read("#{bin}/depot", "completion", "bash")
+      fish_comp = Utils.safe_popen_read("#{bin}/depot", "completion", "fish")
+      zsh_comp = Utils.safe_popen_read("#{bin}/depot", "completion", "zsh")
+
+      (bash_completion/"depot").write bash_comp
+      (fish_completion/"depot.fish").write fish_comp
+      (zsh_completion/"_depot").write zsh_comp
+    test: |
+      system "#{bin}/depot version"
