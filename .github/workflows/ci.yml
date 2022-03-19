@@ -55,3 +55,17 @@ jobs:
       - run: go mod download
       - run: go test -race ./...
       - run: go build -v ./cmd/depot
+
+  release:
+    runs-on: ubuntu-20.04
+    steps:
+      - uses: actions/checkout@v3
+      - name: Generate changelog
+        id: changelog
+        run: |
+          echo "::set-output name=tag-name::${GITHUB_REF#refs/tags/}"
+          gh api repos/$GITHUB_REPOSITORY/releases/generate-notes \
+            -f tag_name="${GITHUB_REF#refs/tags/}" \
+            -f target_commitish=main \
+            -q .body > CHANGELOG.md
+      - run: cat CHANGELOG.md
