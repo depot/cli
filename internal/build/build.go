@@ -3,7 +3,7 @@ package build
 import "runtime/debug"
 
 var Version = "dev"
-var BuildDate = ""
+var Date = ""
 
 func init() {
 	if Version == "dev" {
