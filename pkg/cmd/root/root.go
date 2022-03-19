@@ -9,7 +9,7 @@ import (
 	"github.com/depot/cli/pkg/config"
 )
 
-func NewCmdRoot(version string) *cobra.Command {
+func NewCmdRoot(version, buildDate string) *cobra.Command {
 	var cmd = &cobra.Command{
 		Use:          "depot <command> [flags]",
 		Short:        "Depot CLI",
@@ -23,7 +23,7 @@ func NewCmdRoot(version string) *cobra.Command {
 	// Initialize config
 	_ = config.NewConfig()
 
-	formattedVersion := versionCmd.Format(version)
+	formattedVersion := versionCmd.Format(version, buildDate)
 	cmd.SetVersionTemplate(formattedVersion)
 	cmd.Version = formattedVersion
 	cmd.Flags().Bool("version", false, "Print the version and exit")
@@ -31,7 +31,7 @@ func NewCmdRoot(version string) *cobra.Command {
 	// Child commands
 	cmd.AddCommand(buildCmd.NewCmdBuild())
 	cmd.AddCommand(loginCmd.NewCmdLogin())
-	cmd.AddCommand(versionCmd.NewCmdVersion(version))
+	cmd.AddCommand(versionCmd.NewCmdVersion(version, buildDate))
 
 	return cmd
 }

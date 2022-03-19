@@ -14,8 +14,9 @@ func main() {
 
 func runMain() int {
 	buildVersion := build.Version
+	buildDate := build.Date
 
-	rootCmd := root.NewCmdRoot(buildVersion)
+	rootCmd := root.NewCmdRoot(buildVersion, buildDate)
 
 	if err := rootCmd.Execute(); err != nil {
 		return 1
