@@ -30,7 +30,7 @@ func (b *Builder) Acquire(l progress.Logger, project string) (string, error) {
 	var resp *api.InitResponse
 	var err error
 
-	err = progress.Wrap("[depot] provisioning builder builder", l, func(sub progress.SubLogger) error {
+	err = progress.Wrap("[depot] starting builder", l, func(sub progress.SubLogger) error {
 		count := 0
 		for {
 			resp, err = b.depot.InitBuild(project)
@@ -39,15 +39,19 @@ func (b *Builder) Acquire(l progress.Logger, project string) (string, error) {
 			}
 
 			if resp.OK && resp.Busy {
-				sub.Log(2, []byte("Builder is busy, waiting for concurrency..."))
+				if count == 0 {
+					sub.Log(2, []byte("Builder is busy, waiting for current build to complete...\n"))
+				} else if count%10 == 0 {
+					sub.Log(2, []byte("Still waiting for current build to complete...\n"))
+				}
 				time.Sleep(1 * time.Second)
 			} else if resp.OK {
 				break
 			}
 
 			count += 1
-			if count > 30 {
-				return errors.New("timeout waiting for builder")
+			if count > 30*60 {
+				return errors.New("Unable to acquire builder after 30 minutes")
 			}
 		}
 
@@ -68,7 +72,7 @@ func (b *Builder) Acquire(l progress.Logger, project string) (string, error) {
 		proxy.Start()
 		addr = proxy.Addr().String()
 
-		sub.Log(0, []byte("Waiting for connection to BuildKit "+resp.ID))
+		sub.Log(0, []byte("Waiting for connection to BuildKit "+resp.ID+"\n"))
 		httpClient := &http.Client{}
 
 		count := 0
@@ -98,7 +102,7 @@ func (b *Builder) Acquire(l progress.Logger, project string) (string, error) {
 			time.Sleep(time.Second)
 		}
 
-		sub.Log(2, []byte("Waiting for BuildKit to report ready..."))
+		sub.Log(2, []byte("Waiting for BuildKit to report ready...\n"))
 
 		count = 0
 
