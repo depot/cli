@@ -31,6 +31,10 @@ func NewCmdBuild() *cobra.Command {
 				return errors.Errorf("unknown project ID (use --project or $DEPOT_PROJECT_ID)")
 			}
 
+			// TODO: make this a helper
+			if options.token == "" {
+				options.token = os.Getenv("DEPOT_TOKEN")
+			}
 			if options.token == "" {
 				options.token = config.GetApiToken()
 			}
