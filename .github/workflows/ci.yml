@@ -61,7 +61,7 @@ jobs:
             -f target_commitish=main \
             -q .body > CHANGELOG.md
         env:
-          GITHUB_TOKEN: ${{ secrets.BOT_PUBLIC_GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - uses: goreleaser/goreleaser-action@v2
         with:
           version: 1.6.3
