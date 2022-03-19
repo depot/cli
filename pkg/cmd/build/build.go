@@ -106,7 +106,7 @@ func NewCmdBuild() *cobra.Command {
 	flags.StringVar(&options.metadataFile, "metadata-file", "", "Write build result metadata to the file")
 
 	flags.BoolVar(&options.noLoad, "no-load", false, "Overrides the default --load flag")
-	flags.MarkHidden("no-load")
+	_ = flags.MarkHidden("no-load")
 
 	return cmd
 }
