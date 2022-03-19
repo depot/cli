@@ -1,9 +1,12 @@
 package build
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"path/filepath"
@@ -22,13 +25,19 @@ import (
 	"github.com/docker/cli/cli/command"
 	"github.com/docker/cli/cli/context/docker"
 	dockeropts "github.com/docker/cli/opts"
+	"github.com/docker/distribution/reference"
 	dockerclient "github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/ioutils"
 	"github.com/docker/go-units"
 	"github.com/moby/buildkit/client"
 	"github.com/moby/buildkit/session/auth/authprovider"
+	"github.com/moby/buildkit/solver/errdefs"
 	"github.com/moby/buildkit/util/appcontext"
+	"github.com/moby/buildkit/util/grpcerrors"
+	"github.com/morikuni/aec"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
+	"google.golang.org/grpc/codes"
 )
 
 const defaultTargetName = "default"
@@ -40,24 +49,26 @@ type buildOptions struct {
 	contextPath    string
 	dockerfileName string
 
-	allow        []string
-	buildArgs    []string
-	cacheFrom    []string
-	cacheTo      []string
-	cgroupParent string
-	extraHosts   []string
-	imageIDFile  string
-	labels       []string
-	networkMode  string
-	outputs      []string
-	platforms    []string
-	quiet        bool
-	secrets      []string
-	shmSize      dockeropts.MemBytes
-	ssh          []string
-	tags         []string
-	target       string
-	ulimits      *dockeropts.UlimitOpt
+	allow         []string
+	buildArgs     []string
+	cacheFrom     []string
+	cacheTo       []string
+	cgroupParent  string
+	contexts      []string
+	extraHosts    []string
+	imageIDFile   string
+	labels        []string
+	networkMode   string
+	noCacheFilter []string
+	outputs       []string
+	platforms     []string
+	quiet         bool
+	secrets       []string
+	shmSize       dockeropts.MemBytes
+	ssh           []string
+	tags          []string
+	target        string
+	ulimits       *dockeropts.UlimitOpt
 	commonOptions
 }
 
@@ -94,10 +105,19 @@ func runBuild(dockerCli command.Cli, in buildOptions) (err error) {
 		pull = *in.pull
 	}
 
+	if noCache && len(in.noCacheFilter) > 0 {
+		return errors.Errorf("--no-cache and --no-cache-filter cannot currently be used together")
+	}
+
 	if in.quiet && in.progress != "auto" && in.progress != "quiet" {
 		return errors.Errorf("progress=%s and quiet cannot be used together", in.progress)
 	} else if in.quiet {
 		in.progress = "quiet"
+	}
+
+	contexts, err := parseContextNames(in.contexts)
+	if err != nil {
+		return err
 	}
 
 	opts := build.Options{
@@ -105,18 +125,20 @@ func runBuild(dockerCli command.Cli, in buildOptions) (err error) {
 			ContextPath:    in.contextPath,
 			DockerfilePath: in.dockerfileName,
 			InStream:       os.Stdin,
+			NamedContexts:  contexts,
 		},
-		BuildArgs:   listToMap(in.buildArgs, true),
-		ExtraHosts:  in.extraHosts,
-		ImageIDFile: in.imageIDFile,
-		Labels:      listToMap(in.labels, false),
-		NetworkMode: in.networkMode,
-		NoCache:     noCache,
-		Pull:        pull,
-		ShmSize:     in.shmSize,
-		Tags:        in.tags,
-		Target:      in.target,
-		Ulimits:     in.ulimits,
+		BuildArgs:     listToMap(in.buildArgs, true),
+		ExtraHosts:    in.extraHosts,
+		ImageIDFile:   in.imageIDFile,
+		Labels:        listToMap(in.labels, false),
+		NetworkMode:   in.networkMode,
+		NoCache:       noCache,
+		NoCacheFilter: in.noCacheFilter,
+		Pull:          pull,
+		ShmSize:       in.shmSize,
+		Tags:          in.tags,
+		Target:        in.target,
+		Ulimits:       in.ulimits,
 	}
 
 	platforms, err := platformutil.Parse(in.platforms)
@@ -209,6 +231,7 @@ func runBuild(dockerCli command.Cli, in buildOptions) (err error) {
 	}
 
 	imageID, err := buildTargets(ctx, dockerCli, map[string]build.Options{defaultTargetName: opts}, in.progress, contextPathHash, in.metadataFile, in)
+	err = wrapBuildError(err, false)
 	if err != nil {
 		return err
 	}
@@ -257,14 +280,12 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, opts map[string]bu
 	}
 
 	if len(metadataFile) > 0 && resp != nil {
-		mdatab, err := json.MarshalIndent(resp[defaultTargetName].ExporterResponse, "", "  ")
-		if err != nil {
-			return "", err
-		}
-		if err := ioutils.AtomicWriteFile(metadataFile, mdatab, 0644); err != nil {
+		if err := writeMetadataFile(metadataFile, decodeExporterResponse(resp[defaultTargetName].ExporterResponse)); err != nil {
 			return "", err
 		}
 	}
+
+	printWarnings(os.Stderr, printer.Warnings(), progressMode)
 
 	return resp[defaultTargetName].ExporterResponse["containerimage.digest"], err
 }
@@ -284,7 +305,7 @@ func getDrivers(ctx context.Context, dockerCli command.Cli, contextPathHash stri
 	}
 	return []build.DriverInfo{
 		{
-			Name:     "default",
+			Name:     "depot",
 			Driver:   d,
 			ImageOpt: imageopt,
 		},
@@ -339,7 +360,6 @@ func clientForEndpoint(dockerCli command.Cli, name string) (dockerclient.APIClie
 	if err != nil {
 		return nil, err
 	}
-
 	for _, l := range list {
 		if l.Name == name {
 			dep, ok := l.Endpoints["docker"]
@@ -374,4 +394,121 @@ func clientForEndpoint(dockerCli command.Cli, name string) (dockerclient.APIClie
 	}
 
 	return dockerclient.NewClientWithOpts(clientOpts...)
+}
+
+func printWarnings(w io.Writer, warnings []client.VertexWarning, mode string) {
+	if len(warnings) == 0 || mode == progress.PrinterModeQuiet {
+		return
+	}
+	fmt.Fprintf(w, "\n ")
+	sb := &bytes.Buffer{}
+	if len(warnings) == 1 {
+		fmt.Fprintf(sb, "1 warning found")
+	} else {
+		fmt.Fprintf(sb, "%d warnings found", len(warnings))
+	}
+	if logrus.GetLevel() < logrus.DebugLevel {
+		fmt.Fprintf(sb, " (use --debug to expand)")
+	}
+	fmt.Fprintf(sb, ":\n")
+	fmt.Fprint(w, aec.Apply(sb.String(), aec.YellowF))
+
+	for _, warn := range warnings {
+		fmt.Fprintf(w, " - %s\n", warn.Short)
+		if logrus.GetLevel() < logrus.DebugLevel {
+			continue
+		}
+		for _, d := range warn.Detail {
+			fmt.Fprintf(w, "%s\n", d)
+		}
+		if warn.URL != "" {
+			fmt.Fprintf(w, "More info: %s\n", warn.URL)
+		}
+		if warn.SourceInfo != nil && warn.Range != nil {
+			src := errdefs.Source{
+				Info:   warn.SourceInfo,
+				Ranges: warn.Range,
+			}
+			src.Print(w)
+		}
+		fmt.Fprintf(w, "\n")
+
+	}
+}
+
+func parseContextNames(values []string) (map[string]build.NamedContext, error) {
+	if len(values) == 0 {
+		return nil, nil
+	}
+	result := make(map[string]build.NamedContext, len(values))
+	for _, value := range values {
+		kv := strings.SplitN(value, "=", 2)
+		if len(kv) != 2 {
+			return nil, errors.Errorf("invalid context value: %s, expected key=value", value)
+		}
+		named, err := reference.ParseNormalizedNamed(kv[0])
+		if err != nil {
+			return nil, errors.Wrapf(err, "invalid context name %s", kv[0])
+		}
+		name := strings.TrimSuffix(reference.FamiliarString(named), ":latest")
+		result[name] = build.NamedContext{Path: kv[1]}
+	}
+	return result, nil
+}
+
+func writeMetadataFile(filename string, dt interface{}) error {
+	b, err := json.MarshalIndent(dt, "", "  ")
+	if err != nil {
+		return err
+	}
+	return ioutils.AtomicWriteFile(filename, b, 0644)
+}
+
+func decodeExporterResponse(exporterResponse map[string]string) map[string]interface{} {
+	out := make(map[string]interface{})
+	for k, v := range exporterResponse {
+		dt, err := base64.StdEncoding.DecodeString(v)
+		if err != nil {
+			out[k] = v
+			continue
+		}
+		var raw map[string]interface{}
+		if err = json.Unmarshal(dt, &raw); err != nil || len(raw) == 0 {
+			out[k] = v
+			continue
+		}
+		out[k] = json.RawMessage(dt)
+	}
+	return out
+}
+
+func wrapBuildError(err error, bake bool) error {
+	if err == nil {
+		return nil
+	}
+	st, ok := grpcerrors.AsGRPCStatus(err)
+	if ok {
+		if st.Code() == codes.Unimplemented && strings.Contains(st.Message(), "unsupported frontend capability moby.buildkit.frontend.contexts") {
+			msg := "current frontend does not support --build-context."
+			if bake {
+				msg = "current frontend does not support defining additional contexts for targets."
+			}
+			msg += " Named contexts are supported since Dockerfile v1.4. Use #syntax directive in Dockerfile or update to latest BuildKit."
+			return &wrapped{err, msg}
+		}
+	}
+	return err
+}
+
+type wrapped struct {
+	err error
+	msg string
+}
+
+func (w *wrapped) Error() string {
+	return w.msg
+}
+
+func (w *wrapped) Unwrap() error {
+	return w.err
 }
