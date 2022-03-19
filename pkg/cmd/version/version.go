@@ -8,20 +8,23 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func NewCmdVersion(version string) *cobra.Command {
+func NewCmdVersion(version, buildDate string) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:    "version",
 		Hidden: true,
 		Run: func(cmd *cobra.Command, args []string) {
-			fmt.Print(Format(version))
+			fmt.Print(Format(version, buildDate))
 		},
 	}
 	return cmd
 }
 
-func Format(version string) string {
+func Format(version, buildDate string) string {
 	version = strings.TrimPrefix(version, "v")
-	return fmt.Sprintf("depot version %s\n%s\n", version, changelogURL(version))
+	if buildDate != "" {
+		buildDate = fmt.Sprintf(" (%s)", buildDate)
+	}
+	return fmt.Sprintf("depot version %s%s\n%s\n", version, buildDate, changelogURL(version))
 }
 
 func changelogURL(version string) string {
