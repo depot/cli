@@ -50,6 +50,11 @@ func NewCmdBuild() *cobra.Command {
 				os.Exit(1)
 			}
 
+			// If neither --load or --push is specified, we default to --load
+			if !options.exportLoad && !options.exportPush && len(options.outputs) == 0 {
+				options.exportLoad = true
+			}
+
 			options.contextPath = args[0]
 			return runBuild(dockerCli, options)
 		},
@@ -77,7 +82,7 @@ func NewCmdBuild() *cobra.Command {
 	flags.StringVarP(&options.dockerfileName, "file", "f", "", `Name of the Dockerfile (default: "PATH/Dockerfile")`)
 	flags.StringVar(&options.imageIDFile, "iidfile", "", "Write the image ID to the file")
 	flags.StringArrayVar(&options.labels, "label", []string{}, "Set metadata for an image")
-	flags.BoolVar(&options.exportLoad, "load", false, `Shorthand for "--output=type=docker"`)
+	flags.BoolVar(&options.exportLoad, "load", false, `Shorthand for "--output=type=docker" (default unless --push or --output is specified)`)
 	flags.StringVar(&options.networkMode, "network", "default", `Set the networking mode for the "RUN" instructions during build`)
 	flags.StringArrayVar(&options.noCacheFilter, "no-cache-filter", []string{}, "Do not cache specified stages")
 	flags.StringArrayVarP(&options.outputs, "output", "o", []string{}, `Output destination (format: "type=local,dest=path")`)
