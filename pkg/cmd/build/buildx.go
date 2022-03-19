@@ -69,10 +69,8 @@ type buildOptions struct {
 	tags          []string
 	target        string
 	ulimits       *dockeropts.UlimitOpt
-	commonOptions
-}
 
-type commonOptions struct {
+	// common options
 	metadataFile string
 	noCache      *bool
 	progress     string
