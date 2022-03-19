@@ -54,8 +54,8 @@ func NewCmdBuild() *cobra.Command {
 				os.Exit(1)
 			}
 
-			// If neither --load or --push is specified, we default to --load
-			if !options.exportLoad && !options.exportPush && len(options.outputs) == 0 {
+			// If neither --load or --push is specified, we default to --load (unless --no-load is specified)
+			if !options.noLoad && !options.exportLoad && !options.exportPush && len(options.outputs) == 0 {
 				options.exportLoad = true
 			}
 
@@ -104,6 +104,9 @@ func NewCmdBuild() *cobra.Command {
 	flags.StringVar(&options.progress, "progress", "auto", `Set type of progress output ("auto", "plain", "tty"). Use plain to show container output`)
 	options.pull = flags.Bool("pull", false, "Always attempt to pull all referenced images")
 	flags.StringVar(&options.metadataFile, "metadata-file", "", "Write build result metadata to the file")
+
+	flags.BoolVar(&options.noLoad, "no-load", false, "Overrides the default --load flag")
+	flags.MarkHidden("no-load")
 
 	return cmd
 }

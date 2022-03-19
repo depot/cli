@@ -81,6 +81,8 @@ type buildOptions struct {
 	exportPush bool
 	// nolint:structcheck
 	exportLoad bool
+
+	noLoad bool
 }
 
 func runBuild(dockerCli command.Cli, in buildOptions) (err error) {
