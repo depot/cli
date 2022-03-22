@@ -11,6 +11,7 @@ require (
 	github.com/docker/distribution v2.8.0+incompatible
 	github.com/docker/docker v20.10.7+incompatible
 	github.com/docker/go-units v0.4.0
+	github.com/getsentry/sentry-go v0.13.0
 	github.com/moby/buildkit v0.10.0-rc2.0.20220308185020-fdecd0ae108b
 	github.com/morikuni/aec v1.0.0
 	github.com/pkg/errors v0.9.1
