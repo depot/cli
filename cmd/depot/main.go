@@ -17,7 +17,9 @@ func main() {
 func runMain() int {
 	if os.Getenv("DEPOT_ERROR_TELEMETRY") != "0" {
 		err := sentry.Init(sentry.ClientOptions{
-			Dsn: "https://e88a8bb8644346b99e02de76f47d936a@o1152282.ingest.sentry.io/6271909",
+			Dsn:         "https://e88a8bb8644346b99e02de76f47d936a@o1152282.ingest.sentry.io/6271909",
+			Environment: build.SentryEnvironment,
+			Release:     build.Version,
 		})
 		if err != nil {
 			log.Fatalf("sentry.Init: %s", err)

@@ -13,7 +13,7 @@ builds:
       binary: bin/depot
       main: ./cmd/depot
       ldflags:
-        - -s -w -X github.com/depot/cli/internal/build.Version={{.Version}} -X github.com/depot/cli/internal/build.Date={{time "2006-01-02"}}
+        - -s -w -X github.com/depot/cli/internal/build.Version={{.Version}} -X github.com/depot/cli/internal/build.Date={{time "2006-01-02"}} -X github.com/depot/cli/internal/build.SentryEnvironment=release
         - -X main.updaterEnabled=depot/cli
     id: macos
     goos: [darwin]
