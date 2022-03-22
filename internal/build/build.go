@@ -4,6 +4,7 @@ import "runtime/debug"
 
 var Version = "dev"
 var Date = ""
+var SentryEnvironment = "development"
 
 func init() {
 	if Version == "dev" {
