@@ -1,11 +1,7 @@
 package api
 
 import (
-	"bytes"
-	"encoding/json"
 	"fmt"
-	"io/ioutil"
-	"net/http"
 	"os"
 )
 
@@ -22,7 +18,6 @@ func NewDepotFromEnv(token string) (*Depot, error) {
 	baseURL := os.Getenv("DEPOT_API_HOST")
 	if baseURL == "" {
 		baseURL = "https://depot.dev"
-		// return nil, fmt.Errorf("DEPOT_API_HOST is not set")
 	}
 	return NewDepot(baseURL, token), nil
 }
@@ -36,70 +31,24 @@ type InitResponse struct {
 }
 
 func (d *Depot) InitBuild(projectID string) (*InitResponse, error) {
-	client := &http.Client{}
-	payload := fmt.Sprintf(`{"projectID": "%s"}`, projectID)
-	jsonStr := []byte(payload)
+	return apiRequest[InitResponse](
+		"POST",
+		fmt.Sprintf("%s/api/builds", d.BaseURL),
+		d.token,
+		map[string]string{"projectID": projectID},
+	)
+}
 
-	req, err := http.NewRequest("POST", fmt.Sprintf("%s/api/builds", d.BaseURL), bytes.NewBuffer(jsonStr))
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", d.token))
-	req.Header.Add("Content-Type", "application/json")
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-
-	errorResponse, _ := tryParseErrorResponse(body)
-	if errorResponse != nil {
-		return nil, fmt.Errorf("%s", errorResponse.Error)
-	}
-
-	var response InitResponse
-	err = json.Unmarshal(body, &response)
-	if err != nil {
-		return nil, err
-	}
-
-	return &response, nil
+type FinishResponse struct {
+	OK bool `json:"ok"`
 }
 
 func (d *Depot) FinishBuild(buildID string) error {
-	client := &http.Client{}
-	payload := fmt.Sprintf(`{"id": "%s"}`, buildID)
-	jsonStr := []byte(payload)
-
-	req, err := http.NewRequest("DELETE", fmt.Sprintf("%s/api/builds", d.BaseURL), bytes.NewBuffer(jsonStr))
-	if err != nil {
-		return err
-	}
-	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", d.token))
-	req.Header.Add("Content-Type", "application/json")
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return err
-	}
-
-	errorResponse, _ := tryParseErrorResponse(body)
-	if errorResponse != nil {
-		return fmt.Errorf("%s", errorResponse.Error)
-	}
-
-	return nil
+	_, err := apiRequest[FinishResponse](
+		"DELETE",
+		fmt.Sprintf("%s/api/builds", d.BaseURL),
+		d.token,
+		map[string]string{"id": buildID},
+	)
+	return err
 }

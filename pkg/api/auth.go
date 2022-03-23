@@ -1,11 +1,7 @@
 package api
 
 import (
-	"bytes"
-	"encoding/json"
 	"fmt"
-	"io/ioutil"
-	"net/http"
 	"time"
 
 	"github.com/briandowns/spinner"
@@ -27,28 +23,13 @@ type TokenResponse struct {
 	Token string `json:"token"`
 }
 
-type TokenErrorResponse struct {
-	Error string `json:"error"`
-}
-
 func (d *Depot) AuthorizeDevice() (*TokenResponse, error) {
-	resp, err := http.Post(fmt.Sprintf("%s/api/internal/cli/auth-request", d.BaseURL), "application/json", nil)
-	if err != nil {
-		return nil, err
-	}
-
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-
-	errorResponse, _ := tryParseErrorResponse(body)
-	if errorResponse != nil {
-		return nil, fmt.Errorf("%s", errorResponse.Error)
-	}
-
-	var response CLIAuthenticationResponse
-	err = json.Unmarshal(body, &response)
+	response, err := apiRequest[CLIAuthenticationResponse](
+		"POST",
+		fmt.Sprintf("%s/api/internal/cli/auth-request", d.BaseURL),
+		"",
+		map[string]string{},
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -66,41 +47,19 @@ func (d *Depot) AuthorizeDevice() (*TokenResponse, error) {
 
 	checkInterval := time.Duration(response.Interval) * time.Second
 	for {
-		time.Sleep(checkInterval)
-
-		tokenRequestPayload := TokenRequest{
-			RequestID: response.RequestID,
-		}
-
-		tokenRequestBody, err := json.Marshal(tokenRequestPayload)
+		response, err := apiRequest[TokenResponse](
+			"POST",
+			response.TokenURL,
+			"",
+			TokenRequest{RequestID: response.RequestID},
+		)
 		if err != nil {
-			return nil, err
-		}
-
-		resp, err := http.Post(response.TokenURL, "application/json", bytes.NewBuffer(tokenRequestBody))
-		if err != nil {
-			return nil, err
-		}
-
-		body, err := ioutil.ReadAll(resp.Body)
-		if err != nil {
-			return nil, err
-		}
-
-		errorResponse, _ := tryParseErrorResponse(body)
-		if errorResponse != nil {
-			if errorResponse.Error == "authorization_pending" {
+			if err.Error() == "authorization_pending" {
+				time.Sleep(checkInterval)
 				continue
 			}
-
-			return nil, fmt.Errorf("error getting access token: %s", errorResponse.Error)
-		}
-
-		var response TokenResponse
-		err = json.Unmarshal(body, &response)
-		if err != nil {
 			return nil, err
 		}
-		return &response, nil
+		return response, nil
 	}
 }
