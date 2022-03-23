@@ -59,8 +59,13 @@ func (d *Depot) InitBuild(projectID string) (*InitResponse, error) {
 		return nil, err
 	}
 
+	errorResponse, _ := tryParseErrorResponse(body)
+	if errorResponse != nil {
+		return nil, fmt.Errorf("%s", errorResponse.Error)
+	}
+
 	var response InitResponse
-	err = json.Unmarshal([]byte(body), &response)
+	err = json.Unmarshal(body, &response)
 	if err != nil {
 		return nil, err
 	}
@@ -85,6 +90,16 @@ func (d *Depot) FinishBuild(buildID string) error {
 		return err
 	}
 	defer resp.Body.Close()
+
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+
+	errorResponse, _ := tryParseErrorResponse(body)
+	if errorResponse != nil {
+		return fmt.Errorf("%s", errorResponse.Error)
+	}
 
 	return nil
 }

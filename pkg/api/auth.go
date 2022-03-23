@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"net/http"
 	"time"
 
@@ -31,17 +32,23 @@ type TokenErrorResponse struct {
 }
 
 func (d *Depot) AuthorizeDevice() (*TokenResponse, error) {
-	res, err := http.Post(fmt.Sprintf("%s/api/internal/cli/auth-request", d.BaseURL), "application/json", nil)
+	resp, err := http.Post(fmt.Sprintf("%s/api/internal/cli/auth-request", d.BaseURL), "application/json", nil)
 	if err != nil {
 		return nil, err
 	}
 
-	if res.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("unexpected status code: %d", res.StatusCode)
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	errorResponse, _ := tryParseErrorResponse(body)
+	if errorResponse != nil {
+		return nil, fmt.Errorf("%s", errorResponse.Error)
 	}
 
 	var response CLIAuthenticationResponse
-	err = json.NewDecoder(res.Body).Decode(&response)
+	err = json.Unmarshal(body, &response)
 	if err != nil {
 		return nil, err
 	}
@@ -70,30 +77,30 @@ func (d *Depot) AuthorizeDevice() (*TokenResponse, error) {
 			return nil, err
 		}
 
-		res, err := http.Post(response.TokenURL, "application/json", bytes.NewBuffer(tokenRequestBody))
+		resp, err := http.Post(response.TokenURL, "application/json", bytes.NewBuffer(tokenRequestBody))
 		if err != nil {
 			return nil, err
 		}
 
-		if res.StatusCode == http.StatusOK {
-			var tokenResponse TokenResponse
-			err = json.NewDecoder(res.Body).Decode(&tokenResponse)
-			if err != nil {
-				return nil, err
+		body, err := ioutil.ReadAll(resp.Body)
+		if err != nil {
+			return nil, err
+		}
+
+		errorResponse, _ := tryParseErrorResponse(body)
+		if errorResponse != nil {
+			if errorResponse.Error == "authorization_pending" {
+				continue
 			}
-			return &tokenResponse, nil
+
+			return nil, fmt.Errorf("error getting access token: %s", errorResponse.Error)
 		}
 
-		var errorResponse TokenErrorResponse
-		err = json.NewDecoder(res.Body).Decode(&errorResponse)
+		var response TokenResponse
+		err = json.Unmarshal(body, &response)
 		if err != nil {
 			return nil, err
 		}
-
-		if errorResponse.Error == "authorization_pending" {
-			continue
-		}
-
-		return nil, fmt.Errorf("error getting access token: %s", errorResponse.Error)
+		return &response, nil
 	}
 }
