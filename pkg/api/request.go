@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"net/http"
 )
@@ -14,13 +15,20 @@ type ErrorResponse struct {
 }
 
 func apiRequest[Response interface{}](method, url, token string, payload interface{}) (*Response, error) {
-	jsonBytes, err := json.Marshal(payload)
-	if err != nil {
-		return nil, err
+	var requestBody io.Reader
+
+	if payload != nil {
+		jsonBytes, err := json.Marshal(payload)
+		if err != nil {
+			return nil, err
+		}
+		requestBody = bytes.NewReader(jsonBytes)
+	} else {
+		requestBody = nil
 	}
 
 	client := &http.Client{}
-	req, err := http.NewRequest(method, url, bytes.NewBuffer(jsonBytes))
+	req, err := http.NewRequest(method, url, requestBody)
 	if err != nil {
 		return nil, err
 	}
