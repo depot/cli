@@ -53,20 +53,13 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - uses: ./.github/actions/setup-go
-      - name: Generate changelog
-        id: changelog
-        run: |
-          echo "::set-output name=tag-name::${GITHUB_REF#refs/tags/}"
-          gh api repos/$GITHUB_REPOSITORY/releases/generate-notes \
-            -f tag_name="${GITHUB_REF#refs/tags/}" \
-            -f target_commitish=main \
-            -q .body > CHANGELOG.md
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Compute tag name
+        id: tag-name
+        run: echo "::set-output name=tag-name::${GITHUB_REF#refs/tags/}"
       - uses: goreleaser/goreleaser-action@v2
         with:
           version: 1.6.3
-          args: release --release-notes=CHANGELOG.md
+          args: release
         env:
           GITHUB_TOKEN: ${{ secrets.BOT_PUBLIC_GITHUB_TOKEN }}
-          GORELEASER_CURRENT_TAG: ${{ steps.changelog.outputs.tag-name }}
+          GORELEASER_CURRENT_TAG: ${{ steps.tag-name.outputs.tag-name }}

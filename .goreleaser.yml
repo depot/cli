@@ -37,6 +37,9 @@ archives:
       darwin: macOS
     format: tar.gz
 
+changelog:
+  skip: true
+
 brews:
   - tap:
       owner: depot
