@@ -3,6 +3,8 @@ package api
 import (
 	"fmt"
 	"os"
+	"runtime"
+	"time"
 )
 
 type Depot struct {
@@ -51,4 +53,20 @@ func (d *Depot) FinishBuild(buildID string) error {
 		map[string]string{"id": buildID},
 	)
 	return err
+}
+
+type ReleaseResponse struct {
+	OK          bool      `json:"ok"`
+	Version     string    `json:"version"`
+	URL         string    `json:"url"`
+	PublishedAt time.Time `json:"publishedAt"`
+}
+
+func (d *Depot) LatestRelease() (*ReleaseResponse, error) {
+	return apiRequest[ReleaseResponse](
+		"GET",
+		fmt.Sprintf("%s/api/cli/release/%s/%s/latest", d.BaseURL, runtime.GOOS, runtime.GOARCH),
+		d.token,
+		nil,
+	)
 }

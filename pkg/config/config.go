@@ -34,3 +34,7 @@ func ClearApiToken() error {
 	viper.Set("api_token", "")
 	return viper.WriteConfig()
 }
+
+func StateFile() (string, error) {
+	return xdg.ConfigFile("depot/state.yaml")
+}

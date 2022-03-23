@@ -12,6 +12,9 @@ require (
 	github.com/docker/docker v20.10.7+incompatible
 	github.com/docker/go-units v0.4.0
 	github.com/getsentry/sentry-go v0.13.0
+	github.com/hashicorp/go-version v1.2.0
+	github.com/mattn/go-isatty v0.0.14
+	github.com/mgutz/ansi v0.0.0-20170206155736-9520e82c474b
 	github.com/moby/buildkit v0.10.0-rc2.0.20220308185020-fdecd0ae108b
 	github.com/morikuni/aec v1.0.0
 	github.com/pkg/errors v0.9.1
@@ -20,6 +23,7 @@ require (
 	github.com/spf13/viper v1.10.1
 	golang.org/x/net v0.0.0-20220225172249-27dd8689420f
 	google.golang.org/grpc v1.44.0
+	gopkg.in/yaml.v2 v2.4.0
 )
 
 require (
@@ -61,7 +65,6 @@ require (
 	github.com/klauspost/compress v1.15.0 // indirect
 	github.com/magiconair/properties v1.8.5 // indirect
 	github.com/mattn/go-colorable v0.1.12 // indirect
-	github.com/mattn/go-isatty v0.0.14 // indirect
 	github.com/matttproud/golang_protobuf_extensions v1.0.2-0.20181231171920-c182affec369 // indirect
 	github.com/miekg/pkcs11 v1.0.3 // indirect
 	github.com/mitchellh/mapstructure v1.4.3 // indirect
@@ -113,7 +116,6 @@ require (
 	google.golang.org/protobuf v1.27.1 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/ini.v1 v1.66.2 // indirect
-	gopkg.in/yaml.v2 v2.4.0 // indirect
 	k8s.io/apimachinery v0.23.4 // indirect
 	k8s.io/client-go v0.23.4 // indirect
 	k8s.io/klog/v2 v2.30.0 // indirect
