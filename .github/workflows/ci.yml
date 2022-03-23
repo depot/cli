@@ -11,12 +11,7 @@ jobs:
         run: |
           go mod verify
           go mod download
-
-          LINT_VERSION=1.44.2
-          curl -fsSL https://github.com/golangci/golangci-lint/releases/download/v${LINT_VERSION}/golangci-lint-${LINT_VERSION}-linux-amd64.tar.gz | \
-            tar xz --strip-components 1 --wildcards \*/golangci-lint
-          mkdir -p bin && mv golangci-lint bin/
-      - name: Run checks
+      - name: Check formatting
         run: |
           STATUS=0
           assert-nothing-changed() {
@@ -28,13 +23,18 @@ jobs:
               STATUS=1
             fi
           }
-
           assert-nothing-changed go fmt ./...
           assert-nothing-changed go mod tidy
-
-          bin/golangci-lint run --out-format=github-actions --timeout=3m || STATUS=$?
-
           exit $STATUS
+
+      - uses: golangci/golangci-lint-action@v3
+        with:
+          version: v1.45.0
+          only-new-issues: false
+          skip-cache: false
+          skip-build-cache: true
+          skip-pkg-cache: true
+          github-token: ${{ secrets.GITHUB_TOKEN }}
 
   build:
     runs-on: ubuntu-20.04
