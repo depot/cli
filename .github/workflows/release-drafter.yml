@@ -1,0 +1,13 @@
+name: release-drafter
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  release-drafter:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: release-drafter/release-drafter@v5
+        env:
+          GITHUB_TOKEN: ${{ secrets.BOT_PUBLIC_GITHUB_TOKEN }}
