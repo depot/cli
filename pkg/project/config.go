@@ -55,6 +55,8 @@ func WriteConfig(filename string, config *ProjectConfig) error {
 		return fmt.Errorf("Unsupported config file extension: %s", ext)
 	}
 
+	data = append(data, '\n')
+
 	return os.WriteFile(filename, data, 0644)
 }
 
