@@ -3,8 +3,10 @@ package build
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/depot/cli/pkg/config"
+	"github.com/depot/cli/pkg/project"
 	"github.com/docker/cli/cli"
 	"github.com/docker/cli/cli/command"
 	cliflags "github.com/docker/cli/cli/flags"
@@ -28,7 +30,14 @@ func NewCmdBuild() *cobra.Command {
 				options.project = os.Getenv("DEPOT_PROJECT_ID")
 			}
 			if options.project == "" {
-				return errors.Errorf("unknown project ID (use --project or $DEPOT_PROJECT_ID)")
+				cwd, _ := filepath.Abs(args[0])
+				config, _, err := project.ReadConfig(cwd)
+				if err == nil {
+					options.project = config.ID
+				}
+			}
+			if options.project == "" {
+				return errors.Errorf("unknown project ID (run `depot init` or use --project or $DEPOT_PROJECT_ID)")
 			}
 
 			// TODO: make this a helper

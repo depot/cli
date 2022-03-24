@@ -4,6 +4,7 @@ import (
 	"github.com/spf13/cobra"
 
 	buildCmd "github.com/depot/cli/pkg/cmd/build"
+	initCmd "github.com/depot/cli/pkg/cmd/init"
 	loginCmd "github.com/depot/cli/pkg/cmd/login"
 	versionCmd "github.com/depot/cli/pkg/cmd/version"
 	"github.com/depot/cli/pkg/config"
@@ -30,6 +31,7 @@ func NewCmdRoot(version, buildDate string) *cobra.Command {
 
 	// Child commands
 	cmd.AddCommand(buildCmd.NewCmdBuild())
+	cmd.AddCommand(initCmd.NewCmdInit())
 	cmd.AddCommand(loginCmd.NewCmdLogin())
 	cmd.AddCommand(versionCmd.NewCmdVersion(version, buildDate))
 

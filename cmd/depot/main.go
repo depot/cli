@@ -81,8 +81,6 @@ func checkForUpdate(currentVersion string) (*update.ReleaseInfo, error) {
 		return nil, err
 	}
 
-	fmt.Println(stateFilePath)
-
 	return update.CheckForUpdate(client, stateFilePath, currentVersion)
 }
 
