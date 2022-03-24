@@ -70,3 +70,24 @@ func (d *Depot) LatestRelease() (*ReleaseResponse, error) {
 		nil,
 	)
 }
+
+type Project struct {
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	OrgID   string `json:"orgID"`
+	OrgName string `json:"orgName"`
+}
+
+type GetProjectsResponse struct {
+	OK       bool       `json:"ok"`
+	Projects []*Project `json:"projects"`
+}
+
+func (d *Depot) GetProjects() (*GetProjectsResponse, error) {
+	return apiRequest[GetProjectsResponse](
+		"GET",
+		fmt.Sprintf("%s/api/internal/cli/projects", d.BaseURL),
+		d.token,
+		nil,
+	)
+}
