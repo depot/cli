@@ -10,7 +10,8 @@ import (
 
 func NewCmdLogin() *cobra.Command {
 	cmd := &cobra.Command{
-		Use: "login",
+		Use:   "login",
+		Short: "Authenticate the Depot CLI",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			clear, _ := cmd.Flags().GetBool("clear")
 

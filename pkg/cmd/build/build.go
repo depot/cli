@@ -23,7 +23,7 @@ func NewCmdBuild() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "build [OPTIONS] PATH | URL | -",
-		Short: "run a Docker build on Depot",
+		Short: "Run a Docker build on Depot",
 		Args:  cli.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if options.project == "" {

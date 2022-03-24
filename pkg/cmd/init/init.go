@@ -19,9 +19,9 @@ func NewCmdInit() *cobra.Command {
 	var projectID string
 
 	cmd := &cobra.Command{
-		Use:    "init [flags] [<dir>]",
-		Hidden: true,
-		Args:   cli.RequiresMaxArgs(1),
+		Use:   "init [flags] [<dir>]",
+		Short: "Create a `depot.json` project config",
+		Args:  cli.RequiresMaxArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			force, _ := cmd.Flags().GetBool("force")
 			context := "."
@@ -39,7 +39,16 @@ func NewCmdInit() *cobra.Command {
 				return fmt.Errorf("Project configuration %s already exists at path \"%s\", re-run with `--force` to overwrite", filepath.Base(existingFile), context)
 			}
 
-			client, err := api.NewDepotFromEnv(config.GetApiToken())
+			// TODO: make this a helper
+			token := os.Getenv("DEPOT_TOKEN")
+			if token == "" {
+				token = config.GetApiToken()
+			}
+			if token == "" {
+				return fmt.Errorf("missing API token, please run `depot login`")
+			}
+
+			client, err := api.NewDepotFromEnv(token)
 			if err != nil {
 				return err
 			}
