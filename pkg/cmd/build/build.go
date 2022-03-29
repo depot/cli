@@ -83,6 +83,7 @@ func NewCmdBuild() *cobra.Command {
 	// Depot options
 	flags.StringVar(&options.project, "project", "", "Depot project ID")
 	flags.StringVar(&options.token, "token", "", "Depot API token")
+	flags.BoolVar(&options.noWait, "no-wait", false, "Fail immediately if no builder is available")
 
 	// `docker buildx build` options
 	flags.StringSliceVar(&options.extraHosts, "add-host", []string{}, `Add a custom host-to-IP mapping (format: "host:ip")`)
