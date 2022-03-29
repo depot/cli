@@ -17,11 +17,13 @@ type Builder struct {
 	buildID string
 	depot   *api.Depot
 	proxy   *proxyServer
+	noWait  bool
 }
 
-func NewBuilder(depot *api.Depot) *Builder {
+func NewBuilder(depot *api.Depot, noWait bool) *Builder {
 	return &Builder{
-		depot: depot,
+		depot:  depot,
+		noWait: noWait,
 	}
 }
 
@@ -39,6 +41,10 @@ func (b *Builder) Acquire(l progress.Logger, project string) (string, error) {
 			}
 
 			if resp.OK && resp.Busy {
+				if b.noWait {
+					return errors.New("builder is in use, but --no-wait was specified, exiting")
+				}
+
 				if count == 0 {
 					sub.Log(2, []byte("Builder is busy, waiting for current build to complete...\n"))
 				} else if count%10 == 0 {
