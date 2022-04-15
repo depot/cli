@@ -45,7 +45,6 @@ const defaultTargetName = "default"
 type buildOptions struct {
 	project string
 	token   string
-	noWait  bool
 
 	contextPath    string
 	dockerfileName string
@@ -254,7 +253,7 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, opts map[string]bu
 		return "", err
 	}
 
-	b := builder.NewBuilder(depot, in.noWait)
+	b := builder.NewBuilder(depot)
 	addr, err := b.Acquire(printer.Write, in.project)
 	if err != nil {
 		return "", err
