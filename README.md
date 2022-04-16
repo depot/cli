@@ -1,4 +1,4 @@
-# CLI [![CI](https://github.com/depot/cli/actions/workflows/ci.yml/badge.svg)](https://github.com/depot/cli/actions/workflows/ci.yml)
+# Depot CLI [![CI](https://github.com/depot/cli/actions/workflows/ci.yml/badge.svg)](https://github.com/depot/cli/actions/workflows/ci.yml)
 
 Official CLI for Depot - you can use the CLI to build Docker images via Depot's remote builder infrastructure.
 
