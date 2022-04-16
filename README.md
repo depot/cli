@@ -1,6 +1,14 @@
 # Depot CLI [![CI](https://github.com/depot/cli/actions/workflows/ci.yml/badge.svg)](https://github.com/depot/cli/actions/workflows/ci.yml)
 
-Official CLI for Depot - you can use the CLI to build Docker images via Depot's remote builder infrastructure.
+Official CLI for [Depot](https://depot.dev) - you can use the CLI to build Docker images via Depot's remote builder infrastructure.
+
+---
+
+> ⚡ **Depot** provides cloud-hosted container builder machines - our builders are quick, running on native hardware. Build caching is fully managed with no extra configuration.
+>
+> [More information →](https://depot.dev)
+
+---
 
 - [Installation](#installation)
 - [Quick Start](#quick-start)
