@@ -25,12 +25,8 @@ func NewDepotFromEnv(token string) (*Depot, error) {
 }
 
 type BuildReponse struct {
-	OK           bool   `json:"ok"`
-	BaseURL      string `json:"baseURL"`
-	ID           string `json:"id"`
-	AccessToken  string `json:"accessToken"`
-	BuilderState string `json:"builderState"`
-	PollSeconds  int    `json:"pollSeconds"`
+	OK bool   `json:"ok"`
+	ID string `json:"id"`
 }
 
 func (d *Depot) CreateBuild(projectID string) (*BuildReponse, error) {
@@ -46,6 +42,24 @@ func (d *Depot) GetBuild(buildID string) (*BuildReponse, error) {
 	return apiRequest[BuildReponse](
 		"GET",
 		fmt.Sprintf("%s/api/internal/cli/builds/%s", d.BaseURL, buildID),
+		d.token,
+		map[string]string{},
+	)
+}
+
+type BuilderResponse struct {
+	OK           bool   `json:"ok"`
+	Endpoint     string `json:"endpoint"`
+	AccessToken  string `json:"accessToken"`
+	BuilderState string `json:"builderState"`
+	PollSeconds  int    `json:"pollSeconds"`
+	Platform     string `json:"platform"`
+}
+
+func (d *Depot) GetBuilder(buildID string, platform string) (*BuilderResponse, error) {
+	return apiRequest[BuilderResponse](
+		"GET",
+		fmt.Sprintf("%s/api/internal/cli/builds/%s/platform/%s", d.BaseURL, buildID, platform),
 		d.token,
 		map[string]string{},
 	)

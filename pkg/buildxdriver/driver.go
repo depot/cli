@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net"
 
+	"github.com/depot/cli/pkg/api"
+	"github.com/depot/cli/pkg/builder"
 	"github.com/docker/buildx/driver"
 	"github.com/docker/buildx/util/progress"
 	"github.com/moby/buildkit/client"
@@ -14,6 +16,8 @@ import (
 type Driver struct {
 	driver.InitConfig
 	factory driver.Factory
+	depot   *api.Depot
+	builder *builder.Builder
 	addr    string
 }
 
@@ -26,10 +30,18 @@ func (d *Driver) Config() driver.InitConfig {
 }
 
 func (d *Driver) Bootstrap(ctx context.Context, l progress.Logger) error {
+	addr, err := d.builder.Acquire(l)
+	if err != nil {
+		return errors.Wrap(err, "failed to bootstrap builder")
+	}
+	d.addr = addr
 	return nil
 }
 
 func (d *Driver) Info(ctx context.Context) (*driver.Info, error) {
+	if d.addr == "" {
+		return &driver.Info{Status: driver.Stopped}, nil
+	}
 	return &driver.Info{Status: driver.Running}, nil
 }
 

@@ -17,8 +17,8 @@ type proxyServer struct {
 	server *httptest.Server
 }
 
-func newProxyServer(computeHost string, apiKey string, builderID string) (*proxyServer, error) {
-	builderURL, err := url.Parse(computeHost + "/" + builderID)
+func newProxyServer(endpoint string, apiKey string) (*proxyServer, error) {
+	builderURL, err := url.Parse(endpoint)
 	if err != nil {
 		return nil, err
 	}

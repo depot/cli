@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"net/http"
 	"time"
 
 	"github.com/depot/cli/pkg/api"
@@ -14,25 +13,29 @@ import (
 )
 
 type Builder struct {
-	buildID string
-	depot   *api.Depot
-	proxy   *proxyServer
+	depot *api.Depot
+	proxy *proxyServer
+
+	BuildID  string
+	Platform string
 }
 
-func NewBuilder(depot *api.Depot) *Builder {
+func NewBuilder(depot *api.Depot, buildID, platform string) *Builder {
 	return &Builder{
-		depot: depot,
+		depot:    depot,
+		BuildID:  buildID,
+		Platform: platform,
 	}
 }
 
-func (b *Builder) Acquire(l progress.Logger, project string) (string, error) {
+func (b *Builder) Acquire(l progress.Logger) (string, error) {
 	var addr string
-	var resp *api.BuildReponse
+	var resp *api.BuilderResponse
 	var err error
 	var accessToken string
 
-	err = progress.Wrap("[depot] starting builder", l, func(sub progress.SubLogger) error {
-		resp, err = b.depot.CreateBuild(project)
+	err = progress.Wrap("[depot] launching "+b.Platform+" builder", l, func(sub progress.SubLogger) error {
+		resp, err = b.depot.GetBuilder(b.BuildID, b.Platform)
 		if err != nil {
 			return err
 		}
@@ -53,22 +56,21 @@ func (b *Builder) Acquire(l progress.Logger, project string) (string, error) {
 			}
 
 			time.Sleep(time.Duration(resp.PollSeconds) * time.Second)
-			resp, err = b.depot.GetBuild(resp.ID)
+			resp, err = b.depot.GetBuilder(b.BuildID, b.Platform)
 			count += 1
 			if count > 60 {
 				return errors.New("Unable to acquire builder connection")
 			}
 		}
 
-		b.buildID = resp.ID
 		return nil
 	})
 	if err != nil {
 		return "", err
 	}
 
-	err = progress.Wrap("[depot] connecting to builder in project "+project, l, func(sub progress.SubLogger) error {
-		proxy, err := newProxyServer(resp.BaseURL, accessToken, resp.ID)
+	err = progress.Wrap("[depot] connecting to "+b.Platform+" builder", l, func(sub progress.SubLogger) error {
+		proxy, err := newProxyServer(resp.Endpoint, accessToken)
 		if err != nil {
 			return errors.Wrap(err, "failed to construct proxy server")
 		}
@@ -77,43 +79,17 @@ func (b *Builder) Acquire(l progress.Logger, project string) (string, error) {
 		proxy.Start()
 		addr = proxy.Addr().String()
 
-		sub.Log(0, []byte("Waiting for connection to BuildKit "+resp.ID+"\n"))
-		httpClient := &http.Client{}
+		sub.Log(2, []byte("Waiting for builder to report ready...\n"))
 
 		count := 0
 
 		for {
-			req, err := http.NewRequest("GET", fmt.Sprintf("%s/ready-%s/", resp.BaseURL, resp.ID), nil)
-			if err != nil {
-				return err
-			}
-			req.Header.Add("Authorization", fmt.Sprintf("bearer %s", accessToken))
-
-			resp, err := httpClient.Do(req)
-			if err != nil {
-				return err
-			}
-			defer resp.Body.Close()
-
-			if resp.StatusCode == http.StatusOK {
-				break
-			}
-
-			count++
 			if count > 30 {
 				return fmt.Errorf("timed out waiting for builder to be ready")
 			}
 
-			time.Sleep(time.Second)
-		}
-
-		sub.Log(2, []byte("Waiting for builder to report ready...\n"))
-
-		count = 0
-
-		for {
-			if count > 30 {
-				return fmt.Errorf("timed out waiting for builder to be ready")
+			if count > 0 && count%10 == 0 {
+				sub.Log(2, []byte("Still waiting for builder to report ready...\n"))
 			}
 
 			if count > 0 {
@@ -145,8 +121,4 @@ func (b *Builder) Acquire(l progress.Logger, project string) (string, error) {
 		}
 	})
 	return addr, err
-}
-
-func (b *Builder) Release() error {
-	return b.depot.FinishBuild(b.buildID)
 }
