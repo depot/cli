@@ -10,6 +10,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	depotapi "github.com/depot/cli/pkg/api"
@@ -35,6 +36,7 @@ import (
 	"github.com/moby/buildkit/util/appcontext"
 	"github.com/moby/buildkit/util/grpcerrors"
 	"github.com/morikuni/aec"
+	v1 "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc/codes"
@@ -252,20 +254,25 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, opts map[string]bu
 	if err != nil {
 		return "", err
 	}
+	ctx = depotapi.WithClient(ctx, depot)
 
-	b := builder.NewBuilder(depot)
-	addr, err := b.Acquire(printer.Write, in.project)
+	b, err := depot.CreateBuild(in.project)
 	if err != nil {
 		return "", err
 	}
 	defer func() {
-		err := b.Release()
+		err := depot.FinishBuild(b.ID)
 		if err != nil {
 			log.Printf("error releasing builder: %v", err)
 		}
 	}()
 
-	dis, err := getDrivers(ctx, dockerCli, contextPathHash, addr)
+	ctx = builder.WithBuilders(ctx, []*builder.Builder{
+		builder.NewBuilder(depot, b.ID, "amd64"),
+		builder.NewBuilder(depot, b.ID, "arm64"),
+	})
+
+	dis, err := getDrivers(ctx, dockerCli, contextPathHash)
 	if err != nil {
 		return "", err
 	}
@@ -290,26 +297,49 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, opts map[string]bu
 	return resp[defaultTargetName].ExporterResponse["containerimage.digest"], err
 }
 
-func getDrivers(ctx context.Context, dockerCli command.Cli, contextPathHash string, addr string) ([]build.DriverInfo, error) {
+func getDrivers(ctx context.Context, dockerCli command.Cli, contextPathHash string) ([]build.DriverInfo, error) {
 	imageopt, err := storeutil.GetImageConfig(dockerCli, nil)
 	if err != nil {
 		return nil, err
 	}
 
-	driverOpts := make(map[string]string)
-	driverOpts["addr"] = addr
-
-	d, err := driver.GetDriver(ctx, "buildx_buildkit_depot", nil, dockerCli.Client(), imageopt.Auth, nil, nil, nil, driverOpts, nil, contextPathHash)
+	driverOpts := map[string]string{"platform": "amd64"}
+	amdDriver, err := driver.GetDriver(ctx, "buildx_buildkit_depot_amd64", nil, dockerCli.Client(), imageopt.Auth, nil, nil, nil, driverOpts, nil, contextPathHash)
 	if err != nil {
 		return nil, err
 	}
-	return []build.DriverInfo{
-		{
-			Name:     "depot",
-			Driver:   d,
-			ImageOpt: imageopt,
+	amdDriverInfo := build.DriverInfo{
+		Name:     "depot",
+		Driver:   amdDriver,
+		ImageOpt: imageopt,
+		Platform: []v1.Platform{
+			{OS: "linux", Architecture: "amd64"},
+			{OS: "linux", Architecture: "amd64", Variant: "v2"},
+			{OS: "linux", Architecture: "amd64", Variant: "v3"},
+			{OS: "linux", Architecture: "386"},
 		},
-	}, nil
+	}
+
+	driverOpts = map[string]string{"platform": "arm64"}
+	armDriver, err := driver.GetDriver(ctx, "buildx_buildkit_depot_arm64", nil, dockerCli.Client(), imageopt.Auth, nil, nil, nil, driverOpts, nil, contextPathHash)
+	if err != nil {
+		return nil, err
+	}
+	armDriverInfo := build.DriverInfo{
+		Name:     "depot",
+		Driver:   armDriver,
+		ImageOpt: imageopt,
+		Platform: []v1.Platform{
+			{OS: "linux", Architecture: "arm64"},
+			{OS: "linux", Architecture: "arm", Variant: "v7"},
+			{OS: "linux", Architecture: "arm", Variant: "v6"},
+		},
+	}
+
+	if strings.HasPrefix(runtime.GOARCH, "arm") {
+		return []build.DriverInfo{armDriverInfo, amdDriverInfo}, nil
+	}
+	return []build.DriverInfo{amdDriverInfo, armDriverInfo}, nil
 }
 
 func newBuildOptions() buildOptions {
