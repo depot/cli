@@ -9,7 +9,13 @@ import (
 	"net/http"
 	"runtime"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/depot/cli/internal/build"
+)
+
+var (
+	infoStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("12"))
+	warnStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("11"))
 )
 
 type ErrorResponse struct {
@@ -47,6 +53,16 @@ func apiRequest[Response interface{}](method, url, token string, payload interfa
 		return nil, err
 	}
 	defer resp.Body.Close()
+
+	infoMessage := resp.Header.Get("X-Depot-Info-Message")
+	if infoMessage != "" {
+		fmt.Println(infoStyle.Render(infoMessage))
+	}
+
+	warnMessage := resp.Header.Get("X-Depot-Warn-Message")
+	if warnMessage != "" {
+		fmt.Println(warnStyle.Render(warnMessage))
+	}
 
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
