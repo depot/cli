@@ -7,6 +7,9 @@ import (
 	"io"
 	"io/ioutil"
 	"net/http"
+	"runtime"
+
+	"github.com/depot/cli/internal/build"
 )
 
 type ErrorResponse struct {
@@ -37,6 +40,7 @@ func apiRequest[Response interface{}](method, url, token string, payload interfa
 	if token != "" {
 		req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", token))
 	}
+	req.Header.Add("User-Agent", fmt.Sprintf("depot-cli/%s/%s/%s", build.Version, runtime.GOOS, runtime.GOARCH))
 
 	resp, err := client.Do(req)
 	if err != nil {
