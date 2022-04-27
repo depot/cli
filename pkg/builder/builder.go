@@ -47,7 +47,7 @@ func (b *Builder) Acquire(l progress.Logger) (string, error) {
 		// Loop if the builder is not ready
 		count := 0
 		for {
-			if resp != nil && resp.OK && resp.BuilderState == "ready" {
+			if resp.OK && resp.BuilderState == "ready" {
 				break
 			}
 
@@ -103,18 +103,14 @@ func (b *Builder) Acquire(l progress.Logger) (string, error) {
 				continue
 			}
 
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-			testClient, err := client.New(ctx, "", client.WithFailFast(), client.WithContextDialer(func(context.Context, string) (net.Conn, error) {
+			testClient, err := client.New(context.TODO(), "", client.WithContextDialer(func(context.Context, string) (net.Conn, error) {
 				return conn, nil
 			}))
 			if err != nil {
 				continue
 			}
 
-			ctx2, cancel2 := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel2()
-			workers, err := testClient.ListWorkers(ctx2)
+			workers, err := testClient.ListWorkers(context.TODO())
 			if err != nil {
 				continue
 			}
