@@ -1,11 +1,15 @@
 FROM --platform=$BUILDPLATFORM golang:1.18 AS build
 WORKDIR /src
+ARG LDFLAGS " "
 ARG TARGETARCH
 RUN mkdir /out
 RUN \
   --mount=target=. \
   --mount=target=/go/pkg/mod,type=cache \
-  GOARCH=${TARGETARCH} CGO_ENABLED=0 go build -o /out/ ./cmd/...
+  GOARCH=${TARGETARCH} CGO_ENABLED=0 \
+  go build \
+  ${LDFLAGS} \
+  -o /out/ ./cmd/...
 
 FROM --platform=$TARGETPLATFORM ubuntu:20.04
 
