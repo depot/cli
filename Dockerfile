@@ -6,9 +6,8 @@ RUN mkdir /out
 RUN \
   --mount=target=. \
   --mount=target=/go/pkg/mod,type=cache \
-  GOARCH=${TARGETARCH} LDFLAGS=${LDFLAGS} CGO_ENABLED=0 \
-  go build \
-  -ldflags="$LDFLAGS" \
+  GOARCH=${TARGETARCH} CGO_ENABLED=0 \
+  go build -ldflags="${LDFLAGS}" \
   -o /out/ ./cmd/...
 
 FROM --platform=$TARGETPLATFORM ubuntu:20.04
