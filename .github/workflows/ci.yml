@@ -83,4 +83,4 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           build-args: |
-            LDFLAGS="-s -w -X github.com/depot/cli/internal/build.Version=${{ steps.build-info.outputs.version }} -X github.com/depot/cli/internal/build.Date=${{ steps.build-info.outputs.date }} -X github.com/depot/cli/internal/build.SentryEnvironment=${{ steps.build-info.outputs.sentry-environment }}"
+            LDFLAGS=-s -w -X github.com/depot/cli/internal/build.Version=${{ steps.build-info.outputs.version }} -X github.com/depot/cli/internal/build.Date=${{ steps.build-info.outputs.date }} -X github.com/depot/cli/internal/build.SentryEnvironment=${{ steps.build-info.outputs.sentry-environment }}
