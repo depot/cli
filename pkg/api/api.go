@@ -38,15 +38,6 @@ func (d *Depot) CreateBuild(projectID string) (*BuildReponse, error) {
 	)
 }
 
-func (d *Depot) GetBuild(buildID string) (*BuildReponse, error) {
-	return apiRequest[BuildReponse](
-		"GET",
-		fmt.Sprintf("%s/api/internal/cli/builds/%s", d.BaseURL, buildID),
-		d.token,
-		map[string]string{},
-	)
-}
-
 type BuilderResponse struct {
 	OK           bool   `json:"ok"`
 	Endpoint     string `json:"endpoint"`
