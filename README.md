@@ -42,23 +42,25 @@ For all other platforms, you can download the binary directly from [the latest r
 
 Runs a Docker build using Depot's remote builder infrastructure. This command accepts all the command line flags as Docker's `docker buildx build` command, you can run `depot build --help` for the full list.
 
-By default, `depot build` will download the built image to your local Docker daemon for use locally. You may alternatively push the image to a registry with `depot build --push`. If you would prefer to neither push or load the image locally, you can `depot build --no-load`.
+By default, `depot build` will leave the built image in the remote builder cache. If you would like to download the image to your local Docker daemon (for instance, to `docker run` the result), you can use the `--load` flag.
+
+Alternatively, to push the image to a remote registry directly from the builder instance, you can use the `--push` flag.
 
 **Example**
 
 ```shell
-# Build remotely, download the container locally
+# Build remotely
 depot build -t repo/image:tag .
 ```
 
 ```shell
-# Build remotely, push to a registry
-depot build --push -t repo/image:tag .
+# Build remotely, download the container locally
+depot build -t repo/image:tag . --load
 ```
 
 ```shell
-# Build remotely, don't download or push
-depot build --no-load -t repo/image:tag .
+# Build remotely, push to a registry
+depot build -t repo/image:tag . --push
 ```
 
 ### `depot init`
