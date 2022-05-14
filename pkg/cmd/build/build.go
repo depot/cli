@@ -63,9 +63,8 @@ func NewCmdBuild() *cobra.Command {
 				os.Exit(1)
 			}
 
-			// If neither --load or --push is specified, we default to --load (unless --no-load is specified)
-			if !options.noLoad && !options.exportLoad && !options.exportPush && len(options.outputs) == 0 {
-				options.exportLoad = true
+			if options.noLoad && options.exportLoad {
+				return errors.Errorf("load and no-load may not be both set")
 			}
 
 			options.contextPath = args[0]
@@ -114,8 +113,9 @@ func NewCmdBuild() *cobra.Command {
 	options.pull = flags.Bool("pull", false, "Always attempt to pull all referenced images")
 	flags.StringVar(&options.metadataFile, "metadata-file", "", "Write build result metadata to the file")
 
-	flags.BoolVar(&options.noLoad, "no-load", false, "Overrides the default --load flag")
+	flags.BoolVar(&options.noLoad, "no-load", false, "Overrides the --load flag")
 	_ = flags.MarkHidden("no-load")
+	_ = flags.MarkDeprecated("no-load", "--no-load is the default behavior")
 
 	return cmd
 }
