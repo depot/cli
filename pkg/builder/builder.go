@@ -34,7 +34,7 @@ func (b *Builder) Acquire(l progress.Logger) (string, error) {
 	var err error
 	var accessToken string
 
-	err = progress.Wrap("[depot] launching "+b.Platform+" builder", l, func(sub progress.SubLogger) error {
+	acquireFn := func(sub progress.SubLogger) error {
 		resp, err = b.depot.GetBuilder(b.BuildID, b.Platform)
 		if err != nil {
 			return err
@@ -58,15 +58,21 @@ func (b *Builder) Acquire(l progress.Logger) (string, error) {
 			time.Sleep(time.Duration(resp.PollSeconds) * time.Second)
 			resp, err = b.depot.GetBuilder(b.BuildID, b.Platform)
 			count += 1
-			if count > 60 {
+			if count > 30 {
 				return errors.New("Unable to acquire builder connection")
 			}
 		}
 
 		return nil
-	})
+	}
+
+	// Try to acquire builder twice
+	err = progress.Wrap("[depot] launching "+b.Platform+" builder", l, acquireFn)
 	if err != nil {
-		return "", err
+		err = progress.Wrap("[depot] launching "+b.Platform+" builder", l, acquireFn)
+		if err != nil {
+			return "", err
+		}
 	}
 
 	err = progress.Wrap("[depot] connecting to "+b.Platform+" builder", l, func(sub progress.SubLogger) error {
