@@ -55,8 +55,16 @@ func (b *Builder) Acquire(l progress.Logger) (string, error) {
 				sub.Log(2, []byte("Still waiting for builder to start...\n"))
 			}
 
-			time.Sleep(time.Duration(resp.PollSeconds) * time.Second)
+			if resp != nil {
+				time.Sleep(time.Duration(resp.PollSeconds) * time.Second)
+			} else {
+				time.Sleep(time.Duration(1) * time.Second)
+			}
+
 			resp, err = b.depot.GetBuilder(b.BuildID, b.Platform)
+			if err != nil {
+				sub.Log(2, []byte(err.Error()+"\n"))
+			}
 			count += 1
 			if count > 30 {
 				return errors.New("Unable to acquire builder connection")
