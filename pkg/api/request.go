@@ -11,6 +11,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/depot/cli/internal/build"
+	"github.com/pkg/errors"
 )
 
 var (
@@ -78,7 +79,7 @@ func apiRequest[Response interface{}](method, url, token string, payload interfa
 	var response Response
 	err = json.Unmarshal(body, &response)
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, string(body))
 	}
 
 	return &response, nil
