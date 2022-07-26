@@ -50,7 +50,7 @@ func (f *factory) New(ctx context.Context, cfg driver.InitConfig) (driver.Driver
 		return nil, fmt.Errorf("no builder found for platform %s", platform)
 	}
 
-	d := &Driver{factory: f, InitConfig: cfg, addr: "", depot: depot, builder: builder}
+	d := &Driver{factory: f, InitConfig: cfg, builderInfo: nil, depot: depot, builder: builder}
 	return d, nil
 }
 

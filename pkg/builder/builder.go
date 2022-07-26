@@ -28,11 +28,19 @@ func NewBuilder(depot *api.Depot, buildID, platform string) *Builder {
 	}
 }
 
-func (b *Builder) Acquire(l progress.Logger) (string, error) {
-	var addr string
+type AcquiredBuilder struct {
+	Version     string
+	Addr        string
+	AccessToken string
+	CACert      string
+	Cert        string
+	Key         string
+}
+
+func (b *Builder) Acquire(l progress.Logger) (*AcquiredBuilder, error) {
 	var resp *api.BuilderResponse
 	var err error
-	var accessToken string
+	var builder AcquiredBuilder
 
 	acquireFn := func(sub progress.SubLogger) error {
 		resp, err = b.depot.GetBuilder(b.BuildID, b.Platform)
@@ -41,7 +49,10 @@ func (b *Builder) Acquire(l progress.Logger) (string, error) {
 		}
 
 		if resp.OK {
-			accessToken = resp.AccessToken
+			builder.AccessToken = resp.AccessToken
+			builder.CACert = resp.CACert
+			builder.Cert = resp.Cert
+			builder.Key = resp.Key
 		}
 
 		// Loop if the builder is not ready
@@ -79,19 +90,19 @@ func (b *Builder) Acquire(l progress.Logger) (string, error) {
 	if err != nil {
 		err = progress.Wrap("[depot] launching "+b.Platform+" builder", l, acquireFn)
 		if err != nil {
-			return "", err
+			return nil, err
 		}
 	}
 
 	err = progress.Wrap("[depot] connecting to "+b.Platform+" builder", l, func(sub progress.SubLogger) error {
-		proxy, err := newProxyServer(resp.Endpoint, accessToken)
+		proxy, err := newProxyServer(resp.Endpoint, builder.AccessToken)
 		if err != nil {
 			return errors.Wrap(err, "failed to construct proxy server")
 		}
 
 		b.proxy = proxy
 		proxy.Start()
-		addr = proxy.Addr().String()
+		builder.Addr = proxy.Addr().String()
 
 		sub.Log(2, []byte("Waiting for builder to report ready...\n"))
 
@@ -138,5 +149,5 @@ func (b *Builder) Acquire(l progress.Logger) (string, error) {
 			}
 		}
 	})
-	return addr, err
+	return &builder, err
 }
