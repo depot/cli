@@ -3,6 +3,7 @@ package buildxdriver
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/depot/cli/pkg/api"
 	"github.com/depot/cli/pkg/builder"
@@ -34,13 +35,44 @@ func (d *Driver) Bootstrap(ctx context.Context, l progress.Logger) error {
 		return errors.Wrap(err, "failed to bootstrap builder")
 	}
 	d.builderInfo = builderInfo
-	return nil
+
+	return progress.Wrap("[depot] connecting to "+d.builder.Platform+" builder", l, func(sub progress.SubLogger) error {
+		for i := 0; ; i++ {
+			info, err := d.Info(ctx)
+			if err != nil {
+				return err
+			}
+			if info.Status != driver.Inactive {
+				return nil
+			}
+
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			default:
+				if i > 10 {
+					i = 10
+				}
+				time.Sleep(time.Duration(i) * time.Second)
+			}
+		}
+	})
 }
 
 func (d *Driver) Info(ctx context.Context) (*driver.Info, error) {
 	if d.builderInfo == nil {
 		return &driver.Info{Status: driver.Stopped}, nil
 	}
+
+	c, err := d.Client(ctx)
+	if err != nil {
+		return &driver.Info{Status: driver.Inactive}, nil
+	}
+
+	if _, err := c.ListWorkers(ctx); err != nil {
+		return &driver.Info{Status: driver.Inactive}, nil
+	}
+
 	return &driver.Info{Status: driver.Running}, nil
 }
 
