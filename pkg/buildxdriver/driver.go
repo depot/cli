@@ -2,7 +2,6 @@ package buildxdriver
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"github.com/depot/cli/pkg/api"
@@ -82,7 +81,7 @@ func (d *Driver) Client(ctx context.Context) (*client.Client, error) {
 		opts = append(opts, client.WithCredentials(d.tlsOpts.serverName, d.tlsOpts.caCert, d.tlsOpts.cert, d.tlsOpts.key))
 	}
 
-	return client.New(ctx, fmt.Sprintf("tcp://%s", d.builderInfo.Addr), opts...)
+	return client.New(ctx, d.builderInfo.Addr, opts...)
 }
 
 // Boilerplate

@@ -1,6 +1,7 @@
 package builder
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/depot/cli/pkg/api"
@@ -45,6 +46,7 @@ func (b *Builder) Acquire(l progress.Logger) (*AcquiredBuilder, error) {
 		}
 
 		if resp.OK {
+			builder.Version = resp.Version
 			builder.AccessToken = resp.AccessToken
 			builder.CACert = resp.CACert
 			builder.Cert = resp.Cert
@@ -90,6 +92,11 @@ func (b *Builder) Acquire(l progress.Logger) (*AcquiredBuilder, error) {
 		}
 	}
 
+	if builder.Version == "2" {
+		builder.Addr = resp.Endpoint
+		return &builder, nil
+	}
+
 	proxy, err := newProxyServer(resp.Endpoint, builder.AccessToken)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to construct proxy server")
@@ -97,7 +104,7 @@ func (b *Builder) Acquire(l progress.Logger) (*AcquiredBuilder, error) {
 
 	b.proxy = proxy
 	proxy.Start()
-	builder.Addr = proxy.Addr().String()
+	builder.Addr = fmt.Sprintf("tcp://%s", proxy.Addr().String())
 
 	return &builder, err
 }
