@@ -2,6 +2,7 @@ package buildxdriver
 
 import (
 	"context"
+	"os"
 	"time"
 
 	"github.com/depot/cli/pkg/api"
@@ -34,6 +35,45 @@ func (d *Driver) Bootstrap(ctx context.Context, l progress.Logger) error {
 		return errors.Wrap(err, "failed to bootstrap builder")
 	}
 	d.builderInfo = builderInfo
+
+	if builderInfo.Cert != "" {
+		tls := &tlsOpts{}
+
+		file, err := os.CreateTemp("", "depot-cert")
+		if err != nil {
+			return errors.Wrap(err, "failed to create temp file")
+		}
+		defer file.Close()
+		err = os.WriteFile(file.Name(), []byte(builderInfo.Cert), 0600)
+		if err != nil {
+			return errors.Wrap(err, "failed to write cert to temp file")
+		}
+		tls.cert = file.Name()
+
+		file, err = os.CreateTemp("", "depot-key")
+		if err != nil {
+			return errors.Wrap(err, "failed to create temp file")
+		}
+		defer file.Close()
+		err = os.WriteFile(file.Name(), []byte(builderInfo.Key), 0600)
+		if err != nil {
+			return errors.Wrap(err, "failed to write key to temp file")
+		}
+		tls.key = file.Name()
+
+		file, err = os.CreateTemp("", "depot-ca-cert")
+		if err != nil {
+			return errors.Wrap(err, "failed to create temp file")
+		}
+		defer file.Close()
+		err = os.WriteFile(file.Name(), []byte(builderInfo.CACert), 0600)
+		if err != nil {
+			return errors.Wrap(err, "failed to write CA cert to temp file")
+		}
+		tls.caCert = file.Name()
+
+		d.tlsOpts = tls
+	}
 
 	return progress.Wrap("[depot] connecting to "+d.builder.Platform+" builder", l, func(sub progress.SubLogger) error {
 		for i := 0; ; i++ {
