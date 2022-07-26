@@ -14,7 +14,6 @@ import (
 	"strings"
 
 	depotapi "github.com/depot/cli/pkg/api"
-	"github.com/depot/cli/pkg/builder"
 	"github.com/docker/buildx/build"
 	"github.com/docker/buildx/driver"
 	"github.com/docker/buildx/store/storeutil"
@@ -267,12 +266,7 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, opts map[string]bu
 		}
 	}()
 
-	ctx = builder.WithBuilders(ctx, []*builder.Builder{
-		builder.NewBuilder(depot, b.ID, "amd64"),
-		builder.NewBuilder(depot, b.ID, "arm64"),
-	})
-
-	dis, err := getDrivers(ctx, dockerCli, contextPathHash)
+	dis, err := getDrivers(ctx, dockerCli, contextPathHash, b.ID)
 	if err != nil {
 		return "", err
 	}
@@ -297,13 +291,13 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, opts map[string]bu
 	return resp[defaultTargetName].ExporterResponse["containerimage.digest"], err
 }
 
-func getDrivers(ctx context.Context, dockerCli command.Cli, contextPathHash string) ([]build.DriverInfo, error) {
+func getDrivers(ctx context.Context, dockerCli command.Cli, contextPathHash string, buildID string) ([]build.DriverInfo, error) {
 	imageopt, err := storeutil.GetImageConfig(dockerCli, nil)
 	if err != nil {
 		return nil, err
 	}
 
-	driverOpts := map[string]string{"platform": "amd64"}
+	driverOpts := map[string]string{"platform": "amd64", "buildID": buildID}
 	amdDriver, err := driver.GetDriver(ctx, "buildx_buildkit_depot_amd64", nil, dockerCli.Client(), imageopt.Auth, nil, nil, nil, driverOpts, nil, contextPathHash)
 	if err != nil {
 		return nil, err
@@ -320,7 +314,7 @@ func getDrivers(ctx context.Context, dockerCli command.Cli, contextPathHash stri
 		},
 	}
 
-	driverOpts = map[string]string{"platform": "arm64"}
+	driverOpts = map[string]string{"platform": "arm64", "buildID": buildID}
 	armDriver, err := driver.GetDriver(ctx, "buildx_buildkit_depot_arm64", nil, dockerCli.Client(), imageopt.Auth, nil, nil, nil, driverOpts, nil, contextPathHash)
 	if err != nil {
 		return nil, err
