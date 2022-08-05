@@ -75,6 +75,9 @@ func (d *Driver) Bootstrap(ctx context.Context, l progress.Logger) error {
 		d.tlsOpts = tls
 	}
 
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
+
 	return progress.Wrap("[depot] connecting to "+d.builder.Platform+" builder", l, func(sub progress.SubLogger) error {
 		for i := 0; ; i++ {
 			info, err := d.Info(ctx)
