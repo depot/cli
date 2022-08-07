@@ -288,6 +288,11 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, opts map[string]bu
 
 	printWarnings(os.Stderr, printer.Warnings(), progressMode)
 
+	// Attempt to stop drivers, which will stop health checks
+	for _, d := range dis {
+		_ = d.Driver.Stop(ctx, false)
+	}
+
 	return resp[defaultTargetName].ExporterResponse["containerimage.digest"], err
 }
 

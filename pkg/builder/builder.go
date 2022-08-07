@@ -108,3 +108,11 @@ func (b *Builder) Acquire(l progress.Logger) (*AcquiredBuilder, error) {
 
 	return &builder, err
 }
+
+func (b *Builder) ReportHealth(status string) error {
+	_, err := b.depot.ReportBuilderHealth(b.BuildID, b.Platform, status)
+	if err != nil {
+		return err
+	}
+	return nil
+}

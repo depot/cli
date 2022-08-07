@@ -40,7 +40,7 @@ func (f *factory) New(ctx context.Context, cfg driver.InitConfig) (driver.Driver
 	depot := api.GetContextClient(ctx)
 	builder := builder.NewBuilder(depot, buildID, platform)
 
-	d := &Driver{factory: f, InitConfig: cfg, builderInfo: nil, depot: depot, builder: builder}
+	d := &Driver{factory: f, InitConfig: cfg, builderInfo: nil, depot: depot, builder: builder, done: make(chan struct{})}
 	return d, nil
 }
 

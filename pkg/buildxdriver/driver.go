@@ -2,6 +2,7 @@ package buildxdriver
 
 import (
 	"context"
+	"log"
 	"os"
 	"time"
 
@@ -20,6 +21,8 @@ type Driver struct {
 	builder     *builder.Builder
 	builderInfo *builder.AcquiredBuilder
 	*tlsOpts
+
+	done chan struct{}
 }
 
 type tlsOpts struct {
@@ -85,6 +88,11 @@ func (d *Driver) Bootstrap(ctx context.Context, l progress.Logger) error {
 				return err
 			}
 			if info.Status != driver.Inactive {
+				err = d.startHealthcheck()
+				if err != nil {
+					return err
+				}
+
 				return nil
 			}
 
@@ -155,9 +163,30 @@ func (d *Driver) Rm(ctx context.Context, force bool, rmVolume bool, rmDaemon boo
 }
 
 func (d *Driver) Stop(ctx context.Context, force bool) error {
+	go func() {
+		d.done <- struct{}{}
+	}()
 	return nil
 }
 
 func (d *Driver) Version(ctx context.Context) (string, error) {
 	return "", nil
+}
+
+func (d *Driver) startHealthcheck() error {
+	go func() {
+		for {
+			select {
+			case <-d.done:
+				return
+			case <-time.After(5 * time.Second):
+				err := d.builder.ReportHealth("running")
+				if err != nil {
+					log.Printf("warning: failed to report health for %s builder: %v\n", d.builder.Platform, err)
+				}
+			}
+		}
+	}()
+
+	return nil
 }

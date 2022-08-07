@@ -62,6 +62,19 @@ func (d *Depot) GetBuilder(buildID string, platform string) (*BuilderResponse, e
 	)
 }
 
+type BuilderHealthResponse struct {
+	OK bool `json:"ok"`
+}
+
+func (d *Depot) ReportBuilderHealth(buildID string, platform string, status string) (*BuilderHealthResponse, error) {
+	return apiRequest[BuilderHealthResponse](
+		"POST",
+		fmt.Sprintf("%s/api/internal/cli/builds/%s/platform/%s/health", d.BaseURL, buildID, platform),
+		d.token,
+		map[string]string{"status": status},
+	)
+}
+
 type FinishResponse struct {
 	OK bool `json:"ok"`
 }
