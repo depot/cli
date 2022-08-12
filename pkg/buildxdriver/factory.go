@@ -2,7 +2,6 @@ package buildxdriver
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/depot/cli/pkg/api"
 	"github.com/depot/cli/pkg/builder"
@@ -37,20 +36,11 @@ func (*factory) Priority(ctx context.Context, api dockerclient.APIClient) int {
 
 func (f *factory) New(ctx context.Context, cfg driver.InitConfig) (driver.Driver, error) {
 	platform := cfg.DriverOpts["platform"]
+	buildID := cfg.DriverOpts["buildID"]
 	depot := api.GetContextClient(ctx)
-	builders := builder.GetContextBuilders(ctx)
-	var builder *builder.Builder
-	for _, b := range builders {
-		if b.Platform == platform {
-			builder = b
-			break
-		}
-	}
-	if builder == nil {
-		return nil, fmt.Errorf("no builder found for platform %s", platform)
-	}
+	builder := builder.NewBuilder(depot, buildID, platform)
 
-	d := &Driver{factory: f, InitConfig: cfg, addr: "", depot: depot, builder: builder}
+	d := &Driver{factory: f, InitConfig: cfg, builderInfo: nil, depot: depot, builder: builder, done: make(chan struct{})}
 	return d, nil
 }
 

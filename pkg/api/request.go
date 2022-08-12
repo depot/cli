@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"runtime"
 
@@ -65,7 +64,7 @@ func apiRequest[Response interface{}](method, url, token string, payload interfa
 		fmt.Println(warnStyle.Render(warnMessage))
 	}
 
-	body, err := ioutil.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
 	}
