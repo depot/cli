@@ -56,7 +56,7 @@ func (b *Builder) Acquire(l progress.Logger) (*AcquiredBuilder, error) {
 		// Loop if the builder is not ready
 		count := 0
 		for {
-			if resp != nil && resp.OK && resp.BuilderState == "active" {
+			if resp != nil && resp.OK && resp.BuilderState == "ready" {
 				break
 			}
 
