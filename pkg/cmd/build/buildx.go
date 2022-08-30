@@ -244,6 +244,8 @@ func runBuild(dockerCli command.Cli, in buildOptions) (err error) {
 }
 
 func buildTargets(ctx context.Context, dockerCli command.Cli, opts map[string]build.Options, progressMode, contextPathHash, metadataFile string, in buildOptions) (imageID string, err error) {
+	var buildErr error
+
 	ctx2, cancel := context.WithCancel(context.TODO())
 	defer cancel()
 
@@ -260,7 +262,7 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, opts map[string]bu
 		return "", err
 	}
 	defer func() {
-		err := depot.FinishBuild(b.ID)
+		err := depot.FinishBuild(b.ID, buildErr)
 		if err != nil {
 			log.Printf("error releasing builder: %v", err)
 		}
@@ -271,13 +273,13 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, opts map[string]bu
 		return "", err
 	}
 
-	resp, err := build.Build(ctx, dis, opts, dockerAPI(dockerCli), confutil.ConfigDir(dockerCli), printer)
+	resp, buildErr := build.Build(ctx, dis, opts, dockerAPI(dockerCli), confutil.ConfigDir(dockerCli), printer)
 	err1 := printer.Wait()
-	if err == nil {
-		err = err1
+	if buildErr == nil {
+		buildErr = err1
 	}
-	if err != nil {
-		return "", err
+	if buildErr != nil {
+		return "", buildErr
 	}
 
 	if len(metadataFile) > 0 && resp != nil {
@@ -293,7 +295,7 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, opts map[string]bu
 		_ = d.Driver.Stop(ctx, false)
 	}
 
-	return resp[defaultTargetName].ExporterResponse["containerimage.digest"], err
+	return resp[defaultTargetName].ExporterResponse["containerimage.digest"], buildErr
 }
 
 func getDrivers(ctx context.Context, dockerCli command.Cli, contextPathHash string, buildID string) ([]build.DriverInfo, error) {
