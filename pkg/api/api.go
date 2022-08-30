@@ -79,12 +79,19 @@ type FinishResponse struct {
 	OK bool `json:"ok"`
 }
 
-func (d *Depot) FinishBuild(buildID string) error {
+func (d *Depot) FinishBuild(buildID string, buildErr error) error {
+	var status string
+	if buildErr != nil {
+		status = "error"
+	} else {
+		status = "success"
+	}
+
 	_, err := apiRequest[FinishResponse](
 		"DELETE",
 		fmt.Sprintf("%s/api/internal/cli/builds/%s", d.BaseURL, buildID),
 		d.token,
-		map[string]string{},
+		map[string]string{"status": status},
 	)
 	return err
 }
