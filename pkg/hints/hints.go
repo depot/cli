@@ -35,5 +35,5 @@ func SendBuildHint() {
 		return
 	}
 
-	client.ReportBuildHint(projectID)
+	_, _ = client.ReportBuildHint(projectID)
 }

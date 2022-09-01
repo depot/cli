@@ -45,7 +45,7 @@ type BuildHintReponse struct {
 func (d *Depot) ReportBuildHint(projectID string) (*BuildHintReponse, error) {
 	return apiRequest[BuildHintReponse](
 		"POST",
-		fmt.Sprintf("%s/api/internal/cli/projects/%s/build-hint", d.BaseURL, projectID),
+		fmt.Sprintf("%s/api/internal/cli/projects/%s/build-hints", d.BaseURL, projectID),
 		d.token,
 		map[string]string{},
 	)
