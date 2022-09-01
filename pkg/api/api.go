@@ -38,6 +38,19 @@ func (d *Depot) CreateBuild(projectID string) (*BuildReponse, error) {
 	)
 }
 
+type BuildHintReponse struct {
+	OK bool `json:"ok"`
+}
+
+func (d *Depot) ReportBuildHint(projectID string) (*BuildHintReponse, error) {
+	return apiRequest[BuildHintReponse](
+		"POST",
+		fmt.Sprintf("%s/api/internal/cli/projects/%s/build-hint", d.BaseURL, projectID),
+		d.token,
+		map[string]string{},
+	)
+}
+
 type BuilderResponse struct {
 	OK           bool   `json:"ok"`
 	Endpoint     string `json:"endpoint"`

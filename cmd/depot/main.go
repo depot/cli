@@ -4,12 +4,14 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 
 	"github.com/depot/cli/internal/build"
 	"github.com/depot/cli/internal/update"
 	"github.com/depot/cli/pkg/api"
 	"github.com/depot/cli/pkg/cmd/root"
 	"github.com/depot/cli/pkg/config"
+	"github.com/depot/cli/pkg/hints"
 	"github.com/getsentry/sentry-go"
 	"github.com/mattn/go-isatty"
 	"github.com/mgutz/ansi"
@@ -42,6 +44,20 @@ func runMain() int {
 	}()
 
 	rootCmd := root.NewCmdRoot(buildVersion, buildDate)
+
+	// If shell completion is activated with a command starting with 'b', send a build hint
+	// to the API so that any suspended builder machines can be preemptively woken up.
+	defer func() {
+		command := os.Args[1]
+		if command == "__complete" || command == "__completeNoDesc" {
+			for _, arg := range os.Args[2:] {
+				if strings.HasPrefix(arg, "b") {
+					hints.SendBuildHint()
+					break
+				}
+			}
+		}
+	}()
 
 	if err := rootCmd.Execute(); err != nil {
 		return 1
