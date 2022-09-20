@@ -58,7 +58,7 @@ func (d *Depot) GetBuilder(buildID string, platform string) (*BuilderResponse, e
 		"GET",
 		fmt.Sprintf("%s/api/internal/cli/builds/%s/platform/%s", d.BaseURL, buildID, platform),
 		d.token,
-		map[string]string{},
+		nil,
 	)
 }
 
