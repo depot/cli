@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/csv"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -11,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 
 	depotapi "github.com/depot/cli/pkg/api"
@@ -23,6 +25,7 @@ import (
 	"github.com/docker/buildx/util/progress"
 	"github.com/docker/buildx/util/tracing"
 	"github.com/docker/cli/cli/command"
+	"github.com/docker/cli/cli/config"
 	"github.com/docker/cli/cli/context/docker"
 	dockeropts "github.com/docker/cli/opts"
 	"github.com/docker/distribution/reference"
@@ -44,11 +47,13 @@ import (
 const defaultTargetName = "default"
 
 type buildOptions struct {
-	project string
-	token   string
+	project       string
+	token         string
+	allowNoOutput bool
 
 	contextPath    string
 	dockerfileName string
+	printFunc      string
 
 	allow         []string
 	buildArgs     []string
@@ -121,6 +126,11 @@ func runBuild(dockerCli command.Cli, in buildOptions) (err error) {
 		return err
 	}
 
+	printFunc, err := parsePrintFunc(in.printFunc)
+	if err != nil {
+		return err
+	}
+
 	opts := build.Options{
 		Inputs: build.Inputs{
 			ContextPath:    in.contextPath,
@@ -140,6 +150,7 @@ func runBuild(dockerCli command.Cli, in buildOptions) (err error) {
 		Tags:          in.tags,
 		Target:        in.target,
 		Ulimits:       in.ulimits,
+		PrintFunc:     printFunc,
 	}
 
 	platforms, err := platformutil.Parse(in.platforms)
@@ -148,7 +159,8 @@ func runBuild(dockerCli command.Cli, in buildOptions) (err error) {
 	}
 	opts.Platforms = platforms
 
-	opts.Session = append(opts.Session, authprovider.NewDockerAuthProvider(os.Stderr))
+	dockerConfig := config.LoadDefaultConfigFile(os.Stderr)
+	opts.Session = append(opts.Session, authprovider.NewDockerAuthProvider(dockerConfig))
 
 	secrets, err := buildflags.ParseSecretSpecs(in.secrets)
 	if err != nil {
@@ -273,7 +285,7 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, opts map[string]bu
 		return "", err
 	}
 
-	resp, buildErr := build.Build(ctx, dis, opts, dockerAPI(dockerCli), confutil.ConfigDir(dockerCli), printer)
+	resp, buildErr := build.BuildWithResultHandler(ctx, dis, opts, dockerAPI(dockerCli), confutil.ConfigDir(dockerCli), printer, nil, in.allowNoOutput)
 	err1 := printer.Wait()
 	if buildErr == nil {
 		buildErr = err1
@@ -295,7 +307,15 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, opts map[string]bu
 		_ = d.Driver.Stop(ctx, false)
 	}
 
-	return resp[defaultTargetName].ExporterResponse["containerimage.digest"], buildErr
+	for k := range resp {
+		if opts[k].PrintFunc != nil {
+			if err := printResult(opts[k].PrintFunc, resp[k].ExporterResponse); err != nil {
+				return "", err
+			}
+		}
+	}
+
+	return resp[defaultTargetName].ExporterResponse["containerimage.digest"], err
 }
 
 func getDrivers(ctx context.Context, dockerCli command.Cli, contextPathHash string, buildID string) ([]build.DriverInfo, error) {
@@ -305,7 +325,7 @@ func getDrivers(ctx context.Context, dockerCli command.Cli, contextPathHash stri
 	}
 
 	driverOpts := map[string]string{"platform": "amd64", "buildID": buildID}
-	amdDriver, err := driver.GetDriver(ctx, "buildx_buildkit_depot_amd64", nil, dockerCli.Client(), imageopt.Auth, nil, nil, nil, driverOpts, nil, contextPathHash)
+	amdDriver, err := driver.GetDriver(ctx, "buildx_buildkit_depot_amd64", nil, "", dockerCli.Client(), imageopt.Auth, nil, nil, nil, driverOpts, nil, contextPathHash)
 	if err != nil {
 		return nil, err
 	}
@@ -322,7 +342,7 @@ func getDrivers(ctx context.Context, dockerCli command.Cli, contextPathHash stri
 	}
 
 	driverOpts = map[string]string{"platform": "arm64", "buildID": buildID}
-	armDriver, err := driver.GetDriver(ctx, "buildx_buildkit_depot_arm64", nil, dockerCli.Client(), imageopt.Auth, nil, nil, nil, driverOpts, nil, contextPathHash)
+	armDriver, err := driver.GetDriver(ctx, "buildx_buildkit_depot_arm64", nil, "", dockerCli.Client(), imageopt.Auth, nil, nil, nil, driverOpts, nil, contextPathHash)
 	if err != nil {
 		return nil, err
 	}
@@ -487,6 +507,34 @@ func parseContextNames(values []string) (map[string]build.NamedContext, error) {
 	return result, nil
 }
 
+func parsePrintFunc(str string) (*build.PrintFunc, error) {
+	if str == "" {
+		return nil, nil
+	}
+	csvReader := csv.NewReader(strings.NewReader(str))
+	fields, err := csvReader.Read()
+	if err != nil {
+		return nil, err
+	}
+	f := &build.PrintFunc{}
+	for _, field := range fields {
+		parts := strings.SplitN(field, "=", 2)
+		if len(parts) == 2 {
+			if parts[0] == "format" {
+				f.Format = parts[1]
+			} else {
+				return nil, errors.Errorf("invalid print field: %s", field)
+			}
+		} else {
+			if f.Name != "" {
+				return nil, errors.Errorf("invalid print value: %s", str)
+			}
+			f.Name = field
+		}
+	}
+	return f, nil
+}
+
 func writeMetadataFile(filename string, dt interface{}) error {
 	b, err := json.MarshalIndent(dt, "", "  ")
 	if err != nil {
@@ -542,4 +590,12 @@ func (w *wrapped) Error() string {
 
 func (w *wrapped) Unwrap() error {
 	return w.err
+}
+
+func isExperimental() bool {
+	if v, ok := os.LookupEnv("BUILDX_EXPERIMENTAL"); ok {
+		vv, _ := strconv.ParseBool(v)
+		return vv
+	}
+	return false
 }
