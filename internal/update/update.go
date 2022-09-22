@@ -34,28 +34,21 @@ func IsUnderHomebrew() bool {
 	return strings.HasPrefix(binary, brewBinPrefix)
 }
 
-type ReleaseInfo struct {
-	Version     string    `json:"version"`
-	URL         string    `json:"url"`
-	PublishedAt time.Time `json:"publishedAt"`
-}
-
 type StateEntry struct {
-	CheckedForUpdateAt time.Time   `yaml:"checkedForUpdateAt"`
-	LatestRelease      ReleaseInfo `yaml:"latestRelease"`
+	CheckedForUpdateAt time.Time            `yaml:"checkedForUpdateAt"`
+	LatestRelease      *api.ReleaseResponse `yaml:"latestRelease"`
 }
 
-func CheckForUpdate(client *api.Depot, stateFilePath, currentVersion string) (*ReleaseInfo, error) {
+func CheckForUpdate(client *api.Depot, stateFilePath, currentVersion string) (*api.ReleaseResponse, error) {
 	state, _ := readStateFile(stateFilePath)
 	if state != nil && time.Since(state.CheckedForUpdateAt) < time.Hour*1 {
 		return nil, nil
 	}
 
-	releaseResponse, err := client.LatestRelease()
+	release, err := client.LatestRelease()
 	if err != nil {
 		return nil, err
 	}
-	release := ReleaseInfo{Version: releaseResponse.Version, URL: releaseResponse.URL, PublishedAt: releaseResponse.PublishedAt}
 
 	state = &StateEntry{CheckedForUpdateAt: time.Now(), LatestRelease: release}
 	err = writeStateFile(stateFilePath, state)
@@ -64,7 +57,7 @@ func CheckForUpdate(client *api.Depot, stateFilePath, currentVersion string) (*R
 	}
 
 	if versionGreaterThan(release.Version, currentVersion) {
-		return &release, nil
+		return release, nil
 	}
 
 	return nil, nil

@@ -106,7 +106,7 @@ type ReleaseResponse struct {
 func (d *Depot) LatestRelease() (*ReleaseResponse, error) {
 	return apiRequest[ReleaseResponse](
 		"GET",
-		fmt.Sprintf("%s/api/cli/release/%s/%s/latest", d.BaseURL, runtime.GOOS, runtime.GOARCH),
+		fmt.Sprintf("https://dl.depot.dev/cli/release/%s/%s/latest", runtime.GOOS, runtime.GOARCH),
 		d.token,
 		nil,
 	)

@@ -35,7 +35,7 @@ func runMain() int {
 	buildVersion := build.Version
 	buildDate := build.Date
 
-	updateMessageChan := make(chan *update.ReleaseInfo)
+	updateMessageChan := make(chan *api.ReleaseResponse)
 	go func() {
 		rel, _ := checkForUpdate(buildVersion)
 		updateMessageChan <- rel
@@ -66,7 +66,7 @@ func runMain() int {
 	return 0
 }
 
-func checkForUpdate(currentVersion string) (*update.ReleaseInfo, error) {
+func checkForUpdate(currentVersion string) (*api.ReleaseResponse, error) {
 	if !shouldCheckForUpdate() {
 		return nil, nil
 	}
