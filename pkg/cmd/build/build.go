@@ -83,6 +83,13 @@ func NewCmdBuild() *cobra.Command {
 	flags.StringVar(&options.project, "project", "", "Depot project ID")
 	flags.StringVar(&options.token, "token", "", "Depot API token")
 
+	allowNoOutput := false
+	if v := os.Getenv("DEPOT_SUPPRESS_NO_OUTPUT_WARNING"); v != "" {
+		allowNoOutput = true
+	}
+	flags.BoolVar(&options.allowNoOutput, "suppress-no-output-warning", allowNoOutput, "Suppress warning if no output is generated")
+	_ = flags.MarkHidden("suppress-no-output-warning")
+
 	// `docker buildx build` options
 	flags.StringSliceVar(&options.extraHosts, "add-host", []string{}, `Add a custom host-to-IP mapping (format: "host:ip")`)
 	flags.StringSliceVar(&options.allow, "allow", []string{}, `Allow extra privileged entitlement (e.g., "network.host", "security.insecure")`)
@@ -112,6 +119,10 @@ func NewCmdBuild() *cobra.Command {
 	flags.StringVar(&options.progress, "progress", "auto", `Set type of progress output ("auto", "plain", "tty"). Use plain to show container output`)
 	options.pull = flags.Bool("pull", false, "Always attempt to pull all referenced images")
 	flags.StringVar(&options.metadataFile, "metadata-file", "", "Write build result metadata to the file")
+
+	if isExperimental() {
+		flags.StringVar(&options.printFunc, "print", "", "Print result of information request (e.g., outline, targets) [experimental]")
+	}
 
 	flags.BoolVar(&options.noLoad, "no-load", false, "Overrides the --load flag")
 	_ = flags.MarkHidden("no-load")
