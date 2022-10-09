@@ -2,13 +2,13 @@ package build
 
 import "runtime/debug"
 
-var Version = "dev"
+var Version = "0.0.0-dev"
 var Date = ""
 var SentryEnvironment = "development"
 
 func init() {
-	if Version == "dev" {
-		if info, ok := debug.ReadBuildInfo(); ok {
+	if Version == "0.0.0-dev" {
+		if info, ok := debug.ReadBuildInfo(); ok && info.Main.Version != "(devel)" {
 			Version = info.Main.Version
 		}
 	}
