@@ -30,7 +30,7 @@ func Format(version, buildDate string) string {
 func changelogURL(version string) string {
 	path := "https://github.com/depot/cli"
 	r := regexp.MustCompile(`^v?\d+\.\d+\.\d+(-[\w.]+)?$`)
-	if !r.MatchString(version) {
+	if !r.MatchString(version) || version == "0.0.0-dev" {
 		return fmt.Sprintf("%s/releases/latest", path)
 	}
 	url := fmt.Sprintf("%s/releases/tag/v%s", path, strings.TrimPrefix(version, "v"))
