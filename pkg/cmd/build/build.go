@@ -8,8 +8,6 @@ import (
 	"github.com/depot/cli/pkg/config"
 	"github.com/depot/cli/pkg/project"
 	"github.com/docker/cli/cli"
-	"github.com/docker/cli/cli/command"
-	cliflags "github.com/docker/cli/cli/flags"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 
@@ -51,13 +49,7 @@ func NewCmdBuild() *cobra.Command {
 				return fmt.Errorf("missing API token, please run `depot login`")
 			}
 
-			dockerCli, err := command.NewDockerCli()
-			if err != nil {
-				fmt.Fprintln(os.Stderr, err)
-				os.Exit(1)
-			}
-			opts := cliflags.NewClientOptions()
-			err = dockerCli.Initialize(opts)
+			dockerCli, err := newDockerCLI()
 			if err != nil {
 				fmt.Fprintln(os.Stderr, err)
 				os.Exit(1)
