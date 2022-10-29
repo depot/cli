@@ -3,7 +3,9 @@ package buildxdriver
 import (
 	"context"
 	"log"
+	"net"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/depot/cli/pkg/api"
@@ -82,7 +84,8 @@ func (d *Driver) Bootstrap(ctx context.Context, l progress.Logger) error {
 	defer cancel()
 
 	return progress.Wrap("[depot] connecting to "+d.builder.Platform+" builder", l, func(sub progress.SubLogger) error {
-		for i := 0; ; i++ {
+		for i := 0; i < 120; i++ {
+
 			info, err := d.Info(ctx)
 			if err != nil {
 				return err
@@ -100,12 +103,11 @@ func (d *Driver) Bootstrap(ctx context.Context, l progress.Logger) error {
 			case <-ctx.Done():
 				return ctx.Err()
 			default:
-				if i > 10 {
-					i = 10
-				}
-				time.Sleep(time.Duration(i) * time.Second)
+				time.Sleep(1 * time.Second)
 			}
 		}
+
+		return errors.New("timed out connecting to builder")
 	})
 }
 
@@ -131,6 +133,11 @@ func (d *Driver) Client(ctx context.Context) (*client.Client, error) {
 	if d.tlsOpts != nil {
 		opts = append(opts, client.WithCredentials(d.tlsOpts.serverName, d.tlsOpts.caCert, d.tlsOpts.cert, d.tlsOpts.key))
 	}
+
+	opts = append(opts, client.WithContextDialer(func(ctx context.Context, addr string) (net.Conn, error) {
+		addr = strings.TrimPrefix(addr, "tcp://")
+		return net.Dial("tcp", addr)
+	}))
 
 	return client.New(ctx, d.builderInfo.Addr, opts...)
 }
