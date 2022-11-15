@@ -87,11 +87,18 @@ func (d *Depot) FinishBuild(buildID string, buildErr error) error {
 		status = "success"
 	}
 
+	payload := map[string]string{"status": status}
+
+	// If this is a Depot error, include the error message
+	if IsDepotError(buildErr) {
+		payload["error"] = buildErr.Error()
+	}
+
 	_, err := apiRequest[FinishResponse](
 		"DELETE",
 		fmt.Sprintf("%s/api/internal/cli/builds/%s", d.BaseURL, buildID),
 		d.token,
-		map[string]string{"status": status},
+		payload,
 	)
 	return err
 }

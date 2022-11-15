@@ -37,7 +37,7 @@ type tlsOpts struct {
 func (d *Driver) Bootstrap(ctx context.Context, l progress.Logger) error {
 	builderInfo, err := d.builder.Acquire(l)
 	if err != nil {
-		return errors.Wrap(err, "failed to bootstrap builder")
+		return api.NewDepotError(errors.Wrap(err, "failed to bootstrap builder"))
 	}
 	d.builderInfo = builderInfo
 
@@ -46,34 +46,34 @@ func (d *Driver) Bootstrap(ctx context.Context, l progress.Logger) error {
 
 		file, err := os.CreateTemp("", "depot-cert")
 		if err != nil {
-			return errors.Wrap(err, "failed to create temp file")
+			return api.NewDepotError(errors.Wrap(err, "failed to create temp file"))
 		}
 		defer file.Close()
 		err = os.WriteFile(file.Name(), []byte(builderInfo.Cert), 0600)
 		if err != nil {
-			return errors.Wrap(err, "failed to write cert to temp file")
+			return api.NewDepotError(errors.Wrap(err, "failed to write cert to temp file"))
 		}
 		tls.cert = file.Name()
 
 		file, err = os.CreateTemp("", "depot-key")
 		if err != nil {
-			return errors.Wrap(err, "failed to create temp file")
+			return api.NewDepotError(errors.Wrap(err, "failed to create temp file"))
 		}
 		defer file.Close()
 		err = os.WriteFile(file.Name(), []byte(builderInfo.Key), 0600)
 		if err != nil {
-			return errors.Wrap(err, "failed to write key to temp file")
+			return api.NewDepotError(errors.Wrap(err, "failed to write key to temp file"))
 		}
 		tls.key = file.Name()
 
 		file, err = os.CreateTemp("", "depot-ca-cert")
 		if err != nil {
-			return errors.Wrap(err, "failed to create temp file")
+			return api.NewDepotError(errors.Wrap(err, "failed to create temp file"))
 		}
 		defer file.Close()
 		err = os.WriteFile(file.Name(), []byte(builderInfo.CACert), 0600)
 		if err != nil {
-			return errors.Wrap(err, "failed to write CA cert to temp file")
+			return api.NewDepotError(errors.Wrap(err, "failed to write CA cert to temp file"))
 		}
 		tls.caCert = file.Name()
 
@@ -83,7 +83,7 @@ func (d *Driver) Bootstrap(ctx context.Context, l progress.Logger) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
 
-	return progress.Wrap("[depot] connecting to "+d.builder.Platform+" builder", l, func(sub progress.SubLogger) error {
+	err = progress.Wrap("[depot] connecting to "+d.builder.Platform+" builder", l, func(sub progress.SubLogger) error {
 		for i := 0; i < 120; i++ {
 
 			info, err := d.Info(ctx)
@@ -109,6 +109,12 @@ func (d *Driver) Bootstrap(ctx context.Context, l progress.Logger) error {
 
 		return errors.New("timed out connecting to builder")
 	})
+
+	if err != nil {
+		return api.NewDepotError(err)
+	}
+
+	return nil
 }
 
 func (d *Driver) Info(ctx context.Context) (*driver.Info, error) {
@@ -139,7 +145,11 @@ func (d *Driver) Client(ctx context.Context) (*client.Client, error) {
 		return net.Dial("tcp", addr)
 	}))
 
-	return client.New(ctx, d.builderInfo.Addr, opts...)
+	c, err := client.New(ctx, d.builderInfo.Addr, opts...)
+	if err != nil {
+		return nil, api.NewDepotError(err)
+	}
+	return c, nil
 }
 
 // Boilerplate
