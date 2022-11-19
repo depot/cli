@@ -12,7 +12,7 @@ import (
 )
 
 func NewBuildClient() cliv1beta1connect.BuildServiceClient {
-	baseURL := os.Getenv("DEPOT_CLOUD_API_HOST")
+	baseURL := os.Getenv("DEPOT_API_URL")
 	if baseURL == "" {
 		baseURL = "https://api.depot.dev"
 	}
@@ -20,7 +20,7 @@ func NewBuildClient() cliv1beta1connect.BuildServiceClient {
 }
 
 func NewLoginClient() cliv1beta1connect.LoginServiceClient {
-	baseURL := os.Getenv("DEPOT_CLOUD_API_HOST")
+	baseURL := os.Getenv("DEPOT_API_URL")
 	if baseURL == "" {
 		baseURL = "https://api.depot.dev"
 	}
@@ -28,7 +28,7 @@ func NewLoginClient() cliv1beta1connect.LoginServiceClient {
 }
 
 func NewProjectsClient() cliv1beta1connect.ProjectsServiceClient {
-	baseURL := os.Getenv("DEPOT_CLOUD_API_HOST")
+	baseURL := os.Getenv("DEPOT_API_URL")
 	if baseURL == "" {
 		baseURL = "https://api.depot.dev"
 	}
