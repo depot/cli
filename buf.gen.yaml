@@ -1,0 +1,16 @@
+version: v1
+
+managed:
+  enabled: true
+  go_package_prefix:
+    default: github.com/depot/cli/pkg/proto
+    except:
+      - buf.build/googleapis/googleapis
+
+plugins:
+  - remote: buf.build/protocolbuffers/plugins/go
+    out: pkg/proto
+    opt: paths=source_relative
+  - remote: buf.build/bufbuild/plugins/connect-go:v0.4.0-1
+    out: pkg/proto
+    opt: paths=source_relative

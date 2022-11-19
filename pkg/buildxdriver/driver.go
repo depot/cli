@@ -19,7 +19,6 @@ import (
 type Driver struct {
 	driver.InitConfig
 	factory     driver.Factory
-	depot       *api.Depot
 	builder     *builder.Builder
 	builderInfo *builder.AcquiredBuilder
 	*tlsOpts
@@ -91,7 +90,7 @@ func (d *Driver) Bootstrap(ctx context.Context, l progress.Logger) error {
 				return err
 			}
 			if info.Status != driver.Inactive {
-				err = d.startHealthcheck()
+				err = d.startHealthcheck(context.Background())
 				if err != nil {
 					return err
 				}
@@ -190,18 +189,11 @@ func (d *Driver) Version(ctx context.Context) (string, error) {
 	return "", nil
 }
 
-func (d *Driver) startHealthcheck() error {
+func (d *Driver) startHealthcheck(ctx context.Context) error {
 	go func() {
-		for {
-			select {
-			case <-d.done:
-				return
-			case <-time.After(5 * time.Second):
-				err := d.builder.ReportHealth("running")
-				if err != nil {
-					log.Printf("warning: failed to report health for %s builder: %v\n", d.builder.Platform, err)
-				}
-			}
+		err := d.builder.ReportHealth(ctx)
+		if err != nil {
+			log.Printf("warning: failed to report health for %s builder: %v\n", d.builder.Platform, err)
 		}
 	}()
 

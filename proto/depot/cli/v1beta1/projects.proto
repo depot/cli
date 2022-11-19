@@ -1,0 +1,22 @@
+syntax = "proto3";
+
+package depot.cli.v1beta1;
+
+import "google/protobuf/timestamp.proto";
+
+service ProjectsService {
+  rpc ListProjects(ListProjectsRequest) returns (ListProjectsResponse);
+}
+
+message ListProjectsRequest {}
+
+message ListProjectsResponse {
+  repeated Project projects = 1;
+
+  message Project {
+    string id = 1;
+    string name = 2;
+    string org_id = 3;
+    string org_name = 4;
+  }
+}

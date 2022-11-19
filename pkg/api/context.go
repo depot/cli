@@ -2,12 +2,12 @@ package api
 
 import "context"
 
-type depotClientKey struct{}
+type depotTokenKey struct{}
 
-func WithClient(ctx context.Context, client *Depot) context.Context {
-	return context.WithValue(ctx, depotClientKey{}, client)
+func WithToken(ctx context.Context, token string) context.Context {
+	return context.WithValue(ctx, depotTokenKey{}, token)
 }
 
-func GetContextClient(ctx context.Context) *Depot {
-	return ctx.Value(depotClientKey{}).(*Depot)
+func GetContextToken(ctx context.Context) string {
+	return ctx.Value(depotTokenKey{}).(string)
 }

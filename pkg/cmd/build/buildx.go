@@ -15,7 +15,9 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/bufbuild/connect-go"
 	depotapi "github.com/depot/cli/pkg/api"
+	cliv1beta1 "github.com/depot/cli/pkg/proto/depot/cli/v1beta1"
 	"github.com/docker/buildx/build"
 	"github.com/docker/buildx/driver"
 	"github.com/docker/buildx/store/storeutil"
@@ -263,24 +265,31 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, opts map[string]bu
 
 	printer := progress.NewPrinter(ctx2, os.Stderr, os.Stderr, progressMode)
 
-	depot, err := depotapi.NewDepotFromEnv(in.token)
-	if err != nil {
-		return "", err
-	}
-	ctx = depotapi.WithClient(ctx, depot)
+	client := depotapi.NewBuildClient()
 
-	b, err := depot.CreateBuild(in.project)
+	req := cliv1beta1.CreateBuildRequest{ProjectId: in.project}
+	b, err := client.CreateBuild(ctx, depotapi.WithHeaders(connect.NewRequest(&req), in.token))
 	if err != nil {
 		return "", err
 	}
 	defer func() {
-		err := depot.FinishBuild(b.ID, buildErr)
+		req := cliv1beta1.FinishBuildRequest{BuildId: b.Msg.BuildId}
+		if buildErr != nil {
+			req.Result = &cliv1beta1.FinishBuildRequest_Success{Success: &cliv1beta1.FinishBuildRequest_BuildSuccess{}}
+		} else {
+			errorMessage := ""
+			if depotapi.IsDepotError(buildErr) {
+				errorMessage = buildErr.Error()
+			}
+			req.Result = &cliv1beta1.FinishBuildRequest_Error{Error: &cliv1beta1.FinishBuildRequest_BuildError{Error: errorMessage}}
+		}
+		_, err := client.FinishBuild(ctx, depotapi.WithHeaders(connect.NewRequest(&req), in.token))
 		if err != nil {
 			log.Printf("error releasing builder: %v", err)
 		}
 	}()
 
-	dis, err := getDrivers(ctx, dockerCli, contextPathHash, b.ID)
+	dis, err := getDrivers(ctx, dockerCli, contextPathHash, b.Msg.BuildId, in.token)
 	if err != nil {
 		return "", err
 	}
@@ -318,13 +327,13 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, opts map[string]bu
 	return resp[defaultTargetName].ExporterResponse["containerimage.digest"], err
 }
 
-func getDrivers(ctx context.Context, dockerCli command.Cli, contextPathHash string, buildID string) ([]build.DriverInfo, error) {
+func getDrivers(ctx context.Context, dockerCli command.Cli, contextPathHash string, buildID string, token string) ([]build.DriverInfo, error) {
 	imageopt, err := storeutil.GetImageConfig(dockerCli, nil)
 	if err != nil {
 		return nil, err
 	}
 
-	driverOpts := map[string]string{"platform": "amd64", "buildID": buildID}
+	driverOpts := map[string]string{"token": token, "platform": "amd64", "buildID": buildID}
 	amdDriver, err := driver.GetDriver(ctx, "buildx_buildkit_depot_amd64", nil, "", dockerCli.Client(), imageopt.Auth, nil, nil, nil, driverOpts, nil, contextPathHash)
 	if err != nil {
 		return nil, err
@@ -341,7 +350,7 @@ func getDrivers(ctx context.Context, dockerCli command.Cli, contextPathHash stri
 		},
 	}
 
-	driverOpts = map[string]string{"platform": "arm64", "buildID": buildID}
+	driverOpts = map[string]string{"token": token, "platform": "arm64", "buildID": buildID}
 	armDriver, err := driver.GetDriver(ctx, "buildx_buildkit_depot_arm64", nil, "", dockerCli.Client(), imageopt.Auth, nil, nil, nil, driverOpts, nil, contextPathHash)
 	if err != nil {
 		return nil, err
