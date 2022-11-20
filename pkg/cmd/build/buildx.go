@@ -274,9 +274,8 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, opts map[string]bu
 	}
 	defer func() {
 		req := cliv1beta1.FinishBuildRequest{BuildId: b.Msg.BuildId}
+		req.Result = &cliv1beta1.FinishBuildRequest_Success{Success: &cliv1beta1.FinishBuildRequest_BuildSuccess{}}
 		if buildErr != nil {
-			req.Result = &cliv1beta1.FinishBuildRequest_Success{Success: &cliv1beta1.FinishBuildRequest_BuildSuccess{}}
-		} else {
 			errorMessage := ""
 			if depotapi.IsDepotError(buildErr) {
 				errorMessage = buildErr.Error()
