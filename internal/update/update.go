@@ -39,13 +39,13 @@ type StateEntry struct {
 	LatestRelease      *api.ReleaseResponse `yaml:"latestRelease"`
 }
 
-func CheckForUpdate(client *api.Depot, stateFilePath, currentVersion string) (*api.ReleaseResponse, error) {
+func CheckForUpdate(stateFilePath, currentVersion string) (*api.ReleaseResponse, error) {
 	state, _ := readStateFile(stateFilePath)
 	if state != nil && time.Since(state.CheckedForUpdateAt) < time.Hour*1 {
 		return nil, nil
 	}
 
-	release, err := client.LatestRelease()
+	release, err := api.LatestRelease()
 	if err != nil {
 		return nil, err
 	}
