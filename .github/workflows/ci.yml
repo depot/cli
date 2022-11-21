@@ -33,7 +33,7 @@ jobs:
 
       - uses: golangci/golangci-lint-action@v3
         with:
-          version: v1.45.0
+          version: v1.50.1
           only-new-issues: false
           skip-cache: false
           skip-build-cache: true
@@ -51,7 +51,7 @@ jobs:
           cache: true
       - uses: goreleaser/goreleaser-action@v3
         with:
-          version: 1.6.3
+          version: 1.13.0
           args: build --rm-dist --snapshot
 
   package:
