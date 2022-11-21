@@ -115,6 +115,7 @@ func (b *Builder) ReportHealth(ctx context.Context) error {
 
 	stream := client.ReportBuildHealth(ctx)
 	stream.RequestHeader().Add("User-Agent", fmt.Sprintf("depot-cli/%s/%s/%s", build.Version, runtime.GOOS, runtime.GOARCH))
+	stream.RequestHeader().Add("Depot-User-Agent", fmt.Sprintf("depot-cli/%s/%s/%s", build.Version, runtime.GOOS, runtime.GOARCH))
 	stream.RequestHeader().Add("Authorization", "Bearer "+b.token)
 	defer func() {
 		_, _ = stream.CloseAndReceive()

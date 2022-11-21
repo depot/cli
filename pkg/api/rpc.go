@@ -37,6 +37,7 @@ func NewProjectsClient() cliv1beta1connect.ProjectsServiceClient {
 
 func WithHeaders[T any](req *connect.Request[T], token string) *connect.Request[T] {
 	req.Header().Add("User-Agent", fmt.Sprintf("depot-cli/%s/%s/%s", build.Version, runtime.GOOS, runtime.GOARCH))
+	req.Header().Add("Depot-User-Agent", fmt.Sprintf("depot-cli/%s/%s/%s", build.Version, runtime.GOOS, runtime.GOARCH))
 	if token != "" {
 		req.Header().Add("Authorization", "Bearer "+token)
 	}
