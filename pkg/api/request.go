@@ -47,6 +47,7 @@ func apiRequest[Response interface{}](method, url, token string, payload interfa
 		req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", token))
 	}
 	req.Header.Add("User-Agent", fmt.Sprintf("depot-cli/%s/%s/%s", build.Version, runtime.GOOS, runtime.GOARCH))
+	req.Header.Add("Depot-User-Agent", fmt.Sprintf("depot-cli/%s/%s/%s", build.Version, runtime.GOOS, runtime.GOARCH))
 
 	resp, err := client.Do(req)
 	if err != nil {
