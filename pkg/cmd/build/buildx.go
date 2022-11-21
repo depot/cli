@@ -268,7 +268,7 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, opts map[string]bu
 	client := depotapi.NewBuildClient()
 
 	req := cliv1beta1.CreateBuildRequest{ProjectId: in.project}
-	b, err := client.CreateBuild(ctx, depotapi.WithHeaders(connect.NewRequest(&req), in.token))
+	b, err := client.CreateBuild(ctx, depotapi.WithAuthentication(connect.NewRequest(&req), in.token))
 	if err != nil {
 		return "", err
 	}
@@ -282,7 +282,7 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, opts map[string]bu
 			}
 			req.Result = &cliv1beta1.FinishBuildRequest_Error{Error: &cliv1beta1.FinishBuildRequest_BuildError{Error: errorMessage}}
 		}
-		_, err := client.FinishBuild(ctx, depotapi.WithHeaders(connect.NewRequest(&req), in.token))
+		_, err := client.FinishBuild(ctx, depotapi.WithAuthentication(connect.NewRequest(&req), in.token))
 		if err != nil {
 			log.Printf("error releasing builder: %v", err)
 		}

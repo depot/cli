@@ -58,7 +58,7 @@ func (b *Builder) Acquire(l progress.Logger) (*AcquiredBuilder, error) {
 			BuildId:  b.BuildID,
 			Platform: builderPlatform,
 		}
-		stream, err := client.GetBuildKitConnection(ctx, api.WithHeaders(connect.NewRequest(&req), b.token))
+		stream, err := client.GetBuildKitConnection(ctx, api.WithAuthentication(connect.NewRequest(&req), b.token))
 		if err != nil {
 			return err
 		}
