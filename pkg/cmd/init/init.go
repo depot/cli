@@ -54,7 +54,7 @@ func NewCmdInit() *cobra.Command {
 			client := api.NewProjectsClient()
 
 			req := cliv1beta1.ListProjectsRequest{}
-			projects, err := client.ListProjects(context.TODO(), api.WithHeaders(connect.NewRequest(&req), token))
+			projects, err := client.ListProjects(context.TODO(), api.WithAuthentication(connect.NewRequest(&req), token))
 			if err != nil {
 				return err
 			}

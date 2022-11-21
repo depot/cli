@@ -13,7 +13,7 @@ import (
 func AuthorizeDevice(ctx context.Context) (*cliv1beta1.FinishLoginResponse, error) {
 	client := NewLoginClient()
 	req := cliv1beta1.StartLoginRequest{}
-	response, err := client.StartLogin(ctx, WithHeaders(connect.NewRequest(&req), ""))
+	response, err := client.StartLogin(ctx, connect.NewRequest(&req))
 	if err != nil {
 		return nil, err
 	}
@@ -24,9 +24,9 @@ func AuthorizeDevice(ctx context.Context) (*cliv1beta1.FinishLoginResponse, erro
 	spinner.Start()
 	defer spinner.Stop()
 
-	stream, err := client.FinishLogin(ctx, WithHeaders(connect.NewRequest(&cliv1beta1.FinishLoginRequest{
+	stream, err := client.FinishLogin(ctx, connect.NewRequest(&cliv1beta1.FinishLoginRequest{
 		Id: response.Msg.Id,
-	}), ""))
+	}))
 	if err != nil {
 		return nil, err
 	}

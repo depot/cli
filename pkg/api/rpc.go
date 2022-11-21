@@ -1,13 +1,10 @@
 package api
 
 import (
-	"fmt"
 	"net/http"
 	"os"
-	"runtime"
 
 	"github.com/bufbuild/connect-go"
-	"github.com/depot/cli/internal/build"
 	"github.com/depot/cli/pkg/proto/depot/cli/v1beta1/cliv1beta1connect"
 )
 
@@ -16,7 +13,7 @@ func NewBuildClient() cliv1beta1connect.BuildServiceClient {
 	if baseURL == "" {
 		baseURL = "https://api.depot.dev"
 	}
-	return cliv1beta1connect.NewBuildServiceClient(http.DefaultClient, baseURL, connect.WithGRPC())
+	return cliv1beta1connect.NewBuildServiceClient(http.DefaultClient, baseURL, connect.WithGRPC(), WithUserAgent())
 }
 
 func NewLoginClient() cliv1beta1connect.LoginServiceClient {
@@ -24,7 +21,7 @@ func NewLoginClient() cliv1beta1connect.LoginServiceClient {
 	if baseURL == "" {
 		baseURL = "https://api.depot.dev"
 	}
-	return cliv1beta1connect.NewLoginServiceClient(http.DefaultClient, baseURL, connect.WithGRPC())
+	return cliv1beta1connect.NewLoginServiceClient(http.DefaultClient, baseURL, connect.WithGRPC(), WithUserAgent())
 }
 
 func NewProjectsClient() cliv1beta1connect.ProjectsServiceClient {
@@ -32,14 +29,10 @@ func NewProjectsClient() cliv1beta1connect.ProjectsServiceClient {
 	if baseURL == "" {
 		baseURL = "https://api.depot.dev"
 	}
-	return cliv1beta1connect.NewProjectsServiceClient(http.DefaultClient, baseURL, connect.WithGRPC())
+	return cliv1beta1connect.NewProjectsServiceClient(http.DefaultClient, baseURL, connect.WithGRPC(), WithUserAgent())
 }
 
-func WithHeaders[T any](req *connect.Request[T], token string) *connect.Request[T] {
-	req.Header().Add("User-Agent", fmt.Sprintf("depot-cli/%s/%s/%s", build.Version, runtime.GOOS, runtime.GOARCH))
-	req.Header().Add("Depot-User-Agent", fmt.Sprintf("depot-cli/%s/%s/%s", build.Version, runtime.GOOS, runtime.GOARCH))
-	if token != "" {
-		req.Header().Add("Authorization", "Bearer "+token)
-	}
+func WithAuthentication[T any](req *connect.Request[T], token string) *connect.Request[T] {
+	req.Header().Add("Authorization", "Bearer "+token)
 	return req
 }
