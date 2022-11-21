@@ -1,16 +1,19 @@
 package init
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 
+	"github.com/bufbuild/connect-go"
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/depot/cli/pkg/api"
 	"github.com/depot/cli/pkg/config"
 	"github.com/depot/cli/pkg/project"
+	cliv1beta1 "github.com/depot/cli/pkg/proto/depot/cli/v1beta1"
 	"github.com/docker/cli/cli"
 	"github.com/spf13/cobra"
 )
@@ -24,19 +27,19 @@ func NewCmdInit() *cobra.Command {
 		Args:  cli.RequiresMaxArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			force, _ := cmd.Flags().GetBool("force")
-			context := "."
+			contextDir := "."
 			if len(args) > 0 {
-				context = args[0]
+				contextDir = args[0]
 			}
 
-			absContext, err := filepath.Abs(context)
+			absContext, err := filepath.Abs(contextDir)
 			if err != nil {
 				return err
 			}
 
 			_, existingFile, _ := project.ReadConfig(absContext)
 			if existingFile != "" && !force {
-				return fmt.Errorf("Project configuration %s already exists at path \"%s\", re-run with `--force` to overwrite", filepath.Base(existingFile), context)
+				return fmt.Errorf("Project configuration %s already exists at path \"%s\", re-run with `--force` to overwrite", filepath.Base(existingFile), contextDir)
 			}
 
 			// TODO: make this a helper
@@ -48,31 +51,29 @@ func NewCmdInit() *cobra.Command {
 				return fmt.Errorf("missing API token, please run `depot login`")
 			}
 
-			client, err := api.NewDepotFromEnv(token)
+			client := api.NewProjectsClient()
+
+			req := cliv1beta1.ListProjectsRequest{}
+			projects, err := client.ListProjects(context.TODO(), api.WithHeaders(connect.NewRequest(&req), token))
 			if err != nil {
 				return err
 			}
 
-			projects, err := client.GetProjects()
-			if err != nil {
-				return err
-			}
-
-			if len(projects.Projects) == 0 {
+			if len(projects.Msg.Projects) == 0 {
 				fmt.Printf("No projects found. Please create a project first.\n")
 				return nil
 			}
 
 			if projectID == "" {
-				projectID, err = getProjectID(projects)
+				projectID, err = getProjectID(projects.Msg)
 				if err != nil {
 					return err
 				}
 			}
 
-			var selectedProject *api.Project
-			for _, p := range projects.Projects {
-				if p.ID == projectID {
+			var selectedProject *cliv1beta1.ListProjectsResponse_Project
+			for _, p := range projects.Msg.Projects {
+				if p.Id == projectID {
 					selectedProject = p
 					break
 				}
@@ -86,12 +87,12 @@ func NewCmdInit() *cobra.Command {
 			if configFilepath == "" {
 				configFilepath = filepath.Join(absContext, "depot.json")
 			}
-			err = project.WriteConfig(configFilepath, &project.ProjectConfig{ID: selectedProject.ID})
+			err = project.WriteConfig(configFilepath, &project.ProjectConfig{ID: selectedProject.Id})
 			if err != nil {
 				return err
 			}
 
-			fmt.Printf("Project %s (%s) initialized in directory %s\n", selectedProject.Name, selectedProject.OrgName, context)
+			fmt.Printf("Project %s (%s) initialized in directory %s\n", selectedProject.Name, selectedProject.OrgName, contextDir)
 
 			return nil
 		},
@@ -103,10 +104,10 @@ func NewCmdInit() *cobra.Command {
 	return cmd
 }
 
-func getProjectID(projects *api.GetProjectsResponse) (string, error) {
+func getProjectID(projects *cliv1beta1.ListProjectsResponse) (string, error) {
 	items := []list.Item{}
 	for _, p := range projects.Projects {
-		items = append(items, item{id: p.ID, title: p.Name, desc: p.OrgName})
+		items = append(items, item{id: p.Id, title: p.Name, desc: p.OrgName})
 	}
 
 	m := model{list: list.New(items, list.NewDefaultDelegate(), 0, 0), ctrlC: false}

@@ -1,0 +1,25 @@
+syntax = "proto3";
+
+package depot.cli.v1beta1;
+
+import "google/protobuf/timestamp.proto";
+
+service LoginService {
+  rpc StartLogin(StartLoginRequest) returns (StartLoginResponse);
+  rpc FinishLogin(FinishLoginRequest) returns (stream FinishLoginResponse);
+}
+
+message StartLoginRequest {}
+
+message StartLoginResponse {
+  string id = 1;
+  string approve_url = 2;
+}
+
+message FinishLoginRequest {
+  string id = 1;
+}
+
+message FinishLoginResponse {
+  string token = 1;
+}

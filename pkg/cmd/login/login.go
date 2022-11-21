@@ -1,6 +1,7 @@
 package login
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/depot/cli/pkg/api"
@@ -28,12 +29,7 @@ func NewCmdLogin() *cobra.Command {
 				return nil
 			}
 
-			depot, err := api.NewDepotFromEnv("")
-			if err != nil {
-				return err
-			}
-
-			tokenResponse, err := depot.AuthorizeDevice()
+			tokenResponse, err := api.AuthorizeDevice(context.TODO())
 			if err != nil {
 				return err
 			}

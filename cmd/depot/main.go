@@ -71,17 +71,12 @@ func checkForUpdate(currentVersion string) (*api.ReleaseResponse, error) {
 		return nil, nil
 	}
 
-	client, err := api.NewDepotFromEnv(config.GetApiToken())
-	if err != nil {
-		return nil, err
-	}
-
 	stateFilePath, err := config.StateFile()
 	if err != nil {
 		return nil, err
 	}
 
-	return update.CheckForUpdate(client, stateFilePath, currentVersion)
+	return update.CheckForUpdate(stateFilePath, currentVersion)
 }
 
 func shouldCheckForUpdate() bool {
