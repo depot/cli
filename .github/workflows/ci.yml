@@ -49,7 +49,7 @@ jobs:
           go-version: "1.18"
           check-latest: true
           cache: true
-      - uses: goreleaser/goreleaser-action@v3
+      - uses: goreleaser/goreleaser-action@v4
         with:
           version: 1.13.0
           args: build --rm-dist --snapshot
