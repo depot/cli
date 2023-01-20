@@ -28,6 +28,7 @@ const (
 // ProjectsServiceClient is a client for the depot.cli.v1beta1.ProjectsService service.
 type ProjectsServiceClient interface {
 	ListProjects(context.Context, *connect_go.Request[v1beta1.ListProjectsRequest]) (*connect_go.Response[v1beta1.ListProjectsResponse], error)
+	ResetProjectCache(context.Context, *connect_go.Request[v1beta1.ResetProjectCacheRequest]) (*connect_go.Response[v1beta1.ResetProjectCacheResponse], error)
 }
 
 // NewProjectsServiceClient constructs a client for the depot.cli.v1beta1.ProjectsService service.
@@ -45,12 +46,18 @@ func NewProjectsServiceClient(httpClient connect_go.HTTPClient, baseURL string, 
 			baseURL+"/depot.cli.v1beta1.ProjectsService/ListProjects",
 			opts...,
 		),
+		resetProjectCache: connect_go.NewClient[v1beta1.ResetProjectCacheRequest, v1beta1.ResetProjectCacheResponse](
+			httpClient,
+			baseURL+"/depot.cli.v1beta1.ProjectsService/ResetProjectCache",
+			opts...,
+		),
 	}
 }
 
 // projectsServiceClient implements ProjectsServiceClient.
 type projectsServiceClient struct {
-	listProjects *connect_go.Client[v1beta1.ListProjectsRequest, v1beta1.ListProjectsResponse]
+	listProjects      *connect_go.Client[v1beta1.ListProjectsRequest, v1beta1.ListProjectsResponse]
+	resetProjectCache *connect_go.Client[v1beta1.ResetProjectCacheRequest, v1beta1.ResetProjectCacheResponse]
 }
 
 // ListProjects calls depot.cli.v1beta1.ProjectsService.ListProjects.
@@ -58,9 +65,15 @@ func (c *projectsServiceClient) ListProjects(ctx context.Context, req *connect_g
 	return c.listProjects.CallUnary(ctx, req)
 }
 
+// ResetProjectCache calls depot.cli.v1beta1.ProjectsService.ResetProjectCache.
+func (c *projectsServiceClient) ResetProjectCache(ctx context.Context, req *connect_go.Request[v1beta1.ResetProjectCacheRequest]) (*connect_go.Response[v1beta1.ResetProjectCacheResponse], error) {
+	return c.resetProjectCache.CallUnary(ctx, req)
+}
+
 // ProjectsServiceHandler is an implementation of the depot.cli.v1beta1.ProjectsService service.
 type ProjectsServiceHandler interface {
 	ListProjects(context.Context, *connect_go.Request[v1beta1.ListProjectsRequest]) (*connect_go.Response[v1beta1.ListProjectsResponse], error)
+	ResetProjectCache(context.Context, *connect_go.Request[v1beta1.ResetProjectCacheRequest]) (*connect_go.Response[v1beta1.ResetProjectCacheResponse], error)
 }
 
 // NewProjectsServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -75,6 +88,11 @@ func NewProjectsServiceHandler(svc ProjectsServiceHandler, opts ...connect_go.Ha
 		svc.ListProjects,
 		opts...,
 	))
+	mux.Handle("/depot.cli.v1beta1.ProjectsService/ResetProjectCache", connect_go.NewUnaryHandler(
+		"/depot.cli.v1beta1.ProjectsService/ResetProjectCache",
+		svc.ResetProjectCache,
+		opts...,
+	))
 	return "/depot.cli.v1beta1.ProjectsService/", mux
 }
 
@@ -83,4 +101,8 @@ type UnimplementedProjectsServiceHandler struct{}
 
 func (UnimplementedProjectsServiceHandler) ListProjects(context.Context, *connect_go.Request[v1beta1.ListProjectsRequest]) (*connect_go.Response[v1beta1.ListProjectsResponse], error) {
 	return nil, connect_go.NewError(connect_go.CodeUnimplemented, errors.New("depot.cli.v1beta1.ProjectsService.ListProjects is not implemented"))
+}
+
+func (UnimplementedProjectsServiceHandler) ResetProjectCache(context.Context, *connect_go.Request[v1beta1.ResetProjectCacheRequest]) (*connect_go.Response[v1beta1.ResetProjectCacheResponse], error) {
+	return nil, connect_go.NewError(connect_go.CodeUnimplemented, errors.New("depot.cli.v1beta1.ProjectsService.ResetProjectCache is not implemented"))
 }
