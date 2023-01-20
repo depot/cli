@@ -10,17 +10,16 @@ Official CLI for [Depot](https://depot.dev) - you can use the CLI to build Docke
 
 ---
 
-- [Depot CLI ](#depot-cli-)
-  - [Installation](#installation)
-  - [Quick Start](#quick-start)
-  - [Usage](#usage)
-    - [`depot build`](#depot-build)
-    - [`depot cache`](#depot-cache)
-      - [`depot cache reset`](#depot-cache-reset)
-    - [`depot init`](#depot-init)
-    - [`depot login`](#depot-login)
-  - [Contributing](#contributing)
-  - [License](#license)
+- [Installation](#installation)
+- [Quick Start](#quick-start)
+- [Usage](#usage)
+  - [`depot build`](#depot-build)
+  - [`depot cache`](#depot-cache)
+    - [`depot cache reset`](#depot-cache-reset)
+  - [`depot init`](#depot-init)
+  - [`depot login`](#depot-login)
+- [Contributing](#contributing)
+- [License](#license)
 
 ## Installation
 
