@@ -10,14 +10,17 @@ Official CLI for [Depot](https://depot.dev) - you can use the CLI to build Docke
 
 ---
 
-- [Installation](#installation)
-- [Quick Start](#quick-start)
-- [Usage](#usage)
-  - [`depot build`](#depot-build)
-  - [`depot init`](#depot-init)
-  - [`depot login`](#depot-login)
-- [Contributing](#contributing)
-- [License](#license)
+- [Depot CLI ](#depot-cli-)
+  - [Installation](#installation)
+  - [Quick Start](#quick-start)
+  - [Usage](#usage)
+    - [`depot build`](#depot-build)
+    - [`depot cache`](#depot-cache)
+      - [`depot cache reset`](#depot-cache-reset)
+    - [`depot init`](#depot-init)
+    - [`depot login`](#depot-login)
+  - [Contributing](#contributing)
+  - [License](#license)
 
 ## Installation
 
@@ -67,6 +70,28 @@ depot build -t repo/image:tag . --load
 ```shell
 # Build remotely, push to a registry
 depot build -t repo/image:tag . --push
+```
+
+### `depot cache`
+
+Interact with the cache associated with a Depot project. The `cache` command consists of subcommands for each operation.
+
+#### `depot cache reset`
+
+Reset the cache of the Depot project to force a new empty cache volume to be created.
+
+**Example**
+
+Reset the cache of the current project ID in the root `depot.json`
+
+```
+depot cache reset .
+```
+
+Reset the cache of a specific project ID
+
+```
+depot cache reset --project 12345678910
 ```
 
 ### `depot init`
