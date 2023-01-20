@@ -26,4 +26,7 @@ message ResetProjectCacheRequest {
   string project_id = 1;
 }
 
-message ResetProjectCacheResponse {}
+message ResetProjectCacheResponse {
+  string name = 1;
+  string org_name = 2;
+}
