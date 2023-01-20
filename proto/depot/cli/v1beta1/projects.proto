@@ -6,6 +6,7 @@ import "google/protobuf/timestamp.proto";
 
 service ProjectsService {
   rpc ListProjects(ListProjectsRequest) returns (ListProjectsResponse);
+  rpc ResetProjectCache(ResetProjectCacheRequest) returns (ResetProjectCacheResponse);
 }
 
 message ListProjectsRequest {}
@@ -20,3 +21,9 @@ message ListProjectsResponse {
     string org_name = 4;
   }
 }
+
+message ResetProjectCacheRequest {
+  string project_id = 1;
+}
+
+message ResetProjectCacheResponse {}
