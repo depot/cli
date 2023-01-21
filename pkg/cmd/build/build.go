@@ -49,7 +49,7 @@ func NewCmdBuild() *cobra.Command {
 				return fmt.Errorf("missing API token, please run `depot login`")
 			}
 
-			dockerCli, err := newDockerCLI()
+			dockerCli, err := NewDockerCLI()
 			if err != nil {
 				fmt.Fprintln(os.Stderr, err)
 				os.Exit(1)

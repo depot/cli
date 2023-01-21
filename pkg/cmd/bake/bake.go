@@ -14,6 +14,7 @@ import (
 	"github.com/bufbuild/connect-go"
 	"github.com/containerd/containerd/platforms"
 	depotapi "github.com/depot/cli/pkg/api"
+	depotbuild "github.com/depot/cli/pkg/cmd/build"
 	"github.com/depot/cli/pkg/config"
 	"github.com/depot/cli/pkg/project"
 	cliv1beta1 "github.com/depot/cli/pkg/proto/depot/cli/v1beta1"
@@ -377,7 +378,7 @@ func getDrivers(ctx context.Context, dockerCli command.Cli, contextPathHash stri
 	return []build.DriverInfo{amdDriverInfo, armDriverInfo}, nil
 }
 
-func NewCmdCache() *cobra.Command {
+func NewCmdBake() *cobra.Command {
 	options := bakeOptions{}
 
 	cmd := &cobra.Command{
@@ -409,7 +410,7 @@ func NewCmdCache() *cobra.Command {
 				return fmt.Errorf("missing API token, please run `depot login`")
 			}
 
-			dockerCli, err := utils.NewDockerCLI()
+			dockerCli, err := depotbuild.NewDockerCLI()
 			if err != nil {
 				fmt.Fprintln(os.Stderr, err)
 				os.Exit(1)

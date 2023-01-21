@@ -19,7 +19,7 @@ var (
 	dockerTLS       = os.Getenv("DOCKER_TLS") != ""
 )
 
-func newDockerCLI() (*command.DockerCli, error) {
+func NewDockerCLI() (*command.DockerCli, error) {
 	dockerCli, err := command.NewDockerCli()
 	if err != nil {
 		return nil, err
