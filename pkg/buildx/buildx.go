@@ -74,12 +74,12 @@ func BuildTargets(ctx context.Context, dockerCli command.Cli, opts map[string]bu
 		}
 	}()
 
-	dis, err := getDrivers(ctx, dockerCli, contextPathHash, b.Msg.BuildId, token)
+	dis, err := GetDrivers(ctx, dockerCli, contextPathHash, b.Msg.BuildId, token)
 	if err != nil {
 		return "", err
 	}
 
-	resp, buildErr := build.BuildWithResultHandler(ctx, dis, opts, dockerAPI(dockerCli), confutil.ConfigDir(dockerCli), printer, nil, allowNoOutput)
+	resp, buildErr := build.BuildWithResultHandler(ctx, dis, opts, DockerAPI(dockerCli), confutil.ConfigDir(dockerCli), printer, nil, allowNoOutput)
 	err1 := printer.Wait()
 	if buildErr == nil {
 		buildErr = err1
@@ -89,7 +89,7 @@ func BuildTargets(ctx context.Context, dockerCli command.Cli, opts map[string]bu
 	}
 
 	if len(metadataFile) > 0 && resp != nil {
-		if err := writeMetadataFile(metadataFile, decodeExporterResponse(resp[DefaultTargetName].ExporterResponse)); err != nil {
+		if err := WriteMetadataFile(metadataFile, DecodeExporterResponse(resp[DefaultTargetName].ExporterResponse)); err != nil {
 			return "", err
 		}
 	}
@@ -112,7 +112,7 @@ func BuildTargets(ctx context.Context, dockerCli command.Cli, opts map[string]bu
 	return resp[DefaultTargetName].ExporterResponse["containerimage.digest"], err
 }
 
-func getDrivers(ctx context.Context, dockerCli command.Cli, contextPathHash string, buildID string, token string) ([]build.DriverInfo, error) {
+func GetDrivers(ctx context.Context, dockerCli command.Cli, contextPathHash string, buildID string, token string) ([]build.DriverInfo, error) {
 	imageopt, err := storeutil.GetImageConfig(dockerCli, nil)
 	if err != nil {
 		return nil, err
@@ -177,7 +177,7 @@ func ListToMap(values []string, defaultEnv bool) map[string]string {
 	return result
 }
 
-func dockerAPI(dockerCli command.Cli) *api {
+func DockerAPI(dockerCli command.Cli) *api {
 	return &api{dockerCli: dockerCli}
 }
 
@@ -356,7 +356,7 @@ func ParsePrintFunc(str string) (*build.PrintFunc, error) {
 	return f, nil
 }
 
-func writeMetadataFile(filename string, dt interface{}) error {
+func WriteMetadataFile(filename string, dt interface{}) error {
 	b, err := json.MarshalIndent(dt, "", "  ")
 	if err != nil {
 		return err
@@ -364,7 +364,7 @@ func writeMetadataFile(filename string, dt interface{}) error {
 	return ioutils.AtomicWriteFile(filename, b, 0644)
 }
 
-func decodeExporterResponse(exporterResponse map[string]string) map[string]interface{} {
+func DecodeExporterResponse(exporterResponse map[string]string) map[string]interface{} {
 	out := make(map[string]interface{})
 	for k, v := range exporterResponse {
 		dt, err := base64.StdEncoding.DecodeString(v)

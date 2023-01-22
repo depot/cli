@@ -2,39 +2,29 @@ package init
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log"
 	"os"
 	"path/filepath"
-	"runtime"
-	"strings"
 
 	"github.com/bufbuild/connect-go"
 	"github.com/containerd/containerd/platforms"
 	depotapi "github.com/depot/cli/pkg/api"
-	depotbuild "github.com/depot/cli/pkg/cmd/build"
+	"github.com/depot/cli/pkg/buildx"
 	"github.com/depot/cli/pkg/config"
+	dockerclient "github.com/depot/cli/pkg/docker"
 	"github.com/depot/cli/pkg/project"
 	cliv1beta1 "github.com/depot/cli/pkg/proto/depot/cli/v1beta1"
 	"github.com/docker/buildx/bake"
 	"github.com/docker/buildx/build"
-	"github.com/docker/buildx/driver"
-	"github.com/docker/buildx/store/storeutil"
 	"github.com/docker/buildx/util/confutil"
 	"github.com/docker/buildx/util/progress"
 	"github.com/docker/buildx/util/tracing"
 	"github.com/docker/cli/cli/command"
-	"github.com/docker/cli/cli/context/docker"
-	dockerclient "github.com/docker/docker/client"
-	"github.com/docker/docker/pkg/ioutils"
-	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/moby/buildkit/util/appcontext"
-	"github.com/moby/buildkit/util/grpcerrors"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
-	"google.golang.org/grpc/codes"
 )
 
 type bakeOptions struct {
@@ -55,120 +45,6 @@ type bakeOptions struct {
 
 	exportPush bool
 	exportLoad bool
-}
-
-func dockerAPI(dockerCli command.Cli) *api {
-	return &api{dockerCli: dockerCli}
-}
-
-type api struct {
-	dockerCli command.Cli
-}
-
-func (a *api) DockerAPI(name string) (dockerclient.APIClient, error) {
-	if name == "" {
-		name = a.dockerCli.CurrentContext()
-	}
-	return clientForEndpoint(a.dockerCli, name)
-}
-
-// clientForEndpoint returns a docker client for an endpoint
-func clientForEndpoint(dockerCli command.Cli, name string) (dockerclient.APIClient, error) {
-	list, err := dockerCli.ContextStore().List()
-	if err != nil {
-		return nil, err
-	}
-	for _, l := range list {
-		if l.Name == name {
-			dep, ok := l.Endpoints["docker"]
-			if !ok {
-				return nil, errors.Errorf("context %q does not have a Docker endpoint", name)
-			}
-			epm, ok := dep.(docker.EndpointMeta)
-			if !ok {
-				return nil, errors.Errorf("endpoint %q is not of type EndpointMeta, %T", dep, dep)
-			}
-			ep, err := docker.WithTLSData(dockerCli.ContextStore(), name, epm)
-			if err != nil {
-				return nil, err
-			}
-			clientOpts, err := ep.ClientOpts()
-			if err != nil {
-				return nil, err
-			}
-			return dockerclient.NewClientWithOpts(clientOpts...)
-		}
-	}
-
-	ep := docker.Endpoint{
-		EndpointMeta: docker.EndpointMeta{
-			Host: name,
-		},
-	}
-
-	clientOpts, err := ep.ClientOpts()
-	if err != nil {
-		return nil, err
-	}
-
-	return dockerclient.NewClientWithOpts(clientOpts...)
-}
-
-func wrapBuildError(err error, bake bool) error {
-	if err == nil {
-		return nil
-	}
-	st, ok := grpcerrors.AsGRPCStatus(err)
-	if ok {
-		if st.Code() == codes.Unimplemented && strings.Contains(st.Message(), "unsupported frontend capability moby.buildkit.frontend.contexts") {
-			msg := "current frontend does not support --build-context."
-			if bake {
-				msg = "current frontend does not support defining additional contexts for targets."
-			}
-			msg += " Named contexts are supported since Dockerfile v1.4. Use #syntax directive in Dockerfile or update to latest BuildKit."
-			return &wrapped{err, msg}
-		}
-	}
-	return err
-}
-
-func writeMetadataFile(filename string, dt interface{}) error {
-	b, err := json.MarshalIndent(dt, "", "  ")
-	if err != nil {
-		return err
-	}
-	return ioutils.AtomicWriteFile(filename, b, 0644)
-}
-
-func decodeExporterResponse(exporterResponse map[string]string) map[string]interface{} {
-	out := make(map[string]interface{})
-	for k, v := range exporterResponse {
-		dt, err := base64.StdEncoding.DecodeString(v)
-		if err != nil {
-			out[k] = v
-			continue
-		}
-		var raw map[string]interface{}
-		if err = json.Unmarshal(dt, &raw); err != nil || len(raw) == 0 {
-			out[k] = v
-			continue
-		}
-		out[k] = json.RawMessage(dt)
-	}
-	return out
-}
-
-type wrapped struct {
-	err error
-	msg string
-}
-
-func (w *wrapped) Error() string {
-	return w.msg
-}
-
-func (w *wrapped) Unwrap() error {
-	return w.err
 }
 
 func runBake(dockerCli command.Cli, targets []string, in bakeOptions) (err error) {
@@ -256,7 +132,7 @@ func runBake(dockerCli command.Cli, targets []string, in bakeOptions) (err error
 		}
 	}()
 
-	dis, err := getDrivers(ctx, dockerCli, contextPathHash, b.Msg.BuildId, in.token)
+	dis, err := buildx.GetDrivers(ctx, dockerCli, contextPathHash, b.Msg.BuildId, in.token)
 	if err != nil {
 		return err
 	}
@@ -315,67 +191,22 @@ func runBake(dockerCli command.Cli, targets []string, in bakeOptions) (err error
 		return nil
 	}
 
-	resp, err := build.Build(ctx, dis, bo, dockerAPI(dockerCli), confutil.ConfigDir(dockerCli), printer)
+	resp, err := build.Build(ctx, dis, bo, buildx.DockerAPI(dockerCli), confutil.ConfigDir(dockerCli), printer)
 	if err != nil {
-		return wrapBuildError(err, true)
+		return buildx.WrapBuildError(err, true)
 	}
 
 	if len(in.metadataFile) > 0 {
 		dt := make(map[string]interface{})
 		for t, r := range resp {
-			dt[t] = decodeExporterResponse(r.ExporterResponse)
+			dt[t] = buildx.DecodeExporterResponse(r.ExporterResponse)
 		}
-		if err := writeMetadataFile(in.metadataFile, dt); err != nil {
+		if err := buildx.WriteMetadataFile(in.metadataFile, dt); err != nil {
 			return err
 		}
 	}
 
 	return err
-}
-
-func getDrivers(ctx context.Context, dockerCli command.Cli, contextPathHash string, buildID string, token string) ([]build.DriverInfo, error) {
-	imageopt, err := storeutil.GetImageConfig(dockerCli, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	driverOpts := map[string]string{"token": token, "platform": "amd64", "buildID": buildID}
-	amdDriver, err := driver.GetDriver(ctx, "buildx_buildkit_depot_amd64", nil, "", dockerCli.Client(), imageopt.Auth, nil, nil, nil, driverOpts, nil, contextPathHash)
-	if err != nil {
-		return nil, err
-	}
-	amdDriverInfo := build.DriverInfo{
-		Name:     "depot",
-		Driver:   amdDriver,
-		ImageOpt: imageopt,
-		Platform: []v1.Platform{
-			{OS: "linux", Architecture: "amd64"},
-			{OS: "linux", Architecture: "amd64", Variant: "v2"},
-			{OS: "linux", Architecture: "amd64", Variant: "v3"},
-			{OS: "linux", Architecture: "386"},
-		},
-	}
-
-	driverOpts = map[string]string{"token": token, "platform": "arm64", "buildID": buildID}
-	armDriver, err := driver.GetDriver(ctx, "buildx_buildkit_depot_arm64", nil, "", dockerCli.Client(), imageopt.Auth, nil, nil, nil, driverOpts, nil, contextPathHash)
-	if err != nil {
-		return nil, err
-	}
-	armDriverInfo := build.DriverInfo{
-		Name:     "depot",
-		Driver:   armDriver,
-		ImageOpt: imageopt,
-		Platform: []v1.Platform{
-			{OS: "linux", Architecture: "arm64"},
-			{OS: "linux", Architecture: "arm", Variant: "v7"},
-			{OS: "linux", Architecture: "arm", Variant: "v6"},
-		},
-	}
-
-	if strings.HasPrefix(runtime.GOARCH, "arm") {
-		return []build.DriverInfo{armDriverInfo, amdDriverInfo}, nil
-	}
-	return []build.DriverInfo{amdDriverInfo, armDriverInfo}, nil
 }
 
 func NewCmdBake() *cobra.Command {
@@ -410,7 +241,7 @@ func NewCmdBake() *cobra.Command {
 				return fmt.Errorf("missing API token, please run `depot login`")
 			}
 
-			dockerCli, err := depotbuild.NewDockerCLI()
+			dockerCli, err := dockerclient.NewDockerCLI()
 			if err != nil {
 				fmt.Fprintln(os.Stderr, err)
 				os.Exit(1)
