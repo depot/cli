@@ -28,16 +28,14 @@ import (
 )
 
 type bakeOptions struct {
-	project       string
-	token         string
-	allowNoOutput bool
+	project string
+	token   string
 
 	files     []string
 	overrides []string
 	printOnly bool
 
 	//Common options
-	builder      string
 	metadataFile string
 	noCache      *bool
 	progress     string
