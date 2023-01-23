@@ -3,6 +3,7 @@ package root
 import (
 	"github.com/spf13/cobra"
 
+	bakeCmd "github.com/depot/cli/pkg/cmd/bake"
 	buildCmd "github.com/depot/cli/pkg/cmd/build"
 	cacheCmd "github.com/depot/cli/pkg/cmd/cache"
 	initCmd "github.com/depot/cli/pkg/cmd/init"
@@ -31,6 +32,7 @@ func NewCmdRoot(version, buildDate string) *cobra.Command {
 	cmd.Flags().Bool("version", false, "Print the version and exit")
 
 	// Child commands
+	cmd.AddCommand(bakeCmd.NewCmdBake())
 	cmd.AddCommand(buildCmd.NewCmdBuild())
 	cmd.AddCommand(cacheCmd.NewCmdCache())
 	cmd.AddCommand(initCmd.NewCmdInit())

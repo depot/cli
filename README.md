@@ -13,6 +13,7 @@ Official CLI for [Depot](https://depot.dev) - you can use the CLI to build Docke
 - [Installation](#installation)
 - [Quick Start](#quick-start)
 - [Usage](#usage)
+  - [`depot bake`](#depot-bake)
   - [`depot build`](#depot-build)
   - [`depot cache`](#depot-cache)
     - [`depot cache reset`](#depot-cache-reset)
@@ -39,6 +40,55 @@ For all other platforms, you can download the binary directly from [the latest r
 4. Run `depot build -t repo/image:tag .`
 
 ## Usage
+
+### `depot bake`
+
+Run a Docker build from a HCL, JSON, or Compose file using Depot's remote builder infrastructure. This command accepts all the command line flags as Docker's `docker buildx bake` command, you can run `depot bake --help` for the full list.
+
+The `build` command needs to know which [project](https://depot.dev/docs/core-concepts#projects) id to route the build to. For passing the project id you have three options available to you:
+
+1. Run `depot init` at the root of your repository and commit the resulting `depot.json` file
+2. Use the `--project` flag in your `depot bake` command
+3. Set the `DEPOT_PROJECT_ID` environment variable which will be automatically detected
+
+By default, `depot bake` will leave the built image in the remote builder cache. If you would like to download the image to your local Docker daemon (for instance, to `docker run` the result), you can use the `--load` flag.
+
+Alternatively, to push the image to a remote registry directly from the builder instance, you can use the `--push` flag.
+
+The `bake` command allows you to define all of your build targets in a central file, either HCL, JSON, or Compose. You can then pass that file to the `bake` command and Depot will build all of the target images with all of their options (i.e. platforms, tags, build arguments, etc.).
+
+**Example**
+
+An example `docker-bake.hcl` file:
+```hcl
+group "default" {
+  targets = ["original", "db"]
+}
+
+target "original" {
+  dockerfile = "Dockerfile"
+  platforms = ["linux/amd64", "linux/arm64"]
+  tags = ["example/app:test"]
+}
+
+target "db" {
+  dockerfile = "Dockerfile.db"
+  platforms = ["linux/amd64", "linux/arm64"]
+  tags = ["example/db:test"]
+}
+```
+
+To build all of the images we just need to call `bake`:
+
+```shell
+depot bake -f docker-bake.hcl
+```
+
+If you want to build a specific target in the bake file, you can specify it in the `bake` command:
+
+```shell
+depot bake -f docker-bake.hcl original
+```
 
 ### `depot build`
 
