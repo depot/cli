@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"path/filepath"
 
 	"github.com/bufbuild/connect-go"
 	"github.com/containerd/containerd/platforms"
@@ -218,7 +217,7 @@ func NewCmdBake() *cobra.Command {
 				options.project = os.Getenv("DEPOT_PROJECT_ID")
 			}
 			if options.project == "" {
-				cwd, _ := filepath.Abs(args[0])
+				cwd, _ := os.Getwd()
 				config, _, err := project.ReadConfig(cwd)
 				if err == nil {
 					options.project = config.ID
