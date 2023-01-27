@@ -13,6 +13,7 @@ import (
 	"github.com/depot/cli/pkg/buildx"
 	"github.com/depot/cli/pkg/config"
 	dockerclient "github.com/depot/cli/pkg/docker"
+	"github.com/depot/cli/pkg/helpers"
 	"github.com/depot/cli/pkg/project"
 	cliv1beta1 "github.com/depot/cli/pkg/proto/depot/cli/v1beta1"
 	"github.com/docker/buildx/bake"
@@ -27,8 +28,9 @@ import (
 )
 
 type bakeOptions struct {
-	project string
-	token   string
+	project       string
+	token         string
+	buildPlatform string
 
 	files     []string
 	overrides []string
@@ -129,7 +131,7 @@ func runBake(dockerCli command.Cli, targets []string, in bakeOptions) (err error
 		}
 	}()
 
-	dis, err := buildx.GetDrivers(ctx, dockerCli, contextPathHash, b.Msg.BuildId, in.token)
+	dis, err := buildx.GetDrivers(ctx, dockerCli, contextPathHash, b.Msg.BuildId, in.token, in.buildPlatform)
 	if err != nil {
 		return err
 	}
@@ -238,6 +240,12 @@ func NewCmdBake() *cobra.Command {
 				return fmt.Errorf("missing API token, please run `depot login`")
 			}
 
+			buildPlatform, err := helpers.NormalizePlatform(options.buildPlatform)
+			if err != nil {
+				return err
+			}
+			options.buildPlatform = buildPlatform
+
 			dockerCli, err := dockerclient.NewDockerCLI()
 			if err != nil {
 				fmt.Fprintln(os.Stderr, err)
@@ -253,6 +261,7 @@ func NewCmdBake() *cobra.Command {
 	// Depot options
 	flags.StringVar(&options.project, "project", "", "Depot project ID")
 	flags.StringVar(&options.token, "token", "", "Depot API token")
+	flags.StringVar(&options.buildPlatform, "build-platform", "dynamic", `Run builds on this platform ("dynamic", "linux/amd64", "linux/arm64")`)
 
 	// docker buildx bake options
 	flags.StringArrayVarP(&options.files, "file", "f", []string{}, "Build definition file")
