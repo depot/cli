@@ -9,6 +9,7 @@ import (
 	_ "github.com/depot/cli/pkg/buildxdriver"
 	"github.com/depot/cli/pkg/config"
 	"github.com/depot/cli/pkg/docker"
+	"github.com/depot/cli/pkg/helpers"
 	"github.com/depot/cli/pkg/project"
 	"github.com/docker/buildx/build"
 	"github.com/docker/buildx/util/buildflags"
@@ -32,6 +33,7 @@ type buildOptions struct {
 	project       string
 	token         string
 	allowNoOutput bool
+	buildPlatform string
 
 	contextPath    string
 	dockerfileName string
@@ -232,7 +234,7 @@ func runBuild(dockerCli command.Cli, in buildOptions) (err error) {
 		contextPathHash = in.contextPath
 	}
 
-	imageID, err := buildx.BuildTargets(ctx, dockerCli, map[string]build.Options{buildx.DefaultTargetName: opts}, in.progress, contextPathHash, in.metadataFile, in.project, in.token, in.allowNoOutput)
+	imageID, err := buildx.BuildTargets(ctx, dockerCli, map[string]build.Options{buildx.DefaultTargetName: opts}, in.progress, contextPathHash, in.metadataFile, in.project, in.token, in.allowNoOutput, in.buildPlatform)
 	err = buildx.WrapBuildError(err, false)
 	if err != nil {
 		return err
@@ -287,6 +289,12 @@ func NewCmdBuild() *cobra.Command {
 				return errors.Errorf("load and no-load may not be both set")
 			}
 
+			buildPlatform, err := helpers.NormalizePlatform(options.buildPlatform)
+			if err != nil {
+				return err
+			}
+			options.buildPlatform = buildPlatform
+
 			options.contextPath = args[0]
 			return runBuild(dockerCli, options)
 		},
@@ -302,6 +310,7 @@ func NewCmdBuild() *cobra.Command {
 	// Depot options
 	flags.StringVar(&options.project, "project", "", "Depot project ID")
 	flags.StringVar(&options.token, "token", "", "Depot API token")
+	flags.StringVar(&options.buildPlatform, "build-platform", "dynamic", `Run builds on this platform ("dynamic", "linux/amd64", "linux/arm64")`)
 
 	allowNoOutput := false
 	if v := os.Getenv("DEPOT_SUPPRESS_NO_OUTPUT_WARNING"); v != "" {

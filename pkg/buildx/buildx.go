@@ -43,7 +43,7 @@ import (
 
 const DefaultTargetName = "default"
 
-func BuildTargets(ctx context.Context, dockerCli command.Cli, opts map[string]build.Options, progressMode, contextPathHash, metadataFile string, project string, token string, allowNoOutput bool) (imageID string, err error) {
+func BuildTargets(ctx context.Context, dockerCli command.Cli, opts map[string]build.Options, progressMode, contextPathHash, metadataFile string, project string, token string, allowNoOutput bool, buildPlatform string) (imageID string, err error) {
 	var buildErr error
 
 	ctx2, cancel := context.WithCancel(context.TODO())
@@ -74,7 +74,7 @@ func BuildTargets(ctx context.Context, dockerCli command.Cli, opts map[string]bu
 		}
 	}()
 
-	dis, err := GetDrivers(ctx, dockerCli, contextPathHash, b.Msg.BuildId, token)
+	dis, err := GetDrivers(ctx, dockerCli, contextPathHash, b.Msg.BuildId, token, buildPlatform)
 	if err != nil {
 		return "", err
 	}
@@ -112,7 +112,7 @@ func BuildTargets(ctx context.Context, dockerCli command.Cli, opts map[string]bu
 	return resp[DefaultTargetName].ExporterResponse["containerimage.digest"], err
 }
 
-func GetDrivers(ctx context.Context, dockerCli command.Cli, contextPathHash string, buildID string, token string) ([]build.DriverInfo, error) {
+func GetDrivers(ctx context.Context, dockerCli command.Cli, contextPathHash string, buildID string, token string, buildPlatform string) ([]build.DriverInfo, error) {
 	imageopt, err := storeutil.GetImageConfig(dockerCli, nil)
 	if err != nil {
 		return nil, err
@@ -149,6 +149,14 @@ func GetDrivers(ctx context.Context, dockerCli command.Cli, contextPathHash stri
 			{OS: "linux", Architecture: "arm", Variant: "v7"},
 			{OS: "linux", Architecture: "arm", Variant: "v6"},
 		},
+	}
+
+	if buildPlatform == "linux/amd64" {
+		return []build.DriverInfo{amdDriverInfo}, nil
+	}
+
+	if buildPlatform == "linux/arm64" {
+		return []build.DriverInfo{armDriverInfo}, nil
 	}
 
 	if strings.HasPrefix(runtime.GOARCH, "arm") {
