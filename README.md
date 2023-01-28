@@ -159,7 +159,7 @@ Authenticates with your Depot account, automatically creating and storing a pers
 
 **Example**
 
-```
+```shell
 depot login
 ```
 
