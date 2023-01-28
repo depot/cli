@@ -45,7 +45,7 @@ For all other platforms, you can download the binary directly from [the latest r
 
 Run a Docker build from a HCL, JSON, or Compose file using Depot's remote builder infrastructure. This command accepts all the command line flags as Docker's `docker buildx bake` command, you can run `depot bake --help` for the full list.
 
-The `build` command needs to know which [project](https://depot.dev/docs/core-concepts#projects) id to route the build to. For passing the project id you have three options available to you:
+The `bake` command needs to know which [project](https://depot.dev/docs/core-concepts#projects) id to route the build to. For passing the project id you have three options available to you:
 
 1. Run `depot init` at the root of your repository and commit the resulting `depot.json` file
 2. Use the `--project` flag in your `depot bake` command
