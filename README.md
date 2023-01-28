@@ -133,13 +133,13 @@ Reset the cache of the Depot project to force a new empty cache volume to be cre
 
 Reset the cache of the current project ID in the root `depot.json`
 
-```
+```shell
 depot cache reset .
 ```
 
 Reset the cache of a specific project ID
 
-```
+```shell
 depot cache reset --project 12345678910
 ```
 
