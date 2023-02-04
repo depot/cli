@@ -110,13 +110,19 @@ func runBake(dockerCli command.Cli, targets []string, in bakeOptions) (err error
 	client := depotapi.NewBuildClient()
 
 	var buildErr error
-	req := cliv1beta1.CreateBuildRequest{ProjectId: in.project}
-	b, err := client.CreateBuild(ctx, depotapi.WithAuthentication(connect.NewRequest(&req), in.token))
-	if err != nil {
-		return err
+
+	buildID := os.Getenv("DEPOT_BUILD_ID")
+	if buildID == "" {
+		req := cliv1beta1.CreateBuildRequest{ProjectId: in.project}
+		b, err := client.CreateBuild(ctx, depotapi.WithAuthentication(connect.NewRequest(&req), in.token))
+		if err != nil {
+			return err
+		}
+		buildID = b.Msg.BuildId
 	}
+
 	defer func() {
-		req := cliv1beta1.FinishBuildRequest{BuildId: b.Msg.BuildId}
+		req := cliv1beta1.FinishBuildRequest{BuildId: buildID}
 		req.Result = &cliv1beta1.FinishBuildRequest_Success{Success: &cliv1beta1.FinishBuildRequest_BuildSuccess{}}
 		if buildErr != nil {
 			errorMessage := ""
@@ -131,7 +137,7 @@ func runBake(dockerCli command.Cli, targets []string, in bakeOptions) (err error
 		}
 	}()
 
-	dis, err := buildx.GetDrivers(ctx, dockerCli, contextPathHash, b.Msg.BuildId, in.token, in.buildPlatform)
+	dis, err := buildx.GetDrivers(ctx, dockerCli, contextPathHash, buildID, in.token, in.buildPlatform)
 	if err != nil {
 		return err
 	}

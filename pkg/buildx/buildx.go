@@ -53,13 +53,18 @@ func BuildTargets(ctx context.Context, dockerCli command.Cli, opts map[string]bu
 
 	client := depotapi.NewBuildClient()
 
-	req := cliv1beta1.CreateBuildRequest{ProjectId: project}
-	b, err := client.CreateBuild(ctx, depotapi.WithAuthentication(connect.NewRequest(&req), token))
-	if err != nil {
-		return "", err
+	buildID := os.Getenv("DEPOT_BUILD_ID")
+	if buildID == "" {
+		req := cliv1beta1.CreateBuildRequest{ProjectId: project}
+		b, err := client.CreateBuild(ctx, depotapi.WithAuthentication(connect.NewRequest(&req), token))
+		if err != nil {
+			return "", err
+		}
+		buildID = b.Msg.BuildId
 	}
+
 	defer func() {
-		req := cliv1beta1.FinishBuildRequest{BuildId: b.Msg.BuildId}
+		req := cliv1beta1.FinishBuildRequest{BuildId: buildID}
 		req.Result = &cliv1beta1.FinishBuildRequest_Success{Success: &cliv1beta1.FinishBuildRequest_BuildSuccess{}}
 		if buildErr != nil {
 			errorMessage := ""
@@ -74,7 +79,7 @@ func BuildTargets(ctx context.Context, dockerCli command.Cli, opts map[string]bu
 		}
 	}()
 
-	dis, err := GetDrivers(ctx, dockerCli, contextPathHash, b.Msg.BuildId, token, buildPlatform)
+	dis, err := GetDrivers(ctx, dockerCli, contextPathHash, buildID, token, buildPlatform)
 	if err != nil {
 		return "", err
 	}
