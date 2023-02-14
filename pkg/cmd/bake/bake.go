@@ -16,11 +16,11 @@ import (
 	"github.com/depot/cli/pkg/helpers"
 	"github.com/depot/cli/pkg/project"
 	cliv1beta1 "github.com/depot/cli/pkg/proto/depot/cli/v1beta1"
+	"github.com/depot/cli/pkg/traces"
 	"github.com/docker/buildx/bake"
 	"github.com/docker/buildx/build"
 	"github.com/docker/buildx/util/confutil"
 	"github.com/docker/buildx/util/progress"
-	"github.com/docker/buildx/util/tracing"
 	"github.com/docker/cli/cli/command"
 	"github.com/moby/buildkit/util/appcontext"
 	"github.com/pkg/errors"
@@ -48,14 +48,6 @@ type bakeOptions struct {
 
 func runBake(dockerCli command.Cli, targets []string, in bakeOptions) (err error) {
 	ctx := appcontext.Context()
-
-	ctx, end, err := tracing.TraceCurrentCommand(ctx, "bake")
-	if err != nil {
-		return err
-	}
-	defer func() {
-		end(err)
-	}()
 
 	var url string
 	cmdContext := "cwd://"
@@ -120,6 +112,14 @@ func runBake(dockerCli command.Cli, targets []string, in bakeOptions) (err error
 		}
 		buildID = b.Msg.BuildId
 	}
+
+	ctx, end, err := traces.TraceCommand(ctx, "bake", buildID, in.token)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		end(err)
+	}()
 
 	defer func() {
 		req := cliv1beta1.FinishBuildRequest{BuildId: buildID}
