@@ -5,3 +5,7 @@ bin/depot:
 .PHONY: clean
 clean:
 	rm -rf ./bin
+
+.PHONY: generate
+generate:
+	buf generate

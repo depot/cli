@@ -17,6 +17,7 @@ import (
 	"github.com/bufbuild/connect-go"
 	depotapi "github.com/depot/cli/pkg/api"
 	cliv1beta1 "github.com/depot/cli/pkg/proto/depot/cli/v1beta1"
+	"github.com/depot/cli/pkg/traces"
 	"github.com/docker/buildx/build"
 	"github.com/docker/buildx/driver"
 	"github.com/docker/buildx/store/storeutil"
@@ -54,6 +55,8 @@ func BuildTargets(ctx context.Context, dockerCli command.Cli, opts map[string]bu
 	client := depotapi.NewBuildClient()
 
 	buildID := os.Getenv("DEPOT_BUILD_ID")
+	traceToken := token
+
 	if buildID == "" {
 		req := cliv1beta1.CreateBuildRequest{ProjectId: project}
 		b, err := client.CreateBuild(ctx, depotapi.WithAuthentication(connect.NewRequest(&req), token))
@@ -61,7 +64,16 @@ func BuildTargets(ctx context.Context, dockerCli command.Cli, opts map[string]bu
 			return "", err
 		}
 		buildID = b.Msg.BuildId
+		traceToken = b.Msg.BuildToken
 	}
+
+	ctx, end, err := traces.TraceCommand(ctx, "build", buildID, traceToken)
+	if err != nil {
+		return "", err
+	}
+	defer func() {
+		end(err)
+	}()
 
 	defer func() {
 		req := cliv1beta1.FinishBuildRequest{BuildId: buildID}
