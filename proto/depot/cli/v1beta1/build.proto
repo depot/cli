@@ -17,6 +17,7 @@ message CreateBuildRequest {
 
 message CreateBuildResponse {
   string build_id = 1;
+  string build_token = 2;
 }
 
 message FinishBuildRequest {

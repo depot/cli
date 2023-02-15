@@ -55,6 +55,8 @@ func BuildTargets(ctx context.Context, dockerCli command.Cli, opts map[string]bu
 	client := depotapi.NewBuildClient()
 
 	buildID := os.Getenv("DEPOT_BUILD_ID")
+	traceToken := token
+
 	if buildID == "" {
 		req := cliv1beta1.CreateBuildRequest{ProjectId: project}
 		b, err := client.CreateBuild(ctx, depotapi.WithAuthentication(connect.NewRequest(&req), token))
@@ -62,9 +64,10 @@ func BuildTargets(ctx context.Context, dockerCli command.Cli, opts map[string]bu
 			return "", err
 		}
 		buildID = b.Msg.BuildId
+		traceToken = b.Msg.BuildToken
 	}
 
-	ctx, end, err := traces.TraceCommand(ctx, "build", buildID, token)
+	ctx, end, err := traces.TraceCommand(ctx, "build", buildID, traceToken)
 	if err != nil {
 		return "", err
 	}
