@@ -27,9 +27,7 @@ func TraceCommand(ctx context.Context, name, buildID, token string) (context.Con
 	vars["OTEL_LINK_ATTRIBUTE_COUNT_LIMIT"] = "8"
 	vars["OTEL_SPAN_EVENT_COUNT_LIMIT"] = "8"
 
-	// TODO: remove this once we have a proper collector
-	vars["OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"] = "http://localhost:6673"
-	vars["OTEL_EXPORTER_OTLP_INSECURE"] = "true"
+	vars["OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"] = "https://api.depot.dev:443"
 
 	for k, v := range vars {
 		if err := os.Setenv(k, v); err != nil {
