@@ -34,6 +34,11 @@ type tlsOpts struct {
 }
 
 func (d *Driver) Bootstrap(ctx context.Context, l progress.Logger) error {
+	err := d.startHealthcheck(context.Background())
+	if err != nil {
+		return err
+	}
+
 	builderInfo, err := d.builder.Acquire(l)
 	if err != nil {
 		return api.NewDepotError(errors.Wrap(err, "failed to bootstrap builder"))
@@ -90,11 +95,6 @@ func (d *Driver) Bootstrap(ctx context.Context, l progress.Logger) error {
 				return err
 			}
 			if info.Status != driver.Inactive {
-				err = d.startHealthcheck(context.Background())
-				if err != nil {
-					return err
-				}
-
 				return nil
 			}
 
