@@ -79,10 +79,7 @@ func BuildTargets(ctx context.Context, dockerCli command.Cli, opts map[string]bu
 		req := cliv1beta1.FinishBuildRequest{BuildId: buildID}
 		req.Result = &cliv1beta1.FinishBuildRequest_Success{Success: &cliv1beta1.FinishBuildRequest_BuildSuccess{}}
 		if buildErr != nil {
-			errorMessage := ""
-			if depotapi.IsDepotError(buildErr) {
-				errorMessage = buildErr.Error()
-			}
+			errorMessage := buildErr.Error()
 			req.Result = &cliv1beta1.FinishBuildRequest_Error{Error: &cliv1beta1.FinishBuildRequest_BuildError{Error: errorMessage}}
 		}
 		_, err := client.FinishBuild(ctx, depotapi.WithAuthentication(connect.NewRequest(&req), token))
