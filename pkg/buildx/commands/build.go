@@ -16,9 +16,11 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/bufbuild/connect-go"
 	"github.com/containerd/console"
 	"github.com/depot/cli/pkg/buildx/builder"
 	"github.com/depot/cli/pkg/helpers"
+	cliv1beta1 "github.com/depot/cli/pkg/proto/depot/cli/v1beta1"
 	"github.com/docker/buildx/build"
 	"github.com/docker/buildx/monitor"
 	"github.com/docker/buildx/store"
@@ -100,6 +102,7 @@ type commonOptions struct {
 type DepotOptions struct {
 	project        string
 	token          string
+	buildID        string
 	buildPlatform  string
 	allowNoOutput  bool
 	builderOptions []builder.Option
@@ -282,7 +285,7 @@ func runBuild(dockerCli command.Cli, in buildOptions) (err error) {
 		return err
 	}
 
-	imageID, res, err := buildTargets(ctx, dockerCli, nodes, map[string]build.Options{defaultTargetName: opts}, in.progress, in.metadataFile, in.invoke != "")
+	imageID, res, err := buildTargets(ctx, dockerCli, nodes, map[string]build.Options{defaultTargetName: opts}, in.buildID, in.token, in.progress, in.metadataFile, in.invoke != "")
 	err = wrapBuildError(err, false)
 	if err != nil {
 		return err
@@ -299,7 +302,7 @@ func runBuild(dockerCli command.Cli, in buildOptions) (err error) {
 			return errors.Errorf("failed to configure terminal: %v", err)
 		}
 		err = monitor.RunMonitor(ctx, cfg, func(ctx context.Context) (*build.ResultContext, error) {
-			_, rr, err := buildTargets(ctx, dockerCli, nodes, map[string]build.Options{defaultTargetName: opts}, in.progress, in.metadataFile, true)
+			_, rr, err := buildTargets(ctx, dockerCli, nodes, map[string]build.Options{defaultTargetName: opts}, in.buildID, in.token, in.progress, in.metadataFile, true)
 			return rr, err
 		}, io.NopCloser(os.Stdin), nopCloser{os.Stdout}, nopCloser{os.Stderr})
 		if err != nil {
@@ -320,14 +323,25 @@ type nopCloser struct {
 
 func (c nopCloser) Close() error { return nil }
 
-func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.Node, opts map[string]build.Options, progressMode string, metadataFile string, allowNoOutput bool) (imageID string, res *build.ResultContext, err error) {
-	ctx2, cancel := context.WithCancel(context.TODO())
-	defer cancel()
+func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.Node, opts map[string]build.Options, buildID, token, progressMode, metadataFile string, allowNoOutput bool) (imageID string, res *build.ResultContext, err error) {
+	ctx2, cancel := context.WithCancel(ctx)
 
-	printer, err := progress.NewPrinter(ctx2, os.Stderr, os.Stderr, progressMode)
+	// TODO: remove this and use the depot API client.
+	mockClient := MockBuildServiceClient{}
+	printer, err := NewProgress(ctx2, &mockClient, buildID, token, progressMode)
 	if err != nil {
+		cancel()
 		return "", nil, err
 	}
+
+	wg := &sync.WaitGroup{}
+	wg.Add(1)
+	go func() {
+		printer.Run(ctx2)
+		wg.Done()
+	}()
+	defer wg.Wait() // Required to ensure that the printer is stopped before the context is cancelled.
+	defer cancel()
 
 	var mu sync.Mutex
 	var idx int
@@ -491,6 +505,8 @@ func BuildCmd(dockerCli command.Cli) *cobra.Command {
 				finishBuild(buildErr)
 			}()
 			options.builderOptions = []builder.Option{builder.WithDepotOptions(token, buildID, buildPlatform)}
+			options.buildID = buildID
+			options.token = token
 
 			if options.allowNoOutput {
 				_ = os.Setenv("BUILDX_NO_DEFAULT_LOAD", "1")
@@ -796,4 +812,32 @@ func updateLastActivity(dockerCli command.Cli, ng *store.NodeGroup) error {
 	}
 	defer release()
 	return txn.UpdateLastActivity(ng)
+}
+
+type MockBuildServiceClient struct{}
+
+func (m *MockBuildServiceClient) CreateBuild(_ context.Context, _ *connect.Request[cliv1beta1.CreateBuildRequest]) (*connect.Response[cliv1beta1.CreateBuildResponse], error) {
+	panic("not implemented") // TODO: Implement
+}
+
+func (m *MockBuildServiceClient) FinishBuild(_ context.Context, _ *connect.Request[cliv1beta1.FinishBuildRequest]) (*connect.Response[cliv1beta1.FinishBuildResponse], error) {
+	panic("not implemented") // TODO: Implement
+}
+
+func (m *MockBuildServiceClient) GetBuildKitConnection(_ context.Context, _ *connect.Request[cliv1beta1.GetBuildKitConnectionRequest]) (*connect.ServerStreamForClient[cliv1beta1.GetBuildKitConnectionResponse], error) {
+	panic("not implemented") // TODO: Implement
+}
+
+func (m *MockBuildServiceClient) ReportBuildHealth(_ context.Context) *connect.ClientStreamForClient[cliv1beta1.ReportBuildHealthRequest, cliv1beta1.ReportBuildHealthResponse] {
+	panic("not implemented") // TODO: Implement
+}
+
+func (m *MockBuildServiceClient) ReportTimings(_ context.Context, req *connect.Request[cliv1beta1.ReportTimingsRequest]) (*connect.Response[cliv1beta1.ReportTimingsResponse], error) {
+	buf, _ := json.MarshalIndent(req.Msg, "", "  ")
+
+	f, _ := os.OpenFile("howdy.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	_, _ = f.Write([]byte(fmt.Sprintf("timing: %s\n\n\n", string(buf))))
+	_ = f.Close()
+
+	return &connect.Response[cliv1beta1.ReportTimingsResponse]{}, nil
 }

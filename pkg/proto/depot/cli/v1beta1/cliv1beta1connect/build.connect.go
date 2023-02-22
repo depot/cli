@@ -31,6 +31,7 @@ type BuildServiceClient interface {
 	FinishBuild(context.Context, *connect_go.Request[v1beta1.FinishBuildRequest]) (*connect_go.Response[v1beta1.FinishBuildResponse], error)
 	GetBuildKitConnection(context.Context, *connect_go.Request[v1beta1.GetBuildKitConnectionRequest]) (*connect_go.ServerStreamForClient[v1beta1.GetBuildKitConnectionResponse], error)
 	ReportBuildHealth(context.Context) *connect_go.ClientStreamForClient[v1beta1.ReportBuildHealthRequest, v1beta1.ReportBuildHealthResponse]
+	ReportTimings(context.Context, *connect_go.Request[v1beta1.ReportTimingsRequest]) (*connect_go.Response[v1beta1.ReportTimingsResponse], error)
 }
 
 // NewBuildServiceClient constructs a client for the depot.cli.v1beta1.BuildService service. By
@@ -63,6 +64,11 @@ func NewBuildServiceClient(httpClient connect_go.HTTPClient, baseURL string, opt
 			baseURL+"/depot.cli.v1beta1.BuildService/ReportBuildHealth",
 			opts...,
 		),
+		reportTimings: connect_go.NewClient[v1beta1.ReportTimingsRequest, v1beta1.ReportTimingsResponse](
+			httpClient,
+			baseURL+"/depot.cli.v1beta1.BuildService/ReportTimings",
+			opts...,
+		),
 	}
 }
 
@@ -72,6 +78,7 @@ type buildServiceClient struct {
 	finishBuild           *connect_go.Client[v1beta1.FinishBuildRequest, v1beta1.FinishBuildResponse]
 	getBuildKitConnection *connect_go.Client[v1beta1.GetBuildKitConnectionRequest, v1beta1.GetBuildKitConnectionResponse]
 	reportBuildHealth     *connect_go.Client[v1beta1.ReportBuildHealthRequest, v1beta1.ReportBuildHealthResponse]
+	reportTimings         *connect_go.Client[v1beta1.ReportTimingsRequest, v1beta1.ReportTimingsResponse]
 }
 
 // CreateBuild calls depot.cli.v1beta1.BuildService.CreateBuild.
@@ -94,12 +101,18 @@ func (c *buildServiceClient) ReportBuildHealth(ctx context.Context) *connect_go.
 	return c.reportBuildHealth.CallClientStream(ctx)
 }
 
+// ReportTimings calls depot.cli.v1beta1.BuildService.ReportTimings.
+func (c *buildServiceClient) ReportTimings(ctx context.Context, req *connect_go.Request[v1beta1.ReportTimingsRequest]) (*connect_go.Response[v1beta1.ReportTimingsResponse], error) {
+	return c.reportTimings.CallUnary(ctx, req)
+}
+
 // BuildServiceHandler is an implementation of the depot.cli.v1beta1.BuildService service.
 type BuildServiceHandler interface {
 	CreateBuild(context.Context, *connect_go.Request[v1beta1.CreateBuildRequest]) (*connect_go.Response[v1beta1.CreateBuildResponse], error)
 	FinishBuild(context.Context, *connect_go.Request[v1beta1.FinishBuildRequest]) (*connect_go.Response[v1beta1.FinishBuildResponse], error)
 	GetBuildKitConnection(context.Context, *connect_go.Request[v1beta1.GetBuildKitConnectionRequest], *connect_go.ServerStream[v1beta1.GetBuildKitConnectionResponse]) error
 	ReportBuildHealth(context.Context, *connect_go.ClientStream[v1beta1.ReportBuildHealthRequest]) (*connect_go.Response[v1beta1.ReportBuildHealthResponse], error)
+	ReportTimings(context.Context, *connect_go.Request[v1beta1.ReportTimingsRequest]) (*connect_go.Response[v1beta1.ReportTimingsResponse], error)
 }
 
 // NewBuildServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -129,6 +142,11 @@ func NewBuildServiceHandler(svc BuildServiceHandler, opts ...connect_go.HandlerO
 		svc.ReportBuildHealth,
 		opts...,
 	))
+	mux.Handle("/depot.cli.v1beta1.BuildService/ReportTimings", connect_go.NewUnaryHandler(
+		"/depot.cli.v1beta1.BuildService/ReportTimings",
+		svc.ReportTimings,
+		opts...,
+	))
 	return "/depot.cli.v1beta1.BuildService/", mux
 }
 
@@ -149,4 +167,8 @@ func (UnimplementedBuildServiceHandler) GetBuildKitConnection(context.Context, *
 
 func (UnimplementedBuildServiceHandler) ReportBuildHealth(context.Context, *connect_go.ClientStream[v1beta1.ReportBuildHealthRequest]) (*connect_go.Response[v1beta1.ReportBuildHealthResponse], error) {
 	return nil, connect_go.NewError(connect_go.CodeUnimplemented, errors.New("depot.cli.v1beta1.BuildService.ReportBuildHealth is not implemented"))
+}
+
+func (UnimplementedBuildServiceHandler) ReportTimings(context.Context, *connect_go.Request[v1beta1.ReportTimingsRequest]) (*connect_go.Response[v1beta1.ReportTimingsResponse], error) {
+	return nil, connect_go.NewError(connect_go.CodeUnimplemented, errors.New("depot.cli.v1beta1.BuildService.ReportTimings is not implemented"))
 }

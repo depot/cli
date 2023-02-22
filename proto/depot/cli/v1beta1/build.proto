@@ -9,6 +9,7 @@ service BuildService {
   rpc FinishBuild(FinishBuildRequest) returns (FinishBuildResponse);
   rpc GetBuildKitConnection(GetBuildKitConnectionRequest) returns (stream GetBuildKitConnectionResponse);
   rpc ReportBuildHealth(stream ReportBuildHealthRequest) returns (ReportBuildHealthResponse);
+  rpc ReportTimings(ReportTimingsRequest) returns (ReportTimingsResponse);
 }
 
 message CreateBuildRequest {
@@ -74,3 +75,29 @@ message ReportBuildHealthRequest {
 }
 
 message ReportBuildHealthResponse {}
+
+message ReportTimingsRequest {
+  string build_id = 1;
+  repeated BuildStep build_steps = 2;
+}
+
+message ReportTimingsResponse {}
+
+message BuildStep {
+  string name = 1;
+  string stable_digest = 2;
+  google.protobuf.Timestamp start_time = 3;
+  int64 duration = 4;
+  repeated string input_digests = 5;
+  int64 input_duration = 6;
+  bool cached = 7;
+  optional Command command = 8;
+  optional string error = 9;
+}
+
+message Command {
+  optional string platform = 1;
+  optional string stage = 2;
+  int64 step = 3;
+  int64 total_steps = 4;
+}
