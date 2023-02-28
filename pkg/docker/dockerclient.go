@@ -31,28 +31,28 @@ func NewDockerCLI() (*command.DockerCli, error) {
 		dockerCertPath = config.Dir()
 	}
 
-	opts.Common.TLS = dockerTLS
-	opts.Common.TLSVerify = dockerTLSVerify
-	if opts.Common.TLSVerify {
-		opts.Common.TLS = true
+	opts.TLS = dockerTLS
+	opts.TLSVerify = dockerTLSVerify
+	if opts.TLSVerify {
+		opts.TLS = true
 	}
-	if opts.Common.TLS {
-		opts.Common.TLSOptions = &tlsconfig.Options{
+	if opts.TLS {
+		opts.TLSOptions = &tlsconfig.Options{
 			CAFile:             filepath.Join(dockerCertPath, cliflags.DefaultCaFile),
 			CertFile:           filepath.Join(dockerCertPath, cliflags.DefaultCertFile),
 			KeyFile:            filepath.Join(dockerCertPath, cliflags.DefaultKeyFile),
-			InsecureSkipVerify: !opts.Common.TLSVerify,
+			InsecureSkipVerify: !opts.TLSVerify,
 		}
 		// Reset CertFile and KeyFile to empty string if the respective default files were not found.
-		if _, err := os.Stat(opts.Common.TLSOptions.CertFile); os.IsNotExist(err) {
-			opts.Common.TLSOptions.CertFile = ""
+		if _, err := os.Stat(opts.TLSOptions.CertFile); os.IsNotExist(err) {
+			opts.TLSOptions.CertFile = ""
 		}
-		if _, err := os.Stat(opts.Common.TLSOptions.KeyFile); os.IsNotExist(err) {
-			opts.Common.TLSOptions.KeyFile = ""
+		if _, err := os.Stat(opts.TLSOptions.KeyFile); os.IsNotExist(err) {
+			opts.TLSOptions.KeyFile = ""
 		}
 	}
 
-	err = dockerCli.Initialize(opts)
+	err = dockerCli.Initialize(cliflags.NewClientOptions())
 	if err != nil {
 		return nil, err
 	}
