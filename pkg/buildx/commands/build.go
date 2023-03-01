@@ -305,7 +305,7 @@ func runBuild(dockerCli command.Cli, in buildOptions) (err error) {
 		if err != nil {
 			logrus.Warnf("failed to run monitor: %v", err)
 		}
-		con.Reset()
+		_ = con.Reset()
 	}
 
 	if in.quiet {
@@ -505,7 +505,7 @@ func BuildCmd(dockerCli command.Cli) *cobra.Command {
 	flags := cmd.Flags()
 
 	flags.StringSliceVar(&options.extraHosts, "add-host", []string{}, `Add a custom host-to-IP mapping (format: "host:ip")`)
-	flags.SetAnnotation("add-host", annotation.ExternalURL, []string{"https://docs.docker.com/engine/reference/commandline/build/#add-host"})
+	_ = flags.SetAnnotation("add-host", annotation.ExternalURL, []string{"https://docs.docker.com/engine/reference/commandline/build/#add-host"})
 
 	flags.StringSliceVar(&options.allow, "allow", []string{}, `Allow extra privileged entitlement (e.g., "network.host", "security.insecure")`)
 
@@ -516,12 +516,12 @@ func BuildCmd(dockerCli command.Cli) *cobra.Command {
 	flags.StringArrayVar(&options.cacheTo, "cache-to", []string{}, `Cache export destinations (e.g., "user/app:cache", "type=local,dest=path/to/dir")`)
 
 	flags.StringVar(&options.cgroupParent, "cgroup-parent", "", "Optional parent cgroup for the container")
-	flags.SetAnnotation("cgroup-parent", annotation.ExternalURL, []string{"https://docs.docker.com/engine/reference/commandline/build/#cgroup-parent"})
+	_ = flags.SetAnnotation("cgroup-parent", annotation.ExternalURL, []string{"https://docs.docker.com/engine/reference/commandline/build/#cgroup-parent"})
 
 	flags.StringArrayVar(&options.contexts, "build-context", []string{}, "Additional build contexts (e.g., name=path)")
 
 	flags.StringVarP(&options.dockerfileName, "file", "f", "", `Name of the Dockerfile (default: "PATH/Dockerfile")`)
-	flags.SetAnnotation("file", annotation.ExternalURL, []string{"https://docs.docker.com/engine/reference/commandline/build/#file"})
+	_ = flags.SetAnnotation("file", annotation.ExternalURL, []string{"https://docs.docker.com/engine/reference/commandline/build/#file"})
 
 	flags.StringVar(&options.imageIDFile, "iidfile", "", "Write the image ID to the file")
 
@@ -552,10 +552,10 @@ func BuildCmd(dockerCli command.Cli) *cobra.Command {
 	flags.StringArrayVar(&options.ssh, "ssh", []string{}, `SSH agent socket or keys to expose to the build (format: "default|<id>[=<socket>|<key>[,<key>]]")`)
 
 	flags.StringArrayVarP(&options.tags, "tag", "t", []string{}, `Name and optionally a tag (format: "name:tag")`)
-	flags.SetAnnotation("tag", annotation.ExternalURL, []string{"https://docs.docker.com/engine/reference/commandline/build/#tag"})
+	_ = flags.SetAnnotation("tag", annotation.ExternalURL, []string{"https://docs.docker.com/engine/reference/commandline/build/#tag"})
 
 	flags.StringVar(&options.target, "target", "", "Set the target build stage to build")
-	flags.SetAnnotation("target", annotation.ExternalURL, []string{"https://docs.docker.com/engine/reference/commandline/build/#target"})
+	_ = flags.SetAnnotation("target", annotation.ExternalURL, []string{"https://docs.docker.com/engine/reference/commandline/build/#target"})
 
 	flags.Var(options.ulimits, "ulimit", "Ulimit options")
 
@@ -574,46 +574,46 @@ func BuildCmd(dockerCli command.Cli) *cobra.Command {
 	var ignoreInt int64
 
 	flags.BoolVar(&ignoreBool, "compress", false, "Compress the build context using gzip")
-	flags.MarkHidden("compress")
+	_ = flags.MarkHidden("compress")
 
 	flags.StringVar(&ignore, "isolation", "", "Container isolation technology")
-	flags.MarkHidden("isolation")
-	flags.SetAnnotation("isolation", "flag-warn", []string{"isolation flag is deprecated with BuildKit."})
+	_ = flags.MarkHidden("isolation")
+	_ = flags.SetAnnotation("isolation", "flag-warn", []string{"isolation flag is deprecated with BuildKit."})
 
 	flags.StringSliceVar(&ignoreSlice, "security-opt", []string{}, "Security options")
-	flags.MarkHidden("security-opt")
-	flags.SetAnnotation("security-opt", "flag-warn", []string{`security-opt flag is deprecated. "RUN --security=insecure" should be used with BuildKit.`})
+	_ = flags.MarkHidden("security-opt")
+	_ = flags.SetAnnotation("security-opt", "flag-warn", []string{`security-opt flag is deprecated. "RUN --security=insecure" should be used with BuildKit.`})
 
 	flags.BoolVar(&ignoreBool, "squash", false, "Squash newly built layers into a single new layer")
-	flags.MarkHidden("squash")
-	flags.SetAnnotation("squash", "flag-warn", []string{"experimental flag squash is removed with BuildKit. You should squash inside build using a multi-stage Dockerfile for efficiency."})
+	_ = flags.MarkHidden("squash")
+	_ = flags.SetAnnotation("squash", "flag-warn", []string{"experimental flag squash is removed with BuildKit. You should squash inside build using a multi-stage Dockerfile for efficiency."})
 
 	flags.StringVarP(&ignore, "memory", "m", "", "Memory limit")
-	flags.MarkHidden("memory")
+	_ = flags.MarkHidden("memory")
 
 	flags.StringVar(&ignore, "memory-swap", "", `Swap limit equal to memory plus swap: "-1" to enable unlimited swap`)
-	flags.MarkHidden("memory-swap")
+	_ = flags.MarkHidden("memory-swap")
 
 	flags.Int64VarP(&ignoreInt, "cpu-shares", "c", 0, "CPU shares (relative weight)")
-	flags.MarkHidden("cpu-shares")
+	_ = flags.MarkHidden("cpu-shares")
 
 	flags.Int64Var(&ignoreInt, "cpu-period", 0, "Limit the CPU CFS (Completely Fair Scheduler) period")
-	flags.MarkHidden("cpu-period")
+	_ = flags.MarkHidden("cpu-period")
 
 	flags.Int64Var(&ignoreInt, "cpu-quota", 0, "Limit the CPU CFS (Completely Fair Scheduler) quota")
-	flags.MarkHidden("cpu-quota")
+	_ = flags.MarkHidden("cpu-quota")
 
 	flags.StringVar(&ignore, "cpuset-cpus", "", `CPUs in which to allow execution ("0-3", "0,1")`)
-	flags.MarkHidden("cpuset-cpus")
+	_ = flags.MarkHidden("cpuset-cpus")
 
 	flags.StringVar(&ignore, "cpuset-mems", "", `MEMs in which to allow execution ("0-3", "0,1")`)
-	flags.MarkHidden("cpuset-mems")
+	_ = flags.MarkHidden("cpuset-mems")
 
 	flags.BoolVar(&ignoreBool, "rm", true, "Remove intermediate containers after a successful build")
-	flags.MarkHidden("rm")
+	_ = flags.MarkHidden("rm")
 
 	flags.BoolVar(&ignoreBool, "force-rm", false, "Always remove intermediate containers")
-	flags.MarkHidden("force-rm")
+	_ = flags.MarkHidden("force-rm")
 
 	commonBuildFlags(&options.commonOptions, flags)
 	depotBuildFlags(&options.DepotOptions, flags)
