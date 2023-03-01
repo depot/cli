@@ -477,6 +477,10 @@ func BuildCmd(dockerCli command.Cli) *cobra.Command {
 			if project == "" {
 				return errors.Errorf("unknown project ID (run `depot init` or use --project or $DEPOT_PROJECT_ID)")
 			}
+			buildPlatform, err := helpers.ResolveBuildPlatform(options.buildPlatform)
+			if err != nil {
+				return err
+			}
 
 			buildID, finishBuild, err := helpers.BeginBuild(context.Background(), project, token)
 			if err != nil {
@@ -486,7 +490,7 @@ func BuildCmd(dockerCli command.Cli) *cobra.Command {
 			defer func() {
 				finishBuild(buildErr)
 			}()
-			options.builderOptions = []builder.Option{builder.WithDepotOptions(token, buildID, options.buildPlatform)}
+			options.builderOptions = []builder.Option{builder.WithDepotOptions(token, buildID, buildPlatform)}
 
 			if options.allowNoOutput {
 				_ = os.Setenv("BUILDX_NO_DEFAULT_LOAD", "1")
