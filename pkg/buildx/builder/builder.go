@@ -125,6 +125,7 @@ func New(dockerCli command.Cli, opts ...Option) (_ *Builder, err error) {
 
 	b.NodeGroup = &store.NodeGroup{
 		Name:          currentContext,
+		Driver:        "depot",
 		Nodes:         []store.Node{},
 		DockerContext: true,
 	}
