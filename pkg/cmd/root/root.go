@@ -1,6 +1,9 @@
 package root
 
 import (
+	"fmt"
+	"os"
+
 	"github.com/spf13/cobra"
 
 	bakeCmd "github.com/depot/cli/pkg/cmd/bake"
@@ -10,6 +13,7 @@ import (
 	loginCmd "github.com/depot/cli/pkg/cmd/login"
 	versionCmd "github.com/depot/cli/pkg/cmd/version"
 	"github.com/depot/cli/pkg/config"
+	"github.com/depot/cli/pkg/docker"
 )
 
 func NewCmdRoot(version, buildDate string) *cobra.Command {
@@ -31,9 +35,15 @@ func NewCmdRoot(version, buildDate string) *cobra.Command {
 	cmd.Version = formattedVersion
 	cmd.Flags().Bool("version", false, "Print the version and exit")
 
+	dockerCli, err := docker.NewDockerCLI()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+
 	// Child commands
-	cmd.AddCommand(bakeCmd.NewCmdBake())
-	cmd.AddCommand(buildCmd.NewCmdBuild())
+	cmd.AddCommand(bakeCmd.NewCmdBake(dockerCli))
+	cmd.AddCommand(buildCmd.NewCmdBuild(dockerCli))
 	cmd.AddCommand(cacheCmd.NewCmdCache())
 	cmd.AddCommand(initCmd.NewCmdInit())
 	cmd.AddCommand(loginCmd.NewCmdLogin())

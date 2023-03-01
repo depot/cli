@@ -5,7 +5,7 @@ import (
 	"os"
 )
 
-func NormalizePlatform(buildPlatform string) (string, error) {
+func ResolveBuildPlatform(buildPlatform string) (string, error) {
 	if buildPlatform == "" {
 		buildPlatform = os.Getenv("DEPOT_BUILD_PLATFORM")
 	}
