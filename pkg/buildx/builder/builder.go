@@ -132,16 +132,13 @@ func New(dockerCli command.Cli, opts ...Option) (_ *Builder, err error) {
 
 	if b.buildPlatform == "linux/amd64" {
 		b.NodeGroup.Nodes = []store.Node{amdNode}
-	}
-
-	if b.buildPlatform == "linux/arm64" {
+	} else if b.buildPlatform == "linux/arm64" {
 		b.NodeGroup.Nodes = []store.Node{armNode}
-	}
-
-	if strings.HasPrefix(runtime.GOARCH, "arm") {
+	} else if strings.HasPrefix(runtime.GOARCH, "arm") {
 		b.NodeGroup.Nodes = []store.Node{armNode, amdNode}
+	} else {
+		b.NodeGroup.Nodes = []store.Node{amdNode, armNode}
 	}
-	b.NodeGroup.Nodes = []store.Node{amdNode, armNode}
 
 	return b, nil
 }
