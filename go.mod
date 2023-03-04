@@ -11,7 +11,7 @@ require (
 	github.com/charmbracelet/lipgloss v0.5.0
 	github.com/cli/safeexec v1.0.0
 	github.com/containerd/console v1.0.3
-	github.com/containerd/containerd v1.6.16-0.20230124210447-1709cfe273d9
+	github.com/containerd/containerd v1.6.16
 	github.com/docker/buildx v0.10.3
 	github.com/docker/cli v23.0.0+incompatible
 	github.com/docker/cli-docs-tool v0.5.1
@@ -172,6 +172,7 @@ require (
 )
 
 replace (
+	github.com/moby/buildkit => github.com/depot/buildkit v0.11.3-depot.2
 	k8s.io/api => k8s.io/api v0.22.4
 	k8s.io/apimachinery => k8s.io/apimachinery v0.22.4
 	k8s.io/client-go => k8s.io/client-go v0.22.4
