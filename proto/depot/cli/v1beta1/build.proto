@@ -84,20 +84,12 @@ message ReportTimingsRequest {
 message ReportTimingsResponse {}
 
 message BuildStep {
-  string name = 1;
-  string stable_digest = 2;
-  google.protobuf.Timestamp start_time = 3;
-  int64 duration = 4;
-  repeated string input_digests = 5;
-  int64 input_duration = 6;
-  bool cached = 7;
-  optional Command command = 8;
-  optional string error = 9;
-}
-
-message Command {
-  optional string platform = 1;
-  optional string stage = 2;
-  int64 step = 3;
-  int64 total_steps = 4;
+  google.protobuf.Timestamp start_time = 1;
+  int32 duration_ms = 2;
+  string name = 3;
+  optional string error = 4;
+  optional string stable_digest = 5;
+  bool cached = 6;
+  repeated string input_digests = 7;
+  repeated string ancestor_digests = 8;
 }

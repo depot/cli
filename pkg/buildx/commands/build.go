@@ -16,11 +16,9 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/bufbuild/connect-go"
 	"github.com/containerd/console"
 	"github.com/depot/cli/pkg/buildx/builder"
 	"github.com/depot/cli/pkg/helpers"
-	cliv1beta1 "github.com/depot/cli/pkg/proto/depot/cli/v1beta1"
 	"github.com/docker/buildx/build"
 	"github.com/docker/buildx/monitor"
 	"github.com/docker/buildx/store"
@@ -326,9 +324,7 @@ func (c nopCloser) Close() error { return nil }
 func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.Node, opts map[string]build.Options, buildID, token, progressMode, metadataFile string, allowNoOutput bool) (imageID string, res *build.ResultContext, err error) {
 	ctx2, cancel := context.WithCancel(ctx)
 
-	// TODO: remove this and use the depot API client.
-	mockClient := MockBuildServiceClient{}
-	printer, err := NewProgress(ctx2, &mockClient, buildID, token, progressMode)
+	printer, err := NewProgress(ctx2, buildID, token, progressMode)
 	if err != nil {
 		cancel()
 		return "", nil, err
@@ -812,32 +808,4 @@ func updateLastActivity(dockerCli command.Cli, ng *store.NodeGroup) error {
 	}
 	defer release()
 	return txn.UpdateLastActivity(ng)
-}
-
-type MockBuildServiceClient struct{}
-
-func (m *MockBuildServiceClient) CreateBuild(_ context.Context, _ *connect.Request[cliv1beta1.CreateBuildRequest]) (*connect.Response[cliv1beta1.CreateBuildResponse], error) {
-	panic("not implemented") // TODO: Implement
-}
-
-func (m *MockBuildServiceClient) FinishBuild(_ context.Context, _ *connect.Request[cliv1beta1.FinishBuildRequest]) (*connect.Response[cliv1beta1.FinishBuildResponse], error) {
-	panic("not implemented") // TODO: Implement
-}
-
-func (m *MockBuildServiceClient) GetBuildKitConnection(_ context.Context, _ *connect.Request[cliv1beta1.GetBuildKitConnectionRequest]) (*connect.ServerStreamForClient[cliv1beta1.GetBuildKitConnectionResponse], error) {
-	panic("not implemented") // TODO: Implement
-}
-
-func (m *MockBuildServiceClient) ReportBuildHealth(_ context.Context) *connect.ClientStreamForClient[cliv1beta1.ReportBuildHealthRequest, cliv1beta1.ReportBuildHealthResponse] {
-	panic("not implemented") // TODO: Implement
-}
-
-func (m *MockBuildServiceClient) ReportTimings(_ context.Context, req *connect.Request[cliv1beta1.ReportTimingsRequest]) (*connect.Response[cliv1beta1.ReportTimingsResponse], error) {
-	buf, _ := json.MarshalIndent(req.Msg, "", "  ")
-
-	f, _ := os.OpenFile("howdy.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	_, _ = f.Write([]byte(fmt.Sprintf("timing: %s\n\n\n", string(buf))))
-	_ = f.Close()
-
-	return &connect.Response[cliv1beta1.ReportTimingsResponse]{}, nil
 }

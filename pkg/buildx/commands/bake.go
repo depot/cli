@@ -88,9 +88,7 @@ func RunBake(dockerCli command.Cli, targets []string, in BakeOptions) (err error
 
 	ctx2, cancel := context.WithCancel(ctx)
 
-	// TODO: remove this and use the depot API client.
-	mockClient := MockBuildServiceClient{}
-	printer, err := NewProgress(ctx2, &mockClient, in.buildID, in.token, in.progress)
+	printer, err := NewProgress(ctx2, in.buildID, in.token, in.progress)
 	if err != nil {
 		cancel()
 		return err

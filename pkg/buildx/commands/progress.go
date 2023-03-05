@@ -2,9 +2,10 @@ package commands
 
 import (
 	"context"
+	"errors"
 	"log"
 	"os"
-	"strconv"
+	"sort"
 	"strings"
 	"time"
 
@@ -30,7 +31,7 @@ type Progress struct {
 	p *progress.Printer
 }
 
-func NewProgress(ctx context.Context, c cliv1beta1connect.BuildServiceClient, buildID, token, progressMode string) (*Progress, error) {
+func NewProgress(ctx context.Context, buildID, token, progressMode string) (*Progress, error) {
 	// Buffer up to 1024 vertex slices before blocking the build.
 	const channelBufferSize = 1024
 	p, err := progress.NewPrinter(ctx, os.Stderr, os.Stderr, progressMode)
@@ -41,7 +42,7 @@ func NewProgress(ctx context.Context, c cliv1beta1connect.BuildServiceClient, bu
 	return &Progress{
 		buildID:  buildID,
 		token:    token,
-		client:   c,
+		client:   depotapi.NewBuildClient(),
 		vertices: make(chan []*client.Vertex, channelBufferSize),
 		p:        p,
 	}, nil
@@ -110,8 +111,6 @@ func (p *Progress) Run(ctx context.Context) {
 				step := NewStep(v)
 				steps = append(steps, &step)
 			}
-
-			p.Analyze(steps)
 		case <-ticker.C:
 			p.ReportBuildSteps(ctx, steps)
 			ticker.Reset(bufferTimeout)
@@ -133,10 +132,12 @@ func (p *Progress) Run(ctx context.Context) {
 						step := NewStep(v)
 						steps = append(steps, &step)
 					}
-
-					p.Analyze(steps)
 				default:
-					p.ReportBuildSteps(ctx, steps)
+					// Requires a new context because the previous one was canceled.
+					ctx2, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+					p.ReportBuildSteps(ctx2, steps)
+					cancel()
+
 					return
 				}
 			}
@@ -149,41 +150,9 @@ func (p *Progress) ReportBuildSteps(ctx context.Context, steps []*Step) {
 		return
 	}
 
-	buildSteps := make([]*cliv1beta1.BuildStep, 0, len(steps))
-	for _, step := range steps {
-		if step.Reported {
-			continue
-		}
-
-		buildStep := &cliv1beta1.BuildStep{
-			Name:          step.Name,
-			StableDigest:  step.StableDigest.String(),
-			StartTime:     timestamppb.New(step.StartTime),
-			Duration:      step.Duration.Microseconds(),
-			InputDuration: step.InputDuration.Microseconds(),
-			Cached:        step.Cached,
-			Error:         &step.Error,
-		}
-
-		if step.Command != nil {
-			buildStep.Command = &cliv1beta1.Command{
-				Platform:   &step.Command.Platform,
-				Stage:      &step.Command.Stage,
-				Step:       int64(step.Command.Step),
-				TotalSteps: int64(step.Command.Total),
-			}
-		}
-
-		buildSteps = append(buildSteps, buildStep)
-	}
-
-	if len(buildSteps) == 0 {
+	req := NewTimingRequest(p.buildID, steps)
+	if req == nil {
 		return
-	}
-
-	req := &cliv1beta1.ReportTimingsRequest{
-		BuildId:    p.buildID,
-		BuildSteps: buildSteps,
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
@@ -192,7 +161,22 @@ func (p *Progress) ReportBuildSteps(ctx context.Context, steps []*Step) {
 	_, err := p.client.ReportTimings(ctx, depotapi.WithAuthentication(connect.NewRequest(req), p.token))
 
 	if err != nil {
-		log.Printf("Failed to report build timings: %v", err)
+		// No need to log canceled or deadline exceeded errors.
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return
+		}
+
+		if connectErr := new(connect.Error); errors.As(err, &connectErr) {
+			// This is an AMI that does not yet have the ReportTimings endpoint.
+			if connectErr.Code() == connect.CodeUnimplemented {
+				return
+			}
+
+			log.Printf("Failed to report build timings: %v %v", connectErr.Error(), connectErr.Details())
+			return
+		}
+
+		log.Printf("Unknown error reporting build timings: %v", err)
 	} else {
 		// Mark the steps as reported if the request was successful.
 		for i := range steps {
@@ -202,31 +186,60 @@ func (p *Progress) ReportBuildSteps(ctx context.Context, steps []*Step) {
 }
 
 // Analyze computes the input duration for each step.
-func (p *Progress) Analyze(steps []*Step) {
+func Analyze(steps []*Step) {
 	// Used to lookup the index of a step's input digests.
 	digestIdx := make(map[digest.Digest]int, len(steps))
 	for i := range steps {
 		digestIdx[steps[i].StableDigest] = i
 	}
 
+	stableDigests := make(map[digest.Digest]digest.Digest, len(steps))
 	for i := range steps {
-		if steps[i].Cached {
-			// This is the time to load only the last cached layer of the build.
-			// Buildkit reports previous cached layers as zero duration.
-			steps[i].InputDuration = steps[i].Duration
+		// Filters out "random" digests that are not stable.
+		// An example of this is:
+		// { "Name": "[internal] load build context", "StableDigest": "random:8831e066dc1584a0ff85128626b574bcb4bf68e46ab71957522169d84586768d" }
+
+		if !strings.HasPrefix(steps[i].StableDigest.String(), "random:") {
+			stableDigests[steps[i].Digest] = steps[i].StableDigest
+		}
+	}
+
+	// Discover all stable input digests for each step.
+	for i := range steps {
+		// Already analyzed (minor optimization).
+		if len(steps[i].StableInputDigests) > 0 {
 			continue
 		}
 
-		stack := make([]digest.Digest, len(steps[i].InputDigests))
-		copy(stack, steps[i].InputDigests)
+		for _, inputDigest := range steps[i].InputDigests {
+			if stableDigest, ok := stableDigests[inputDigest]; ok {
+				steps[i].StableInputDigests = append(steps[i].StableInputDigests, stableDigest)
+			}
+		}
+	}
 
-		totalDuration := steps[i].Duration
+	// Discover all stable ancestor digests for each step.
+	for i := range steps {
+		// Already analyzed (minor optimization).
+		if len(steps[i].AncestorDigests) > 0 {
+			continue
+		}
+
+		// Using the StableInputDigests filters out any vertex without a stable digest.
+		ancestorDigests := make(map[digest.Digest]struct{}, len(steps[i].StableInputDigests))
+
+		stack := make([]digest.Digest, len(steps[i].StableInputDigests))
+		copy(stack, steps[i].StableInputDigests)
+
 		var stepDigest digest.Digest
-
 		// Depth first traversal reading from leaves to first cached vertex or to root.
 		for {
 			if len(stack) == 0 {
 				break
+			}
+
+			for j := range stack {
+				ancestorDigests[stack[j]] = struct{}{}
 			}
 
 			stepDigest, stack = stack[len(stack)-1], stack[:len(stack)-1]
@@ -237,41 +250,90 @@ func (p *Progress) Analyze(steps []*Step) {
 			}
 
 			step := steps[idx]
+			stack = append(stack, step.StableInputDigests...)
 
-			if step.Cached {
-				continue
-			}
-
-			if step.InputDuration != 0 {
-				// Already visited this node and its input vertices (minor optimization).
-				totalDuration += step.InputDuration
-			} else {
-				totalDuration += step.Duration
-
-				// Reallocate if stack size is too small.
-				if cap(stack)-len(stack) < len(step.InputDigests) {
-					stack = append(make([]digest.Digest, 0, len(stack)+len(step.InputDigests)), stack...)
-				}
-				copy(stack, step.InputDigests)
-			}
 		}
 
-		steps[i].InputDuration = totalDuration
+		for ancestor := range ancestorDigests {
+			steps[i].AncestorDigests = append(steps[i].AncestorDigests, ancestor)
+		}
+
+		// Sort the ancestor digests to ensure that the order is consistent.
+		// Order is the same as the order of the input digests.
+		// Effectively this is a topological sort.
+		sort.Slice(steps[i].AncestorDigests, func(j, k int) bool {
+			return digestIdx[steps[i].AncestorDigests[j]] <
+				digestIdx[steps[i].AncestorDigests[k]]
+		})
 	}
 }
 
+func NewTimingRequest(buildID string, steps []*Step) *cliv1beta1.ReportTimingsRequest {
+	buildSteps := make([]*cliv1beta1.BuildStep, 0, len(steps))
+	for _, step := range steps {
+		// Skip steps that have already been reported.
+		if step.Reported {
+			continue
+		}
+
+		buildStep := &cliv1beta1.BuildStep{
+			StartTime:  timestamppb.New(step.StartTime),
+			DurationMs: int32(step.Duration.Milliseconds()),
+			Name:       step.Name,
+			Cached:     step.Cached,
+		}
+
+		if step.Error != "" {
+			buildStep.Error = &step.Error
+		}
+
+		stableDigest := step.StableDigest.String()
+		// Do not report "random" digests such as local build context.
+		if !strings.HasPrefix(stableDigest, "random:") {
+			buildStep.StableDigest = &stableDigest
+		}
+
+		for _, stableInputDigest := range step.StableInputDigests {
+			buildStep.InputDigests = append(buildStep.InputDigests, stableInputDigest.String())
+		}
+
+		for _, ancestor := range step.AncestorDigests {
+			buildStep.AncestorDigests = append(buildStep.AncestorDigests, ancestor.String())
+		}
+
+		buildSteps = append(buildSteps, buildStep)
+	}
+
+	if len(buildSteps) == 0 {
+		return nil
+	}
+
+	req := &cliv1beta1.ReportTimingsRequest{
+		BuildId:    buildID,
+		BuildSteps: buildSteps,
+	}
+
+	return req
+}
+
+// Step is one of those internal data structures that translates domains from
+// buildkitd to CLI and from CLI to the API server.
 type Step struct {
-	Name          string
-	StableDigest  digest.Digest
-	StartTime     time.Time
-	Duration      time.Duration
-	InputDigests  []digest.Digest
-	InputDuration time.Duration
+	Name string
 
-	Command *Command
+	Digest       digest.Digest // Buildkit digest is hashed with random inputs to create random input digests.
+	StableDigest digest.Digest // Stable digest is the same for the same inputs. This is a depot extension.
 
-	Cached   bool
-	Error    string
+	StartTime time.Time
+	Duration  time.Duration
+
+	Cached bool
+	Error  string
+
+	InputDigests       []digest.Digest // Buildkit input digests are hashed with random inputs to create random input digests.
+	StableInputDigests []digest.Digest // Stable input digests are the same for the same inputs.
+	AncestorDigests    []digest.Digest // Ancestor digests are the input digests of all previous steps.
+
 	Reported bool
 }
 
@@ -279,89 +341,22 @@ type Step struct {
 func NewStep(v *client.Vertex) Step {
 	step := Step{
 		Name:         v.Name,
+		Digest:       v.Digest,
 		StartTime:    *v.Started,
 		Duration:     v.Completed.Sub(*v.Started),
 		Cached:       v.Cached,
 		StableDigest: v.StableDigest,
-		InputDigests: v.Inputs,
 		Error:        v.Error,
-	}
-
-	cmd, found := ParseCommand(v.Name)
-	if found {
-		step.Command = &cmd
+		InputDigests: v.Inputs,
 	}
 
 	return step
 }
 
-type Command struct {
+// Instruction is the parsed instruction from a build step.
+type Instruction struct {
 	Platform string
 	Stage    string
 	Step     int
 	Total    int
-}
-
-func ParseCommand(s string) (cmd Command, found bool) {
-	s, found = CutCommand(s)
-	if !found {
-		return
-	}
-
-	cmd, _, found = CutBuildStep(s)
-	return
-}
-
-func CutCommand(s string) (after string, found bool) {
-	return CutPrefix(s, "[")
-}
-
-func CutBuildStep(s string) (cmd Command, after string, found bool) {
-	before, after, found := strings.Cut(s, "] ")
-	if !found {
-		return Command{}, s, false
-	}
-
-	split := strings.Split(before, " ")
-	if len(split) == 0 {
-		return Command{}, after, false
-	}
-
-	// The last element is the step/total.
-	stepTotal := strings.Split(split[len(split)-1], "/")
-	if len(stepTotal) != 2 {
-		return Command{}, after, false
-	}
-
-	cmd.Step, _ = strconv.Atoi(stepTotal[0])
-	cmd.Total, _ = strconv.Atoi(stepTotal[1])
-	if cmd.Step == 0 || cmd.Total == 0 {
-		return Command{}, after, false
-	}
-
-	for i := 0; i < len(split)-1; i++ {
-		// Protect against steps with more than one space such as  1/10.
-		if len(split[i]) == 0 {
-			continue
-		}
-
-		// Platform is the only element that contains a slash.
-		// Some architectures contain multiple slashes such as linux/arm64/v7.
-		// Additionally, when a platform is emulated then the platform is
-		// contains an "arrow" like this: linux/amd64->ppc64le.
-		if strings.Contains(split[i], "/") {
-			cmd.Platform = split[i]
-		} else {
-			cmd.Stage = split[i]
-		}
-	}
-
-	return
-}
-
-func CutPrefix(s, prefix string) (after string, found bool) {
-	if !strings.HasPrefix(s, prefix) {
-		return s, false
-	}
-	return s[len(prefix):], true
 }
