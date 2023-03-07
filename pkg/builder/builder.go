@@ -101,6 +101,16 @@ func (b *Builder) Acquire(l progress.Logger) (*AcquiredBuilder, error) {
 }
 
 func (b *Builder) ReportHealth(ctx context.Context) error {
+	for {
+		err := b.doReportHealth(ctx)
+		if err == nil {
+			return nil
+		}
+		fmt.Printf("error reporting health: %s", err.Error())
+	}
+}
+
+func (b *Builder) doReportHealth(ctx context.Context) error {
 	client := api.NewBuildClient()
 
 	var builderPlatform cliv1beta1.BuilderPlatform
@@ -129,7 +139,7 @@ func (b *Builder) ReportHealth(ctx context.Context) error {
 		select {
 		case <-time.After(5 * time.Second):
 		case <-ctx.Done():
-			return ctx.Err()
+			return nil
 		}
 	}
 }
