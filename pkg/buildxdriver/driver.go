@@ -23,6 +23,8 @@ type Driver struct {
 	builderInfo *builder.AcquiredBuilder
 	*tlsOpts
 
+	client *client.Client
+
 	done chan struct{}
 }
 
@@ -134,6 +136,10 @@ func (d *Driver) Info(ctx context.Context) (*driver.Info, error) {
 }
 
 func (d *Driver) Client(ctx context.Context) (*client.Client, error) {
+	if d.client != nil {
+		return d.client, nil
+	}
+
 	opts := []client.ClientOpt{}
 	if d.tlsOpts != nil {
 		opts = append(opts, client.WithCredentials(d.tlsOpts.serverName, d.tlsOpts.caCert, d.tlsOpts.cert, d.tlsOpts.key))
@@ -148,6 +154,7 @@ func (d *Driver) Client(ctx context.Context) (*client.Client, error) {
 	if err != nil {
 		return nil, api.NewDepotError(err)
 	}
+	d.client = c
 	return c, nil
 }
 
