@@ -3,13 +3,12 @@ package builder
 import (
 	"context"
 	"fmt"
-	"runtime"
 	"time"
 
 	"github.com/bufbuild/connect-go"
-	"github.com/depot/cli/internal/build"
 	"github.com/depot/cli/pkg/api"
-	cliv1beta1 "github.com/depot/cli/pkg/proto/depot/cli/v1beta1"
+	cliv1 "github.com/depot/cli/pkg/proto/depot/cli/v1"
+	"github.com/depot/cli/pkg/proto/depot/cli/v1/cliv1connect"
 	"github.com/docker/buildx/util/progress"
 	"github.com/pkg/errors"
 )
@@ -40,12 +39,12 @@ func (b *Builder) Acquire(l progress.Logger) (*AcquiredBuilder, error) {
 	var err error
 	var builder AcquiredBuilder
 
-	builderPlatform := cliv1beta1.BuilderPlatform_BUILDER_PLATFORM_UNSPECIFIED
+	builderPlatform := cliv1.BuilderPlatform_BUILDER_PLATFORM_UNSPECIFIED
 	switch b.Platform {
 	case "amd64":
-		builderPlatform = cliv1beta1.BuilderPlatform_BUILDER_PLATFORM_AMD64
+		builderPlatform = cliv1.BuilderPlatform_BUILDER_PLATFORM_AMD64
 	case "arm64":
-		builderPlatform = cliv1beta1.BuilderPlatform_BUILDER_PLATFORM_ARM64
+		builderPlatform = cliv1.BuilderPlatform_BUILDER_PLATFORM_ARM64
 	default:
 		return nil, errors.Errorf("unsupported platform: %s", b.Platform)
 	}
@@ -54,21 +53,18 @@ func (b *Builder) Acquire(l progress.Logger) (*AcquiredBuilder, error) {
 	ctx := context.Background()
 
 	acquireFn := func(sub progress.SubLogger) error {
-		req := cliv1beta1.GetBuildKitConnectionRequest{
-			BuildId:  b.BuildID,
-			Platform: builderPlatform,
-		}
-		stream, err := client.GetBuildKitConnection(ctx, api.WithAuthentication(connect.NewRequest(&req), b.token))
-		if err != nil {
-			return err
-		}
-		defer stream.Close()
+		for {
+			req := cliv1.GetBuildKitConnectionRequest{
+				BuildId:  b.BuildID,
+				Platform: builderPlatform,
+			}
+			resp, err := client.GetBuildKitConnection(ctx, api.WithAuthentication(connect.NewRequest(&req), b.token))
+			if err != nil {
+				return err
+			}
 
-		for stream.Receive() {
-			resp := stream.Msg()
-
-			switch connection := resp.Connection.(type) {
-			case *cliv1beta1.GetBuildKitConnectionResponse_Active:
+			switch connection := resp.Msg.Connection.(type) {
+			case *cliv1.GetBuildKitConnectionResponse_Active:
 				builder.Addr = connection.Active.Endpoint
 				builder.ServerName = connection.Active.ServerName
 				builder.CACert = connection.Active.CaCert.Cert
@@ -76,16 +72,15 @@ func (b *Builder) Acquire(l progress.Logger) (*AcquiredBuilder, error) {
 				builder.Key = connection.Active.Cert.Key
 				return nil
 
-			case *cliv1beta1.GetBuildKitConnectionResponse_Pending:
-				// do nothing
+			case *cliv1.GetBuildKitConnectionResponse_Pending:
+				select {
+				case <-time.After(time.Duration(connection.Pending.WaitMs) * time.Millisecond):
+				case <-ctx.Done():
+					return ctx.Err()
+				}
+				continue
 			}
 		}
-
-		if err := stream.Err(); err != nil {
-			return connect.NewError(connect.CodeUnknown, err)
-		}
-
-		return nil
 	}
 
 	// Try to acquire builder twice
@@ -101,40 +96,25 @@ func (b *Builder) Acquire(l progress.Logger) (*AcquiredBuilder, error) {
 }
 
 func (b *Builder) ReportHealth(ctx context.Context) error {
-	for {
-		err := b.doReportHealth(ctx)
-		if err == nil {
-			return nil
-		}
-		fmt.Printf("error reporting health: %s", err.Error())
-	}
-}
-
-func (b *Builder) doReportHealth(ctx context.Context) error {
-	client := api.NewBuildClient()
-
-	var builderPlatform cliv1beta1.BuilderPlatform
+	var builderPlatform cliv1.BuilderPlatform
 	switch b.Platform {
 	case "amd64":
-		builderPlatform = cliv1beta1.BuilderPlatform_BUILDER_PLATFORM_AMD64
+		builderPlatform = cliv1.BuilderPlatform_BUILDER_PLATFORM_AMD64
 	case "arm64":
-		builderPlatform = cliv1beta1.BuilderPlatform_BUILDER_PLATFORM_ARM64
+		builderPlatform = cliv1.BuilderPlatform_BUILDER_PLATFORM_ARM64
 	default:
 		return errors.Errorf("unsupported platform: %s", b.Platform)
 	}
 
-	stream := client.ReportBuildHealth(ctx)
-	stream.RequestHeader().Add("User-Agent", fmt.Sprintf("depot-cli/%s/%s/%s", build.Version, runtime.GOOS, runtime.GOARCH))
-	stream.RequestHeader().Add("Depot-User-Agent", fmt.Sprintf("depot-cli/%s/%s/%s", build.Version, runtime.GOOS, runtime.GOARCH))
-	stream.RequestHeader().Add("Authorization", "Bearer "+b.token)
-	defer func() {
-		_, _ = stream.CloseAndReceive()
-	}()
-
+	client := api.NewBuildClient()
 	for {
-		err := stream.Send(&cliv1beta1.ReportBuildHealthRequest{BuildId: b.BuildID, Platform: builderPlatform})
+		err := b.doReportHealth(ctx, client, builderPlatform)
 		if err != nil {
-			return err
+			if errors.Is(err, context.Canceled) {
+				return nil
+			}
+			fmt.Printf("error reporting health: %s", err.Error())
+			client = api.NewBuildClient()
 		}
 		select {
 		case <-time.After(5 * time.Second):
@@ -142,4 +122,12 @@ func (b *Builder) doReportHealth(ctx context.Context) error {
 			return nil
 		}
 	}
+}
+
+func (b *Builder) doReportHealth(ctx context.Context, client cliv1connect.BuildServiceClient, builderPlatform cliv1.BuilderPlatform) error {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	req := cliv1.ReportBuildHealthRequest{BuildId: b.BuildID, Platform: builderPlatform}
+	_, err := client.ReportBuildHealth(ctx, api.WithAuthentication(connect.NewRequest(&req), b.token))
+	return err
 }
