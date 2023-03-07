@@ -103,15 +103,16 @@ func (p *Progress) Run(ctx context.Context) {
 				}
 
 				// skip if recorded already.
-				if _, ok := uniqueVertices[v.StableDigest]; ok {
+				if _, ok := uniqueVertices[v.Digest]; ok {
 					continue
 				}
 
-				uniqueVertices[v.StableDigest] = struct{}{}
+				uniqueVertices[v.Digest] = struct{}{}
 				step := NewStep(v)
 				steps = append(steps, &step)
 			}
 		case <-ticker.C:
+			Analyze(steps)
 			p.ReportBuildSteps(ctx, steps)
 			ticker.Reset(bufferTimeout)
 		case <-ctx.Done():
@@ -124,17 +125,18 @@ func (p *Progress) Run(ctx context.Context) {
 							continue
 						}
 
-						if _, ok := uniqueVertices[v.StableDigest]; ok {
+						if _, ok := uniqueVertices[v.Digest]; ok {
 							continue
 						}
 
-						uniqueVertices[v.StableDigest] = struct{}{}
+						uniqueVertices[v.Digest] = struct{}{}
 						step := NewStep(v)
 						steps = append(steps, &step)
 					}
 				default:
 					// Requires a new context because the previous one was canceled.
 					ctx2, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+					Analyze(steps)
 					p.ReportBuildSteps(ctx2, steps)
 					cancel()
 
@@ -190,6 +192,7 @@ func Analyze(steps []*Step) {
 	// Used to lookup the index of a step's input digests.
 	digestIdx := make(map[digest.Digest]int, len(steps))
 	for i := range steps {
+		digestIdx[steps[i].Digest] = i
 		digestIdx[steps[i].StableDigest] = i
 	}
 
@@ -226,10 +229,10 @@ func Analyze(steps []*Step) {
 		}
 
 		// Using the StableInputDigests filters out any vertex without a stable digest.
-		ancestorDigests := make(map[digest.Digest]struct{}, len(steps[i].StableInputDigests))
+		ancestorDigests := make(map[digest.Digest]struct{}, len(steps[i].InputDigests))
 
-		stack := make([]digest.Digest, len(steps[i].StableInputDigests))
-		copy(stack, steps[i].StableInputDigests)
+		stack := make([]digest.Digest, len(steps[i].InputDigests))
+		copy(stack, steps[i].InputDigests)
 
 		var stepDigest digest.Digest
 		// Depth first traversal reading from leaves to first cached vertex or to root.
@@ -250,12 +253,13 @@ func Analyze(steps []*Step) {
 			}
 
 			step := steps[idx]
-			stack = append(stack, step.StableInputDigests...)
-
+			stack = append(stack, step.InputDigests...)
 		}
 
 		for ancestor := range ancestorDigests {
-			steps[i].AncestorDigests = append(steps[i].AncestorDigests, ancestor)
+			if stableAncestor, ok := stableDigests[ancestor]; ok {
+				steps[i].AncestorDigests = append(steps[i].AncestorDigests, stableAncestor)
+			}
 		}
 
 		// Sort the ancestor digests to ensure that the order is consistent.
@@ -289,7 +293,7 @@ func NewTimingRequest(buildID string, steps []*Step) *cliv1beta1.ReportTimingsRe
 
 		stableDigest := step.StableDigest.String()
 		// Do not report "random" digests such as local build context.
-		if !strings.HasPrefix(stableDigest, "random:") {
+		if !strings.HasPrefix(stableDigest, "random:") && stableDigest != "" {
 			buildStep.StableDigest = &stableDigest
 		}
 
