@@ -11,8 +11,8 @@ import (
 
 	"github.com/bufbuild/connect-go"
 	depotapi "github.com/depot/cli/pkg/api"
-	cliv1beta1 "github.com/depot/cli/pkg/proto/depot/cli/v1beta1"
-	"github.com/depot/cli/pkg/proto/depot/cli/v1beta1/cliv1beta1connect"
+	cliv1 "github.com/depot/cli/pkg/proto/depot/cli/v1"
+	cliv1connect "github.com/depot/cli/pkg/proto/depot/cli/v1/cliv1connect"
 	"github.com/docker/buildx/util/progress"
 	"github.com/moby/buildkit/client"
 	"github.com/opencontainers/go-digest"
@@ -25,7 +25,7 @@ type Progress struct {
 	buildID string
 	token   string
 
-	client   cliv1beta1connect.BuildServiceClient
+	client   cliv1connect.BuildServiceClient
 	vertices chan []*client.Vertex
 
 	p *progress.Printer
@@ -272,15 +272,15 @@ func Analyze(steps []*Step) {
 	}
 }
 
-func NewTimingRequest(buildID string, steps []*Step) *cliv1beta1.ReportTimingsRequest {
-	buildSteps := make([]*cliv1beta1.BuildStep, 0, len(steps))
+func NewTimingRequest(buildID string, steps []*Step) *cliv1.ReportTimingsRequest {
+	buildSteps := make([]*cliv1.BuildStep, 0, len(steps))
 	for _, step := range steps {
 		// Skip steps that have already been reported.
 		if step.Reported {
 			continue
 		}
 
-		buildStep := &cliv1beta1.BuildStep{
+		buildStep := &cliv1.BuildStep{
 			StartTime:  timestamppb.New(step.StartTime),
 			DurationMs: int32(step.Duration.Milliseconds()),
 			Name:       step.Name,
@@ -312,7 +312,7 @@ func NewTimingRequest(buildID string, steps []*Step) *cliv1beta1.ReportTimingsRe
 		return nil
 	}
 
-	req := &cliv1beta1.ReportTimingsRequest{
+	req := &cliv1.ReportTimingsRequest{
 		BuildId:    buildID,
 		BuildSteps: buildSteps,
 	}

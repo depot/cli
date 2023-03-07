@@ -1,14 +1,14 @@
 syntax = "proto3";
 
-package depot.cli.v1beta1;
+package depot.cli.v1;
 
 import "google/protobuf/timestamp.proto";
 
 service BuildService {
   rpc CreateBuild(CreateBuildRequest) returns (CreateBuildResponse);
   rpc FinishBuild(FinishBuildRequest) returns (FinishBuildResponse);
-  rpc GetBuildKitConnection(GetBuildKitConnectionRequest) returns (stream GetBuildKitConnectionResponse);
-  rpc ReportBuildHealth(stream ReportBuildHealthRequest) returns (ReportBuildHealthResponse);
+  rpc GetBuildKitConnection(GetBuildKitConnectionRequest) returns (GetBuildKitConnectionResponse);
+  rpc ReportBuildHealth(ReportBuildHealthRequest) returns (ReportBuildHealthResponse);
   rpc ReportTimings(ReportTimingsRequest) returns (ReportTimingsResponse);
 }
 
@@ -54,7 +54,9 @@ message GetBuildKitConnectionResponse {
     ActiveConnection active = 2;
   }
 
-  message PendingConnection {}
+  message PendingConnection {
+    int32 wait_ms = 1;
+  }
 
   message ActiveConnection {
     string endpoint = 1;

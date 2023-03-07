@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/bufbuild/connect-go"
-	cliv1beta1 "github.com/depot/cli/pkg/proto/depot/cli/v1beta1"
+	cliv1 "github.com/depot/cli/pkg/proto/depot/cli/v1"
 	"github.com/opencontainers/go-digest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -212,7 +212,7 @@ func TestNewTimingRequest(t *testing.T) {
 	tests := []struct {
 		name string
 		args args
-		want *cliv1beta1.ReportTimingsRequest
+		want *cliv1.ReportTimingsRequest
 	}{
 		{
 			name: "If all steps already reported no request",
@@ -273,9 +273,9 @@ func TestNewTimingRequest(t *testing.T) {
 					},
 				},
 			},
-			want: &cliv1beta1.ReportTimingsRequest{
+			want: &cliv1.ReportTimingsRequest{
 				BuildId: "bid1",
-				BuildSteps: []*cliv1beta1.BuildStep{
+				BuildSteps: []*cliv1.BuildStep{
 					{
 						StartTime:       timestamppb.New(time.Unix(1677700406, 42807307)),
 						DurationMs:      int32(13377 / time.Millisecond),
@@ -345,7 +345,7 @@ func TestProgress_ReportBuildSteps(t *testing.T) {
 	wantHeaders["Authorization"] = []string{"Bearer " + token}
 
 	mockClient := new(mockBuildServiceClient)
-	mockClient.On("ReportTimings", wantRequest, wantHeaders).Return(&cliv1beta1.ReportTimingsResponse{}, nil)
+	mockClient.On("ReportTimings", wantRequest, wantHeaders).Return(&cliv1.ReportTimingsResponse{}, nil)
 
 	p := &Progress{
 		buildID: buildID,
@@ -362,25 +362,25 @@ type mockBuildServiceClient struct {
 	mock.Mock
 }
 
-func (m *mockBuildServiceClient) ReportTimings(ctx context.Context, req *connect.Request[cliv1beta1.ReportTimingsRequest]) (*connect.Response[cliv1beta1.ReportTimingsResponse], error) {
+func (m *mockBuildServiceClient) ReportTimings(ctx context.Context, req *connect.Request[cliv1.ReportTimingsRequest]) (*connect.Response[cliv1.ReportTimingsResponse], error) {
 	args := m.Called(req.Msg, req.Header())
 
 	return connect.NewResponse(
-		args.Get(0).(*cliv1beta1.ReportTimingsResponse)), args.Error(1)
+		args.Get(0).(*cliv1.ReportTimingsResponse)), args.Error(1)
 }
 
-func (m *mockBuildServiceClient) CreateBuild(context.Context, *connect.Request[cliv1beta1.CreateBuildRequest]) (*connect.Response[cliv1beta1.CreateBuildResponse], error) {
+func (m *mockBuildServiceClient) CreateBuild(context.Context, *connect.Request[cliv1.CreateBuildRequest]) (*connect.Response[cliv1.CreateBuildResponse], error) {
 	return nil, nil
 }
 
-func (m *mockBuildServiceClient) FinishBuild(context.Context, *connect.Request[cliv1beta1.FinishBuildRequest]) (*connect.Response[cliv1beta1.FinishBuildResponse], error) {
+func (m *mockBuildServiceClient) FinishBuild(context.Context, *connect.Request[cliv1.FinishBuildRequest]) (*connect.Response[cliv1.FinishBuildResponse], error) {
 	return nil, nil
 }
 
-func (m *mockBuildServiceClient) GetBuildKitConnection(context.Context, *connect.Request[cliv1beta1.GetBuildKitConnectionRequest]) (*connect.ServerStreamForClient[cliv1beta1.GetBuildKitConnectionResponse], error) {
+func (m *mockBuildServiceClient) GetBuildKitConnection(context.Context, *connect.Request[cliv1.GetBuildKitConnectionRequest]) (*connect.Response[cliv1.GetBuildKitConnectionResponse], error) {
 	return nil, nil
 }
 
-func (m *mockBuildServiceClient) ReportBuildHealth(context.Context) *connect.ClientStreamForClient[cliv1beta1.ReportBuildHealthRequest, cliv1beta1.ReportBuildHealthResponse] {
-	return nil
+func (m *mockBuildServiceClient) ReportBuildHealth(context.Context, *connect.Request[cliv1.ReportBuildHealthRequest]) (*connect.Response[cliv1.ReportBuildHealthResponse], error) {
+	return nil, nil
 }
