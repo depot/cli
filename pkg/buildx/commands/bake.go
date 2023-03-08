@@ -97,7 +97,7 @@ func RunBake(dockerCli command.Cli, targets []string, in BakeOptions) (err error
 	defer func() {
 		if printer != nil {
 			err1 := printer.Wait()
-			if err == nil {
+			if err == nil && !errors.Is(err1, context.Canceled) {
 				err = err1
 			}
 		}
