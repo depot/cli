@@ -100,6 +100,7 @@ type commonOptions struct {
 type DepotOptions struct {
 	project        string
 	token          string
+	buildID        string
 	buildPlatform  string
 	allowNoOutput  bool
 	builderOptions []builder.Option
@@ -282,7 +283,7 @@ func runBuild(dockerCli command.Cli, in buildOptions) (err error) {
 		return err
 	}
 
-	imageID, res, err := buildTargets(ctx, dockerCli, nodes, map[string]build.Options{defaultTargetName: opts}, in.progress, in.metadataFile, in.invoke != "")
+	imageID, res, err := buildTargets(ctx, dockerCli, nodes, map[string]build.Options{defaultTargetName: opts}, in.buildID, in.token, in.progress, in.metadataFile, in.invoke != "")
 	err = wrapBuildError(err, false)
 	if err != nil {
 		return err
@@ -299,7 +300,7 @@ func runBuild(dockerCli command.Cli, in buildOptions) (err error) {
 			return errors.Errorf("failed to configure terminal: %v", err)
 		}
 		err = monitor.RunMonitor(ctx, cfg, func(ctx context.Context) (*build.ResultContext, error) {
-			_, rr, err := buildTargets(ctx, dockerCli, nodes, map[string]build.Options{defaultTargetName: opts}, in.progress, in.metadataFile, true)
+			_, rr, err := buildTargets(ctx, dockerCli, nodes, map[string]build.Options{defaultTargetName: opts}, in.buildID, in.token, in.progress, in.metadataFile, true)
 			return rr, err
 		}, io.NopCloser(os.Stdin), nopCloser{os.Stdout}, nopCloser{os.Stderr})
 		if err != nil {
@@ -320,14 +321,23 @@ type nopCloser struct {
 
 func (c nopCloser) Close() error { return nil }
 
-func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.Node, opts map[string]build.Options, progressMode string, metadataFile string, allowNoOutput bool) (imageID string, res *build.ResultContext, err error) {
-	ctx2, cancel := context.WithCancel(context.TODO())
-	defer cancel()
+func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.Node, opts map[string]build.Options, buildID, token, progressMode, metadataFile string, allowNoOutput bool) (imageID string, res *build.ResultContext, err error) {
+	ctx2, cancel := context.WithCancel(ctx)
 
-	printer, err := progress.NewPrinter(ctx2, os.Stderr, os.Stderr, progressMode)
+	printer, err := NewProgress(ctx2, buildID, token, progressMode)
 	if err != nil {
+		cancel()
 		return "", nil, err
 	}
+
+	wg := &sync.WaitGroup{}
+	wg.Add(1)
+	go func() {
+		printer.Run(ctx2)
+		wg.Done()
+	}()
+	defer wg.Wait() // Required to ensure that the printer is stopped before the context is cancelled.
+	defer cancel()
 
 	var mu sync.Mutex
 	var idx int
@@ -491,6 +501,8 @@ func BuildCmd(dockerCli command.Cli) *cobra.Command {
 				finishBuild(buildErr)
 			}()
 			options.builderOptions = []builder.Option{builder.WithDepotOptions(token, buildID, buildPlatform)}
+			options.buildID = buildID
+			options.token = token
 
 			if options.allowNoOutput {
 				_ = os.Setenv("BUILDX_NO_DEFAULT_LOAD", "1")

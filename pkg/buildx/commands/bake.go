@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"sync"
 
 	"github.com/containerd/containerd/platforms"
 	"github.com/depot/cli/pkg/buildx/builder"
@@ -16,7 +17,6 @@ import (
 	"github.com/docker/buildx/util/buildflags"
 	"github.com/docker/buildx/util/confutil"
 	"github.com/docker/buildx/util/dockerutil"
-	"github.com/docker/buildx/util/progress"
 	"github.com/docker/buildx/util/tracing"
 	"github.com/docker/cli/cli/command"
 	"github.com/moby/buildkit/util/appcontext"
@@ -86,10 +86,11 @@ func RunBake(dockerCli command.Cli, targets []string, in BakeOptions) (err error
 	}
 	contextPathHash, _ := os.Getwd()
 
-	ctx2, cancel := context.WithCancel(context.TODO())
-	defer cancel()
-	printer, err := progress.NewPrinter(ctx2, os.Stderr, os.Stderr, in.progress)
+	ctx2, cancel := context.WithCancel(ctx)
+
+	printer, err := NewProgress(ctx2, in.buildID, in.token, in.progress)
 	if err != nil {
+		cancel()
 		return err
 	}
 
@@ -101,6 +102,15 @@ func RunBake(dockerCli command.Cli, targets []string, in BakeOptions) (err error
 			}
 		}
 	}()
+
+	wg := &sync.WaitGroup{}
+	wg.Add(1)
+	go func() {
+		printer.Run(ctx2)
+		wg.Done()
+	}()
+	defer wg.Wait() // Required to ensure that the printer is stopped before the context is cancelled.
+	defer cancel()
 
 	var nodes []builder.Node
 	var files []bake.File
@@ -148,6 +158,7 @@ func RunBake(dockerCli command.Cli, targets []string, in BakeOptions) (err error
 		return err
 	}
 
+	// TODO: this would stop the sending building timings to the depot API !!
 	if in.printOnly {
 		dt, err := json.MarshalIndent(struct {
 			Group  map[string]*bake.Group  `json:"group,omitempty"`
