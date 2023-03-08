@@ -79,7 +79,7 @@ func (p *Progress) Warnings() []client.VertexWarning {
 //
 // Cancel the context to stop the go routine.
 func (p *Progress) Run(ctx context.Context) {
-	// Buffer 5 seconds before sending build timings to the server
+	// Buffer 1 second before sending build timings to the server
 	const (
 		bufferTimeout = time.Second
 	)
@@ -113,8 +113,12 @@ func (p *Progress) Run(ctx context.Context) {
 			}
 		case <-ticker.C:
 			Analyze(steps)
-			p.ReportBuildSteps(ctx, steps)
+			// Requires a new context because the previous one may be canceled while we are
+			// sending the build timings.  At most one will wait 5 seconds.
+			ctx2, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			p.ReportBuildSteps(ctx2, steps)
 			ticker.Reset(bufferTimeout)
+			cancel()
 		case <-ctx.Done():
 			// Send all remaining build timings before exiting.
 			for {
@@ -134,9 +138,9 @@ func (p *Progress) Run(ctx context.Context) {
 						steps = append(steps, &step)
 					}
 				default:
+					Analyze(steps)
 					// Requires a new context because the previous one was canceled.
 					ctx2, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-					Analyze(steps)
 					p.ReportBuildSteps(ctx2, steps)
 					cancel()
 
