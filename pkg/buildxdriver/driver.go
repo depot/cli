@@ -23,6 +23,8 @@ type Driver struct {
 	builderInfo *builder.AcquiredBuilder
 	*tlsOpts
 
+	client *client.Client
+
 	done chan struct{}
 }
 
@@ -134,8 +136,8 @@ func (d *Driver) Info(ctx context.Context) (*driver.Info, error) {
 }
 
 func (d *Driver) Client(ctx context.Context) (*client.Client, error) {
-	if d.builderInfo == nil {
-		return nil, errors.New("builder not started")
+	if d.client != nil {
+		return d.client, nil
 	}
 
 	opts := []client.ClientOpt{}
@@ -152,6 +154,7 @@ func (d *Driver) Client(ctx context.Context) (*client.Client, error) {
 	if err != nil {
 		return nil, api.NewDepotError(err)
 	}
+	d.client = c
 	return c, nil
 }
 
