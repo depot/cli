@@ -2,8 +2,6 @@ package commands
 
 import (
 	"context"
-	"errors"
-	"log"
 	"os"
 	"sort"
 	"strings"
@@ -53,7 +51,6 @@ func (p *Progress) Write(s *client.SolveStatus) {
 	case p.vertices <- s.Vertexes:
 	default:
 		// if channel is full skip recording vertex time to prevent blocking the build.
-		log.Printf("Skip recording of build timing")
 	}
 
 	p.p.Write(s)
@@ -167,22 +164,8 @@ func (p *Progress) ReportBuildSteps(ctx context.Context, steps []*Step) {
 	_, err := p.client.ReportTimings(ctx, depotapi.WithAuthentication(connect.NewRequest(req), p.token))
 
 	if err != nil {
-		// No need to log canceled or deadline exceeded errors.
-		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-			return
-		}
-
-		if connectErr := new(connect.Error); errors.As(err, &connectErr) {
-			// This is an AMI that does not yet have the ReportTimings endpoint.
-			if connectErr.Code() == connect.CodeUnimplemented {
-				return
-			}
-
-			log.Printf("Failed to report build timings: %v %v", connectErr.Error(), connectErr.Details())
-			return
-		}
-
-		log.Printf("Unknown error reporting build timings: %v", err)
+		// No need to log errors to the user as it is fine if we miss some build timings.
+		return
 	} else {
 		// Mark the steps as reported if the request was successful.
 		for i := range steps {
