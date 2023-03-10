@@ -334,6 +334,9 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.No
 	}, allowNoOutput)
 
 	if err != nil {
+		// Make sure that the printer has completed before returning failed builds.
+		// We ignore the error here as it can only be a context error.
+		_ = printer.Wait()
 		return "", nil, err
 	}
 
@@ -345,7 +348,8 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.No
 
 	// TODO: tags should be the remote registry.
 	if ShouldLoad(exportLoad, opts) {
-		err = PullImages(ctx, opts[defaultTargetName].Tags, opts[defaultTargetName].Platforms, dockerCli, printer)
+		// NOTE: the err is returned at the end of this function.
+		err = PullImages(ctx, opts[defaultTargetName].Tags, dockerCli, printer)
 	}
 
 	if err := printer.Wait(); err != nil {

@@ -3,7 +3,6 @@ package commands
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -12,14 +11,9 @@ import (
 	"github.com/docker/buildx/build"
 	"github.com/docker/buildx/util/progress"
 	"github.com/docker/cli/cli/command"
-	"github.com/docker/cli/cli/trust"
-	"github.com/docker/distribution/reference"
 	"github.com/docker/docker/api/types"
-	registrytypes "github.com/docker/docker/api/types/registry"
 	"github.com/docker/docker/pkg/jsonmessage"
-	"github.com/docker/docker/registry"
 	"github.com/moby/buildkit/client"
-	v1 "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
 func ShouldLoad(exportLoad bool, opts map[string]build.Options) bool {
@@ -37,29 +31,21 @@ func ShouldLoad(exportLoad bool, opts map[string]build.Options) bool {
 	return false
 }
 
-func PullImages(ctx context.Context, tags []string, platforms []v1.Platform, dockerCli command.Cli, w progress.Writer) error {
+func PullImages(ctx context.Context, tags []string, dockerCli command.Cli, w progress.Writer) error {
 	pw := progress.WithPrefix(w, "default", false)
 
 	for _, tag := range tags {
-		for _, p := range platforms {
-			platform := fmt.Sprintf("%s/%s", p.OS, p.Architecture)
-			opts := PullOptions{Remote: tag, Platform: platform}
+		opts := PullOptions{Remote: tag}
 
-			var image string
-			if err := progress.Wrap(fmt.Sprintf("pulling %s %s", tag, platform), pw.Write, func(l progress.SubLogger) error {
-				var err error
-				image, err = ImagePullPrivileged(ctx, dockerCli, opts, l)
-				if err != nil {
-					return err
-				}
+		err := progress.Wrap(fmt.Sprintf("pulling %s", tag), pw.Write, func(l progress.SubLogger) error {
+			return ImagePullPrivileged(ctx, dockerCli, opts, l)
+		})
 
-				return nil
-			}); err != nil {
-				return err
-			}
-
-			progress.Write(pw, fmt.Sprintf("pulled %s", image), func() error { return nil })
+		if err != nil {
+			return err
 		}
+
+		progress.Write(pw, fmt.Sprintf("pulled %s", tag), func() error { return nil })
 	}
 
 	return nil
@@ -67,60 +53,50 @@ func PullImages(ctx context.Context, tags []string, platforms []v1.Platform, doc
 
 // PullOptions defines what and how to pull
 type PullOptions struct {
-	Remote    string
-	All       bool
-	Platform  string
-	Quiet     bool
-	Untrusted bool
+	Remote string
+	Quiet  bool
 }
 
-func ImagePullPrivileged(ctx context.Context, cli command.Cli, opts PullOptions, l progress.SubLogger) (string, error) {
-	distributionRef, err := reference.ParseNormalizedNamed(opts.Remote)
-	switch {
-	case err != nil:
-		return "", err
-	case opts.All && !reference.IsNameOnly(distributionRef):
-		return "", errors.New("tag can't be used with --all-tags/-a")
-	case !opts.All && reference.IsNameOnly(distributionRef):
-		distributionRef = reference.TagNameOnly(distributionRef)
-		if tagged, ok := distributionRef.(reference.Tagged); ok && !opts.Quiet {
-			fmt.Fprintf(cli.Out(), "Using default tag: %s\n", tagged.Tag())
+func ImagePullPrivileged(ctx context.Context, cli command.Cli, opts PullOptions, l progress.SubLogger) error {
+	ref := opts.Remote
+
+	/*
+		authConfig := types.AuthConfig{
+			// base64 encoded username and password.
+			Auth: "",
+			// This is what is place in the Authorization: Bearer token.
+			RegistryToken: "howdy",
+			ServerAddress: "ecr.us-east-1.amazonaws.com",
 		}
+	*/
+
+	authConfig := types.AuthConfig{
+		Username:      "goller",
+		ServerAddress: "https://index.docker.io/v1/",
 	}
 
-	imgRefAndAuth, err := trust.GetImageReferencesAndAuth(ctx, nil, AuthResolver(cli), distributionRef.String())
+	encodedAuth, err := command.EncodeAuthToBase64(authConfig)
 	if err != nil {
-		return "", err
+		return err
 	}
-
-	ref := reference.FamiliarString(imgRefAndAuth.Reference())
-
-	encodedAuth, err := command.EncodeAuthToBase64(*imgRefAndAuth.AuthConfig())
-	if err != nil {
-		return "", err
-	}
-
-	index := imgRefAndAuth.RepoInfo().Index
 
 	options := types.ImagePullOptions{
-		RegistryAuth:  encodedAuth,
-		PrivilegeFunc: RegistryAuthenticationPrivilegedFunc(index),
-		All:           opts.All,
-		Platform:      opts.Platform,
+		RegistryAuth: encodedAuth,
+		//Platform:     opts.Platform,
 	}
 
 	responseBody, err := cli.Client().ImagePull(ctx, ref, options)
 	if err != nil {
-		return "", err
+		return err
 	}
 	defer responseBody.Close()
 
 	if opts.Quiet {
 		_, err := io.Copy(io.Discard, responseBody)
-		return "", err
+		return err
 	} else {
 		if err := printPull(ctx, responseBody, l); err != nil {
-			return "", err
+			return err
 		}
 	}
 
@@ -128,33 +104,7 @@ func ImagePullPrivileged(ctx context.Context, cli command.Cli, opts PullOptions,
 	cli.Client().ImageTag(ctx, opts.Remote, "goller:latest")
 	cli.Client().ImageRemove(ctx, opts.Remote, types.ImageRemoveOptions{})
 
-	return imgRefAndAuth.Reference().String(), nil
-}
-
-// RegistryAuthenticationPrivilegedFunc returns a RequestPrivilegeFunc from the specified registry index info
-// for the given command.
-func RegistryAuthenticationPrivilegedFunc(index *registrytypes.IndexInfo) types.RequestPrivilegeFunc {
-	return func() (string, error) {
-		indexServer := registry.GetAuthConfigKey(index)
-		isDefaultRegistry := indexServer == registry.IndexServer
-
-		if !isDefaultRegistry {
-			indexServer = registry.ConvertToHostname(indexServer)
-		}
-
-		authConfig := types.AuthConfig{
-			ServerAddress: indexServer,
-		}
-
-		return command.EncodeAuthToBase64(authConfig)
-	}
-}
-
-// AuthResolver returns an auth resolver function from a command.Cli
-func AuthResolver(cli command.Cli) func(ctx context.Context, index *registrytypes.IndexInfo) types.AuthConfig {
-	return func(ctx context.Context, index *registrytypes.IndexInfo) types.AuthConfig {
-		return command.ResolveAuthConfig(ctx, cli, index)
-	}
+	return nil
 }
 
 func printPull(ctx context.Context, rc io.ReadCloser, l progress.SubLogger) error {
