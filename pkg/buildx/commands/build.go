@@ -346,10 +346,16 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.No
 		}
 	}
 
-	// TODO: tags should be the remote registry.
 	if ShouldLoad(exportLoad, opts) {
+		pullOpts := PullOptions{
+			UserTag:            opts[defaultTargetName].Tags[0],      // TODO: what do we do about multiple tags?
+			DepotTag:           buildID,                              // TODO: I think this is the full name
+			DepotRegistryURL:   "http://ecr.us-east-1.amazonaws.com", // TODO: this should be the registry URL
+			DepotRegistryToken: token,
+			Quiet:              progressMode == progress.PrinterModeQuiet,
+		}
 		// NOTE: the err is returned at the end of this function.
-		err = PullImages(ctx, opts[defaultTargetName].Tags, dockerCli, printer)
+		err = PullImages(ctx, dockerCli.Client(), pullOpts, printer)
 	}
 
 	if err := printer.Wait(); err != nil {

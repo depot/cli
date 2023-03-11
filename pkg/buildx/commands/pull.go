@@ -12,6 +12,7 @@ import (
 	"github.com/docker/buildx/util/progress"
 	"github.com/docker/cli/cli/command"
 	"github.com/docker/docker/api/types"
+	docker "github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/jsonmessage"
 	"github.com/moby/buildkit/client"
 )
@@ -31,48 +32,35 @@ func ShouldLoad(exportLoad bool, opts map[string]build.Options) bool {
 	return false
 }
 
-func PullImages(ctx context.Context, tags []string, dockerCli command.Cli, w progress.Writer) error {
+// Options to download from the Depot hosted registry and tag the image with the user provide tag.
+type PullOptions struct {
+	UserTag            string // Tag used in user input
+	DepotTag           string // Tag used in depot hosted registry
+	DepotRegistryURL   string // URL of depot hosted registry
+	DepotRegistryToken string // Token used to authenticate with depot hosted registry
+	Quiet              bool   // No logs plz
+}
+
+func PullImages(ctx context.Context, dockerapi docker.APIClient, opts PullOptions, w progress.Writer) error {
 	pw := progress.WithPrefix(w, "default", false)
 
-	for _, tag := range tags {
-		opts := PullOptions{Remote: tag}
+	err := progress.Wrap(fmt.Sprintf("pulling %s", opts.UserTag), pw.Write, func(l progress.SubLogger) error {
+		return ImagePullPrivileged(ctx, dockerapi, opts, l)
+	})
 
-		err := progress.Wrap(fmt.Sprintf("pulling %s", tag), pw.Write, func(l progress.SubLogger) error {
-			return ImagePullPrivileged(ctx, dockerCli, opts, l)
-		})
-
-		if err != nil {
-			return err
-		}
-
-		progress.Write(pw, fmt.Sprintf("pulled %s", tag), func() error { return nil })
+	if err != nil {
+		return err
 	}
+
+	progress.Write(pw, fmt.Sprintf("pulled %s", opts.UserTag), func() error { return nil })
 
 	return nil
 }
 
-// PullOptions defines what and how to pull
-type PullOptions struct {
-	Remote string
-	Quiet  bool
-}
-
-func ImagePullPrivileged(ctx context.Context, cli command.Cli, opts PullOptions, l progress.SubLogger) error {
-	ref := opts.Remote
-
-	/*
-		authConfig := types.AuthConfig{
-			// base64 encoded username and password.
-			Auth: "",
-			// This is what is place in the Authorization: Bearer token.
-			RegistryToken: "howdy",
-			ServerAddress: "ecr.us-east-1.amazonaws.com",
-		}
-	*/
-
+func ImagePullPrivileged(ctx context.Context, dockerapi docker.APIClient, opts PullOptions, l progress.SubLogger) error {
 	authConfig := types.AuthConfig{
-		Username:      "goller",
-		ServerAddress: "https://index.docker.io/v1/",
+		ServerAddress: opts.DepotRegistryURL,
+		RegistryToken: opts.DepotRegistryToken,
 	}
 
 	encodedAuth, err := command.EncodeAuthToBase64(authConfig)
@@ -80,12 +68,9 @@ func ImagePullPrivileged(ctx context.Context, cli command.Cli, opts PullOptions,
 		return err
 	}
 
-	options := types.ImagePullOptions{
+	responseBody, err := dockerapi.ImagePull(ctx, opts.DepotTag, types.ImagePullOptions{
 		RegistryAuth: encodedAuth,
-		//Platform:     opts.Platform,
-	}
-
-	responseBody, err := cli.Client().ImagePull(ctx, ref, options)
+	})
 	if err != nil {
 		return err
 	}
@@ -100,11 +85,14 @@ func ImagePullPrivileged(ctx context.Context, cli command.Cli, opts PullOptions,
 		}
 	}
 
-	// TODO: errors and correct tag.
-	cli.Client().ImageTag(ctx, opts.Remote, "goller:latest")
-	cli.Client().ImageRemove(ctx, opts.Remote, types.ImageRemoveOptions{})
+	// Swap the depot tag with the user-specified tag by adding the user tag
+	// and removing the depot one.
+	if err := dockerapi.ImageTag(ctx, opts.DepotTag, opts.UserTag); err != nil {
+		return err
+	}
 
-	return nil
+	_, err = dockerapi.ImageRemove(ctx, opts.DepotTag, types.ImageRemoveOptions{})
+	return err
 }
 
 func printPull(ctx context.Context, rc io.ReadCloser, l progress.SubLogger) error {
