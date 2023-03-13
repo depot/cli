@@ -322,7 +322,7 @@ type nopCloser struct {
 func (c nopCloser) Close() error { return nil }
 
 func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.Node, opts map[string]build.Options, buildID, token, progressMode, metadataFile string, allowNoOutput bool) (imageID string, res *build.ResultContext, err error) {
-	ctx2, cancel := context.WithCancel(ctx)
+	ctx2, cancel := context.WithCancel(context.TODO())
 
 	printer, err := NewProgress(ctx2, buildID, token, progressMode)
 	if err != nil {
