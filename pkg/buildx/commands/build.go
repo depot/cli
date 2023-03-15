@@ -215,6 +215,32 @@ func runBuild(dockerCli command.Cli, in buildOptions) (err error) {
 		}
 	}
 
+	if in.exportLoad {
+		// TODO: Set the registry and such
+		// We push to the depot user's personal registry to allow us to pull layers in parallel.
+		depotImageName := fmt.Sprintf("ecr.io/your-registry/your-image:%s", in.buildID)
+		if len(outputs) == 0 {
+			outputs = []client.ExportEntry{{
+				Type: "image",
+				Attrs: map[string]string{
+					"push": "true",
+					"name": depotImageName,
+				},
+			}}
+		} else {
+			switch outputs[0].Type {
+			case "image":
+				if name, ok := outputs[0].Attrs["name"]; ok {
+					outputs[0].Attrs["name"] = fmt.Sprintf("%s,%s", name, depotImageName)
+				} else {
+					outputs[0].Attrs["name"] = depotImageName
+				}
+			default:
+				return errors.Errorf("load and %q output can't be used together", outputs[0].Type)
+			}
+		}
+	}
+
 	opts.Exports = outputs
 
 	inAttests := append([]string{}, in.attests...)
@@ -348,8 +374,8 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.No
 
 	if ShouldLoad(exportLoad, opts) {
 		pullOpts := PullOptions{
-			UserTag:            opts[defaultTargetName].Tags[0],      // TODO: what do we do about multiple tags?
-			DepotTag:           buildID,                              // TODO: I think this is the full name
+			UserTag:            opts[defaultTargetName].Tags[0],      // TODO: What if no tag specified?
+			DepotTag:           fmt.Sprintf("your-name:%s", buildID), // TODO: I think this is the full name
 			DepotRegistryURL:   "http://ecr.us-east-1.amazonaws.com", // TODO: this should be the registry URL
 			DepotRegistryToken: token,
 			Quiet:              progressMode == progress.PrinterModeQuiet,
