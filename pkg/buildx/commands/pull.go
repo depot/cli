@@ -17,11 +17,69 @@ import (
 	"github.com/moby/buildkit/client"
 )
 
+// Options to download from the Depot hosted registry and tag the image with the user provide tag.
+type PullOptions struct {
+	UserTag            string // Tag used in user input
+	DepotTag           string // Tag used in depot hosted registry
+	DepotRegistryURL   string // URL of depot hosted registry
+	DepotRegistryToken string // Token used to authenticate with depot hosted registry
+	Quiet              bool   // No logs plz
+}
+
+// DepotLocalImagePull configures image exports to push to the depot user's personal registry.
+// allowing us to pull layers in parallel from the depot registry.
+func DepotLocalImagePull(buildOpts map[string]build.Options, buildID, token string) []PullOptions {
+	toPull := []PullOptions{}
+	for _, buildOpt := range buildOpts {
+		// TODO: figureout the best depotImageName.  Something from the builtOpt?
+		depotImageName := fmt.Sprintf("ecr.io/your-registry/your-image:%s", buildID)
+
+		var shouldPull bool
+		if len(buildOpt.Exports) == 0 {
+			shouldPull = true
+			buildOpt.Exports = []client.ExportEntry{
+				{Type: "image", Attrs: map[string]string{"name": depotImageName, "push": "true"}}}
+		} else {
+			for _, export := range buildOpt.Exports {
+				// Only pull if the user asked for an import export.
+				if export.Type == "image" {
+					shouldPull = true
+					if name, ok := export.Attrs["name"]; ok {
+						// Also, push to user's private depot registry as well as the original registry.
+						export.Attrs["name"] = fmt.Sprintf("%s,%s", name, depotImageName)
+						export.Attrs["push"] = "true"
+					} else {
+						export.Attrs["name"] = depotImageName
+						export.Attrs["push"] = "true"
+					}
+				}
+			}
+		}
+
+		if shouldPull {
+			pullOpt := PullOptions{
+				UserTag:            buildOpt.Tags[0], // TODO: not sure about this.  no tag? and is this the image name?
+				DepotTag:           depotImageName,
+				DepotRegistryURL:   "https://ecr.io", // TODO:
+				DepotRegistryToken: token,
+				Quiet:              false, // TODO: does bake have a quiet option?
+			}
+			toPull = append(toPull, pullOpt)
+		}
+	}
+
+	return toPull
+}
+
+// ShouldLoad returns true if the build should be loaded by either
+// the --load CLI flag or if the build has an export of type "docker".
 func ShouldLoad(exportLoad bool, opts map[string]build.Options) bool {
 	if exportLoad {
 		return true
 	}
 
+	// TODO: this isn't good enough because we don't know what image the user wanted.
+	// I wonder if this should only be the --load option.
 	for _, o := range opts {
 		for _, e := range o.Exports {
 			if e.Type == "docker" {
@@ -30,15 +88,6 @@ func ShouldLoad(exportLoad bool, opts map[string]build.Options) bool {
 		}
 	}
 	return false
-}
-
-// Options to download from the Depot hosted registry and tag the image with the user provide tag.
-type PullOptions struct {
-	UserTag            string // Tag used in user input
-	DepotTag           string // Tag used in depot hosted registry
-	DepotRegistryURL   string // URL of depot hosted registry
-	DepotRegistryToken string // Token used to authenticate with depot hosted registry
-	Quiet              bool   // No logs plz
 }
 
 func PullImages(ctx context.Context, dockerapi docker.APIClient, opts PullOptions, w progress.Writer) error {

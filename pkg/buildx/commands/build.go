@@ -218,6 +218,7 @@ func runBuild(dockerCli command.Cli, in buildOptions) (err error) {
 	if in.exportLoad {
 		// TODO: Set the registry and such
 		// We push to the depot user's personal registry to allow us to pull layers in parallel.
+		// TODO: Figure out the best depotImageName
 		depotImageName := fmt.Sprintf("ecr.io/your-registry/your-image:%s", in.buildID)
 		if len(outputs) == 0 {
 			outputs = []client.ExportEntry{{
