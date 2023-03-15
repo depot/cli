@@ -15,6 +15,7 @@ import (
 	docker "github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/jsonmessage"
 	"github.com/moby/buildkit/client"
+	"github.com/pkg/errors"
 )
 
 // Options to download from the Depot hosted registry and tag the image with the user provide tag.
@@ -28,11 +29,17 @@ type PullOptions struct {
 
 // DepotLocalImagePull configures image exports to push to the depot user's personal registry.
 // allowing us to pull layers in parallel from the depot registry.
-func DepotLocalImagePull(buildOpts map[string]build.Options, buildID, token string, progressMode string) []PullOptions {
+func DepotLocalImagePull(buildOpts map[string]build.Options, buildID, token string, progressMode string) ([]PullOptions, error) {
 	toPull := []PullOptions{}
 	for _, buildOpt := range buildOpts {
 		// TODO: figureout the best depotImageName.  Something from the builtOpt?
 		depotImageName := fmt.Sprintf("ecr.io/your-registry/your-image:%s", buildID)
+
+		var userTag string
+		// TODO: potentially, we can tag multiple times.
+		if len(buildOpt.Tags) > 0 {
+			userTag = buildOpt.Tags[0]
+		}
 
 		var shouldPull bool
 		if len(buildOpt.Exports) == 0 {
@@ -40,11 +47,16 @@ func DepotLocalImagePull(buildOpts map[string]build.Options, buildID, token stri
 			buildOpt.Exports = []client.ExportEntry{
 				{Type: "image", Attrs: map[string]string{"name": depotImageName, "push": "true"}}}
 		} else {
+			// As of today (2023-03-15), buildx only supports one export.
 			for _, export := range buildOpt.Exports {
 				// Only pull if the user asked for an import export.
 				if export.Type == "image" {
 					shouldPull = true
 					if name, ok := export.Attrs["name"]; ok {
+						// userTag is the name of the destination image for the local docker.
+						// TODO: if a user already specified multiple tags, we need to split
+						// by command and pick the first one.
+						userTag = name
 						// Also, push to user's private depot registry as well as the original registry.
 						export.Attrs["name"] = fmt.Sprintf("%s,%s", name, depotImageName)
 						export.Attrs["push"] = "true"
@@ -56,9 +68,13 @@ func DepotLocalImagePull(buildOpts map[string]build.Options, buildID, token stri
 			}
 		}
 
+		if userTag == "" {
+			return nil, errors.Errorf("tag is needed when loading image")
+		}
+
 		if shouldPull {
 			pullOpt := PullOptions{
-				UserTag:            buildOpt.Tags[0], // TODO: not sure about this.  no tag? and is this the image name?
+				UserTag:            userTag,
 				DepotTag:           depotImageName,
 				DepotRegistryURL:   "https://ecr.io", // TODO:
 				DepotRegistryToken: token,
@@ -68,7 +84,7 @@ func DepotLocalImagePull(buildOpts map[string]build.Options, buildID, token stri
 		}
 	}
 
-	return toPull
+	return toPull, nil
 }
 
 func PullImages(ctx context.Context, dockerapi docker.APIClient, opts PullOptions, w progress.Writer) error {

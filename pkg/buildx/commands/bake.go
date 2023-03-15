@@ -176,7 +176,11 @@ func RunBake(dockerCli command.Cli, targets []string, in BakeOptions) (err error
 
 	var toPull []PullOptions
 	if in.exportLoad {
-		toPull = DepotLocalImagePull(bo, in.buildID, in.token, in.progress)
+		var err error
+		toPull, err = DepotLocalImagePull(bo, in.buildID, in.token, in.progress)
+		if err != nil {
+			return wrapBuildError(err, true)
+		}
 	}
 
 	resp, err := build.Build(ctx, builder.ToBuildxNodes(nodes), bo, dockerutil.NewClient(dockerCli), confutil.ConfigDir(dockerCli), printer)
