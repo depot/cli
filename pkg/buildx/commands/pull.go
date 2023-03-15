@@ -19,11 +19,11 @@ import (
 
 // Options to download from the Depot hosted registry and tag the image with the user provide tag.
 type PullOptions struct {
-	UserTag            string // Tag used in user input
-	DepotTag           string // Tag used in depot hosted registry
-	DepotRegistryURL   string // URL of depot hosted registry
-	DepotRegistryToken string // Token used to authenticate with depot hosted registry
-	Quiet              bool   // No logs plz
+	UserTags           []string // Tags the user wishes the image to have.
+	DepotTag           string   // Tag used in depot hosted registry
+	DepotRegistryURL   string   // URL of depot hosted registry
+	DepotRegistryToken string   // Token used to authenticate with depot hosted registry
+	Quiet              bool     // No logs plz
 }
 
 // DepotLocalImagePull configures image exports to push to the depot user's personal registry.
@@ -34,11 +34,7 @@ func DepotLocalImagePull(buildOpts map[string]build.Options, buildID, token stri
 		// TODO: figureout the best depotImageName.  Something from the builtOpt?
 		depotImageName := fmt.Sprintf("ecr.io/your-registry/your-image:%s", buildID)
 
-		var userTag string
-		// TODO: potentially, we can tag multiple times.
-		if len(buildOpt.Tags) > 0 {
-			userTag = buildOpt.Tags[0]
-		}
+		userTags := buildOpt.Tags
 
 		var shouldPull bool
 		if len(buildOpt.Exports) == 0 {
@@ -52,10 +48,9 @@ func DepotLocalImagePull(buildOpts map[string]build.Options, buildID, token stri
 				if export.Type == "image" {
 					shouldPull = true
 					if name, ok := export.Attrs["name"]; ok {
-						// userTag is the name of the destination image for the local docker.
-						// TODO: if a user already specified multiple tags, we need to split
-						// by command and pick the first one.
-						userTag = name
+						// "name" is a comma separated list of tags to apply to the image.
+						userTags = append(userTags, strings.Split(name, ",")...)
+
 						// Also, push to user's private depot registry as well as the original registry.
 						export.Attrs["name"] = fmt.Sprintf("%s,%s", name, depotImageName)
 						export.Attrs["push"] = "true"
@@ -69,7 +64,7 @@ func DepotLocalImagePull(buildOpts map[string]build.Options, buildID, token stri
 
 		if shouldPull {
 			pullOpt := PullOptions{
-				UserTag:            userTag,
+				UserTags:           userTags,
 				DepotTag:           depotImageName,
 				DepotRegistryURL:   "https://ecr.io", // TODO:
 				DepotRegistryToken: token,
@@ -85,7 +80,8 @@ func DepotLocalImagePull(buildOpts map[string]build.Options, buildID, token stri
 func PullImages(ctx context.Context, dockerapi docker.APIClient, opts PullOptions, w progress.Writer) error {
 	pw := progress.WithPrefix(w, "default", false)
 
-	err := progress.Wrap(fmt.Sprintf("pulling %s", opts.UserTag), pw.Write, func(l progress.SubLogger) error {
+	tags := strings.Join(opts.UserTags, ",")
+	err := progress.Wrap(fmt.Sprintf("pulling %s", tags), pw.Write, func(l progress.SubLogger) error {
 		return ImagePullPrivileged(ctx, dockerapi, opts, l)
 	})
 
@@ -93,7 +89,7 @@ func PullImages(ctx context.Context, dockerapi docker.APIClient, opts PullOption
 		return err
 	}
 
-	progress.Write(pw, fmt.Sprintf("pulled %s", opts.UserTag), func() error { return nil })
+	progress.Write(pw, fmt.Sprintf("pulled %s", tags), func() error { return nil })
 
 	return nil
 }
@@ -126,11 +122,10 @@ func ImagePullPrivileged(ctx context.Context, dockerapi docker.APIClient, opts P
 		}
 	}
 
-	// Swap the depot tag with the user-specified tag by adding the user tag
+	// Swap the depot tag with the user-specified tags by adding the user tag
 	// and removing the depot one.
-
-	if opts.UserTag != "" {
-		if err := dockerapi.ImageTag(ctx, opts.DepotTag, opts.UserTag); err != nil {
+	for _, userTag := range opts.UserTags {
+		if err := dockerapi.ImageTag(ctx, opts.DepotTag, userTag); err != nil {
 			return err
 		}
 	}
