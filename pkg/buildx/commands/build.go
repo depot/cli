@@ -375,8 +375,7 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.No
 
 	var toPull []PullOptions
 	if exportLoad {
-		// NOTE: the err is returned at the end of this function.
-		toPull, err = DepotLocalImagePull(opts, buildID, token, progressMode)
+		toPull = DepotLocalImagePull(opts, buildID, token, progressMode)
 	}
 
 	for _, pullOpt := range toPull {

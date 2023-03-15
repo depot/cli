@@ -15,7 +15,6 @@ import (
 	docker "github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/jsonmessage"
 	"github.com/moby/buildkit/client"
-	"github.com/pkg/errors"
 )
 
 // Options to download from the Depot hosted registry and tag the image with the user provide tag.
@@ -29,7 +28,7 @@ type PullOptions struct {
 
 // DepotLocalImagePull configures image exports to push to the depot user's personal registry.
 // allowing us to pull layers in parallel from the depot registry.
-func DepotLocalImagePull(buildOpts map[string]build.Options, buildID, token string, progressMode string) ([]PullOptions, error) {
+func DepotLocalImagePull(buildOpts map[string]build.Options, buildID, token string, progressMode string) []PullOptions {
 	toPull := []PullOptions{}
 	for _, buildOpt := range buildOpts {
 		// TODO: figureout the best depotImageName.  Something from the builtOpt?
@@ -68,10 +67,6 @@ func DepotLocalImagePull(buildOpts map[string]build.Options, buildID, token stri
 			}
 		}
 
-		if userTag == "" {
-			return nil, errors.Errorf("tag is needed when loading image")
-		}
-
 		if shouldPull {
 			pullOpt := PullOptions{
 				UserTag:            userTag,
@@ -84,7 +79,7 @@ func DepotLocalImagePull(buildOpts map[string]build.Options, buildID, token stri
 		}
 	}
 
-	return toPull, nil
+	return toPull
 }
 
 func PullImages(ctx context.Context, dockerapi docker.APIClient, opts PullOptions, w progress.Writer) error {
@@ -133,11 +128,16 @@ func ImagePullPrivileged(ctx context.Context, dockerapi docker.APIClient, opts P
 
 	// Swap the depot tag with the user-specified tag by adding the user tag
 	// and removing the depot one.
-	if err := dockerapi.ImageTag(ctx, opts.DepotTag, opts.UserTag); err != nil {
-		return err
+
+	if opts.UserTag != "" {
+		if err := dockerapi.ImageTag(ctx, opts.DepotTag, opts.UserTag); err != nil {
+			return err
+		}
 	}
 
-	_, err = dockerapi.ImageRemove(ctx, opts.DepotTag, types.ImageRemoveOptions{})
+	// PruneChildren is false to preserve the image if no tag was specified.
+	rmOpts := types.ImageRemoveOptions{PruneChildren: false}
+	_, err = dockerapi.ImageRemove(ctx, opts.DepotTag, rmOpts)
 	return err
 }
 
