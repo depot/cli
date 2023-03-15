@@ -10,22 +10,35 @@ import (
 	cliv1 "github.com/depot/cli/pkg/proto/depot/cli/v1"
 )
 
-func BeginBuild(ctx context.Context, project string, token string) (buildID string, finishBuild func(buildErr error), err error) {
+type Build struct {
+	ID            string
+	RegistryURL   string
+	RegistryToken string
+	Finish        func(error)
+}
+
+func BeginBuild(ctx context.Context, project string, token string) (build Build, err error) {
 	client := depotapi.NewBuildClient()
 
-	buildID = os.Getenv("DEPOT_BUILD_ID")
-	if buildID == "" {
+	build.ID = os.Getenv("DEPOT_BUILD_ID")
+	if build.ID == "" {
 		req := cliv1.CreateBuildRequest{ProjectId: project}
 		var b *connect.Response[cliv1.CreateBuildResponse]
 		b, err = client.CreateBuild(ctx, depotapi.WithAuthentication(connect.NewRequest(&req), token))
 		if err != nil {
-			return "", nil, err
+			return build, err
 		}
-		buildID = b.Msg.BuildId
+		build.ID = b.Msg.BuildId
+
+		registry := b.Msg.GetRegistry()
+		if registry != nil {
+			build.RegistryURL = registry.Url
+			build.RegistryToken = registry.Token
+		}
 	}
 
-	finishBuild = func(buildErr error) {
-		req := cliv1.FinishBuildRequest{BuildId: buildID}
+	build.Finish = func(buildErr error) {
+		req := cliv1.FinishBuildRequest{BuildId: build.ID}
 		req.Result = &cliv1.FinishBuildRequest_Success{Success: &cliv1.FinishBuildRequest_BuildSuccess{}}
 		if buildErr != nil {
 			errorMessage := buildErr.Error()
@@ -37,5 +50,5 @@ func BeginBuild(ctx context.Context, project string, token string) (buildID stri
 		}
 	}
 
-	return buildID, finishBuild, err
+	return build, err
 }

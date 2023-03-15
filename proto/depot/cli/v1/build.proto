@@ -19,6 +19,12 @@ message CreateBuildRequest {
 message CreateBuildResponse {
   string build_id = 1;
   string build_token = 2;
+  Registry registry = 3;
+}
+
+message Registry {
+  string url = 1; // Depot user private registry.
+  string token = 2; // Depot user private registry token.
 }
 
 message FinishBuildRequest {

@@ -520,16 +520,16 @@ func BuildCmd(dockerCli command.Cli) *cobra.Command {
 				return err
 			}
 
-			buildID, finishBuild, err := helpers.BeginBuild(context.Background(), project, token)
+			build, err := helpers.BeginBuild(context.Background(), project, token)
 			if err != nil {
 				return err
 			}
 			var buildErr error
 			defer func() {
-				finishBuild(buildErr)
+				build.Finish(buildErr)
 			}()
-			options.builderOptions = []builder.Option{builder.WithDepotOptions(token, buildID, buildPlatform)}
-			options.buildID = buildID
+			options.builderOptions = []builder.Option{builder.WithDepotOptions(token, build.ID, buildPlatform)}
+			options.buildID = build.ID
 			options.token = token
 
 			if options.allowNoOutput {
