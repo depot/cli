@@ -28,7 +28,7 @@ type PullOptions struct {
 
 // DepotLocalImagePull configures image exports to push to the depot user's personal registry.
 // allowing us to pull layers in parallel from the depot registry.
-func DepotLocalImagePull(buildOpts map[string]build.Options, buildID, token string) []PullOptions {
+func DepotLocalImagePull(buildOpts map[string]build.Options, buildID, token string, progressMode string) []PullOptions {
 	toPull := []PullOptions{}
 	for _, buildOpt := range buildOpts {
 		// TODO: figureout the best depotImageName.  Something from the builtOpt?
@@ -62,32 +62,13 @@ func DepotLocalImagePull(buildOpts map[string]build.Options, buildID, token stri
 				DepotTag:           depotImageName,
 				DepotRegistryURL:   "https://ecr.io", // TODO:
 				DepotRegistryToken: token,
-				Quiet:              false, // TODO: does bake have a quiet option?
+				Quiet:              progressMode == progress.PrinterModeQuiet,
 			}
 			toPull = append(toPull, pullOpt)
 		}
 	}
 
 	return toPull
-}
-
-// ShouldLoad returns true if the build should be loaded by either
-// the --load CLI flag or if the build has an export of type "docker".
-func ShouldLoad(exportLoad bool, opts map[string]build.Options) bool {
-	if exportLoad {
-		return true
-	}
-
-	// TODO: this isn't good enough because we don't know what image the user wanted.
-	// I wonder if this should only be the --load option.
-	for _, o := range opts {
-		for _, e := range o.Exports {
-			if e.Type == "docker" {
-				return true
-			}
-		}
-	}
-	return false
 }
 
 func PullImages(ctx context.Context, dockerapi docker.APIClient, opts PullOptions, w progress.Writer) error {

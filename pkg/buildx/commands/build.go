@@ -373,16 +373,17 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.No
 		}
 	}
 
-	if ShouldLoad(exportLoad, opts) {
-		pullOpts := PullOptions{
-			UserTag:            opts[defaultTargetName].Tags[0],      // TODO: What if no tag specified?
-			DepotTag:           fmt.Sprintf("your-name:%s", buildID), // TODO: I think this is the full name
-			DepotRegistryURL:   "http://ecr.us-east-1.amazonaws.com", // TODO: this should be the registry URL
-			DepotRegistryToken: token,
-			Quiet:              progressMode == progress.PrinterModeQuiet,
+	var toPull []PullOptions
+	if exportLoad {
+		toPull = DepotLocalImagePull(opts, buildID, token, progressMode)
+	}
+
+	for _, pullOpt := range toPull {
+		err = PullImages(ctx, dockerCli.Client(), pullOpt, printer)
+		if err != nil {
+			// NOTE: the err is returned at the end of this function.
+			break
 		}
-		// NOTE: the err is returned at the end of this function.
-		err = PullImages(ctx, dockerCli.Client(), pullOpts, printer)
 	}
 
 	if err := printer.Wait(); err != nil {
