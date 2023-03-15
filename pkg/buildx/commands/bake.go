@@ -19,6 +19,7 @@ import (
 	"github.com/docker/buildx/util/dockerutil"
 	"github.com/docker/buildx/util/tracing"
 	"github.com/docker/cli/cli/command"
+	"github.com/moby/buildkit/client"
 	"github.com/moby/buildkit/util/appcontext"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
@@ -65,13 +66,9 @@ func RunBake(dockerCli command.Cli, targets []string, in BakeOptions) (err error
 
 	overrides := in.overrides
 	if in.exportPush {
-		if in.exportLoad {
-			return errors.Errorf("push and load may not be set together at the moment")
-		}
 		overrides = append(overrides, "*.push=true")
-	} else if in.exportLoad {
-		overrides = append(overrides, "*.output=type=docker")
 	}
+
 	if in.noCache != nil {
 		overrides = append(overrides, fmt.Sprintf("*.no-cache=%t", *in.noCache))
 	}
@@ -158,7 +155,6 @@ func RunBake(dockerCli command.Cli, targets []string, in BakeOptions) (err error
 		return err
 	}
 
-	// TODO: this would stop the sending building timings to the depot API !!
 	if in.printOnly {
 		dt, err := json.MarshalIndent(struct {
 			Group  map[string]*bake.Group  `json:"group,omitempty"`
@@ -179,6 +175,48 @@ func RunBake(dockerCli command.Cli, targets []string, in BakeOptions) (err error
 		return nil
 	}
 
+	toPull := []PullOptions{}
+	if in.exportLoad {
+		// Push to the depot user's personal registry to allow us to pull layers in parallel.
+		for _, buildOpt := range bo {
+			// TODO: figureout the best depotImageName.  Something from the builtOpt?
+			depotImageName := fmt.Sprintf("ecr.io/your-registry/your-image:%s", in.buildID)
+
+			var shouldPull bool
+			if len(buildOpt.Exports) == 0 {
+				shouldPull = true
+				buildOpt.Exports = []client.ExportEntry{
+					{Type: "image", Attrs: map[string]string{"name": depotImageName, "push": "true"}}}
+			} else {
+				for _, export := range buildOpt.Exports {
+					// Only pull if the user asked for an import export.
+					if export.Type == "image" {
+						shouldPull = true
+						if name, ok := export.Attrs["name"]; ok {
+							// Also, push to user's private depot registry as well as the original registry.
+							export.Attrs["name"] = fmt.Sprintf("%s,%s", name, depotImageName)
+							export.Attrs["push"] = "true"
+						} else {
+							export.Attrs["name"] = depotImageName
+							export.Attrs["push"] = "true"
+						}
+					}
+				}
+			}
+
+			if shouldPull {
+				pullOpt := PullOptions{
+					UserTag:            buildOpt.Tags[0], // TODO: not sure about this.  no tag? and is this the image name?
+					DepotTag:           depotImageName,
+					DepotRegistryURL:   "https://ecr.io", // TODO:
+					DepotRegistryToken: in.token,
+					Quiet:              false, // TODO: does bake have a quiet option?
+				}
+				toPull = append(toPull, pullOpt)
+			}
+		}
+	}
+
 	resp, err := build.Build(ctx, builder.ToBuildxNodes(nodes), bo, dockerutil.NewClient(dockerCli), confutil.ConfigDir(dockerCli), printer)
 	if err != nil {
 		return wrapBuildError(err, true)
@@ -194,7 +232,13 @@ func RunBake(dockerCli command.Cli, targets []string, in BakeOptions) (err error
 		}
 	}
 
-	return err
+	for _, pullOpt := range toPull {
+		if err := PullImages(ctx, dockerCli.Client(), pullOpt, printer); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func BakeCmd(dockerCli command.Cli) *cobra.Command {
