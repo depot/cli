@@ -26,13 +26,15 @@ type PullOptions struct {
 	Quiet              bool     // No logs plz
 }
 
-// DepotLocalImagePull configures image exports to push to the depot user's personal registry.
+// DepotLocalImagePull updates buildOpts to push to the depot user's personal registry.
 // allowing us to pull layers in parallel from the depot registry.
-func DepotLocalImagePull(buildOpts map[string]build.Options, buildID, token string, progressMode string) []PullOptions {
+// TODO: Check if buildOpts actually gets updated.
+// TODO: it's nto very pretty to have the map updated in-line here.
+func DepotLocalImagePull(buildOpts map[string]build.Options, depotOpts DepotOptions, progressMode string) []PullOptions {
 	toPull := []PullOptions{}
 	for _, buildOpt := range buildOpts {
-		// TODO: figureout the best depotImageName.  Something from the builtOpt?
-		depotImageName := fmt.Sprintf("ecr.io/your-registry/your-image:%s", buildID)
+		// TODO: Should the image name just come from the API?
+		depotImageName := fmt.Sprintf("%s/your-image:%s", depotOpts.registryURL, depotOpts.buildID)
 
 		userTags := buildOpt.Tags
 
@@ -66,8 +68,8 @@ func DepotLocalImagePull(buildOpts map[string]build.Options, buildID, token stri
 			pullOpt := PullOptions{
 				UserTags:           userTags,
 				DepotTag:           depotImageName,
-				DepotRegistryURL:   "https://ecr.io", // TODO:
-				DepotRegistryToken: token,
+				DepotRegistryURL:   depotOpts.registryURL,
+				DepotRegistryToken: depotOpts.registryToken,
 				Quiet:              progressMode == progress.PrinterModeQuiet,
 			}
 			toPull = append(toPull, pullOpt)

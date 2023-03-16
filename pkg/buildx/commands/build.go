@@ -217,33 +217,6 @@ func runBuild(dockerCli command.Cli, in buildOptions) (err error) {
 		}
 	}
 
-	if in.exportLoad {
-		// TODO: Set the registry and such
-		// We push to the depot user's personal registry to allow us to pull layers in parallel.
-		// TODO: Figure out the best depotImageName
-		depotImageName := fmt.Sprintf("ecr.io/your-registry/your-image:%s", in.buildID)
-		if len(outputs) == 0 {
-			outputs = []client.ExportEntry{{
-				Type: "image",
-				Attrs: map[string]string{
-					"push": "true",
-					"name": depotImageName,
-				},
-			}}
-		} else {
-			switch outputs[0].Type {
-			case "image":
-				if name, ok := outputs[0].Attrs["name"]; ok {
-					outputs[0].Attrs["name"] = fmt.Sprintf("%s,%s", name, depotImageName)
-				} else {
-					outputs[0].Attrs["name"] = depotImageName
-				}
-			default:
-				return errors.Errorf("load and %q output can't be used together", outputs[0].Type)
-			}
-		}
-	}
-
 	opts.Exports = outputs
 
 	inAttests := append([]string{}, in.attests...)
@@ -296,7 +269,7 @@ func runBuild(dockerCli command.Cli, in buildOptions) (err error) {
 		return err
 	}
 
-	imageID, res, err := buildTargets(ctx, dockerCli, nodes, map[string]build.Options{defaultTargetName: opts}, in.buildID, in.token, in.progress, in.metadataFile, in.exportLoad, in.invoke != "")
+	imageID, res, err := buildTargets(ctx, dockerCli, nodes, map[string]build.Options{defaultTargetName: opts}, in.DepotOptions, in.progress, in.metadataFile, in.exportLoad, in.invoke != "")
 	err = wrapBuildError(err, false)
 	if err != nil {
 		return err
@@ -313,7 +286,7 @@ func runBuild(dockerCli command.Cli, in buildOptions) (err error) {
 			return errors.Errorf("failed to configure terminal: %v", err)
 		}
 		err = monitor.RunMonitor(ctx, cfg, func(ctx context.Context) (*build.ResultContext, error) {
-			_, rr, err := buildTargets(ctx, dockerCli, nodes, map[string]build.Options{defaultTargetName: opts}, in.buildID, in.token, in.progress, in.metadataFile, false, true)
+			_, rr, err := buildTargets(ctx, dockerCli, nodes, map[string]build.Options{defaultTargetName: opts}, in.DepotOptions, in.progress, in.metadataFile, false, true)
 			return rr, err
 		}, io.NopCloser(os.Stdin), nopCloser{os.Stdout}, nopCloser{os.Stderr})
 		if err != nil {
@@ -334,10 +307,10 @@ type nopCloser struct {
 
 func (c nopCloser) Close() error { return nil }
 
-func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.Node, opts map[string]build.Options, buildID, token, progressMode, metadataFile string, exportLoad, allowNoOutput bool) (imageID string, res *build.ResultContext, err error) {
+func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.Node, opts map[string]build.Options, depotOpts DepotOptions, progressMode, metadataFile string, exportLoad, allowNoOutput bool) (imageID string, res *build.ResultContext, err error) {
 	ctx2, cancel := context.WithCancel(context.TODO())
 
-	printer, err := NewProgress(ctx2, buildID, token, progressMode)
+	printer, err := NewProgress(ctx2, depotOpts.buildID, depotOpts.token, progressMode)
 	if err != nil {
 		cancel()
 		return "", nil, err
@@ -351,6 +324,11 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.No
 	}()
 	defer wg.Wait() // Required to ensure that the printer is stopped before the context is cancelled.
 	defer cancel()
+
+	var toPull []PullOptions
+	if exportLoad {
+		toPull = DepotLocalImagePull(opts, depotOpts, progressMode)
+	}
 
 	var mu sync.Mutex
 	var idx int
@@ -373,11 +351,6 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.No
 		if err := writeMetadataFile(metadataFile, decodeExporterResponse(resp[defaultTargetName].ExporterResponse)); err != nil {
 			return "", nil, err
 		}
-	}
-
-	var toPull []PullOptions
-	if exportLoad {
-		toPull = DepotLocalImagePull(opts, buildID, token, progressMode)
 	}
 
 	for _, pullOpt := range toPull {
