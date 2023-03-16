@@ -102,6 +102,8 @@ type DepotOptions struct {
 	token          string
 	buildID        string
 	buildPlatform  string
+	registryURL    string
+	registryToken  string
 	allowNoOutput  bool
 	builderOptions []builder.Option
 }

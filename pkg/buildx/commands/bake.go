@@ -245,8 +245,11 @@ func BakeCmd(dockerCli command.Cli) *cobra.Command {
 				build.Finish(buildErr)
 			}()
 			options.builderOptions = []builder.Option{builder.WithDepotOptions(token, build.ID, buildPlatform)}
+
 			options.buildID = build.ID
 			options.token = token
+			options.registryURL = build.RegistryURL
+			options.registryToken = build.RegistryToken
 
 			if options.allowNoOutput {
 				_ = os.Setenv("BUILDX_NO_DEFAULT_LOAD", "1")
