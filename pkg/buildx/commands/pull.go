@@ -26,26 +26,33 @@ type PullOptions struct {
 	Quiet              bool     // No logs plz
 }
 
-// DepotLocalImagePull updates buildOpts to push to the depot user's personal registry.
+// WithDepotImagePull updates buildOpts to push to the depot user's personal registry.
 // allowing us to pull layers in parallel from the depot registry.
-// TODO: Check if buildOpts actually gets updated.
-// TODO: it's nto very pretty to have the map updated in-line here.
-func DepotLocalImagePull(buildOpts map[string]build.Options, depotOpts DepotOptions, progressMode string) []PullOptions {
+func WithDepotImagePull(buildOpts map[string]build.Options, depotOpts DepotOptions, progressMode string) (map[string]build.Options, []PullOptions) {
+	// TODO: we could do the --output type=docker here if the registry stuff is not set.
+	// TODO: basically, we'd update the buildOpts and return no PullOtions... this is backwards compat
+
 	toPull := []PullOptions{}
-	for _, buildOpt := range buildOpts {
+	for key, buildOpt := range buildOpts {
 		// TODO: Should the image name just come from the API?
 		depotImageName := fmt.Sprintf("%s/your-image:%s", depotOpts.registryURL, depotOpts.buildID)
 
 		userTags := buildOpt.Tags
 
 		var shouldPull bool
+		// Update the build opts to push to the depot registry.
 		if len(buildOpt.Exports) == 0 {
 			shouldPull = true
 			buildOpt.Exports = []client.ExportEntry{
-				{Type: "image", Attrs: map[string]string{"name": depotImageName, "push": "true"}}}
+				{
+					Type: "image",
+					Attrs: map[string]string{
+						"name": depotImageName, "push": "true"},
+				},
+			}
 		} else {
 			// As of today (2023-03-15), buildx only supports one export.
-			for _, export := range buildOpt.Exports {
+			for i, export := range buildOpt.Exports {
 				// Only pull if the user asked for an import export.
 				if export.Type == "image" {
 					shouldPull = true
@@ -55,14 +62,22 @@ func DepotLocalImagePull(buildOpts map[string]build.Options, depotOpts DepotOpti
 
 						// Also, push to user's private depot registry as well as the original registry.
 						export.Attrs["name"] = fmt.Sprintf("%s,%s", name, depotImageName)
-						export.Attrs["push"] = "true"
+						export.Attrs["push"] = "true" // TODO: possible bug here because user may not want push.
 					} else {
+						if export.Attrs == nil {
+							export.Attrs = make(map[string]string)
+						}
+
 						export.Attrs["name"] = depotImageName
 						export.Attrs["push"] = "true"
 					}
 				}
+
+				buildOpt.Exports[i] = export
 			}
 		}
+
+		buildOpts[key] = buildOpt
 
 		if shouldPull {
 			pullOpt := PullOptions{
@@ -76,7 +91,7 @@ func DepotLocalImagePull(buildOpts map[string]build.Options, depotOpts DepotOpti
 		}
 	}
 
-	return toPull
+	return buildOpts, toPull
 }
 
 func PullImages(ctx context.Context, dockerapi docker.APIClient, opts PullOptions, w progress.Writer) error {

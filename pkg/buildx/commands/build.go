@@ -327,7 +327,7 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.No
 
 	var toPull []PullOptions
 	if exportLoad {
-		toPull = DepotLocalImagePull(opts, depotOpts, progressMode)
+		opts, toPull = WithDepotImagePull(opts, depotOpts, progressMode)
 	}
 
 	var mu sync.Mutex
