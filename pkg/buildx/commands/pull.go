@@ -29,8 +29,25 @@ type PullOptions struct {
 // WithDepotImagePull updates buildOpts to push to the depot user's personal registry.
 // allowing us to pull layers in parallel from the depot registry.
 func WithDepotImagePull(buildOpts map[string]build.Options, depotOpts DepotOptions, progressMode string) (map[string]build.Options, []PullOptions) {
-	// TODO: we could do the --output type=docker here if the registry stuff is not set.
-	// TODO: basically, we'd update the buildOpts and return no PullOtions... this is backwards compat
+	// For backwards compatibility if the API does not return a the registry URL or token,
+	// we use the previous buildx behavior of pulling the image via the output docker.
+	// NOTE: this means that a single tar will be sent from buildkit to the client and
+	// imported into the docker daemon.  This is quite slow.
+	if depotOpts.registryURL == "" || depotOpts.registryToken == "" {
+		for key, buildOpt := range buildOpts {
+			if len(buildOpt.Exports) != 0 {
+				continue // assume that exports already has a docker export.
+			}
+			buildOpt.Exports = []client.ExportEntry{
+				{
+					Type:  "docker",
+					Attrs: map[string]string{},
+				},
+			}
+			buildOpts[key] = buildOpt
+		}
+		return buildOpts, []PullOptions{}
+	}
 
 	toPull := []PullOptions{}
 	for key, buildOpt := range buildOpts {

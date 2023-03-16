@@ -209,6 +209,32 @@ func TestWithDepotImagePull(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "Backwards compatibility if the registry parameters are not set we export to docker the old way.",
+			args: args{
+				buildOpts: map[string]build.Options{
+					defaultTargetName: {
+						Tags: []string{"my-registry.com/your-image:latest"},
+					},
+				},
+				depotOpts: DepotOptions{
+					buildID: "bid1",
+				},
+				progressMode: "auto",
+			},
+			wantBuildOpts: map[string]build.Options{
+				defaultTargetName: {
+					Tags: []string{"my-registry.com/your-image:latest"},
+					Exports: []client.ExportEntry{
+						{
+							Type:  "docker",
+							Attrs: map[string]string{},
+						},
+					},
+				},
+			},
+			wantPullOpts: []PullOptions{},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
