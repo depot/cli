@@ -64,7 +64,10 @@ func WithDepotImagePull(buildOpts map[string]build.Options, depotOpts DepotOptio
 				{
 					Type: "image",
 					Attrs: map[string]string{
-						"name": depotImageName, "push": "true"},
+						"name":           depotImageName,
+						"push":           "true",
+						"oci-mediatypes": "true",
+					},
 				},
 			}
 		} else {
@@ -80,6 +83,7 @@ func WithDepotImagePull(buildOpts map[string]build.Options, depotOpts DepotOptio
 						// Also, push to user's private depot registry as well as the original registry.
 						export.Attrs["name"] = fmt.Sprintf("%s,%s", name, depotImageName)
 						export.Attrs["push"] = "true" // TODO: possible bug here because user may not want push.
+						export.Attrs["oci-mediatypes"] = "true"
 					} else {
 						if export.Attrs == nil {
 							export.Attrs = make(map[string]string)
@@ -87,6 +91,7 @@ func WithDepotImagePull(buildOpts map[string]build.Options, depotOpts DepotOptio
 
 						export.Attrs["name"] = depotImageName
 						export.Attrs["push"] = "true"
+						export.Attrs["oci-mediatypes"] = "true"
 					}
 				}
 

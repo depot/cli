@@ -35,8 +35,12 @@ func TestWithDepotImagePull(t *testing.T) {
 				defaultTargetName: {
 					Exports: []client.ExportEntry{
 						{
-							Type:  "image",
-							Attrs: map[string]string{"name": "https://depot.dev/your-image:bid1", "push": "true"},
+							Type: "image",
+							Attrs: map[string]string{
+								"name":           "https://depot.dev/your-image:bid1",
+								"oci-mediatypes": "true",
+								"push":           "true",
+							},
 						},
 					},
 				},
@@ -72,8 +76,12 @@ func TestWithDepotImagePull(t *testing.T) {
 				defaultTargetName: {
 					Exports: []client.ExportEntry{
 						{
-							Type:  "image",
-							Attrs: map[string]string{"name": "https://depot.dev/your-image:bid1", "push": "true"},
+							Type: "image",
+							Attrs: map[string]string{
+								"name":           "https://depot.dev/your-image:bid1",
+								"oci-mediatypes": "true",
+								"push":           "true",
+							},
 						},
 					},
 					Tags: []string{
@@ -148,8 +156,12 @@ func TestWithDepotImagePull(t *testing.T) {
 				defaultTargetName: {
 					Exports: []client.ExportEntry{
 						{
-							Type:  "image",
-							Attrs: map[string]string{"name": "https://depot.dev/your-image:bid1", "push": "true"},
+							Type: "image",
+							Attrs: map[string]string{
+								"name":           "https://depot.dev/your-image:bid1",
+								"oci-mediatypes": "true",
+								"push":           "true",
+							},
 						},
 					},
 				},
@@ -192,8 +204,9 @@ func TestWithDepotImagePull(t *testing.T) {
 						{
 							Type: "image",
 							Attrs: map[string]string{
-								"name": "my-registry.com/your-image:latest,https://depot.dev/your-image:bid1",
-								"push": "true",
+								"name":           "my-registry.com/your-image:latest,https://depot.dev/your-image:bid1",
+								"oci-mediatypes": "true",
+								"push":           "true",
 							},
 						},
 					},
