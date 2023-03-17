@@ -115,7 +115,7 @@ func getProjectID(projects *cliv1beta1.ListProjectsResponse) (string, error) {
 
 	p := tea.NewProgram(m, tea.WithAltScreen())
 
-	final, err := p.StartReturningModel()
+	final, err := p.Run()
 	if err != nil {
 		fmt.Println("Error running program:", err)
 		os.Exit(1)

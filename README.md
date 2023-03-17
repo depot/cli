@@ -143,6 +143,58 @@ Reset the cache of a specific project ID
 depot cache reset --project 12345678910
 ```
 
+## depot list
+Interact with depot projects and builds.
+
+### depot list projects
+
+Display an interactive listing of current depot projects.
+Selecting a specific project will display the latest builds.
+To return from the latest builds to projects, press `ESC`.
+
+To exit type `q` or `ctrl+c`
+
+**Example**
+
+```shell
+depot list projects
+```
+
+### depot list builds
+
+Display the latest depot builds for a project.
+By default the command runs an interactive listing of depot builds showing status and build duration.
+
+To exit type `q` or `ctrl+c`
+
+**Example**
+
+List builds for the project in the current directory.
+
+```shell
+depot list builds
+```
+
+**Example**
+
+List builds for a specific project ID
+
+```shell
+depot list builds --project 12345678910
+```
+
+**Example**
+
+The build command can output build information to stdout with the `--output` option.
+It supports `json` and `csv`.
+
+Output builds in JSON for the project in the current directory.
+
+```shell
+depot list builds --output json
+```
+
+
 ### `depot init`
 
 Initialize an existing Depot project in the current directory. The CLI will display an interactive list of your Depot projects for you to choose from, then write a `depot.json` file in the current directory with the contents `{"projectID": "xxxxxxxxxx"}`.
