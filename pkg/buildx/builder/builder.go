@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/depot/cli/pkg/helpers"
 	"github.com/docker/buildx/driver"
 	"github.com/docker/buildx/store"
 	"github.com/docker/buildx/store/storeutil"
@@ -15,6 +16,7 @@ import (
 	"github.com/docker/buildx/util/imagetools"
 	"github.com/docker/buildx/util/progress"
 	"github.com/docker/cli/cli/command"
+	"github.com/docker/cli/cli/config/types"
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
 	"golang.org/x/sync/errgroup"
 )
@@ -72,11 +74,25 @@ func WithSkippedValidation() Option {
 	}
 }
 
-func WithDepotOptions(token, buildID, buildPlatform string) Option {
+func WithDepotOptions(token, buildPlatform string, build helpers.Build) Option {
 	return func(b *Builder) {
 		b.token = token
-		b.buildID = buildID
+		b.buildID = build.ID
 		b.buildPlatform = buildPlatform
+
+		// Add user's private depot registry credentials to the in-memory docker config.
+		if build.RegistryURL != "" && build.RegistryToken != "" {
+			authConfigs := b.opts.dockerCli.ConfigFile().AuthConfigs
+			if authConfigs == nil {
+				authConfigs = map[string]types.AuthConfig{}
+			}
+			authConfigs[build.RegistryURL] = types.AuthConfig{
+				ServerAddress: build.RegistryURL,
+				Auth:          build.RegistryToken,
+			}
+
+			b.opts.dockerCli.ConfigFile().AuthConfigs = authConfigs
+		}
 	}
 }
 

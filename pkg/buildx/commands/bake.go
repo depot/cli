@@ -244,7 +244,7 @@ func BakeCmd(dockerCli command.Cli) *cobra.Command {
 			defer func() {
 				build.Finish(buildErr)
 			}()
-			options.builderOptions = []builder.Option{builder.WithDepotOptions(token, build.ID, buildPlatform)}
+			options.builderOptions = []builder.Option{builder.WithDepotOptions(token, buildPlatform, build)}
 
 			options.buildID = build.ID
 			options.token = token
