@@ -20,9 +20,8 @@ import (
 // Options to download from the Depot hosted registry and tag the image with the user provide tag.
 type PullOptions struct {
 	UserTags           []string // Tags the user wishes the image to have.
-	DepotTag           string   // Tag used in depot hosted registry
-	DepotRegistryURL   string   // URL of depot hosted registry
-	DepotRegistryToken string   // Token used to authenticate with depot hosted registry
+	DepotImage         string   // Image to download from the user's private depot hosted registry
+	DepotRegistryToken string   // Token used to authenticate with user's private depot hosted registry
 	Quiet              bool     // No logs plz
 }
 
@@ -33,7 +32,7 @@ func WithDepotImagePull(buildOpts map[string]build.Options, depotOpts DepotOptio
 	// we use the previous buildx behavior of pulling the image via the output docker.
 	// NOTE: this means that a single tar will be sent from buildkit to the client and
 	// imported into the docker daemon.  This is quite slow.
-	if depotOpts.registryURL == "" || depotOpts.registryToken == "" {
+	if depotOpts.registryImage == "" || depotOpts.registryToken == "" {
 		for key, buildOpt := range buildOpts {
 			if len(buildOpt.Exports) != 0 {
 				continue // assume that exports already has a docker export.
@@ -51,9 +50,6 @@ func WithDepotImagePull(buildOpts map[string]build.Options, depotOpts DepotOptio
 
 	toPull := []PullOptions{}
 	for key, buildOpt := range buildOpts {
-		// TODO: Should the image name just come from the API?
-		depotImageName := fmt.Sprintf("%s/your-image:%s", depotOpts.registryURL, depotOpts.buildID)
-
 		userTags := buildOpt.Tags
 
 		var shouldPull bool
@@ -64,7 +60,7 @@ func WithDepotImagePull(buildOpts map[string]build.Options, depotOpts DepotOptio
 				{
 					Type: "image",
 					Attrs: map[string]string{
-						"name":           depotImageName,
+						"name":           depotOpts.registryImage,
 						"push":           "true",
 						"oci-mediatypes": "true",
 					},
@@ -81,7 +77,7 @@ func WithDepotImagePull(buildOpts map[string]build.Options, depotOpts DepotOptio
 						userTags = append(userTags, strings.Split(name, ",")...)
 
 						// Also, push to user's private depot registry as well as the original registry.
-						export.Attrs["name"] = fmt.Sprintf("%s,%s", name, depotImageName)
+						export.Attrs["name"] = fmt.Sprintf("%s,%s", name, depotOpts.registryImage)
 						export.Attrs["push"] = "true" // TODO: possible bug here because user may not want push.
 						export.Attrs["oci-mediatypes"] = "true"
 					} else {
@@ -89,7 +85,7 @@ func WithDepotImagePull(buildOpts map[string]build.Options, depotOpts DepotOptio
 							export.Attrs = make(map[string]string)
 						}
 
-						export.Attrs["name"] = depotImageName
+						export.Attrs["name"] = depotOpts.registryImage
 						export.Attrs["push"] = "true"
 						export.Attrs["oci-mediatypes"] = "true"
 					}
@@ -104,8 +100,7 @@ func WithDepotImagePull(buildOpts map[string]build.Options, depotOpts DepotOptio
 		if shouldPull {
 			pullOpt := PullOptions{
 				UserTags:           userTags,
-				DepotTag:           depotImageName,
-				DepotRegistryURL:   depotOpts.registryURL,
+				DepotImage:         depotOpts.registryImage,
 				DepotRegistryToken: depotOpts.registryToken,
 				Quiet:              progressMode == progress.PrinterModeQuiet,
 			}
@@ -135,7 +130,7 @@ func PullImages(ctx context.Context, dockerapi docker.APIClient, opts PullOption
 
 func ImagePullPrivileged(ctx context.Context, dockerapi docker.APIClient, opts PullOptions, l progress.SubLogger) error {
 	authConfig := types.AuthConfig{
-		ServerAddress: opts.DepotRegistryURL,
+		// TODO: Is the server address actually required given the Image?
 		RegistryToken: opts.DepotRegistryToken,
 	}
 
@@ -144,9 +139,11 @@ func ImagePullPrivileged(ctx context.Context, dockerapi docker.APIClient, opts P
 		return err
 	}
 
-	responseBody, err := dockerapi.ImagePull(ctx, opts.DepotTag, types.ImagePullOptions{
+	registryAuth := types.ImagePullOptions{
 		RegistryAuth: encodedAuth,
-	})
+	}
+
+	responseBody, err := dockerapi.ImagePull(ctx, opts.DepotImage, registryAuth)
 	if err != nil {
 		return err
 	}
@@ -164,14 +161,14 @@ func ImagePullPrivileged(ctx context.Context, dockerapi docker.APIClient, opts P
 	// Swap the depot tag with the user-specified tags by adding the user tag
 	// and removing the depot one.
 	for _, userTag := range opts.UserTags {
-		if err := dockerapi.ImageTag(ctx, opts.DepotTag, userTag); err != nil {
+		if err := dockerapi.ImageTag(ctx, opts.DepotImage, userTag); err != nil {
 			return err
 		}
 	}
 
 	// PruneChildren is false to preserve the image if no tag was specified.
 	rmOpts := types.ImageRemoveOptions{PruneChildren: false}
-	_, err = dockerapi.ImageRemove(ctx, opts.DepotTag, rmOpts)
+	_, err = dockerapi.ImageRemove(ctx, opts.DepotImage, rmOpts)
 	return err
 }
 

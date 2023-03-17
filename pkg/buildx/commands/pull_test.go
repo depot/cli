@@ -26,7 +26,7 @@ func TestWithDepotImagePull(t *testing.T) {
 				buildOpts: map[string]build.Options{defaultTargetName: {}},
 				depotOpts: DepotOptions{
 					buildID:       "bid1",
-					registryURL:   "https://depot.dev",
+					registryImage: "https://depot.dev/your-image:bid1",
 					registryToken: "hunter2",
 				},
 				progressMode: "auto",
@@ -47,8 +47,7 @@ func TestWithDepotImagePull(t *testing.T) {
 			},
 			wantPullOpts: []PullOptions{
 				{
-					DepotTag:           "https://depot.dev/your-image:bid1",
-					DepotRegistryURL:   "https://depot.dev",
+					DepotImage:         "https://depot.dev/your-image:bid1",
 					DepotRegistryToken: "hunter2",
 					Quiet:              false,
 				},
@@ -67,7 +66,7 @@ func TestWithDepotImagePull(t *testing.T) {
 				},
 				depotOpts: DepotOptions{
 					buildID:       "bid1",
-					registryURL:   "https://depot.dev",
+					registryImage: "https://depot.dev/your-image:bid1",
 					registryToken: "hunter2",
 				},
 				progressMode: "auto",
@@ -96,8 +95,7 @@ func TestWithDepotImagePull(t *testing.T) {
 						"my-registry.com/your-image:latest",
 						"my-registry.com/your-image:v2",
 					},
-					DepotTag:           "https://depot.dev/your-image:bid1",
-					DepotRegistryURL:   "https://depot.dev",
+					DepotImage:         "https://depot.dev/your-image:bid1",
 					DepotRegistryToken: "hunter2",
 					Quiet:              false,
 				},
@@ -117,7 +115,7 @@ func TestWithDepotImagePull(t *testing.T) {
 				},
 				depotOpts: DepotOptions{
 					buildID:       "bid1",
-					registryURL:   "https://depot.dev",
+					registryImage: "https://depot.dev/your-image:bid1",
 					registryToken: "hunter2",
 				},
 				progressMode: "auto",
@@ -147,7 +145,7 @@ func TestWithDepotImagePull(t *testing.T) {
 				},
 				depotOpts: DepotOptions{
 					buildID:       "bid1",
-					registryURL:   "https://depot.dev",
+					registryImage: "https://depot.dev/your-image:bid1",
 					registryToken: "hunter2",
 				},
 				progressMode: "auto",
@@ -168,8 +166,7 @@ func TestWithDepotImagePull(t *testing.T) {
 			},
 			wantPullOpts: []PullOptions{
 				{
-					DepotTag:           "https://depot.dev/your-image:bid1",
-					DepotRegistryURL:   "https://depot.dev",
+					DepotImage:         "https://depot.dev/your-image:bid1",
 					DepotRegistryToken: "hunter2",
 					Quiet:              false,
 				},
@@ -193,7 +190,7 @@ func TestWithDepotImagePull(t *testing.T) {
 				},
 				depotOpts: DepotOptions{
 					buildID:       "bid1",
-					registryURL:   "https://depot.dev",
+					registryImage: "https://depot.dev/your-image:bid1",
 					registryToken: "hunter2",
 				},
 				progressMode: "auto",
@@ -215,8 +212,7 @@ func TestWithDepotImagePull(t *testing.T) {
 			wantPullOpts: []PullOptions{
 				{
 					UserTags:           []string{"my-registry.com/your-image:latest"},
-					DepotTag:           "https://depot.dev/your-image:bid1",
-					DepotRegistryURL:   "https://depot.dev",
+					DepotImage:         "https://depot.dev/your-image:bid1",
 					DepotRegistryToken: "hunter2",
 					Quiet:              false,
 				},

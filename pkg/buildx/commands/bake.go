@@ -244,11 +244,17 @@ func BakeCmd(dockerCli command.Cli) *cobra.Command {
 			defer func() {
 				build.Finish(buildErr)
 			}()
-			options.builderOptions = []builder.Option{builder.WithDepotOptions(token, buildPlatform, build)}
+
+			registryAuth, err := helpers.ResolveRegistryAuth(build)
+			if err != nil {
+				return err
+			}
+
+			options.builderOptions = []builder.Option{builder.WithDepotOptions(token, buildPlatform, build, registryAuth)}
 
 			options.buildID = build.ID
 			options.token = token
-			options.registryURL = build.RegistryURL
+			options.registryImage = build.RegistryImage
 			options.registryToken = build.RegistryToken
 
 			if options.allowNoOutput {

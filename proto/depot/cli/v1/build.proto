@@ -23,7 +23,7 @@ message CreateBuildResponse {
 }
 
 message Registry {
-  string url = 1; // Depot user private registry.
+  string image = 1; // Depot user private registry destination image.
   string token = 2; // Depot user private registry token.
 }
 

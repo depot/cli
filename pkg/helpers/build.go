@@ -12,7 +12,7 @@ import (
 
 type Build struct {
 	ID            string
-	RegistryURL   string
+	RegistryImage string
 	RegistryToken string
 	Finish        func(error)
 }
@@ -32,7 +32,7 @@ func BeginBuild(ctx context.Context, project string, token string) (build Build,
 
 		registry := b.Msg.GetRegistry()
 		if registry != nil {
-			build.RegistryURL = registry.Url
+			build.RegistryImage = registry.Image
 			build.RegistryToken = registry.Token
 		}
 	}

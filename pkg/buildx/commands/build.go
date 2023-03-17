@@ -102,7 +102,7 @@ type DepotOptions struct {
 	token          string
 	buildID        string
 	buildPlatform  string
-	registryURL    string
+	registryImage  string
 	registryToken  string
 	allowNoOutput  bool
 	builderOptions []builder.Option
@@ -504,7 +504,12 @@ func BuildCmd(dockerCli command.Cli) *cobra.Command {
 				build.Finish(buildErr)
 			}()
 
-			options.builderOptions = []builder.Option{builder.WithDepotOptions(token, buildPlatform, build)}
+			registryAuth, err := helpers.ResolveRegistryAuth(build)
+			if err != nil {
+				return err
+			}
+
+			options.builderOptions = []builder.Option{builder.WithDepotOptions(token, buildPlatform, build, registryAuth)}
 			options.buildID = build.ID
 			options.token = token
 

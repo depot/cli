@@ -74,23 +74,19 @@ func WithSkippedValidation() Option {
 	}
 }
 
-func WithDepotOptions(token, buildPlatform string, build helpers.Build) Option {
+func WithDepotOptions(token, buildPlatform string, build helpers.Build, registryAuth *types.AuthConfig) Option {
 	return func(b *Builder) {
 		b.token = token
 		b.buildID = build.ID
 		b.buildPlatform = buildPlatform
 
 		// Add user's private depot registry credentials to the in-memory docker config.
-		if build.RegistryURL != "" && build.RegistryToken != "" {
+		if registryAuth != nil {
 			authConfigs := b.opts.dockerCli.ConfigFile().AuthConfigs
 			if authConfigs == nil {
 				authConfigs = map[string]types.AuthConfig{}
 			}
-			authConfigs[build.RegistryURL] = types.AuthConfig{
-				ServerAddress: build.RegistryURL,
-				Auth:          build.RegistryToken,
-			}
-
+			authConfigs[registryAuth.ServerAddress] = *registryAuth
 			b.opts.dockerCli.ConfigFile().AuthConfigs = authConfigs
 		}
 	}
