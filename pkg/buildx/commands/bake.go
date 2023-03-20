@@ -86,7 +86,7 @@ func RunBake(dockerCli command.Cli, targets []string, in BakeOptions) (err error
 	}
 	contextPathHash, _ := os.Getwd()
 
-	ctx2, cancel := context.WithCancel(ctx)
+	ctx2, cancel := context.WithCancel(context.TODO())
 
 	printer, err := NewProgress(ctx2, in.buildID, in.token, in.progress)
 	if err != nil {
