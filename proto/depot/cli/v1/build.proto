@@ -26,6 +26,7 @@ message FinishBuildRequest {
   oneof result {
     BuildSuccess success = 2;
     BuildError error = 3;
+    BuildCanceled canceled = 4;
   }
 
   message BuildSuccess {}
@@ -33,6 +34,8 @@ message FinishBuildRequest {
   message BuildError {
     string error = 1;
   }
+
+  message BuildCanceled {}
 }
 
 message FinishBuildResponse {}
