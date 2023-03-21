@@ -2,7 +2,7 @@ package oidc
 
 import "context"
 
-const audience = "depot.dev"
+const audience = "https://depot.dev"
 
 type OIDCProvider interface {
 	RetrieveToken(ctx context.Context) (string, error)
