@@ -213,7 +213,7 @@ func BakeCmd(dockerCli command.Cli) *cobra.Command {
 				options.pull = nil
 			}
 
-			token := helpers.ResolveToken(options.token)
+			token := helpers.ResolveToken(context.Background(), options.token)
 			if token == "" {
 				return fmt.Errorf("missing API token, please run `depot login`")
 			}
