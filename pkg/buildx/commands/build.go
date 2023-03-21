@@ -479,7 +479,7 @@ func BuildCmd(dockerCli command.Cli) *cobra.Command {
 			options.contextPath = args[0]
 			cmd.Flags().VisitAll(checkWarnedFlags)
 
-			token := helpers.ResolveToken(options.token)
+			token := helpers.ResolveToken(context.Background(), options.token)
 			if token == "" {
 				return fmt.Errorf("missing API token, please run `depot login`")
 			}
