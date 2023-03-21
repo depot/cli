@@ -17,6 +17,7 @@ var (
 	checkForCI sync.Once
 )
 
+// Returns the user agent string for the CLI.
 func Agent() string {
 	checkForCI.Do(func() {
 		execution := "terminal"
