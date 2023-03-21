@@ -6,10 +6,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"runtime"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/depot/cli/internal/build"
 	"github.com/pkg/errors"
 )
 
@@ -46,8 +44,9 @@ func apiRequest[Response interface{}](method, url, token string, payload interfa
 	if token != "" {
 		req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", token))
 	}
-	req.Header.Add("User-Agent", fmt.Sprintf("depot-cli/%s/%s/%s", build.Version, runtime.GOOS, runtime.GOARCH))
-	req.Header.Add("Depot-User-Agent", fmt.Sprintf("depot-cli/%s/%s/%s", build.Version, runtime.GOOS, runtime.GOARCH))
+
+	req.Header.Add("User-Agent", Agent())
+	req.Header.Add("Depot-User-Agent", Agent())
 
 	resp, err := client.Do(req)
 	if err != nil {

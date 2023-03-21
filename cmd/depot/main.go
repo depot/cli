@@ -8,6 +8,7 @@ import (
 	"github.com/depot/cli/internal/build"
 	"github.com/depot/cli/internal/update"
 	"github.com/depot/cli/pkg/api"
+	"github.com/depot/cli/pkg/ci"
 	"github.com/depot/cli/pkg/cmd/root"
 	"github.com/depot/cli/pkg/config"
 	"github.com/getsentry/sentry-go"
@@ -83,13 +84,8 @@ func shouldCheckForUpdate() bool {
 	if os.Getenv("DEPOT_NO_UPDATE_NOTIFIER") != "" {
 		return false
 	}
-	return !isCI() && isTerminal(os.Stdout) && isTerminal(os.Stderr)
-}
-
-func isCI() bool {
-	return os.Getenv("CI") != "" || // GitHub Actions, Travis CI, CircleCI, Cirrus CI, GitLab CI, AppVeyor, CodeShip, dsari
-		os.Getenv("BUILD_NUMBER") != "" || // Jenkins, TeamCity
-		os.Getenv("RUN_ID") != "" // TaskCluster, dsari
+	_, isCI := ci.Provider()
+	return !isCI && isTerminal(os.Stdout) && isTerminal(os.Stderr)
 }
 
 func isTerminal(f *os.File) bool {
