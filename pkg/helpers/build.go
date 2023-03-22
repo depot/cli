@@ -13,18 +13,21 @@ import (
 	"google.golang.org/grpc/codes"
 )
 
-func BeginBuild(ctx context.Context, project string, token string) (buildID string, finishBuild func(buildErr error), err error) {
+func BeginBuild(ctx context.Context, project string, token string) (buildID string, buildToken string, finishBuild func(buildErr error), err error) {
 	client := depotapi.NewBuildClient()
 
 	buildID = os.Getenv("DEPOT_BUILD_ID")
+	buildToken = token
+
 	if buildID == "" {
 		req := cliv1.CreateBuildRequest{ProjectId: project}
 		var b *connect.Response[cliv1.CreateBuildResponse]
 		b, err = client.CreateBuild(ctx, depotapi.WithAuthentication(connect.NewRequest(&req), token))
 		if err != nil {
-			return "", nil, err
+			return "", "", nil, err
 		}
 		buildID = b.Msg.BuildId
+		buildToken = b.Msg.BuildToken
 	}
 
 	finishBuild = func(buildErr error) {
@@ -43,11 +46,11 @@ func BeginBuild(ctx context.Context, project string, token string) (buildID stri
 				req.Result = &cliv1.FinishBuildRequest_Error{Error: &cliv1.FinishBuildRequest_BuildError{Error: errorMessage}}
 			}
 		}
-		_, err := client.FinishBuild(ctx, depotapi.WithAuthentication(connect.NewRequest(&req), token))
+		_, err := client.FinishBuild(ctx, depotapi.WithAuthentication(connect.NewRequest(&req), buildToken))
 		if err != nil {
 			log.Printf("error releasing builder: %v", err)
 		}
 	}
 
-	return buildID, finishBuild, err
+	return buildID, buildToken, finishBuild, err
 }
