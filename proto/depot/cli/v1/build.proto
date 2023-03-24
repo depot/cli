@@ -10,6 +10,7 @@ service BuildService {
   rpc GetBuildKitConnection(GetBuildKitConnectionRequest) returns (GetBuildKitConnectionResponse);
   rpc ReportBuildHealth(ReportBuildHealthRequest) returns (ReportBuildHealthResponse);
   rpc ReportTimings(ReportTimingsRequest) returns (ReportTimingsResponse);
+  rpc ListBuilds(ListBuildsRequest) returns (ListBuildsResponse) {}
 }
 
 message CreateBuildRequest {
@@ -97,4 +98,41 @@ message BuildStep {
   bool cached = 6;
   repeated string input_digests = 7;
   repeated string ancestor_digests = 8;
+}
+
+message ListBuildsRequest {
+  // The project ID to get the builds for
+  string project_id = 1;
+  // The maximum number of results to return per page
+  int32 page_size = 2;
+  // The page token indicating which page of results to return
+  string page_token = 3;
+}
+
+message ListBuildsResponse {
+  repeated Build builds = 1;
+  // The next page token, if there are more results
+  string next_page_token = 2;
+}
+
+// Build message
+message Build {
+  string id = 1;
+  BuildStatus status = 2;
+  google.protobuf.Timestamp created_at = 4;
+  google.protobuf.Timestamp finished_at = 5;
+}
+
+// Build status enum
+enum BuildStatus {
+  BUILD_STATUS_UNSPECIFIED = 0;
+  BUILD_STATUS_RUNNING = 1;
+  BUILD_STATUS_FINISHED = 2;
+  BUILD_STATUS_FAILED = 3;
+  BUILD_STATUS_CANCELED = 4;
+}
+
+message PageToken {
+  string project_id = 1;
+  google.protobuf.Timestamp last_created_at = 2;
 }

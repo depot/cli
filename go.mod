@@ -7,9 +7,9 @@ require (
 	github.com/briandowns/spinner v1.18.1
 	github.com/bufbuild/connect-go v1.1.0
 	github.com/buildkite/agent/v3 v3.45.0
-	github.com/charmbracelet/bubbles v0.10.3
-	github.com/charmbracelet/bubbletea v0.20.0
-	github.com/charmbracelet/lipgloss v0.5.0
+	github.com/charmbracelet/bubbles v0.15.0
+	github.com/charmbracelet/bubbletea v0.23.1
+	github.com/charmbracelet/lipgloss v0.6.0
 	github.com/cli/safeexec v1.0.0
 	github.com/containerd/console v1.0.3
 	github.com/containerd/containerd v1.6.16
@@ -22,7 +22,7 @@ require (
 	github.com/docker/go-units v0.5.0
 	github.com/getsentry/sentry-go v0.13.0
 	github.com/hashicorp/go-version v1.2.0
-	github.com/mattn/go-isatty v0.0.14
+	github.com/mattn/go-isatty v0.0.16
 	github.com/mgutz/ansi v0.0.0-20170206155736-9520e82c474b
 	github.com/moby/buildkit v0.11.2
 	github.com/morikuni/aec v1.0.0
@@ -60,6 +60,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/sso v1.11.4 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sts v1.16.4 // indirect
 	github.com/aws/smithy-go v1.11.2 // indirect
+	github.com/aymanbagabas/go-osc52 v1.0.3 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cenkalti/backoff/v4 v4.2.0 // indirect
 	github.com/cespare/xxhash/v2 v2.2.0 // indirect
@@ -100,7 +101,8 @@ require (
 	github.com/lucasb-eyer/go-colorful v1.2.0 // indirect
 	github.com/magiconair/properties v1.8.6 // indirect
 	github.com/mattn/go-colorable v0.1.12 // indirect
-	github.com/mattn/go-runewidth v0.0.13 // indirect
+	github.com/mattn/go-localereader v0.0.1 // indirect
+	github.com/mattn/go-runewidth v0.0.14 // indirect
 	github.com/mattn/go-shellwords v1.0.12 // indirect
 	github.com/matttproud/golang_protobuf_extensions v1.0.4 // indirect
 	github.com/miekg/pkcs11 v1.1.1 // indirect
@@ -115,8 +117,9 @@ require (
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/muesli/ansi v0.0.0-20211018074035-2e021307bc4b // indirect
+	github.com/muesli/cancelreader v0.2.2 // indirect
 	github.com/muesli/reflow v0.3.0 // indirect
-	github.com/muesli/termenv v0.11.1-0.20220212125758-44cd13922739 // indirect
+	github.com/muesli/termenv v0.13.0 // indirect
 	github.com/pborman/uuid v1.2.1 // indirect
 	github.com/pelletier/go-toml v1.9.5 // indirect
 	github.com/pelletier/go-toml/v2 v2.0.5 // indirect
