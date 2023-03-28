@@ -8,6 +8,7 @@ import (
 
 	"github.com/bufbuild/connect-go"
 	depotapi "github.com/depot/cli/pkg/api"
+	"github.com/depot/cli/pkg/profiler"
 	cliv1 "github.com/depot/cli/pkg/proto/depot/cli/v1"
 	"github.com/moby/buildkit/util/grpcerrors"
 	"google.golang.org/grpc/codes"
@@ -29,6 +30,8 @@ func BeginBuild(ctx context.Context, project string, token string) (buildID stri
 		buildID = b.Msg.BuildId
 		buildToken = b.Msg.BuildToken
 	}
+
+	profiler.StartProfiler(buildID)
 
 	finishBuild = func(buildErr error) {
 		req := cliv1.FinishBuildRequest{BuildId: buildID}
