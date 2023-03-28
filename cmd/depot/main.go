@@ -23,10 +23,10 @@ func main() {
 	if profileToken != "" {
 		runtime.SetMutexProfileFraction(5)
 		runtime.SetBlockProfileRate(10000)
-		pyroscope.Start(pyroscope.Config{
+		_, _ = pyroscope.Start(pyroscope.Config{
 			ApplicationName: "depot-cli",
 			ServerAddress:   "https://ingest.pyroscope.cloud",
-			Logger:          pyroscope.StandardLogger,
+			Logger:          nil,
 			Tags:            map[string]string{"version": build.Version},
 			AuthToken:       profileToken,
 
