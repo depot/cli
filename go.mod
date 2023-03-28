@@ -29,6 +29,7 @@ require (
 	github.com/opencontainers/go-digest v1.0.0
 	github.com/opencontainers/image-spec v1.1.0-rc2.0.20221005185240-3a7f492d3f1b
 	github.com/pkg/errors v0.9.1
+	github.com/pyroscope-io/client v0.7.0
 	github.com/sirupsen/logrus v1.9.0
 	github.com/spf13/cobra v1.6.1
 	github.com/spf13/pflag v1.0.5
@@ -128,6 +129,7 @@ require (
 	github.com/prometheus/client_model v0.3.0 // indirect
 	github.com/prometheus/common v0.37.0 // indirect
 	github.com/prometheus/procfs v0.8.0 // indirect
+	github.com/pyroscope-io/godeltaprof v0.1.0 // indirect
 	github.com/rivo/uniseg v0.2.0 // indirect
 	github.com/sahilm/fuzzy v0.1.0 // indirect
 	github.com/spf13/afero v1.9.2 // indirect

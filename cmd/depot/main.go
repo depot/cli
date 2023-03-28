@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"runtime"
 
 	"github.com/depot/cli/internal/build"
 	"github.com/depot/cli/internal/update"
@@ -14,9 +15,36 @@ import (
 	"github.com/getsentry/sentry-go"
 	"github.com/mattn/go-isatty"
 	"github.com/mgutz/ansi"
+	"github.com/pyroscope-io/client/pyroscope"
 )
 
 func main() {
+	profileToken := os.Getenv("DEPOT_ENABLE_DEBUG_PROFILING")
+	if profileToken != "" {
+		runtime.SetMutexProfileFraction(5)
+		runtime.SetBlockProfileRate(10000)
+		pyroscope.Start(pyroscope.Config{
+			ApplicationName: "depot-cli",
+			ServerAddress:   "https://ingest.pyroscope.cloud",
+			Logger:          pyroscope.StandardLogger,
+			Tags:            map[string]string{"version": build.Version},
+			AuthToken:       profileToken,
+
+			ProfileTypes: []pyroscope.ProfileType{
+				pyroscope.ProfileCPU,
+				// pyroscope.ProfileAllocObjects,
+				// pyroscope.ProfileAllocSpace,
+				// pyroscope.ProfileInuseObjects,
+				// pyroscope.ProfileInuseSpace,
+				pyroscope.ProfileGoroutines,
+				pyroscope.ProfileMutexCount,
+				pyroscope.ProfileMutexDuration,
+				pyroscope.ProfileBlockCount,
+				pyroscope.ProfileBlockDuration,
+			},
+		})
+	}
+
 	code := runMain()
 	os.Exit(code)
 }
