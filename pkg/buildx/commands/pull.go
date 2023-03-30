@@ -106,7 +106,6 @@ func WithDepotImagePull(buildOpts map[string]build.Options, depotOpts DepotOptio
 	return buildOpts, toPull
 }
 
-// TODO: try this without a default, but use the sha itself.
 func PullImages(ctx context.Context, dockerapi docker.APIClient, imageName string, opts PullOptions, w progress.Writer) error {
 	pw := progress.WithPrefix(w, "default", false)
 

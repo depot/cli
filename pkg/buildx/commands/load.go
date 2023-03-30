@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math/rand"
 	"net"
 	"net/http"
@@ -245,16 +246,21 @@ func downloadImageIndex(ctx context.Context, client contentapi.ContentClient, co
 		return ocispecs.Index{}, err
 	}
 
-	var res *contentapi.ReadContentResponse
-	// We assume that the entire config will fit into the default buffer (1MB).
-	// TODO: Otherwise, we should buffer until EOF.
-	res, err = reader.Recv()
-	if err != nil {
+	octets := make([]byte, 0, 1024*1024)
+	for {
+		res, err := reader.Recv()
+		if err != nil {
+			break
+		}
+		octets = append(octets, res.Data...)
+	}
+
+	if err != nil && !errors.Is(err, io.EOF) {
 		return ocispecs.Index{}, err
 	}
 
 	var index ocispecs.Index
-	if err := json.Unmarshal([]byte(res.Data), &index); err != nil {
+	if err := json.Unmarshal(octets, &index); err != nil {
 		return ocispecs.Index{}, err
 	}
 
