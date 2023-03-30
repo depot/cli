@@ -73,6 +73,12 @@ func WithDepotImagePull(buildOpts map[string]build.Options, depotOpts DepotOptio
 		buildOpts[key] = buildOpt
 
 		if shouldPull {
+			// When we pull we need at least one user tag as no tags means that
+			// it would otherwise get removed.
+			if len(userTags) == 0 {
+				userTags = append(userTags, fmt.Sprintf("depot-build-%s:%d", depotOpts.buildID, time.Now().Unix()))
+			}
+
 			pullOpt := PullOptions{
 				UserTags: userTags,
 				Quiet:    progressMode == progress.PrinterModeQuiet,
@@ -101,12 +107,12 @@ func WithDepotImagePull(buildOpts map[string]build.Options, depotOpts DepotOptio
 }
 
 // TODO: try this without a default, but use the sha itself.
-func PullImages(ctx context.Context, dockerapi docker.APIClient, imageName, defaultTag string, opts PullOptions, w progress.Writer) error {
+func PullImages(ctx context.Context, dockerapi docker.APIClient, imageName string, opts PullOptions, w progress.Writer) error {
 	pw := progress.WithPrefix(w, "default", false)
 
 	tags := strings.Join(opts.UserTags, ",")
 	err := progress.Wrap(fmt.Sprintf("pulling %s", tags), pw.Write, func(logger progress.SubLogger) error {
-		return ImagePullPrivileged(ctx, dockerapi, imageName, defaultTag, opts, logger)
+		return ImagePullPrivileged(ctx, dockerapi, imageName, opts, logger)
 	})
 
 	if err != nil {
@@ -118,7 +124,7 @@ func PullImages(ctx context.Context, dockerapi docker.APIClient, imageName, defa
 	return nil
 }
 
-func ImagePullPrivileged(ctx context.Context, dockerapi docker.APIClient, imageName, defaultTag string, opts PullOptions, logger progress.SubLogger) error {
+func ImagePullPrivileged(ctx context.Context, dockerapi docker.APIClient, imageName string, opts PullOptions, logger progress.SubLogger) error {
 	responseBody, err := dockerapi.ImagePull(ctx, imageName, types.ImagePullOptions{})
 	if err != nil {
 		return err
@@ -142,19 +148,11 @@ func ImagePullPrivileged(ctx context.Context, dockerapi docker.APIClient, imageN
 		}
 	}
 
-	if len(opts.UserTags) == 0 {
-		if err := dockerapi.ImageTag(ctx, imageName, defaultTag); err != nil {
-			return err
-		}
-	}
-
-	if len(opts.UserTags) > 0 {
-		// PruneChildren is false to preserve the image if no tag was specified.
-		rmOpts := types.ImageRemoveOptions{PruneChildren: false}
-		_, err := dockerapi.ImageRemove(ctx, imageName, rmOpts)
-		if err != nil {
-			return err
-		}
+	// PruneChildren is false to preserve the image if no tag was specified.
+	rmOpts := types.ImageRemoveOptions{PruneChildren: false}
+	_, err = dockerapi.ImageRemove(ctx, imageName, rmOpts)
+	if err != nil {
+		return err
 	}
 
 	return nil

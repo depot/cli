@@ -3,6 +3,7 @@ package commands
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/rand"
 	"net"
@@ -22,8 +23,6 @@ import (
 type LocalRegistryProxy struct {
 	// ImageToPull is the image that should be pulled.
 	ImageToPull string
-	// Used as the default tag when no tag is specified by the user.
-	DefaultDigest digest.Digest
 	// ProxyContainerID is the ID of the container that is proxying the registry.
 	// If using docker for desktop this will be set.
 	// Make sure to remove this container when finished.
@@ -54,16 +53,14 @@ func NewLocalRegistryProxy(ctx context.Context, nodes []builder.Node, containerI
 		return LocalRegistryProxy{}, err
 	}
 
-	registryPort, err := GetFreePort()
+	manifestConfig, err := chooseBestImageManifest(imageIndex)
 	if err != nil {
 		return LocalRegistryProxy{}, err
 	}
-
 	randomImageName := RandImageName()
-	registryHandler := NewRegistry(contentClient, randomImageName.Name, imageIndex)
-	// defaultDigest is used way over in the pull code.  It is only used when
-	// the user has not specified a tag.
-	defaultDigest, err := registryHandler.DefaultDigest()
+
+	registryHandler := NewRegistry(contentClient, manifestConfig)
+	registryPort, err := GetFreePort()
 	if err != nil {
 		return LocalRegistryProxy{}, err
 	}
@@ -129,7 +126,6 @@ func NewLocalRegistryProxy(ctx context.Context, nodes []builder.Node, containerI
 
 	return LocalRegistryProxy{
 		ImageToPull:      imageToPull,
-		DefaultDigest:    defaultDigest,
 		ProxyContainerID: proxyContainerID,
 		Cancel:           cancel,
 		DockerAPI:        dockerapi,
@@ -140,6 +136,33 @@ func NewLocalRegistryProxy(ctx context.Context, nodes []builder.Node, containerI
 func (l *LocalRegistryProxy) Close(ctx context.Context) error {
 	l.Cancel()
 	return StopProxyContainer(ctx, l.DockerAPI, l.ProxyContainerID)
+}
+
+// Prefer the architecture of the depot CLI host, otherwise, take first available.
+func chooseBestImageManifest(index ocispecs.Index) (ocispecs.Descriptor, error) {
+	archDescriptors := map[string]ocispecs.Descriptor{}
+	for _, manifest := range index.Manifests {
+		if manifest.Platform == nil {
+			continue
+		}
+
+		if manifest.Platform.Architecture == "unknown" {
+			continue
+		}
+
+		archDescriptors[manifest.Platform.Architecture] = manifest
+	}
+
+	// Prefer the architecture of the depot CLI host, otherwise, take first available.
+	if descriptor, ok := archDescriptors[runtime.GOARCH]; ok {
+		return descriptor, nil
+	}
+
+	for _, descriptor := range archDescriptors {
+		return descriptor, nil
+	}
+
+	return ocispecs.Descriptor{}, errors.New("no manifests found")
 }
 
 // The registry can pull images from buildkitd's content store.

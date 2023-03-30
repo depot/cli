@@ -355,66 +355,6 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.No
 
 	configFile := resp[defaultTargetName].ExporterResponse["containerimage.digest"]
 
-	/*
-		var client *client.Client
-		for _, node := range nodes {
-			if node.Driver == nil {
-				continue
-			}
-
-			client, err = node.Driver.Client(ctx)
-			if err != nil {
-				continue
-			}
-
-			if client == nil {
-				continue
-			}
-		}
-
-		if client == nil {
-			return configFile, res, err
-		}
-
-		contentClient := client.ContentClient()
-
-		rr := &contentapi.ReadContentRequest{
-			Digest: digest.Digest(configFile),
-		}
-		childCtx, cancel := context.WithCancel(ctx)
-		defer cancel()
-		rc, err := contentClient.Read(childCtx, rr)
-		if err != nil {
-			return configFile, res, err
-		}
-
-		var contentRes *contentapi.ReadContentResponse
-		contentRes, err = rc.Recv()
-		if err != nil {
-			return configFile, res, err
-		}
-		var index ocispecs.Index
-		if err := json.Unmarshal([]byte(contentRes.Data), &index); err != nil {
-			return configFile, res, err
-		}
-
-		go func() {
-			registry := NewRegistry(contentClient, "yoloimage", index)
-			listener, err := net.Listen("tcp", "0.0.0.0:5001")
-			if err != nil {
-				log.Fatal(err)
-			}
-			s := &http.Server{
-				Handler: registry,
-			}
-			s.Serve(listener)
-		}()
-		// TODO: in other go routine run this server.
-		// We need to wait until context or push is completed.
-
-		time.Sleep(2 * time.Second)
-	*/
-
 	if len(toPull) > 0 {
 		var registry LocalRegistryProxy
 		// NOTE: the err is returned at the end of this function after the final prints.
@@ -428,7 +368,7 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.No
 			}()
 
 			for _, pullOpt := range toPull {
-				err = PullImages(ctx, dockerCli.Client(), registry.ImageToPull, registry.DefaultDigest.String(), pullOpt, printer)
+				err = PullImages(ctx, dockerCli.Client(), registry.ImageToPull, pullOpt, printer)
 				if err != nil {
 					// NOTE: the err is returned at the end of this function after the final prints.
 					break

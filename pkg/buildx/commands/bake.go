@@ -209,7 +209,7 @@ func RunBake(dockerCli command.Cli, targets []string, in BakeOptions) (err error
 		}()
 
 		for _, pullOpt := range toPull {
-			err = PullImages(ctx, dockerCli.Client(), registry.ImageToPull, registry.DefaultDigest.String(), pullOpt, printer)
+			err = PullImages(ctx, dockerCli.Client(), registry.ImageToPull, pullOpt, printer)
 			if err != nil {
 				return err
 			}

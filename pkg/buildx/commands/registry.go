@@ -4,11 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
-	"path"
-	"runtime"
 	"strconv"
 	"strings"
 
@@ -19,57 +16,28 @@ import (
 	ocispecs "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
+// Registry is a small docker registry that serves a single image by loading
+// manifests and blobs from a buildkitd cache.
 type Registry struct {
 	Client           contentapi.ContentClient
-	ImageConfig      map[string]ocispecs.Descriptor
+	ImageConfig      ocispecs.Descriptor
 	ImageManifest    map[digest.Digest]ocispecs.Manifest
 	RawImageManifest map[digest.Digest][]byte
 }
 
-func NewRegistry(client contentapi.ContentClient, imageName string, index ocispecs.Index) *Registry {
-	archDescriptors := map[string]ocispecs.Descriptor{}
-	for _, manifest := range index.Manifests {
-		if manifest.Platform == nil {
-			continue
-		}
-
-		if manifest.Platform.Architecture == "unknown" {
-			continue
-		}
-
-		archDescriptors[manifest.Platform.Architecture] = manifest
-	}
-
-	descriptor, ok := archDescriptors[runtime.GOARCH]
-	if !ok {
-		for _, descriptor = range archDescriptors {
-			break
-		}
-	}
-	// TODO: What if no manifest?
-
+func NewRegistry(client contentapi.ContentClient, imageConfig ocispecs.Descriptor) *Registry {
 	return &Registry{
 		Client:           client,
-		ImageConfig:      map[string]ocispecs.Descriptor{imageName: descriptor},
+		ImageConfig:      imageConfig,
 		ImageManifest:    map[digest.Digest]ocispecs.Manifest{},
 		RawImageManifest: map[digest.Digest][]byte{},
 	}
-
 }
 
 type Config struct {
 	Size        int
 	Digest      digest.Digest
 	ContentType string
-}
-
-// This is useful for getting a sha256 for the image when no tag has been supplied by the user.
-func (r *Registry) DefaultDigest() (digest.Digest, error) {
-	for _, desc := range r.ImageConfig {
-		return desc.Digest, nil
-	}
-
-	return digest.Digest(""), fmt.Errorf("no default digest")
 }
 
 func (r *Registry) ServeHTTP(resp http.ResponseWriter, req *http.Request) {
@@ -131,17 +99,9 @@ func (r *Registry) handleBlobs(resp http.ResponseWriter, req *http.Request) {
 	target := elem[len(elem)-1]
 	theSHA := target
 
-	repo := path.Join(elem[1 : len(elem)-2]...)
-
 	switch req.Method {
 	case http.MethodHead:
-		config, ok := r.ImageConfig[repo]
-		if !ok {
-			writeError(resp, http.StatusNotFound, "BLOB_UNKNOWN", "Unknown blob")
-			return
-		}
-
-		manifest, ok := r.ImageManifest[config.Digest]
+		manifest, ok := r.ImageManifest[r.ImageConfig.Digest]
 		if !ok {
 			writeError(resp, http.StatusNotFound, "BLOB_UNKNOWN", "Unknown blob")
 			return
@@ -159,13 +119,7 @@ func (r *Registry) handleBlobs(resp http.ResponseWriter, req *http.Request) {
 		writeError(resp, http.StatusNotFound, "BLOB_UNKNOWN", "Unknown blob")
 		return
 	case http.MethodGet:
-		config, ok := r.ImageConfig[repo]
-		if !ok {
-			writeError(resp, http.StatusNotFound, "BLOB_UNKNOWN", "Unknown blob")
-			return
-		}
-
-		manifest, ok := r.ImageManifest[config.Digest]
+		manifest, ok := r.ImageManifest[r.ImageConfig.Digest]
 		if !ok {
 			writeError(resp, http.StatusNotFound, "BLOB_UNKNOWN", "Unknown blob")
 			return
@@ -220,21 +174,9 @@ func (r *Registry) handleBlobs(resp http.ResponseWriter, req *http.Request) {
 // https://github.com/opencontainers/distribution-spec/blob/master/spec.md#pulling-an-image-manifest
 // https://github.com/opencontainers/distribution-spec/blob/master/spec.md#pushing-an-image
 func (r *Registry) handleManifests(resp http.ResponseWriter, req *http.Request) {
-	elem := strings.Split(req.URL.Path, "/")
-	elem = elem[1:]
-	// TODO: do we need this?
-	//refOrTag := elem[len(elem)-1]
-	repo := strings.Join(elem[1:len(elem)-2], "/")
-
 	switch req.Method {
 	case http.MethodGet:
-		config, ok := r.ImageConfig[repo]
-		if !ok {
-			writeError(resp, http.StatusNotFound, "NAME_UNKNOWN", "Unknown name")
-			return
-		}
-
-		manifestDigest := config.Digest
+		manifestDigest := r.ImageConfig.Digest
 		manifest, ok := r.RawImageManifest[manifestDigest]
 		if !ok {
 			store := proxy.NewContentStore(r.Client)
@@ -266,24 +208,18 @@ func (r *Registry) handleManifests(resp http.ResponseWriter, req *http.Request) 
 			r.ImageManifest[manifestDigest] = parsedManifest
 		}
 
-		resp.Header().Set("Docker-Content-Digest", config.Digest.String())
-		resp.Header().Set("Content-Type", config.MediaType)
-		resp.Header().Set("Content-Length", strconv.FormatInt(int64(config.Size), 10))
+		resp.Header().Set("Docker-Content-Digest", r.ImageConfig.Digest.String())
+		resp.Header().Set("Content-Type", r.ImageConfig.MediaType)
+		resp.Header().Set("Content-Length", strconv.FormatInt(int64(r.ImageConfig.Size), 10))
 		resp.WriteHeader(http.StatusOK)
 
 		io.Copy(resp, bytes.NewReader(manifest))
 		return
 
 	case http.MethodHead:
-		config, ok := r.ImageConfig[repo]
-		if !ok {
-			writeError(resp, http.StatusNotFound, "NAME_UNKNOWN", "Unknown name")
-			return
-		}
-
-		resp.Header().Set("Docker-Content-Digest", config.Digest.String())
-		resp.Header().Set("Content-Type", config.MediaType)
-		resp.Header().Set("Content-Length", strconv.FormatInt(int64(config.Size), 10))
+		resp.Header().Set("Docker-Content-Digest", r.ImageConfig.Digest.String())
+		resp.Header().Set("Content-Type", r.ImageConfig.MediaType)
+		resp.Header().Set("Content-Length", strconv.FormatInt(int64(r.ImageConfig.Size), 10))
 		resp.WriteHeader(http.StatusOK)
 		return
 	default:
