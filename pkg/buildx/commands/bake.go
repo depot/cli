@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"sync"
+	"time"
 
 	"github.com/containerd/containerd/platforms"
 	"github.com/depot/cli/pkg/buildx/builder"
@@ -194,9 +195,24 @@ func RunBake(dockerCli command.Cli, targets []string, in BakeOptions) (err error
 		}
 	}
 
-	for _, pullOpt := range toPull {
-		if err := PullImages(ctx, dockerCli.Client(), pullOpt, printer); err != nil {
+	if len(toPull) > 0 {
+		// TODO: add configfile
+		registry, err := NewLocalRegistryProxy(ctx, nodes, "config here", dockerCli.Client())
+		if err != nil {
 			return err
+		}
+
+		defer func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+			registry.Close(ctx)
+			cancel()
+		}()
+
+		for _, pullOpt := range toPull {
+			err = PullImages(ctx, dockerCli.Client(), registry.ImageToPull, registry.DefaultDigest.String(), pullOpt, printer)
+			if err != nil {
+				return err
+			}
 		}
 	}
 
@@ -245,17 +261,11 @@ func BakeCmd(dockerCli command.Cli) *cobra.Command {
 				build.Finish(buildErr)
 			}()
 
-			registryAuth, err := helpers.ResolveRegistryAuth(build)
-			if err != nil {
-				return err
-			}
-
-			options.builderOptions = []builder.Option{builder.WithDepotOptions(token, buildPlatform, build, registryAuth)}
+			options.builderOptions = []builder.Option{builder.WithDepotOptions(token, buildPlatform, build)}
 
 			options.buildID = build.ID
 			options.token = token
-			options.registryImage = build.RegistryImage
-			options.registryToken = build.RegistryToken
+			options.useLocalRegistry = build.UseLocalRegistry
 
 			if options.allowNoOutput {
 				_ = os.Setenv("BUILDX_NO_DEFAULT_LOAD", "1")

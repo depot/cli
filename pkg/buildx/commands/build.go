@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/containerd/console"
 	"github.com/depot/cli/pkg/buildx/builder"
@@ -98,14 +99,13 @@ type commonOptions struct {
 }
 
 type DepotOptions struct {
-	project        string
-	token          string
-	buildID        string
-	buildPlatform  string
-	registryImage  string
-	registryToken  string
-	allowNoOutput  bool
-	builderOptions []builder.Option
+	project          string
+	token            string
+	buildID          string
+	buildPlatform    string
+	useLocalRegistry bool
+	allowNoOutput    bool
+	builderOptions   []builder.Option
 }
 
 func runBuild(dockerCli command.Cli, in buildOptions) (err error) {
@@ -353,11 +353,87 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.No
 		}
 	}
 
-	for _, pullOpt := range toPull {
-		err = PullImages(ctx, dockerCli.Client(), pullOpt, printer)
+	configFile := resp[defaultTargetName].ExporterResponse["containerimage.digest"]
+
+	/*
+		var client *client.Client
+		for _, node := range nodes {
+			if node.Driver == nil {
+				continue
+			}
+
+			client, err = node.Driver.Client(ctx)
+			if err != nil {
+				continue
+			}
+
+			if client == nil {
+				continue
+			}
+		}
+
+		if client == nil {
+			return configFile, res, err
+		}
+
+		contentClient := client.ContentClient()
+
+		rr := &contentapi.ReadContentRequest{
+			Digest: digest.Digest(configFile),
+		}
+		childCtx, cancel := context.WithCancel(ctx)
+		defer cancel()
+		rc, err := contentClient.Read(childCtx, rr)
 		if err != nil {
-			// NOTE: the err is returned at the end of this function.
-			break
+			return configFile, res, err
+		}
+
+		var contentRes *contentapi.ReadContentResponse
+		contentRes, err = rc.Recv()
+		if err != nil {
+			return configFile, res, err
+		}
+		var index ocispecs.Index
+		if err := json.Unmarshal([]byte(contentRes.Data), &index); err != nil {
+			return configFile, res, err
+		}
+
+		go func() {
+			registry := NewRegistry(contentClient, "yoloimage", index)
+			listener, err := net.Listen("tcp", "0.0.0.0:5001")
+			if err != nil {
+				log.Fatal(err)
+			}
+			s := &http.Server{
+				Handler: registry,
+			}
+			s.Serve(listener)
+		}()
+		// TODO: in other go routine run this server.
+		// We need to wait until context or push is completed.
+
+		time.Sleep(2 * time.Second)
+	*/
+
+	if len(toPull) > 0 {
+		var registry LocalRegistryProxy
+		// NOTE: the err is returned at the end of this function after the final prints.
+		registry, err = NewLocalRegistryProxy(ctx, nodes, configFile, dockerCli.Client())
+
+		if err == nil {
+			defer func() {
+				ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+				registry.Close(ctx)
+				cancel()
+			}()
+
+			for _, pullOpt := range toPull {
+				err = PullImages(ctx, dockerCli.Client(), registry.ImageToPull, registry.DefaultDigest.String(), pullOpt, printer)
+				if err != nil {
+					// NOTE: the err is returned at the end of this function after the final prints.
+					break
+				}
+			}
 		}
 	}
 
@@ -375,7 +451,7 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.No
 		}
 	}
 
-	return resp[defaultTargetName].ExporterResponse["containerimage.digest"], res, err
+	return configFile, res, err
 }
 
 func parseInvokeConfig(invoke string) (cfg build.ContainerConfig, err error) {
@@ -504,14 +580,10 @@ func BuildCmd(dockerCli command.Cli) *cobra.Command {
 				build.Finish(buildErr)
 			}()
 
-			registryAuth, err := helpers.ResolveRegistryAuth(build)
-			if err != nil {
-				return err
-			}
-
-			options.builderOptions = []builder.Option{builder.WithDepotOptions(token, buildPlatform, build, registryAuth)}
+			options.builderOptions = []builder.Option{builder.WithDepotOptions(token, buildPlatform, build)}
 			options.buildID = build.ID
 			options.token = token
+			options.useLocalRegistry = build.UseLocalRegistry
 
 			if options.allowNoOutput {
 				_ = os.Setenv("BUILDX_NO_DEFAULT_LOAD", "1")

@@ -140,6 +140,10 @@ func (d *Driver) Client(ctx context.Context) (*client.Client, error) {
 		return d.client, nil
 	}
 
+	if d.builderInfo == nil {
+		return nil, errors.New("builder not started")
+	}
+
 	opts := []client.ClientOpt{}
 	if d.tlsOpts != nil {
 		opts = append(opts, client.WithCredentials(d.tlsOpts.serverName, d.tlsOpts.caCert, d.tlsOpts.cert, d.tlsOpts.key))

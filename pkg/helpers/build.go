@@ -11,10 +11,9 @@ import (
 )
 
 type Build struct {
-	ID            string
-	RegistryImage string
-	RegistryToken string
-	Finish        func(error)
+	ID               string
+	UseLocalRegistry bool
+	Finish           func(error)
 }
 
 func BeginBuild(ctx context.Context, project string, token string) (build Build, err error) {
@@ -30,11 +29,8 @@ func BeginBuild(ctx context.Context, project string, token string) (build Build,
 		}
 		build.ID = b.Msg.BuildId
 
-		registry := b.Msg.GetRegistry()
-		if registry != nil {
-			build.RegistryImage = registry.Image
-			build.RegistryToken = registry.Token
-		}
+		// TODO: Add use local registry flage
+		build.UseLocalRegistry = true
 	}
 
 	build.Finish = func(buildErr error) {

@@ -10,7 +10,6 @@ import (
 
 	"github.com/docker/buildx/build"
 	"github.com/docker/buildx/util/progress"
-	"github.com/docker/cli/cli/command"
 	"github.com/docker/docker/api/types"
 	docker "github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/jsonmessage"
@@ -19,20 +18,18 @@ import (
 
 // Options to download from the Depot hosted registry and tag the image with the user provide tag.
 type PullOptions struct {
-	UserTags           []string // Tags the user wishes the image to have.
-	DepotImage         string   // Image to download from the user's private depot hosted registry
-	DepotRegistryToken string   // Token used to authenticate with user's private depot hosted registry
-	Quiet              bool     // No logs plz
+	UserTags []string // Tags the user wishes the image to have.
+	Quiet    bool     // No logs plz
 }
 
 // WithDepotImagePull updates buildOpts to push to the depot user's personal registry.
 // allowing us to pull layers in parallel from the depot registry.
 func WithDepotImagePull(buildOpts map[string]build.Options, depotOpts DepotOptions, progressMode string) (map[string]build.Options, []PullOptions) {
-	// For backwards compatibility if the API does not return a the registry URL or token,
+	// For backwards compatibility if the API does not support the depot registry,
 	// we use the previous buildx behavior of pulling the image via the output docker.
 	// NOTE: this means that a single tar will be sent from buildkit to the client and
 	// imported into the docker daemon.  This is quite slow.
-	if depotOpts.registryImage == "" || depotOpts.registryToken == "" {
+	if !depotOpts.useLocalRegistry {
 		for key, buildOpt := range buildOpts {
 			if len(buildOpt.Exports) != 0 {
 				continue // assume that exports already has a docker export.
@@ -50,73 +47,66 @@ func WithDepotImagePull(buildOpts map[string]build.Options, depotOpts DepotOptio
 
 	toPull := []PullOptions{}
 	for key, buildOpt := range buildOpts {
+		// Gather all tags the user specifies for this image.
 		userTags := buildOpt.Tags
 
 		var shouldPull bool
-		// Update the build opts to push to the depot registry.
+		// As of today (2023-03-15), buildx only supports one export.
+		for _, export := range buildOpt.Exports {
+			// Only pull if the user asked for an image export.
+			if export.Type == "image" {
+				shouldPull = true
+				if name, ok := export.Attrs["name"]; ok {
+					// "name" is a comma separated list of tags to apply to the image.
+					userTags = append(userTags, strings.Split(name, ",")...)
+				}
+			}
+		}
+
+		// If the user did not specify an image export, we add one.
+		// This happens when the user specifies `--load` rather than an `--output`
 		if len(buildOpt.Exports) == 0 {
 			shouldPull = true
-			buildOpt.Exports = []client.ExportEntry{
-				{
-					Type: "image",
-					Attrs: map[string]string{
-						"name":           depotOpts.registryImage,
-						"push":           "true",
-						"oci-mediatypes": "true",
-					},
-				},
-			}
-		} else {
-			// As of today (2023-03-15), buildx only supports one export.
-			for i, export := range buildOpt.Exports {
-				// Only pull if the user asked for an import export.
-				if export.Type == "image" {
-					shouldPull = true
-					if name, ok := export.Attrs["name"]; ok {
-						// "name" is a comma separated list of tags to apply to the image.
-						userTags = append(userTags, strings.Split(name, ",")...)
-
-						// Also, push to user's private depot registry as well as the original registry.
-						export.Attrs["name"] = fmt.Sprintf("%s,%s", name, depotOpts.registryImage)
-						export.Attrs["push"] = "true" // TODO: possible bug here because user may not want push.
-						export.Attrs["oci-mediatypes"] = "true"
-					} else {
-						if export.Attrs == nil {
-							export.Attrs = make(map[string]string)
-						}
-
-						export.Attrs["name"] = depotOpts.registryImage
-						export.Attrs["push"] = "true"
-						export.Attrs["oci-mediatypes"] = "true"
-					}
-				}
-
-				buildOpt.Exports[i] = export
-			}
+			buildOpt.Exports = []client.ExportEntry{{Type: "image"}}
 		}
 
 		buildOpts[key] = buildOpt
 
 		if shouldPull {
 			pullOpt := PullOptions{
-				UserTags:           userTags,
-				DepotImage:         depotOpts.registryImage,
-				DepotRegistryToken: depotOpts.registryToken,
-				Quiet:              progressMode == progress.PrinterModeQuiet,
+				UserTags: userTags,
+				Quiet:    progressMode == progress.PrinterModeQuiet,
 			}
 			toPull = append(toPull, pullOpt)
 		}
 	}
 
+	// Add oci-mediatypes for any image build regardless of whether we are pulling.
+	// This gives us more flexibility for future options like estargz.
+	for key, buildOpt := range buildOpts {
+		for i, export := range buildOpt.Exports {
+			if export.Type == "image" {
+				if export.Attrs == nil {
+					export.Attrs = map[string]string{}
+				}
+
+				export.Attrs["oci-mediatypes"] = "true"
+			}
+			buildOpt.Exports[i] = export
+		}
+		buildOpts[key] = buildOpt
+	}
+
 	return buildOpts, toPull
 }
 
-func PullImages(ctx context.Context, dockerapi docker.APIClient, opts PullOptions, w progress.Writer) error {
+// TODO: try this without a default, but use the sha itself.
+func PullImages(ctx context.Context, dockerapi docker.APIClient, imageName, defaultTag string, opts PullOptions, w progress.Writer) error {
 	pw := progress.WithPrefix(w, "default", false)
 
 	tags := strings.Join(opts.UserTags, ",")
-	err := progress.Wrap(fmt.Sprintf("pulling %s", tags), pw.Write, func(l progress.SubLogger) error {
-		return ImagePullPrivileged(ctx, dockerapi, opts, l)
+	err := progress.Wrap(fmt.Sprintf("pulling %s", tags), pw.Write, func(logger progress.SubLogger) error {
+		return ImagePullPrivileged(ctx, dockerapi, imageName, defaultTag, opts, logger)
 	})
 
 	if err != nil {
@@ -128,22 +118,8 @@ func PullImages(ctx context.Context, dockerapi docker.APIClient, opts PullOption
 	return nil
 }
 
-func ImagePullPrivileged(ctx context.Context, dockerapi docker.APIClient, opts PullOptions, l progress.SubLogger) error {
-	authConfig := types.AuthConfig{
-		// TODO: Is the server address actually required given the Image?
-		RegistryToken: opts.DepotRegistryToken,
-	}
-
-	encodedAuth, err := command.EncodeAuthToBase64(authConfig)
-	if err != nil {
-		return err
-	}
-
-	registryAuth := types.ImagePullOptions{
-		RegistryAuth: encodedAuth,
-	}
-
-	responseBody, err := dockerapi.ImagePull(ctx, opts.DepotImage, registryAuth)
+func ImagePullPrivileged(ctx context.Context, dockerapi docker.APIClient, imageName, defaultTag string, opts PullOptions, logger progress.SubLogger) error {
+	responseBody, err := dockerapi.ImagePull(ctx, imageName, types.ImagePullOptions{})
 	if err != nil {
 		return err
 	}
@@ -153,7 +129,7 @@ func ImagePullPrivileged(ctx context.Context, dockerapi docker.APIClient, opts P
 		_, err := io.Copy(io.Discard, responseBody)
 		return err
 	} else {
-		if err := printPull(ctx, responseBody, l); err != nil {
+		if err := printPull(ctx, responseBody, logger); err != nil {
 			return err
 		}
 	}
@@ -161,15 +137,27 @@ func ImagePullPrivileged(ctx context.Context, dockerapi docker.APIClient, opts P
 	// Swap the depot tag with the user-specified tags by adding the user tag
 	// and removing the depot one.
 	for _, userTag := range opts.UserTags {
-		if err := dockerapi.ImageTag(ctx, opts.DepotImage, userTag); err != nil {
+		if err := dockerapi.ImageTag(ctx, imageName, userTag); err != nil {
 			return err
 		}
 	}
 
-	// PruneChildren is false to preserve the image if no tag was specified.
-	rmOpts := types.ImageRemoveOptions{PruneChildren: false}
-	_, err = dockerapi.ImageRemove(ctx, opts.DepotImage, rmOpts)
-	return err
+	if len(opts.UserTags) == 0 {
+		if err := dockerapi.ImageTag(ctx, imageName, defaultTag); err != nil {
+			return err
+		}
+	}
+
+	if len(opts.UserTags) > 0 {
+		// PruneChildren is false to preserve the image if no tag was specified.
+		rmOpts := types.ImageRemoveOptions{PruneChildren: false}
+		_, err := dockerapi.ImageRemove(ctx, imageName, rmOpts)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func printPull(ctx context.Context, rc io.ReadCloser, l progress.SubLogger) error {

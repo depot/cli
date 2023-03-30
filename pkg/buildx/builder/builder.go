@@ -16,7 +16,6 @@ import (
 	"github.com/docker/buildx/util/imagetools"
 	"github.com/docker/buildx/util/progress"
 	"github.com/docker/cli/cli/command"
-	"github.com/docker/cli/cli/config/types"
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
 	"golang.org/x/sync/errgroup"
 )
@@ -74,21 +73,11 @@ func WithSkippedValidation() Option {
 	}
 }
 
-func WithDepotOptions(token, buildPlatform string, build helpers.Build, registryAuth *types.AuthConfig) Option {
+func WithDepotOptions(token, buildPlatform string, build helpers.Build) Option {
 	return func(b *Builder) {
 		b.token = token
 		b.buildID = build.ID
 		b.buildPlatform = buildPlatform
-
-		// Add user's private depot registry credentials to the in-memory docker config.
-		if registryAuth != nil {
-			authConfigs := b.opts.dockerCli.ConfigFile().AuthConfigs
-			if authConfigs == nil {
-				authConfigs = map[string]types.AuthConfig{}
-			}
-			authConfigs[registryAuth.ServerAddress] = *registryAuth
-			b.opts.dockerCli.ConfigFile().AuthConfigs = authConfigs
-		}
 	}
 }
 
