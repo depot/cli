@@ -18,6 +18,8 @@ import (
 	"time"
 
 	"github.com/containerd/console"
+	contentapi "github.com/containerd/containerd/api/services/content/v1"
+	depotbuild "github.com/depot/cli/pkg/build"
 	"github.com/depot/cli/pkg/buildx/builder"
 	"github.com/depot/cli/pkg/helpers"
 	"github.com/docker/buildx/build"
@@ -36,6 +38,7 @@ import (
 	"github.com/docker/cli/cli/config"
 	dockeropts "github.com/docker/cli/opts"
 	"github.com/docker/distribution/reference"
+	docker "github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/ioutils"
 	"github.com/docker/go-units"
 	"github.com/moby/buildkit/client"
@@ -269,7 +272,7 @@ func runBuild(dockerCli command.Cli, in buildOptions) (err error) {
 		return err
 	}
 
-	imageID, res, err := buildTargets(ctx, dockerCli, nodes, map[string]build.Options{defaultTargetName: opts}, in.DepotOptions, in.progress, in.metadataFile, in.exportLoad, in.invoke != "")
+	imageIDs, res, err := buildTargets(ctx, dockerCli, nodes, map[string]build.Options{defaultTargetName: opts}, in.DepotOptions, in.progress, in.metadataFile, in.exportLoad, in.invoke != "")
 	err = wrapBuildError(err, false)
 	if err != nil {
 		return err
@@ -296,7 +299,9 @@ func runBuild(dockerCli command.Cli, in buildOptions) (err error) {
 	}
 
 	if in.quiet {
-		fmt.Println(imageID)
+		for _, imageID := range imageIDs {
+			fmt.Println(imageID)
+		}
 	}
 	return nil
 }
@@ -307,13 +312,13 @@ type nopCloser struct {
 
 func (c nopCloser) Close() error { return nil }
 
-func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.Node, opts map[string]build.Options, depotOpts DepotOptions, progressMode, metadataFile string, exportLoad, allowNoOutput bool) (imageID string, res *build.ResultContext, err error) {
+func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.Node, opts map[string]build.Options, depotOpts DepotOptions, progressMode, metadataFile string, exportLoad, allowNoOutput bool) (imageIDs []string, res *build.ResultContext, err error) {
 	ctx2, cancel := context.WithCancel(context.TODO())
 
 	printer, err := NewProgress(ctx2, depotOpts.buildID, depotOpts.token, progressMode)
 	if err != nil {
 		cancel()
-		return "", nil, err
+		return nil, nil, err
 	}
 
 	wg := &sync.WaitGroup{}
@@ -332,7 +337,7 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.No
 
 	var mu sync.Mutex
 	var idx int
-	resp, err := build.BuildWithResultHandler(ctx, builder.ToBuildxNodes(nodes), opts, dockerutil.NewClient(dockerCli), confutil.ConfigDir(dockerCli), printer, func(driverIndex int, gotRes *build.ResultContext) {
+	resp, err := depotbuild.DepotBuildWithResultHandler(ctx, builder.ToBuildxNodes(nodes), opts, dockerutil.NewClient(dockerCli), confutil.ConfigDir(dockerCli), printer, func(driverIndex int, gotRes *build.ResultContext) {
 		mu.Lock()
 		defer mu.Unlock()
 		if res == nil || driverIndex < idx {
@@ -344,54 +349,41 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.No
 		// Make sure that the printer has completed before returning failed builds.
 		// We ignore the error here as it can only be a context error.
 		_ = printer.Wait()
-		return "", nil, err
+		return nil, nil, err
 	}
 
 	if len(metadataFile) > 0 && resp != nil {
-		if err := writeMetadataFile(metadataFile, decodeExporterResponse(resp[defaultTargetName].ExporterResponse)); err != nil {
-			return "", nil, err
+		// TODO: how do we merge this together?
+		if err := writeMetadataFile(metadataFile, decodeExporterResponse(resp[defaultTargetName][0].ExporterResponse)); err != nil {
+			return nil, nil, err
 		}
 	}
 
-	configFile := resp[defaultTargetName].ExporterResponse["containerimage.digest"]
-
-	if len(toPull) > 0 {
-		var registry LocalRegistryProxy
-		// NOTE: the err is returned at the end of this function after the final prints.
-		registry, err = NewLocalRegistryProxy(ctx, nodes, configFile, dockerCli.Client())
-
-		if err == nil {
-			defer func() {
-				ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
-				registry.Close(ctx)
-				cancel()
-			}()
-
-			for _, pullOpt := range toPull {
-				err = PullImages(ctx, dockerCli.Client(), registry.ImageToPull, pullOpt, printer)
-				if err != nil {
-					// NOTE: the err is returned at the end of this function after the final prints.
-					break
-				}
-			}
-		}
+	for _, res := range resp[defaultTargetName] {
+		digest := res.ExporterResponse["containerimage.digest"]
+		imageIDs = append(imageIDs, digest)
 	}
+
+	// NOTE: the err is returned at the end of this function after the final prints.
+	err = depotPull(ctx, dockerCli.Client(), resp, toPull, nodes, printer)
 
 	if err := printer.Wait(); err != nil {
-		return "", nil, err
+		return nil, nil, err
 	}
 
 	printWarnings(os.Stderr, printer.Warnings(), progressMode)
 
 	for k := range resp {
 		if opts[k].PrintFunc != nil {
-			if err := printResult(opts[k].PrintFunc, resp[k].ExporterResponse); err != nil {
-				return "", nil, err
+			for _, r := range resp[k] {
+				if err := printResult(opts[k].PrintFunc, r.ExporterResponse); err != nil {
+					return nil, nil, err
+				}
 			}
 		}
 	}
 
-	return configFile, res, err
+	return imageIDs, res, err
 }
 
 func parseInvokeConfig(invoke string) (cfg build.ContainerConfig, err error) {
@@ -829,4 +821,107 @@ func updateLastActivity(dockerCli command.Cli, ng *store.NodeGroup) error {
 	}
 	defer release()
 	return txn.UpdateLastActivity(ng)
+}
+
+func depotPull(ctx context.Context, dockerapi docker.APIClient, resp map[string][]*client.SolveResponse, toPull []PullOptions, nodes []builder.Node, printer *Progress) error {
+	if len(resp) == 0 {
+		return nil
+	}
+
+	if len(toPull) == 0 {
+		return nil
+	}
+
+	ver, err := dockerapi.ServerVersion(ctx)
+	if err != nil {
+		return err
+	}
+
+	// For now if there is a multi-platform build we try to only download the
+	// architecture of the docker engine.  If the docker engine platform does not
+	// exist we take the first architecture in the list.
+	dockerArchitecture := ver.Arch
+
+	archImageDigests := map[string]string{}
+
+	for _, res := range resp[defaultTargetName] {
+		digest := res.ExporterResponse["containerimage.digest"]
+		// In a multi-platform build, the suffix of the containerimage.buildinfo key is the platform.
+		// In single platform builds there is no suffix.
+		for k := range res.ExporterResponse {
+			if strings.HasPrefix(k, "containerimage.buildinfo") {
+				archIdx := strings.LastIndex(k, "/")
+				if archIdx == -1 {
+					// TODO: is this right?  I think that we need to test this case.
+					// Single platform build, so use the docker architecture.
+					archImageDigests[dockerArchitecture] = digest
+				} else {
+					arch := k[archIdx+1:]
+					archImageDigests[arch] = digest
+				}
+			}
+		}
+	}
+
+	var (
+		architecture         string
+		containerImageDigest string
+		contentClient        contentapi.ContentClient
+	)
+
+	// Match the node architecture to the image digest.
+	for arch, digest := range archImageDigests {
+		architecture = arch
+		containerImageDigest = digest
+		contentClient = getArchContentClient(ctx, arch, nodes)
+
+		if arch == dockerArchitecture {
+			break
+		}
+	}
+
+	registry, err := NewLocalRegistryProxy(ctx, architecture, containerImageDigest, dockerapi, contentClient)
+	if err != nil {
+		return err
+	}
+
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+		registry.Close(ctx)
+		cancel()
+	}()
+
+	for _, pullOpt := range toPull {
+		err := PullImages(ctx, dockerapi, registry.ImageToPull, pullOpt, printer)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// Tries to find the correct node's client for the specified architecture.
+func getArchContentClient(ctx context.Context, architecture string, nodes []builder.Node) contentapi.ContentClient {
+	for _, node := range nodes {
+		if node.Driver == nil {
+			continue
+		}
+
+		client, err := node.Driver.Client(ctx)
+		if err != nil {
+			continue
+		}
+
+		if client == nil {
+			continue
+		}
+
+		platform, ok := node.DriverOpts["platform"]
+		if ok && strings.Contains(platform, architecture) {
+			return client.ContentClient()
+		}
+	}
+
+	return nil
 }

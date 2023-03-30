@@ -9,14 +9,10 @@ import (
 	"math/rand"
 	"net"
 	"net/http"
-	"runtime"
-	"strings"
 	"time"
 
 	contentapi "github.com/containerd/containerd/api/services/content/v1"
-	"github.com/depot/cli/pkg/buildx/builder"
 	docker "github.com/docker/docker/client"
-	"github.com/moby/buildkit/client"
 	"github.com/opencontainers/go-digest"
 	ocispecs "github.com/opencontainers/image-spec/specs-go/v1"
 )
@@ -42,19 +38,14 @@ type LocalRegistryProxy struct {
 // This also handles docker for desktop issues that prevent the registry from being accessed directly
 // by running a proxy container with socat forwarding to the running server.
 //
-// The running server and proxy container will be cleanedup when Close() is called.
-func NewLocalRegistryProxy(ctx context.Context, nodes []builder.Node, containerImageDigest string, dockerapi docker.APIClient) (LocalRegistryProxy, error) {
-	contentClient, err := getLocalDriver(ctx, nodes)
-	if err != nil {
-		return LocalRegistryProxy{}, err
-	}
-
+// The running server and proxy container will be cleaned-up when Close() is called.
+func NewLocalRegistryProxy(ctx context.Context, architecture string, containerImageDigest string, dockerapi docker.APIClient, contentClient contentapi.ContentClient) (LocalRegistryProxy, error) {
 	imageIndex, err := downloadImageIndex(ctx, contentClient, containerImageDigest)
 	if err != nil {
 		return LocalRegistryProxy{}, err
 	}
 
-	manifestConfig, err := chooseBestImageManifest(imageIndex)
+	manifestConfig, err := chooseBestImageManifest(architecture, imageIndex)
 	if err != nil {
 		return LocalRegistryProxy{}, err
 	}
@@ -139,8 +130,8 @@ func (l *LocalRegistryProxy) Close(ctx context.Context) error {
 	return StopProxyContainer(ctx, l.DockerAPI, l.ProxyContainerID)
 }
 
-// Prefer the architecture of the depot CLI host, otherwise, take first available.
-func chooseBestImageManifest(index ocispecs.Index) (ocispecs.Descriptor, error) {
+// Prefer architecture, otherwise, take first available.
+func chooseBestImageManifest(architecture string, index ocispecs.Index) (ocispecs.Descriptor, error) {
 	archDescriptors := map[string]ocispecs.Descriptor{}
 	for _, manifest := range index.Manifests {
 		if manifest.Platform == nil {
@@ -155,7 +146,7 @@ func chooseBestImageManifest(index ocispecs.Index) (ocispecs.Descriptor, error) 
 	}
 
 	// Prefer the architecture of the depot CLI host, otherwise, take first available.
-	if descriptor, ok := archDescriptors[runtime.GOARCH]; ok {
+	if descriptor, ok := archDescriptors[architecture]; ok {
 		return descriptor, nil
 	}
 
@@ -190,47 +181,6 @@ func serveRegistry(ctx context.Context, registry *Registry, registryPort int) er
 	return nil
 }
 
-// This attempts to guess at the os of the local architecture.
-func getLocalDriver(ctx context.Context, nodes []builder.Node) (contentapi.ContentClient, error) {
-	clients := []*client.Client{}
-	var nativeClient *client.Client
-
-	for _, node := range nodes {
-
-		if node.Driver == nil {
-			continue
-		}
-
-		client, err := node.Driver.Client(ctx)
-		if err != nil {
-			continue
-		}
-
-		if client == nil {
-			continue
-		}
-
-		platform, ok := node.DriverOpts["platform"]
-		if ok && strings.Contains(platform, runtime.GOARCH) {
-			nativeClient = client
-		} else {
-			clients = append(clients, client)
-		}
-	}
-
-	// Prefer the native architecture client if it exists.
-	if nativeClient != nil {
-		return nativeClient.ContentClient(), nil
-	}
-
-	// Otherwise, just return the first client.
-	if len(clients) > 0 {
-		return clients[0].ContentClient(), nil
-	}
-
-	return nil, nil
-}
-
 // downloadImageIndex downloads the config file from the image that was just built.
 // This is used to know get the manifest and the rest of the image content.
 func downloadImageIndex(ctx context.Context, client contentapi.ContentClient, containerImageDigest string) (ocispecs.Index, error) {
@@ -257,6 +207,10 @@ func downloadImageIndex(ctx context.Context, client contentapi.ContentClient, co
 
 	if err != nil && !errors.Is(err, io.EOF) {
 		return ocispecs.Index{}, err
+	}
+
+	if len(octets) == 0 {
+		return ocispecs.Index{}, errors.New("image digest not found")
 	}
 
 	var index ocispecs.Index

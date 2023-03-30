@@ -8,13 +8,12 @@ import (
 	"fmt"
 	"os"
 	"sync"
-	"time"
 
 	"github.com/containerd/containerd/platforms"
+	"github.com/depot/cli/pkg/build"
 	"github.com/depot/cli/pkg/buildx/builder"
 	"github.com/depot/cli/pkg/helpers"
 	"github.com/docker/buildx/bake"
-	"github.com/docker/buildx/build"
 	"github.com/docker/buildx/util/buildflags"
 	"github.com/docker/buildx/util/confutil"
 	"github.com/docker/buildx/util/dockerutil"
@@ -180,7 +179,7 @@ func RunBake(dockerCli command.Cli, targets []string, in BakeOptions) (err error
 		bo, toPull = WithDepotImagePull(bo, in.DepotOptions, in.progress)
 	}
 
-	resp, err := build.Build(ctx, builder.ToBuildxNodes(nodes), bo, dockerutil.NewClient(dockerCli), confutil.ConfigDir(dockerCli), printer)
+	resp, err := build.DepotBuild(ctx, builder.ToBuildxNodes(nodes), bo, dockerutil.NewClient(dockerCli), confutil.ConfigDir(dockerCli), printer)
 	if err != nil {
 		return wrapBuildError(err, true)
 	}
@@ -188,7 +187,8 @@ func RunBake(dockerCli command.Cli, targets []string, in BakeOptions) (err error
 	if len(in.metadataFile) > 0 {
 		dt := make(map[string]interface{})
 		for t, r := range resp {
-			dt[t] = decodeExporterResponse(r.ExporterResponse)
+			// TODO:
+			dt[t] = decodeExporterResponse(r[0].ExporterResponse)
 		}
 		if err := writeMetadataFile(in.metadataFile, dt); err != nil {
 			return err
@@ -197,23 +197,25 @@ func RunBake(dockerCli command.Cli, targets []string, in BakeOptions) (err error
 
 	if len(toPull) > 0 {
 		// TODO: add configfile
-		registry, err := NewLocalRegistryProxy(ctx, nodes, "config here", dockerCli.Client())
-		if err != nil {
-			return err
-		}
-
-		defer func() {
-			ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
-			registry.Close(ctx)
-			cancel()
-		}()
-
-		for _, pullOpt := range toPull {
-			err = PullImages(ctx, dockerCli.Client(), registry.ImageToPull, pullOpt, printer)
+		/*
+			registry, err := NewLocalRegistryProxy(ctx, nodes, "config here", dockerCli.Client())
 			if err != nil {
 				return err
 			}
-		}
+
+			defer func() {
+				ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+				registry.Close(ctx)
+				cancel()
+			}()
+
+			for _, pullOpt := range toPull {
+				err = PullImages(ctx, dockerCli.Client(), registry.ImageToPull, pullOpt, printer)
+				if err != nil {
+					return err
+				}
+			}
+		*/
 	}
 
 	return nil
