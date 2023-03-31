@@ -22,6 +22,7 @@ import (
 	"github.com/moby/buildkit/util/appcontext"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
+	"golang.org/x/sync/errgroup"
 )
 
 type BakeOptions struct {
@@ -196,7 +197,17 @@ func RunBake(dockerCli command.Cli, targets []string, in BakeOptions) (err error
 	}
 
 	if len(pullOpts) > 0 {
-		if err := depotPull(ctx, dockerCli.Client(), resp, pullOpts, printer); err != nil {
+		eg, ctx2 := errgroup.WithContext(ctx)
+		for i := range resp {
+			func(i int) {
+				eg.Go(func() error {
+					targetResponse := resp[i]
+					return depotPull(ctx2, dockerCli.Client(), []build.DepotBuildResponse{targetResponse}, pullOpts, printer)
+				})
+			}(i)
+		}
+
+		if err := eg.Wait(); err != nil {
 			return err
 		}
 	}
