@@ -174,57 +174,45 @@ func (r *Registry) handleBlobs(resp http.ResponseWriter, req *http.Request) {
 // https://github.com/opencontainers/distribution-spec/blob/master/spec.md#pulling-an-image-manifest
 // https://github.com/opencontainers/distribution-spec/blob/master/spec.md#pushing-an-image
 func (r *Registry) handleManifests(resp http.ResponseWriter, req *http.Request) {
-	switch req.Method {
-	case http.MethodGet:
-		manifestDigest := r.ImageConfig.Digest
-		manifest, ok := r.RawImageManifest[manifestDigest]
-		if !ok {
-			store := proxy.NewContentStore(r.Client)
-			// TODO: context
-			ra, err := store.ReaderAt(context.TODO(), ocispecs.Descriptor{
-				Digest: digest.Digest(manifestDigest),
-			})
-			if err != nil {
-				writeError(resp, http.StatusNotFound, "BLOB_UNKNOWN", "Unknown blob")
-				return
-			}
-			defer ra.Close()
+	manifestDigest := r.ImageConfig.Digest
+	manifest, ok := r.RawImageManifest[manifestDigest]
+	if !ok {
+		store := proxy.NewContentStore(r.Client)
+		// TODO: context
+		ra, err := store.ReaderAt(context.TODO(), ocispecs.Descriptor{
+			Digest: digest.Digest(manifestDigest),
+		})
+		if err != nil {
+			writeError(resp, http.StatusNotFound, "BLOB_UNKNOWN", "Unknown blob")
+			return
+		}
+		defer ra.Close()
 
-			octets := bytes.Buffer{}
-			_, err = io.Copy(&octets, content.NewReader(ra))
-			if err != nil {
-				writeError(resp, http.StatusInternalServerError, "INTERNAL_SERVER_ERROR", "Cannot download manifest")
-				return
-			}
-
-			parsedManifest := ocispecs.Manifest{}
-			if err := json.Unmarshal(octets.Bytes(), &parsedManifest); err != nil {
-				writeError(resp, http.StatusInternalServerError, "INTERNAL_SERVER_ERROR", "Invalid manifest json")
-				return
-			}
-
-			manifest = octets.Bytes()
-			r.RawImageManifest[manifestDigest] = octets.Bytes()
-			r.ImageManifest[manifestDigest] = parsedManifest
+		octets := bytes.Buffer{}
+		_, err = io.Copy(&octets, content.NewReader(ra))
+		if err != nil {
+			writeError(resp, http.StatusInternalServerError, "INTERNAL_SERVER_ERROR", "Cannot download manifest")
+			return
 		}
 
-		resp.Header().Set("Docker-Content-Digest", r.ImageConfig.Digest.String())
-		resp.Header().Set("Content-Type", r.ImageConfig.MediaType)
-		resp.Header().Set("Content-Length", strconv.FormatInt(int64(r.ImageConfig.Size), 10))
-		resp.WriteHeader(http.StatusOK)
+		parsedManifest := ocispecs.Manifest{}
+		if err := json.Unmarshal(octets.Bytes(), &parsedManifest); err != nil {
+			writeError(resp, http.StatusInternalServerError, "INTERNAL_SERVER_ERROR", "Invalid manifest json")
+			return
+		}
 
+		manifest = octets.Bytes()
+		r.RawImageManifest[manifestDigest] = octets.Bytes()
+		r.ImageManifest[manifestDigest] = parsedManifest
+	}
+
+	resp.Header().Set("Docker-Content-Digest", r.ImageConfig.Digest.String())
+	resp.Header().Set("Content-Type", r.ImageConfig.MediaType)
+	resp.Header().Set("Content-Length", strconv.FormatInt(int64(r.ImageConfig.Size), 10))
+	resp.WriteHeader(http.StatusOK)
+
+	if req.Method == http.MethodGet {
 		_, _ = io.Copy(resp, bytes.NewReader(manifest))
-		return
-
-	case http.MethodHead:
-		resp.Header().Set("Docker-Content-Digest", r.ImageConfig.Digest.String())
-		resp.Header().Set("Content-Type", r.ImageConfig.MediaType)
-		resp.Header().Set("Content-Length", strconv.FormatInt(int64(r.ImageConfig.Size), 10))
-		resp.WriteHeader(http.StatusOK)
-		return
-	default:
-		writeError(resp, http.StatusBadRequest, "METHOD_UNKNOWN", "We don't understand your method + url")
-		return
 	}
 }
 
