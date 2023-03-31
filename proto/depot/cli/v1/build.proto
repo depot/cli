@@ -23,8 +23,7 @@ message CreateBuildResponse {
 }
 
 message Registry {
-  string image = 1; // Depot user private registry destination image.
-  string token = 2; // Depot user private registry token.
+  bool can_use_local_registry = 1;
 }
 
 message FinishBuildRequest {

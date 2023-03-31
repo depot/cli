@@ -29,8 +29,10 @@ func BeginBuild(ctx context.Context, project string, token string) (build Build,
 		}
 		build.ID = b.Msg.BuildId
 
-		// TODO: Add use local registry flage
-		build.UseLocalRegistry = true
+		build.UseLocalRegistry = b.Msg.GetRegistry() != nil && b.Msg.GetRegistry().CanUseLocalRegistry
+		if os.Getenv("DEPOT_USE_LOCAL_REGISTRY") != "" {
+			build.UseLocalRegistry = true
+		}
 	}
 
 	build.Finish = func(buildErr error) {
