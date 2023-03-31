@@ -13,6 +13,8 @@ import (
 	"github.com/docker/go-connections/nat"
 )
 
+const ProxyImageName = "ghcr.io/depot/helper:1"
+
 func ShouldProxyDockerForDesktop(ctx context.Context, dockerapi docker.APIClient) (bool, error) {
 	version, err := dockerapi.ServerVersion(ctx)
 	if err != nil {
@@ -26,10 +28,7 @@ func ShouldProxyDockerForDesktop(ctx context.Context, dockerapi docker.APIClient
 // Runs a proxy container via the docker API so that the docker daemon can pull from the local depot registry.
 // This is specifically to handle docker for desktop running in a VM restricting access to the host network.
 func RunProxyImage(ctx context.Context, dockerapi docker.APIClient, registryPort, proxyPort int) (string, error) {
-	// TODO: get official depot proxy image
-	imageName := "goller/nginx-pod-proxy:v1.0.0"
-
-	body, err := dockerapi.ImagePull(ctx, imageName, types.ImagePullOptions{})
+	body, err := dockerapi.ImagePull(ctx, ProxyImageName, types.ImagePullOptions{})
 	if err != nil {
 		return "", err
 	}
@@ -38,7 +37,7 @@ func RunProxyImage(ctx context.Context, dockerapi docker.APIClient, registryPort
 
 	resp, err := dockerapi.ContainerCreate(ctx,
 		&container.Config{
-			Image: imageName,
+			Image: ProxyImageName,
 			ExposedPorts: nat.PortSet{
 				nat.Port(fmt.Sprintf("%d/tcp", proxyPort)): struct{}{},
 			},

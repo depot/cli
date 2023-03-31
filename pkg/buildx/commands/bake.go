@@ -174,9 +174,9 @@ func RunBake(dockerCli command.Cli, targets []string, in BakeOptions) (err error
 		return nil
 	}
 
-	var toPull []PullOptions
+	var pullOpts map[string]PullOptions
 	if in.exportLoad {
-		bo, toPull = WithDepotImagePull(bo, in.DepotOptions, in.progress)
+		bo, pullOpts = WithDepotImagePull(bo, in.DepotOptions, in.progress)
 	}
 
 	resp, err := build.DepotBuild(ctx, builder.ToBuildxNodes(nodes), bo, dockerutil.NewClient(dockerCli), confutil.ConfigDir(dockerCli), printer)
@@ -186,36 +186,19 @@ func RunBake(dockerCli command.Cli, targets []string, in BakeOptions) (err error
 
 	if len(in.metadataFile) > 0 {
 		dt := make(map[string]interface{})
-		for t, r := range resp {
-			// TODO:
-			dt[t] = decodeExporterResponse(r[0].ExporterResponse)
+		for _, r := range resp {
+			// TODO: merge?
+			dt[r.Name] = decodeExporterResponse(r.NodeResponses[0].SolveResponse.ExporterResponse)
 		}
 		if err := writeMetadataFile(in.metadataFile, dt); err != nil {
 			return err
 		}
 	}
 
-	if len(toPull) > 0 {
-		// TODO: add configfile
-		/*
-			registry, err := NewLocalRegistryProxy(ctx, nodes, "config here", dockerCli.Client())
-			if err != nil {
-				return err
-			}
-
-			defer func() {
-				ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
-				registry.Close(ctx)
-				cancel()
-			}()
-
-			for _, pullOpt := range toPull {
-				err = PullImages(ctx, dockerCli.Client(), registry.ImageToPull, pullOpt, printer)
-				if err != nil {
-					return err
-				}
-			}
-		*/
+	if len(pullOpts) > 0 {
+		if err := depotPull(ctx, dockerCli.Client(), resp, pullOpts, printer); err != nil {
+			return err
+		}
 	}
 
 	return nil

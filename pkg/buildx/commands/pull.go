@@ -24,7 +24,7 @@ type PullOptions struct {
 
 // WithDepotImagePull updates buildOpts to push to the depot user's personal registry.
 // allowing us to pull layers in parallel from the depot registry.
-func WithDepotImagePull(buildOpts map[string]build.Options, depotOpts DepotOptions, progressMode string) (map[string]build.Options, []PullOptions) {
+func WithDepotImagePull(buildOpts map[string]build.Options, depotOpts DepotOptions, progressMode string) (map[string]build.Options, map[string]PullOptions) {
 	// For backwards compatibility if the API does not support the depot registry,
 	// we use the previous buildx behavior of pulling the image via the output docker.
 	// NOTE: this means that a single tar will be sent from buildkit to the client and
@@ -42,10 +42,10 @@ func WithDepotImagePull(buildOpts map[string]build.Options, depotOpts DepotOptio
 			}
 			buildOpts[key] = buildOpt
 		}
-		return buildOpts, []PullOptions{}
+		return buildOpts, map[string]PullOptions{}
 	}
 
-	toPull := []PullOptions{}
+	toPull := make(map[string]PullOptions)
 	for key, buildOpt := range buildOpts {
 		// Gather all tags the user specifies for this image.
 		userTags := buildOpt.Tags
@@ -83,7 +83,7 @@ func WithDepotImagePull(buildOpts map[string]build.Options, depotOpts DepotOptio
 				UserTags: userTags,
 				Quiet:    progressMode == progress.PrinterModeQuiet,
 			}
-			toPull = append(toPull, pullOpt)
+			toPull[key] = pullOpt
 		}
 	}
 

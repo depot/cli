@@ -12,6 +12,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -330,9 +331,9 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.No
 	defer wg.Wait() // Required to ensure that the printer is stopped before the context is cancelled.
 	defer cancel()
 
-	var toPull []PullOptions
+	var pullOpts map[string]PullOptions
 	if exportLoad {
-		opts, toPull = WithDepotImagePull(opts, depotOpts, progressMode)
+		opts, pullOpts = WithDepotImagePull(opts, depotOpts, progressMode)
 	}
 
 	var mu sync.Mutex
@@ -354,18 +355,24 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.No
 
 	if len(metadataFile) > 0 && resp != nil {
 		// TODO: how do we merge this together?
-		if err := writeMetadataFile(metadataFile, decodeExporterResponse(resp[defaultTargetName][0].ExporterResponse)); err != nil {
-			return nil, nil, err
+		for _, buildRes := range resp {
+			if buildRes.Name == "defaultTargetNmae" {
+				if err := writeMetadataFile(metadataFile, decodeExporterResponse(buildRes.NodeResponses[0].SolveResponse.ExporterResponse)); err != nil {
+					return nil, nil, err
+				}
+			}
 		}
 	}
 
-	for _, res := range resp[defaultTargetName] {
-		digest := res.ExporterResponse["containerimage.digest"]
-		imageIDs = append(imageIDs, digest)
+	for _, buildRes := range resp {
+		for _, nodeRes := range buildRes.NodeResponses {
+			digest := nodeRes.SolveResponse.ExporterResponse["containerimage.digest"]
+			imageIDs = append(imageIDs, digest)
+		}
 	}
 
 	// NOTE: the err is returned at the end of this function after the final prints.
-	err = depotPull(ctx, dockerCli.Client(), resp, toPull, nodes, printer)
+	err = depotPull(ctx, dockerCli.Client(), resp, pullOpts, printer)
 
 	if err := printer.Wait(); err != nil {
 		return nil, nil, err
@@ -373,10 +380,10 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.No
 
 	printWarnings(os.Stderr, printer.Warnings(), progressMode)
 
-	for k := range resp {
-		if opts[k].PrintFunc != nil {
-			for _, r := range resp[k] {
-				if err := printResult(opts[k].PrintFunc, r.ExporterResponse); err != nil {
+	for _, buildRes := range resp {
+		if opts[buildRes.Name].PrintFunc != nil {
+			for _, nodeRes := range buildRes.NodeResponses {
+				if err := printResult(opts[buildRes.Name].PrintFunc, nodeRes.SolveResponse.ExporterResponse); err != nil {
 					return nil, nil, err
 				}
 			}
@@ -823,76 +830,40 @@ func updateLastActivity(dockerCli command.Cli, ng *store.NodeGroup) error {
 	return txn.UpdateLastActivity(ng)
 }
 
-func depotPull(ctx context.Context, dockerapi docker.APIClient, resp map[string][]*client.SolveResponse, toPull []PullOptions, nodes []builder.Node, printer *Progress) error {
+func depotPull(ctx context.Context, dockerapi docker.APIClient, resp []depotbuild.DepotBuildResponse, pullOpts map[string]PullOptions, printer *Progress) error {
 	if len(resp) == 0 {
 		return nil
 	}
 
-	if len(toPull) == 0 {
+	if len(pullOpts) == 0 {
 		return nil
 	}
 
-	ver, err := dockerapi.ServerVersion(ctx)
-	if err != nil {
-		return err
-	}
-
-	// For now if there is a multi-platform build we try to only download the
-	// architecture of the docker engine.  If the docker engine platform does not
-	// exist we take the first architecture in the list.
-	dockerArchitecture := ver.Arch
-
-	archImageDigests := map[string]string{}
-
-	for _, res := range resp[defaultTargetName] {
-		digest := res.ExporterResponse["containerimage.digest"]
-		// In a multi-platform build, the suffix of the containerimage.buildinfo key is the platform.
-		// In single platform builds there is no suffix.
-		for k := range res.ExporterResponse {
-			if strings.HasPrefix(k, "containerimage.buildinfo") {
-				archIdx := strings.LastIndex(k, "/")
-				if archIdx == -1 {
-					// TODO: is this right?  I think that we need to test this case.
-					// Single platform build, so use the docker architecture.
-					archImageDigests[dockerArchitecture] = digest
-				} else {
-					arch := k[archIdx+1:]
-					archImageDigests[arch] = digest
-				}
-			}
+	for _, buildRes := range resp {
+		// Pick the best node to pull from by checking against local architecture.
+		nodeRes := chooseNodeResponse(buildRes.NodeResponses)
+		contentClient, err := contentClient(ctx, nodeRes)
+		if err != nil {
+			return err
 		}
-	}
 
-	var (
-		architecture         string
-		containerImageDigest string
-		contentClient        contentapi.ContentClient
-	)
+		architecture := nodeRes.Node.DriverOpts["platform"]
+		containerImageDigest := nodeRes.SolveResponse.ExporterResponse["containerimage.digest"]
 
-	// Match the node architecture to the image digest.
-	for arch, digest := range archImageDigests {
-		architecture = arch
-		containerImageDigest = digest
-		contentClient = getArchContentClient(ctx, arch, nodes)
-
-		if arch == dockerArchitecture {
-			break
+		// Start the depot CLI hosted registry and optional socat proxy.
+		registry, err := NewLocalRegistryProxy(ctx, architecture, containerImageDigest, dockerapi, contentClient)
+		if err != nil {
+			return err
 		}
-	}
+		defer func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+			registry.Close(ctx)
+			cancel()
+		}()
 
-	registry, err := NewLocalRegistryProxy(ctx, architecture, containerImageDigest, dockerapi, contentClient)
-	if err != nil {
-		return err
-	}
-
-	defer func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
-		registry.Close(ctx)
-		cancel()
-	}()
-
-	for _, pullOpt := range toPull {
-		err := PullImages(ctx, dockerapi, registry.ImageToPull, pullOpt, printer)
+		// Pull the image and relabel it with the user specified tags.
+		pullOpt := pullOpts[buildRes.Name]
+		err = PullImages(ctx, dockerapi, registry.ImageToPull, pullOpt, printer)
 		if err != nil {
 			return err
 		}
@@ -901,27 +872,35 @@ func depotPull(ctx context.Context, dockerapi docker.APIClient, resp map[string]
 	return nil
 }
 
-// Tries to find the correct node's client for the specified architecture.
-func getArchContentClient(ctx context.Context, architecture string, nodes []builder.Node) contentapi.ContentClient {
-	for _, node := range nodes {
-		if node.Driver == nil {
-			continue
-		}
-
-		client, err := node.Driver.Client(ctx)
-		if err != nil {
-			continue
-		}
-
-		if client == nil {
-			continue
-		}
-
-		platform, ok := node.DriverOpts["platform"]
-		if ok && strings.Contains(platform, architecture) {
-			return client.ContentClient()
+// For now if there is a multi-platform build we try to only download the
+// architecture of the depot CLI host.  If there is not a node with the same
+// architecture as the  depot CLI host, we take the first node in the list.
+func chooseNodeResponse(nodeResponses []depotbuild.DepotNodeResponse) depotbuild.DepotNodeResponse {
+	var nodeIdx int
+	for i, nodeResponse := range nodeResponses {
+		platform, ok := nodeResponse.Node.DriverOpts["platform"]
+		if ok && strings.Contains(platform, runtime.GOARCH) {
+			nodeIdx = i
+			break
 		}
 	}
 
-	return nil
+	return nodeResponses[nodeIdx]
+}
+
+func contentClient(ctx context.Context, nodeResponse depotbuild.DepotNodeResponse) (contentapi.ContentClient, error) {
+	if nodeResponse.Node.Driver == nil {
+		return nil, errors.Errorf("node %s does not have a driver", nodeResponse.Node.Name)
+	}
+
+	client, err := nodeResponse.Node.Driver.Client(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	if client == nil {
+		return nil, errors.Errorf("node %s does not have a client", nodeResponse.Node.Name)
+	}
+
+	return client.ContentClient(), nil
 }

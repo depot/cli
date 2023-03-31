@@ -7,14 +7,13 @@ import (
 	"github.com/docker/buildx/builder"
 	"github.com/docker/buildx/util/dockerutil"
 	"github.com/docker/buildx/util/progress"
-	"github.com/moby/buildkit/client"
 )
 
-func DepotBuild(ctx context.Context, nodes []builder.Node, opt map[string]dockerbuild.Options, docker *dockerutil.Client, configDir string, w progress.Writer) (map[string][]*client.SolveResponse, error) {
+func DepotBuild(ctx context.Context, nodes []builder.Node, opt map[string]dockerbuild.Options, docker *dockerutil.Client, configDir string, w progress.Writer) ([]DepotBuildResponse, error) {
 	return DepotBuildWithResultHandler(ctx, nodes, opt, docker, configDir, w, nil, false)
 }
 
-func DepotBuildWithResultHandler(ctx context.Context, nodes []builder.Node, opts map[string]dockerbuild.Options, docker *dockerutil.Client, configDir string, w progress.Writer, resultHandleFunc func(driverIndex int, rCtx *dockerbuild.ResultContext), allowNoOutput bool) (map[string][]*client.SolveResponse, error) {
+func DepotBuildWithResultHandler(ctx context.Context, nodes []builder.Node, opts map[string]dockerbuild.Options, docker *dockerutil.Client, configDir string, w progress.Writer, resultHandleFunc func(driverIndex int, rCtx *dockerbuild.ResultContext), allowNoOutput bool) ([]DepotBuildResponse, error) {
 	var depotopts map[string]Options
 	if opts != nil {
 		depotopts = make(map[string]Options, len(opts))

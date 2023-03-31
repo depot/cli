@@ -804,11 +804,24 @@ func Invoke(ctx context.Context, cfg ContainerConfig) error {
 	return err
 }
 
-func Build(ctx context.Context, nodes []builder.Node, opt map[string]Options, docker *dockerutil.Client, configDir string, w progress.Writer) (resp map[string][]*client.SolveResponse, err error) {
+// DEPOT: Replaces the docker map[string]*client.SolveResponse by returning each
+// node and their response.  This is useful to have the the information needed
+// to appropriately load the image into the docker daemon.
+type DepotBuildResponse struct {
+	Name          string // For bake this is the target name and for a single build it is "default".
+	NodeResponses []DepotNodeResponse
+}
+
+type DepotNodeResponse struct {
+	Node          builder.Node
+	SolveResponse *client.SolveResponse
+}
+
+func Build(ctx context.Context, nodes []builder.Node, opt map[string]Options, docker *dockerutil.Client, configDir string, w progress.Writer) (resp []DepotBuildResponse, err error) {
 	return BuildWithResultHandler(ctx, nodes, opt, docker, configDir, w, nil, false)
 }
 
-func BuildWithResultHandler(ctx context.Context, nodes []builder.Node, opt map[string]Options, docker *dockerutil.Client, configDir string, w progress.Writer, resultHandleFunc func(driverIndex int, rCtx *ResultContext), allowNoOutput bool) (resp map[string][]*client.SolveResponse, err error) {
+func BuildWithResultHandler(ctx context.Context, nodes []builder.Node, opt map[string]Options, docker *dockerutil.Client, configDir string, w progress.Writer, resultHandleFunc func(driverIndex int, rCtx *ResultContext), allowNoOutput bool) (resp []DepotBuildResponse, err error) {
 	if len(nodes) == 0 {
 		return nil, errors.Errorf("driver required for build")
 	}
@@ -936,7 +949,7 @@ func BuildWithResultHandler(ctx context.Context, nodes []builder.Node, opt map[s
 		}
 	}
 
-	resp = map[string][]*client.SolveResponse{}
+	resp = []DepotBuildResponse{}
 	var respMu sync.Mutex
 	results := waitmap.New()
 
@@ -955,7 +968,7 @@ func BuildWithResultHandler(ctx context.Context, nodes []builder.Node, opt map[s
 			}
 			baseCtx := ctx
 
-			res := make([]*client.SolveResponse, len(dps))
+			res := make([]DepotNodeResponse, len(dps))
 			eg2, ctx := errgroup.WithContext(ctx)
 
 			var pushNames string
@@ -1079,7 +1092,10 @@ func BuildWithResultHandler(ctx context.Context, nodes []builder.Node, opt map[s
 					if err != nil {
 						return err
 					}
-					res[i] = rr
+					res[i] = DepotNodeResponse{
+						Node:          nodes[dp.driverIndex],
+						SolveResponse: rr,
+					}
 
 					if rr.ExporterResponse == nil {
 						rr.ExporterResponse = map[string]string{}
@@ -1139,13 +1155,31 @@ func BuildWithResultHandler(ctx context.Context, nodes []builder.Node, opt map[s
 					return err
 				}
 
-				respMu.Lock()
-				// DEPOT: Return all results rather than just the first one.
-				resp[k] = append(resp[k], res...)
-				respMu.Unlock()
+				{
+					respMu.Lock()
+					// DEPOT: Return all results rather than just the first one.
+					found := -1
+					for i, r := range resp {
+						if r.Name == k {
+							found = i
+							break
+						}
+					}
+					if found == -1 {
+						resp = append(resp, DepotBuildResponse{Name: k, NodeResponses: res})
+					} else {
+						resp[found].NodeResponses = append(resp[found].NodeResponses, res...)
+					}
+
+					respMu.Unlock()
+				}
+
 				if len(res) == 1 {
-					dgst := res[0].ExporterResponse[exptypes.ExporterImageDigestKey]
-					if v, ok := res[0].ExporterResponse[exptypes.ExporterImageConfigDigestKey]; ok {
+					// DEPOT: After buildkit 0.11.4 this section moves out of this file.
+					// When that happens we need to rework the code to handle multiple
+					// image ids.
+					dgst := res[0].SolveResponse.ExporterResponse[exptypes.ExporterImageDigestKey]
+					if v, ok := res[0].SolveResponse.ExporterResponse[exptypes.ExporterImageConfigDigestKey]; ok {
 						dgst = v
 					}
 					if opt.ImageIDFile != "" {
@@ -1159,7 +1193,7 @@ func BuildWithResultHandler(ctx context.Context, nodes []builder.Node, opt map[s
 						descs := make([]specs.Descriptor, 0, len(res))
 
 						for _, r := range res {
-							s, ok := r.ExporterResponse[exptypes.ExporterImageDescriptorKey]
+							s, ok := r.SolveResponse.ExporterResponse[exptypes.ExporterImageDescriptorKey]
 							if ok {
 								dt, err := base64.StdEncoding.DecodeString(s)
 								if err != nil {
@@ -1176,7 +1210,7 @@ func BuildWithResultHandler(ctx context.Context, nodes []builder.Node, opt map[s
 							// Note that the mediatype isn't really correct as most of the time it is image manifest and
 							// not manifest list but actually both are handled because for Docker mediatypes the
 							// mediatype value in the Accpet header does not seem to matter.
-							s, ok = r.ExporterResponse[exptypes.ExporterImageDigestKey]
+							s, ok = r.SolveResponse.ExporterResponse[exptypes.ExporterImageDigestKey]
 							if ok {
 								descs = append(descs, specs.Descriptor{
 									Digest:    digest.Digest(s),
@@ -1187,8 +1221,11 @@ func BuildWithResultHandler(ctx context.Context, nodes []builder.Node, opt map[s
 						}
 						if len(descs) > 0 {
 							var imageopt imagetools.Opt
+							var driverIndex int
+
 							for _, dp := range dps {
 								imageopt = nodes[dp.driverIndex].ImageOpt
+								driverIndex = dp.driverIndex
 								break
 							}
 							names := strings.Split(pushNames, ",")
@@ -1245,17 +1282,34 @@ func BuildWithResultHandler(ctx context.Context, nodes []builder.Node, opt map[s
 									return err
 								}
 							}
+							{
+								// DEPOT: Return all results rather than just the first one.
+								res := DepotNodeResponse{
+									Node: nodes[driverIndex],
+									SolveResponse: &client.SolveResponse{
+										ExporterResponse: map[string]string{
+											"containerimage.digest": desc.Digest.String(),
+										},
+									},
+								}
 
-							respMu.Lock()
+								respMu.Lock()
+								found := -1
+								for i, r := range resp {
+									if r.Name == k {
+										found = i
+										break
+									}
+								}
 
-							// DEPOT: Return all results rather than just the first one.
-							// TODO: Unclear to me what the results of this response is.
-							resp[k] = append(resp[k], &client.SolveResponse{
-								ExporterResponse: map[string]string{
-									"containerimage.digest": desc.Digest.String(),
-								},
-							})
-							respMu.Unlock()
+								if found == -1 {
+									resp = append(resp, DepotBuildResponse{Name: k, NodeResponses: []DepotNodeResponse{res}})
+								} else {
+									resp[found].NodeResponses = append(resp[found].NodeResponses, res)
+								}
+
+								respMu.Unlock()
+							}
 						}
 						return nil
 					})
