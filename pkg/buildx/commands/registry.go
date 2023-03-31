@@ -153,13 +153,11 @@ func (r *Registry) handleBlobs(resp http.ResponseWriter, req *http.Request) {
 
 			if err != nil {
 				// TODO: this should be a log instead.  headers have been written
-				writeError(resp, http.StatusInternalServerError, "INTERNAL_SERVER_ERROR", "read error")
 				return
 			}
 			_, err = resp.Write(res.Data)
 			if err != nil {
 				// TODO: this should be a log instead.  headers have been written
-				writeError(resp, http.StatusInternalServerError, "INTERNAL_SERVER_ERROR", "client error")
 				return
 			}
 		}
