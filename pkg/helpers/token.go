@@ -17,7 +17,7 @@ func ResolveToken(ctx context.Context, token string) string {
 		token = config.GetApiToken()
 	}
 
-	if os.Getenv("DEPOT_EXPERIMENTAL_OIDC") != "" && token == "" {
+	if token == "" {
 		for _, provider := range oidc.Providers {
 			token, _ = provider.RetrieveToken(ctx)
 			if token != "" {
