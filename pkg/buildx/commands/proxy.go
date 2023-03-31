@@ -33,7 +33,10 @@ func RunProxyImage(ctx context.Context, dockerapi docker.APIClient, registryPort
 		return "", err
 	}
 	defer body.Close()
-	io.Copy(io.Discard, body)
+	_, err = io.Copy(io.Discard, body)
+	if err != nil {
+		return "", err
+	}
 
 	resp, err := dockerapi.ContainerCreate(ctx,
 		&container.Config{

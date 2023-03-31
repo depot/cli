@@ -171,11 +171,11 @@ func serveRegistry(ctx context.Context, registry *Registry, registryPort int) er
 
 	go func() {
 		<-ctx.Done()
-		server.Shutdown(ctx)
+		_ = server.Shutdown(ctx)
 	}()
 
 	go func() {
-		server.Serve(listener)
+		_ = server.Serve(listener)
 	}()
 
 	return nil

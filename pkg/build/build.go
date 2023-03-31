@@ -229,13 +229,13 @@ func resolveDrivers(ctx context.Context, nodes []builder.Node, opt map[string]Op
 
 		func(i int, c *client.Client) {
 			eg.Go(func() error {
-				clients[i].Build(ctx, client.SolveOpt{
+				_, err := clients[i].Build(ctx, client.SolveOpt{
 					Internal: true,
 				}, "buildx", func(ctx context.Context, c gateway.Client) (*gateway.Result, error) {
 					bopts[i] = c.BuildOpts()
 					return nil, nil
 				}, nil)
-				return nil
+				return err
 			})
 		}(i, c)
 	}
@@ -726,7 +726,7 @@ func Invoke(ctx context.Context, cfg ContainerConfig) error {
 		if err != nil {
 			return nil, err
 		}
-		defer ctr.Release(context.TODO())
+		defer func() { _ = ctr.Release(context.TODO()) }()
 
 		imgData := res.Metadata[exptypes.ExporterImageConfigKey]
 		var img *specs.Image

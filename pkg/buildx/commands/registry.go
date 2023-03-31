@@ -213,7 +213,7 @@ func (r *Registry) handleManifests(resp http.ResponseWriter, req *http.Request) 
 		resp.Header().Set("Content-Length", strconv.FormatInt(int64(r.ImageConfig.Size), 10))
 		resp.WriteHeader(http.StatusOK)
 
-		io.Copy(resp, bytes.NewReader(manifest))
+		_, _ = io.Copy(resp, bytes.NewReader(manifest))
 		return
 
 	case http.MethodHead:
@@ -237,7 +237,7 @@ func writeError(resp http.ResponseWriter, status int, code, message string) {
 	type wrap struct {
 		Errors []err `json:"errors"`
 	}
-	json.NewEncoder(resp).Encode(wrap{
+	_ = json.NewEncoder(resp).Encode(wrap{
 		Errors: []err{
 			{
 				Code:    code,
