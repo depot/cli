@@ -847,6 +847,7 @@ func depotPull(ctx context.Context, dockerapi docker.APIClient, resp []depotbuil
 	}
 
 	for _, buildRes := range resp {
+		pw := progress.WithPrefix(printer, buildRes.Name, len(pullOpts) > 1)
 		// Pick the best node to pull from by checking against local architecture.
 		nodeRes := chooseNodeResponse(buildRes.NodeResponses)
 		contentClient, err := contentClient(ctx, nodeRes)
@@ -857,8 +858,12 @@ func depotPull(ctx context.Context, dockerapi docker.APIClient, resp []depotbuil
 		architecture := nodeRes.Node.DriverOpts["platform"]
 		containerImageDigest := nodeRes.SolveResponse.ExporterResponse[exptypes.ExporterImageDigestKey]
 
-		// Start the depot CLI hosted registry and optional socat proxy.
-		registry, err := NewLocalRegistryProxy(ctx, architecture, containerImageDigest, dockerapi, contentClient)
+		// Start the depot CLI hosted registry and socat proxy.
+		var registry LocalRegistryProxy
+		err = progress.Wrap("preparing to load", pw.Write, func(_ progress.SubLogger) error {
+			registry, err = NewLocalRegistryProxy(ctx, architecture, containerImageDigest, dockerapi, contentClient)
+			return err
+		})
 		if err != nil {
 			return err
 		}
@@ -870,7 +875,7 @@ func depotPull(ctx context.Context, dockerapi docker.APIClient, resp []depotbuil
 
 		// Pull the image and relabel it with the user specified tags.
 		pullOpt := pullOpts[buildRes.Name]
-		err = PullImages(ctx, dockerapi, registry.ImageToPull, pullOpt, printer)
+		err = PullImages(ctx, dockerapi, registry.ImageToPull, pullOpt, pw)
 		if err != nil {
 			return err
 		}

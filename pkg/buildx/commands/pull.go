@@ -107,20 +107,10 @@ func WithDepotImagePull(buildOpts map[string]build.Options, depotOpts DepotOptio
 }
 
 func PullImages(ctx context.Context, dockerapi docker.APIClient, imageName string, opts PullOptions, w progress.Writer) error {
-	pw := progress.WithPrefix(w, "default", false)
-
 	tags := strings.Join(opts.UserTags, ",")
-	err := progress.Wrap(fmt.Sprintf("pulling %s", tags), pw.Write, func(logger progress.SubLogger) error {
+	return progress.Wrap(fmt.Sprintf("pulling %s", tags), w.Write, func(logger progress.SubLogger) error {
 		return ImagePullPrivileged(ctx, dockerapi, imageName, opts, logger)
 	})
-
-	if err != nil {
-		return err
-	}
-
-	progress.Write(pw, fmt.Sprintf("pulled %s", tags), func() error { return nil })
-
-	return nil
 }
 
 func ImagePullPrivileged(ctx context.Context, dockerapi docker.APIClient, imageName string, opts PullOptions, logger progress.SubLogger) error {
