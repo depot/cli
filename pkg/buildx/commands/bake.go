@@ -185,11 +185,17 @@ func RunBake(dockerCli command.Cli, targets []string, in BakeOptions) (err error
 		return wrapBuildError(err, true)
 	}
 
-	if len(in.metadataFile) > 0 {
+	if in.metadataFile != "" {
 		dt := make(map[string]interface{})
-		for _, r := range resp {
-			// TODO: merge?
-			dt[r.Name] = decodeExporterResponse(r.NodeResponses[0].SolveResponse.ExporterResponse)
+		for _, buildRes := range resp {
+			metadata := map[string]interface{}{}
+			for _, nodeRes := range buildRes.NodeResponses {
+				nodeMetadata := decodeExporterResponse(nodeRes.SolveResponse.ExporterResponse)
+				for k, v := range nodeMetadata {
+					metadata[k] = v
+				}
+			}
+			dt[buildRes.Name] = metadata
 		}
 		if err := writeMetadataFile(in.metadataFile, dt); err != nil {
 			return err

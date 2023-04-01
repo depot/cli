@@ -43,6 +43,7 @@ import (
 	"github.com/docker/docker/pkg/ioutils"
 	"github.com/docker/go-units"
 	"github.com/moby/buildkit/client"
+	"github.com/moby/buildkit/exporter/containerimage/exptypes"
 	"github.com/moby/buildkit/session/auth/authprovider"
 	"github.com/moby/buildkit/solver/errdefs"
 	"github.com/moby/buildkit/util/appcontext"
@@ -353,20 +354,26 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.No
 		return nil, nil, err
 	}
 
-	if len(metadataFile) > 0 && resp != nil {
-		// TODO: how do we merge this together?
+	if metadataFile != "" && resp != nil {
+		// DEPOT: Apparently, the build metadata file is a different format than the bake one.
 		for _, buildRes := range resp {
-			if buildRes.Name == "defaultTargetNmae" {
-				if err := writeMetadataFile(metadataFile, decodeExporterResponse(buildRes.NodeResponses[0].SolveResponse.ExporterResponse)); err != nil {
-					return nil, nil, err
+			metadata := map[string]interface{}{}
+			for _, nodeRes := range buildRes.NodeResponses {
+				nodeMetadata := decodeExporterResponse(nodeRes.SolveResponse.ExporterResponse)
+				for k, v := range nodeMetadata {
+					metadata[k] = v
 				}
+			}
+
+			if err := writeMetadataFile(metadataFile, metadata); err != nil {
+				return nil, nil, err
 			}
 		}
 	}
 
 	for _, buildRes := range resp {
 		for _, nodeRes := range buildRes.NodeResponses {
-			digest := nodeRes.SolveResponse.ExporterResponse["containerimage.digest"]
+			digest := nodeRes.SolveResponse.ExporterResponse[exptypes.ExporterImageDigestKey]
 			imageIDs = append(imageIDs, digest)
 		}
 	}
@@ -848,7 +855,7 @@ func depotPull(ctx context.Context, dockerapi docker.APIClient, resp []depotbuil
 		}
 
 		architecture := nodeRes.Node.DriverOpts["platform"]
-		containerImageDigest := nodeRes.SolveResponse.ExporterResponse["containerimage.digest"]
+		containerImageDigest := nodeRes.SolveResponse.ExporterResponse[exptypes.ExporterImageDigestKey]
 
 		// Start the depot CLI hosted registry and optional socat proxy.
 		registry, err := NewLocalRegistryProxy(ctx, architecture, containerImageDigest, dockerapi, contentClient)
