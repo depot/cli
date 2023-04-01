@@ -73,9 +73,9 @@ func WithSkippedValidation() Option {
 	}
 }
 
-func WithDepotOptions(token, buildPlatform string, build helpers.Build) Option {
+func WithDepotOptions(buildPlatform string, build helpers.Build) Option {
 	return func(b *Builder) {
-		b.token = token
+		b.token = build.Token
 		b.buildID = build.ID
 		b.buildPlatform = buildPlatform
 	}

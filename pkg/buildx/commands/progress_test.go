@@ -384,3 +384,7 @@ func (m *mockBuildServiceClient) GetBuildKitConnection(context.Context, *connect
 func (m *mockBuildServiceClient) ReportBuildHealth(context.Context, *connect.Request[cliv1.ReportBuildHealthRequest]) (*connect.Response[cliv1.ReportBuildHealthResponse], error) {
 	return nil, nil
 }
+
+func (m *mockBuildServiceClient) ListBuilds(context.Context, *connect.Request[cliv1.ListBuildsRequest]) (*connect.Response[cliv1.ListBuildsResponse], error) {
+	return nil, nil
+}

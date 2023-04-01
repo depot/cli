@@ -497,7 +497,7 @@ func BuildCmd(dockerCli command.Cli) *cobra.Command {
 			options.contextPath = args[0]
 			cmd.Flags().VisitAll(checkWarnedFlags)
 
-			token := helpers.ResolveToken(options.token)
+			token := helpers.ResolveToken(context.Background(), options.token)
 			if token == "" {
 				return fmt.Errorf("missing API token, please run `depot login`")
 			}
@@ -519,9 +519,9 @@ func BuildCmd(dockerCli command.Cli) *cobra.Command {
 				build.Finish(buildErr)
 			}()
 
-			options.builderOptions = []builder.Option{builder.WithDepotOptions(token, buildPlatform, build)}
+			options.builderOptions = []builder.Option{builder.WithDepotOptions(buildPlatform, build)}
 			options.buildID = build.ID
-			options.token = token
+			options.token = build.Token
 			options.useLocalRegistry = build.UseLocalRegistry
 
 			if options.allowNoOutput {

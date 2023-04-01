@@ -4,14 +4,35 @@ import (
 	"context"
 	"fmt"
 	"runtime"
+	"sync"
 
 	"github.com/bufbuild/connect-go"
 	"github.com/depot/cli/internal/build"
+	"github.com/depot/cli/pkg/ci"
 )
 
+var (
+	// execution is the execution environment of the CLI, either "terminal" or "ci".
+	agent      string
+	checkForCI sync.Once
+)
+
+// Returns the user agent string for the CLI.
+func Agent() string {
+	checkForCI.Do(func() {
+		execution := "terminal"
+		if _, isCI := ci.Provider(); isCI {
+			execution = "ci"
+		}
+
+		agent = fmt.Sprintf("depot-cli/%s/%s/%s/%s", build.Version, runtime.GOOS, runtime.GOARCH, execution)
+	})
+
+	return agent
+}
+
 func WithUserAgent() connect.ClientOption {
-	agent := fmt.Sprintf("depot-cli/%s/%s/%s", build.Version, runtime.GOOS, runtime.GOARCH)
-	return connect.WithInterceptors(&agentInterceptor{agent})
+	return connect.WithInterceptors(&agentInterceptor{Agent()})
 }
 
 type agentInterceptor struct {
