@@ -54,6 +54,7 @@ func RunProxyImage(ctx context.Context, dockerapi docker.APIClient, registryPort
 			PortBindings: nat.PortMap{
 				nat.Port(fmt.Sprintf("%d/tcp", proxyPort)): []nat.PortBinding{{HostPort: fmt.Sprintf("%d", proxyPort)}},
 			},
+			ExtraHosts: []string{"host.docker.internal:host-gateway"},
 		},
 		nil,
 		nil,
