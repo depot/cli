@@ -21,7 +21,6 @@ type LocalRegistryProxy struct {
 	// ImageToPull is the image that should be pulled.
 	ImageToPull string
 	// ProxyContainerID is the ID of the container that is proxying the registry.
-	// If using docker for desktop this will be set.
 	// Make sure to remove this container when finished.
 	ProxyContainerID string
 
@@ -64,57 +63,35 @@ func NewLocalRegistryProxy(ctx context.Context, architecture string, containerIm
 		return LocalRegistryProxy{}, err
 	}
 
-	// Docker for Desktop requires us to run a proxy container to access the registry
-	// because it is running in a VM causing us not able to reach localhost.
-	//
-	// Only localhost is allowed to use http rather than https.
-	isDesktop, err := ShouldProxyDockerForDesktop(ctx, dockerapi)
+	proxyPort, err := GetFreePort()
+	if err != nil {
+		cancel()
+		return LocalRegistryProxy{}, err
+	}
+	proxyContainerID, err := RunProxyImage(ctx, dockerapi, registryPort, proxyPort)
 	if err != nil {
 		cancel()
 		return LocalRegistryProxy{}, err
 	}
 
-	var (
-		dockerAccessiblePort int
-		proxyContainerID     string
-	)
-	if !isDesktop {
-		// When not using docker for desktop we'll assume that docker can access
-		// the depot CLI registry port directly.
-		dockerAccessiblePort = registryPort
-	} else {
-		proxyPort, err := GetFreePort()
-		if err != nil {
-			cancel()
-			return LocalRegistryProxy{}, err
-		}
-		dockerAccessiblePort = proxyPort
-		proxyContainerID, err = RunProxyImage(ctx, dockerapi, registryPort, proxyPort)
-		if err != nil {
-			cancel()
-			return LocalRegistryProxy{}, err
-		}
-	}
-
 	// Wait for the registry and the optional proxy to be ready.
-	dockerAccessibleHost := fmt.Sprintf("localhost:%d", dockerAccessiblePort)
-	for {
-		ready := false
+	dockerAccessibleHost := fmt.Sprintf("localhost:%d", proxyPort)
+	var ready bool
+	for !ready {
+		ready = IsReady(ctx, dockerAccessibleHost)
+		if ready {
+			break
+		}
 
 		select {
 		case <-ctx.Done():
 		case <-time.After(100 * time.Millisecond):
-			ready = IsReady(ctx, dockerAccessibleHost)
-		}
-
-		if ready {
-			break
 		}
 	}
 
 	// The dockerAccessiblePort is the port is the proxy if docker for desktop or
 	// the depot CLI registry port otherwise.
-	imageToPull := fmt.Sprintf("localhost:%d/%s:%s", dockerAccessiblePort, randomImageName.Name, randomImageName.Tag)
+	imageToPull := fmt.Sprintf("localhost:%d/%s:%s", proxyPort, randomImageName.Name, randomImageName.Tag)
 
 	return LocalRegistryProxy{
 		ImageToPull:      imageToPull,

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"strings"
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
@@ -14,16 +13,6 @@ import (
 )
 
 const ProxyImageName = "ghcr.io/depot/helper:1"
-
-func ShouldProxyDockerForDesktop(ctx context.Context, dockerapi docker.APIClient) (bool, error) {
-	version, err := dockerapi.ServerVersion(ctx)
-	if err != nil {
-		return false, err
-	}
-
-	isDesktop := strings.Contains(version.Platform.Name, "Desktop")
-	return isDesktop, nil
-}
 
 // Runs a proxy container via the docker API so that the docker daemon can pull from the local depot registry.
 // This is specifically to handle docker for desktop running in a VM restricting access to the host network.
