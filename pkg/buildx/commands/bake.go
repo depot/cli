@@ -13,6 +13,7 @@ import (
 	"github.com/depot/cli/pkg/build"
 	"github.com/depot/cli/pkg/buildx/builder"
 	"github.com/depot/cli/pkg/helpers"
+	"github.com/depot/cli/pkg/load"
 	"github.com/docker/buildx/bake"
 	"github.com/docker/buildx/util/buildflags"
 	"github.com/docker/buildx/util/confutil"
@@ -175,9 +176,18 @@ func RunBake(dockerCli command.Cli, targets []string, in BakeOptions) (err error
 		return nil
 	}
 
-	var pullOpts map[string]PullOptions
+	var pullOpts map[string]load.PullOptions
 	if in.exportLoad {
-		bo, pullOpts = WithDepotImagePull(bo, in.DepotOptions, in.progress)
+		bo, pullOpts = load.WithDepotImagePull(
+			bo,
+			load.DepotLoadOptions{
+				UseLocalRegistry: in.DepotOptions.useLocalRegistry,
+				Project:          in.DepotOptions.project,
+				BuildID:          in.DepotOptions.buildID,
+				IsBake:           true,
+				ProgressMode:     in.progress,
+			},
+		)
 	}
 
 	resp, err := build.DepotBuild(ctx, builder.ToBuildxNodes(nodes), bo, dockerutil.NewClient(dockerCli), confutil.ConfigDir(dockerCli), printer)

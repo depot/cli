@@ -23,6 +23,7 @@ import (
 	depotbuild "github.com/depot/cli/pkg/build"
 	"github.com/depot/cli/pkg/buildx/builder"
 	"github.com/depot/cli/pkg/helpers"
+	"github.com/depot/cli/pkg/load"
 	"github.com/docker/buildx/build"
 	"github.com/docker/buildx/monitor"
 	"github.com/docker/buildx/store"
@@ -332,9 +333,18 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.No
 	defer wg.Wait() // Required to ensure that the printer is stopped before the context is cancelled.
 	defer cancel()
 
-	var pullOpts map[string]PullOptions
+	var pullOpts map[string]load.PullOptions
 	if exportLoad {
-		opts, pullOpts = WithDepotImagePull(opts, depotOpts, progressMode)
+		opts, pullOpts = load.WithDepotImagePull(
+			opts,
+			load.DepotLoadOptions{
+				UseLocalRegistry: depotOpts.useLocalRegistry,
+				Project:          depotOpts.project,
+				BuildID:          depotOpts.buildID,
+				IsBake:           false,
+				ProgressMode:     progressMode,
+			},
+		)
 	}
 
 	var mu sync.Mutex
@@ -837,7 +847,7 @@ func updateLastActivity(dockerCli command.Cli, ng *store.NodeGroup) error {
 	return txn.UpdateLastActivity(ng)
 }
 
-func depotPull(ctx context.Context, dockerapi docker.APIClient, resp []depotbuild.DepotBuildResponse, pullOpts map[string]PullOptions, printer *Progress) error {
+func depotPull(ctx context.Context, dockerapi docker.APIClient, resp []depotbuild.DepotBuildResponse, pullOpts map[string]load.PullOptions, printer *Progress) error {
 	if len(resp) == 0 {
 		return nil
 	}
@@ -859,9 +869,9 @@ func depotPull(ctx context.Context, dockerapi docker.APIClient, resp []depotbuil
 		containerImageDigest := nodeRes.SolveResponse.ExporterResponse[exptypes.ExporterImageDigestKey]
 
 		// Start the depot CLI hosted registry and socat proxy.
-		var registry LocalRegistryProxy
+		var registry load.LocalRegistryProxy
 		err = progress.Wrap("preparing to load", pw.Write, func(logger progress.SubLogger) error {
-			registry, err = NewLocalRegistryProxy(ctx, architecture, containerImageDigest, dockerapi, contentClient, logger)
+			registry, err = load.NewLocalRegistryProxy(ctx, architecture, containerImageDigest, dockerapi, contentClient, logger)
 			return err
 		})
 		if err != nil {
@@ -875,7 +885,7 @@ func depotPull(ctx context.Context, dockerapi docker.APIClient, resp []depotbuil
 
 		// Pull the image and relabel it with the user specified tags.
 		pullOpt := pullOpts[buildRes.Name]
-		err = PullImages(ctx, dockerapi, registry.ImageToPull, pullOpt, pw)
+		err = load.PullImages(ctx, dockerapi, registry.ImageToPull, pullOpt, pw)
 		if err != nil {
 			return errors.Wrap(err, "failed to pull image")
 		}
