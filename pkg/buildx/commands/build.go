@@ -12,18 +12,16 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/containerd/console"
-	contentapi "github.com/containerd/containerd/api/services/content/v1"
 	depotbuild "github.com/depot/cli/pkg/build"
 	"github.com/depot/cli/pkg/buildx/builder"
 	"github.com/depot/cli/pkg/helpers"
 	"github.com/depot/cli/pkg/load"
+	depotprogress "github.com/depot/cli/pkg/progress"
 	"github.com/docker/buildx/build"
 	"github.com/docker/buildx/monitor"
 	"github.com/docker/buildx/store"
@@ -40,7 +38,6 @@ import (
 	"github.com/docker/cli/cli/config"
 	dockeropts "github.com/docker/cli/opts"
 	"github.com/docker/distribution/reference"
-	docker "github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/ioutils"
 	"github.com/docker/go-units"
 	"github.com/moby/buildkit/client"
@@ -318,7 +315,7 @@ func (c nopCloser) Close() error { return nil }
 func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.Node, opts map[string]build.Options, depotOpts DepotOptions, progressMode, metadataFile string, exportLoad, allowNoOutput bool) (imageIDs []string, res *build.ResultContext, err error) {
 	ctx2, cancel := context.WithCancel(context.TODO())
 
-	printer, err := NewProgress(ctx2, depotOpts.buildID, depotOpts.token, progressMode)
+	printer, err := depotprogress.NewProgress(ctx2, depotOpts.buildID, depotOpts.token, progressMode)
 	if err != nil {
 		cancel()
 		return nil, nil, err
@@ -389,7 +386,7 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.No
 	}
 
 	// NOTE: the err is returned at the end of this function after the final prints.
-	err = depotPull(ctx, dockerCli.Client(), resp, pullOpts, printer)
+	err = load.DepotFastLoad(ctx, dockerCli.Client(), resp, pullOpts, printer)
 
 	if err := printer.Wait(); err != nil {
 		return nil, nil, err
@@ -845,84 +842,4 @@ func updateLastActivity(dockerCli command.Cli, ng *store.NodeGroup) error {
 	}
 	defer release()
 	return txn.UpdateLastActivity(ng)
-}
-
-func depotPull(ctx context.Context, dockerapi docker.APIClient, resp []depotbuild.DepotBuildResponse, pullOpts map[string]load.PullOptions, printer *Progress) error {
-	if len(resp) == 0 {
-		return nil
-	}
-
-	if len(pullOpts) == 0 {
-		return nil
-	}
-
-	for _, buildRes := range resp {
-		pw := progress.WithPrefix(printer, buildRes.Name, len(pullOpts) > 1)
-		// Pick the best node to pull from by checking against local architecture.
-		nodeRes := chooseNodeResponse(buildRes.NodeResponses)
-		contentClient, err := contentClient(ctx, nodeRes)
-		if err != nil {
-			return err
-		}
-
-		architecture := nodeRes.Node.DriverOpts["platform"]
-		containerImageDigest := nodeRes.SolveResponse.ExporterResponse[exptypes.ExporterImageDigestKey]
-
-		// Start the depot CLI hosted registry and socat proxy.
-		var registry load.LocalRegistryProxy
-		err = progress.Wrap("preparing to load", pw.Write, func(logger progress.SubLogger) error {
-			registry, err = load.NewLocalRegistryProxy(ctx, architecture, containerImageDigest, dockerapi, contentClient, logger)
-			return err
-		})
-		if err != nil {
-			return err
-		}
-		defer func() {
-			ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
-			registry.Close(ctx)
-			cancel()
-		}()
-
-		// Pull the image and relabel it with the user specified tags.
-		pullOpt := pullOpts[buildRes.Name]
-		err = load.PullImages(ctx, dockerapi, registry.ImageToPull, pullOpt, pw)
-		if err != nil {
-			return errors.Wrap(err, "failed to pull image")
-		}
-	}
-
-	return nil
-}
-
-// For now if there is a multi-platform build we try to only download the
-// architecture of the depot CLI host.  If there is not a node with the same
-// architecture as the  depot CLI host, we take the first node in the list.
-func chooseNodeResponse(nodeResponses []depotbuild.DepotNodeResponse) depotbuild.DepotNodeResponse {
-	var nodeIdx int
-	for i, nodeResponse := range nodeResponses {
-		platform, ok := nodeResponse.Node.DriverOpts["platform"]
-		if ok && strings.Contains(platform, runtime.GOARCH) {
-			nodeIdx = i
-			break
-		}
-	}
-
-	return nodeResponses[nodeIdx]
-}
-
-func contentClient(ctx context.Context, nodeResponse depotbuild.DepotNodeResponse) (contentapi.ContentClient, error) {
-	if nodeResponse.Node.Driver == nil {
-		return nil, errors.Errorf("node %s does not have a driver", nodeResponse.Node.Name)
-	}
-
-	client, err := nodeResponse.Node.Driver.Client(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	if client == nil {
-		return nil, errors.Errorf("node %s does not have a client", nodeResponse.Node.Name)
-	}
-
-	return client.ContentClient(), nil
 }

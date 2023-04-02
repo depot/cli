@@ -9,14 +9,99 @@ import (
 	"math/rand"
 	"net"
 	"net/http"
+	"runtime"
+	"strings"
 	"time"
 
 	contentapi "github.com/containerd/containerd/api/services/content/v1"
+	depotbuild "github.com/depot/cli/pkg/build"
+	depotprogress "github.com/depot/cli/pkg/progress"
 	"github.com/docker/buildx/util/progress"
 	docker "github.com/docker/docker/client"
+	"github.com/moby/buildkit/exporter/containerimage/exptypes"
 	"github.com/opencontainers/go-digest"
 	ocispecs "github.com/opencontainers/image-spec/specs-go/v1"
 )
+
+func DepotFastLoad(ctx context.Context, dockerapi docker.APIClient, resp []depotbuild.DepotBuildResponse, pullOpts map[string]PullOptions, printer *depotprogress.Progress) error {
+	if len(resp) == 0 {
+		return nil
+	}
+
+	if len(pullOpts) == 0 {
+		return nil
+	}
+
+	for _, buildRes := range resp {
+		pw := progress.WithPrefix(printer, buildRes.Name, len(pullOpts) > 1)
+		// Pick the best node to pull from by checking against local architecture.
+		nodeRes := chooseNodeResponse(buildRes.NodeResponses)
+		contentClient, err := contentClient(ctx, nodeRes)
+		if err != nil {
+			return err
+		}
+
+		architecture := nodeRes.Node.DriverOpts["platform"]
+		containerImageDigest := nodeRes.SolveResponse.ExporterResponse[exptypes.ExporterImageDigestKey]
+
+		// Start the depot CLI hosted registry and socat proxy.
+		var registry LocalRegistryProxy
+		err = progress.Wrap("preparing to load", pw.Write, func(logger progress.SubLogger) error {
+			registry, err = NewLocalRegistryProxy(ctx, architecture, containerImageDigest, dockerapi, contentClient, logger)
+			return err
+		})
+		if err != nil {
+			return err
+		}
+		defer func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+			registry.Close(ctx)
+			cancel()
+		}()
+
+		// Pull the image and relabel it with the user specified tags.
+		pullOpt := pullOpts[buildRes.Name]
+		err = PullImages(ctx, dockerapi, registry.ImageToPull, pullOpt, pw)
+		if err != nil {
+			return fmt.Errorf("failed to pull image: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// For now if there is a multi-platform build we try to only download the
+// architecture of the depot CLI host.  If there is not a node with the same
+// architecture as the  depot CLI host, we take the first node in the list.
+func chooseNodeResponse(nodeResponses []depotbuild.DepotNodeResponse) depotbuild.DepotNodeResponse {
+	var nodeIdx int
+	for i, nodeResponse := range nodeResponses {
+		platform, ok := nodeResponse.Node.DriverOpts["platform"]
+		if ok && strings.Contains(platform, runtime.GOARCH) {
+			nodeIdx = i
+			break
+		}
+	}
+
+	return nodeResponses[nodeIdx]
+}
+
+func contentClient(ctx context.Context, nodeResponse depotbuild.DepotNodeResponse) (contentapi.ContentClient, error) {
+	if nodeResponse.Node.Driver == nil {
+		return nil, fmt.Errorf("node %s does not have a driver", nodeResponse.Node.Name)
+	}
+
+	client, err := nodeResponse.Node.Driver.Client(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	if client == nil {
+		return nil, fmt.Errorf("node %s does not have a client", nodeResponse.Node.Name)
+	}
+
+	return client.ContentClient(), nil
+}
 
 type LocalRegistryProxy struct {
 	// ImageToPull is the image that should be pulled.

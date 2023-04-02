@@ -14,6 +14,7 @@ import (
 	"github.com/depot/cli/pkg/buildx/builder"
 	"github.com/depot/cli/pkg/helpers"
 	"github.com/depot/cli/pkg/load"
+	depotprogress "github.com/depot/cli/pkg/progress"
 	"github.com/docker/buildx/bake"
 	"github.com/docker/buildx/util/buildflags"
 	"github.com/docker/buildx/util/confutil"
@@ -86,7 +87,7 @@ func RunBake(dockerCli command.Cli, targets []string, in BakeOptions) (err error
 
 	ctx2, cancel := context.WithCancel(context.TODO())
 
-	printer, err := NewProgress(ctx2, in.buildID, in.token, in.progress)
+	printer, err := depotprogress.NewProgress(ctx2, in.buildID, in.token, in.progress)
 	if err != nil {
 		cancel()
 		return err
@@ -218,7 +219,7 @@ func RunBake(dockerCli command.Cli, targets []string, in BakeOptions) (err error
 			func(i int) {
 				eg.Go(func() error {
 					targetResponse := resp[i]
-					return depotPull(ctx2, dockerCli.Client(), []build.DepotBuildResponse{targetResponse}, pullOpts, printer)
+					return load.DepotFastLoad(ctx2, dockerCli.Client(), []build.DepotBuildResponse{targetResponse}, pullOpts, printer)
 				})
 			}(i)
 		}
