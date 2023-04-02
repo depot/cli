@@ -23,7 +23,6 @@ import (
 type Registry struct {
 	Client           contentapi.ContentClient
 	ImageConfig      ocispecs.Descriptor
-	ImageManifest    map[digest.Digest]ocispecs.Manifest
 	RawImageManifest map[digest.Digest][]byte
 	Logger           progress.SubLogger
 }
@@ -32,7 +31,6 @@ func NewRegistry(client contentapi.ContentClient, imageConfig ocispecs.Descripto
 	return &Registry{
 		Client:           client,
 		ImageConfig:      imageConfig,
-		ImageManifest:    map[digest.Digest]ocispecs.Manifest{},
 		RawImageManifest: map[digest.Digest][]byte{},
 		Logger:           logger,
 	}
@@ -102,39 +100,19 @@ func (r *Registry) handleBlobs(resp http.ResponseWriter, req *http.Request) {
 	}
 	target := elem[len(elem)-1]
 	theSHA := target
+	layer, err := r.Client.Info(req.Context(), &contentapi.InfoRequest{Digest: digest.Digest(theSHA)})
+	if err != nil {
+		writeError(resp, http.StatusNotFound, "BLOB_UNKNOWN", "Unknown blob")
+		return
+	}
+
+	resp.Header().Set("Content-Length", strconv.FormatInt(layer.Info.Size_, 10))
+	resp.Header().Set("Docker-Content-Digest", layer.Info.Digest.String())
 
 	switch req.Method {
 	case http.MethodHead:
-		manifest, ok := r.ImageManifest[r.ImageConfig.Digest]
-		if !ok {
-			writeError(resp, http.StatusNotFound, "BLOB_UNKNOWN", "Unknown blob")
-			return
-		}
-
-		for _, layer := range manifest.Layers {
-			if layer.Digest.String() == theSHA {
-				resp.Header().Set("Content-Length", strconv.FormatInt(int64(layer.Size), 10))
-				resp.Header().Set("Docker-Content-Digest", theSHA)
-				return
-			}
-		}
-
-		writeError(resp, http.StatusNotFound, "BLOB_UNKNOWN", "Unknown blob")
 		return
 	case http.MethodGet:
-		manifest, ok := r.ImageManifest[r.ImageConfig.Digest]
-		if !ok {
-			writeError(resp, http.StatusNotFound, "BLOB_UNKNOWN", "Unknown blob")
-			return
-		}
-
-		for _, layer := range manifest.Layers {
-			if layer.Digest.String() == theSHA {
-				resp.Header().Set("Content-Length", strconv.FormatInt(int64(layer.Size), 10))
-				resp.Header().Set("Docker-Content-Digest", theSHA)
-				break
-			}
-		}
 		rr := &contentapi.ReadContentRequest{
 			Digest: digest.Digest(theSHA),
 		}
@@ -202,7 +180,6 @@ func (r *Registry) handleManifests(resp http.ResponseWriter, req *http.Request) 
 
 		manifest = octets.Bytes()
 		r.RawImageManifest[manifestDigest] = octets.Bytes()
-		r.ImageManifest[manifestDigest] = parsedManifest
 	}
 
 	resp.Header().Set("Docker-Content-Digest", r.ImageConfig.Digest.String())
