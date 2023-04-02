@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"strconv"
@@ -12,6 +13,7 @@ import (
 	contentapi "github.com/containerd/containerd/api/services/content/v1"
 	"github.com/containerd/containerd/content"
 	"github.com/containerd/containerd/content/proxy"
+	"github.com/docker/buildx/util/progress"
 	"github.com/opencontainers/go-digest"
 	ocispecs "github.com/opencontainers/image-spec/specs-go/v1"
 )
@@ -23,14 +25,16 @@ type Registry struct {
 	ImageConfig      ocispecs.Descriptor
 	ImageManifest    map[digest.Digest]ocispecs.Manifest
 	RawImageManifest map[digest.Digest][]byte
+	Logger           progress.SubLogger
 }
 
-func NewRegistry(client contentapi.ContentClient, imageConfig ocispecs.Descriptor) *Registry {
+func NewRegistry(client contentapi.ContentClient, imageConfig ocispecs.Descriptor, logger progress.SubLogger) *Registry {
 	return &Registry{
 		Client:           client,
 		ImageConfig:      imageConfig,
 		ImageManifest:    map[digest.Digest]ocispecs.Manifest{},
 		RawImageManifest: map[digest.Digest][]byte{},
+		Logger:           logger,
 	}
 }
 
@@ -111,7 +115,6 @@ func (r *Registry) handleBlobs(resp http.ResponseWriter, req *http.Request) {
 			if layer.Digest.String() == theSHA {
 				resp.Header().Set("Content-Length", strconv.FormatInt(int64(layer.Size), 10))
 				resp.Header().Set("Docker-Content-Digest", theSHA)
-				resp.WriteHeader(http.StatusOK)
 				return
 			}
 		}
@@ -129,15 +132,14 @@ func (r *Registry) handleBlobs(resp http.ResponseWriter, req *http.Request) {
 			if layer.Digest.String() == theSHA {
 				resp.Header().Set("Content-Length", strconv.FormatInt(int64(layer.Size), 10))
 				resp.Header().Set("Docker-Content-Digest", theSHA)
-				resp.WriteHeader(http.StatusOK)
 				break
 			}
 		}
 		rr := &contentapi.ReadContentRequest{
 			Digest: digest.Digest(theSHA),
 		}
-		// TODO: context
-		childCtx, cancel := context.WithCancel(context.Background())
+
+		childCtx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		rc, err := r.Client.Read(childCtx, rr)
 		if err != nil {
@@ -152,12 +154,12 @@ func (r *Registry) handleBlobs(resp http.ResponseWriter, req *http.Request) {
 			}
 
 			if err != nil {
-				// TODO: this should be a log instead.  headers have been written
+				_ = r.Logger.Wrap(fmt.Sprintf("[registry] unable to read %s", theSHA), func() error { return err })
 				return
 			}
 			_, err = resp.Write(res.Data)
 			if err != nil {
-				// TODO: this should be a log instead.  headers have been written
+				_ = r.Logger.Wrap(fmt.Sprintf("[registry] unable to write %s", theSHA), func() error { return err })
 				return
 			}
 		}
@@ -176,8 +178,7 @@ func (r *Registry) handleManifests(resp http.ResponseWriter, req *http.Request) 
 	manifest, ok := r.RawImageManifest[manifestDigest]
 	if !ok {
 		store := proxy.NewContentStore(r.Client)
-		// TODO: context
-		ra, err := store.ReaderAt(context.TODO(), ocispecs.Descriptor{
+		ra, err := store.ReaderAt(req.Context(), ocispecs.Descriptor{
 			Digest: digest.Digest(manifestDigest),
 		})
 		if err != nil {

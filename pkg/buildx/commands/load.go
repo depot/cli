@@ -12,6 +12,7 @@ import (
 	"time"
 
 	contentapi "github.com/containerd/containerd/api/services/content/v1"
+	"github.com/docker/buildx/util/progress"
 	docker "github.com/docker/docker/client"
 	"github.com/opencontainers/go-digest"
 	ocispecs "github.com/opencontainers/image-spec/specs-go/v1"
@@ -38,7 +39,7 @@ type LocalRegistryProxy struct {
 // by running a proxy container with socat forwarding to the running server.
 //
 // The running server and proxy container will be cleaned-up when Close() is called.
-func NewLocalRegistryProxy(ctx context.Context, architecture string, containerImageDigest string, dockerapi docker.APIClient, contentClient contentapi.ContentClient) (LocalRegistryProxy, error) {
+func NewLocalRegistryProxy(ctx context.Context, architecture string, containerImageDigest string, dockerapi docker.APIClient, contentClient contentapi.ContentClient, logger progress.SubLogger) (LocalRegistryProxy, error) {
 	imageIndex, err := downloadImageIndex(ctx, contentClient, containerImageDigest)
 	if err != nil {
 		return LocalRegistryProxy{}, err
@@ -50,7 +51,7 @@ func NewLocalRegistryProxy(ctx context.Context, architecture string, containerIm
 	}
 	randomImageName := RandImageName()
 
-	registryHandler := NewRegistry(contentClient, manifestConfig)
+	registryHandler := NewRegistry(contentClient, manifestConfig, logger)
 	registryPort, err := GetFreePort()
 	if err != nil {
 		return LocalRegistryProxy{}, err

@@ -860,8 +860,8 @@ func depotPull(ctx context.Context, dockerapi docker.APIClient, resp []depotbuil
 
 		// Start the depot CLI hosted registry and socat proxy.
 		var registry LocalRegistryProxy
-		err = progress.Wrap("preparing to load", pw.Write, func(_ progress.SubLogger) error {
-			registry, err = NewLocalRegistryProxy(ctx, architecture, containerImageDigest, dockerapi, contentClient)
+		err = progress.Wrap("preparing to load", pw.Write, func(logger progress.SubLogger) error {
+			registry, err = NewLocalRegistryProxy(ctx, architecture, containerImageDigest, dockerapi, contentClient, logger)
 			return err
 		})
 		if err != nil {
@@ -877,7 +877,7 @@ func depotPull(ctx context.Context, dockerapi docker.APIClient, resp []depotbuil
 		pullOpt := pullOpts[buildRes.Name]
 		err = PullImages(ctx, dockerapi, registry.ImageToPull, pullOpt, pw)
 		if err != nil {
-			return err
+			return errors.Wrap(err, "failed to pull image")
 		}
 	}
 
