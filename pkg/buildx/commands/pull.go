@@ -46,7 +46,7 @@ func WithDepotImagePull(buildOpts map[string]build.Options, depotOpts DepotOptio
 	}
 
 	toPull := make(map[string]PullOptions)
-	for key, buildOpt := range buildOpts {
+	for target, buildOpt := range buildOpts {
 		// Gather all tags the user specifies for this image.
 		userTags := buildOpt.Tags
 
@@ -70,26 +70,31 @@ func WithDepotImagePull(buildOpts map[string]build.Options, depotOpts DepotOptio
 			buildOpt.Exports = []client.ExportEntry{{Type: "image"}}
 		}
 
-		buildOpts[key] = buildOpt
+		buildOpts[target] = buildOpt
 
 		if shouldPull {
 			// When we pull we need at least one user tag as no tags means that
 			// it would otherwise get removed.
 			if len(userTags) == 0 {
-				userTags = append(userTags, fmt.Sprintf("depot-build-%s:%d", depotOpts.buildID, time.Now().Unix()))
+				defaultImageName := fmt.Sprintf("depot-project-%s:build-%s", depotOpts.project, depotOpts.buildID)
+				if target != defaultTargetName {
+					defaultImageName = fmt.Sprintf("%s-%s", defaultImageName, target)
+				}
+
+				userTags = append(userTags, defaultImageName)
 			}
 
 			pullOpt := PullOptions{
 				UserTags: userTags,
 				Quiet:    progressMode == progress.PrinterModeQuiet,
 			}
-			toPull[key] = pullOpt
+			toPull[target] = pullOpt
 		}
 	}
 
 	// Add oci-mediatypes for any image build regardless of whether we are pulling.
 	// This gives us more flexibility for future options like estargz.
-	for key, buildOpt := range buildOpts {
+	for target, buildOpt := range buildOpts {
 		for i, export := range buildOpt.Exports {
 			if export.Type == "image" {
 				if export.Attrs == nil {
@@ -100,7 +105,7 @@ func WithDepotImagePull(buildOpts map[string]build.Options, depotOpts DepotOptio
 			}
 			buildOpt.Exports[i] = export
 		}
-		buildOpts[key] = buildOpt
+		buildOpts[target] = buildOpt
 	}
 
 	return buildOpts, toPull
