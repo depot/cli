@@ -13,6 +13,11 @@ func DepotBuild(ctx context.Context, nodes []builder.Node, opt map[string]docker
 	return DepotBuildWithResultHandler(ctx, nodes, opt, docker, configDir, w, nil, false)
 }
 
+// DepotBuildWithResultHandler is a wrapper around BuildWithResultHandler
+// that allows the caller to handle the result of each build.
+//
+// BuildWithResultHandler was copied from github.com/docker/buildx/build/build.go
+// and modified to return multiple responses.
 func DepotBuildWithResultHandler(ctx context.Context, nodes []builder.Node, opts map[string]dockerbuild.Options, docker *dockerutil.Client, configDir string, w progress.Writer, resultHandleFunc func(driverIndex int, rCtx *dockerbuild.ResultContext), allowNoOutput bool) ([]DepotBuildResponse, error) {
 	var depotopts map[string]Options
 	if opts != nil {

@@ -1,3 +1,5 @@
+// Source: https://github.com/docker/buildx/blob/v0.10/build/utils.go
+
 package build
 
 import (

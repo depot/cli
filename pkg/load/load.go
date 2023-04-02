@@ -14,7 +14,7 @@ import (
 	"time"
 
 	contentapi "github.com/containerd/containerd/api/services/content/v1"
-	depotbuild "github.com/depot/cli/pkg/build"
+	depotbuild "github.com/depot/cli/pkg/buildx/build"
 	depotprogress "github.com/depot/cli/pkg/progress"
 	"github.com/docker/buildx/util/progress"
 	docker "github.com/docker/docker/client"

@@ -10,7 +10,7 @@ import (
 	"sync"
 
 	"github.com/containerd/containerd/platforms"
-	"github.com/depot/cli/pkg/build"
+	"github.com/depot/cli/pkg/buildx/build"
 	"github.com/depot/cli/pkg/buildx/builder"
 	"github.com/depot/cli/pkg/helpers"
 	"github.com/depot/cli/pkg/load"

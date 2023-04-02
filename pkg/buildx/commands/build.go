@@ -17,7 +17,7 @@ import (
 	"sync"
 
 	"github.com/containerd/console"
-	depotbuild "github.com/depot/cli/pkg/build"
+	depotbuild "github.com/depot/cli/pkg/buildx/build"
 	"github.com/depot/cli/pkg/buildx/builder"
 	"github.com/depot/cli/pkg/helpers"
 	"github.com/depot/cli/pkg/load"
