@@ -134,7 +134,6 @@ func NewLocalRegistryProxy(ctx context.Context, architecture string, containerIm
 	if err != nil {
 		return LocalRegistryProxy{}, err
 	}
-	randomImageName := RandImageName()
 
 	registryHandler := NewRegistry(contentClient, manifestConfig, logger)
 	registryPort, err := GetFreePort()
@@ -160,7 +159,7 @@ func NewLocalRegistryProxy(ctx context.Context, architecture string, containerIm
 		return LocalRegistryProxy{}, err
 	}
 
-	// Wait for the registry and the optional proxy to be ready.
+	// Wait for the registry and the proxy to be ready.
 	dockerAccessibleHost := fmt.Sprintf("localhost:%d", proxyPort)
 	var ready bool
 	for !ready {
@@ -175,8 +174,9 @@ func NewLocalRegistryProxy(ctx context.Context, architecture string, containerIm
 		}
 	}
 
-	// The dockerAccessiblePort is the port is the proxy if docker for desktop or
-	// the depot CLI registry port otherwise.
+	randomImageName := RandImageName()
+	// Docker is able to pull from the proxyPort on localhost.  The socat proxy
+	// forwards to the registry server running on the registryPort.
 	imageToPull := fmt.Sprintf("localhost:%d/%s:%s", proxyPort, randomImageName.Name, randomImageName.Tag)
 
 	return LocalRegistryProxy{
@@ -245,7 +245,7 @@ func serveRegistry(ctx context.Context, registry *Registry, registryPort int) er
 }
 
 // downloadImageIndex downloads the config file from the image that was just built.
-// This is used to know get the manifest and the rest of the image content.
+// This is used to get the manifest and the rest of the image content.
 func downloadImageIndex(ctx context.Context, client contentapi.ContentClient, containerImageDigest string) (ocispecs.Index, error) {
 	req := &contentapi.ReadContentRequest{
 		Digest: digest.Digest(containerImageDigest),
@@ -261,7 +261,8 @@ func downloadImageIndex(ctx context.Context, client contentapi.ContentClient, co
 
 	octets := make([]byte, 0, 1024*1024)
 	for {
-		res, err := reader.Recv()
+		var res *contentapi.ReadContentResponse
+		res, err = reader.Recv()
 		if err != nil {
 			break
 		}
@@ -289,7 +290,7 @@ type ImageName struct {
 	Tag  string
 }
 
-// During a download of an image we temporarily storage the image with this
+// During a download of an image we temporarily store the image with this
 // random name to avoid conflicts with any other images.
 func RandImageName() ImageName {
 	const letterBytes = "abcdefghijklmnopqrstuvwxyz"
