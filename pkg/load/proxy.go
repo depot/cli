@@ -43,6 +43,8 @@ func RunProxyImage(ctx context.Context, dockerapi docker.APIClient, registryPort
 			PortBindings: nat.PortMap{
 				nat.Port(fmt.Sprintf("%d/tcp", proxyPort)): []nat.PortBinding{{HostPort: fmt.Sprintf("%d", proxyPort)}},
 			},
+			// This is the trick to make sure that the proxy container can
+			// access the host network in a cross platform way.
 			ExtraHosts: []string{"host.docker.internal:host-gateway"},
 		},
 		nil,
