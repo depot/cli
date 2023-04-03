@@ -273,9 +273,9 @@ func runBuild(dockerCli command.Cli, in buildOptions) (err error) {
 	}
 
 	imageIDs, res, err := buildTargets(ctx, dockerCli, nodes, map[string]build.Options{defaultTargetName: opts}, in.DepotOptions, in.progress, in.metadataFile, in.exportLoad, in.invoke != "")
-  if err != nil && shouldRetryError(err) {
-    imageIDs, res, err := buildTargets(ctx, dockerCli, nodes, map[string]build.Options{defaultTargetName: opts}, in.DepotOptions, in.progress, in.metadataFile, in.exportLoad, in.invoke != "")
-  }
+	if err != nil && shouldRetryError(err) {
+		imageIDs, res, err = buildTargets(ctx, dockerCli, nodes, map[string]build.Options{defaultTargetName: opts}, in.DepotOptions, in.progress, in.metadataFile, in.exportLoad, in.invoke != "")
+	}
 	err = wrapBuildError(err, false)
 	if err != nil {
 		return err

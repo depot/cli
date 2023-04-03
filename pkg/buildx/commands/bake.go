@@ -192,9 +192,9 @@ func RunBake(dockerCli command.Cli, targets []string, in BakeOptions) (err error
 	}
 
 	resp, err := build.DepotBuild(ctx, builder.ToBuildxNodes(nodes), bo, dockerutil.NewClient(dockerCli), confutil.ConfigDir(dockerCli), printer)
-  if err != nil && shouldRetryError(err) {
-    resp, err = build.DepotBuild(ctx, builder.ToBuildxNodes(nodes), bo, dockerutil.NewClient(dockerCli), confutil.ConfigDir(dockerCli), printer)
-  }
+	if err != nil && shouldRetryError(err) {
+		resp, err = build.DepotBuild(ctx, builder.ToBuildxNodes(nodes), bo, dockerutil.NewClient(dockerCli), confutil.ConfigDir(dockerCli), printer)
+	}
 	if err != nil {
 		return wrapBuildError(err, true)
 	}
