@@ -284,6 +284,10 @@ func runBuild(dockerCli command.Cli, in buildOptions) (err error) {
 	}
 
 	imageID, res, err := buildTargets(ctx, dockerCli, nodes, map[string]build.Options{defaultTargetName: opts}, in.buildID, in.token, in.progress, in.metadataFile, in.invoke != "")
+	if err != nil && shouldRetryError(err) {
+		imageID, res, err = buildTargets(ctx, dockerCli, nodes, map[string]build.Options{defaultTargetName: opts}, in.buildID, in.token, in.progress, in.metadataFile, in.invoke != "")
+	}
+
 	err = wrapBuildError(err, false)
 	if err != nil {
 		return err
@@ -791,6 +795,18 @@ func (w *wrapped) Error() string {
 
 func (w *wrapped) Unwrap() error {
 	return w.err
+}
+
+func shouldRetryError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	if strings.Contains(err.Error(), "inconsistent graph state") {
+		return true
+	}
+
+	return false
 }
 
 func isExperimental() bool {
