@@ -175,9 +175,11 @@ func NewLocalRegistryProxy(ctx context.Context, architecture string, containerIm
 	}
 
 	randomImageName := RandImageName()
+	// The tag is only for the UX during a pull.  The first line will be "pulling manifest".
+	tag := "manifest"
 	// Docker is able to pull from the proxyPort on localhost.  The socat proxy
 	// forwards to the registry server running on the registryPort.
-	imageToPull := fmt.Sprintf("localhost:%d/%s:%s", proxyPort, randomImageName.Name, randomImageName.Tag)
+	imageToPull := fmt.Sprintf("localhost:%d/%s:%s", proxyPort, randomImageName, tag)
 
 	return LocalRegistryProxy{
 		ImageToPull:      imageToPull,
@@ -285,29 +287,16 @@ func downloadImageIndex(ctx context.Context, client contentapi.ContentClient, co
 	return index, nil
 }
 
-type ImageName struct {
-	Name string
-	Tag  string
-}
-
 // During a download of an image we temporarily store the image with this
 // random name to avoid conflicts with any other images.
-func RandImageName() ImageName {
+func RandImageName() string {
 	const letterBytes = "abcdefghijklmnopqrstuvwxyz"
 	name := make([]byte, 10)
 	for i := range name {
 		name[i] = letterBytes[rand.Intn(len(letterBytes))]
 	}
 
-	tag := make([]byte, 5)
-	for i := range tag {
-		tag[i] = letterBytes[rand.Intn(len(letterBytes))]
-	}
-
-	return ImageName{
-		Name: string(name),
-		Tag:  string(tag),
-	}
+	return string(name)
 }
 
 // IsReady checks if the registry is ready to be used.

@@ -97,6 +97,10 @@ func printPull(ctx context.Context, rc io.ReadCloser, l progress.SubLogger) erro
 		}
 
 		id := "pulling layer " + jm.ID
+		// The first "layer" is the tag.  We've specially tagged the image to be manifest so the UX looks better.
+		if jm.ID == "manifest" {
+			id = "pulling manifest"
+		}
 		st, ok := started[id]
 		if !ok {
 			if jm.Progress != nil || strings.HasPrefix(jm.Status, "Pulling") {
