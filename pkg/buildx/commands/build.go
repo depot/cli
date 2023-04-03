@@ -839,6 +839,10 @@ func shouldRetryError(err error) bool {
 		return true
 	}
 
+	if strings.Contains(err.Error(), "failed to get state for index") {
+		return true
+	}
+
 	return false
 }
 
