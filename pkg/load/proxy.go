@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"net"
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
@@ -74,19 +73,4 @@ func RunProxyImage(ctx context.Context, dockerapi docker.APIClient, registryPort
 // Forcefully stops and removes the proxy container.
 func StopProxyContainer(ctx context.Context, dockerapi docker.APIClient, containerID string) error {
 	return dockerapi.ContainerRemove(ctx, containerID, types.ContainerRemoveOptions{Force: true, RemoveVolumes: true})
-}
-
-// GetFreePort asks the kernel for a free open port that is ready to use.
-func GetFreePort() (int, error) {
-	addr, err := net.ResolveTCPAddr("tcp", "localhost:0")
-	if err != nil {
-		return 0, err
-	}
-
-	l, err := net.ListenTCP("tcp", addr)
-	if err != nil {
-		return 0, err
-	}
-	defer l.Close()
-	return l.Addr().(*net.TCPAddr).Port, nil
 }
