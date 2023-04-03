@@ -136,31 +136,22 @@ func NewLocalRegistryProxy(ctx context.Context, architecture string, containerIm
 	}
 
 	registryHandler := NewRegistry(contentClient, manifestConfig, logger)
-	registryPort, err := GetFreePort()
-	if err != nil {
-		return LocalRegistryProxy{}, err
-	}
 
 	ctx, cancel := context.WithCancel(ctx)
-	err = serveRegistry(ctx, registryHandler, registryPort)
+	registryPort, err := serveRegistry(ctx, registryHandler)
 	if err != nil {
 		cancel()
 		return LocalRegistryProxy{}, err
 	}
 
-	proxyPort, err := GetFreePort()
-	if err != nil {
-		cancel()
-		return LocalRegistryProxy{}, err
-	}
-	proxyContainerID, err := RunProxyImage(ctx, dockerapi, registryPort, proxyPort)
+	proxyContainerID, proxyExposedPort, err := RunProxyImage(ctx, dockerapi, registryPort)
 	if err != nil {
 		cancel()
 		return LocalRegistryProxy{}, err
 	}
 
 	// Wait for the registry and the proxy to be ready.
-	dockerAccessibleHost := fmt.Sprintf("localhost:%d", proxyPort)
+	dockerAccessibleHost := fmt.Sprintf("localhost:%s", proxyExposedPort)
 	var ready bool
 	for !ready {
 		ready = IsReady(ctx, dockerAccessibleHost)
@@ -179,7 +170,7 @@ func NewLocalRegistryProxy(ctx context.Context, architecture string, containerIm
 	tag := "manifest"
 	// Docker is able to pull from the proxyPort on localhost.  The socat proxy
 	// forwards to the registry server running on the registryPort.
-	imageToPull := fmt.Sprintf("localhost:%d/%s:%s", proxyPort, randomImageName, tag)
+	imageToPull := fmt.Sprintf("localhost:%s/%s:%s", proxyExposedPort, randomImageName, tag)
 
 	return LocalRegistryProxy{
 		ImageToPull:      imageToPull,
@@ -224,10 +215,10 @@ func chooseBestImageManifest(architecture string, index ocispecs.Index) (ocispec
 
 // The registry can pull images from buildkitd's content store.
 // Cancel the context to stop the registry.
-func serveRegistry(ctx context.Context, registry *Registry, registryPort int) error {
-	listener, err := net.Listen("tcp", fmt.Sprintf("0.0.0.0:%d", registryPort))
+func serveRegistry(ctx context.Context, registry *Registry) (int, error) {
+	listener, err := net.Listen("tcp", "0.0.0.0:0")
 	if err != nil {
-		return err
+		return 0, err
 	}
 
 	server := &http.Server{
@@ -243,7 +234,7 @@ func serveRegistry(ctx context.Context, registry *Registry, registryPort int) er
 		_ = server.Serve(listener)
 	}()
 
-	return nil
+	return listener.Addr().(*net.TCPAddr).Port, nil
 }
 
 // downloadImageIndex downloads the config file from the image that was just built.
