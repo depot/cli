@@ -17,8 +17,11 @@ import (
 	"sync"
 
 	"github.com/containerd/console"
+	depotbuild "github.com/depot/cli/pkg/buildx/build"
 	"github.com/depot/cli/pkg/buildx/builder"
 	"github.com/depot/cli/pkg/helpers"
+	"github.com/depot/cli/pkg/load"
+	depotprogress "github.com/depot/cli/pkg/progress"
 	"github.com/docker/buildx/build"
 	"github.com/docker/buildx/monitor"
 	"github.com/docker/buildx/store"
@@ -38,6 +41,7 @@ import (
 	"github.com/docker/docker/pkg/ioutils"
 	"github.com/docker/go-units"
 	"github.com/moby/buildkit/client"
+	"github.com/moby/buildkit/exporter/containerimage/exptypes"
 	"github.com/moby/buildkit/session/auth/authprovider"
 	"github.com/moby/buildkit/solver/errdefs"
 	"github.com/moby/buildkit/util/appcontext"
@@ -98,12 +102,13 @@ type commonOptions struct {
 }
 
 type DepotOptions struct {
-	project        string
-	token          string
-	buildID        string
-	buildPlatform  string
-	allowNoOutput  bool
-	builderOptions []builder.Option
+	project          string
+	token            string
+	buildID          string
+	buildPlatform    string
+	useLocalRegistry bool
+	allowNoOutput    bool
+	builderOptions   []builder.Option
 }
 
 func runBuild(dockerCli command.Cli, in buildOptions) (err error) {
@@ -198,9 +203,6 @@ func runBuild(dockerCli command.Cli, in buildOptions) (err error) {
 		return err
 	}
 	if in.exportPush {
-		if in.exportLoad {
-			return errors.Errorf("push and load may not be set together at the moment")
-		}
 		if len(outputs) == 0 {
 			outputs = []client.ExportEntry{{
 				Type: "image",
@@ -217,20 +219,7 @@ func runBuild(dockerCli command.Cli, in buildOptions) (err error) {
 			}
 		}
 	}
-	if in.exportLoad {
-		if len(outputs) == 0 {
-			outputs = []client.ExportEntry{{
-				Type:  "docker",
-				Attrs: map[string]string{},
-			}}
-		} else {
-			switch outputs[0].Type {
-			case "docker":
-			default:
-				return errors.Errorf("load and %q output can't be used together", outputs[0].Type)
-			}
-		}
-	}
+
 	opts.Exports = outputs
 
 	inAttests := append([]string{}, in.attests...)
@@ -283,11 +272,10 @@ func runBuild(dockerCli command.Cli, in buildOptions) (err error) {
 		return err
 	}
 
-	imageID, res, err := buildTargets(ctx, dockerCli, nodes, map[string]build.Options{defaultTargetName: opts}, in.buildID, in.token, in.progress, in.metadataFile, in.invoke != "")
+	imageIDs, res, err := buildTargets(ctx, dockerCli, nodes, map[string]build.Options{defaultTargetName: opts}, in.DepotOptions, in.progress, in.metadataFile, in.exportLoad, in.invoke != "")
 	if err != nil && shouldRetryError(err) {
-		imageID, res, err = buildTargets(ctx, dockerCli, nodes, map[string]build.Options{defaultTargetName: opts}, in.buildID, in.token, in.progress, in.metadataFile, in.invoke != "")
+		imageIDs, res, err = buildTargets(ctx, dockerCli, nodes, map[string]build.Options{defaultTargetName: opts}, in.DepotOptions, in.progress, in.metadataFile, in.exportLoad, in.invoke != "")
 	}
-
 	err = wrapBuildError(err, false)
 	if err != nil {
 		return err
@@ -304,7 +292,7 @@ func runBuild(dockerCli command.Cli, in buildOptions) (err error) {
 			return errors.Errorf("failed to configure terminal: %v", err)
 		}
 		err = monitor.RunMonitor(ctx, cfg, func(ctx context.Context) (*build.ResultContext, error) {
-			_, rr, err := buildTargets(ctx, dockerCli, nodes, map[string]build.Options{defaultTargetName: opts}, in.buildID, in.token, in.progress, in.metadataFile, true)
+			_, rr, err := buildTargets(ctx, dockerCli, nodes, map[string]build.Options{defaultTargetName: opts}, in.DepotOptions, in.progress, in.metadataFile, false, true)
 			return rr, err
 		}, io.NopCloser(os.Stdin), nopCloser{os.Stdout}, nopCloser{os.Stderr})
 		if err != nil {
@@ -314,7 +302,9 @@ func runBuild(dockerCli command.Cli, in buildOptions) (err error) {
 	}
 
 	if in.quiet {
-		fmt.Println(imageID)
+		for _, imageID := range imageIDs {
+			fmt.Println(imageID)
+		}
 	}
 	return nil
 }
@@ -325,13 +315,13 @@ type nopCloser struct {
 
 func (c nopCloser) Close() error { return nil }
 
-func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.Node, opts map[string]build.Options, buildID, token, progressMode, metadataFile string, allowNoOutput bool) (imageID string, res *build.ResultContext, err error) {
+func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.Node, opts map[string]build.Options, depotOpts DepotOptions, progressMode, metadataFile string, exportLoad, allowNoOutput bool) (imageIDs []string, res *build.ResultContext, err error) {
 	ctx2, cancel := context.WithCancel(context.TODO())
 
-	printer, err := NewProgress(ctx2, buildID, token, progressMode)
+	printer, err := depotprogress.NewProgress(ctx2, depotOpts.buildID, depotOpts.token, progressMode)
 	if err != nil {
 		cancel()
-		return "", nil, err
+		return nil, nil, err
 	}
 
 	wg := &sync.WaitGroup{}
@@ -343,40 +333,81 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.No
 	defer wg.Wait() // Required to ensure that the printer is stopped before the context is cancelled.
 	defer cancel()
 
+	var pullOpts map[string]load.PullOptions
+	if exportLoad {
+		opts, pullOpts = load.WithDepotImagePull(
+			opts,
+			load.DepotLoadOptions{
+				UseLocalRegistry: depotOpts.useLocalRegistry,
+				Project:          depotOpts.project,
+				BuildID:          depotOpts.buildID,
+				IsBake:           false,
+				ProgressMode:     progressMode,
+			},
+		)
+	}
+
 	var mu sync.Mutex
 	var idx int
-	resp, err := build.BuildWithResultHandler(ctx, builder.ToBuildxNodes(nodes), opts, dockerutil.NewClient(dockerCli), confutil.ConfigDir(dockerCli), printer, func(driverIndex int, gotRes *build.ResultContext) {
+	resp, err := depotbuild.DepotBuildWithResultHandler(ctx, builder.ToBuildxNodes(nodes), opts, dockerutil.NewClient(dockerCli), confutil.ConfigDir(dockerCli), printer, func(driverIndex int, gotRes *build.ResultContext) {
 		mu.Lock()
 		defer mu.Unlock()
 		if res == nil || driverIndex < idx {
 			idx, res = driverIndex, gotRes
 		}
 	}, allowNoOutput)
-	err1 := printer.Wait()
-	if err == nil {
-		err = err1
-	}
+
 	if err != nil {
-		return "", nil, err
+		// Make sure that the printer has completed before returning failed builds.
+		// We ignore the error here as it can only be a context error.
+		_ = printer.Wait()
+		return nil, nil, err
 	}
 
-	if len(metadataFile) > 0 && resp != nil {
-		if err := writeMetadataFile(metadataFile, decodeExporterResponse(resp[defaultTargetName].ExporterResponse)); err != nil {
-			return "", nil, err
-		}
-	}
+	if metadataFile != "" && resp != nil {
+		// DEPOT: Apparently, the build metadata file is a different format than the bake one.
+		for _, buildRes := range resp {
+			metadata := map[string]interface{}{}
+			for _, nodeRes := range buildRes.NodeResponses {
+				nodeMetadata := decodeExporterResponse(nodeRes.SolveResponse.ExporterResponse)
+				for k, v := range nodeMetadata {
+					metadata[k] = v
+				}
+			}
 
-	printWarnings(os.Stderr, printer.Warnings(), progressMode)
-
-	for k := range resp {
-		if opts[k].PrintFunc != nil {
-			if err := printResult(opts[k].PrintFunc, resp[k].ExporterResponse); err != nil {
-				return "", nil, err
+			if err := writeMetadataFile(metadataFile, metadata); err != nil {
+				return nil, nil, err
 			}
 		}
 	}
 
-	return resp[defaultTargetName].ExporterResponse["containerimage.digest"], res, err
+	for _, buildRes := range resp {
+		for _, nodeRes := range buildRes.NodeResponses {
+			digest := nodeRes.SolveResponse.ExporterResponse[exptypes.ExporterImageDigestKey]
+			imageIDs = append(imageIDs, digest)
+		}
+	}
+
+	// NOTE: the err is returned at the end of this function after the final prints.
+	err = load.DepotFastLoad(ctx, dockerCli.Client(), resp, pullOpts, printer)
+
+	if err := printer.Wait(); err != nil {
+		return nil, nil, err
+	}
+
+	printWarnings(os.Stderr, printer.Warnings(), progressMode)
+
+	for _, buildRes := range resp {
+		if opts[buildRes.Name].PrintFunc != nil {
+			for _, nodeRes := range buildRes.NodeResponses {
+				if err := printResult(opts[buildRes.Name].PrintFunc, nodeRes.SolveResponse.ExporterResponse); err != nil {
+					return nil, nil, err
+				}
+			}
+		}
+	}
+
+	return imageIDs, res, err
 }
 
 func parseInvokeConfig(invoke string) (cfg build.ContainerConfig, err error) {
@@ -487,8 +518,8 @@ func BuildCmd(dockerCli command.Cli) *cobra.Command {
 			if token == "" {
 				return fmt.Errorf("missing API token, please run `depot login`")
 			}
-			project := helpers.ResolveProjectID(options.project, args[0])
-			if project == "" {
+			options.project = helpers.ResolveProjectID(options.project, args[0])
+			if options.project == "" {
 				return errors.Errorf("unknown project ID (run `depot init` or use --project or $DEPOT_PROJECT_ID)")
 			}
 			buildPlatform, err := helpers.ResolveBuildPlatform(options.buildPlatform)
@@ -496,17 +527,19 @@ func BuildCmd(dockerCli command.Cli) *cobra.Command {
 				return err
 			}
 
-			buildID, buildToken, finishBuild, err := helpers.BeginBuild(context.Background(), project, token)
+			build, err := helpers.BeginBuild(context.Background(), options.project, token)
 			if err != nil {
 				return err
 			}
 			var buildErr error
 			defer func() {
-				finishBuild(buildErr)
+				build.Finish(buildErr)
 			}()
-			options.builderOptions = []builder.Option{builder.WithDepotOptions(buildToken, buildID, buildPlatform)}
-			options.buildID = buildID
-			options.token = buildToken
+
+			options.builderOptions = []builder.Option{builder.WithDepotOptions(buildPlatform, build)}
+			options.buildID = build.ID
+			options.token = build.Token
+			options.useLocalRegistry = build.UseLocalRegistry
 
 			if options.allowNoOutput {
 				_ = os.Setenv("BUILDX_NO_DEFAULT_LOAD", "1")

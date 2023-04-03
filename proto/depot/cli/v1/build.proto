@@ -20,6 +20,11 @@ message CreateBuildRequest {
 message CreateBuildResponse {
   string build_id = 1;
   string build_token = 2;
+  Registry registry = 3;
+}
+
+message Registry {
+  bool can_use_local_registry = 1;
 }
 
 message FinishBuildRequest {

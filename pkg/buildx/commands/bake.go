@@ -10,10 +10,12 @@ import (
 	"sync"
 
 	"github.com/containerd/containerd/platforms"
+	"github.com/depot/cli/pkg/buildx/build"
 	"github.com/depot/cli/pkg/buildx/builder"
 	"github.com/depot/cli/pkg/helpers"
+	"github.com/depot/cli/pkg/load"
+	depotprogress "github.com/depot/cli/pkg/progress"
 	"github.com/docker/buildx/bake"
-	"github.com/docker/buildx/build"
 	"github.com/docker/buildx/util/buildflags"
 	"github.com/docker/buildx/util/confutil"
 	"github.com/docker/buildx/util/dockerutil"
@@ -22,6 +24,7 @@ import (
 	"github.com/moby/buildkit/util/appcontext"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
+	"golang.org/x/sync/errgroup"
 )
 
 type BakeOptions struct {
@@ -65,13 +68,9 @@ func RunBake(dockerCli command.Cli, targets []string, in BakeOptions) (err error
 
 	overrides := in.overrides
 	if in.exportPush {
-		if in.exportLoad {
-			return errors.Errorf("push and load may not be set together at the moment")
-		}
 		overrides = append(overrides, "*.push=true")
-	} else if in.exportLoad {
-		overrides = append(overrides, "*.output=type=docker")
 	}
+
 	if in.noCache != nil {
 		overrides = append(overrides, fmt.Sprintf("*.no-cache=%t", *in.noCache))
 	}
@@ -88,7 +87,7 @@ func RunBake(dockerCli command.Cli, targets []string, in BakeOptions) (err error
 
 	ctx2, cancel := context.WithCancel(context.TODO())
 
-	printer, err := NewProgress(ctx2, in.buildID, in.token, in.progress)
+	printer, err := depotprogress.NewProgress(ctx2, in.buildID, in.token, in.progress)
 	if err != nil {
 		cancel()
 		return err
@@ -158,7 +157,6 @@ func RunBake(dockerCli command.Cli, targets []string, in BakeOptions) (err error
 		return err
 	}
 
-	// TODO: this would stop the sending building timings to the depot API !!
 	if in.printOnly {
 		dt, err := json.MarshalIndent(struct {
 			Group  map[string]*bake.Group  `json:"group,omitempty"`
@@ -179,26 +177,62 @@ func RunBake(dockerCli command.Cli, targets []string, in BakeOptions) (err error
 		return nil
 	}
 
-	resp, err := build.Build(ctx, builder.ToBuildxNodes(nodes), bo, dockerutil.NewClient(dockerCli), confutil.ConfigDir(dockerCli), printer)
-	if err != nil && shouldRetryError(err) {
-		resp, err = build.Build(ctx, builder.ToBuildxNodes(nodes), bo, dockerutil.NewClient(dockerCli), confutil.ConfigDir(dockerCli), printer)
+	var pullOpts map[string]load.PullOptions
+	if in.exportLoad {
+		bo, pullOpts = load.WithDepotImagePull(
+			bo,
+			load.DepotLoadOptions{
+				UseLocalRegistry: in.DepotOptions.useLocalRegistry,
+				Project:          in.DepotOptions.project,
+				BuildID:          in.DepotOptions.buildID,
+				IsBake:           true,
+				ProgressMode:     in.progress,
+			},
+		)
 	}
 
+	resp, err := build.DepotBuild(ctx, builder.ToBuildxNodes(nodes), bo, dockerutil.NewClient(dockerCli), confutil.ConfigDir(dockerCli), printer)
+	if err != nil && shouldRetryError(err) {
+		resp, err = build.DepotBuild(ctx, builder.ToBuildxNodes(nodes), bo, dockerutil.NewClient(dockerCli), confutil.ConfigDir(dockerCli), printer)
+	}
 	if err != nil {
 		return wrapBuildError(err, true)
 	}
 
-	if len(in.metadataFile) > 0 {
+	if in.metadataFile != "" {
 		dt := make(map[string]interface{})
-		for t, r := range resp {
-			dt[t] = decodeExporterResponse(r.ExporterResponse)
+		for _, buildRes := range resp {
+			metadata := map[string]interface{}{}
+			for _, nodeRes := range buildRes.NodeResponses {
+				nodeMetadata := decodeExporterResponse(nodeRes.SolveResponse.ExporterResponse)
+				for k, v := range nodeMetadata {
+					metadata[k] = v
+				}
+			}
+			dt[buildRes.Name] = metadata
 		}
 		if err := writeMetadataFile(in.metadataFile, dt); err != nil {
 			return err
 		}
 	}
 
-	return err
+	if len(pullOpts) > 0 {
+		eg, ctx2 := errgroup.WithContext(ctx)
+		for i := range resp {
+			func(i int) {
+				eg.Go(func() error {
+					targetResponse := resp[i]
+					return load.DepotFastLoad(ctx2, dockerCli.Client(), []build.DepotBuildResponse{targetResponse}, pullOpts, printer)
+				})
+			}(i)
+		}
+
+		if err := eg.Wait(); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func BakeCmd(dockerCli command.Cli) *cobra.Command {
@@ -225,8 +259,8 @@ func BakeCmd(dockerCli command.Cli) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			project := helpers.ResolveProjectID(options.project, cwd)
-			if project == "" {
+			options.project = helpers.ResolveProjectID(options.project, cwd)
+			if options.project == "" {
 				return errors.Errorf("unknown project ID (run `depot init` or use --project or $DEPOT_PROJECT_ID)")
 			}
 			buildPlatform, err := helpers.ResolveBuildPlatform(options.buildPlatform)
@@ -234,17 +268,20 @@ func BakeCmd(dockerCli command.Cli) *cobra.Command {
 				return err
 			}
 
-			buildID, buildToken, finishBuild, err := helpers.BeginBuild(context.Background(), project, token)
+			build, err := helpers.BeginBuild(context.Background(), options.project, token)
 			if err != nil {
 				return err
 			}
 			var buildErr error
 			defer func() {
-				finishBuild(buildErr)
+				build.Finish(buildErr)
 			}()
-			options.builderOptions = []builder.Option{builder.WithDepotOptions(buildToken, buildID, buildPlatform)}
-			options.buildID = buildID
-			options.token = buildToken
+
+			options.builderOptions = []builder.Option{builder.WithDepotOptions(buildPlatform, build)}
+
+			options.buildID = build.ID
+			options.token = build.Token
+			options.useLocalRegistry = build.UseLocalRegistry
 
 			if options.allowNoOutput {
 				_ = os.Setenv("BUILDX_NO_DEFAULT_LOAD", "1")

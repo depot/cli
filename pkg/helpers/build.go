@@ -14,27 +14,37 @@ import (
 	"google.golang.org/grpc/codes"
 )
 
-func BeginBuild(ctx context.Context, project string, token string) (buildID string, buildToken string, finishBuild func(buildErr error), err error) {
+type Build struct {
+	ID               string
+	Token            string
+	UseLocalRegistry bool
+	Finish           func(error)
+}
+
+func BeginBuild(ctx context.Context, project string, token string) (build Build, err error) {
 	client := depotapi.NewBuildClient()
 
-	buildID = os.Getenv("DEPOT_BUILD_ID")
-	buildToken = token
-
-	if buildID == "" {
+	build.Token = token
+	build.ID = os.Getenv("DEPOT_BUILD_ID")
+	if build.ID == "" {
 		req := cliv1.CreateBuildRequest{ProjectId: project}
 		var b *connect.Response[cliv1.CreateBuildResponse]
 		b, err = client.CreateBuild(ctx, depotapi.WithAuthentication(connect.NewRequest(&req), token))
 		if err != nil {
-			return "", "", nil, err
+			return build, err
 		}
-		buildID = b.Msg.BuildId
-		buildToken = b.Msg.BuildToken
+		build.ID = b.Msg.BuildId
+		build.Token = b.Msg.BuildToken
+
+		build.UseLocalRegistry = b.Msg.GetRegistry() != nil && b.Msg.GetRegistry().CanUseLocalRegistry
+		if os.Getenv("DEPOT_USE_LOCAL_REGISTRY") != "" {
+			build.UseLocalRegistry = true
+		}
 	}
 
-	profiler.StartProfiler(buildID)
-
-	finishBuild = func(buildErr error) {
-		req := cliv1.FinishBuildRequest{BuildId: buildID}
+	profiler.StartProfiler(build.ID)
+	build.Finish = func(buildErr error) {
+		req := cliv1.FinishBuildRequest{BuildId: build.ID}
 		req.Result = &cliv1.FinishBuildRequest_Success{Success: &cliv1.FinishBuildRequest_BuildSuccess{}}
 		if buildErr != nil {
 			// Classify errors as canceled by user/ci or build error.
@@ -49,11 +59,11 @@ func BeginBuild(ctx context.Context, project string, token string) (buildID stri
 				req.Result = &cliv1.FinishBuildRequest_Error{Error: &cliv1.FinishBuildRequest_BuildError{Error: errorMessage}}
 			}
 		}
-		_, err := client.FinishBuild(ctx, depotapi.WithAuthentication(connect.NewRequest(&req), buildToken))
+		_, err := client.FinishBuild(ctx, depotapi.WithAuthentication(connect.NewRequest(&req), build.Token))
 		if err != nil {
 			log.Printf("error releasing builder: %v", err)
 		}
 	}
 
-	return buildID, buildToken, finishBuild, err
+	return build, err
 }
