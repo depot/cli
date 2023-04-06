@@ -121,7 +121,7 @@ func (r *Registry) handleBlobs(resp http.ResponseWriter, req *http.Request) {
 		defer cancel()
 		rc, err := r.Client.Read(childCtx, rr)
 		if err != nil {
-			writeError(resp, http.StatusNotFound, "BLOB_UNKNOWN", "Unknown blob")
+			writeError(resp, http.StatusNotFound, "INTERNAL_SERVER_ERROR", "Unable to read content from registry")
 			return
 		}
 
@@ -160,7 +160,7 @@ func (r *Registry) handleManifests(resp http.ResponseWriter, req *http.Request) 
 			Digest: digest.Digest(manifestDigest),
 		})
 		if err != nil {
-			writeError(resp, http.StatusNotFound, "BLOB_UNKNOWN", "Unknown blob")
+			writeError(resp, http.StatusNotFound, "MANIFEST_UNKNOWN", "Unknown manifest")
 			return
 		}
 		defer ra.Close()
