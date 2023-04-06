@@ -78,12 +78,7 @@ func WithDepotImagePull(buildOpts map[string]build.Options, loadOpts DepotLoadOp
 			// When we pull we need at least one user tag as no tags means that
 			// it would otherwise get removed.
 			if len(userTags) == 0 {
-				defaultImageName := fmt.Sprintf("depot-project-%s:build-%s", loadOpts.Project, loadOpts.BuildID)
-				if loadOpts.IsBake {
-					defaultImageName = fmt.Sprintf("%s-%s", defaultImageName, target)
-				}
-
-				userTags = append(userTags, defaultImageName)
+				userTags = append(userTags, defaultImageName(loadOpts, target))
 			}
 
 			pullOpt := PullOptions{
@@ -111,4 +106,45 @@ func WithDepotImagePull(buildOpts map[string]build.Options, loadOpts DepotLoadOp
 	}
 
 	return buildOpts, toPull
+}
+
+// https://github.com/moby/containerd/blob/96c5ae04b6784e180aaeee50fba715ac448ddb0d/reference/docker/reference.go#L27-L31
+func defaultImageName(loadOpts DepotLoadOptions, target string) string {
+	invalidNameRunes := func(r rune) rune {
+		alpha := 'a' <= r && r <= 'z'
+		numeric := '0' <= r && r <= '9'
+		sep := r == '-' || r == '_' || r == '.'
+
+		if !alpha && !numeric && !sep {
+			return -1
+		}
+		return r
+	}
+
+	invalidTagRunes := func(r rune) rune {
+		lower := 'a' <= r && r <= 'z'
+		upper := 'A' <= r && r <= 'Z'
+		numeric := '0' <= r && r <= '9'
+		under := r == '_'
+
+		if !lower && !upper && !numeric && !under {
+			return -1
+		}
+		return r
+	}
+
+	project := strings.Map(invalidNameRunes, strings.ToLower(loadOpts.Project))
+	project = strings.TrimFunc(project, func(r rune) bool {
+		return invalidNameRunes(r) == -1
+	})
+
+	buildID := strings.Map(invalidTagRunes, strings.ToLower(loadOpts.BuildID))
+	target = strings.Map(invalidTagRunes, strings.ToLower(target))
+
+	defaultImageName := fmt.Sprintf("depot-project-%s:build-%s", project, buildID)
+	if loadOpts.IsBake {
+		defaultImageName = fmt.Sprintf("%s-%s", defaultImageName, target)
+	}
+
+	return defaultImageName
 }
