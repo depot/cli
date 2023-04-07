@@ -1041,6 +1041,8 @@ func BuildWithResultHandler(ctx context.Context, nodes []builder.Node, opt map[s
 
 					cc := c
 					var printRes map[string][]byte
+					// DEPOT: stop recording the build steps and traces on the server.
+					so.Internal = true
 					rr, err := c.Build(ctx, so, "buildx", func(ctx context.Context, c gateway.Client) (*gateway.Result, error) {
 						var isFallback bool
 						var origErr error
