@@ -16,7 +16,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/depot/cli/pkg/api"
 	"github.com/depot/cli/pkg/config"
-	"github.com/depot/cli/pkg/project"
+	"github.com/depot/cli/pkg/helpers"
 	cliv1 "github.com/depot/cli/pkg/proto/depot/cli/v1"
 	"github.com/depot/cli/pkg/proto/depot/cli/v1/cliv1connect"
 	"github.com/pkg/errors"
@@ -33,16 +33,8 @@ func NewCmdBuilds() *cobra.Command {
 		Aliases: []string{"b"},
 		Short:   "List builds for a project",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if projectID == "" {
-				projectID = os.Getenv("DEPOT_PROJECT_ID")
-			}
-			if projectID == "" {
-				cwd, _ := os.Getwd()
-				config, _, err := project.ReadConfig(cwd)
-				if err == nil {
-					projectID = config.ID
-				}
-			}
+			cwd, _ := os.Getwd()
+			projectID := helpers.ResolveProjectID(projectID, cwd)
 			if projectID == "" {
 				return errors.Errorf("unknown project ID (run `depot init` or use --project or $DEPOT_PROJECT_ID)")
 			}

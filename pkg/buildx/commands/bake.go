@@ -252,14 +252,12 @@ func BakeCmd(dockerCli command.Cli) *cobra.Command {
 			if token == "" {
 				return fmt.Errorf("missing API token, please run `depot login`")
 			}
-			cwd, err := os.Getwd()
-			if err != nil {
-				return err
-			}
-			options.project = helpers.ResolveProjectID(options.project, cwd)
+
+			options.project = helpers.ResolveProjectID(options.project, options.files...)
 			if options.project == "" {
 				return errors.Errorf("unknown project ID (run `depot init` or use --project or $DEPOT_PROJECT_ID)")
 			}
+
 			buildPlatform, err := helpers.ResolveBuildPlatform(options.buildPlatform)
 			if err != nil {
 				return err

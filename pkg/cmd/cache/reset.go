@@ -9,7 +9,7 @@ import (
 	"github.com/bufbuild/connect-go"
 	"github.com/depot/cli/pkg/api"
 	"github.com/depot/cli/pkg/config"
-	"github.com/depot/cli/pkg/project"
+	"github.com/depot/cli/pkg/helpers"
 	cliv1beta1 "github.com/depot/cli/pkg/proto/depot/cli/v1beta1"
 	"github.com/docker/cli/cli"
 	"github.com/pkg/errors"
@@ -25,15 +25,10 @@ func NewCmdResetCache() *cobra.Command {
 		Short: "Reset the cache for a project",
 		Args:  cli.RequiresMaxArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			cwd, _ := filepath.Abs(args[0])
+			projectID := helpers.ResolveProjectID(projectID, cwd)
 			if projectID == "" {
-				projectID = os.Getenv("DEPOT_PROJECT_ID")
-			}
-			if projectID == "" {
-				cwd, _ := filepath.Abs(args[0])
-				config, _, err := project.ReadConfig(cwd)
-				if err == nil {
-					projectID = config.ID
-				}
+				return errors.Errorf("unknown project ID (run `depot init` or use --project or $DEPOT_PROJECT_ID)")
 			}
 			if projectID == "" {
 				return errors.Errorf("unknown project ID (run `depot init` or use --project or $DEPOT_PROJECT_ID)")
