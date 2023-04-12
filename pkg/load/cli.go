@@ -98,6 +98,11 @@ func WithDepotImagePull(buildOpts map[string]build.Options, loadOpts DepotLoadOp
 					export.Attrs = map[string]string{}
 				}
 
+				// To export an image via --load the buildkitd logic requires a name.
+				if _, ok := export.Attrs["name"]; !ok {
+					export.Attrs["name"] = defaultImageName(loadOpts, target)
+				}
+
 				export.Attrs["oci-mediatypes"] = "true"
 			}
 			buildOpt.Exports[i] = export

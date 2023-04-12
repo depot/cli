@@ -121,7 +121,7 @@ func (r *Registry) handleBlobs(resp http.ResponseWriter, req *http.Request) {
 		defer cancel()
 		rc, err := r.Client.Read(childCtx, rr)
 		if err != nil {
-			writeError(resp, http.StatusNotFound, "INTERNAL_SERVER_ERROR", "Unable to read content from registry")
+			writeError(resp, http.StatusInternalServerError, "INTERNAL_SERVER_ERROR", "Unable to read content from registry")
 			return
 		}
 
