@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"strings"
 	"sync"
 
 	"github.com/containerd/containerd/platforms"
@@ -24,7 +23,6 @@ import (
 	"github.com/docker/cli/cli/command"
 	"github.com/moby/buildkit/util/appcontext"
 	"github.com/pkg/errors"
-	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"golang.org/x/sync/errgroup"
 )
@@ -255,31 +253,9 @@ func BakeCmd(dockerCli command.Cli) *cobra.Command {
 				return fmt.Errorf("missing API token, please run `depot login`")
 			}
 
-			dirs, err := helpers.WorkingDirectories(options.files)
-			if err != nil {
-				return err
-			}
-
-			// Only a single project ID is allowed.
-			projectIDs := make(map[string]struct{})
-			for _, dir := range dirs {
-				project := helpers.ResolveProjectID(options.project, dir)
-				if project == "" {
-					return errors.Errorf("unknown project ID (run `depot init` or use --project or $DEPOT_PROJECT_ID)")
-				}
-
-				projectIDs[project] = struct{}{}
-			}
-
-			ids := []string{}
-			for id := range projectIDs {
-				ids = append(ids, id)
-				options.project = id
-			}
-
-			// TODO: Warn for multiple project IDs. Is this an error?
-			if len(ids) > 1 {
-				logrus.Warnf("More than one project ID discovered: %s.  Using project: %s", strings.Join(ids, ", "), options.project)
+			options.project = helpers.ResolveProjectID(options.project, options.files...)
+			if options.project == "" {
+				return errors.Errorf("unknown project ID (run `depot init` or use --project or $DEPOT_PROJECT_ID)")
 			}
 
 			buildPlatform, err := helpers.ResolveBuildPlatform(options.buildPlatform)
