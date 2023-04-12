@@ -192,9 +192,6 @@ func RunBake(dockerCli command.Cli, targets []string, in BakeOptions) (err error
 	}
 
 	resp, err := build.DepotBuild(ctx, builder.ToBuildxNodes(nodes), bo, dockerutil.NewClient(dockerCli), confutil.ConfigDir(dockerCli), printer)
-	if err != nil && shouldRetryError(err) {
-		resp, err = build.DepotBuild(ctx, builder.ToBuildxNodes(nodes), bo, dockerutil.NewClient(dockerCli), confutil.ConfigDir(dockerCli), printer)
-	}
 	if err != nil {
 		return wrapBuildError(err, true)
 	}
@@ -287,7 +284,9 @@ func BakeCmd(dockerCli command.Cli) *cobra.Command {
 				_ = os.Setenv("BUILDX_NO_DEFAULT_LOAD", "1")
 			}
 
-			buildErr = RunBake(dockerCli, args, options)
+			buildErr = retryRetryableErrors(context.Background(), func() error {
+				return RunBake(dockerCli, args, options)
+			})
 			return buildErr
 		},
 	}

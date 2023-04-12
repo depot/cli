@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/containerd/console"
 	depotbuild "github.com/depot/cli/pkg/buildx/build"
@@ -273,9 +274,6 @@ func runBuild(dockerCli command.Cli, in buildOptions) (err error) {
 	}
 
 	imageIDs, res, err := buildTargets(ctx, dockerCli, nodes, map[string]build.Options{defaultTargetName: opts}, in.DepotOptions, in.progress, in.metadataFile, in.exportLoad, in.invoke != "")
-	if err != nil && shouldRetryError(err) {
-		imageIDs, res, err = buildTargets(ctx, dockerCli, nodes, map[string]build.Options{defaultTargetName: opts}, in.DepotOptions, in.progress, in.metadataFile, in.exportLoad, in.invoke != "")
-	}
 	err = wrapBuildError(err, false)
 	if err != nil {
 		return err
@@ -545,7 +543,9 @@ func BuildCmd(dockerCli command.Cli) *cobra.Command {
 				_ = os.Setenv("BUILDX_NO_DEFAULT_LOAD", "1")
 			}
 
-			buildErr = runBuild(dockerCli, options)
+			buildErr = retryRetryableErrors(context.Background(), func() error {
+				return runBuild(dockerCli, options)
+			})
 			return buildErr
 		},
 	}
@@ -828,6 +828,33 @@ func (w *wrapped) Error() string {
 
 func (w *wrapped) Unwrap() error {
 	return w.err
+}
+
+func retryRetryableErrors(ctx context.Context, f func() error) error {
+	maxRetryCountEnv := os.Getenv("DEPOT_BUILDKIT_ERROR_MAX_RETRY_COUNT")
+	maxRetryCount := 5
+	if maxRetryCountEnv != "" {
+		maxRetryCount, _ = strconv.Atoi(maxRetryCountEnv)
+	}
+
+	retryCount := 0
+	for {
+		err := f()
+		if !shouldRetryError(err) {
+			return err
+		}
+		if retryCount >= maxRetryCount {
+			return err
+		}
+		retryCount++
+		fmt.Printf("\nReceived retryable BuildKit error, retrying: %v\n", err)
+		fmt.Println()
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
 }
 
 func shouldRetryError(err error) bool {
