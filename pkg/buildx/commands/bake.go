@@ -215,6 +215,8 @@ func RunBake(dockerCli command.Cli, targets []string, in BakeOptions) (err error
 
 	if len(pullOpts) > 0 {
 		eg, ctx2 := errgroup.WithContext(ctx)
+		// Three concurrent pulls at a time to avoid overwhelming the registry.
+		eg.SetLimit(3)
 		for i := range resp {
 			func(i int) {
 				eg.Go(func() error {
