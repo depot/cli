@@ -16,14 +16,17 @@ import (
 	"github.com/depot/cli/pkg/load"
 	depotprogress "github.com/depot/cli/pkg/progress"
 	"github.com/docker/buildx/bake"
+	buildx "github.com/docker/buildx/build"
 	"github.com/docker/buildx/util/buildflags"
 	"github.com/docker/buildx/util/confutil"
 	"github.com/docker/buildx/util/dockerutil"
+	"github.com/docker/buildx/util/progress"
 	"github.com/docker/buildx/util/tracing"
 	"github.com/docker/cli/cli/command"
 	"github.com/moby/buildkit/util/appcontext"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
+	"golang.org/x/exp/maps"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -152,7 +155,7 @@ func RunBake(dockerCli command.Cli, targets []string, in BakeOptions) (err error
 	}
 
 	// this function can update target context string from the input so call before printOnly check
-	bo, err := bake.TargetsToBuildOpt(tgts, inp)
+	buildOpts, err := bake.TargetsToBuildOpt(tgts, inp)
 	if err != nil {
 		return err
 	}
@@ -177,10 +180,15 @@ func RunBake(dockerCli command.Cli, targets []string, in BakeOptions) (err error
 		return nil
 	}
 
-	var pullOpts map[string]load.PullOptions
+	var (
+		pullOpts map[string]load.PullOptions
+		// Only used for failures to pull images.
+		fallbackOpts map[string]buildx.Options
+	)
 	if in.exportLoad {
-		bo, pullOpts = load.WithDepotImagePull(
-			bo,
+		fallbackOpts = maps.Clone(buildOpts)
+		buildOpts, pullOpts = load.WithDepotImagePull(
+			buildOpts,
 			load.DepotLoadOptions{
 				UseLocalRegistry: in.DepotOptions.useLocalRegistry,
 				Project:          in.DepotOptions.project,
@@ -191,7 +199,11 @@ func RunBake(dockerCli command.Cli, targets []string, in BakeOptions) (err error
 		)
 	}
 
-	resp, err := build.DepotBuild(ctx, builder.ToBuildxNodes(nodes), bo, dockerutil.NewClient(dockerCli), confutil.ConfigDir(dockerCli), printer)
+	buildxNodes := builder.ToBuildxNodes(nodes)
+	dockerClient := dockerutil.NewClient(dockerCli)
+	dockerConfigDir := confutil.ConfigDir(dockerCli)
+
+	resp, err := build.DepotBuild(ctx, buildxNodes, buildOpts, dockerClient, dockerConfigDir, printer)
 	if err != nil {
 		return wrapBuildError(err, true)
 	}
@@ -227,6 +239,13 @@ func RunBake(dockerCli command.Cli, targets []string, in BakeOptions) (err error
 		}
 
 		if err := eg.Wait(); err != nil {
+			// For now, we will fallback by rebuilding with load.
+			if in.exportLoad {
+				progress.Write(printer, "[load] fast load failed; retrying", func() error { return err })
+				buildOpts, _ = load.WithDepotImagePull(fallbackOpts, load.DepotLoadOptions{})
+				_, err = build.DepotBuild(ctx, buildxNodes, buildOpts, dockerClient, dockerConfigDir, printer)
+			}
+
 			return err
 		}
 	}

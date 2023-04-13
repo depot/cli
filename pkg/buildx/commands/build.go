@@ -52,6 +52,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
+	"golang.org/x/exp/maps"
 	"google.golang.org/grpc/codes"
 )
 
@@ -331,8 +332,13 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.No
 	defer wg.Wait() // Required to ensure that the printer is stopped before the context is cancelled.
 	defer cancel()
 
-	var pullOpts map[string]load.PullOptions
+	var (
+		pullOpts map[string]load.PullOptions
+		// Only used for failures to pull images.
+		fallbackOpts map[string]build.Options
+	)
 	if exportLoad {
+		fallbackOpts = maps.Clone(opts)
 		opts, pullOpts = load.WithDepotImagePull(
 			opts,
 			load.DepotLoadOptions{
@@ -345,9 +351,16 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.No
 		)
 	}
 
-	var mu sync.Mutex
-	var idx int
-	resp, err := depotbuild.DepotBuildWithResultHandler(ctx, builder.ToBuildxNodes(nodes), opts, dockerutil.NewClient(dockerCli), confutil.ConfigDir(dockerCli), printer, func(driverIndex int, gotRes *build.ResultContext) {
+	var (
+		mu  sync.Mutex
+		idx int
+	)
+
+	buildxNodes := builder.ToBuildxNodes(nodes)
+	dockerClient := dockerutil.NewClient(dockerCli)
+	dockerConfigDir := confutil.ConfigDir(dockerCli)
+
+	resp, err := depotbuild.DepotBuildWithResultHandler(ctx, buildxNodes, opts, dockerClient, dockerConfigDir, printer, func(driverIndex int, gotRes *build.ResultContext) {
 		mu.Lock()
 		defer mu.Unlock()
 		if res == nil || driverIndex < idx {
@@ -388,6 +401,14 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.No
 
 	// NOTE: the err is returned at the end of this function after the final prints.
 	err = load.DepotFastLoad(ctx, dockerCli.Client(), resp, pullOpts, printer)
+	if err != nil {
+		// For now, we will fallback by rebuilding with load.
+		if exportLoad {
+			progress.Write(printer, "[load] fast load failed; retrying", func() error { return err })
+			opts, _ = load.WithDepotImagePull(fallbackOpts, load.DepotLoadOptions{})
+			_, err = depotbuild.DepotBuildWithResultHandler(ctx, buildxNodes, opts, dockerClient, dockerConfigDir, printer, nil, allowNoOutput)
+		}
+	}
 
 	if err := printer.Wait(); err != nil {
 		return nil, nil, err
