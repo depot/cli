@@ -14,6 +14,7 @@ import (
 	"github.com/containerd/containerd/content"
 	"github.com/containerd/containerd/content/proxy"
 	"github.com/docker/buildx/util/progress"
+	"github.com/getsentry/sentry-go"
 	"github.com/opencontainers/go-digest"
 	ocispecs "github.com/opencontainers/image-spec/specs-go/v1"
 )
@@ -102,6 +103,14 @@ func (r *Registry) handleBlobs(resp http.ResponseWriter, req *http.Request) {
 	theSHA := target
 	layer, err := r.Client.Info(req.Context(), &contentapi.InfoRequest{Digest: digest.Digest(theSHA)})
 	if err != nil {
+		sentry.ConfigureScope(func(scope *sentry.Scope) {
+			scope.SetContext("registry_blob_info", map[string]interface{}{
+				"digest":       digest.Digest(theSHA).String(),
+				"image_config": r.ImageConfig,
+			})
+		})
+		_ = sentry.CaptureException(err)
+
 		writeError(resp, http.StatusNotFound, "BLOB_UNKNOWN", "Unknown blob")
 		return
 	}
@@ -132,11 +141,27 @@ func (r *Registry) handleBlobs(resp http.ResponseWriter, req *http.Request) {
 			}
 
 			if err != nil {
+				sentry.ConfigureScope(func(scope *sentry.Scope) {
+					scope.SetContext("registry_blob_read", map[string]interface{}{
+						"digest":       digest.Digest(theSHA).String(),
+						"image_config": r.ImageConfig,
+					})
+				})
+				_ = sentry.CaptureException(err)
+
 				_ = r.Logger.Wrap(fmt.Sprintf("[registry] unable to read %s", theSHA), func() error { return err })
 				return
 			}
 			_, err = resp.Write(res.Data)
 			if err != nil {
+				sentry.ConfigureScope(func(scope *sentry.Scope) {
+					scope.SetContext("registry_blob_write", map[string]interface{}{
+						"digest":       digest.Digest(theSHA).String(),
+						"image_config": r.ImageConfig,
+					})
+				})
+				_ = sentry.CaptureException(err)
+
 				_ = r.Logger.Wrap(fmt.Sprintf("[registry] unable to write %s", theSHA), func() error { return err })
 				return
 			}
@@ -160,6 +185,14 @@ func (r *Registry) handleManifests(resp http.ResponseWriter, req *http.Request) 
 			Digest: digest.Digest(manifestDigest),
 		})
 		if err != nil {
+			sentry.ConfigureScope(func(scope *sentry.Scope) {
+				scope.SetContext("registry_manifest", map[string]interface{}{
+					"digest":       digest.Digest(manifestDigest).String(),
+					"image_config": r.ImageConfig,
+				})
+			})
+			_ = sentry.CaptureException(err)
+
 			writeError(resp, http.StatusNotFound, "MANIFEST_UNKNOWN", "Unknown manifest")
 			return
 		}
