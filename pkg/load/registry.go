@@ -14,6 +14,7 @@ import (
 	"github.com/containerd/containerd/content"
 	"github.com/containerd/containerd/content/proxy"
 	"github.com/docker/buildx/util/progress"
+	"github.com/getsentry/sentry-go"
 	"github.com/opencontainers/go-digest"
 	ocispecs "github.com/opencontainers/image-spec/specs-go/v1"
 )
@@ -160,6 +161,12 @@ func (r *Registry) handleManifests(resp http.ResponseWriter, req *http.Request) 
 			Digest: digest.Digest(manifestDigest),
 		})
 		if err != nil {
+			sentry.ConfigureScope(func(scope *sentry.Scope) {
+				scope.SetContext("registry", map[string]interface{}{
+					"digest": digest.Digest(manifestDigest).String(),
+				})
+			})
+			_ = sentry.CaptureException(err)
 			writeError(resp, http.StatusNotFound, "MANIFEST_UNKNOWN", "Unknown manifest")
 			return
 		}
