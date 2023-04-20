@@ -2,10 +2,10 @@ package load
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"math/rand"
 	"net"
 	"net/http"
@@ -19,7 +19,6 @@ import (
 	"github.com/docker/buildx/util/progress"
 	docker "github.com/docker/docker/client"
 	"github.com/moby/buildkit/exporter/containerimage/exptypes"
-	"github.com/opencontainers/go-digest"
 	ocispecs "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
@@ -42,12 +41,15 @@ func DepotFastLoad(ctx context.Context, dockerapi docker.APIClient, resp []depot
 		}
 
 		architecture := nodeRes.Node.DriverOpts["platform"]
-		containerImageDigest := nodeRes.SolveResponse.ExporterResponse[exptypes.ExporterImageDigestKey]
+		manifestConfig, err := decodeNodeResponse(architecture, nodeRes)
+		if err != nil {
+			return err
+		}
 
 		// Start the depot CLI hosted registry and socat proxy.
 		var registry LocalRegistryProxy
 		err = progress.Wrap("preparing to load", pw.Write, func(logger progress.SubLogger) error {
-			registry, err = NewLocalRegistryProxy(ctx, architecture, containerImageDigest, dockerapi, contentClient, logger)
+			registry, err = NewLocalRegistryProxy(ctx, manifestConfig, dockerapi, contentClient, logger)
 			return err
 		})
 		if err != nil {
@@ -84,6 +86,72 @@ func chooseNodeResponse(nodeResponses []depotbuild.DepotNodeResponse) depotbuild
 	}
 
 	return nodeResponses[nodeIdx]
+}
+
+type ManifestConfig struct {
+	RawManifest []byte
+	RawConfig   []byte
+}
+
+// We encode the image manifest and image config within the buildkitd Solve response
+// because the content may be GCed by the time this load occurs.
+func decodeNodeResponse(architecture string, nodeRes depotbuild.DepotNodeResponse) (*ManifestConfig, error) {
+	encodedDesc, ok := nodeRes.SolveResponse.ExporterResponse[exptypes.ExporterImageDescriptorKey]
+	if !ok {
+		return nil, errors.New("missing image descriptor")
+	}
+
+	jsonImageDesc, err := base64.StdEncoding.DecodeString(encodedDesc)
+	if err != nil {
+		return nil, fmt.Errorf("invalid image descriptor: %w", err)
+	}
+
+	var imageDesc ocispecs.Descriptor
+	if err := json.Unmarshal(jsonImageDesc, &imageDesc); err != nil {
+		return nil, fmt.Errorf("invalid image descriptor json: %w", err)
+	}
+
+	var imageManifest ocispecs.Descriptor = imageDesc
+	{
+		// These checks handle situations where the image does and does not have attestations.
+		// If there are no attestations, then the imageDesc contains the manifest and config.
+		// Otherwise the imageDesc's `depot.containerimage.index` will contain the manifest and config.
+
+		encodedIndex, ok := imageDesc.Annotations["depot.containerimage.index"]
+		if ok {
+			var index ocispecs.Index
+			if err := json.Unmarshal([]byte(encodedIndex), &index); err != nil {
+				return nil, fmt.Errorf("invalid image index json: %w", err)
+			}
+
+			imageManifest, err = chooseBestImageManifest(architecture, &index)
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	rawManifest, ok := imageManifest.Annotations["depot.containerimage.manifest"]
+	if !ok {
+		return nil, errors.New("missing image manifest")
+	}
+
+	rawConfig, ok := imageManifest.Annotations["depot.containerimage.config"]
+	if !ok {
+		return nil, errors.New("missing image config")
+	}
+
+	// Decoding both the manifest and config to ensure they are valid.
+	var manifest ocispecs.Manifest
+	if err := json.Unmarshal([]byte(rawManifest), &manifest); err != nil {
+		return nil, fmt.Errorf("invalid image manifest json: %w", err)
+	}
+
+	var ii ocispecs.Image
+	if err := json.Unmarshal([]byte(rawConfig), &ii); err != nil {
+		return nil, fmt.Errorf("invalid image config json: %w", err)
+	}
+	return &ManifestConfig{RawManifest: []byte(rawManifest), RawConfig: []byte(rawConfig)}, nil
 }
 
 func contentClient(ctx context.Context, nodeResponse depotbuild.DepotNodeResponse) (contentapi.ContentClient, error) {
@@ -124,18 +192,8 @@ type LocalRegistryProxy struct {
 // by running a proxy container with socat forwarding to the running server.
 //
 // The running server and proxy container will be cleaned-up when Close() is called.
-func NewLocalRegistryProxy(ctx context.Context, architecture string, containerImageDigest string, dockerapi docker.APIClient, contentClient contentapi.ContentClient, logger progress.SubLogger) (LocalRegistryProxy, error) {
-	imageIndex, err := downloadImageIndex(ctx, contentClient, containerImageDigest)
-	if err != nil {
-		return LocalRegistryProxy{}, err
-	}
-
-	manifestConfig, err := chooseBestImageManifest(architecture, imageIndex)
-	if err != nil {
-		return LocalRegistryProxy{}, err
-	}
-
-	registryHandler := NewRegistry(contentClient, manifestConfig, logger)
+func NewLocalRegistryProxy(ctx context.Context, manifestConfig *ManifestConfig, dockerapi docker.APIClient, contentClient contentapi.ContentClient, logger progress.SubLogger) (LocalRegistryProxy, error) {
+	registryHandler := NewRegistry(contentClient, manifestConfig.RawConfig, manifestConfig.RawManifest, logger)
 
 	ctx, cancel := context.WithCancel(ctx)
 	registryPort, err := serveRegistry(ctx, registryHandler)
@@ -187,7 +245,7 @@ func (l *LocalRegistryProxy) Close(ctx context.Context) error {
 }
 
 // Prefer architecture, otherwise, take first available.
-func chooseBestImageManifest(architecture string, index ocispecs.Index) (ocispecs.Descriptor, error) {
+func chooseBestImageManifest(architecture string, index *ocispecs.Index) (ocispecs.Descriptor, error) {
 	archDescriptors := map[string]ocispecs.Descriptor{}
 	for _, manifest := range index.Manifests {
 		if manifest.Platform == nil {
@@ -235,47 +293,6 @@ func serveRegistry(ctx context.Context, registry *Registry) (int, error) {
 	}()
 
 	return listener.Addr().(*net.TCPAddr).Port, nil
-}
-
-// downloadImageIndex downloads the config file from the image that was just built.
-// This is used to get the manifest and the rest of the image content.
-func downloadImageIndex(ctx context.Context, client contentapi.ContentClient, containerImageDigest string) (ocispecs.Index, error) {
-	req := &contentapi.ReadContentRequest{
-		Digest: digest.Digest(containerImageDigest),
-	}
-
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
-	reader, err := client.Read(ctx, req)
-	if err != nil {
-		return ocispecs.Index{}, err
-	}
-
-	octets := make([]byte, 0, 1024*1024)
-	for {
-		var res *contentapi.ReadContentResponse
-		res, err = reader.Recv()
-		if err != nil {
-			break
-		}
-		octets = append(octets, res.Data...)
-	}
-
-	if err != nil && !errors.Is(err, io.EOF) {
-		return ocispecs.Index{}, err
-	}
-
-	if len(octets) == 0 {
-		return ocispecs.Index{}, errors.New("image digest not found")
-	}
-
-	var index ocispecs.Index
-	if err := json.Unmarshal(octets, &index); err != nil {
-		return ocispecs.Index{}, err
-	}
-
-	return index, nil
 }
 
 // During a download of an image we temporarily store the image with this

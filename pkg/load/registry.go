@@ -11,29 +11,33 @@ import (
 	"strings"
 
 	contentapi "github.com/containerd/containerd/api/services/content/v1"
-	"github.com/containerd/containerd/content"
-	"github.com/containerd/containerd/content/proxy"
 	"github.com/docker/buildx/util/progress"
 	"github.com/getsentry/sentry-go"
 	"github.com/opencontainers/go-digest"
-	ocispecs "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
 // Registry is a small docker registry that serves a single image by loading
-// manifests and blobs from a buildkitd cache.
+// blobs from a buildkitd cache.
 type Registry struct {
-	Client           contentapi.ContentClient
-	ImageConfig      ocispecs.Descriptor
-	RawImageManifest map[digest.Digest][]byte
-	Logger           progress.SubLogger
+	Client contentapi.ContentClient
+
+	RawConfig    []byte
+	ConfigDigest digest.Digest
+
+	RawManifest    []byte
+	ManifestDigest digest.Digest
+
+	Logger progress.SubLogger
 }
 
-func NewRegistry(client contentapi.ContentClient, imageConfig ocispecs.Descriptor, logger progress.SubLogger) *Registry {
+func NewRegistry(client contentapi.ContentClient, rawConfig, rawManifest []byte, logger progress.SubLogger) *Registry {
 	return &Registry{
-		Client:           client,
-		ImageConfig:      imageConfig,
-		RawImageManifest: map[digest.Digest][]byte{},
-		Logger:           logger,
+		Client:         client,
+		RawConfig:      rawConfig,
+		ConfigDigest:   digest.FromBytes(rawConfig),
+		RawManifest:    rawManifest,
+		ManifestDigest: digest.FromBytes(rawManifest),
+		Logger:         logger,
 	}
 }
 
@@ -101,12 +105,29 @@ func (r *Registry) handleBlobs(resp http.ResponseWriter, req *http.Request) {
 	}
 	target := elem[len(elem)-1]
 	theSHA := target
+
+	// If the request SHA is the config digest, use the in-memory cached version
+	// as the config may be GCed from buildkitd.
+	if theSHA == r.ConfigDigest.String() {
+		resp.Header().Set("Content-Length", strconv.FormatInt(int64(len(r.RawConfig)), 10))
+		resp.Header().Set("Docker-Content-Digest", r.ConfigDigest.String())
+		if req.Method == http.MethodGet {
+			if _, err := resp.Write(r.RawConfig); err != nil {
+				_ = r.Logger.Wrap(fmt.Sprintf("[registry] unable to write %s", theSHA), func() error { return err })
+			}
+		}
+
+		return
+	}
+
 	layer, err := r.Client.Info(req.Context(), &contentapi.InfoRequest{Digest: digest.Digest(theSHA)})
 	if err != nil {
+		_ = r.Logger.Wrap(fmt.Sprintf("[registry] layer not found %s", theSHA), func() error { return err })
+
 		sentry.ConfigureScope(func(scope *sentry.Scope) {
 			scope.SetContext("registry_blob_info", map[string]interface{}{
-				"digest":       digest.Digest(theSHA).String(),
-				"image_config": r.ImageConfig,
+				"digest":   digest.Digest(theSHA).String(),
+				"manifest": string(r.RawManifest),
 			})
 		})
 		_ = sentry.CaptureException(err)
@@ -118,10 +139,7 @@ func (r *Registry) handleBlobs(resp http.ResponseWriter, req *http.Request) {
 	resp.Header().Set("Content-Length", strconv.FormatInt(layer.Info.Size_, 10))
 	resp.Header().Set("Docker-Content-Digest", layer.Info.Digest.String())
 
-	switch req.Method {
-	case http.MethodHead:
-		return
-	case http.MethodGet:
+	if req.Method == http.MethodGet {
 		rr := &contentapi.ReadContentRequest{
 			Digest: digest.Digest(theSHA),
 		}
@@ -141,87 +159,29 @@ func (r *Registry) handleBlobs(resp http.ResponseWriter, req *http.Request) {
 			}
 
 			if err != nil {
-				sentry.ConfigureScope(func(scope *sentry.Scope) {
-					scope.SetContext("registry_blob_read", map[string]interface{}{
-						"digest":       digest.Digest(theSHA).String(),
-						"image_config": r.ImageConfig,
-					})
-				})
-				_ = sentry.CaptureException(err)
-
 				_ = r.Logger.Wrap(fmt.Sprintf("[registry] unable to read %s", theSHA), func() error { return err })
 				return
 			}
 			_, err = resp.Write(res.Data)
 			if err != nil {
-				sentry.ConfigureScope(func(scope *sentry.Scope) {
-					scope.SetContext("registry_blob_write", map[string]interface{}{
-						"digest":       digest.Digest(theSHA).String(),
-						"image_config": r.ImageConfig,
-					})
-				})
-				_ = sentry.CaptureException(err)
-
 				_ = r.Logger.Wrap(fmt.Sprintf("[registry] unable to write %s", theSHA), func() error { return err })
 				return
 			}
 		}
-
-		return
-
-	default:
-		writeError(resp, http.StatusBadRequest, "METHOD_UNKNOWN", "We don't understand your method + url")
 	}
 }
 
 // https://github.com/opencontainers/distribution-spec/blob/master/spec.md#pulling-an-image-manifest
 // https://github.com/opencontainers/distribution-spec/blob/master/spec.md#pushing-an-image
 func (r *Registry) handleManifests(resp http.ResponseWriter, req *http.Request) {
-	manifestDigest := r.ImageConfig.Digest
-	manifest, ok := r.RawImageManifest[manifestDigest]
-	if !ok {
-		store := proxy.NewContentStore(r.Client)
-		ra, err := store.ReaderAt(req.Context(), ocispecs.Descriptor{
-			Digest: digest.Digest(manifestDigest),
-		})
-		if err != nil {
-			sentry.ConfigureScope(func(scope *sentry.Scope) {
-				scope.SetContext("registry_manifest", map[string]interface{}{
-					"digest":       digest.Digest(manifestDigest).String(),
-					"image_config": r.ImageConfig,
-				})
-			})
-			_ = sentry.CaptureException(err)
+	resp.Header().Set("Content-Length", strconv.FormatInt(int64(len(r.RawManifest)), 10))
+	resp.Header().Set("Docker-Content-Digest", r.ManifestDigest.String())
+	resp.Header().Set("Content-Type", "application/vnd.oci.image.manifest.v1+json")
 
-			writeError(resp, http.StatusNotFound, "MANIFEST_UNKNOWN", "Unknown manifest")
-			return
-		}
-		defer ra.Close()
-
-		octets := bytes.Buffer{}
-		_, err = io.Copy(&octets, content.NewReader(ra))
-		if err != nil {
-			writeError(resp, http.StatusInternalServerError, "INTERNAL_SERVER_ERROR", "Cannot download manifest")
-			return
-		}
-
-		parsedManifest := ocispecs.Manifest{}
-		if err := json.Unmarshal(octets.Bytes(), &parsedManifest); err != nil {
-			writeError(resp, http.StatusInternalServerError, "INTERNAL_SERVER_ERROR", "Invalid manifest json")
-			return
-		}
-
-		manifest = octets.Bytes()
-		r.RawImageManifest[manifestDigest] = octets.Bytes()
-	}
-
-	resp.Header().Set("Docker-Content-Digest", r.ImageConfig.Digest.String())
-	resp.Header().Set("Content-Type", r.ImageConfig.MediaType)
-	resp.Header().Set("Content-Length", strconv.FormatInt(int64(r.ImageConfig.Size), 10))
 	resp.WriteHeader(http.StatusOK)
 
 	if req.Method == http.MethodGet {
-		_, _ = io.Copy(resp, bytes.NewReader(manifest))
+		_, _ = io.Copy(resp, bytes.NewReader(r.RawManifest))
 	}
 }
 

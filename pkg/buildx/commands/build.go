@@ -815,6 +815,19 @@ func decodeExporterResponse(exporterResponse map[string]string) map[string]inter
 			out[k] = v
 			continue
 		}
+		// DEPOT: Remove the depot specific keys.
+		// We use these for fast load and the format is not compatible with the OCI spec.
+		if k == exptypes.ExporterImageDescriptorKey {
+			if anno, ok := raw["annotations"]; ok {
+				if anno, ok := anno.(map[string]interface{}); ok {
+					delete(anno, "depot.containerimage.index")
+					delete(anno, "depot.containerimage.config")
+					delete(anno, "depot.containerimage.manifest")
+					out[k] = raw
+					continue
+				}
+			}
+		}
 		out[k] = json.RawMessage(dt)
 	}
 	return out
