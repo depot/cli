@@ -26,6 +26,7 @@ func BeginBuild(ctx context.Context, project string, token string) (build Build,
 
 	build.Token = token
 	build.ID = os.Getenv("DEPOT_BUILD_ID")
+	profilerToken := ""
 	if build.ID == "" {
 		req := cliv1.CreateBuildRequest{ProjectId: project}
 		var b *connect.Response[cliv1.CreateBuildResponse]
@@ -36,13 +37,18 @@ func BeginBuild(ctx context.Context, project string, token string) (build Build,
 		build.ID = b.Msg.BuildId
 		build.Token = b.Msg.BuildToken
 
+		if b.Msg.Profiler != nil {
+			profilerToken = b.Msg.Profiler.Token
+		}
+
 		build.UseLocalRegistry = b.Msg.GetRegistry() != nil && b.Msg.GetRegistry().CanUseLocalRegistry
 		if os.Getenv("DEPOT_USE_LOCAL_REGISTRY") != "" {
 			build.UseLocalRegistry = true
 		}
 	}
 
-	profiler.StartProfiler(build.ID)
+	profiler.StartProfiler(build.ID, profilerToken)
+
 	build.Finish = func(buildErr error) {
 		req := cliv1.FinishBuildRequest{BuildId: build.ID}
 		req.Result = &cliv1.FinishBuildRequest_Success{Success: &cliv1.FinishBuildRequest_BuildSuccess{}}
