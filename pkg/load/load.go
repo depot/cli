@@ -210,6 +210,8 @@ func NewLocalRegistryProxy(ctx context.Context, manifestConfig *ManifestConfig, 
 
 	// Wait for the registry and the proxy to be ready.
 	dockerAccessibleHost := fmt.Sprintf("localhost:%s", proxyExposedPort)
+
+	maxWait := time.NewTimer(20 * time.Second)
 	var ready bool
 	for !ready {
 		ready = IsReady(ctx, dockerAccessibleHost)
@@ -220,6 +222,9 @@ func NewLocalRegistryProxy(ctx context.Context, manifestConfig *ManifestConfig, 
 		select {
 		case <-ctx.Done():
 		case <-time.After(100 * time.Millisecond):
+		case <-maxWait.C:
+			cancel()
+			return LocalRegistryProxy{}, errors.New("timed out waiting for registry to be ready")
 		}
 	}
 
