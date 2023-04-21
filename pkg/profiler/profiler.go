@@ -9,8 +9,10 @@ import (
 )
 
 // StartProfiler starts a profiler if DEPOT_ENABLE_DEBUG_PROFILING is set.
-func StartProfiler(buildID string) {
-	profileToken := os.Getenv("DEPOT_ENABLE_DEBUG_PROFILING")
+func StartProfiler(buildID, profileToken string) {
+	if profileToken == "" {
+		profileToken = os.Getenv("DEPOT_ENABLE_DEBUG_PROFILING")
+	}
 	if profileToken != "" {
 		runtime.SetMutexProfileFraction(5)
 		runtime.SetBlockProfileRate(10000)

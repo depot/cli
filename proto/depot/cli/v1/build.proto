@@ -21,6 +21,11 @@ message CreateBuildResponse {
   string build_id = 1;
   string build_token = 2;
   Registry registry = 3;
+  optional Profiler profiler = 4;
+
+  message Profiler {
+    string token = 1;
+  }
 }
 
 message Registry {
