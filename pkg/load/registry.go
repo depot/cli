@@ -160,6 +160,14 @@ func (r *Registry) handleBlobs(resp http.ResponseWriter, req *http.Request) {
 
 			if err != nil {
 				_ = r.Logger.Wrap(fmt.Sprintf("[registry] unable to read %s", theSHA), func() error { return err })
+				sentry.ConfigureScope(func(scope *sentry.Scope) {
+					scope.SetContext("registry_blob_read", map[string]interface{}{
+						"digest":   digest.Digest(theSHA).String(),
+						"manifest": string(r.RawManifest),
+					})
+				})
+				_ = sentry.CaptureException(err)
+
 				return
 			}
 			_, err = resp.Write(res.Data)
