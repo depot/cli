@@ -404,9 +404,20 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.No
 	if err != nil {
 		// For now, we will fallback by rebuilding with load.
 		if exportLoad {
-			progress.Write(printer, "[load] fast load failed; retrying", func() error { return err })
-			opts, _ = load.WithDepotImagePull(fallbackOpts, load.DepotLoadOptions{})
-			_, err = depotbuild.DepotBuildWithResultHandler(ctx, buildxNodes, opts, dockerClient, dockerConfigDir, printer, nil, allowNoOutput)
+			// We can only retry if neither the context nor dockerfile are stdin.
+			var retryable bool = true
+			for _, opt := range opts {
+				if opt.Inputs.ContextPath == "-" || opt.Inputs.DockerfilePath == "-" {
+					retryable = false
+					break
+				}
+			}
+
+			if retryable {
+				progress.Write(printer, "[load] fast load failed; retrying", func() error { return err })
+				opts, _ = load.WithDepotImagePull(fallbackOpts, load.DepotLoadOptions{})
+				_, err = depotbuild.DepotBuildWithResultHandler(ctx, buildxNodes, opts, dockerClient, dockerConfigDir, printer, nil, allowNoOutput)
+			}
 		}
 	}
 
