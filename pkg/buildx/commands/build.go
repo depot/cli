@@ -109,6 +109,7 @@ type DepotOptions struct {
 	buildID          string
 	buildPlatform    string
 	useLocalRegistry bool
+	proxyImage       string
 	allowNoOutput    bool
 	builderOptions   []builder.Option
 }
@@ -343,6 +344,7 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.No
 			opts,
 			load.DepotLoadOptions{
 				UseLocalRegistry: depotOpts.useLocalRegistry,
+				ProxyImage:       depotOpts.proxyImage,
 				Project:          depotOpts.project,
 				BuildID:          depotOpts.buildID,
 				IsBake:           false,
@@ -570,6 +572,7 @@ func BuildCmd(dockerCli command.Cli) *cobra.Command {
 			options.buildID = build.ID
 			options.token = build.Token
 			options.useLocalRegistry = build.UseLocalRegistry
+			options.proxyImage = build.ProxyImage
 
 			if options.allowNoOutput {
 				_ = os.Setenv("BUILDX_NO_DEFAULT_LOAD", "1")

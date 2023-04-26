@@ -8,6 +8,7 @@ import (
 
 	"github.com/bufbuild/connect-go"
 	depotapi "github.com/depot/cli/pkg/api"
+	"github.com/depot/cli/pkg/load"
 	"github.com/depot/cli/pkg/profiler"
 	cliv1 "github.com/depot/cli/pkg/proto/depot/cli/v1"
 	"github.com/moby/buildkit/util/grpcerrors"
@@ -18,6 +19,7 @@ type Build struct {
 	ID               string
 	Token            string
 	UseLocalRegistry bool
+	ProxyImage       string
 	Finish           func(error)
 }
 
@@ -44,6 +46,16 @@ func BeginBuild(ctx context.Context, project string, token string) (build Build,
 		build.UseLocalRegistry = b.Msg.GetRegistry() != nil && b.Msg.GetRegistry().CanUseLocalRegistry
 		if os.Getenv("DEPOT_USE_LOCAL_REGISTRY") != "" {
 			build.UseLocalRegistry = true
+		}
+
+		if b.Msg.GetRegistry() != nil {
+			build.ProxyImage = b.Msg.GetRegistry().ProxyImage
+		}
+		if proxyImage := os.Getenv("DEPOT_PROXY_IMAGE"); proxyImage != "" {
+			build.ProxyImage = proxyImage
+		}
+		if build.ProxyImage == "" {
+			build.ProxyImage = load.DefaultProxyImageName
 		}
 	}
 

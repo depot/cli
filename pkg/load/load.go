@@ -41,15 +41,21 @@ func DepotFastLoad(ctx context.Context, dockerapi docker.APIClient, resp []depot
 		}
 
 		architecture := nodeRes.Node.DriverOpts["platform"]
-		manifestConfig, err := decodeNodeResponse(architecture, nodeRes)
+		manifest, config, err := decodeNodeResponse(architecture, nodeRes)
 		if err != nil {
 			return err
+		}
+		pullOpt := pullOpts[buildRes.Name]
+		proxyOpts := &ProxyOpts{
+			RawManifest: manifest,
+			RawConfig:   config,
+			ProxyImage:  pullOpt.ProxyImage,
 		}
 
 		// Start the depot CLI hosted registry and socat proxy.
 		var registry LocalRegistryProxy
 		err = progress.Wrap("preparing to load", pw.Write, func(logger progress.SubLogger) error {
-			registry, err = NewLocalRegistryProxy(ctx, manifestConfig, dockerapi, contentClient, logger)
+			registry, err = NewLocalRegistryProxy(ctx, proxyOpts, dockerapi, contentClient, logger)
 			return err
 		})
 		if err != nil {
@@ -62,7 +68,6 @@ func DepotFastLoad(ctx context.Context, dockerapi docker.APIClient, resp []depot
 		}()
 
 		// Pull the image and relabel it with the user specified tags.
-		pullOpt := pullOpts[buildRes.Name]
 		err = PullImages(ctx, dockerapi, registry.ImageToPull, pullOpt, pw)
 		if err != nil {
 			return fmt.Errorf("failed to pull image: %w", err)
@@ -88,27 +93,28 @@ func chooseNodeResponse(nodeResponses []depotbuild.DepotNodeResponse) depotbuild
 	return nodeResponses[nodeIdx]
 }
 
-type ManifestConfig struct {
+type ProxyOpts struct {
 	RawManifest []byte
 	RawConfig   []byte
+	ProxyImage  string
 }
 
 // We encode the image manifest and image config within the buildkitd Solve response
 // because the content may be GCed by the time this load occurs.
-func decodeNodeResponse(architecture string, nodeRes depotbuild.DepotNodeResponse) (*ManifestConfig, error) {
+func decodeNodeResponse(architecture string, nodeRes depotbuild.DepotNodeResponse) (rawManifest, rawConfig []byte, err error) {
 	encodedDesc, ok := nodeRes.SolveResponse.ExporterResponse[exptypes.ExporterImageDescriptorKey]
 	if !ok {
-		return nil, errors.New("missing image descriptor")
+		return nil, nil, errors.New("missing image descriptor")
 	}
 
 	jsonImageDesc, err := base64.StdEncoding.DecodeString(encodedDesc)
 	if err != nil {
-		return nil, fmt.Errorf("invalid image descriptor: %w", err)
+		return nil, nil, fmt.Errorf("invalid image descriptor: %w", err)
 	}
 
 	var imageDesc ocispecs.Descriptor
 	if err := json.Unmarshal(jsonImageDesc, &imageDesc); err != nil {
-		return nil, fmt.Errorf("invalid image descriptor json: %w", err)
+		return nil, nil, fmt.Errorf("invalid image descriptor json: %w", err)
 	}
 
 	var imageManifest ocispecs.Descriptor = imageDesc
@@ -121,37 +127,39 @@ func decodeNodeResponse(architecture string, nodeRes depotbuild.DepotNodeRespons
 		if ok {
 			var index ocispecs.Index
 			if err := json.Unmarshal([]byte(encodedIndex), &index); err != nil {
-				return nil, fmt.Errorf("invalid image index json: %w", err)
+				return nil, nil, fmt.Errorf("invalid image index json: %w", err)
 			}
 
 			imageManifest, err = chooseBestImageManifest(architecture, &index)
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 		}
 	}
 
-	rawManifest, ok := imageManifest.Annotations["depot.containerimage.manifest"]
+	m, ok := imageManifest.Annotations["depot.containerimage.manifest"]
 	if !ok {
-		return nil, errors.New("missing image manifest")
+		return nil, nil, errors.New("missing image manifest")
 	}
+	rawManifest = []byte(m)
 
-	rawConfig, ok := imageManifest.Annotations["depot.containerimage.config"]
+	c, ok := imageManifest.Annotations["depot.containerimage.config"]
 	if !ok {
-		return nil, errors.New("missing image config")
+		return nil, nil, errors.New("missing image config")
 	}
+	rawConfig = []byte(c)
 
 	// Decoding both the manifest and config to ensure they are valid.
 	var manifest ocispecs.Manifest
-	if err := json.Unmarshal([]byte(rawManifest), &manifest); err != nil {
-		return nil, fmt.Errorf("invalid image manifest json: %w", err)
+	if err := json.Unmarshal(rawManifest, &manifest); err != nil {
+		return nil, nil, fmt.Errorf("invalid image manifest json: %w", err)
 	}
 
-	var ii ocispecs.Image
-	if err := json.Unmarshal([]byte(rawConfig), &ii); err != nil {
-		return nil, fmt.Errorf("invalid image config json: %w", err)
+	var image ocispecs.Image
+	if err := json.Unmarshal(rawConfig, &image); err != nil {
+		return nil, nil, fmt.Errorf("invalid image config json: %w", err)
 	}
-	return &ManifestConfig{RawManifest: []byte(rawManifest), RawConfig: []byte(rawConfig)}, nil
+	return rawManifest, rawConfig, nil
 }
 
 func contentClient(ctx context.Context, nodeResponse depotbuild.DepotNodeResponse) (contentapi.ContentClient, error) {
@@ -192,8 +200,8 @@ type LocalRegistryProxy struct {
 // by running a proxy container with socat forwarding to the running server.
 //
 // The running server and proxy container will be cleaned-up when Close() is called.
-func NewLocalRegistryProxy(ctx context.Context, manifestConfig *ManifestConfig, dockerapi docker.APIClient, contentClient contentapi.ContentClient, logger progress.SubLogger) (LocalRegistryProxy, error) {
-	registryHandler := NewRegistry(contentClient, manifestConfig.RawConfig, manifestConfig.RawManifest, logger)
+func NewLocalRegistryProxy(ctx context.Context, opts *ProxyOpts, dockerapi docker.APIClient, contentClient contentapi.ContentClient, logger progress.SubLogger) (LocalRegistryProxy, error) {
+	registryHandler := NewRegistry(contentClient, opts.RawConfig, opts.RawManifest, logger)
 
 	ctx, cancel := context.WithCancel(ctx)
 	registryPort, err := serveRegistry(ctx, registryHandler)
@@ -202,7 +210,7 @@ func NewLocalRegistryProxy(ctx context.Context, manifestConfig *ManifestConfig, 
 		return LocalRegistryProxy{}, err
 	}
 
-	proxyContainerID, proxyExposedPort, err := RunProxyImage(ctx, dockerapi, registryPort)
+	proxyContainerID, proxyExposedPort, err := RunProxyImage(ctx, dockerapi, opts.ProxyImage, registryPort)
 	if err != nil {
 		cancel()
 		return LocalRegistryProxy{}, err

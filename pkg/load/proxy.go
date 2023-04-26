@@ -13,18 +13,18 @@ import (
 	"github.com/docker/go-connections/nat"
 )
 
-const ProxyImageName = "ghcr.io/depot/helper:1"
+const DefaultProxyImageName = "ghcr.io/depot/helper:1"
 
 // Runs a proxy container via the docker API so that the docker daemon can pull from the local depot registry.
 // This is specifically to handle docker for desktop running in a VM restricting access to the host network.
-func RunProxyImage(ctx context.Context, dockerapi docker.APIClient, registryPort int) (string, string, error) {
-	if err := PullProxyImage(ctx, dockerapi, ProxyImageName); err != nil {
+func RunProxyImage(ctx context.Context, dockerapi docker.APIClient, proxyImage string, registryPort int) (string, string, error) {
+	if err := PullProxyImage(ctx, dockerapi, proxyImage); err != nil {
 		return "", "", err
 	}
 
 	resp, err := dockerapi.ContainerCreate(ctx,
 		&container.Config{
-			Image: ProxyImageName,
+			Image: proxyImage,
 			ExposedPorts: nat.PortSet{
 				nat.Port("8888/tcp"): struct{}{},
 			},

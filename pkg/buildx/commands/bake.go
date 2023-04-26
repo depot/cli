@@ -191,6 +191,7 @@ func RunBake(dockerCli command.Cli, targets []string, in BakeOptions) (err error
 			buildOpts,
 			load.DepotLoadOptions{
 				UseLocalRegistry: in.DepotOptions.useLocalRegistry,
+				ProxyImage:       in.DepotOptions.proxyImage,
 				Project:          in.DepotOptions.project,
 				BuildID:          in.DepotOptions.buildID,
 				IsBake:           true,
@@ -298,6 +299,7 @@ func BakeCmd(dockerCli command.Cli) *cobra.Command {
 			options.buildID = build.ID
 			options.token = build.Token
 			options.useLocalRegistry = build.UseLocalRegistry
+			options.proxyImage = build.ProxyImage
 
 			if options.allowNoOutput {
 				_ = os.Setenv("BUILDX_NO_DEFAULT_LOAD", "1")
