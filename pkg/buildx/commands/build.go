@@ -403,7 +403,7 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.No
 
 	// NOTE: the err is returned at the end of this function after the final prints.
 	err = load.DepotFastLoad(ctx, dockerCli.Client(), resp, pullOpts, printer)
-	if err != nil {
+	if err != nil && !errors.Is(err, context.Canceled) {
 		// For now, we will fallback by rebuilding with load.
 		if exportLoad {
 			// We can only retry if neither the context nor dockerfile are stdin.
