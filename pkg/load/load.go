@@ -6,9 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math/rand"
-	"net"
-	"net/http"
 	"runtime"
 	"strings"
 	"time"
@@ -52,10 +49,13 @@ func DepotFastLoad(ctx context.Context, dockerapi docker.APIClient, resp []depot
 			ProxyImage:  pullOpt.ProxyImage,
 		}
 
-		// Start the depot CLI hosted registry and socat proxy.
-		var registry LocalRegistryProxy
+		// Start the depot registry proxy.
+		var registry *RegistryProxy
 		err = progress.Wrap("preparing to load", pw.Write, func(logger progress.SubLogger) error {
-			registry, err = NewLocalRegistryProxy(ctx, proxyOpts, dockerapi, contentClient, logger)
+			registry, err = NewRegistryProxy(ctx, proxyOpts, dockerapi, contentClient, logger)
+			if err != nil {
+				err = logger.Wrap(fmt.Sprintf("[registry] unable to start %s", err), func() error { return err })
+			}
 			return err
 		})
 		if err != nil {
@@ -179,7 +179,7 @@ func contentClient(ctx context.Context, nodeResponse depotbuild.DepotNodeRespons
 	return client.ContentClient(), nil
 }
 
-type LocalRegistryProxy struct {
+type RegistryProxy struct {
 	// ImageToPull is the image that should be pulled.
 	ImageToPull string
 	// ProxyContainerID is the ID of the container that is proxying the registry.
@@ -193,67 +193,48 @@ type LocalRegistryProxy struct {
 	DockerAPI docker.APIClient
 }
 
-// NewLocalRegistryProxy creates a local registry proxy that can be used to pull images from
+// NewRegistryProxy creates a registry proxy that can be used to pull images from
 // buildkitd cache.
 //
-// This also handles docker for desktop issues that prevent the registry from being accessed directly
-// by running a proxy container with socat forwarding to the running server.
+// This also handles docker for desktop issues that prevent the registry from being
+// accessed directly because the proxy is accessible by the docker daemon.
+// The proxy registry translates pull requests into a custom protocol over
+// stdin and stdout.  We use this proprietary protocol as the Docker daemon itself
+// my be remote and the only way to communicate with remote daemons is over `attach`.
 //
 // The running server and proxy container will be cleaned-up when Close() is called.
-func NewLocalRegistryProxy(ctx context.Context, opts *ProxyOpts, dockerapi docker.APIClient, contentClient contentapi.ContentClient, logger progress.SubLogger) (LocalRegistryProxy, error) {
-	registryHandler := NewRegistry(contentClient, opts.RawConfig, opts.RawManifest, logger)
-
+func NewRegistryProxy(ctx context.Context, opts *ProxyOpts, dockerapi docker.APIClient, contentClient contentapi.ContentClient, logger progress.SubLogger) (*RegistryProxy, error) {
 	ctx, cancel := context.WithCancel(ctx)
-	registryPort, err := serveRegistry(ctx, registryHandler)
+	proxyContainer, err := RunProxyImage(ctx, dockerapi, opts.ProxyImage, opts.RawManifest, opts.RawConfig)
 	if err != nil {
 		cancel()
-		return LocalRegistryProxy{}, err
+		return nil, err
 	}
 
-	proxyContainerID, proxyExposedPort, err := RunProxyImage(ctx, dockerapi, opts.ProxyImage, registryPort)
-	if err != nil {
-		cancel()
-		return LocalRegistryProxy{}, err
-	}
-
-	// Wait for the registry and the proxy to be ready.
-	dockerAccessibleHost := fmt.Sprintf("localhost:%s", proxyExposedPort)
-
-	maxWait := time.NewTimer(20 * time.Second)
-	var ready bool
-	for !ready {
-		ready = IsReady(ctx, dockerAccessibleHost)
-		if ready {
-			break
-		}
-
-		select {
-		case <-ctx.Done():
-		case <-time.After(100 * time.Millisecond):
-		case <-maxWait.C:
-			cancel()
-			return LocalRegistryProxy{}, errors.New("timed out waiting for registry to be ready")
-		}
-	}
+	transport := NewTransport(proxyContainer.Conn)
+	go func() {
+		// Canceling ctx will stop the transport.
+		_ = transport.Run(ctx, contentClient)
+	}()
 
 	randomImageName := RandImageName()
 	// The tag is only for the UX during a pull.  The first line will be "pulling manifest".
 	tag := "manifest"
-	// Docker is able to pull from the proxyPort on localhost.  The socat proxy
-	// forwards to the registry server running on the registryPort.
-	imageToPull := fmt.Sprintf("localhost:%s/%s:%s", proxyExposedPort, randomImageName, tag)
+	// Docker is able to pull from the proxyPort on localhost.  The proxy
+	// forwards registry requests to the Transport over docker attach's stdin and stdout.
+	imageToPull := fmt.Sprintf("localhost:%s/%s:%s", proxyContainer.Port, randomImageName, tag)
 
-	return LocalRegistryProxy{
+	return &RegistryProxy{
 		ImageToPull:      imageToPull,
-		ProxyContainerID: proxyContainerID,
+		ProxyContainerID: proxyContainer.ID,
 		Cancel:           cancel,
 		DockerAPI:        dockerapi,
 	}, nil
 }
 
 // Close will stop the registry server and remove the proxy container if it was created.
-func (l *LocalRegistryProxy) Close(ctx context.Context) error {
-	l.Cancel()
+func (l *RegistryProxy) Close(ctx context.Context) error {
+	l.Cancel() // This stops the serial transport.
 	return StopProxyContainer(ctx, l.DockerAPI, l.ProxyContainerID)
 }
 
@@ -282,51 +263,4 @@ func chooseBestImageManifest(architecture string, index *ocispecs.Index) (ocispe
 	}
 
 	return ocispecs.Descriptor{}, errors.New("no manifests found")
-}
-
-// The registry can pull images from buildkitd's content store.
-// Cancel the context to stop the registry.
-func serveRegistry(ctx context.Context, registry *Registry) (int, error) {
-	listener, err := net.Listen("tcp", "0.0.0.0:0")
-	if err != nil {
-		return 0, err
-	}
-
-	server := &http.Server{
-		Handler: registry,
-	}
-
-	go func() {
-		<-ctx.Done()
-		_ = server.Shutdown(ctx)
-	}()
-
-	go func() {
-		_ = server.Serve(listener)
-	}()
-
-	return listener.Addr().(*net.TCPAddr).Port, nil
-}
-
-// During a download of an image we temporarily store the image with this
-// random name to avoid conflicts with any other images.
-func RandImageName() string {
-	const letterBytes = "abcdefghijklmnopqrstuvwxyz"
-	name := make([]byte, 10)
-	for i := range name {
-		name[i] = letterBytes[rand.Intn(len(letterBytes))]
-	}
-
-	return string(name)
-}
-
-// IsReady checks if the registry is ready to be used.
-func IsReady(ctx context.Context, addr string) bool {
-	ctx, cancel := context.WithTimeout(ctx, 1*time.Second)
-	defer cancel()
-
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+addr+"/v2/", nil)
-	_, err := http.DefaultClient.Do(req)
-
-	return err == nil
 }

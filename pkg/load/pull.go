@@ -57,7 +57,7 @@ func ImagePullPrivileged(ctx context.Context, dockerapi docker.APIClient, imageN
 	return nil
 }
 
-func printPull(ctx context.Context, rc io.ReadCloser, l progress.SubLogger) error {
+func printPull(ctx context.Context, rc io.Reader, l progress.SubLogger) error {
 	started := map[string]*client.VertexStatus{}
 
 	defer func() {
