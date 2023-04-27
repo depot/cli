@@ -30,6 +30,7 @@ message CreateBuildResponse {
 
 message Registry {
   bool can_use_local_registry = 1;
+  string proxy_image = 2;
 }
 
 message FinishBuildRequest {
