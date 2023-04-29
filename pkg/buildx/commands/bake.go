@@ -239,7 +239,8 @@ func RunBake(dockerCli command.Cli, targets []string, in BakeOptions) (err error
 			}(i)
 		}
 
-		if err := eg.Wait(); err != nil {
+		err := eg.Wait()
+		if err != nil && !errors.Is(err, context.Canceled) {
 			// For now, we will fallback by rebuilding with load.
 			if in.exportLoad {
 				progress.Write(printer, "[load] fast load failed; retrying", func() error { return err })

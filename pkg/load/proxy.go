@@ -2,8 +2,10 @@ package load
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"io"
+	"net"
 	"sync"
 
 	"github.com/docker/docker/api/types"
@@ -13,13 +15,19 @@ import (
 	"github.com/docker/go-connections/nat"
 )
 
-const DefaultProxyImageName = "ghcr.io/depot/helper:1"
+const DefaultProxyImageName = "ghcr.io/depot/helper:2.0.0"
+
+type ProxyContainer struct {
+	ID   string
+	Port string
+	Conn net.Conn
+}
 
 // Runs a proxy container via the docker API so that the docker daemon can pull from the local depot registry.
 // This is specifically to handle docker for desktop running in a VM restricting access to the host network.
-func RunProxyImage(ctx context.Context, dockerapi docker.APIClient, proxyImage string, registryPort int) (string, string, error) {
+func RunProxyImage(ctx context.Context, dockerapi docker.APIClient, proxyImage string, rawManifest, rawConfig []byte) (*ProxyContainer, error) {
 	if err := PullProxyImage(ctx, dockerapi, proxyImage); err != nil {
-		return "", "", err
+		return nil, err
 	}
 
 	resp, err := dockerapi.ContainerCreate(ctx,
@@ -28,11 +36,15 @@ func RunProxyImage(ctx context.Context, dockerapi docker.APIClient, proxyImage s
 			ExposedPorts: nat.PortSet{
 				nat.Port("8888/tcp"): struct{}{},
 			},
-			Cmd: []string{
-				"socat",
-				"TCP-LISTEN:8888,fork",
-				fmt.Sprintf("TCP:host.docker.internal:%d", registryPort),
+			AttachStdin:  true,
+			AttachStdout: true,
+			OpenStdin:    true,
+			StdinOnce:    true,
+			Env: []string{
+				fmt.Sprintf("MANIFEST=%s", base64.StdEncoding.EncodeToString(rawManifest)),
+				fmt.Sprintf("CONFIG=%s", base64.StdEncoding.EncodeToString(rawConfig)),
 			},
+			Cmd: []string{"/srv/helper"},
 		},
 		&container.HostConfig{
 			PublishAllPorts: true,
@@ -46,16 +58,16 @@ func RunProxyImage(ctx context.Context, dockerapi docker.APIClient, proxyImage s
 	)
 
 	if err != nil {
-		return "", "", err
+		return nil, err
 	}
 
 	if err := dockerapi.ContainerStart(ctx, resp.ID, types.ContainerStartOptions{}); err != nil {
-		return "", "", err
+		return nil, err
 	}
 
 	inspect, err := dockerapi.ContainerInspect(ctx, resp.ID)
 	if err != nil {
-		return "", "", err
+		return nil, err
 	}
 	binds := inspect.NetworkSettings.Ports[nat.Port("8888/tcp")]
 	var proxyPortOnHost string
@@ -63,7 +75,17 @@ func RunProxyImage(ctx context.Context, dockerapi docker.APIClient, proxyImage s
 		proxyPortOnHost = bind.HostPort
 	}
 
-	return resp.ID, proxyPortOnHost, nil
+	attach, err := dockerapi.ContainerAttach(ctx, resp.ID, types.ContainerAttachOptions{Stdin: true, Stdout: true, Logs: true, Stream: true})
+
+	if err != nil {
+		return nil, err
+	}
+
+	return &ProxyContainer{
+		ID:   resp.ID,
+		Port: proxyPortOnHost,
+		Conn: attach.Conn,
+	}, nil
 }
 
 var (
@@ -71,7 +93,7 @@ var (
 	downloadProxyImageErr error
 )
 
-// PullProxyImage will pull the socat proxy image into docker.
+// PullProxyImage will pull the proxy image into docker.
 // This is done once per process as a performance optimization.
 // Additionally, if the proxy image is already present, this will not pull the image.
 func PullProxyImage(ctx context.Context, dockerapi docker.APIClient, imageName string) error {
