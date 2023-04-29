@@ -15,7 +15,7 @@ import (
 	"github.com/docker/go-connections/nat"
 )
 
-const DefaultProxyImageName = "goller/proxy:v1"
+const DefaultProxyImageName = "ghcr.io/depot/helper:2.0.0"
 
 type ProxyContainer struct {
 	ID   string
