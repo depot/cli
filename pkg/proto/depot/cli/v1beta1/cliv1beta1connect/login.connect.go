@@ -25,6 +25,21 @@ const (
 	LoginServiceName = "depot.cli.v1beta1.LoginService"
 )
 
+// These constants are the fully-qualified names of the RPCs defined in this package. They're
+// exposed at runtime as Spec.Procedure and as the final two segments of the HTTP route.
+//
+// Note that these are different from the fully-qualified method names used by
+// google.golang.org/protobuf/reflect/protoreflect. To convert from these constants to
+// reflection-formatted method names, remove the leading slash and convert the remaining slash to a
+// period.
+const (
+	// LoginServiceStartLoginProcedure is the fully-qualified name of the LoginService's StartLogin RPC.
+	LoginServiceStartLoginProcedure = "/depot.cli.v1beta1.LoginService/StartLogin"
+	// LoginServiceFinishLoginProcedure is the fully-qualified name of the LoginService's FinishLogin
+	// RPC.
+	LoginServiceFinishLoginProcedure = "/depot.cli.v1beta1.LoginService/FinishLogin"
+)
+
 // LoginServiceClient is a client for the depot.cli.v1beta1.LoginService service.
 type LoginServiceClient interface {
 	StartLogin(context.Context, *connect_go.Request[v1beta1.StartLoginRequest]) (*connect_go.Response[v1beta1.StartLoginResponse], error)
@@ -43,12 +58,12 @@ func NewLoginServiceClient(httpClient connect_go.HTTPClient, baseURL string, opt
 	return &loginServiceClient{
 		startLogin: connect_go.NewClient[v1beta1.StartLoginRequest, v1beta1.StartLoginResponse](
 			httpClient,
-			baseURL+"/depot.cli.v1beta1.LoginService/StartLogin",
+			baseURL+LoginServiceStartLoginProcedure,
 			opts...,
 		),
 		finishLogin: connect_go.NewClient[v1beta1.FinishLoginRequest, v1beta1.FinishLoginResponse](
 			httpClient,
-			baseURL+"/depot.cli.v1beta1.LoginService/FinishLogin",
+			baseURL+LoginServiceFinishLoginProcedure,
 			opts...,
 		),
 	}
@@ -83,13 +98,13 @@ type LoginServiceHandler interface {
 // and JSON codecs. They also support gzip compression.
 func NewLoginServiceHandler(svc LoginServiceHandler, opts ...connect_go.HandlerOption) (string, http.Handler) {
 	mux := http.NewServeMux()
-	mux.Handle("/depot.cli.v1beta1.LoginService/StartLogin", connect_go.NewUnaryHandler(
-		"/depot.cli.v1beta1.LoginService/StartLogin",
+	mux.Handle(LoginServiceStartLoginProcedure, connect_go.NewUnaryHandler(
+		LoginServiceStartLoginProcedure,
 		svc.StartLogin,
 		opts...,
 	))
-	mux.Handle("/depot.cli.v1beta1.LoginService/FinishLogin", connect_go.NewServerStreamHandler(
-		"/depot.cli.v1beta1.LoginService/FinishLogin",
+	mux.Handle(LoginServiceFinishLoginProcedure, connect_go.NewServerStreamHandler(
+		LoginServiceFinishLoginProcedure,
 		svc.FinishLogin,
 		opts...,
 	))

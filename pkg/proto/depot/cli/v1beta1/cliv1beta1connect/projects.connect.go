@@ -25,6 +25,22 @@ const (
 	ProjectsServiceName = "depot.cli.v1beta1.ProjectsService"
 )
 
+// These constants are the fully-qualified names of the RPCs defined in this package. They're
+// exposed at runtime as Spec.Procedure and as the final two segments of the HTTP route.
+//
+// Note that these are different from the fully-qualified method names used by
+// google.golang.org/protobuf/reflect/protoreflect. To convert from these constants to
+// reflection-formatted method names, remove the leading slash and convert the remaining slash to a
+// period.
+const (
+	// ProjectsServiceListProjectsProcedure is the fully-qualified name of the ProjectsService's
+	// ListProjects RPC.
+	ProjectsServiceListProjectsProcedure = "/depot.cli.v1beta1.ProjectsService/ListProjects"
+	// ProjectsServiceResetProjectCacheProcedure is the fully-qualified name of the ProjectsService's
+	// ResetProjectCache RPC.
+	ProjectsServiceResetProjectCacheProcedure = "/depot.cli.v1beta1.ProjectsService/ResetProjectCache"
+)
+
 // ProjectsServiceClient is a client for the depot.cli.v1beta1.ProjectsService service.
 type ProjectsServiceClient interface {
 	ListProjects(context.Context, *connect_go.Request[v1beta1.ListProjectsRequest]) (*connect_go.Response[v1beta1.ListProjectsResponse], error)
@@ -43,12 +59,12 @@ func NewProjectsServiceClient(httpClient connect_go.HTTPClient, baseURL string, 
 	return &projectsServiceClient{
 		listProjects: connect_go.NewClient[v1beta1.ListProjectsRequest, v1beta1.ListProjectsResponse](
 			httpClient,
-			baseURL+"/depot.cli.v1beta1.ProjectsService/ListProjects",
+			baseURL+ProjectsServiceListProjectsProcedure,
 			opts...,
 		),
 		resetProjectCache: connect_go.NewClient[v1beta1.ResetProjectCacheRequest, v1beta1.ResetProjectCacheResponse](
 			httpClient,
-			baseURL+"/depot.cli.v1beta1.ProjectsService/ResetProjectCache",
+			baseURL+ProjectsServiceResetProjectCacheProcedure,
 			opts...,
 		),
 	}
@@ -83,13 +99,13 @@ type ProjectsServiceHandler interface {
 // and JSON codecs. They also support gzip compression.
 func NewProjectsServiceHandler(svc ProjectsServiceHandler, opts ...connect_go.HandlerOption) (string, http.Handler) {
 	mux := http.NewServeMux()
-	mux.Handle("/depot.cli.v1beta1.ProjectsService/ListProjects", connect_go.NewUnaryHandler(
-		"/depot.cli.v1beta1.ProjectsService/ListProjects",
+	mux.Handle(ProjectsServiceListProjectsProcedure, connect_go.NewUnaryHandler(
+		ProjectsServiceListProjectsProcedure,
 		svc.ListProjects,
 		opts...,
 	))
-	mux.Handle("/depot.cli.v1beta1.ProjectsService/ResetProjectCache", connect_go.NewUnaryHandler(
-		"/depot.cli.v1beta1.ProjectsService/ResetProjectCache",
+	mux.Handle(ProjectsServiceResetProjectCacheProcedure, connect_go.NewUnaryHandler(
+		ProjectsServiceResetProjectCacheProcedure,
 		svc.ResetProjectCache,
 		opts...,
 	))

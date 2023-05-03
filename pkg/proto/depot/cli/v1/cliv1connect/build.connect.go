@@ -25,6 +25,33 @@ const (
 	BuildServiceName = "depot.cli.v1.BuildService"
 )
 
+// These constants are the fully-qualified names of the RPCs defined in this package. They're
+// exposed at runtime as Spec.Procedure and as the final two segments of the HTTP route.
+//
+// Note that these are different from the fully-qualified method names used by
+// google.golang.org/protobuf/reflect/protoreflect. To convert from these constants to
+// reflection-formatted method names, remove the leading slash and convert the remaining slash to a
+// period.
+const (
+	// BuildServiceCreateBuildProcedure is the fully-qualified name of the BuildService's CreateBuild
+	// RPC.
+	BuildServiceCreateBuildProcedure = "/depot.cli.v1.BuildService/CreateBuild"
+	// BuildServiceFinishBuildProcedure is the fully-qualified name of the BuildService's FinishBuild
+	// RPC.
+	BuildServiceFinishBuildProcedure = "/depot.cli.v1.BuildService/FinishBuild"
+	// BuildServiceGetBuildKitConnectionProcedure is the fully-qualified name of the BuildService's
+	// GetBuildKitConnection RPC.
+	BuildServiceGetBuildKitConnectionProcedure = "/depot.cli.v1.BuildService/GetBuildKitConnection"
+	// BuildServiceReportBuildHealthProcedure is the fully-qualified name of the BuildService's
+	// ReportBuildHealth RPC.
+	BuildServiceReportBuildHealthProcedure = "/depot.cli.v1.BuildService/ReportBuildHealth"
+	// BuildServiceReportTimingsProcedure is the fully-qualified name of the BuildService's
+	// ReportTimings RPC.
+	BuildServiceReportTimingsProcedure = "/depot.cli.v1.BuildService/ReportTimings"
+	// BuildServiceListBuildsProcedure is the fully-qualified name of the BuildService's ListBuilds RPC.
+	BuildServiceListBuildsProcedure = "/depot.cli.v1.BuildService/ListBuilds"
+)
+
 // BuildServiceClient is a client for the depot.cli.v1.BuildService service.
 type BuildServiceClient interface {
 	CreateBuild(context.Context, *connect_go.Request[v1.CreateBuildRequest]) (*connect_go.Response[v1.CreateBuildResponse], error)
@@ -47,32 +74,32 @@ func NewBuildServiceClient(httpClient connect_go.HTTPClient, baseURL string, opt
 	return &buildServiceClient{
 		createBuild: connect_go.NewClient[v1.CreateBuildRequest, v1.CreateBuildResponse](
 			httpClient,
-			baseURL+"/depot.cli.v1.BuildService/CreateBuild",
+			baseURL+BuildServiceCreateBuildProcedure,
 			opts...,
 		),
 		finishBuild: connect_go.NewClient[v1.FinishBuildRequest, v1.FinishBuildResponse](
 			httpClient,
-			baseURL+"/depot.cli.v1.BuildService/FinishBuild",
+			baseURL+BuildServiceFinishBuildProcedure,
 			opts...,
 		),
 		getBuildKitConnection: connect_go.NewClient[v1.GetBuildKitConnectionRequest, v1.GetBuildKitConnectionResponse](
 			httpClient,
-			baseURL+"/depot.cli.v1.BuildService/GetBuildKitConnection",
+			baseURL+BuildServiceGetBuildKitConnectionProcedure,
 			opts...,
 		),
 		reportBuildHealth: connect_go.NewClient[v1.ReportBuildHealthRequest, v1.ReportBuildHealthResponse](
 			httpClient,
-			baseURL+"/depot.cli.v1.BuildService/ReportBuildHealth",
+			baseURL+BuildServiceReportBuildHealthProcedure,
 			opts...,
 		),
 		reportTimings: connect_go.NewClient[v1.ReportTimingsRequest, v1.ReportTimingsResponse](
 			httpClient,
-			baseURL+"/depot.cli.v1.BuildService/ReportTimings",
+			baseURL+BuildServiceReportTimingsProcedure,
 			opts...,
 		),
 		listBuilds: connect_go.NewClient[v1.ListBuildsRequest, v1.ListBuildsResponse](
 			httpClient,
-			baseURL+"/depot.cli.v1.BuildService/ListBuilds",
+			baseURL+BuildServiceListBuildsProcedure,
 			opts...,
 		),
 	}
@@ -135,33 +162,33 @@ type BuildServiceHandler interface {
 // and JSON codecs. They also support gzip compression.
 func NewBuildServiceHandler(svc BuildServiceHandler, opts ...connect_go.HandlerOption) (string, http.Handler) {
 	mux := http.NewServeMux()
-	mux.Handle("/depot.cli.v1.BuildService/CreateBuild", connect_go.NewUnaryHandler(
-		"/depot.cli.v1.BuildService/CreateBuild",
+	mux.Handle(BuildServiceCreateBuildProcedure, connect_go.NewUnaryHandler(
+		BuildServiceCreateBuildProcedure,
 		svc.CreateBuild,
 		opts...,
 	))
-	mux.Handle("/depot.cli.v1.BuildService/FinishBuild", connect_go.NewUnaryHandler(
-		"/depot.cli.v1.BuildService/FinishBuild",
+	mux.Handle(BuildServiceFinishBuildProcedure, connect_go.NewUnaryHandler(
+		BuildServiceFinishBuildProcedure,
 		svc.FinishBuild,
 		opts...,
 	))
-	mux.Handle("/depot.cli.v1.BuildService/GetBuildKitConnection", connect_go.NewUnaryHandler(
-		"/depot.cli.v1.BuildService/GetBuildKitConnection",
+	mux.Handle(BuildServiceGetBuildKitConnectionProcedure, connect_go.NewUnaryHandler(
+		BuildServiceGetBuildKitConnectionProcedure,
 		svc.GetBuildKitConnection,
 		opts...,
 	))
-	mux.Handle("/depot.cli.v1.BuildService/ReportBuildHealth", connect_go.NewUnaryHandler(
-		"/depot.cli.v1.BuildService/ReportBuildHealth",
+	mux.Handle(BuildServiceReportBuildHealthProcedure, connect_go.NewUnaryHandler(
+		BuildServiceReportBuildHealthProcedure,
 		svc.ReportBuildHealth,
 		opts...,
 	))
-	mux.Handle("/depot.cli.v1.BuildService/ReportTimings", connect_go.NewUnaryHandler(
-		"/depot.cli.v1.BuildService/ReportTimings",
+	mux.Handle(BuildServiceReportTimingsProcedure, connect_go.NewUnaryHandler(
+		BuildServiceReportTimingsProcedure,
 		svc.ReportTimings,
 		opts...,
 	))
-	mux.Handle("/depot.cli.v1.BuildService/ListBuilds", connect_go.NewUnaryHandler(
-		"/depot.cli.v1.BuildService/ListBuilds",
+	mux.Handle(BuildServiceListBuildsProcedure, connect_go.NewUnaryHandler(
+		BuildServiceListBuildsProcedure,
 		svc.ListBuilds,
 		opts...,
 	))
