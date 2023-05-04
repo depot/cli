@@ -581,7 +581,7 @@ func BuildCmd(dockerCli command.Cli) *cobra.Command {
 			buildErr = retryRetryableErrors(context.Background(), func() error {
 				return runBuild(dockerCli, options)
 			})
-			return buildErr
+			return rewriteFriendlyErrors(buildErr)
 		},
 	}
 
@@ -919,6 +919,16 @@ func shouldRetryError(err error) bool {
 	}
 
 	return false
+}
+
+func rewriteFriendlyErrors(err error) error {
+	if err == nil {
+		return nil
+	}
+	if strings.Contains(err.Error(), "header key \"exclude-patterns\" contains value with non-printable ASCII characters") {
+		return errors.New(err.Error() + ". Please check your .dockerignore file for invalid characters.")
+	}
+	return err
 }
 
 func isExperimental() bool {
