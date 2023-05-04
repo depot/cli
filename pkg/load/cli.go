@@ -107,6 +107,7 @@ func WithDepotImagePull(buildOpts map[string]build.Options, loadOpts DepotLoadOp
 				}
 
 				export.Attrs["oci-mediatypes"] = "true"
+				export.Attrs["depot.export.lease"] = "true"
 			}
 			buildOpt.Exports[i] = export
 		}
