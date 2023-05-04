@@ -309,7 +309,7 @@ func BakeCmd(dockerCli command.Cli) *cobra.Command {
 			buildErr = retryRetryableErrors(context.Background(), func() error {
 				return RunBake(dockerCli, args, options)
 			})
-			return buildErr
+			return rewriteFriendlyErrors(buildErr)
 		},
 	}
 
