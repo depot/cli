@@ -47,7 +47,6 @@ import (
 	"github.com/moby/buildkit/session/upload/uploadprovider"
 	"github.com/moby/buildkit/solver/errdefs"
 	"github.com/moby/buildkit/solver/pb"
-	"github.com/moby/buildkit/util/apicaps"
 	"github.com/moby/buildkit/util/entitlements"
 	"github.com/moby/buildkit/util/progress/progresswriter"
 	"github.com/moby/buildkit/util/tracing"
@@ -137,7 +136,6 @@ type driverPair struct {
 	driverIndex int
 	platforms   []specs.Platform
 	so          *client.SolveOpt
-	bopts       gateway.BuildOpts
 }
 
 func driverIndexes(m map[string][]driverPair) []int {
@@ -214,49 +212,6 @@ func splitToDriverPairs(availablePlatforms map[string]int, opt map[string]Option
 }
 
 func resolveDrivers(ctx context.Context, nodes []builder.Node, opt map[string]Options, pw progress.Writer) (map[string][]driverPair, []*client.Client, error) {
-	dps, clients, err := resolveDriversBase(ctx, nodes, opt, pw)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	bopts := make([]gateway.BuildOpts, len(clients))
-
-	span, ctx := tracing.StartSpan(ctx, "load buildkit capabilities", trace.WithSpanKind(trace.SpanKindInternal))
-
-	eg, ctx := errgroup.WithContext(ctx)
-	for i, c := range clients {
-		if c == nil {
-			continue
-		}
-
-		func(i int, c *client.Client) {
-			eg.Go(func() error {
-				_, err := clients[i].Build(ctx, client.SolveOpt{
-					Internal: true,
-				}, "buildx", func(ctx context.Context, c gateway.Client) (*gateway.Result, error) {
-					bopts[i] = c.BuildOpts()
-					return nil, nil
-				}, nil)
-				return err
-			})
-		}(i, c)
-	}
-
-	err = eg.Wait()
-	tracing.FinishWithError(span, err)
-	if err != nil {
-		return nil, nil, err
-	}
-	for key := range dps {
-		for i, dp := range dps[key] {
-			dps[key][i].bopts = bopts[dp.driverIndex]
-		}
-	}
-
-	return dps, clients, nil
-}
-
-func resolveDriversBase(ctx context.Context, nodes []builder.Node, opt map[string]Options, pw progress.Writer) (map[string][]driverPair, []*client.Client, error) {
 	availablePlatforms := map[string]int{}
 	for i, node := range nodes {
 		for _, p := range node.Platforms {
@@ -362,7 +317,7 @@ func toRepoOnly(in string) (string, error) {
 	return strings.Join(out, ","), nil
 }
 
-func toSolveOpt(ctx context.Context, node builder.Node, multiDriver bool, opt Options, bopts gateway.BuildOpts, configDir string, pw progress.Writer, dl dockerLoadCallback) (solveOpt *client.SolveOpt, release func(), err error) {
+func toSolveOpt(ctx context.Context, node builder.Node, multiDriver bool, opt Options, configDir string, pw progress.Writer, dl dockerLoadCallback) (solveOpt *client.SolveOpt, release func(), err error) {
 	nodeDriver := node.Driver
 	defers := make([]func(), 0, 2)
 	releaseF := func() {
@@ -401,32 +356,10 @@ func toSolveOpt(ctx context.Context, node builder.Node, multiDriver bool, opt Op
 	}
 
 	cacheTo := make([]client.CacheOptionsEntry, 0, len(opt.CacheTo))
-	for _, e := range opt.CacheTo {
-		if e.Type == "gha" {
-			if !bopts.LLBCaps.Contains(apicaps.CapID("cache.gha")) {
-				continue
-			}
-		} else if e.Type == "s3" {
-			if !bopts.LLBCaps.Contains(apicaps.CapID("cache.s3")) {
-				continue
-			}
-		}
-		cacheTo = append(cacheTo, e)
-	}
+	cacheTo = append(cacheTo, opt.CacheTo...)
 
 	cacheFrom := make([]client.CacheOptionsEntry, 0, len(opt.CacheFrom))
-	for _, e := range opt.CacheFrom {
-		if e.Type == "gha" {
-			if !bopts.LLBCaps.Contains(apicaps.CapID("cache.gha")) {
-				continue
-			}
-		} else if e.Type == "s3" {
-			if !bopts.LLBCaps.Contains(apicaps.CapID("cache.s3")) {
-				continue
-			}
-		}
-		cacheFrom = append(cacheFrom, e)
-	}
+	cacheFrom = append(cacheFrom, opt.CacheFrom...)
 
 	so := client.SolveOpt{
 		Frontend:            "dockerfile.v0",
@@ -458,11 +391,8 @@ func toSolveOpt(ctx context.Context, node builder.Node, multiDriver bool, opt Op
 			attests[k] = *v
 		}
 	}
-	supportsAttestations := bopts.LLBCaps.Contains(apicaps.CapID("exporter.image.attestations"))
+	supportsAttestations := true
 	if len(attests) > 0 {
-		if !supportsAttestations {
-			return nil, nil, errors.Errorf("attestations are not supported by the current buildkitd")
-		}
 		for k, v := range attests {
 			so.FrontendAttrs[k] = v
 		}
@@ -889,7 +819,7 @@ func BuildWithResultHandler(ctx context.Context, nodes []builder.Node, opt map[s
 				hasMobyDriver = true
 			}
 			opt.Platforms = np.platforms
-			so, release, err := toSolveOpt(ctx, node, multiDriver, opt, np.bopts, configDir, w, func(name string) (io.WriteCloser, func(), error) {
+			so, release, err := toSolveOpt(ctx, node, multiDriver, opt, configDir, w, func(name string) (io.WriteCloser, func(), error) {
 				return docker.LoadImage(ctx, name, w)
 			})
 			if err != nil {
