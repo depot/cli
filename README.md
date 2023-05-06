@@ -17,6 +17,9 @@ Official CLI for [Depot](https://depot.dev) - you can use the CLI to build Docke
   - [`depot build`](#depot-build)
   - [`depot cache`](#depot-cache)
     - [`depot cache reset`](#depot-cache-reset)
+  - [`depot list`](#depot-list)
+    - [`depot list projects`](#depot-list-projects)
+    - [`depot list builds`](#depot-list-builds)
   - [`depot init`](#depot-init)
   - [`depot login`](#depot-login)
 - [Contributing](#contributing)
@@ -143,13 +146,12 @@ Reset the cache of a specific project ID
 depot cache reset --project 12345678910
 ```
 
-## depot list
-Interact with depot projects and builds.
+### `depot list`
+Interact with Depot projects and builds.
 
-### depot list projects
+#### `depot list projects`
 
-Display an interactive listing of current depot projects.
-Selecting a specific project will display the latest builds.
+Display an interactive listing of current Depot projects. Selecting a specific project will display the latest builds.
 To return from the latest builds to projects, press `ESC`.
 
 To exit type `q` or `ctrl+c`
@@ -160,10 +162,9 @@ To exit type `q` or `ctrl+c`
 depot list projects
 ```
 
-### depot list builds
+#### `depot list builds`
 
-Display the latest depot builds for a project.
-By default the command runs an interactive listing of depot builds showing status and build duration.
+Display the latest Depot builds for a project. By default the command runs an interactive listing of depot builds showing status and build duration.
 
 To exit type `q` or `ctrl+c`
 
@@ -185,15 +186,13 @@ depot list builds --project 12345678910
 
 **Example**
 
-The build command can output build information to stdout with the `--output` option.
-It supports `json` and `csv`.
+The list command can output build information to stdout with the `--output` option. It supports `json` and `csv`.
 
 Output builds in JSON for the project in the current directory.
 
 ```shell
 depot list builds --output json
 ```
-
 
 ### `depot init`
 
