@@ -422,6 +422,7 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.No
 			}
 		}
 	}
+	load.DeleteExportLeases(ctx, resp)
 
 	if err := printer.Wait(); err != nil {
 		return nil, nil, err

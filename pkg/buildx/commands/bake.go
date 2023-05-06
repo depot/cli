@@ -233,8 +233,10 @@ func RunBake(dockerCli command.Cli, targets []string, in BakeOptions) (err error
 		for i := range resp {
 			func(i int) {
 				eg.Go(func() error {
-					targetResponse := resp[i]
-					return load.DepotFastLoad(ctx2, dockerCli.Client(), []build.DepotBuildResponse{targetResponse}, pullOpts, printer)
+					depotResponses := []build.DepotBuildResponse{resp[i]}
+					err := load.DepotFastLoad(ctx2, dockerCli.Client(), depotResponses, pullOpts, printer)
+					load.DeleteExportLeases(ctx2, depotResponses)
+					return err
 				})
 			}(i)
 		}

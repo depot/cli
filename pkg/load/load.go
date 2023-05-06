@@ -42,6 +42,7 @@ func DepotFastLoad(ctx context.Context, dockerapi docker.APIClient, resp []depot
 		if err != nil {
 			return err
 		}
+
 		pullOpt := pullOpts[buildRes.Name]
 		proxyOpts := &ProxyOpts{
 			RawManifest: manifest,
