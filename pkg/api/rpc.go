@@ -14,7 +14,7 @@ func NewBuildClient() cliv1connect.BuildServiceClient {
 	if baseURL == "" {
 		baseURL = "https://api.depot.dev"
 	}
-	return cliv1connect.NewBuildServiceClient(http.DefaultClient, baseURL, connect.WithGRPC(), WithUserAgent())
+	return cliv1connect.NewBuildServiceClient(http.DefaultClient, baseURL, WithUserAgent())
 }
 
 func NewLoginClient() cliv1beta1connect.LoginServiceClient {
@@ -22,7 +22,7 @@ func NewLoginClient() cliv1beta1connect.LoginServiceClient {
 	if baseURL == "" {
 		baseURL = "https://api.depot.dev"
 	}
-	return cliv1beta1connect.NewLoginServiceClient(http.DefaultClient, baseURL, connect.WithGRPC(), WithUserAgent())
+	return cliv1beta1connect.NewLoginServiceClient(http.DefaultClient, baseURL, WithUserAgent())
 }
 
 func NewProjectsClient() cliv1beta1connect.ProjectsServiceClient {
@@ -30,7 +30,7 @@ func NewProjectsClient() cliv1beta1connect.ProjectsServiceClient {
 	if baseURL == "" {
 		baseURL = "https://api.depot.dev"
 	}
-	return cliv1beta1connect.NewProjectsServiceClient(http.DefaultClient, baseURL, connect.WithGRPC(), WithUserAgent())
+	return cliv1beta1connect.NewProjectsServiceClient(http.DefaultClient, baseURL, WithUserAgent())
 }
 
 func WithAuthentication[T any](req *connect.Request[T], token string) *connect.Request[T] {

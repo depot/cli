@@ -1,11 +1,11 @@
 module github.com/depot/cli
 
-go 1.18
+go 1.20
 
 require (
 	github.com/adrg/xdg v0.4.0
 	github.com/briandowns/spinner v1.18.1
-	github.com/bufbuild/connect-go v1.1.0
+	github.com/bufbuild/connect-go v1.7.0
 	github.com/buildkite/agent/v3 v3.45.0
 	github.com/charmbracelet/bubbles v0.15.0
 	github.com/charmbracelet/bubbletea v0.23.1
@@ -39,7 +39,7 @@ require (
 	golang.org/x/exp v0.0.0-20220428152302-39d4317da171
 	golang.org/x/sync v0.1.0
 	google.golang.org/grpc v1.53.0
-	google.golang.org/protobuf v1.28.1
+	google.golang.org/protobuf v1.30.0
 	gopkg.in/yaml.v2 v2.4.0
 )
 
