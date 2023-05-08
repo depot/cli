@@ -1,6 +1,6 @@
 module github.com/depot/cli
 
-go 1.18
+go 1.20
 
 require (
 	github.com/adrg/xdg v0.4.0
