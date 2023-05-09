@@ -736,19 +736,6 @@ func Invoke(ctx context.Context, cfg ContainerConfig) error {
 	return err
 }
 
-// DEPOT: Replaces the docker map[string]*client.SolveResponse by returning each
-// node and their response.  This is useful to have the the information needed
-// to appropriately load the image into the docker daemon.
-type DepotBuildResponse struct {
-	Name          string // For bake this is the target name and for a single build it is "default".
-	NodeResponses []DepotNodeResponse
-}
-
-type DepotNodeResponse struct {
-	Node          builder.Node
-	SolveResponse *client.SolveResponse
-}
-
 func Build(ctx context.Context, nodes []builder.Node, opt map[string]Options, docker *dockerutil.Client, configDir string, w progress.Writer) (resp []DepotBuildResponse, err error) {
 	return BuildWithResultHandler(ctx, nodes, opt, docker, configDir, w, nil, false)
 }
@@ -1026,10 +1013,7 @@ func BuildWithResultHandler(ctx context.Context, nodes []builder.Node, opt map[s
 					if err != nil {
 						return err
 					}
-					res[i] = DepotNodeResponse{
-						Node:          nodes[dp.driverIndex],
-						SolveResponse: rr,
-					}
+					res[i] = NewDepotNodeResponse(nodes[dp.driverIndex], rr)
 
 					if rr.ExporterResponse == nil {
 						rr.ExporterResponse = map[string]string{}

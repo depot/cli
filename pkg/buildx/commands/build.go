@@ -386,6 +386,12 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.No
 				for k, v := range nodeMetadata {
 					metadata[k] = v
 				}
+
+				if len(nodeRes.ManifestConfigs) > 0 {
+					metadata[exptypes.ExporterImageDescriptorKey] = nodeRes.ManifestConfigs[0].Desc
+					metadata[exptypes.ExporterImageConfigKey] = nodeRes.ManifestConfigs[0].ImageConfig
+					metadata["containerimage.manifest"] = nodeRes.ManifestConfigs[0].Manifest
+				}
 			}
 
 			if err := writeMetadataFile(metadataFile, metadata); err != nil {
@@ -833,15 +839,7 @@ func decodeExporterResponse(exporterResponse map[string]string) map[string]inter
 		// DEPOT: Remove the depot specific keys.
 		// We use these for fast load and the format is not compatible with the OCI spec.
 		if k == exptypes.ExporterImageDescriptorKey {
-			if anno, ok := raw["annotations"]; ok {
-				if anno, ok := anno.(map[string]interface{}); ok {
-					delete(anno, "depot.containerimage.index")
-					delete(anno, "depot.containerimage.config")
-					delete(anno, "depot.containerimage.manifest")
-					out[k] = raw
-					continue
-				}
-			}
+			continue
 		}
 		out[k] = json.RawMessage(dt)
 	}

@@ -2,8 +2,6 @@ package load
 
 import (
 	"context"
-	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"runtime"
@@ -15,8 +13,6 @@ import (
 	depotprogress "github.com/depot/cli/pkg/progress"
 	"github.com/docker/buildx/util/progress"
 	docker "github.com/docker/docker/client"
-	"github.com/moby/buildkit/exporter/containerimage/exptypes"
-	ocispecs "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
 func DepotFastLoad(ctx context.Context, dockerapi docker.APIClient, resp []depotbuild.DepotBuildResponse, pullOpts map[string]PullOptions, printer *depotprogress.Progress) error {
@@ -32,22 +28,23 @@ func DepotFastLoad(ctx context.Context, dockerapi docker.APIClient, resp []depot
 		pw := progress.WithPrefix(printer, buildRes.Name, len(pullOpts) > 1)
 		// Pick the best node to pull from by checking against local architecture.
 		nodeRes := chooseNodeResponse(buildRes.NodeResponses)
-		contentClient, err := contentClient(ctx, nodeRes)
-		if err != nil {
-			return err
-		}
 
 		architecture := nodeRes.Node.DriverOpts["platform"]
-		manifest, config, err := decodeNodeResponse(architecture, nodeRes)
+		best, err := chooseBestImageManifest(architecture, nodeRes)
 		if err != nil {
 			return err
 		}
 
 		pullOpt := pullOpts[buildRes.Name]
 		proxyOpts := &ProxyOpts{
-			RawManifest: manifest,
-			RawConfig:   config,
+			RawManifest: []byte(nodeRes.ManifestConfigs[best].RawManifest),
+			RawConfig:   []byte(nodeRes.ManifestConfigs[best].RawImageConfig),
 			ProxyImage:  pullOpt.ProxyImage,
+		}
+
+		contentClient, err := contentClient(ctx, nodeRes)
+		if err != nil {
+			return err
 		}
 
 		// Start the depot registry proxy.
@@ -98,69 +95,6 @@ type ProxyOpts struct {
 	RawManifest []byte
 	RawConfig   []byte
 	ProxyImage  string
-}
-
-// We encode the image manifest and image config within the buildkitd Solve response
-// because the content may be GCed by the time this load occurs.
-func decodeNodeResponse(architecture string, nodeRes depotbuild.DepotNodeResponse) (rawManifest, rawConfig []byte, err error) {
-	encodedDesc, ok := nodeRes.SolveResponse.ExporterResponse[exptypes.ExporterImageDescriptorKey]
-	if !ok {
-		return nil, nil, errors.New("missing image descriptor")
-	}
-
-	jsonImageDesc, err := base64.StdEncoding.DecodeString(encodedDesc)
-	if err != nil {
-		return nil, nil, fmt.Errorf("invalid image descriptor: %w", err)
-	}
-
-	var imageDesc ocispecs.Descriptor
-	if err := json.Unmarshal(jsonImageDesc, &imageDesc); err != nil {
-		return nil, nil, fmt.Errorf("invalid image descriptor json: %w", err)
-	}
-
-	var imageManifest ocispecs.Descriptor = imageDesc
-	{
-		// These checks handle situations where the image does and does not have attestations.
-		// If there are no attestations, then the imageDesc contains the manifest and config.
-		// Otherwise the imageDesc's `depot.containerimage.index` will contain the manifest and config.
-
-		encodedIndex, ok := imageDesc.Annotations["depot.containerimage.index"]
-		if ok {
-			var index ocispecs.Index
-			if err := json.Unmarshal([]byte(encodedIndex), &index); err != nil {
-				return nil, nil, fmt.Errorf("invalid image index json: %w", err)
-			}
-
-			imageManifest, err = chooseBestImageManifest(architecture, &index)
-			if err != nil {
-				return nil, nil, err
-			}
-		}
-	}
-
-	m, ok := imageManifest.Annotations["depot.containerimage.manifest"]
-	if !ok {
-		return nil, nil, errors.New("missing image manifest")
-	}
-	rawManifest = []byte(m)
-
-	c, ok := imageManifest.Annotations["depot.containerimage.config"]
-	if !ok {
-		return nil, nil, errors.New("missing image config")
-	}
-	rawConfig = []byte(c)
-
-	// Decoding both the manifest and config to ensure they are valid.
-	var manifest ocispecs.Manifest
-	if err := json.Unmarshal(rawManifest, &manifest); err != nil {
-		return nil, nil, fmt.Errorf("invalid image manifest json: %w", err)
-	}
-
-	var image ocispecs.Image
-	if err := json.Unmarshal(rawConfig, &image); err != nil {
-		return nil, nil, fmt.Errorf("invalid image config json: %w", err)
-	}
-	return rawManifest, rawConfig, nil
 }
 
 func contentClient(ctx context.Context, nodeResponse depotbuild.DepotNodeResponse) (contentapi.ContentClient, error) {
@@ -239,29 +173,38 @@ func (l *RegistryProxy) Close(ctx context.Context) error {
 	return StopProxyContainer(ctx, l.DockerAPI, l.ProxyContainerID)
 }
 
-// Prefer architecture, otherwise, take first available.
-func chooseBestImageManifest(architecture string, index *ocispecs.Index) (ocispecs.Descriptor, error) {
-	archDescriptors := map[string]ocispecs.Descriptor{}
-	for _, manifest := range index.Manifests {
-		if manifest.Platform == nil {
-			continue
+// Pick the best architecture from the attestation index if it exists or the zeroth manifest.
+func chooseBestImageManifest(architecture string, nodeRes depotbuild.DepotNodeResponse) (int, error) {
+	var bestManifest int
+
+	if nodeRes.AttestationIndex != nil {
+		archDescriptors := map[string]int{}
+		for i, manifest := range nodeRes.AttestationIndex.Manifests {
+			if manifest.Platform == nil {
+				continue
+			}
+
+			if manifest.Platform.Architecture == "unknown" {
+				continue
+			}
+
+			archDescriptors[manifest.Platform.Architecture] = i
 		}
 
-		if manifest.Platform.Architecture == "unknown" {
-			continue
+		// Prefer the architecture of the depot CLI host, otherwise, take first available.
+		if i, ok := archDescriptors[architecture]; ok {
+			bestManifest = i
+		} else {
+			for _, i := range archDescriptors {
+				bestManifest = i
+				break
+			}
 		}
-
-		archDescriptors[manifest.Platform.Architecture] = manifest
 	}
 
-	// Prefer the architecture of the depot CLI host, otherwise, take first available.
-	if descriptor, ok := archDescriptors[architecture]; ok {
-		return descriptor, nil
+	if bestManifest >= len(nodeRes.ManifestConfigs) {
+		return -1, errors.New("response does not contain a manifest")
 	}
 
-	for _, descriptor := range archDescriptors {
-		return descriptor, nil
-	}
-
-	return ocispecs.Descriptor{}, errors.New("no manifests found")
+	return bestManifest, nil
 }

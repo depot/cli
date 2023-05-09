@@ -23,6 +23,7 @@ import (
 	"github.com/docker/buildx/util/progress"
 	"github.com/docker/buildx/util/tracing"
 	"github.com/docker/cli/cli/command"
+	"github.com/moby/buildkit/exporter/containerimage/exptypes"
 	"github.com/moby/buildkit/util/appcontext"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
@@ -217,6 +218,12 @@ func RunBake(dockerCli command.Cli, targets []string, in BakeOptions) (err error
 				nodeMetadata := decodeExporterResponse(nodeRes.SolveResponse.ExporterResponse)
 				for k, v := range nodeMetadata {
 					metadata[k] = v
+				}
+
+				if len(nodeRes.ManifestConfigs) > 0 {
+					metadata[exptypes.ExporterImageDescriptorKey] = nodeRes.ManifestConfigs[0].Desc
+					metadata[exptypes.ExporterImageConfigKey] = nodeRes.ManifestConfigs[0].ImageConfig
+					metadata["containerimage.manifest"] = nodeRes.ManifestConfigs[0].Manifest
 				}
 			}
 			dt[buildRes.Name] = metadata

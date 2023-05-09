@@ -2,11 +2,16 @@ package build
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 
 	dockerbuild "github.com/docker/buildx/build"
 	"github.com/docker/buildx/builder"
 	"github.com/docker/buildx/util/dockerutil"
 	"github.com/docker/buildx/util/progress"
+	"github.com/moby/buildkit/client"
+	"github.com/moby/buildkit/exporter/containerimage/exptypes"
+	ocispecs "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
 func DepotBuild(ctx context.Context, nodes []builder.Node, opt map[string]dockerbuild.Options, docker *dockerutil.Client, configDir string, w progress.Writer) ([]DepotBuildResponse, error) {
@@ -96,4 +101,106 @@ func DepotBuildWithResultHandler(ctx context.Context, nodes []builder.Node, opts
 
 	}
 	return BuildWithResultHandler(ctx, nodes, depotopts, docker, configDir, w, depotHandleFunc, allowNoOutput)
+}
+
+// DEPOT: Replaces the docker map[string]*client.SolveResponse by returning each
+// node and their response.  This has the information needed
+// to appropriately load the image into the docker daemon.
+type DepotBuildResponse struct {
+	Name          string // For bake this is the target name and for a single build it is "default".
+	NodeResponses []DepotNodeResponse
+}
+
+type DepotNodeResponse struct {
+	Node             builder.Node
+	SolveResponse    *client.SolveResponse
+	AttestationIndex *ocispecs.Index
+	ManifestConfigs  []*ManifestConfig
+}
+
+type ManifestConfig struct {
+	Desc           *ocispecs.Descriptor
+	Manifest       *ocispecs.Manifest
+	ImageConfig    *ocispecs.Image
+	RawManifest    string
+	RawImageConfig string
+}
+
+func NewDepotNodeResponse(node builder.Node, resp *client.SolveResponse) DepotNodeResponse {
+	nodeResp := DepotNodeResponse{
+		Node:          node,
+		SolveResponse: resp,
+	}
+	encodedDesc, ok := resp.ExporterResponse[exptypes.ExporterImageDescriptorKey]
+	if !ok {
+		return nodeResp
+	}
+
+	jsonImageDesc, err := base64.StdEncoding.DecodeString(encodedDesc)
+	if err != nil {
+		return nodeResp
+	}
+
+	var manifestDescriptor ocispecs.Descriptor
+	if err := json.Unmarshal(jsonImageDesc, &manifestDescriptor); err != nil {
+		return nodeResp
+	}
+
+	manifestDescriptors := []*ocispecs.Descriptor{}
+
+	// These checks handle situations where the image does and does not have attestations.
+	// If there are no attestations, then the imageDesc contains the manifest and config.
+	// Otherwise the imageDesc's `depot.containerimage.index` will contain the manifest and config.
+
+	encodedIndex, ok := manifestDescriptor.Annotations["depot.containerimage.index"]
+	if !ok {
+		// No attestations.
+		manifestDescriptors = append(manifestDescriptors, &manifestDescriptor)
+	} else {
+		// With attestations.
+		var index ocispecs.Index
+		if err := json.Unmarshal([]byte(encodedIndex), &index); err != nil {
+			return nodeResp
+		}
+		for i := range index.Manifests {
+			manifestDescriptors = append(manifestDescriptors, &index.Manifests[i])
+		}
+		delete(manifestDescriptor.Annotations, "depot.containerimage.index")
+		nodeResp.AttestationIndex = &index
+	}
+
+	for _, desc := range manifestDescriptors {
+		manifestConfig := &ManifestConfig{}
+		m, ok := desc.Annotations["depot.containerimage.manifest"]
+		if !ok {
+			return nodeResp
+		}
+		delete(desc.Annotations, "depot.containerimage.manifest")
+
+		var manifest ocispecs.Manifest
+		if err := json.Unmarshal([]byte(m), &manifest); err != nil {
+			return nodeResp
+		}
+		manifestConfig.RawManifest = m
+		manifestConfig.Manifest = &manifest
+
+		c, ok := desc.Annotations["depot.containerimage.config"]
+		if !ok {
+			return nodeResp
+		}
+		delete(desc.Annotations, "depot.containerimage.config")
+
+		var image ocispecs.Image
+		if err := json.Unmarshal([]byte(c), &image); err != nil {
+			return nodeResp
+		}
+		manifestConfig.RawImageConfig = c
+		manifestConfig.ImageConfig = &image
+
+		manifestConfig.Desc = desc
+
+		nodeResp.ManifestConfigs = append(nodeResp.ManifestConfigs, manifestConfig)
+	}
+
+	return nodeResp
 }
