@@ -47,10 +47,13 @@ func NewProgress(ctx context.Context, buildID, token, progressMode string) (*Pro
 }
 
 func (p *Progress) Write(s *client.SolveStatus) {
-	select {
-	case p.vertices <- s.Vertexes:
-	default:
-		// if channel is full skip recording vertex time to prevent blocking the build.
+	// Only buffer vertices to send if this progress writer is running in the context of an active build
+	if p.HasActiveBuild() {
+		select {
+		case p.vertices <- s.Vertexes:
+		default:
+			// if channel is full skip recording vertex time to prevent blocking the build.
+		}
 	}
 
 	p.p.Write(s)
@@ -76,6 +79,11 @@ func (p *Progress) Warnings() []client.VertexWarning {
 //
 // Cancel the context to stop the go routine.
 func (p *Progress) Run(ctx context.Context) {
+	// Return if this progress writer isn't running in the context of an active build
+	if !p.HasActiveBuild() {
+		return
+	}
+
 	// Buffer 1 second before sending build timings to the server
 	const (
 		bufferTimeout = time.Second
@@ -146,6 +154,10 @@ func (p *Progress) Run(ctx context.Context) {
 			}
 		}
 	}
+}
+
+func (p *Progress) HasActiveBuild() bool {
+	return p.buildID != "" && p.token != ""
 }
 
 func (p *Progress) ReportBuildSteps(ctx context.Context, steps []*Step) {

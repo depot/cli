@@ -69,23 +69,7 @@ func RunBake(dockerCli command.Cli, targets []string, in BakeOptions) (err error
 		targets = []string{"default"}
 	}
 
-	overrides := in.overrides
-	if in.exportPush {
-		overrides = append(overrides, "*.push=true")
-	}
-
-	if in.noCache != nil {
-		overrides = append(overrides, fmt.Sprintf("*.no-cache=%t", *in.noCache))
-	}
-	if in.pull != nil {
-		overrides = append(overrides, fmt.Sprintf("*.pull=%t", *in.pull))
-	}
-	if in.sbom != "" {
-		overrides = append(overrides, fmt.Sprintf("*.attest=%s", buildflags.CanonicalizeAttest("sbom", in.sbom)))
-	}
-	if in.provenance != "" {
-		overrides = append(overrides, fmt.Sprintf("*.attest=%s", buildflags.CanonicalizeAttest("provenance", in.provenance)))
-	}
+	overrides := overrides(in)
 	contextPathHash, _ := os.Getwd()
 
 	ctx2, cancel := context.WithCancel(context.TODO())
@@ -265,6 +249,13 @@ func BakeCmd(dockerCli command.Cli) *cobra.Command {
 		Aliases: []string{"f"},
 		Short:   "Build from a file",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if options.printOnly {
+				if isRemoteTarget(args) {
+					return errors.New("cannot use remote target with --print")
+				}
+				return BakePrint(dockerCli, args, options)
+			}
+
 			// reset to nil to avoid override is unset
 			if !cmd.Flags().Lookup("no-cache").Changed {
 				options.noCache = nil
@@ -329,4 +320,33 @@ func BakeCmd(dockerCli command.Cli) *cobra.Command {
 	depotBuildFlags(&options.DepotOptions, flags)
 
 	return cmd
+}
+
+func overrides(in BakeOptions) []string {
+	overrides := in.overrides
+	if in.exportPush {
+		overrides = append(overrides, "*.push=true")
+	}
+
+	if in.noCache != nil {
+		overrides = append(overrides, fmt.Sprintf("*.no-cache=%t", *in.noCache))
+	}
+	if in.pull != nil {
+		overrides = append(overrides, fmt.Sprintf("*.pull=%t", *in.pull))
+	}
+	if in.sbom != "" {
+		overrides = append(overrides, fmt.Sprintf("*.attest=%s", buildflags.CanonicalizeAttest("sbom", in.sbom)))
+	}
+	if in.provenance != "" {
+		overrides = append(overrides, fmt.Sprintf("*.attest=%s", buildflags.CanonicalizeAttest("provenance", in.provenance)))
+	}
+	return overrides
+}
+
+func isRemoteTarget(targets []string) bool {
+	if len(targets) == 0 {
+		return false
+	}
+
+	return bake.IsRemoteURL(targets[0])
 }
