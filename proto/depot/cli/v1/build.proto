@@ -15,6 +15,10 @@ service BuildService {
 
 message CreateBuildRequest {
   string project_id = 1;
+  oneof options {
+    BuildOptions build = 2;
+    BakeOptions bake = 3;
+  }
 }
 
 message CreateBuildResponse {
@@ -146,4 +150,24 @@ enum BuildStatus {
 message PageToken {
   string project_id = 1;
   google.protobuf.Timestamp last_created_at = 2;
+}
+
+message BuildOptions {
+  repeated string tags = 1;
+  repeated string outputs = 2;
+  bool push = 3;
+  bool load = 4;
+  optional string target = 5;
+}
+
+message BakeOptions {
+  repeated BakeTarget targets = 1;
+  bool push = 2;
+  bool load = 3;
+}
+
+message BakeTarget {
+  string name = 1;
+  repeated string tags = 2;
+  repeated string outputs = 3;
 }

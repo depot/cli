@@ -114,7 +114,7 @@ type DepotOptions struct {
 	builderOptions   []builder.Option
 }
 
-func runBuild(dockerCli command.Cli, in buildOptions) (err error) {
+func runBuild(dockerCli command.Cli, validatedOpts map[string]build.Options, in buildOptions) (err error) {
 	ctx := appcontext.Context()
 
 	ctx, end, err := tracing.TraceCurrentCommand(ctx, "build")
@@ -124,136 +124,6 @@ func runBuild(dockerCli command.Cli, in buildOptions) (err error) {
 	defer func() {
 		end(err)
 	}()
-
-	noCache := false
-	if in.noCache != nil {
-		noCache = *in.noCache
-	}
-	pull := false
-	if in.pull != nil {
-		pull = *in.pull
-	}
-
-	if noCache && len(in.noCacheFilter) > 0 {
-		return errors.Errorf("--no-cache and --no-cache-filter cannot currently be used together")
-	}
-
-	if in.quiet && in.progress != progress.PrinterModeAuto && in.progress != progress.PrinterModeQuiet {
-		return errors.Errorf("progress=%s and quiet cannot be used together", in.progress)
-	} else if in.quiet {
-		in.progress = "quiet"
-	}
-
-	contexts, err := parseContextNames(in.contexts)
-	if err != nil {
-		return err
-	}
-
-	printFunc, err := parsePrintFunc(in.printFunc)
-	if err != nil {
-		return err
-	}
-
-	opts := build.Options{
-		Inputs: build.Inputs{
-			ContextPath:    in.contextPath,
-			DockerfilePath: in.dockerfileName,
-			InStream:       os.Stdin,
-			NamedContexts:  contexts,
-		},
-		BuildArgs:     listToMap(in.buildArgs, true),
-		ExtraHosts:    in.extraHosts,
-		ImageIDFile:   in.imageIDFile,
-		Labels:        listToMap(in.labels, false),
-		NetworkMode:   in.networkMode,
-		NoCache:       noCache,
-		NoCacheFilter: in.noCacheFilter,
-		Pull:          pull,
-		ShmSize:       in.shmSize,
-		Tags:          in.tags,
-		Target:        in.target,
-		Ulimits:       in.ulimits,
-		PrintFunc:     printFunc,
-	}
-
-	platforms, err := platformutil.Parse(in.platforms)
-	if err != nil {
-		return err
-	}
-	opts.Platforms = platforms
-
-	dockerConfig := config.LoadDefaultConfigFile(os.Stderr)
-	opts.Session = append(opts.Session, authprovider.NewDockerAuthProvider(dockerConfig))
-
-	secrets, err := buildflags.ParseSecretSpecs(in.secrets)
-	if err != nil {
-		return err
-	}
-	opts.Session = append(opts.Session, secrets)
-
-	sshSpecs := in.ssh
-	if len(sshSpecs) == 0 && buildflags.IsGitSSH(in.contextPath) {
-		sshSpecs = []string{"default"}
-	}
-	ssh, err := buildflags.ParseSSHSpecs(sshSpecs)
-	if err != nil {
-		return err
-	}
-	opts.Session = append(opts.Session, ssh)
-
-	outputs, err := buildflags.ParseOutputs(in.outputs)
-	if err != nil {
-		return err
-	}
-	if in.exportPush {
-		if len(outputs) == 0 {
-			outputs = []client.ExportEntry{{
-				Type: "image",
-				Attrs: map[string]string{
-					"push": "true",
-				},
-			}}
-		} else {
-			switch outputs[0].Type {
-			case "image":
-				outputs[0].Attrs["push"] = "true"
-			default:
-				return errors.Errorf("push and %q output can't be used together", outputs[0].Type)
-			}
-		}
-	}
-
-	opts.Exports = outputs
-
-	inAttests := append([]string{}, in.attests...)
-	if in.provenance != "" {
-		inAttests = append(inAttests, buildflags.CanonicalizeAttest("provenance", in.provenance))
-	}
-	if in.sbom != "" {
-		inAttests = append(inAttests, buildflags.CanonicalizeAttest("sbom", in.sbom))
-	}
-	opts.Attests, err = buildflags.ParseAttests(inAttests)
-	if err != nil {
-		return err
-	}
-
-	cacheImports, err := buildflags.ParseCacheEntry(in.cacheFrom)
-	if err != nil {
-		return err
-	}
-	opts.CacheFrom = cacheImports
-
-	cacheExports, err := buildflags.ParseCacheEntry(in.cacheTo)
-	if err != nil {
-		return err
-	}
-	opts.CacheTo = cacheExports
-
-	allow, err := buildflags.ParseEntitlements(in.allow)
-	if err != nil {
-		return err
-	}
-	opts.Allow = allow
 
 	// key string used for kubernetes "sticky" mode
 	contextPathHash, err := filepath.Abs(in.contextPath)
@@ -275,7 +145,7 @@ func runBuild(dockerCli command.Cli, in buildOptions) (err error) {
 		return err
 	}
 
-	imageIDs, res, err := buildTargets(ctx, dockerCli, nodes, map[string]build.Options{defaultTargetName: opts}, in.DepotOptions, in.progress, in.metadataFile, in.exportLoad, in.invoke != "")
+	imageIDs, res, err := buildTargets(ctx, dockerCli, nodes, validatedOpts, in.DepotOptions, in.progress, in.metadataFile, in.exportLoad, in.invoke != "")
 	err = wrapBuildError(err, false)
 	if err != nil {
 		return err
@@ -292,7 +162,7 @@ func runBuild(dockerCli command.Cli, in buildOptions) (err error) {
 			return errors.Errorf("failed to configure terminal: %v", err)
 		}
 		err = monitor.RunMonitor(ctx, cfg, func(ctx context.Context) (*build.ResultContext, error) {
-			_, rr, err := buildTargets(ctx, dockerCli, nodes, map[string]build.Options{defaultTargetName: opts}, in.DepotOptions, in.progress, in.metadataFile, false, true)
+			_, rr, err := buildTargets(ctx, dockerCli, nodes, validatedOpts, in.DepotOptions, in.progress, in.metadataFile, false, true)
 			return rr, err
 		}, io.NopCloser(os.Stdin), nopCloser{os.Stdout}, nopCloser{os.Stderr})
 		if err != nil {
@@ -535,6 +405,140 @@ func newBuildOptions() buildOptions {
 	}
 }
 
+func validateBuildOptions(in *buildOptions) (map[string]build.Options, error) {
+	noCache := false
+	if in.noCache != nil {
+		noCache = *in.noCache
+	}
+	pull := false
+	if in.pull != nil {
+		pull = *in.pull
+	}
+
+	if noCache && len(in.noCacheFilter) > 0 {
+		return nil, errors.Errorf("--no-cache and --no-cache-filter cannot currently be used together")
+	}
+
+	if in.quiet && in.progress != progress.PrinterModeAuto && in.progress != progress.PrinterModeQuiet {
+		return nil, errors.Errorf("progress=%s and quiet cannot be used together", in.progress)
+	} else if in.quiet {
+		in.progress = "quiet"
+	}
+
+	contexts, err := parseContextNames(in.contexts)
+	if err != nil {
+		return nil, err
+	}
+
+	printFunc, err := parsePrintFunc(in.printFunc)
+	if err != nil {
+		return nil, err
+	}
+
+	opts := build.Options{
+		Inputs: build.Inputs{
+			ContextPath:    in.contextPath,
+			DockerfilePath: in.dockerfileName,
+			InStream:       os.Stdin,
+			NamedContexts:  contexts,
+		},
+		BuildArgs:     listToMap(in.buildArgs, true),
+		ExtraHosts:    in.extraHosts,
+		ImageIDFile:   in.imageIDFile,
+		Labels:        listToMap(in.labels, false),
+		NetworkMode:   in.networkMode,
+		NoCache:       noCache,
+		NoCacheFilter: in.noCacheFilter,
+		Pull:          pull,
+		ShmSize:       in.shmSize,
+		Tags:          in.tags,
+		Target:        in.target,
+		Ulimits:       in.ulimits,
+		PrintFunc:     printFunc,
+	}
+
+	platforms, err := platformutil.Parse(in.platforms)
+	if err != nil {
+		return nil, err
+	}
+	opts.Platforms = platforms
+
+	dockerConfig := config.LoadDefaultConfigFile(os.Stderr)
+	opts.Session = append(opts.Session, authprovider.NewDockerAuthProvider(dockerConfig))
+
+	secrets, err := buildflags.ParseSecretSpecs(in.secrets)
+	if err != nil {
+		return nil, err
+	}
+	opts.Session = append(opts.Session, secrets)
+
+	sshSpecs := in.ssh
+	if len(sshSpecs) == 0 && buildflags.IsGitSSH(in.contextPath) {
+		sshSpecs = []string{"default"}
+	}
+	ssh, err := buildflags.ParseSSHSpecs(sshSpecs)
+	if err != nil {
+		return nil, err
+	}
+	opts.Session = append(opts.Session, ssh)
+
+	outputs, err := buildflags.ParseOutputs(in.outputs)
+	if err != nil {
+		return nil, err
+	}
+	if in.exportPush {
+		if len(outputs) == 0 {
+			outputs = []client.ExportEntry{{
+				Type: "image",
+				Attrs: map[string]string{
+					"push": "true",
+				},
+			}}
+		} else {
+			switch outputs[0].Type {
+			case "image":
+				outputs[0].Attrs["push"] = "true"
+			default:
+				return nil, errors.Errorf("push and %q output can't be used together", outputs[0].Type)
+			}
+		}
+	}
+
+	opts.Exports = outputs
+
+	inAttests := append([]string{}, in.attests...)
+	if in.provenance != "" {
+		inAttests = append(inAttests, buildflags.CanonicalizeAttest("provenance", in.provenance))
+	}
+	if in.sbom != "" {
+		inAttests = append(inAttests, buildflags.CanonicalizeAttest("sbom", in.sbom))
+	}
+	opts.Attests, err = buildflags.ParseAttests(inAttests)
+	if err != nil {
+		return nil, err
+	}
+
+	cacheImports, err := buildflags.ParseCacheEntry(in.cacheFrom)
+	if err != nil {
+		return nil, err
+	}
+	opts.CacheFrom = cacheImports
+
+	cacheExports, err := buildflags.ParseCacheEntry(in.cacheTo)
+	if err != nil {
+		return nil, err
+	}
+	opts.CacheTo = cacheExports
+
+	allow, err := buildflags.ParseEntitlements(in.allow)
+	if err != nil {
+		return nil, err
+	}
+	opts.Allow = allow
+
+	return map[string]build.Options{defaultTargetName: opts}, nil
+}
+
 func BuildCmd(dockerCli command.Cli) *cobra.Command {
 	options := newBuildOptions()
 
@@ -560,7 +564,19 @@ func BuildCmd(dockerCli command.Cli) *cobra.Command {
 				return err
 			}
 
-			build, err := helpers.BeginBuild(context.Background(), options.project, token)
+			validatedOpts, err := validateBuildOptions(&options)
+			if err != nil {
+				return err
+			}
+
+			req := helpers.NewBuildRequest(
+				options.project,
+				validatedOpts,
+				options.exportPush,
+				options.exportLoad,
+			)
+
+			build, err := helpers.BeginBuild(context.Background(), req, token)
 			if err != nil {
 				return err
 			}
@@ -580,7 +596,7 @@ func BuildCmd(dockerCli command.Cli) *cobra.Command {
 			}
 
 			buildErr = retryRetryableErrors(context.Background(), func() error {
-				return runBuild(dockerCli, options)
+				return runBuild(dockerCli, validatedOpts, options)
 			})
 			return rewriteFriendlyErrors(buildErr)
 		},
