@@ -99,14 +99,16 @@ func NewBuildRequest(project string, opts map[string]build.Options, push, load b
 			target = &opts.Target
 		}
 
-		return &cliv1.CreateBuildRequest{ProjectId: project,
-			Options: &cliv1.CreateBuildRequest_Build{
-				Build: &cliv1.BuildOptions{
-					Tags:    opts.Tags,
-					Outputs: outputs,
-					Push:    push,
-					Load:    load,
-					Target:  target,
+		return &cliv1.CreateBuildRequest{
+			ProjectId: project,
+			Options: []*cliv1.BuildOptions{
+				{
+					Command:    cliv1.Command_COMMAND_BUILD,
+					Tags:       opts.Tags,
+					Outputs:    outputs,
+					Push:       push,
+					Load:       load,
+					TargetName: target,
 				},
 			},
 		}
@@ -117,27 +119,27 @@ func NewBuildRequest(project string, opts map[string]build.Options, push, load b
 }
 
 func NewBakeRequest(project string, opts map[string]build.Options, push, load bool) *cliv1.CreateBuildRequest {
-	targets := make([]*cliv1.BakeTarget, 0, len(opts))
-	for name, opt := range opts {
-		outputs := make([]string, len(opt.Exports))
-		for i, export := range opt.Exports {
+	targets := make([]*cliv1.BuildOptions, 0, len(opts))
+
+	for name, opts := range opts {
+		name := name
+		outputs := make([]string, len(opts.Exports))
+		for i, export := range opts.Exports {
 			outputs[i] = export.Type
 		}
 
-		targets = append(targets, &cliv1.BakeTarget{
-			Name:    name,
-			Tags:    opt.Tags,
-			Outputs: outputs,
+		targets = append(targets, &cliv1.BuildOptions{
+			Command:    cliv1.Command_COMMAND_BAKE,
+			Tags:       opts.Tags,
+			Outputs:    outputs,
+			Push:       push,
+			Load:       load,
+			TargetName: &name,
 		})
 	}
 
-	return &cliv1.CreateBuildRequest{ProjectId: project,
-		Options: &cliv1.CreateBuildRequest_Bake{
-			Bake: &cliv1.BakeOptions{
-				Targets: targets,
-				Push:    push,
-				Load:    load,
-			},
-		},
+	return &cliv1.CreateBuildRequest{
+		ProjectId: project,
+		Options:   targets,
 	}
 }

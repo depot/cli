@@ -15,10 +15,7 @@ service BuildService {
 
 message CreateBuildRequest {
   string project_id = 1;
-  oneof options {
-    BuildOptions build = 2;
-    BakeOptions bake = 3;
-  }
+  repeated BuildOptions options = 2;
 }
 
 message CreateBuildResponse {
@@ -153,21 +150,16 @@ message PageToken {
 }
 
 message BuildOptions {
-  repeated string tags = 1;
-  repeated string outputs = 2;
-  bool push = 3;
-  bool load = 4;
-  optional string target = 5;
-}
-
-message BakeOptions {
-  repeated BakeTarget targets = 1;
-  bool push = 2;
-  bool load = 3;
-}
-
-message BakeTarget {
-  string name = 1;
+  Command command = 1;
   repeated string tags = 2;
   repeated string outputs = 3;
+  bool push = 4;
+  bool load = 5;
+  optional string target_name = 6;
+}
+
+enum Command {
+  COMMAND_UNSPECIFIED = 0;
+  COMMAND_BUILD = 1;
+  COMMAND_BAKE = 2;
 }
