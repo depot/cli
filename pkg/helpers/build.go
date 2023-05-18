@@ -11,6 +11,7 @@ import (
 	"github.com/depot/cli/pkg/load"
 	"github.com/depot/cli/pkg/profiler"
 	cliv1 "github.com/depot/cli/pkg/proto/depot/cli/v1"
+	"github.com/docker/buildx/build"
 	"github.com/moby/buildkit/util/grpcerrors"
 	"google.golang.org/grpc/codes"
 )
@@ -23,16 +24,15 @@ type Build struct {
 	Finish           func(error)
 }
 
-func BeginBuild(ctx context.Context, project string, token string) (build Build, err error) {
+func BeginBuild(ctx context.Context, req *cliv1.CreateBuildRequest, token string) (build Build, err error) {
 	client := depotapi.NewBuildClient()
 
 	build.Token = token
 	build.ID = os.Getenv("DEPOT_BUILD_ID")
 	profilerToken := ""
 	if build.ID == "" {
-		req := cliv1.CreateBuildRequest{ProjectId: project}
 		var b *connect.Response[cliv1.CreateBuildResponse]
-		b, err = client.CreateBuild(ctx, depotapi.WithAuthentication(connect.NewRequest(&req), token))
+		b, err = client.CreateBuild(ctx, depotapi.WithAuthentication(connect.NewRequest(req), token))
 		if err != nil {
 			return build, err
 		}
@@ -84,4 +84,62 @@ func BeginBuild(ctx context.Context, project string, token string) (build Build,
 	}
 
 	return build, err
+}
+
+func NewBuildRequest(project string, opts map[string]build.Options, push, load bool) *cliv1.CreateBuildRequest {
+	// There is only one target for a build request, "default".
+	for _, opts := range opts {
+		outputs := make([]string, len(opts.Exports))
+		for i, export := range opts.Exports {
+			outputs[i] = export.Type
+		}
+
+		var target *string
+		if opts.Target != "" {
+			target = &opts.Target
+		}
+
+		return &cliv1.CreateBuildRequest{
+			ProjectId: project,
+			Options: []*cliv1.BuildOptions{
+				{
+					Command:    cliv1.Command_COMMAND_BUILD,
+					Tags:       opts.Tags,
+					Outputs:    outputs,
+					Push:       push,
+					Load:       load,
+					TargetName: target,
+				},
+			},
+		}
+	}
+
+	// Should never be reached.
+	return &cliv1.CreateBuildRequest{ProjectId: project}
+}
+
+func NewBakeRequest(project string, opts map[string]build.Options, push, load bool) *cliv1.CreateBuildRequest {
+	targets := make([]*cliv1.BuildOptions, 0, len(opts))
+
+	for name, opts := range opts {
+		name := name
+		outputs := make([]string, len(opts.Exports))
+		for i, export := range opts.Exports {
+			outputs[i] = export.Type
+		}
+
+		targets = append(targets, &cliv1.BuildOptions{
+			Command:    cliv1.Command_COMMAND_BAKE,
+			Tags:       opts.Tags,
+			Outputs:    outputs,
+			Push:       push,
+			Load:       load,
+			TargetName: &name,
+		})
+	}
+
+	return &cliv1.CreateBuildRequest{
+		ProjectId: project,
+		Options:   targets,
+	}
 }

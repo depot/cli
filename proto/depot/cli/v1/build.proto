@@ -15,6 +15,26 @@ service BuildService {
 
 message CreateBuildRequest {
   string project_id = 1;
+  // This is an option per build target; in other words many for bake and one for build.
+  repeated BuildOptions options = 2;
+}
+
+message BuildOptions {
+  Command command = 1;
+  // Names of the output images.
+  repeated string tags = 2;
+  // Specifies the type of output such as image, local, and docker.
+  repeated string outputs = 3;
+  bool push = 4;
+  bool load = 5;
+  // Bake will always have a target name, whereas build's target name is rarely used.
+  optional string target_name = 6;
+}
+
+enum Command {
+  COMMAND_UNSPECIFIED = 0;
+  COMMAND_BUILD = 1;
+  COMMAND_BAKE = 2;
 }
 
 message CreateBuildResponse {

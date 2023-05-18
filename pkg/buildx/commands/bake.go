@@ -4,7 +4,6 @@ package commands
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"sync"
@@ -38,7 +37,7 @@ type BakeOptions struct {
 	DepotOptions
 }
 
-func RunBake(dockerCli command.Cli, targets []string, in BakeOptions) (err error) {
+func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator) (err error) {
 	ctx := appcontext.Context()
 
 	ctx, end, err := tracing.TraceCurrentCommand(ctx, "bake")
@@ -48,29 +47,6 @@ func RunBake(dockerCli command.Cli, targets []string, in BakeOptions) (err error
 	defer func() {
 		end(err)
 	}()
-
-	var url string
-	cmdContext := "cwd://"
-
-	if len(targets) > 0 {
-		if bake.IsRemoteURL(targets[0]) {
-			url = targets[0]
-			targets = targets[1:]
-			if len(targets) > 0 {
-				if bake.IsRemoteURL(targets[0]) {
-					cmdContext = targets[0]
-					targets = targets[1:]
-				}
-			}
-		}
-	}
-
-	if len(targets) == 0 {
-		targets = []string{"default"}
-	}
-
-	overrides := overrides(in)
-	contextPathHash, _ := os.Getwd()
 
 	ctx2, cancel := context.WithCancel(context.TODO())
 
@@ -98,70 +74,24 @@ func RunBake(dockerCli command.Cli, targets []string, in BakeOptions) (err error
 	defer wg.Wait() // Required to ensure that the printer is stopped before the context is cancelled.
 	defer cancel()
 
-	var nodes []builder.Node
-	var files []bake.File
-	var inp *bake.Input
-
-	// instance only needed for reading remote bake files or building
-	if url != "" || !in.printOnly {
-		builderOpts := append([]builder.Option{builder.WithName(in.builder),
-			builder.WithContextPathHash(contextPathHash)}, in.builderOptions...)
-		b, err := builder.New(dockerCli, builderOpts...)
-		if err != nil {
-			return err
-		}
-		if err = updateLastActivity(dockerCli, b.NodeGroup); err != nil {
-			return errors.Wrapf(err, "failed to update builder last activity time")
-		}
-		nodes, err = b.LoadNodes(ctx, false)
-		if err != nil {
-			return err
-		}
+	contextPathHash, _ := os.Getwd()
+	builderOpts := append([]builder.Option{builder.WithName(in.builder),
+		builder.WithContextPathHash(contextPathHash)}, in.builderOptions...)
+	b, err := builder.New(dockerCli, builderOpts...)
+	if err != nil {
+		return err
 	}
-
-	if url != "" {
-		files, inp, err = bake.ReadRemoteFiles(ctx, builder.ToBuildxNodes(nodes), url, in.files, printer)
-	} else {
-		files, err = bake.ReadLocalFiles(in.files)
+	if err = updateLastActivity(dockerCli, b.NodeGroup); err != nil {
+		return errors.Wrapf(err, "failed to update builder last activity time")
 	}
+	nodes, err := b.LoadNodes(ctx, false)
 	if err != nil {
 		return err
 	}
 
-	tgts, grps, err := bake.ReadTargets(ctx, files, targets, overrides, map[string]string{
-		// don't forget to update documentation if you add a new
-		// built-in variable: docs/manuals/bake/file-definition.md#built-in-variables
-		"BAKE_CMD_CONTEXT":    cmdContext,
-		"BAKE_LOCAL_PLATFORM": platforms.DefaultString(),
-	})
+	buildOpts, err := validator.Validate(ctx, nodes, printer)
 	if err != nil {
 		return err
-	}
-
-	// this function can update target context string from the input so call before printOnly check
-	buildOpts, err := bake.TargetsToBuildOpt(tgts, inp)
-	if err != nil {
-		return err
-	}
-
-	if in.printOnly {
-		dt, err := json.MarshalIndent(struct {
-			Group  map[string]*bake.Group  `json:"group,omitempty"`
-			Target map[string]*bake.Target `json:"target"`
-		}{
-			grps,
-			tgts,
-		}, "", "  ")
-		if err != nil {
-			return err
-		}
-		err = printer.Wait()
-		printer = nil
-		if err != nil {
-			return err
-		}
-		fmt.Fprintln(dockerCli.Out(), string(dt))
-		return nil
 	}
 
 	var (
@@ -279,7 +209,28 @@ func BakeCmd(dockerCli command.Cli) *cobra.Command {
 				return err
 			}
 
-			build, err := helpers.BeginBuild(context.Background(), options.project, token)
+			var (
+				validator     BakeValidator
+				validatedOpts map[string]buildx.Options
+			)
+			if isRemoteTarget(args) {
+				validator = NewRemoteBakeValidator(options, args)
+			} else {
+				validator = NewLocalBakeValidator(options, args)
+				// Parse the local bake file before starting the build to catch errors early.
+				validatedOpts, err = validator.Validate(context.Background(), nil, nil)
+				if err != nil {
+					return err
+				}
+			}
+
+			req := helpers.NewBakeRequest(
+				options.project,
+				validatedOpts,
+				options.exportPush,
+				options.exportLoad,
+			)
+			build, err := helpers.BeginBuild(context.Background(), req, token)
 			if err != nil {
 				return err
 			}
@@ -300,7 +251,7 @@ func BakeCmd(dockerCli command.Cli) *cobra.Command {
 			}
 
 			buildErr = retryRetryableErrors(context.Background(), func() error {
-				return RunBake(dockerCli, args, options)
+				return RunBake(dockerCli, options, validator)
 			})
 			return rewriteFriendlyErrors(buildErr)
 		},
@@ -349,4 +300,121 @@ func isRemoteTarget(targets []string) bool {
 	}
 
 	return bake.IsRemoteURL(targets[0])
+}
+
+var (
+	_ BakeValidator = (*RemoteBakeValidator)(nil)
+	_ BakeValidator = (*LocalBakeValidator)(nil)
+)
+
+// BakeValidator returns either local or remote build options for targets.
+type BakeValidator interface {
+	Validate(ctx context.Context, nodes []builder.Node, pw progress.Writer) (map[string]buildx.Options, error)
+}
+
+type LocalBakeValidator struct {
+	options     BakeOptions
+	bakeTargets bakeTargets
+
+	once      sync.Once
+	buildOpts map[string]buildx.Options
+	err       error
+}
+
+func NewLocalBakeValidator(options BakeOptions, args []string) *LocalBakeValidator {
+	return &LocalBakeValidator{
+		options:     options,
+		bakeTargets: parseBakeTargets(args),
+	}
+}
+
+func (t *LocalBakeValidator) Validate(ctx context.Context, _ []builder.Node, _ progress.Writer) (map[string]buildx.Options, error) {
+	// Using a sync.Once because I _think_ the bake file may not always be read
+	// more than one time such as passed over stdin.
+	t.once.Do(func() {
+		files, err := bake.ReadLocalFiles(t.options.files)
+		if err != nil {
+			t.err = err
+			return
+		}
+
+		overrides := overrides(t.options)
+		defaults := map[string]string{
+			"BAKE_CMD_CONTEXT":    t.bakeTargets.CmdContext,
+			"BAKE_LOCAL_PLATFORM": platforms.DefaultString(),
+		}
+
+		targets, _, err := bake.ReadTargets(ctx, files, t.bakeTargets.Targets, overrides, defaults)
+		if err != nil {
+			t.err = err
+			return
+		}
+
+		t.buildOpts, t.err = bake.TargetsToBuildOpt(targets, nil)
+	})
+
+	return t.buildOpts, t.err
+}
+
+type RemoteBakeValidator struct {
+	options     BakeOptions
+	bakeTargets bakeTargets
+}
+
+func NewRemoteBakeValidator(options BakeOptions, args []string) *RemoteBakeValidator {
+	return &RemoteBakeValidator{
+		options:     options,
+		bakeTargets: parseBakeTargets(args),
+	}
+}
+
+func (t *RemoteBakeValidator) Validate(ctx context.Context, nodes []builder.Node, pw progress.Writer) (map[string]buildx.Options, error) {
+	files, inp, err := bake.ReadRemoteFiles(ctx, builder.ToBuildxNodes(nodes), t.bakeTargets.FileURL, t.options.files, pw)
+	if err != nil {
+		return nil, err
+	}
+
+	overrides := overrides(t.options)
+	defaults := map[string]string{
+		"BAKE_CMD_CONTEXT":    t.bakeTargets.CmdContext,
+		"BAKE_LOCAL_PLATFORM": platforms.DefaultString(),
+	}
+
+	targets, _, err := bake.ReadTargets(ctx, files, t.bakeTargets.Targets, overrides, defaults)
+	if err != nil {
+		return nil, err
+	}
+
+	return bake.TargetsToBuildOpt(targets, inp)
+}
+
+type bakeTargets struct {
+	CmdContext string
+	FileURL    string
+	Targets    []string
+}
+
+// parseBakeTargets parses the command-line arguments (aka targets).
+func parseBakeTargets(targets []string) (bkt bakeTargets) {
+	bkt.CmdContext = "cwd://"
+
+	if len(targets) > 0 {
+		if bake.IsRemoteURL(targets[0]) {
+			bkt.FileURL = targets[0]
+			targets = targets[1:]
+			if len(targets) > 0 {
+				if bake.IsRemoteURL(targets[0]) {
+					bkt.CmdContext = targets[0]
+					targets = targets[1:]
+				}
+			}
+		}
+	}
+
+	if len(targets) == 0 {
+		targets = []string{"default"}
+	}
+
+	bkt.Targets = targets
+	return bkt
 }
