@@ -20,6 +20,7 @@ import (
 	"github.com/containerd/console"
 	depotbuild "github.com/depot/cli/pkg/buildx/build"
 	"github.com/depot/cli/pkg/buildx/builder"
+	"github.com/depot/cli/pkg/ci"
 	"github.com/depot/cli/pkg/helpers"
 	"github.com/depot/cli/pkg/load"
 	depotprogress "github.com/depot/cli/pkg/progress"
@@ -423,6 +424,11 @@ func validateBuildOptions(in *buildOptions) (map[string]build.Options, error) {
 		return nil, errors.Errorf("progress=%s and quiet cannot be used together", in.progress)
 	} else if in.quiet {
 		in.progress = "quiet"
+	}
+
+	_, isCI := ci.Provider()
+	if in.progress == progress.PrinterModeAuto && isCI {
+		in.progress = progress.PrinterModePlain
 	}
 
 	contexts, err := parseContextNames(in.contexts)
