@@ -55,7 +55,7 @@ func DepotFastLoad(ctx context.Context, dockerapi docker.APIClient, resp []depot
 		err = progress.Wrap("preparing to load", pw.Write, func(logger progress.SubLogger) error {
 			registry, err = NewRegistryProxy(ctx, proxyOpts, dockerapi, contentClient, logger)
 			if err != nil {
-				err = logger.Wrap(fmt.Sprintf("[registry] unable to start %s", err), func() error { return err })
+				err = logger.Wrap(fmt.Sprintf("[registry] unable to start: %s", err), func() error { return err })
 			}
 			return err
 		})
@@ -205,19 +205,34 @@ type RegistryProxy struct {
 //
 // The running server and proxy container will be cleaned-up when Close() is called.
 func NewRegistryProxy(ctx context.Context, opts *ProxyOpts, dockerapi docker.APIClient, contentClient contentapi.ContentClient, logger progress.SubLogger) (*RegistryProxy, error) {
-	ctx, cancel := context.WithCancel(ctx)
 	proxyContainer, err := RunProxyImage(ctx, dockerapi, opts.ProxyImage, opts.RawManifest, opts.RawConfig)
 	if err != nil {
-		cancel()
 		return nil, err
 	}
 
-	transport := NewTransport(proxyContainer.Conn)
-	go func() {
-		// Canceling ctx will stop the transport.
-		_ = transport.Run(ctx, contentClient)
-	}()
+	// Ten 1-second retries to check for the proxy container being active.
+	var ready bool
+	for retry := 0; retry < 10; retry++ {
+		ready, err = ReadyBy(proxyContainer.Conn, time.Second)
+		if err != nil {
+			ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			defer cancel()
 
+			_ = StopProxyContainer(ctx, dockerapi, proxyContainer.ID)
+			return nil, err
+		}
+		if ready {
+			break
+		}
+	}
+
+	// We fail open to at least try the load because maybe we missed the ready byte.
+	// Otherwise, we would use docker load.
+	if !ready {
+		_ = logger.Wrap("[registry] ready not received", func() error { return nil })
+	}
+
+	transport := NewTransport(proxyContainer.Conn)
 	randomImageName := RandImageName()
 	// The tag is only for the UX during a pull.  The first line will be "pulling manifest".
 	tag := "manifest"
@@ -225,12 +240,20 @@ func NewRegistryProxy(ctx context.Context, opts *ProxyOpts, dockerapi docker.API
 	// forwards registry requests to the Transport over docker attach's stdin and stdout.
 	imageToPull := fmt.Sprintf("localhost:%s/%s:%s", proxyContainer.Port, randomImageName, tag)
 
-	return &RegistryProxy{
+	ctx, cancel := context.WithCancel(ctx)
+	registryProxy := &RegistryProxy{
 		ImageToPull:      imageToPull,
 		ProxyContainerID: proxyContainer.ID,
 		Cancel:           cancel,
 		DockerAPI:        dockerapi,
-	}, nil
+	}
+
+	go func() {
+		// Canceling ctx will stop the transport.
+		_ = transport.Run(ctx, contentClient)
+	}()
+
+	return registryProxy, nil
 }
 
 // Close will stop the registry server and remove the proxy container if it was created.

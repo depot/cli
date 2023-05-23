@@ -4,9 +4,13 @@ import (
 	"bufio"
 	"context"
 	"encoding/binary"
+	"errors"
+	"fmt"
 	"io"
 	"net"
+	"os"
 	"sync"
+	"time"
 
 	contentapi "github.com/containerd/containerd/api/services/content/v1"
 	"github.com/opencontainers/go-digest"
@@ -29,6 +33,39 @@ func NewTransport(c net.Conn) *Transport {
 	}
 
 	return t
+}
+
+const TransportVersion = 3
+
+// ReadyBy waits for at most `deadline` for the transport version number via STDERR.
+// This is useful to check if the proxy container is ready to handle requests.
+func ReadyBy(conn net.Conn, deadline time.Duration) (bool, error) {
+	if err := conn.SetReadDeadline(time.Now().Add(deadline)); err != nil {
+		return false, err
+
+	}
+	defer func() { _ = conn.SetReadDeadline(time.Time{}) }()
+
+	reader := NewAttachReader(conn, STDERR)
+	version := make([]byte, 1)
+	n, err := reader.Read(version)
+	if err != nil {
+		if errors.Is(err, os.ErrDeadlineExceeded) {
+			return false, nil
+		}
+
+		return false, fmt.Errorf("unable to read proxy version: %w", err)
+	}
+
+	if n != 1 {
+		return false, fmt.Errorf("read too few bytes: %d", n)
+	}
+
+	if version[0] != TransportVersion {
+		return false, fmt.Errorf("version mismatch")
+	}
+
+	return true, nil
 }
 
 func (t *Transport) Run(ctx context.Context, client contentapi.ContentClient) error {
@@ -61,7 +98,7 @@ func (t *Transport) Run(ctx context.Context, client contentapi.ContentClient) er
 		defer wg.Done()
 		defer close(t.read)
 
-		r := NewAttachReader(t.conn)
+		r := NewAttachReader(t.conn, STDOUT)
 		for {
 			packet, err := ReadPacket(r)
 			if err != nil {
@@ -175,11 +212,20 @@ func (t *Transport) close() error {
 type AttachReader struct {
 	reader *bufio.Reader
 	extra  []byte
+	fd     FD
 }
 
-func NewAttachReader(c net.Conn) *AttachReader {
+type FD byte
+
+const (
+	STDOUT FD = 1
+	STDERR FD = 2
+)
+
+func NewAttachReader(c net.Conn, fd FD) *AttachReader {
 	return &AttachReader{
 		reader: bufio.NewReader(c),
+		fd:     fd,
 	}
 }
 
@@ -192,8 +238,8 @@ func (r *AttachReader) Read(bs []byte) (int, error) {
 			return 0, err
 		}
 		len := binary.BigEndian.Uint32(bs[4:8])
-		isStderr := bs[0] == 2
-		if isStderr {
+		isFD := bs[0] == byte(r.fd)
+		if !isFD {
 			bs = make([]byte, len)
 			_, err := io.ReadFull(r.reader, bs)
 			if err != nil {

@@ -15,7 +15,7 @@ import (
 	"github.com/docker/go-connections/nat"
 )
 
-const DefaultProxyImageName = "ghcr.io/depot/helper:2.0.0"
+const DefaultProxyImageName = "ghcr.io/depot/helper:3.0.0"
 
 type ProxyContainer struct {
 	ID   string
@@ -61,24 +61,24 @@ func RunProxyImage(ctx context.Context, dockerapi docker.APIClient, proxyImage s
 		return nil, err
 	}
 
+	attach, err := dockerapi.ContainerAttach(ctx, resp.ID, types.ContainerAttachOptions{Stdin: true, Stdout: true, Stderr: true, Logs: true, Stream: true})
+	if err != nil {
+		return nil, err
+	}
+
 	if err := dockerapi.ContainerStart(ctx, resp.ID, types.ContainerStartOptions{}); err != nil {
 		return nil, err
 	}
 
 	inspect, err := dockerapi.ContainerInspect(ctx, resp.ID)
 	if err != nil {
+		_ = StopProxyContainer(ctx, dockerapi, resp.ID)
 		return nil, err
 	}
 	binds := inspect.NetworkSettings.Ports[nat.Port("8888/tcp")]
 	var proxyPortOnHost string
 	for _, bind := range binds {
 		proxyPortOnHost = bind.HostPort
-	}
-
-	attach, err := dockerapi.ContainerAttach(ctx, resp.ID, types.ContainerAttachOptions{Stdin: true, Stdout: true, Logs: true, Stream: true})
-
-	if err != nil {
-		return nil, err
 	}
 
 	return &ProxyContainer{
