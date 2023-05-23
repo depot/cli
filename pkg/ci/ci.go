@@ -88,6 +88,9 @@ func Provider() (string, bool) {
 		switch ciName {
 		case "woodpecker":
 			return "Woodpecker", true
+		case "1":
+		case "true":
+			return "Generic CI", true
 		}
 	}
 
