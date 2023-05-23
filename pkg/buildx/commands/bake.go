@@ -117,9 +117,18 @@ func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator) (er
 	buildxNodes := builder.ToBuildxNodes(nodes)
 	dockerClient := dockerutil.NewClient(dockerCli)
 	dockerConfigDir := confutil.ConfigDir(dockerCli)
-
-	resp, err := build.DepotBuild(ctx, buildxNodes, buildOpts, dockerClient, dockerConfigDir, printer)
+	buildxopts := build.BuildxOpts(buildOpts)
+	_, clients, err := build.ResolveDrivers(ctx, buildxNodes, buildxopts, printer)
 	if err != nil {
+		return wrapBuildError(err, true)
+	}
+
+	linter := NewLinter(NewLintFailureMode(in.lint), clients, buildxNodes)
+	resp, err := build.DepotBuild(ctx, buildxNodes, buildOpts, dockerClient, dockerConfigDir, printer, linter)
+	if err != nil {
+		if errors.Is(err, LintFailed) {
+			linter.Print(os.Stderr, in.progress)
+		}
 		return wrapBuildError(err, true)
 	}
 
@@ -161,13 +170,14 @@ func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator) (er
 			if in.exportLoad {
 				progress.Write(printer, "[load] fast load failed; retrying", func() error { return err })
 				buildOpts, _ = load.WithDepotImagePull(fallbackOpts, load.DepotLoadOptions{})
-				_, err = build.DepotBuild(ctx, buildxNodes, buildOpts, dockerClient, dockerConfigDir, printer)
+				_, err = build.DepotBuild(ctx, buildxNodes, buildOpts, dockerClient, dockerConfigDir, printer, nil)
 			}
 
 			return err
 		}
 	}
 
+	linter.Print(os.Stderr, in.progress)
 	return nil
 }
 
