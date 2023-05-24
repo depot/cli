@@ -25,11 +25,11 @@ func NewCmdResetCache() *cobra.Command {
 		Short: "Reset the cache for a project",
 		Args:  cli.RequiresMaxArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cwd, _ := filepath.Abs(args[0])
-			projectID := helpers.ResolveProjectID(projectID, cwd)
-			if projectID == "" {
-				return errors.Errorf("unknown project ID (run `depot init` or use --project or $DEPOT_PROJECT_ID)")
+			var cwd string
+			if len(args) > 0 {
+				cwd, _ = filepath.Abs(args[0])
 			}
+			projectID := helpers.ResolveProjectID(projectID, cwd)
 			if projectID == "" {
 				return errors.Errorf("unknown project ID (run `depot init` or use --project or $DEPOT_PROJECT_ID)")
 			}
