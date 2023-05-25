@@ -228,16 +228,14 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.No
 	buildxNodes := builder.ToBuildxNodes(nodes)
 	buildxNodes, err = depotbuild.FilterAvailableNodes(buildxNodes)
 	if err != nil {
-		// Make sure that the printer has completed before returning failed builds.
-		// We ignore the error here as it can only be a context error.
 		_ = printer.Wait()
 		return nil, nil, err
 	}
 	buildxopts := depotbuild.BuildxOpts(opts)
+
+	// "Boot" the depot nodes.
 	_, clients, err := depotbuild.ResolveDrivers(ctx, buildxNodes, buildxopts, printer)
 	if err != nil {
-		// Make sure that the printer has completed before returning failed builds.
-		// We ignore the error here as it can only be a context error.
 		_ = printer.Wait()
 		return nil, nil, err
 	}

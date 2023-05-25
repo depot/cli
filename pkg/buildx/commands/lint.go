@@ -24,24 +24,28 @@ import (
 	"github.com/pkg/errors"
 )
 
+// LintFailed is the error returned when linting fails.  Used to fail the build.
 var LintFailed = errors.New("linting failed")
 
 type LintFailure int
 
 const (
-	LintFailureIgnore LintFailure = iota
-	LintFailureWarn
-	LintFailureError
+	// LintSkip skips linting.
+	LintSkip LintFailure = iota
+	// LintWarn prints linting errors as warnings.
+	LintWarn
+	// LintError prints linting errors as errors _AND_ fails the build.
+	LintError
 )
 
 func NewLintFailureMode(cliFlag string) LintFailure {
 	switch strings.ToLower(cliFlag) {
 	case "error":
-		return LintFailureError
+		return LintError
 	case "warn":
-		return LintFailureWarn
+		return LintWarn
 	default:
-		return LintFailureIgnore
+		return LintSkip
 	}
 
 }
@@ -52,7 +56,7 @@ type Linter struct {
 	BuildxNodes []builder.Node
 
 	mu     sync.Mutex
-	Issues map[string][]client.VertexWarning
+	issues map[string][]client.VertexWarning
 }
 
 func NewLinter(failureMode LintFailure, clients []*client.Client, nodes []builder.Node) *Linter {
@@ -60,18 +64,18 @@ func NewLinter(failureMode LintFailure, clients []*client.Client, nodes []builde
 		FailureMode: failureMode,
 		Clients:     clients,
 		BuildxNodes: nodes,
-		Issues:      make(map[string][]client.VertexWarning),
+		issues:      make(map[string][]client.VertexWarning),
 	}
 }
 
 func (l *Linter) Handle(ctx context.Context, target string, driverIndex int, dockerfile *build.DockerfileInputs, printer progress.Writer) error {
-	if l.FailureMode == LintFailureIgnore {
+	if l.FailureMode == LintSkip {
 		return nil
 	}
 
 	// If there is an error parsing the Dockerfile, we'll return it in failure mode;
 	// otherwise, we'll print it as an error message.
-	if dockerfile.Err != nil && l.FailureMode == LintFailureError {
+	if dockerfile.Err != nil && l.FailureMode == LintError {
 		return dockerfile.Err
 	}
 
@@ -82,7 +86,7 @@ func (l *Linter) Handle(ctx context.Context, target string, driverIndex int, doc
 	// This prevents more than one platform architecture from running linting.
 	{
 		l.mu.Lock()
-		if _, ok := l.Issues[target]; ok {
+		if _, ok := l.issues[target]; ok {
 			l.mu.Unlock()
 			return nil
 		}
@@ -118,7 +122,7 @@ func (l *Linter) Handle(ctx context.Context, target string, driverIndex int, doc
 
 	output, err := RunLint(ctx, l.Clients[driverIndex], l.BuildxNodes[driverIndex].Platforms[0], dockerfile)
 	if err != nil {
-		if l.FailureMode == LintFailureError {
+		if l.FailureMode == LintError {
 			return err
 		}
 	}
@@ -197,12 +201,12 @@ func (l *Linter) Handle(ctx context.Context, target string, driverIndex int, doc
 
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if l.Issues == nil {
-		l.Issues = make(map[string][]client.VertexWarning)
+	if l.issues == nil {
+		l.issues = make(map[string][]client.VertexWarning)
 	}
-	l.Issues[target] = warnings
+	l.issues[target] = warnings
 
-	if l.FailureMode == LintFailureError && len(warnings) > 0 {
+	if l.FailureMode == LintError && len(warnings) > 0 {
 		return LintFailed
 	}
 
@@ -308,7 +312,7 @@ type Lint struct {
 
 func (l *Linter) Print(w io.Writer, mode string) {
 	// Copied from printWarnings with a few modifications for errors.
-	if l.FailureMode == LintFailureIgnore {
+	if l.FailureMode == LintSkip {
 		return
 	}
 
@@ -317,7 +321,7 @@ func (l *Linter) Print(w io.Writer, mode string) {
 	}
 
 	numIssues := 0
-	for _, targetIssues := range l.Issues {
+	for _, targetIssues := range l.issues {
 		numIssues += len(targetIssues)
 	}
 	if numIssues == 0 {
@@ -333,16 +337,16 @@ func (l *Linter) Print(w io.Writer, mode string) {
 	}
 
 	color := aec.GreenF
-	if l.FailureMode == LintFailureError {
+	if l.FailureMode == LintError {
 		color = aec.RedF
-	} else if l.FailureMode == LintFailureWarn {
+	} else if l.FailureMode == LintWarn {
 		color = aec.YellowF
 	}
 
 	fmt.Fprintf(sb, ":\n")
 	fmt.Fprint(w, aec.Apply(sb.String(), color))
 
-	for target, issues := range l.Issues {
+	for target, issues := range l.issues {
 		if target == defaultTargetName {
 			target = ""
 		} else {
