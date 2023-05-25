@@ -24,6 +24,8 @@ import (
 	"github.com/pkg/errors"
 )
 
+const Hadolint = "hadolint/hadolint:2.12.0"
+
 // LintFailed is the error returned when linting fails.  Used to fail the build.
 var LintFailed = errors.New("linting failed")
 
@@ -216,7 +218,7 @@ func (l *Linter) Handle(ctx context.Context, target string, driverIndex int, doc
 func RunLint(ctx context.Context, c *client.Client, platform ocispecs.Platform, dockerfile *build.DockerfileInputs) (CaptureOutput, error) {
 	output := CaptureOutput{}
 	_, err := c.Build(ctx, client.SolveOpt{}, "buildx", func(ctx context.Context, c gateway.Client) (*gateway.Result, error) {
-		hadolint := llb.Image("hadolint/hadolint:2.12.0-alpine").
+		hadolint := llb.Image(Hadolint).
 			Platform(platform).
 			File(
 				llb.Mkfile(dockerfile.Filename, 0664, dockerfile.Content),

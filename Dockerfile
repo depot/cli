@@ -5,7 +5,7 @@ ARG TARGETARCH
 RUN mkdir /out
 RUN \
   --mount=target=. \
-  --mount=target=/go/pkg/mod,type=cache \
+  --mount=type=cache,target=/go/pkg/mod \
   GOARCH=${TARGETARCH} CGO_ENABLED=0 \
   go build -ldflags="${LDFLAGS}" \
   -o /out/ ./cmd/...
