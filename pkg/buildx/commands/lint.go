@@ -17,7 +17,6 @@ import (
 	"github.com/moby/buildkit/client/llb"
 	gateway "github.com/moby/buildkit/frontend/gateway/client"
 	"github.com/moby/buildkit/identity"
-	"github.com/moby/buildkit/solver/errdefs"
 	"github.com/moby/buildkit/solver/pb"
 	"github.com/morikuni/aec"
 	"github.com/opencontainers/go-digest"
@@ -280,43 +279,123 @@ func (l *Linter) Print(w io.Writer, mode string) {
 		return
 	}
 
-	for _, issues := range l.Issues {
-		if len(issues) == 0 || mode == progress.PrinterModeQuiet {
-			return
+	issues := []client.VertexWarning{}
+	for _, targetIssues := range l.Issues {
+		issues = append(issues, targetIssues...)
+	}
+
+	if len(issues) == 0 || mode == progress.PrinterModeQuiet {
+		return
+	}
+	fmt.Fprintf(w, "\n ")
+	sb := &bytes.Buffer{}
+	if len(issues) == 1 {
+		fmt.Fprintf(sb, "1 linter issue found")
+	} else {
+		fmt.Fprintf(sb, "%d linter issues found", len(issues))
+	}
+
+	fmt.Fprintf(sb, ":\n")
+	if l.FailureMode == LintFailureError {
+		fmt.Fprint(w, aec.Apply(sb.String(), aec.RedF))
+	} else if l.FailureMode == LintFailureWarn {
+		fmt.Fprint(w, aec.Apply(sb.String(), aec.YellowF))
+	}
+
+	for _, warn := range issues {
+		fmt.Fprintf(w, "%s:%d - %s\n", warn.SourceInfo.Filename, warn.Range[0].Start.Line, warn.Short)
+
+		for _, d := range warn.Detail {
+			fmt.Fprintf(w, "%s\n", d)
 		}
-		fmt.Fprintf(w, "\n ")
-		sb := &bytes.Buffer{}
-		if len(issues) == 1 {
-			fmt.Fprintf(sb, "1 linter issue found")
-		} else {
-			fmt.Fprintf(sb, "%d linter issues found", len(issues))
+		if warn.URL != "" {
+			fmt.Fprintf(w, "  More info: %s\n", warn.URL)
 		}
-
-		fmt.Fprintf(sb, ":\n")
-		if l.FailureMode == LintFailureError {
-			fmt.Fprint(w, aec.Apply(sb.String(), aec.RedF))
-		} else if l.FailureMode == LintFailureWarn {
-			fmt.Fprint(w, aec.Apply(sb.String(), aec.YellowF))
+		if warn.SourceInfo != nil && warn.Range != nil {
+			Print(w, &warn)
 		}
+		fmt.Fprintf(w, "\n")
 
-		for _, warn := range issues {
-			fmt.Fprintf(w, " - %s\n", warn.Short)
+	}
+}
 
-			for _, d := range warn.Detail {
-				fmt.Fprintf(w, "%s\n", d)
-			}
-			if warn.URL != "" {
-				fmt.Fprintf(w, "More info: %s\n", warn.URL)
-			}
-			if warn.SourceInfo != nil && warn.Range != nil {
-				src := errdefs.Source{
-					Info:   warn.SourceInfo,
-					Ranges: warn.Range,
-				}
-				src.Print(w)
-			}
-			fmt.Fprintf(w, "\n")
+func Print(w io.Writer, issue *client.VertexWarning) {
+	si := issue.SourceInfo
+	if si == nil {
+		return
+	}
+	lines := strings.Split(string(si.Data), "\n")
 
+	start, end, ok := getStartEndLine(issue.Range)
+	if !ok {
+		return
+	}
+	if start > len(lines) || start < 1 {
+		return
+	}
+	if end > len(lines) {
+		end = len(lines)
+	}
+
+	pad := 2
+	if end == start {
+		pad = 4
+	}
+
+	var p int
+	for {
+		if p >= pad {
+			break
+		}
+		if start > 1 {
+			start--
+			p++
+		}
+		if end != len(lines) {
+			end++
+			p++
+		}
+		p++
+	}
+
+	fmt.Fprint(w, "\n  --------------------\n")
+	for i := start; i <= end; i++ {
+		pfx := "   "
+		if containsLine(issue.Range, i) {
+			pfx = ">>>"
+		}
+		fmt.Fprintf(w, "   %3d | %s %s\n", i, pfx, lines[i-1])
+	}
+	fmt.Fprintf(w, "  --------------------\n")
+}
+
+func containsLine(rr []*pb.Range, l int) bool {
+	for _, r := range rr {
+		e := r.End.Line
+		if e < r.Start.Line {
+			e = r.Start.Line
+		}
+		if r.Start.Line <= int32(l) && e >= int32(l) {
+			return true
 		}
 	}
+	return false
+}
+
+func getStartEndLine(rr []*pb.Range) (start int, end int, ok bool) {
+	first := true
+	for _, r := range rr {
+		e := r.End.Line
+		if e < r.Start.Line {
+			e = r.Start.Line
+		}
+		if first || int(r.Start.Line) < start {
+			start = int(r.Start.Line)
+		}
+		if int(e) > end {
+			end = int(e)
+		}
+		first = false
+	}
+	return start, end, !first
 }
