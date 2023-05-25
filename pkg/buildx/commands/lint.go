@@ -279,47 +279,62 @@ func (l *Linter) Print(w io.Writer, mode string) {
 		return
 	}
 
-	issues := []client.VertexWarning{}
-	for _, targetIssues := range l.Issues {
-		issues = append(issues, targetIssues...)
-	}
-
-	if len(issues) == 0 || mode == progress.PrinterModeQuiet {
+	if mode == progress.PrinterModeQuiet {
 		return
 	}
+
+	numIssues := 0
+	for _, targetIssues := range l.Issues {
+		numIssues += len(targetIssues)
+	}
+	if numIssues == 0 {
+		return
+	}
+
 	fmt.Fprintf(w, "\n ")
 	sb := &bytes.Buffer{}
-	if len(issues) == 1 {
+	if numIssues == 1 {
 		fmt.Fprintf(sb, "1 linter issue found")
 	} else {
-		fmt.Fprintf(sb, "%d linter issues found", len(issues))
+		fmt.Fprintf(sb, "%d linter issues found", numIssues)
+	}
+
+	color := aec.GreenF
+	if l.FailureMode == LintFailureError {
+		color = aec.RedF
+	} else if l.FailureMode == LintFailureWarn {
+		color = aec.YellowF
 	}
 
 	fmt.Fprintf(sb, ":\n")
-	if l.FailureMode == LintFailureError {
-		fmt.Fprint(w, aec.Apply(sb.String(), aec.RedF))
-	} else if l.FailureMode == LintFailureWarn {
-		fmt.Fprint(w, aec.Apply(sb.String(), aec.YellowF))
-	}
+	fmt.Fprint(w, aec.Apply(sb.String(), color))
 
-	for _, warn := range issues {
-		fmt.Fprintf(w, "%s:%d - %s\n", warn.SourceInfo.Filename, warn.Range[0].Start.Line, warn.Short)
+	for target, issues := range l.Issues {
+		if target == defaultTargetName {
+			target = ""
+		} else {
+			target = fmt.Sprintf("[%s] ", target)
+		}
 
-		for _, d := range warn.Detail {
-			fmt.Fprintf(w, "%s\n", d)
-		}
-		if warn.URL != "" {
-			fmt.Fprintf(w, "  More info: %s\n", warn.URL)
-		}
-		if warn.SourceInfo != nil && warn.Range != nil {
-			Print(w, &warn)
-		}
-		fmt.Fprintf(w, "\n")
+		for _, issue := range issues {
+			fmt.Fprintf(w, "%s%s:%d %s\n", target, issue.SourceInfo.Filename, issue.Range[0].Start.Line, issue.Short)
 
+			for _, d := range issue.Detail {
+				fmt.Fprintf(w, "%s\n", d)
+			}
+			if issue.URL != "" {
+				fmt.Fprintf(w, "  More info: %s\n", issue.URL)
+			}
+			if issue.SourceInfo != nil && issue.Range != nil {
+				Print(w, &issue, color)
+			}
+			fmt.Fprintf(w, "\n")
+
+		}
 	}
 }
 
-func Print(w io.Writer, issue *client.VertexWarning) {
+func Print(w io.Writer, issue *client.VertexWarning, color aec.ANSI) {
 	si := issue.SourceInfo
 	if si == nil {
 		return
@@ -362,7 +377,7 @@ func Print(w io.Writer, issue *client.VertexWarning) {
 	for i := start; i <= end; i++ {
 		pfx := "   "
 		if containsLine(issue.Range, i) {
-			pfx = ">>>"
+			pfx = aec.Apply(">>>", color)
 		}
 		fmt.Fprintf(w, "   %3d | %s %s\n", i, pfx, lines[i-1])
 	}
