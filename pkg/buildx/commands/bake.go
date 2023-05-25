@@ -10,6 +10,7 @@ import (
 
 	"github.com/containerd/containerd/platforms"
 	"github.com/depot/cli/pkg/buildx/build"
+	depotbuild "github.com/depot/cli/pkg/buildx/build"
 	"github.com/depot/cli/pkg/buildx/builder"
 	"github.com/depot/cli/pkg/helpers"
 	"github.com/depot/cli/pkg/load"
@@ -115,6 +116,11 @@ func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator) (er
 	}
 
 	buildxNodes := builder.ToBuildxNodes(nodes)
+	buildxNodes, err = depotbuild.FilterAvailableNodes(buildxNodes)
+	if err != nil {
+		return wrapBuildError(err, true)
+	}
+
 	dockerClient := dockerutil.NewClient(dockerCli)
 	dockerConfigDir := confutil.ConfigDir(dockerCli)
 	buildxopts := build.BuildxOpts(buildOpts)

@@ -69,6 +69,16 @@ func (l *Linter) Handle(ctx context.Context, target string, driverIndex int, doc
 		return nil
 	}
 
+	// If there is an error parsing the Dockerfile, we'll return it in failure mode;
+	// otherwise, we'll print it as an error message.
+	if dockerfile.Err != nil && l.FailureMode == LintFailureError {
+		return dockerfile.Err
+	}
+
+	if len(dockerfile.Content) == 0 {
+		return nil
+	}
+
 	// This prevents more than one platform architecture from running linting.
 	{
 		l.mu.Lock()
@@ -81,13 +91,13 @@ func (l *Linter) Handle(ctx context.Context, target string, driverIndex int, doc
 
 	var warnings []client.VertexWarning
 	if driverIndex > len(l.Clients) {
-		return nil // TODO:?
+		return nil
 	}
 	if l.Clients[driverIndex] == nil {
-		return nil // TODO:?
+		return nil
 	}
 	if len(l.BuildxNodes[driverIndex].Platforms) == 0 {
-		return nil // TODO:?
+		return nil
 	}
 
 	lintName := "[lint]"
@@ -106,10 +116,11 @@ func (l *Linter) Handle(ctx context.Context, target string, driverIndex int, doc
 		},
 	})
 
-	output, err := NewContainer(ctx, l.Clients[driverIndex], l.BuildxNodes[driverIndex].Platforms[0], dockerfile)
+	output, err := RunLint(ctx, l.Clients[driverIndex], l.BuildxNodes[driverIndex].Platforms[0], dockerfile)
 	if err != nil {
-		fmt.Println(err)
-		// TODO? return err?
+		if l.FailureMode == LintFailureError {
+			return err
+		}
 	}
 
 	doneTm := time.Now()
@@ -143,7 +154,8 @@ func (l *Linter) Handle(ctx context.Context, target string, driverIndex int, doc
 		}
 		warnings = append(warnings, warning)
 	}
-	printer.Write(&client.SolveStatus{
+
+	lintResults := &client.SolveStatus{
 		Vertexes: []*client.Vertex{
 			{
 				Digest:    dgst,
@@ -153,7 +165,35 @@ func (l *Linter) Handle(ctx context.Context, target string, driverIndex int, doc
 			},
 		},
 		Statuses: statuses,
-	})
+	}
+	// Report the error from the `RunLint` function up a ways.
+	if err != nil {
+		lintResults.Vertexes[0].Error = err.Error()
+		log := &client.VertexLog{
+			Vertex:    dgst,
+			Stream:    1,
+			Data:      []byte(err.Error()),
+			Timestamp: tm,
+		}
+
+		lintResults.Logs = append(lintResults.Logs, log)
+	}
+
+	// If we were unable to read the dockerfile at all we'll report it here.
+	// Again, this error would come from a ways up this function.
+	if dockerfile.Err != nil {
+		lintResults.Vertexes[0].Error = dockerfile.Err.Error()
+		log := &client.VertexLog{
+			Vertex:    dgst,
+			Stream:    1,
+			Data:      []byte(dockerfile.Err.Error()),
+			Timestamp: tm,
+		}
+
+		lintResults.Logs = append(lintResults.Logs, log)
+	}
+
+	printer.Write(lintResults)
 
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -169,10 +209,10 @@ func (l *Linter) Handle(ctx context.Context, target string, driverIndex int, doc
 	return nil
 }
 
-func NewContainer(ctx context.Context, c *client.Client, platform ocispecs.Platform, dockerfile *build.DockerfileInputs) (CaptureOutput, error) {
+func RunLint(ctx context.Context, c *client.Client, platform ocispecs.Platform, dockerfile *build.DockerfileInputs) (CaptureOutput, error) {
 	output := CaptureOutput{}
 	_, err := c.Build(ctx, client.SolveOpt{}, "buildx", func(ctx context.Context, c gateway.Client) (*gateway.Result, error) {
-		hadolint := llb.Image("hadolint/hadolint:latest-alpine").
+		hadolint := llb.Image("hadolint/hadolint:2.12.0-alpine").
 			Platform(platform).
 			File(
 				llb.Mkfile(dockerfile.Filename, 0664, dockerfile.Content),
@@ -205,13 +245,6 @@ func NewContainer(ctx context.Context, c *client.Client, platform ocispecs.Platf
 		if err != nil {
 			return nil, err
 		}
-
-		defer func() {
-			// TODO: you could return the error here if we want to fail the build because of linting errors.
-			if err != nil {
-				fmt.Printf("release err: %v\n", err)
-			}
-		}()
 
 		proc, err := bkContainer.Start(ctx, gateway.StartRequest{
 			Args:   []string{"/bin/hadolint", dockerfile.Filename, "-f", "json"},

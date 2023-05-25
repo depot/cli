@@ -162,7 +162,7 @@ func allIndexes(l int) []int {
 	return out
 }
 
-func EnsureBooted(ctx context.Context, nodes []builder.Node, idxs []int, pw progress.Writer) ([]*client.Client, error) {
+func ensureBooted(ctx context.Context, nodes []builder.Node, idxs []int, pw progress.Writer) ([]*client.Client, error) {
 	clients := make([]*client.Client, len(nodes))
 
 	baseCtx := ctx
@@ -238,7 +238,7 @@ func ResolveDrivers(ctx context.Context, nodes []builder.Node, opt map[string]Op
 		for k, opt := range opt {
 			m[k] = []driverPair{{driverIndex: 0, platforms: opt.Platforms}}
 		}
-		clients, err := EnsureBooted(ctx, nodes, driverIndexes(m), pw)
+		clients, err := ensureBooted(ctx, nodes, driverIndexes(m), pw)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -248,7 +248,7 @@ func ResolveDrivers(ctx context.Context, nodes []builder.Node, opt map[string]Op
 	// map based on existing platforms
 	if !undetectedPlatform {
 		m := splitToDriverPairs(availablePlatforms, opt)
-		clients, err := EnsureBooted(ctx, nodes, driverIndexes(m), pw)
+		clients, err := ensureBooted(ctx, nodes, driverIndexes(m), pw)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -256,7 +256,7 @@ func ResolveDrivers(ctx context.Context, nodes []builder.Node, opt map[string]Op
 	}
 
 	// boot all drivers in k
-	clients, err := EnsureBooted(ctx, nodes, allIndexes(len(nodes)), pw)
+	clients, err := ensureBooted(ctx, nodes, allIndexes(len(nodes)), pw)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1398,10 +1398,16 @@ func createTempDockerfile(r io.Reader) (string, error) {
 	return dir, err
 }
 
+// DockerfileInputs represents the dockerfile to be built.
 type DockerfileInputs struct {
+	// Filename is the name of the Dockerfile.
 	Filename string
-	Content  []byte
-	Release  func()
+	// Content is the in-memory copy of the Dockerfile.
+	Content []byte
+	// Release is called to remove the local docker copy.
+	Release func()
+	// Err is set if there was an error reading the Dockerfile.
+	Err error
 }
 
 func LoadInputs(ctx context.Context, d driver.Driver, inp Inputs, pw progress.Writer, target *client.SolveOpt) (*DockerfileInputs, error) {
@@ -1418,6 +1424,7 @@ func LoadInputs(ctx context.Context, d driver.Driver, inp Inputs, pw progress.Wr
 		dockerfileName   = inp.DockerfilePath
 		toRemove         []string
 		dockerfile       []byte
+		dockerErr        error
 	)
 
 	switch {
@@ -1426,7 +1433,7 @@ func LoadInputs(ctx context.Context, d driver.Driver, inp Inputs, pw progress.Wr
 			target.FrontendInputs = make(map[string]llb.State)
 		}
 		target.FrontendInputs["context"] = *inp.ContextState
-		target.FrontendInputs["dockerfile"] = *inp.ContextState // TODO: check
+		target.FrontendInputs["dockerfile"] = *inp.ContextState
 	case inp.ContextPath == "-":
 		if inp.DockerfilePath == "-" {
 			return nil, errStdinConflict
@@ -1441,7 +1448,7 @@ func LoadInputs(ctx context.Context, d driver.Driver, inp Inputs, pw progress.Wr
 			if isArchive(magic) {
 				// stdin is context
 				up := uploadprovider.New()
-				target.FrontendAttrs["context"] = up.Add(buf) // TODO: check
+				target.FrontendAttrs["context"] = up.Add(buf)
 				target.Session = append(target.Session, up)
 			} else {
 				if inp.DockerfilePath != "" {
@@ -1511,11 +1518,7 @@ func LoadInputs(ctx context.Context, d driver.Driver, inp Inputs, pw progress.Wr
 
 	target.FrontendAttrs["filename"] = dockerfileName
 	dockerfilePath := path.Join(dockerfileDir, dockerfileName)
-	dockerfile, err = os.ReadFile(dockerfilePath)
-	// TODO: what to do for this error?
-	if err != nil {
-		fmt.Printf("Error reading dockerfile %s %v\n", dockerfilePath, err)
-	}
+	dockerfile, dockerErr = os.ReadFile(dockerfilePath)
 
 	for k, v := range inp.NamedContexts {
 		target.FrontendAttrs["frontend.caps"] = "moby.buildkit.frontend.contexts+forward"
@@ -1620,6 +1623,7 @@ func LoadInputs(ctx context.Context, d driver.Driver, inp Inputs, pw progress.Wr
 		Filename: dockerfileName,
 		Content:  dockerfile,
 		Release:  release,
+		Err:      dockerErr,
 	}, nil
 }
 

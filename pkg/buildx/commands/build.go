@@ -393,12 +393,18 @@ func printWarnings(w io.Writer, warnings []client.VertexWarning, mode string) {
 	} else {
 		fmt.Fprintf(sb, "%d warnings found", len(warnings))
 	}
+	if logrus.GetLevel() < logrus.DebugLevel {
+		fmt.Fprintf(sb, " (use --debug to expand)")
+	}
 
 	fmt.Fprintf(sb, ":\n")
 	fmt.Fprint(w, aec.Apply(sb.String(), aec.YellowF))
 
 	for _, warn := range warnings {
 		fmt.Fprintf(w, " - %s\n", warn.Short)
+		if logrus.GetLevel() < logrus.DebugLevel {
+			continue
+		}
 
 		for _, d := range warn.Detail {
 			fmt.Fprintf(w, "%s\n", d)
