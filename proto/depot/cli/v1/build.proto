@@ -53,6 +53,9 @@ message CreateBuildResponse {
   message Profiler {
     string token = 1;
   }
+
+  // Build URL is the URL to the build output.
+  string build_url = 5;
 }
 
 message Registry {

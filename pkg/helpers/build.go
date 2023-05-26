@@ -21,7 +21,9 @@ type Build struct {
 	Token            string
 	UseLocalRegistry bool
 	ProxyImage       string
-	Finish           func(error)
+	// BuildURL is the URL to the build on the depot web UI.
+	BuildURL string
+	Finish   func(error)
 }
 
 func BeginBuild(ctx context.Context, req *cliv1.CreateBuildRequest, token string) (build Build, err error) {
@@ -57,6 +59,8 @@ func BeginBuild(ctx context.Context, req *cliv1.CreateBuildRequest, token string
 		if build.ProxyImage == "" {
 			build.ProxyImage = load.DefaultProxyImageName
 		}
+
+		build.BuildURL = b.Msg.BuildUrl
 	}
 
 	profiler.StartProfiler(build.ID, profilerToken)
