@@ -7,7 +7,7 @@ os=$(uname -s)
 arch=$(uname -m)
 version=${1:-latest}
 
-release_url=$(curl --silent --write-out "%{redirect_url}\n" --output /dev/null "https://dl.depot.dev/cli/download/$os/$arch/$version")
+release_url=$(curl --silent --no-location --write-out "%{redirect_url}\n" --output /dev/null "https://dl.depot.dev/cli/download/$os/$arch/$version")
 if [ ! "$release_url" ]; then
   echo "Error: Unable to find a Depot CLI release for $os/$arch/$version - see https://github.com/depot/cli/releases for all versions" 1>&2
   exit 1
