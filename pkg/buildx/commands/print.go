@@ -13,11 +13,14 @@ import (
 	"github.com/containerd/containerd/platforms"
 	"github.com/docker/buildx/bake"
 	"github.com/docker/buildx/build"
+	buildxprogress "github.com/docker/buildx/util/progress"
 	"github.com/docker/cli/cli/command"
 	"github.com/docker/docker/api/types/versions"
+	"github.com/mgutz/ansi"
 	"github.com/moby/buildkit/frontend/subrequests"
 	"github.com/moby/buildkit/frontend/subrequests/outline"
 	"github.com/moby/buildkit/frontend/subrequests/targets"
+	"github.com/savioxavier/termlink"
 )
 
 func BakePrint(dockerCli command.Cli, targets []string, in BakeOptions) (err error) {
@@ -86,4 +89,20 @@ func printValue(printer printFunc, version string, format string, res map[string
 		return nil
 	}
 	return printer([]byte(res["result.json"]), os.Stdout)
+}
+
+func PrintBuildURL(buildURL, progress string) {
+	if buildURL != "" {
+		if progress == buildxprogress.PrinterModePlain {
+			fmt.Fprintf(os.Stderr, "\nBuild Summary: %s\n", buildURL)
+		} else {
+			title := ansi.Color("Build Summary", "cyan+b")
+			if termlink.SupportsHyperlinks() {
+				buildURL = termlink.Link(buildURL, buildURL)
+			} else {
+				buildURL = ansi.Color(buildURL, "default+u")
+			}
+			fmt.Fprintf(os.Stderr, "\n%s: %s\n", title, buildURL)
+		}
+	}
 }

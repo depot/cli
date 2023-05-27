@@ -589,6 +589,7 @@ func BuildCmd(dockerCli command.Cli) *cobra.Command {
 			var buildErr error
 			defer func() {
 				build.Finish(buildErr)
+				PrintBuildURL(build.BuildURL, options.progress)
 			}()
 
 			options.builderOptions = []builder.Option{builder.WithDepotOptions(buildPlatform, build)}
