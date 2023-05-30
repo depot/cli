@@ -768,7 +768,7 @@ func depotBuildFlags(cmd *cobra.Command, options *DepotOptions, flags *pflag.Fla
 	flags.StringVar(&options.buildPlatform, "build-platform", "dynamic", `Run builds on this platform ("dynamic", "linux/amd64", "linux/arm64")`)
 
 	flags.StringVar(&options.lint, "lint", "ignore", `Lint Dockerfiles ("ignore", "warn", "error")`)
-	cmd.RegisterFlagCompletionFunc("lint", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	_ = cmd.RegisterFlagCompletionFunc("lint", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		return []string{
 			"ignore\tDon't run linting [default]",
 			"warn\tRun linting, print issues",
