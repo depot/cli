@@ -31,22 +31,34 @@ var LintFailed = errors.New("linting failed")
 type LintFailure int
 
 const (
-	// LintSkip skips linting.
-	LintSkip LintFailure = iota
-	// LintWarn prints linting errors as warnings.
+	// LintError fails builds on all errors.
+	LintError LintFailure = iota
+	// LintWarn fails builds on all warnings and errors.
 	LintWarn
-	// LintError prints linting errors as errors _AND_ fails the build.
-	LintError
+	// LintInfo fails builds on all linting issues.
+	LintInfo
+	// LintNone does not fail the build on linting issues.
+	LintNone
+	// LintSkip skips linting.
+	LintSkip
 )
 
-func NewLintFailureMode(cliFlag string) LintFailure {
-	switch strings.ToLower(cliFlag) {
+func NewLintFailureMode(lint bool, lintFailOn string) LintFailure {
+	if !lint {
+		return LintSkip
+	}
+
+	switch strings.ToLower(lintFailOn) {
 	case "error":
 		return LintError
-	case "warn":
+	case "warn", "warning":
 		return LintWarn
+	case "info":
+		return LintInfo
+	case "none":
+		return LintNone
 	default:
-		return LintSkip
+		return LintError
 	}
 }
 
@@ -56,6 +68,8 @@ func (l LintFailure) Color() aec.ANSI {
 		return aec.RedF
 	case LintWarn:
 		return aec.YellowF
+	case LintInfo:
+		return aec.BlueF
 	default:
 		return aec.GreenF
 	}
@@ -86,7 +100,7 @@ func (l *Linter) Handle(ctx context.Context, target string, driverIndex int, doc
 
 	// If there is an error parsing the Dockerfile, we'll return it in failure mode;
 	// otherwise, we'll print it as an error message.
-	if dockerfile.Err != nil && l.FailureMode == LintError {
+	if dockerfile.Err != nil && l.FailureMode != LintNone {
 		return dockerfile.Err
 	}
 
@@ -133,14 +147,19 @@ func (l *Linter) Handle(ctx context.Context, target string, driverIndex int, doc
 
 	output, err := RunLint(ctx, l.Clients[driverIndex], l.BuildxNodes[driverIndex].Platforms[0], dockerfile)
 	if err != nil {
-		if l.FailureMode == LintError {
+		if l.FailureMode != LintNone {
 			return err
 		}
 	}
 
 	doneTm := time.Now()
+	worstIssueLevel := LintLevelUnknown
 	statuses := make([]*client.VertexStatus, 0, len(output.Messages))
 	for _, lint := range output.Lints() {
+		if lint.LintLevel < worstIssueLevel {
+			worstIssueLevel = lint.LintLevel
+		}
+
 		status := &client.VertexStatus{
 			Vertex:    dgst,
 			ID:        fmt.Sprintf("%s %s:%d %s: %s", strings.ToUpper(lint.Level), lint.File, lint.Line, lint.Code, lint.Message),
@@ -218,7 +237,10 @@ func (l *Linter) Handle(ctx context.Context, target string, driverIndex int, doc
 	}
 	l.issues[target] = warnings
 
-	if l.FailureMode == LintError && len(warnings) > 0 {
+	// We are using the iota for both the LintLevel and the LintFailureMode by
+	// assuming they are the same numbers for both.
+	exceedsFailureSeverity := int(l.FailureMode) >= int(worstIssueLevel)
+	if len(warnings) > 0 && l.FailureMode != LintNone && exceedsFailureSeverity {
 		return LintFailed
 	}
 
@@ -332,11 +354,10 @@ type Lint struct {
 type LintLevel int
 
 const (
-	LintLevelUnknown LintLevel = iota
-	LintLevelError
+	LintLevelError LintLevel = iota
 	LintLevelWarn
 	LintLevelInfo
-	LintLevelStyle
+	LintLevelUnknown
 )
 
 func NewLintLevel(level string) LintLevel {
@@ -348,7 +369,7 @@ func NewLintLevel(level string) LintLevel {
 	case "INFO":
 		return LintLevelInfo
 	case "STYLE":
-		return LintLevelStyle
+		return LintLevelInfo
 	default:
 		return LintLevelUnknown
 	}
@@ -362,8 +383,6 @@ func (l LintLevel) String() string {
 		return "WARN"
 	case LintLevelInfo:
 		return "INFO"
-	case LintLevelStyle:
-		return "STYLE"
 	default:
 		return ""
 	}
@@ -377,8 +396,6 @@ func (l LintLevel) Color() aec.ANSI {
 		return aec.YellowF
 	case LintLevelInfo:
 		return aec.BlueF
-	case LintLevelStyle:
-		return aec.MagentaF
 	default:
 		return aec.DefaultF
 	}
@@ -436,7 +453,7 @@ func (l *Linter) Print(w io.Writer, mode string) {
 			PrintURLLink(w, "  More info", issue.URL, mode)
 
 			if issue.SourceInfo != nil && issue.Range != nil {
-				Print(w, &issue, l.FailureMode, mode)
+				PrintFileContext(w, &issue, lintLevel, mode)
 			}
 			fmt.Fprintf(w, "\n")
 
@@ -444,7 +461,7 @@ func (l *Linter) Print(w io.Writer, mode string) {
 	}
 }
 
-func Print(w io.Writer, issue *client.VertexWarning, lintColor LintFailure, progressMode string) {
+func PrintFileContext(w io.Writer, issue *client.VertexWarning, lintColor LintLevel, progressMode string) {
 	si := issue.SourceInfo
 	if si == nil {
 		return

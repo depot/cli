@@ -111,7 +111,8 @@ type DepotOptions struct {
 	buildPlatform    string
 	useLocalRegistry bool
 	proxyImage       string
-	lint             string
+	lint             bool
+	lintFailOn       string
 	allowNoOutput    bool
 	builderOptions   []builder.Option
 }
@@ -247,7 +248,7 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.No
 
 	dockerClient := dockerutil.NewClient(dockerCli)
 	dockerConfigDir := confutil.ConfigDir(dockerCli)
-	linter := NewLinter(NewLintFailureMode(depotOpts.lint), clients, buildxNodes)
+	linter := NewLinter(NewLintFailureMode(depotOpts.lint, depotOpts.lintFailOn), clients, buildxNodes)
 
 	resp, err := depotbuild.DepotBuildWithResultHandler(ctx, buildxNodes, opts, dockerClient, dockerConfigDir, printer, linter, func(driverIndex int, gotRes *build.ResultContext) {
 		mu.Lock()
@@ -767,12 +768,14 @@ func depotBuildFlags(cmd *cobra.Command, options *DepotOptions, flags *pflag.Fla
 	flags.StringVar(&options.token, "token", "", "Depot API token")
 	flags.StringVar(&options.buildPlatform, "build-platform", "dynamic", `Run builds on this platform ("dynamic", "linux/amd64", "linux/arm64")`)
 
-	flags.StringVar(&options.lint, "lint", "ignore", `Lint Dockerfiles ("ignore", "warn", "error")`)
-	_ = cmd.RegisterFlagCompletionFunc("lint", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	flags.BoolVar(&options.lint, "lint", false, `Lint Dockerfiles`)
+	flags.StringVar(&options.lintFailOn, "lint-fail-on", "error", `controls lint severity that fails the build ("info", "warn", "error", "none")`)
+	_ = cmd.RegisterFlagCompletionFunc("lint-fail-on", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		return []string{
-			"ignore\tDon't run linting [default]",
-			"warn\tRun linting, print issues",
-			"error\tRun linting, fail on issues",
+			"error\tFail on errors [default]",
+			"warn\tFail on errors and warnings",
+			"info\tFail on all lint issues",
+			"none\tLint issues do not fail the build",
 		}, cobra.ShellCompDirectiveDefault
 	})
 
