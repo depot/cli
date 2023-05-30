@@ -361,9 +361,9 @@ func (l *Linter) Print(w io.Writer, mode string) {
 			for _, d := range issue.Detail {
 				fmt.Fprintf(w, "%s\n", d)
 			}
-			if issue.URL != "" {
-				fmt.Fprintf(w, "  More info: %s\n", issue.URL)
-			}
+
+			PrintURLLink(w, "  More info", issue.URL, mode)
+
 			if issue.SourceInfo != nil && issue.Range != nil {
 				Print(w, &issue, color)
 			}
