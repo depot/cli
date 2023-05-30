@@ -90,7 +90,7 @@ func BeginBuild(ctx context.Context, req *cliv1.CreateBuildRequest, token string
 	return build, err
 }
 
-func NewBuildRequest(project string, opts map[string]build.Options, push, load bool) *cliv1.CreateBuildRequest {
+func NewBuildRequest(project string, opts map[string]build.Options, push, load, lint bool) *cliv1.CreateBuildRequest {
 	// There is only one target for a build request, "default".
 	for _, opts := range opts {
 		outputs := make([]*cliv1.BuildOutput, len(opts.Exports))
@@ -115,6 +115,7 @@ func NewBuildRequest(project string, opts map[string]build.Options, push, load b
 					Outputs:    outputs,
 					Push:       push,
 					Load:       load,
+					Lint:       lint,
 					TargetName: target,
 				},
 			},
@@ -125,7 +126,7 @@ func NewBuildRequest(project string, opts map[string]build.Options, push, load b
 	return &cliv1.CreateBuildRequest{ProjectId: project}
 }
 
-func NewBakeRequest(project string, opts map[string]build.Options, push, load bool) *cliv1.CreateBuildRequest {
+func NewBakeRequest(project string, opts map[string]build.Options, push, load, lint bool) *cliv1.CreateBuildRequest {
 	targets := make([]*cliv1.BuildOptions, 0, len(opts))
 
 	for name, opts := range opts {
@@ -144,6 +145,7 @@ func NewBakeRequest(project string, opts map[string]build.Options, push, load bo
 			Outputs:    outputs,
 			Push:       push,
 			Load:       load,
+			Lint:       lint,
 			TargetName: &name,
 		})
 	}

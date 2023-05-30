@@ -246,6 +246,7 @@ func BakeCmd(dockerCli command.Cli) *cobra.Command {
 				validatedOpts,
 				options.exportPush,
 				options.exportLoad,
+				options.lint,
 			)
 			build, err := helpers.BeginBuild(context.Background(), req, token)
 			if err != nil {
