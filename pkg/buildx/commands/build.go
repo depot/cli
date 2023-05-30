@@ -111,6 +111,8 @@ type DepotOptions struct {
 	buildPlatform    string
 	useLocalRegistry bool
 	proxyImage       string
+	lint             bool
+	lintFailOn       string
 	allowNoOutput    bool
 	builderOptions   []builder.Option
 }
@@ -224,16 +226,31 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.No
 		)
 	}
 
+	buildxNodes := builder.ToBuildxNodes(nodes)
+	buildxNodes, err = depotbuild.FilterAvailableNodes(buildxNodes)
+	if err != nil {
+		_ = printer.Wait()
+		return nil, nil, err
+	}
+	buildxopts := depotbuild.BuildxOpts(opts)
+
+	// "Boot" the depot nodes.
+	_, clients, err := depotbuild.ResolveDrivers(ctx, buildxNodes, buildxopts, printer)
+	if err != nil {
+		_ = printer.Wait()
+		return nil, nil, err
+	}
+
 	var (
 		mu  sync.Mutex
 		idx int
 	)
 
-	buildxNodes := builder.ToBuildxNodes(nodes)
 	dockerClient := dockerutil.NewClient(dockerCli)
 	dockerConfigDir := confutil.ConfigDir(dockerCli)
+	linter := NewLinter(NewLintFailureMode(depotOpts.lint, depotOpts.lintFailOn), clients, buildxNodes)
 
-	resp, err := depotbuild.DepotBuildWithResultHandler(ctx, buildxNodes, opts, dockerClient, dockerConfigDir, printer, func(driverIndex int, gotRes *build.ResultContext) {
+	resp, err := depotbuild.DepotBuildWithResultHandler(ctx, buildxNodes, opts, dockerClient, dockerConfigDir, printer, linter, func(driverIndex int, gotRes *build.ResultContext) {
 		mu.Lock()
 		defer mu.Unlock()
 		if res == nil || driverIndex < idx {
@@ -245,6 +262,10 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.No
 		// Make sure that the printer has completed before returning failed builds.
 		// We ignore the error here as it can only be a context error.
 		_ = printer.Wait()
+
+		if errors.Is(err, LintFailed) {
+			linter.Print(os.Stderr, progressMode)
+		}
 		return nil, nil, err
 	}
 
@@ -289,7 +310,7 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.No
 			if retryable {
 				progress.Write(printer, "[load] fast load failed; retrying", func() error { return err })
 				opts, _ = load.WithDepotImagePull(fallbackOpts, load.DepotLoadOptions{})
-				_, err = depotbuild.DepotBuildWithResultHandler(ctx, buildxNodes, opts, dockerClient, dockerConfigDir, printer, nil, allowNoOutput)
+				_, err = depotbuild.DepotBuildWithResultHandler(ctx, buildxNodes, opts, dockerClient, dockerConfigDir, printer, nil, nil, allowNoOutput)
 			}
 		}
 	}
@@ -300,6 +321,7 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.No
 	}
 
 	printWarnings(os.Stderr, printer.Warnings(), progressMode)
+	linter.Print(os.Stderr, progressMode)
 
 	for _, buildRes := range resp {
 		if opts[buildRes.Name].PrintFunc != nil {
@@ -373,6 +395,7 @@ func printWarnings(w io.Writer, warnings []client.VertexWarning, mode string) {
 	if logrus.GetLevel() < logrus.DebugLevel {
 		fmt.Fprintf(sb, " (use --debug to expand)")
 	}
+
 	fmt.Fprintf(sb, ":\n")
 	fmt.Fprint(w, aec.Apply(sb.String(), aec.YellowF))
 
@@ -381,6 +404,7 @@ func printWarnings(w io.Writer, warnings []client.VertexWarning, mode string) {
 		if logrus.GetLevel() < logrus.DebugLevel {
 			continue
 		}
+
 		for _, d := range warn.Detail {
 			fmt.Fprintf(w, "%s\n", d)
 		}
@@ -580,6 +604,7 @@ func BuildCmd(dockerCli command.Cli) *cobra.Command {
 				validatedOpts,
 				options.exportPush,
 				options.exportLoad,
+				options.lint,
 			)
 
 			build, err := helpers.BeginBuild(context.Background(), req, token)
@@ -728,7 +753,7 @@ func BuildCmd(dockerCli command.Cli) *cobra.Command {
 	_ = flags.MarkHidden("force-rm")
 
 	commonBuildFlags(&options.commonOptions, flags)
-	depotBuildFlags(&options.DepotOptions, flags)
+	depotBuildFlags(cmd, &options.DepotOptions, flags)
 	return cmd
 }
 
@@ -739,10 +764,21 @@ func commonBuildFlags(options *commonOptions, flags *pflag.FlagSet) {
 	flags.StringVar(&options.metadataFile, "metadata-file", "", "Write build result metadata to the file")
 }
 
-func depotBuildFlags(options *DepotOptions, flags *pflag.FlagSet) {
+func depotBuildFlags(cmd *cobra.Command, options *DepotOptions, flags *pflag.FlagSet) {
 	flags.StringVar(&options.project, "project", "", "Depot project ID")
 	flags.StringVar(&options.token, "token", "", "Depot API token")
 	flags.StringVar(&options.buildPlatform, "build-platform", "dynamic", `Run builds on this platform ("dynamic", "linux/amd64", "linux/arm64")`)
+
+	flags.BoolVar(&options.lint, "lint", false, `Lint Dockerfiles`)
+	flags.StringVar(&options.lintFailOn, "lint-fail-on", "error", `controls lint severity that fails the build ("info", "warn", "error", "none")`)
+	_ = cmd.RegisterFlagCompletionFunc("lint-fail-on", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		return []string{
+			"error\tFail on errors [default]",
+			"warn\tFail on errors and warnings",
+			"info\tFail on all lint issues",
+			"none\tLint issues do not fail the build",
+		}, cobra.ShellCompDirectiveDefault
+	})
 
 	allowNoOutput := false
 	if v := os.Getenv("DEPOT_SUPPRESS_NO_OUTPUT_WARNING"); v != "" {

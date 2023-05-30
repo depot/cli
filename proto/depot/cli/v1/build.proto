@@ -29,6 +29,9 @@ message BuildOptions {
   bool load = 5;
   // Bake will always have a target name, whereas build's target name is rarely used.
   optional string target_name = 6;
+
+  // Linting was requested.
+  bool lint = 7;
 }
 
 enum Command {

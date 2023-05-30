@@ -115,11 +115,27 @@ func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator) (er
 	}
 
 	buildxNodes := builder.ToBuildxNodes(nodes)
+	buildxNodes, err = build.FilterAvailableNodes(buildxNodes)
+	if err != nil {
+		return wrapBuildError(err, true)
+	}
+
 	dockerClient := dockerutil.NewClient(dockerCli)
 	dockerConfigDir := confutil.ConfigDir(dockerCli)
+	buildxopts := build.BuildxOpts(buildOpts)
 
-	resp, err := build.DepotBuild(ctx, buildxNodes, buildOpts, dockerClient, dockerConfigDir, printer)
+	// "Boot" the depot nodes.
+	_, clients, err := build.ResolveDrivers(ctx, buildxNodes, buildxopts, printer)
 	if err != nil {
+		return wrapBuildError(err, true)
+	}
+
+	linter := NewLinter(NewLintFailureMode(in.lint, in.lintFailOn), clients, buildxNodes)
+	resp, err := build.DepotBuild(ctx, buildxNodes, buildOpts, dockerClient, dockerConfigDir, printer, linter)
+	if err != nil {
+		if errors.Is(err, LintFailed) {
+			linter.Print(os.Stderr, in.progress)
+		}
 		return wrapBuildError(err, true)
 	}
 
@@ -161,13 +177,14 @@ func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator) (er
 			if in.exportLoad {
 				progress.Write(printer, "[load] fast load failed; retrying", func() error { return err })
 				buildOpts, _ = load.WithDepotImagePull(fallbackOpts, load.DepotLoadOptions{})
-				_, err = build.DepotBuild(ctx, buildxNodes, buildOpts, dockerClient, dockerConfigDir, printer)
+				_, err = build.DepotBuild(ctx, buildxNodes, buildOpts, dockerClient, dockerConfigDir, printer, nil)
 			}
 
 			return err
 		}
 	}
 
+	linter.Print(os.Stderr, in.progress)
 	return nil
 }
 
@@ -229,6 +246,7 @@ func BakeCmd(dockerCli command.Cli) *cobra.Command {
 				validatedOpts,
 				options.exportPush,
 				options.exportLoad,
+				options.lint,
 			)
 			build, err := helpers.BeginBuild(context.Background(), req, token)
 			if err != nil {
@@ -269,7 +287,7 @@ func BakeCmd(dockerCli command.Cli) *cobra.Command {
 	flags.StringArrayVar(&options.overrides, "set", nil, `Override target value (e.g., "targetpattern.key=value")`)
 
 	commonBuildFlags(&options.commonOptions, flags)
-	depotBuildFlags(&options.DepotOptions, flags)
+	depotBuildFlags(cmd, &options.DepotOptions, flags)
 
 	return cmd
 }
