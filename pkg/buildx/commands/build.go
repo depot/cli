@@ -751,7 +751,7 @@ func BuildCmd(dockerCli command.Cli) *cobra.Command {
 	_ = flags.MarkHidden("force-rm")
 
 	commonBuildFlags(&options.commonOptions, flags)
-	depotBuildFlags(&options.DepotOptions, flags)
+	depotBuildFlags(cmd, &options.DepotOptions, flags)
 	return cmd
 }
 
@@ -762,11 +762,19 @@ func commonBuildFlags(options *commonOptions, flags *pflag.FlagSet) {
 	flags.StringVar(&options.metadataFile, "metadata-file", "", "Write build result metadata to the file")
 }
 
-func depotBuildFlags(options *DepotOptions, flags *pflag.FlagSet) {
+func depotBuildFlags(cmd *cobra.Command, options *DepotOptions, flags *pflag.FlagSet) {
 	flags.StringVar(&options.project, "project", "", "Depot project ID")
 	flags.StringVar(&options.token, "token", "", "Depot API token")
 	flags.StringVar(&options.buildPlatform, "build-platform", "dynamic", `Run builds on this platform ("dynamic", "linux/amd64", "linux/arm64")`)
+
 	flags.StringVar(&options.lint, "lint", "ignore", `Lint Dockerfiles ("ignore", "warn", "error")`)
+	cmd.RegisterFlagCompletionFunc("lint", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		return []string{
+			"ignore\tDon't run linting [default]",
+			"warn\tRun linting, print issues",
+			"error\tRun linting, fail on issues",
+		}, cobra.ShellCompDirectiveDefault
+	})
 
 	allowNoOutput := false
 	if v := os.Getenv("DEPOT_SUPPRESS_NO_OUTPUT_WARNING"); v != "" {
