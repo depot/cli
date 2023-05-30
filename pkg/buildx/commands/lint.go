@@ -1,7 +1,6 @@
 package commands
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -49,7 +48,17 @@ func NewLintFailureMode(cliFlag string) LintFailure {
 	default:
 		return LintSkip
 	}
+}
 
+func (l LintFailure) Color() aec.ANSI {
+	switch l {
+	case LintError:
+		return aec.RedF
+	case LintWarn:
+		return aec.YellowF
+	default:
+		return aec.GreenF
+	}
 }
 
 type Linter struct {
@@ -140,9 +149,10 @@ func (l *Linter) Handle(ctx context.Context, target string, driverIndex int, doc
 			Completed: &doneTm,
 		}
 		statuses = append(statuses, status)
+
 		warning := client.VertexWarning{
 			Vertex: dgst,
-			Level:  2,
+			Level:  int(lint.LintLevel),
 			Short:  []byte(lint.Message),
 			SourceInfo: &pb.SourceInfo{
 				Filename: lint.File,
@@ -298,18 +308,80 @@ func (o *CaptureOutput) Lints() []Lint {
 		if err := json.Unmarshal([]byte(msg), &lints); err != nil {
 			continue
 		}
+
+		for i := range lints {
+			lints[i].LintLevel = NewLintLevel(lints[i].Level)
+		}
+
 		allLints = append(allLints, lints...)
 	}
 	return allLints
 }
 
 type Lint struct {
-	Code    string `json:"code"`
-	Column  int    `json:"column"`
-	File    string `json:"file"`
-	Level   string `json:"level"`
-	Line    int    `json:"line"`
-	Message string `json:"message"`
+	Code   string `json:"code"`
+	Column int    `json:"column"`
+	File   string `json:"file"`
+	Level  string `json:"level"`
+	// LintLevel is the parsed version of Level after JSON deserialization.
+	LintLevel LintLevel `json:"-"`
+	Line      int       `json:"line"`
+	Message   string    `json:"message"`
+}
+
+type LintLevel int
+
+const (
+	LintLevelUnknown LintLevel = iota
+	LintLevelError
+	LintLevelWarn
+	LintLevelInfo
+	LintLevelStyle
+)
+
+func NewLintLevel(level string) LintLevel {
+	switch strings.ToUpper(level) {
+	case "ERROR":
+		return LintLevelError
+	case "WARNING":
+		return LintLevelWarn
+	case "INFO":
+		return LintLevelInfo
+	case "STYLE":
+		return LintLevelStyle
+	default:
+		return LintLevelUnknown
+	}
+}
+
+func (l LintLevel) String() string {
+	switch l {
+	case LintLevelError:
+		return "ERROR"
+	case LintLevelWarn:
+		return "WARN"
+	case LintLevelInfo:
+		return "INFO"
+	case LintLevelStyle:
+		return "STYLE"
+	default:
+		return ""
+	}
+}
+
+func (l LintLevel) Color() aec.ANSI {
+	switch l {
+	case LintLevelError:
+		return aec.RedF
+	case LintLevelWarn:
+		return aec.YellowF
+	case LintLevelInfo:
+		return aec.BlueF
+	case LintLevelStyle:
+		return aec.MagentaF
+	default:
+		return aec.DefaultF
+	}
 }
 
 func (l *Linter) Print(w io.Writer, mode string) {
@@ -331,22 +403,15 @@ func (l *Linter) Print(w io.Writer, mode string) {
 	}
 
 	fmt.Fprintf(w, "\n ")
-	sb := &bytes.Buffer{}
-	if numIssues == 1 {
-		fmt.Fprintf(sb, "1 linter issue found")
-	} else {
-		fmt.Fprintf(sb, "%d linter issues found", numIssues)
+	summary := "1 linter issue found"
+	if numIssues > 1 {
+		summary = fmt.Sprintf("%d linter issues found", numIssues)
 	}
 
-	color := aec.GreenF
-	if l.FailureMode == LintError {
-		color = aec.RedF
-	} else if l.FailureMode == LintWarn {
-		color = aec.YellowF
+	if mode != progress.PrinterModePlain {
+		summary = l.FailureMode.Color().Apply(summary)
 	}
-
-	fmt.Fprintf(sb, ":\n")
-	fmt.Fprint(w, aec.Apply(sb.String(), color))
+	fmt.Fprintf(w, "%s:\n", summary)
 
 	for target, issues := range l.issues {
 		if target == defaultTargetName {
@@ -356,7 +421,13 @@ func (l *Linter) Print(w io.Writer, mode string) {
 		}
 
 		for _, issue := range issues {
-			fmt.Fprintf(w, "%s%s:%d %s\n", target, issue.SourceInfo.Filename, issue.Range[0].Start.Line, issue.Short)
+			lintLevel := LintLevel(issue.Level)
+			level := lintLevel.String()
+			if mode != progress.PrinterModePlain {
+				level = lintLevel.Color().Apply(level)
+			}
+
+			fmt.Fprintf(w, "%s %s%s:%d %s\n", level, target, issue.SourceInfo.Filename, issue.Range[0].Start.Line, issue.Short)
 
 			for _, d := range issue.Detail {
 				fmt.Fprintf(w, "%s\n", d)
@@ -365,7 +436,7 @@ func (l *Linter) Print(w io.Writer, mode string) {
 			PrintURLLink(w, "  More info", issue.URL, mode)
 
 			if issue.SourceInfo != nil && issue.Range != nil {
-				Print(w, &issue, color)
+				Print(w, &issue, l.FailureMode, mode)
 			}
 			fmt.Fprintf(w, "\n")
 
@@ -373,7 +444,7 @@ func (l *Linter) Print(w io.Writer, mode string) {
 	}
 }
 
-func Print(w io.Writer, issue *client.VertexWarning, color aec.ANSI) {
+func Print(w io.Writer, issue *client.VertexWarning, lintColor LintFailure, progressMode string) {
 	si := issue.SourceInfo
 	if si == nil {
 		return
@@ -416,7 +487,10 @@ func Print(w io.Writer, issue *client.VertexWarning, color aec.ANSI) {
 	for i := start; i <= end; i++ {
 		pfx := "   "
 		if containsLine(issue.Range, i) {
-			pfx = aec.Apply(">>>", color)
+			pfx = ">>>"
+			if progressMode != progress.PrinterModePlain {
+				pfx = lintColor.Color().Apply(pfx)
+			}
 		}
 		fmt.Fprintf(w, "   %3d | %s %s\n", i, pfx, lines[i-1])
 	}
