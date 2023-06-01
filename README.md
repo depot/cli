@@ -33,6 +33,16 @@ For Mac, you can install the CLI with Homebrew:
 brew install depot/tap/depot
 ```
 
+For Linux, you can install with our installation script:
+
+```sh
+# Install the latest version
+curl -L https://depot.dev/install-cli.sh | sh
+
+# Install a specific version
+curl -L https://depot.dev/install-cli.sh | sh -s 2.17.0
+```
+
 For all other platforms, you can download the binary directly from [the latest release](https://github.com/depot/cli/releases).
 
 ## Quick Start
