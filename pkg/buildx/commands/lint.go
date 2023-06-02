@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/depot/cli/pkg/buildx/build"
+	depotprogress "github.com/depot/cli/pkg/progress"
 	"github.com/docker/buildx/builder"
 	"github.com/docker/buildx/util/progress"
 	"github.com/moby/buildkit/client"
@@ -93,8 +94,14 @@ func NewLinter(failureMode LintFailure, clients []*client.Client, nodes []builde
 	}
 }
 
-func (l *Linter) Handle(ctx context.Context, target string, driverIndex int, dockerfile *build.DockerfileInputs, printer progress.Writer) error {
+func (l *Linter) Handle(ctx context.Context, target string, driverIndex int, dockerfile *build.DockerfileInputs, p progress.Writer) error {
 	if l.FailureMode == LintSkip {
+		return nil
+	}
+
+	// Our depot progress has special functionality to print and upload lint issues.
+	printer, ok := p.(*depotprogress.Progress)
+	if !ok {
 		return nil
 	}
 
@@ -118,7 +125,6 @@ func (l *Linter) Handle(ctx context.Context, target string, driverIndex int, doc
 		l.mu.Unlock()
 	}
 
-	var warnings []client.VertexWarning
 	if driverIndex > len(l.Clients) {
 		return nil
 	}
@@ -135,15 +141,7 @@ func (l *Linter) Handle(ctx context.Context, target string, driverIndex int, doc
 	}
 	dgst := digest.Canonical.FromString(identity.NewID())
 	tm := time.Now()
-	printer.Write(&client.SolveStatus{
-		Vertexes: []*client.Vertex{
-			{
-				Digest:  dgst,
-				Name:    lintName,
-				Started: &tm,
-			},
-		},
-	})
+	printer.WriteLint(client.Vertex{Digest: dgst, Name: lintName, Started: &tm}, nil, nil)
 
 	output, err := RunLint(ctx, l.Clients[driverIndex], l.BuildxNodes[driverIndex].Platforms[0], dockerfile)
 	if err != nil {
@@ -152,12 +150,19 @@ func (l *Linter) Handle(ctx context.Context, target string, driverIndex int, doc
 		}
 	}
 
-	doneTm := time.Now()
-	worstIssueLevel := LintLevelUnknown
-	statuses := make([]*client.VertexStatus, 0, len(output.Messages))
+	var (
+		exceedsFailureSeverity bool
+		doneTm                 time.Time              = time.Now() // All lints are "done" at the same time.
+		statuses               []*client.VertexStatus              // Prints during the buildkit progress in the context of [lint].
+		logs                   []*client.VertexLog                 // Prints when there are `RunLint` errors.
+		warnings               []client.VertexWarning              // Prints after the buildkit progress has finished before exit.
+	)
+
 	for _, lint := range output.Lints() {
-		if lint.LintLevel < worstIssueLevel {
-			worstIssueLevel = lint.LintLevel
+		// We are using the iota for both the LintLevel and the LintFailureMode by
+		// assuming they are the same numbers for both.
+		if int(lint.LintLevel) <= int(l.FailureMode) {
+			exceedsFailureSeverity = true
 		}
 
 		status := &client.VertexStatus{
@@ -190,20 +195,16 @@ func (l *Linter) Handle(ctx context.Context, target string, driverIndex int, doc
 		warnings = append(warnings, warning)
 	}
 
-	lintResults := &client.SolveStatus{
-		Vertexes: []*client.Vertex{
-			{
-				Digest:    dgst,
-				Name:      lintName,
-				Started:   &tm,
-				Completed: &doneTm,
-			},
-		},
-		Statuses: statuses,
+	lintResults := client.Vertex{
+		Digest:    dgst,
+		Name:      lintName,
+		Started:   &tm,
+		Completed: &doneTm,
 	}
+
 	// Report the error from the `RunLint` function up a ways.
 	if err != nil {
-		lintResults.Vertexes[0].Error = err.Error()
+		lintResults.Error = err.Error()
 		log := &client.VertexLog{
 			Vertex:    dgst,
 			Stream:    1,
@@ -211,13 +212,13 @@ func (l *Linter) Handle(ctx context.Context, target string, driverIndex int, doc
 			Timestamp: tm,
 		}
 
-		lintResults.Logs = append(lintResults.Logs, log)
+		logs = append(logs, log)
 	}
 
 	// If we were unable to read the dockerfile at all we'll report it here.
 	// Again, this error would come from a ways up this function.
 	if dockerfile.Err != nil {
-		lintResults.Vertexes[0].Error = dockerfile.Err.Error()
+		lintResults.Error = dockerfile.Err.Error()
 		log := &client.VertexLog{
 			Vertex:    dgst,
 			Stream:    1,
@@ -225,10 +226,32 @@ func (l *Linter) Handle(ctx context.Context, target string, driverIndex int, doc
 			Timestamp: tm,
 		}
 
-		lintResults.Logs = append(lintResults.Logs, log)
+		logs = append(logs, log)
 	}
 
-	printer.Write(lintResults)
+	var lintErr error
+
+	// Collect all failing lint issues to be sent to the API.
+	if len(warnings) > 0 && l.FailureMode != LintNone && exceedsFailureSeverity {
+		var lintIssues []string
+
+		// This error is not a lint but an error from `RunLint`.
+		if lintResults.Error != "" {
+			lintIssues = append(lintIssues, lintResults.Error)
+		}
+
+		// The status messages have a nicely formatted lint issue string.
+		for _, status := range statuses {
+			lintIssues = append(lintIssues, status.ID)
+		}
+
+		// We join all issues together with a newline so we don't need to update the API honestly.
+		// It'll be up to the consumers of the error to parse it.
+		lintResults.Error = strings.Join(lintIssues, "\n")
+		lintErr = LintFailed
+	}
+
+	printer.WriteLint(lintResults, statuses, logs)
 
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -237,14 +260,7 @@ func (l *Linter) Handle(ctx context.Context, target string, driverIndex int, doc
 	}
 	l.issues[target] = warnings
 
-	// We are using the iota for both the LintLevel and the LintFailureMode by
-	// assuming they are the same numbers for both.
-	exceedsFailureSeverity := int(l.FailureMode) >= int(worstIssueLevel)
-	if len(warnings) > 0 && l.FailureMode != LintNone && exceedsFailureSeverity {
-		return LintFailed
-	}
-
-	return nil
+	return lintErr
 }
 
 func RunLint(ctx context.Context, c *client.Client, platform ocispecs.Platform, dockerfile *build.DockerfileInputs) (CaptureOutput, error) {

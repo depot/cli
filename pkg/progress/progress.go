@@ -59,6 +59,33 @@ func (p *Progress) Write(s *client.SolveStatus) {
 	p.p.Write(s)
 }
 
+// WriteLint specializes the write to remove the error from the vertex before printing to the terminal.
+// We do this because buildx prints error _and_ status for each vertex.  The error
+// and status contain the same information, so we remove the error to avoid duplicates.
+//
+// However, the error message is still uploaded to the API.
+func (p *Progress) WriteLint(vertex client.Vertex, statuses []*client.VertexStatus, logs []*client.VertexLog) {
+	// Only buffer vertices to send if this progress writer is running in the context of an active build
+	if p.HasActiveBuild() {
+		select {
+		case p.vertices <- []*client.Vertex{&vertex}:
+		default:
+			// if channel is full skip recording vertex time to prevent blocking the build.
+		}
+	}
+
+	// We are stripping the error here because the UX printing the error and
+	// the status show the same information twice.
+	withoutError := vertex
+	// Filling in a generic error message to cause the UX to fail with a red color.
+	withoutError.Error = "linting failed "
+	p.p.Write(&client.SolveStatus{
+		Vertexes: []*client.Vertex{&withoutError},
+		Statuses: statuses,
+		Logs:     logs,
+	})
+}
+
 func (p *Progress) ValidateLogSource(digest digest.Digest, v interface{}) bool {
 	return p.p.ValidateLogSource(digest, v)
 }
