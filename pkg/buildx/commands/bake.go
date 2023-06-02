@@ -57,7 +57,11 @@ func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator) (er
 	}
 
 	defer func() {
-		if printer != nil {
+		// There is extra logic far below that will also do a printer.Wait()
+		// if there are no errors.  We want to control when the buildx printer
+		// finishes writing so that we can write our own information such as
+		// linting without it being interleaved.
+		if printer != nil && err != nil {
 			err1 := printer.Wait()
 			if err == nil && !errors.Is(err1, context.Canceled) {
 				err = err1
@@ -184,6 +188,7 @@ func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator) (er
 		}
 	}
 
+	_ = printer.Wait()
 	linter.Print(os.Stderr, in.progress)
 	return nil
 }
