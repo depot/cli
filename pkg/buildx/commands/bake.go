@@ -11,6 +11,7 @@ import (
 	"github.com/containerd/containerd/platforms"
 	"github.com/depot/cli/pkg/buildx/build"
 	"github.com/depot/cli/pkg/buildx/builder"
+	"github.com/depot/cli/pkg/dockerfile"
 	"github.com/depot/cli/pkg/helpers"
 	"github.com/depot/cli/pkg/load"
 	depotprogress "github.com/depot/cli/pkg/progress"
@@ -78,6 +79,14 @@ func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator) (er
 	defer wg.Wait() // Required to ensure that the printer is stopped before the context is cancelled.
 	defer cancel()
 
+	// Upload dockerfile to API.
+	uploader := dockerfile.NewUploader(in.buildID, in.token)
+	wg.Add(1)
+	go func() {
+		uploader.Run(ctx2)
+		wg.Done()
+	}()
+
 	contextPathHash, _ := os.Getwd()
 	builderOpts := append([]builder.Option{builder.WithName(in.builder),
 		builder.WithContextPathHash(contextPathHash)}, in.builderOptions...)
@@ -135,7 +144,8 @@ func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator) (er
 	}
 
 	linter := NewLinter(NewLintFailureMode(in.lint, in.lintFailOn), clients, buildxNodes)
-	resp, err := build.DepotBuild(ctx, buildxNodes, buildOpts, dockerClient, dockerConfigDir, printer, linter)
+	dockerfileHandlers := build.NewDockerfileHandlers(uploader, linter)
+	resp, err := build.DepotBuild(ctx, buildxNodes, buildOpts, dockerClient, dockerConfigDir, printer, dockerfileHandlers)
 	if err != nil {
 		if errors.Is(err, LintFailed) {
 			linter.Print(os.Stderr, in.progress)

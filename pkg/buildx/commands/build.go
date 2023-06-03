@@ -21,6 +21,7 @@ import (
 	depotbuild "github.com/depot/cli/pkg/buildx/build"
 	"github.com/depot/cli/pkg/buildx/builder"
 	"github.com/depot/cli/pkg/ci"
+	"github.com/depot/cli/pkg/dockerfile"
 	"github.com/depot/cli/pkg/helpers"
 	"github.com/depot/cli/pkg/load"
 	depotprogress "github.com/depot/cli/pkg/progress"
@@ -206,6 +207,14 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.No
 	defer wg.Wait() // Required to ensure that the printer is stopped before the context is cancelled.
 	defer cancel()
 
+	// Upload dockerfile to API.
+	uploader := dockerfile.NewUploader(depotOpts.buildID, depotOpts.token)
+	wg.Add(1)
+	go func() {
+		uploader.Run(ctx2)
+		wg.Done()
+	}()
+
 	var (
 		pullOpts map[string]load.PullOptions
 		// Only used for failures to pull images.
@@ -248,9 +257,11 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.No
 
 	dockerClient := dockerutil.NewClient(dockerCli)
 	dockerConfigDir := confutil.ConfigDir(dockerCli)
-	linter := NewLinter(NewLintFailureMode(depotOpts.lint, depotOpts.lintFailOn), clients, buildxNodes)
 
-	resp, err := depotbuild.DepotBuildWithResultHandler(ctx, buildxNodes, opts, dockerClient, dockerConfigDir, printer, linter, func(driverIndex int, gotRes *build.ResultContext) {
+	linter := NewLinter(NewLintFailureMode(depotOpts.lint, depotOpts.lintFailOn), clients, buildxNodes)
+	dockerfileHandlers := depotbuild.NewDockerfileHandlers(uploader, linter)
+
+	resp, err := depotbuild.DepotBuildWithResultHandler(ctx, buildxNodes, opts, dockerClient, dockerConfigDir, printer, dockerfileHandlers, func(driverIndex int, gotRes *build.ResultContext) {
 		mu.Lock()
 		defer mu.Unlock()
 		if res == nil || driverIndex < idx {
