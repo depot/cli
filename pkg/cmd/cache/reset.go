@@ -16,6 +16,17 @@ import (
 	"github.com/spf13/cobra"
 )
 
+func getToken() (string, error) {
+	token := os.Getenv("DEPOT_TOKEN")
+	if token == "" {
+		token = config.GetApiToken()
+	}
+	if token == "" {
+		return "", fmt.Errorf("missing API token, please run `depot login`")
+	}
+	return token, nil
+}
+
 func NewCmdResetCache() *cobra.Command {
 	var projectID string
 	var token string
@@ -24,25 +35,25 @@ func NewCmdResetCache() *cobra.Command {
 		Use:   "reset",
 		Short: "Reset the cache for a project",
 		Args:  cli.RequiresMaxArgs(1),
+
 		RunE: func(cmd *cobra.Command, args []string) error {
-			var cwd string
-			if len(args) > 0 {
-				cwd, _ = filepath.Abs(args[0])
+			cwd, err := filepath.Abs(args[0])
+			if err != nil {
+				return fmt.Errorf("unable to determine absolute path: %w", err)
 			}
+
 			projectID := helpers.ResolveProjectID(projectID, cwd)
+			if projectID == "" {
+				return errors.Errorf("unknown project ID (run `depot init` or use --project or $DEPOT_PROJECT_ID)")
+			}
 			if projectID == "" {
 				return errors.Errorf("unknown project ID (run `depot init` or use --project or $DEPOT_PROJECT_ID)")
 			}
 
 			// TODO: make this a helper
-			if token == "" {
-				token = os.Getenv("DEPOT_TOKEN")
-			}
-			if token == "" {
-				token = config.GetApiToken()
-			}
-			if token == "" {
-				return fmt.Errorf("missing API token, please run `depot login`")
+			token, err := getToken()
+			if err != nil {
+				return err
 			}
 
 			client := api.NewProjectsClient()
