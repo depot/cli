@@ -1,9 +1,12 @@
 name: ci
-on: push
+on:
+  push: {}
+  pull_request: {}
 
 jobs:
   lint:
     runs-on: ubuntu-20.04
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.event.pull_request.base.repo.full_name
     steps:
       - uses: actions/checkout@v3
       - uses: actions/setup-go@v4
@@ -42,7 +45,8 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
   build:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-latest-16-cores
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.event.pull_request.base.repo.full_name
     steps:
       - uses: actions/checkout@v3
       - uses: actions/setup-go@v4
@@ -57,6 +61,7 @@ jobs:
 
   package:
     runs-on: ubuntu-20.04
+    if: github.event_name != 'pull_request'
     permissions:
       contents: read
       packages: write
