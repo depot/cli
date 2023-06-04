@@ -77,8 +77,10 @@ func (p *Progress) WriteLint(vertex client.Vertex, statuses []*client.VertexStat
 	// We are stripping the error here because the UX printing the error and
 	// the status show the same information twice.
 	withoutError := vertex
-	// Filling in a generic error message to cause the UX to fail with a red color.
-	withoutError.Error = "linting failed "
+	if withoutError.Error != "" {
+		// Filling in a generic error message to cause the UX to fail with a red color.
+		withoutError.Error = "linting failed "
+	}
 	p.p.Write(&client.SolveStatus{
 		Vertexes: []*client.Vertex{&withoutError},
 		Statuses: statuses,
