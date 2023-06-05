@@ -68,7 +68,7 @@ func (u *Uploader) Handle(ctx context.Context, target string, driverIndex int, d
 //
 // Cancel the context to stop the go routine.
 func (u *Uploader) Run(ctx context.Context) {
-	// Buffer 1 second before sending build timings to the server
+	// Buffer 1 second before sending build dockerfiles to the server
 	const (
 		bufferTimeout = time.Second
 	)
@@ -82,6 +82,7 @@ func (u *Uploader) Run(ctx context.Context) {
 	for {
 		select {
 		case dockerUpload := <-u.dockerUploads:
+			// Only record unique target/dockerfiles as we can receive duplicates with multi-platform builds.
 			if _, ok := uniqueDockerfiles[dockerUpload.String()]; !ok {
 				uniqueDockerfiles[dockerUpload.String()] = struct{}{}
 				dockerUploads = append(dockerUploads, dockerUpload)
