@@ -25,6 +25,10 @@ type DockerUpload struct {
 	Reported bool
 }
 
+func (d *DockerUpload) String() string {
+	return d.Target + d.Filename + d.Contents
+}
+
 // Uploader sends context to the API.
 type Uploader struct {
 	buildID       string
@@ -72,18 +76,14 @@ func (u *Uploader) Run(ctx context.Context) {
 	ticker := time.NewTicker(bufferTimeout)
 	defer ticker.Stop()
 
-	// The same vertex can be reported multiple times.  The data appears
-	// the same except for the duration.  It's not clear to me if we should
-	// merge the durations or just use the first one.
-	// TODO:
-	uniqueVertices := map[DockerUpload]struct{}{}
+	uniqueDockerfiles := map[string]struct{}{}
 	dockerUploads := []*DockerUpload{}
 
 	for {
 		select {
 		case dockerUpload := <-u.dockerUploads:
-			if _, ok := uniqueVertices[*dockerUpload]; !ok {
-				uniqueVertices[*dockerUpload] = struct{}{}
+			if _, ok := uniqueDockerfiles[dockerUpload.String()]; !ok {
+				uniqueDockerfiles[dockerUpload.String()] = struct{}{}
 				dockerUploads = append(dockerUploads, dockerUpload)
 			}
 		case <-ticker.C:
@@ -98,8 +98,8 @@ func (u *Uploader) Run(ctx context.Context) {
 			for {
 				select {
 				case dockerUpload := <-u.dockerUploads:
-					if _, ok := uniqueVertices[*dockerUpload]; !ok {
-						uniqueVertices[*dockerUpload] = struct{}{}
+					if _, ok := uniqueDockerfiles[dockerUpload.String()]; !ok {
+						uniqueDockerfiles[dockerUpload.String()] = struct{}{}
 						dockerUploads = append(dockerUploads, dockerUpload)
 					}
 				default:
@@ -120,13 +120,18 @@ func (u *Uploader) ReportDockerfiles(ctx context.Context, dockerUploads []*Docke
 		return
 	}
 
-	files := make([]*cliv1.Dockerfile, len(dockerUploads))
+	files := make([]*cliv1.Dockerfile, 0, len(dockerUploads))
 	for i := range dockerUploads {
-		files[i] = &cliv1.Dockerfile{
+		// Skip dockerfiles we have already reported.
+		if dockerUploads[i].Reported {
+			continue
+		}
+
+		files = append(files, &cliv1.Dockerfile{
 			Target:   dockerUploads[i].Target,
 			Filename: dockerUploads[i].Filename,
 			Contents: string(dockerUploads[i].Contents),
-		}
+		})
 	}
 
 	req := &cliv1.ReportBuildContextRequest{
