@@ -185,18 +185,12 @@ message PageToken {
 message ReportBuildContextRequest {
   string build_id = 1;
   repeated Dockerfile dockerfiles = 2;
-  repeated Dockerignore dockerignores = 3;
 }
 
 message Dockerfile {
   string target = 1;
   string filename = 2;
   string contents = 3;
-}
-
-message Dockerignore {
-  string target = 1;
-  string contents = 2;
 }
 
 message ReportBuildContextResponse {}
