@@ -10,6 +10,7 @@ service BuildService {
   rpc GetBuildKitConnection(GetBuildKitConnectionRequest) returns (GetBuildKitConnectionResponse);
   rpc ReportBuildHealth(ReportBuildHealthRequest) returns (ReportBuildHealthResponse);
   rpc ReportTimings(ReportTimingsRequest) returns (ReportTimingsResponse);
+  rpc ReportBuildContext(ReportBuildContextRequest) returns (ReportBuildContextResponse);
   rpc ListBuilds(ListBuildsRequest) returns (ListBuildsResponse) {}
 }
 
@@ -180,3 +181,16 @@ message PageToken {
   string project_id = 1;
   google.protobuf.Timestamp last_created_at = 2;
 }
+
+message ReportBuildContextRequest {
+  string build_id = 1;
+  repeated Dockerfile dockerfiles = 2;
+}
+
+message Dockerfile {
+  string target = 1;
+  string filename = 2;
+  string contents = 3;
+}
+
+message ReportBuildContextResponse {}

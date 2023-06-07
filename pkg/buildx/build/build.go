@@ -750,14 +750,6 @@ type DepotNodeResponse struct {
 	SolveResponse *client.SolveResponse
 }
 
-// DEPOT: Adding a callback(!) to allow processing of the dockerfile.
-// Returning an error will stop the build.
-//
-// Note that the build blocks on this function call.
-type DockerfileCallback interface {
-	Handle(ctx context.Context, target string, driverIndex int, dockerfile *DockerfileInputs, printer progress.Writer) error
-}
-
 func Build(ctx context.Context, nodes []builder.Node, opt map[string]Options, docker *dockerutil.Client, configDir string, w progress.Writer, dockerfileCallback DockerfileCallback) (resp []DepotBuildResponse, err error) {
 	return BuildWithResultHandler(ctx, nodes, opt, docker, configDir, w, dockerfileCallback, nil, false)
 }
