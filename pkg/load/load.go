@@ -100,9 +100,73 @@ type ProxyOpts struct {
 	ProxyImage  string
 }
 
+// ImageExported is the solve response key added for `depot.export.image.version=2`.
+const ImagesExported = "depot/images.exported"
+
+func decodeNodeResponse(architecture string, nodeRes depotbuild.DepotNodeResponse) (rawManifest, rawConfig []byte, err error) {
+	if _, ok := nodeRes.SolveResponse.ExporterResponse[ImagesExported]; ok {
+		return decodeNodeResponseV2(architecture, nodeRes)
+	}
+
+	// Needed until all depot builds and CLI versions are updated.
+	return decodeNodeResponseV1(architecture, nodeRes)
+}
+
+func decodeNodeResponseV2(architecture string, nodeRes depotbuild.DepotNodeResponse) (rawManifest, rawConfig []byte, err error) {
+	type ExportedImage struct {
+		// JSON-encoded ocispecs.Manifest.
+		// This is double encoded as buildkit has extra fields when used as a docker schema.
+		// This matters as the digest is calculated including all those extra fields.
+		Manifest []byte `json:"manifest"`
+		// JSON-encoded ocispecs.Image.
+		// Double encoded for the same reason.
+		Config []byte `json:"config"`
+	}
+
+	encodedExportedImages, ok := nodeRes.SolveResponse.ExporterResponse[ImagesExported]
+	if !ok {
+		return nil, nil, errors.New("missing image export response")
+	}
+
+	jsonExportedImages, err := base64.StdEncoding.DecodeString(encodedExportedImages)
+	if err != nil {
+		return nil, nil, fmt.Errorf("invalid exported images encoding: %w", err)
+	}
+
+	var exportedImages []ExportedImage
+	if err := json.Unmarshal(jsonExportedImages, &exportedImages); err != nil {
+		return nil, nil, fmt.Errorf("invalid exported images json: %w", err)
+	}
+
+	// Potentially multiple platforms were built, so we need to find the
+	// manifest and config for the platform that matches the depot CLI host.
+	manifests := make([]ocispecs.Manifest, len(exportedImages))
+	imageConfigs := make([]ocispecs.Image, len(exportedImages))
+	for i := range exportedImages {
+		var manifest ocispecs.Manifest
+		if err := json.Unmarshal(exportedImages[i].Manifest, &manifest); err != nil {
+			return nil, nil, fmt.Errorf("invalid image manifest json: %w", err)
+		}
+		manifests[i] = manifest
+
+		var image ocispecs.Image
+		if err := json.Unmarshal(exportedImages[i].Config, &image); err != nil {
+			return nil, nil, fmt.Errorf("invalid image config json: %w", err)
+		}
+		imageConfigs[i] = image
+	}
+
+	idx, err := chooseBestImageManifestV2(architecture, imageConfigs)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return exportedImages[idx].Manifest, exportedImages[idx].Config, nil
+}
+
 // We encode the image manifest and image config within the buildkitd Solve response
 // because the content may be GCed by the time this load occurs.
-func decodeNodeResponse(architecture string, nodeRes depotbuild.DepotNodeResponse) (rawManifest, rawConfig []byte, err error) {
+func decodeNodeResponseV1(architecture string, nodeRes depotbuild.DepotNodeResponse) (rawManifest, rawConfig []byte, err error) {
 	encodedDesc, ok := nodeRes.SolveResponse.ExporterResponse[exptypes.ExporterImageDescriptorKey]
 	if !ok {
 		return nil, nil, errors.New("missing image descriptor")
@@ -260,6 +324,29 @@ func NewRegistryProxy(ctx context.Context, opts *ProxyOpts, dockerapi docker.API
 func (l *RegistryProxy) Close(ctx context.Context) error {
 	l.Cancel() // This stops the serial transport.
 	return StopProxyContainer(ctx, l.DockerAPI, l.ProxyContainerID)
+}
+
+// Prefer architecture, otherwise, take first available index.
+func chooseBestImageManifestV2(architecture string, imageConfigs []ocispecs.Image) (int, error) {
+	archIdx := map[string]int{}
+	for i, imageConfig := range imageConfigs {
+		if imageConfig.Architecture == "unknown" {
+			continue
+		}
+
+		archIdx[imageConfig.Architecture] = i
+	}
+
+	// Prefer the architecture of the depot CLI host, otherwise, take first available.
+	if idx, ok := archIdx[architecture]; ok {
+		return idx, nil
+	}
+
+	for _, idx := range archIdx {
+		return idx, nil
+	}
+
+	return 0, errors.New("no manifests found")
 }
 
 // Prefer architecture, otherwise, take first available.
