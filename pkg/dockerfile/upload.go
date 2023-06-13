@@ -135,6 +135,10 @@ func (u *Uploader) ReportDockerfiles(ctx context.Context, dockerUploads []*Docke
 		})
 	}
 
+	if len(files) == 0 {
+		return
+	}
+
 	req := &cliv1.ReportBuildContextRequest{
 		BuildId:     u.buildID,
 		Dockerfiles: files,
