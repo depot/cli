@@ -532,13 +532,15 @@ func validateBuildOptions(in *buildOptions) (map[string]build.Options, error) {
 			outputs = []client.ExportEntry{{
 				Type: "image",
 				Attrs: map[string]string{
-					"push": "true",
+					"push":                       "true",
+					"depot.export.image.version": "2",
 				},
 			}}
 		} else {
 			switch outputs[0].Type {
 			case "image":
 				outputs[0].Attrs["push"] = "true"
+				outputs[0].Attrs["depot.export.image.version"] = "2"
 			default:
 				return nil, errors.Errorf("push and %q output can't be used together", outputs[0].Type)
 			}
