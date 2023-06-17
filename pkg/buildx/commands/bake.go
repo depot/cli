@@ -137,6 +137,8 @@ func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator) (er
 	dockerConfigDir := confutil.ConfigDir(dockerCli)
 	buildxopts := build.BuildxOpts(buildOpts)
 
+	fmt.Printf("builxopts: %+v\n", buildxopts)
+
 	// "Boot" the depot nodes.
 	_, clients, err := build.ResolveDrivers(ctx, buildxNodes, buildxopts, printer)
 	if err != nil {
@@ -311,7 +313,6 @@ func overrides(in BakeOptions) []string {
 	overrides := in.overrides
 	if in.exportPush {
 		overrides = append(overrides, "*.push=true")
-		overrides = append(overrides, "*.output=type=image,depot.export.image.version=2")
 	}
 
 	if in.noCache != nil {
