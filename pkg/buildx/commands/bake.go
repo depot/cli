@@ -137,8 +137,6 @@ func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator) (er
 	dockerConfigDir := confutil.ConfigDir(dockerCli)
 	buildxopts := build.BuildxOpts(buildOpts)
 
-	fmt.Printf("builxopts: %+v\n", buildxopts)
-
 	// "Boot" the depot nodes.
 	_, clients, err := build.ResolveDrivers(ctx, buildxNodes, buildxopts, printer)
 	if err != nil {
