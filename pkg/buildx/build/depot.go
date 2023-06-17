@@ -66,6 +66,12 @@ func BuildxOpts(opts map[string]dockerbuild.Options) map[string]Options {
 				}
 			}
 
+			for _, e := range opt.Exports {
+				if e.Type == "image" {
+					e.Attrs["depot.export.image.version"] = "2"
+				}
+			}
+
 			depotopts[k] = Options{
 				Inputs: Inputs{
 					ContextPath:      opt.Inputs.ContextPath,

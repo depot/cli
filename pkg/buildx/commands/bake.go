@@ -311,7 +311,6 @@ func overrides(in BakeOptions) []string {
 	overrides := in.overrides
 	if in.exportPush {
 		overrides = append(overrides, "*.push=true")
-		overrides = append(overrides, "*.output=type=image,depot.export.image.version=2")
 	}
 
 	if in.noCache != nil {
