@@ -103,6 +103,28 @@ If you want to build a specific target in the bake file, you can specify it in t
 depot bake -f docker-bake.hcl original
 ```
 
+#### Additional flags for `bake`
+
+| Name              | Description                                                                                                                                                                                                                                                         |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `build-platform`    | Run builds on this platform ("dynamic", "linux/amd64", "linux/arm64") (default "dynamic") |
+| `file`    | Build definition file |
+| `help`    | Show the help doc for `bake` |
+| `lint`    | Lint Dockerfiles of targets before the build |
+| `lint-fail-on`    | Set the lint severity that fails the build ("info", "warn", "error", "none") (default "error") |
+| `load`    | Shorthand for "--set=*.output=type=docker" |
+| `metadata-file`    | Write build result metadata to the file |
+| `no-cache`    | Do not use cache when building the image |
+| `print`    | Print the options without building |
+| `progress`    | Set type of progress output ("auto", "plain", "tty"). Use plain to show container output (default "auto") |
+| `project`    | Depot project ID |
+| `provenance`    | Shorthand for "--set=*.attest=type=provenance" |
+| `pull`    | Always attempt to pull all referenced images |
+| `push`    | Shorthand for "--set=*.output=type=registry" |
+| `sbom`    | Shorthand for "--set=*.attest=type=sbom" |
+| `set`    | Override target value (e.g., "targetpattern.key=value") |
+| `token`    | Depot API token |
+
 ### `depot build`
 
 Runs a Docker build using Depot's remote builder infrastructure. This command accepts all the command line flags as Docker's `docker buildx build` command, you can run `depot build --help` for the full list.
