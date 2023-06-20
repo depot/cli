@@ -193,7 +193,7 @@ depot build -t repo/image:tag . --push
 | `sbom` | Shorthand for "--attest=type=sbom" |
 | `secret` | Secret to expose to the build (format: "id=mysecret[,src=/local/secret]") |
 | `shm-size` | Size of "/dev/shm" |
-| `ssh` | SSH agent socket or keys to expose to the build (format: "default|<id>[=<socket>|<key>[,<key>]]") |
+| `ssh` | SSH agent socket or keys to expose to the build |
 | `tag` | Name and optionally a tag (format: "name:tag") |
 | `target` | Set the target build stage to build |
 | `token` | Depot API token |
