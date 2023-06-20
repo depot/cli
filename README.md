@@ -14,9 +14,9 @@ Official CLI for [Depot](https://depot.dev) - you can use the CLI to build Docke
 - [Quick Start](#quick-start)
 - [Usage](#usage)
   - [`depot bake`](#depot-bake)
-    - [Additional flags for `bake`](#additional-flags-for-bake)
+    - [Flags for `bake`](#flags-for-bake)
   - [`depot build`](#depot-build)
-    - [Additional flags for `build`](#additional-flags-for-build)
+    - [Flags for `build`](#flags-for-build)
   - [`depot cache`](#depot-cache)
     - [`depot cache reset`](#depot-cache-reset)
   - [`depot list`](#depot-list)
@@ -105,7 +105,7 @@ If you want to build a specific target in the bake file, you can specify it in t
 depot bake -f docker-bake.hcl original
 ```
 
-#### Additional flags for `bake`
+#### Flags for `bake`
 
 | Name              | Description                                                                                                                                                                                                                                                         |
 | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -158,7 +158,7 @@ depot build -t repo/image:tag . --load
 depot build -t repo/image:tag . --push
 ```
 
-#### Additional flags for `build`
+#### Flags for `build`
 
 | `add-host` | Add a custom host-to-IP mapping (format: "host:ip") |
 | `allow` | Allow extra privileged entitlement (e.g., "network.host", "security.insecure") |
