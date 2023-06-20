@@ -160,6 +160,8 @@ depot build -t repo/image:tag . --push
 
 #### Flags for `build`
 
+| Name              | Description                                                                                                                                                                                                                                                         |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `add-host` | Add a custom host-to-IP mapping (format: "host:ip") |
 | `allow` | Allow extra privileged entitlement (e.g., "network.host", "security.insecure") |
 | `attest` | Attestation parameters (format: "type=sbom,generator=image") |
