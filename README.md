@@ -10,22 +10,23 @@ Official CLI for [Depot](https://depot.dev) - you can use the CLI to build Docke
 
 ---
 
-- [Installation](#installation)
-- [Quick Start](#quick-start)
-- [Usage](#usage)
-  - [`depot bake`](#depot-bake)
-    - [Flags for `bake`](#flags-for-bake)
-  - [`depot build`](#depot-build)
-    - [Flags for `build`](#flags-for-build)
-  - [`depot cache`](#depot-cache)
-    - [`depot cache reset`](#depot-cache-reset)
-  - [`depot list`](#depot-list)
-    - [`depot list projects`](#depot-list-projects)
-    - [`depot list builds`](#depot-list-builds)
-  - [`depot init`](#depot-init)
-  - [`depot login`](#depot-login)
-- [Contributing](#contributing)
-- [License](#license)
+- [Depot CLI ](#depot-cli-)
+  - [Installation](#installation)
+  - [Quick Start](#quick-start)
+  - [Usage](#usage)
+    - [`depot bake`](#depot-bake)
+      - [Flags for `bake`](#flags-for-bake)
+    - [`depot build`](#depot-build)
+      - [Flags for `build`](#flags-for-build)
+    - [`depot cache`](#depot-cache)
+      - [`depot cache reset`](#depot-cache-reset)
+    - [`depot list`](#depot-list)
+      - [`depot list projects`](#depot-list-projects)
+      - [`depot list builds`](#depot-list-builds)
+    - [`depot init`](#depot-init)
+    - [`depot login`](#depot-login)
+  - [Contributing](#contributing)
+  - [License](#license)
 
 ## Installation
 
@@ -159,7 +160,8 @@ depot build -t repo/image:tag . --push
 ```
 
 #### Flags for `build`
-
+| Name              | Description                                                                                                                                                                                                                                                         |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `add-host` | Add a custom host-to-IP mapping (format: "host:ip") |
 | `allow` | Allow extra privileged entitlement (e.g., "network.host", "security.insecure") |
 | `attest` | Attestation parameters (format: "type=sbom,generator=image") |
