@@ -97,17 +97,22 @@ func PrintBuildURL(buildURL, progress string) {
 
 // PrintURLLink will print a link that is clickable in supported terminals.
 func PrintURLLink(w io.Writer, title, url, progress string) {
-	if url != "" {
-		if progress == buildxprogress.PrinterModePlain {
-			fmt.Fprintf(w, "%s: %s\n", title, url)
+	if progress == buildxprogress.PrinterModeQuiet {
+		return
+	}
+	if url == "" {
+		return
+	}
+
+	if progress == buildxprogress.PrinterModePlain {
+		fmt.Fprintf(w, "%s: %s\n", title, url)
+	} else {
+		title := ansi.Color(title, "cyan+b")
+		if termlink.SupportsHyperlinks() {
+			url = termlink.Link(url, url)
 		} else {
-			title := ansi.Color(title, "cyan+b")
-			if termlink.SupportsHyperlinks() {
-				url = termlink.Link(url, url)
-			} else {
-				url = ansi.Color(url, "default+u")
-			}
-			fmt.Fprintf(w, "%s: %s\n", title, url)
+			url = ansi.Color(url, "default+u")
 		}
+		fmt.Fprintf(w, "%s: %s\n", title, url)
 	}
 }
