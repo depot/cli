@@ -92,6 +92,9 @@ func printValue(printer printFunc, version string, format string, res map[string
 }
 
 func PrintBuildURL(buildURL, progress string) {
+	if os.Getenv("DEPOT_NO_SUMMARY_LINK") != "" {
+		return
+	}
 	PrintURLLink(os.Stderr, "\nBuild Summary", buildURL, progress)
 }
 
