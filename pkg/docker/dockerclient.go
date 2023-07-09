@@ -52,7 +52,7 @@ func NewDockerCLI() (*command.DockerCli, error) {
 		}
 	}
 
-	err = dockerCli.Initialize(cliflags.NewClientOptions())
+	err = dockerCli.Initialize(opts)
 	if err != nil {
 		return nil, err
 	}
