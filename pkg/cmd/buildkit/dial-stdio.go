@@ -122,7 +122,8 @@ func run() error {
 }
 
 func tlsConn(ctx context.Context, opts *builder.AcquiredBuilder) (net.Conn, error) {
-	ctx, cancel := context.WithTimeout(ctx, time.Duration(10)*time.Second)
+	// Uses similar retry logic as the depot buildx driver.
+	ctx, cancel := context.WithTimeout(ctx, time.Duration(5)*time.Minute)
 	defer cancel()
 
 	certPool := x509.NewCertPool()
@@ -130,11 +131,7 @@ func tlsConn(ctx context.Context, opts *builder.AcquiredBuilder) (net.Conn, erro
 		return nil, fmt.Errorf("failed to append ca certs")
 	}
 
-	cfg := &tls.Config{
-		//ServerName: opts.ServerName,
-		RootCAs: certPool,
-	}
-
+	cfg := &tls.Config{RootCAs: certPool}
 	if opts.Cert != "" || opts.Key != "" {
 		cert, err := tls.X509KeyPair([]byte(opts.Cert), []byte(opts.Key))
 		if err != nil {
@@ -145,12 +142,25 @@ func tlsConn(ctx context.Context, opts *builder.AcquiredBuilder) (net.Conn, erro
 
 	dialer := &tls.Dialer{Config: cfg}
 	addr := strings.TrimPrefix(opts.Addr, "tcp://")
-	conn, err := dialer.DialContext(ctx, "tcp", addr)
-	if err != nil {
-		return nil, fmt.Errorf("dial error: %w", err) // TODO: we should retry
+
+	var (
+		conn net.Conn
+		err  error
+	)
+	for i := 0; i < 120; i++ {
+		conn, err = dialer.DialContext(ctx, "tcp", addr)
+		if err == nil {
+			return conn, nil
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		default:
+			time.Sleep(1 * time.Second)
+		}
 	}
 
-	return conn, nil
+	return nil, err
 }
 
 // WithSignals returns a context that is canceled with SIGINT or SIGTERM.
