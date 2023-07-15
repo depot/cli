@@ -82,7 +82,7 @@ func BeginBuild(ctx context.Context, req *cliv1.CreateBuildRequest, token string
 			}
 		}
 		_, err := client.FinishBuild(ctx, depotapi.WithAuthentication(connect.NewRequest(&req), build.Token))
-		if err != nil {
+		if err != nil && !errors.Is(err, context.Canceled) {
 			log.Printf("error releasing builder: %v", err)
 		}
 	}
