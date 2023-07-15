@@ -64,7 +64,8 @@ func runMain() int {
 	// Fake commands for buildx docker-container drivers.
 	exe := filepath.Base(os.Args[0])
 	if strings.Contains(exe, "buildkitd") || strings.Contains(exe, "buildctl") {
-		if err := buildkit.NewFakeBuildkit().Execute(); err != nil {
+		err := buildkit.NewFakeBuildkit().Execute()
+		if err != nil {
 			return 1
 		}
 		return 0
