@@ -214,7 +214,7 @@ func (p *GatewayProxy) ExecProcess(buildx gateway.LLBBridge_ExecProcessServer) e
 		select {
 		case err := <-buildxToBuildkit:
 			if errors.Is(err, io.EOF) {
-				buildkit.CloseSend()
+				_ = buildkit.CloseSend()
 			} else {
 				buildkitCancel()
 				return status.Errorf(codes.Internal, "%v", err)
@@ -341,7 +341,7 @@ func (p *ControlProxy) Session(buildx control.Control_SessionServer) error {
 		select {
 		case err := <-buildxToBuildkit:
 			if errors.Is(err, io.EOF) {
-				buildkit.CloseSend()
+				_ = buildkit.CloseSend()
 			} else {
 				buildkitCancel()
 				return status.Errorf(codes.Internal, "%v", err)
@@ -436,7 +436,7 @@ func (p *FileSyncProxy) DiffCopy(buildx filesync.FileSync_DiffCopyServer) error 
 		select {
 		case err := <-buildxToBuildkit:
 			if errors.Is(err, io.EOF) {
-				buildkit.CloseSend()
+				_ = buildkit.CloseSend()
 			} else {
 				buildkitCancel()
 				return status.Errorf(codes.Internal, "%v", err)
@@ -470,7 +470,7 @@ func (p *FileSyncProxy) TarStream(buildx filesync.FileSync_TarStreamServer) erro
 		select {
 		case err := <-buildxToBuildkit:
 			if errors.Is(err, io.EOF) {
-				buildkit.CloseSend()
+				_ = buildkit.CloseSend()
 			} else {
 				buildkitCancel()
 				return status.Errorf(codes.Internal, "%v", err)
@@ -506,7 +506,7 @@ func (p *FileSendProxy) DiffCopy(buildx filesync.FileSend_DiffCopyServer) error 
 		select {
 		case err := <-buildxToBuildkit:
 			if errors.Is(err, io.EOF) {
-				buildkit.CloseSend()
+				_ = buildkit.CloseSend()
 			} else {
 				buildkitCancel()
 				return status.Errorf(codes.Internal, "%v", err)
@@ -580,7 +580,7 @@ func (p *UploadProxy) Pull(buildx upload.Upload_PullServer) error {
 		select {
 		case err := <-buildxToBuildkit:
 			if errors.Is(err, io.EOF) {
-				buildkit.CloseSend()
+				_ = buildkit.CloseSend()
 			} else {
 				buildkitCancel()
 				return status.Errorf(codes.Internal, "%v", err)
@@ -625,7 +625,7 @@ func (p *SshProxy) ForwardAgent(buildx sshforward.SSH_ForwardAgentServer) error 
 		select {
 		case err := <-buildxToBuildkit:
 			if errors.Is(err, io.EOF) {
-				buildkit.CloseSend()
+				_ = buildkit.CloseSend()
 			} else {
 				buildkitCancel()
 				return status.Errorf(codes.Internal, "%v", err)
@@ -767,7 +767,7 @@ func (p *ContentProxy) Write(buildx content.Content_WriteServer) error {
 		select {
 		case err := <-buildxToBuildkit:
 			if errors.Is(err, io.EOF) {
-				buildkit.CloseSend()
+				_ = buildkit.CloseSend()
 			} else {
 				buildkitCancel()
 				return status.Errorf(codes.Internal, "%v", err)
