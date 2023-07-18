@@ -70,7 +70,9 @@ func run() error {
 	var buildErr error
 	defer func() { build.Finish(buildErr) }()
 
-	noopLogger := func(*client.SolveStatus) {}
+	noopLogger := func(status *client.SolveStatus) {
+		// TODO:
+	}
 	builder, err := builder.NewBuilder(token, build.ID, "amd64").Acquire(noopLogger)
 	if err != nil {
 		return fmt.Errorf("unable to acquire builder: %w", err)
