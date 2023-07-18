@@ -4,10 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
-	"errors"
 	"fmt"
-	"io"
-	"io/fs"
 	"net"
 	"os"
 	"os/signal"
@@ -18,6 +15,7 @@ import (
 
 	"github.com/depot/cli/pkg/builder"
 	"github.com/depot/cli/pkg/helpers"
+	"github.com/depot/cli/pkg/progress"
 	"github.com/docker/buildx/build"
 	"github.com/moby/buildkit/client"
 	"github.com/spf13/cobra"
@@ -70,57 +68,86 @@ func run() error {
 	var buildErr error
 	defer func() { build.Finish(buildErr) }()
 
-	noopLogger := func(status *client.SolveStatus) {
-		// TODO:
+	ctx2, cancel := context.WithCancel(context.TODO())
+	defer cancel()
+	reporter, err := progress.NewProgress(ctx2, build.ID, token, "quiet")
+	if err != nil {
+		return err
 	}
-	builder, err := builder.NewBuilder(token, build.ID, "amd64").Acquire(noopLogger)
+	wg := &sync.WaitGroup{}
+	wg.Add(1)
+	go func() {
+		reporter.Run(ctx2)
+		wg.Done()
+	}()
+	defer wg.Wait() // Required to ensure that the reporter is stopped before the context is cancelled.
+	defer cancel()
+
+	report := func(s *client.SolveStatus) {
+		reporter.Write(s)
+	}
+	builder, err := builder.NewBuilder(token, build.ID, "amd64").Acquire(report)
 	if err != nil {
 		return fmt.Errorf("unable to acquire builder: %w", err)
 	}
 
-	conn, err := tlsConn(ctx, builder)
+	buildkitConn, err := tlsConn(ctx, builder)
 	if err != nil {
 		return fmt.Errorf("unable to connect: %w", err)
 	}
-
-	wg := &sync.WaitGroup{}
-	wg.Add(2)
-
-	stdin := make(chan error, 1)
-	stdout := make(chan error, 1)
-	go func() {
-		defer wg.Done()
-		_, err := io.Copy(conn, os.Stdin)
-		stdin <- err
-	}()
-	go func() {
-		defer wg.Done()
-		_, err := io.Copy(os.Stdout, conn)
-		stdout <- err
-	}()
-
-	select {
-	case <-ctx.Done():
-		_ = os.Stdin.Close()
-		_ = os.Stdout.Close()
-		_ = conn.Close()
-	case err = <-stdin:
-		_ = os.Stdin.Close()
-		_ = conn.Close()
-	case err = <-stdout:
-		_ = os.Stdout.Close()
-		_ = conn.Close()
+	buildkit, err := BuildkitdClient(ctx, buildkitConn, builder.Addr)
+	if err != nil {
+		return fmt.Errorf("unable to dial: %w", err)
 	}
 
-	if err != nil &&
-		!errors.Is(err, context.Canceled) &&
-		!errors.Is(err, fs.ErrClosed) &&
-		!errors.Is(err, os.ErrDeadlineExceeded) {
-		buildErr = fmt.Errorf("proxy error: %w", err)
-	}
+	buildx := &StdioConn{}
 
-	wg.Wait()
-	return buildErr
+	Proxy(ctx, buildx, buildkit, reporter)
+
+	return nil
+}
+
+type StdioConn struct{}
+
+func (s *StdioConn) Read(b []byte) (int, error) {
+	return os.Stdin.Read(b)
+}
+
+func (s *StdioConn) Write(b []byte) (int, error) {
+	return os.Stdout.Write(b)
+}
+
+func (s *StdioConn) Close() error {
+	_ = os.Stdin.Close()
+	_ = os.Stdout.Close()
+	return nil
+}
+
+func (s *StdioConn) LocalAddr() net.Addr {
+	return stdioAddr{}
+}
+func (s *StdioConn) RemoteAddr() net.Addr {
+	return stdioAddr{}
+}
+func (s *StdioConn) SetDeadline(t time.Time) error {
+	return nil
+}
+func (s *StdioConn) SetReadDeadline(t time.Time) error {
+	return nil
+}
+func (s *StdioConn) SetWriteDeadline(t time.Time) error {
+	return nil
+}
+
+type stdioAddr struct {
+}
+
+func (d stdioAddr) Network() string {
+	return "pipe"
+}
+
+func (d stdioAddr) String() string {
+	return "localhost"
 }
 
 func tlsConn(ctx context.Context, opts *builder.AcquiredBuilder) (net.Conn, error) {

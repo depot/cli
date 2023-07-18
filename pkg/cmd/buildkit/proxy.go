@@ -10,8 +10,10 @@ import (
 	content "github.com/containerd/containerd/api/services/content/v1"
 	"github.com/containerd/containerd/api/services/leases/v1"
 	"github.com/containerd/containerd/defaults"
+	"github.com/depot/cli/pkg/progress"
 	"github.com/gogo/protobuf/types"
 	control "github.com/moby/buildkit/api/services/control"
+	"github.com/moby/buildkit/client"
 	"github.com/moby/buildkit/depot"
 	gateway "github.com/moby/buildkit/frontend/gateway/pb"
 	"github.com/moby/buildkit/session/auth"
@@ -23,6 +25,7 @@ import (
 	"golang.org/x/net/http2"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials/insecure"
 	health "google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
@@ -60,21 +63,23 @@ func BuildkitdClient(ctx context.Context, conn net.Conn, buildkitdAddress string
 		grpc.WithDefaultCallOptions(grpc.MaxCallSendMsgSize(defaults.DefaultMaxSendMsgSize)),
 		grpc.WithContextDialer(dialContext),
 		grpc.WithAuthority(uri.Host),
+		// conn is already a TLS connection.
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
 	}
 
 	return grpc.DialContext(ctx, buildkitdAddress, opts...)
 }
 
 // Proxy buildkitd server over connection. Cancel context to shutdown.
-func Proxy(ctx context.Context, conn net.Conn, buildkitdClient *grpc.ClientConn) {
+func Proxy(ctx context.Context, conn net.Conn, buildkitdClient *grpc.ClientConn, report *progress.Progress) {
 	opts := []grpc.ServerOption{
 		grpc.KeepaliveEnforcementPolicy(depot.LoadKeepaliveEnforcementPolicy()),
 		grpc.KeepaliveParams(depot.LoadKeepaliveServerParams()),
 	}
 	server := grpc.NewServer(opts...)
 
+	control.RegisterControlServer(server, &ControlProxy{conn: buildkitdClient, report: report})
 	gateway.RegisterLLBBridgeServer(server, &GatewayProxy{conn: buildkitdClient})
-	control.RegisterControlServer(server, &ControlProxy{conn: buildkitdClient})
 	filesync.RegisterFileSyncServer(server, &FileSyncProxy{conn: buildkitdClient})
 	filesync.RegisterFileSendServer(server, &FileSendProxy{conn: buildkitdClient})
 	auth.RegisterAuthServer(server, &AuthProxy{conn: buildkitdClient})
@@ -240,7 +245,10 @@ func (p *GatewayProxy) Warn(ctx context.Context, in *gateway.WarnRequest) (*gate
 	return client.Warn(ctx, in)
 }
 
-type ControlProxy struct{ conn *grpc.ClientConn }
+type ControlProxy struct {
+	conn   *grpc.ClientConn
+	report *progress.Progress
+}
 
 func (p *ControlProxy) DiskUsage(ctx context.Context, in *control.DiskUsageRequest) (*control.DiskUsageResponse, error) {
 	md, ok := metadata.FromIncomingContext(ctx)
@@ -314,6 +322,8 @@ func (p *ControlProxy) Status(in *control.StatusRequest, toBuildx control.Contro
 			}
 			return err
 		}
+
+		p.report.Write(client.NewSolveStatus(msg))
 
 		err = toBuildx.Send(msg)
 		if err != nil {
