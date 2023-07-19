@@ -1,4 +1,4 @@
-package buildkit
+package buildctl
 
 import (
 	"context"

@@ -1,4 +1,4 @@
-package buildkit
+package buildctl
 
 import (
 	"context"
@@ -21,6 +21,24 @@ import (
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc"
 )
+
+func NewBuildctl() *cobra.Command {
+	var cmd = &cobra.Command{
+		Use:   "buildctl <command> [flags]",
+		Short: "Forwards buildctl dial-stdio to depot",
+	}
+	cmd.AddCommand(NewCmdDial())
+	cmd.AddCommand(&cobra.Command{
+		Use:    "debug",
+		Short:  "Mimics buildctl debug workers",
+		Hidden: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return nil
+		},
+	})
+
+	return cmd
+}
 
 func NewCmdDial() *cobra.Command {
 	cmd := &cobra.Command{

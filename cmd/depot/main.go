@@ -5,7 +5,6 @@ import (
 	"log"
 	"os"
 	"path"
-	"path/filepath"
 	"strings"
 	"syscall"
 
@@ -13,7 +12,6 @@ import (
 	"github.com/depot/cli/internal/update"
 	"github.com/depot/cli/pkg/api"
 	"github.com/depot/cli/pkg/ci"
-	"github.com/depot/cli/pkg/cmd/buildkit"
 	"github.com/depot/cli/pkg/cmd/root"
 	"github.com/depot/cli/pkg/config"
 	"github.com/docker/cli/cli"
@@ -60,16 +58,6 @@ func runMain() int {
 
 	buildVersion := build.Version
 	buildDate := build.Date
-
-	// Fake commands for buildx docker-container drivers.
-	exe := filepath.Base(os.Args[0])
-	if strings.Contains(exe, "buildkitd") || strings.Contains(exe, "buildctl") {
-		err := buildkit.NewFakeBuildkit().Execute()
-		if err != nil {
-			return 1
-		}
-		return 0
-	}
 
 	updateMessageChan := make(chan *api.ReleaseResponse)
 	go func() {
