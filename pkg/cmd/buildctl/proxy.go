@@ -3,11 +3,9 @@ package buildctl
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"net"
 	"net/url"
-	"time"
 
 	content "github.com/containerd/containerd/api/services/content/v1"
 	"github.com/containerd/containerd/api/services/leases/v1"
@@ -19,14 +17,12 @@ import (
 	"github.com/moby/buildkit/client"
 	"github.com/moby/buildkit/depot"
 	gateway "github.com/moby/buildkit/frontend/gateway/pb"
-	"github.com/moby/buildkit/identity"
 	"github.com/moby/buildkit/session/auth"
 	"github.com/moby/buildkit/session/filesync"
 	"github.com/moby/buildkit/session/secrets"
 	"github.com/moby/buildkit/session/sshforward"
 	"github.com/moby/buildkit/session/upload"
 	"github.com/moby/buildkit/solver/pb"
-	"github.com/opencontainers/go-digest"
 	trace "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	"golang.org/x/net/http2"
 	"google.golang.org/grpc"
@@ -84,8 +80,6 @@ func Proxy(ctx context.Context, conn net.Conn, acquireBuilder func() (*grpc.Clie
 	opts := []grpc.ServerOption{
 		grpc.KeepaliveEnforcementPolicy(depot.LoadKeepaliveEnforcementPolicy()),
 		grpc.KeepaliveParams(depot.LoadKeepaliveServerParams()),
-		//grpc.StreamInterceptor(ReportStream(report)),
-		//grpc.UnaryInterceptor(ReportUnary(report)),
 	}
 	server := grpc.NewServer(opts...)
 
@@ -1149,41 +1143,4 @@ func forwardBuildxToBuildkit(buildx grpc.ServerStream, buildkit grpc.ClientStrea
 		}
 	}()
 	return ret
-}
-
-func ReportUnary(reporter *progress.Progress) grpc.UnaryServerInterceptor {
-	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
-		report(fmt.Sprintf("[internal] %s", info.FullMethod), reporter)
-		resp, err := handler(ctx, req)
-		report(fmt.Sprintf("[finished] %s", info.FullMethod), reporter)
-		return resp, err
-	}
-}
-
-func ReportStream(reporter *progress.Progress) grpc.StreamServerInterceptor {
-	return func(srv interface{}, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
-		report(fmt.Sprintf("[internal] %s", info.FullMethod), reporter)
-		err := handler(srv, ss)
-		report(fmt.Sprintf("[finished] %s", info.FullMethod), reporter)
-		return err
-	}
-}
-
-func report(log string, reporter *progress.Progress) {
-	tm := time.Now()
-	status := &client.SolveStatus{
-		Vertexes: []*client.Vertex{
-			{
-				Digest:    digest.Canonical.FromString(identity.NewID()),
-				Name:      log,
-				Started:   &tm,
-				Completed: &tm,
-				Cached:    true,
-			},
-		},
-	}
-
-	if reporter != nil {
-		reporter.Write(status)
-	}
 }
