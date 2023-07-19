@@ -6,6 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/depot/cli/pkg/buildx/commands"
 	bakeCmd "github.com/depot/cli/pkg/cmd/bake"
 	buildCmd "github.com/depot/cli/pkg/cmd/build"
 	cacheCmd "github.com/depot/cli/pkg/cmd/cache"
@@ -54,6 +55,7 @@ func NewCmdRoot(version, buildDate string) *cobra.Command {
 	cmd.AddCommand(logout.NewCmdLogout())
 	cmd.AddCommand(versionCmd.NewCmdVersion(version, buildDate))
 	cmd.AddCommand(dockerCmd.NewCmdConfigureDocker())
+	cmd.AddCommand(commands.NewBuildxCmd(dockerCli))
 
 	return cmd
 }

@@ -84,8 +84,8 @@ func Proxy(ctx context.Context, conn net.Conn, acquireBuilder func() (*grpc.Clie
 	opts := []grpc.ServerOption{
 		grpc.KeepaliveEnforcementPolicy(depot.LoadKeepaliveEnforcementPolicy()),
 		grpc.KeepaliveParams(depot.LoadKeepaliveServerParams()),
-		grpc.StreamInterceptor(ReportStream(report)),
-		grpc.UnaryInterceptor(ReportUnary(report)),
+		//grpc.StreamInterceptor(ReportStream(report)),
+		//grpc.UnaryInterceptor(ReportUnary(report)),
 	}
 	server := grpc.NewServer(opts...)
 
