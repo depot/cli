@@ -1,3 +1,6 @@
+.PHONY: all
+all: bin/depot bin/depot-docker-shim
+
 .PHONY: bin/depot
 bin/depot:
 	go build -o $@ ./cmd/depot
