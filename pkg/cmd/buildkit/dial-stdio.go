@@ -19,6 +19,7 @@ import (
 	"github.com/docker/buildx/build"
 	"github.com/moby/buildkit/client"
 	"github.com/spf13/cobra"
+	"google.golang.org/grpc"
 )
 
 func NewCmdDial() *cobra.Command {
@@ -49,60 +50,87 @@ func run() error {
 		return fmt.Errorf("DEPOT_TOKEN is not set")
 	}
 
-	validatedOpts := map[string]build.Options{"default": {}}
-	exportPush := false
-	exportLoad := false
-	lint := false
-
-	req := helpers.NewBuildRequest(
-		projectID,
-		validatedOpts,
-		exportPush,
-		exportLoad,
-		lint,
-	)
-	build, err := helpers.BeginBuild(ctx, req, token)
-	if err != nil {
-		return fmt.Errorf("unable to begin build: %w", err)
-	}
-	var buildErr error
-	defer func() { build.Finish(buildErr) }()
-
 	ctx2, cancel := context.WithCancel(context.TODO())
 	defer cancel()
-	reporter, err := progress.NewProgress(ctx2, build.ID, token, "quiet")
+	reporter, err := progress.NewProgress(ctx2, "", token, "quiet")
 	if err != nil {
 		return err
 	}
 	wg := &sync.WaitGroup{}
-	wg.Add(1)
-	go func() {
-		reporter.Run(ctx2)
-		wg.Done()
-	}()
+
 	defer wg.Wait() // Required to ensure that the reporter is stopped before the context is cancelled.
 	defer cancel()
 
-	report := func(s *client.SolveStatus) {
-		reporter.Write(s)
-	}
-	builder, err := builder.NewBuilder(token, build.ID, "amd64").Acquire(report)
-	if err != nil {
-		return fmt.Errorf("unable to acquire builder: %w", err)
-	}
+	var (
+		finish   func(error)
+		buildErr error
+	)
+	defer func() {
+		if finish != nil {
+			finish(buildErr)
+		}
+	}()
 
-	buildkitConn, err := tlsConn(ctx, builder)
-	if err != nil {
-		return fmt.Errorf("unable to connect: %w", err)
-	}
-	buildkit, err := BuildkitdClient(ctx, buildkitConn, builder.Addr)
-	if err != nil {
-		return fmt.Errorf("unable to dial: %w", err)
+	var (
+		once       sync.Once
+		builderErr error
+		buildkit   *grpc.ClientConn
+	)
+	acquireBuilder := func() (*grpc.ClientConn, error) {
+		once.Do(func() {
+			validatedOpts := map[string]build.Options{"default": {}}
+			exportPush := false
+			exportLoad := false
+			lint := false
+
+			req := helpers.NewBuildRequest(
+				projectID,
+				validatedOpts,
+				exportPush,
+				exportLoad,
+				lint,
+			)
+			build, err := helpers.BeginBuild(ctx, req, token)
+			if err != nil {
+				builderErr = fmt.Errorf("unable to begin build: %w", err)
+				return
+			}
+
+			reporter.SetBuildID(build.ID)
+			wg.Add(1)
+			go func() {
+				reporter.Run(ctx2)
+				wg.Done()
+			}()
+
+			finish = build.Finish
+
+			report := func(s *client.SolveStatus) {
+				reporter.Write(s)
+			}
+			builder, err := builder.NewBuilder(token, build.ID, "amd64").Acquire(report)
+			if err != nil {
+				builderErr = fmt.Errorf("unable to acquire builder: %w", err)
+				return
+			}
+
+			buildkitConn, err := tlsConn(ctx, builder)
+			if err != nil {
+				builderErr = fmt.Errorf("unable to connect: %w", err)
+				return
+			}
+
+			buildkit, err = BuildkitdClient(ctx, buildkitConn, builder.Addr)
+			if err != nil {
+				builderErr = fmt.Errorf("unable to dial: %w", err)
+				return
+			}
+		})
+		return buildkit, builderErr
 	}
 
 	buildx := &StdioConn{}
-
-	Proxy(ctx, buildx, buildkit, reporter)
+	Proxy(ctx, buildx, acquireBuilder, reporter)
 
 	return nil
 }

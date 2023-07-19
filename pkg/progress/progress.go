@@ -5,6 +5,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/bufbuild/connect-go"
@@ -20,6 +21,7 @@ import (
 var _ progress.Writer = (*Progress)(nil)
 
 type Progress struct {
+	mu      sync.Mutex
 	buildID string
 	token   string
 
@@ -44,6 +46,12 @@ func NewProgress(ctx context.Context, buildID, token, progressMode string) (*Pro
 		vertices: make(chan []*client.Vertex, channelBufferSize),
 		p:        p,
 	}, nil
+}
+
+func (p *Progress) SetBuildID(buildID string) {
+	p.mu.Lock()
+	p.buildID = buildID
+	p.mu.Unlock()
 }
 
 func (p *Progress) Write(s *client.SolveStatus) {
@@ -186,6 +194,8 @@ func (p *Progress) Run(ctx context.Context) {
 }
 
 func (p *Progress) HasActiveBuild() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	return p.buildID != "" && p.token != ""
 }
 
@@ -194,7 +204,17 @@ func (p *Progress) ReportBuildSteps(ctx context.Context, steps []*Step) {
 		return
 	}
 
-	req := NewTimingRequest(p.buildID, steps)
+	var buildID string
+	{
+		p.mu.Lock()
+		buildID = p.buildID
+		p.mu.Unlock()
+	}
+	if buildID == "" {
+		return
+	}
+
+	req := NewTimingRequest(buildID, steps)
 	if req == nil {
 		return
 	}

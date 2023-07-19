@@ -3,9 +3,11 @@ package buildkit
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/url"
+	"time"
 
 	content "github.com/containerd/containerd/api/services/content/v1"
 	"github.com/containerd/containerd/api/services/leases/v1"
@@ -13,14 +15,18 @@ import (
 	"github.com/depot/cli/pkg/progress"
 	"github.com/gogo/protobuf/types"
 	control "github.com/moby/buildkit/api/services/control"
+	worker "github.com/moby/buildkit/api/types"
 	"github.com/moby/buildkit/client"
 	"github.com/moby/buildkit/depot"
 	gateway "github.com/moby/buildkit/frontend/gateway/pb"
+	"github.com/moby/buildkit/identity"
 	"github.com/moby/buildkit/session/auth"
 	"github.com/moby/buildkit/session/filesync"
 	"github.com/moby/buildkit/session/secrets"
 	"github.com/moby/buildkit/session/sshforward"
 	"github.com/moby/buildkit/session/upload"
+	"github.com/moby/buildkit/solver/pb"
+	"github.com/opencontainers/go-digest"
 	trace "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	"golang.org/x/net/http2"
 	"google.golang.org/grpc"
@@ -71,25 +77,32 @@ func BuildkitdClient(ctx context.Context, conn net.Conn, buildkitdAddress string
 }
 
 // Proxy buildkitd server over connection. Cancel context to shutdown.
-func Proxy(ctx context.Context, conn net.Conn, buildkitdClient *grpc.ClientConn, report *progress.Progress) {
+func Proxy(ctx context.Context, conn net.Conn, acquireBuilder func() (*grpc.ClientConn, error), report *progress.Progress) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
 	opts := []grpc.ServerOption{
 		grpc.KeepaliveEnforcementPolicy(depot.LoadKeepaliveEnforcementPolicy()),
 		grpc.KeepaliveParams(depot.LoadKeepaliveServerParams()),
+		grpc.StreamInterceptor(ReportStream(report)),
+		grpc.UnaryInterceptor(ReportUnary(report)),
 	}
 	server := grpc.NewServer(opts...)
 
-	control.RegisterControlServer(server, &ControlProxy{conn: buildkitdClient, report: report})
-	gateway.RegisterLLBBridgeServer(server, &GatewayProxy{conn: buildkitdClient})
-	filesync.RegisterFileSyncServer(server, &FileSyncProxy{conn: buildkitdClient})
-	filesync.RegisterFileSendServer(server, &FileSendProxy{conn: buildkitdClient})
-	auth.RegisterAuthServer(server, &AuthProxy{conn: buildkitdClient})
-	upload.RegisterUploadServer(server, &UploadProxy{conn: buildkitdClient})
-	sshforward.RegisterSSHServer(server, &SshProxy{conn: buildkitdClient})
-	secrets.RegisterSecretsServer(server, &SecretsProxy{conn: buildkitdClient})
-	trace.RegisterTraceServiceServer(server, &TracesProxy{conn: buildkitdClient})
-	content.RegisterContentServer(server, &ContentProxy{conn: buildkitdClient})
-	leases.RegisterLeasesServer(server, &LeasesProxy{conn: buildkitdClient})
-	health.RegisterHealthServer(server, &HealthProxy{conn: buildkitdClient})
+	control.RegisterControlServer(server, &ControlProxy{conn: acquireBuilder, report: report, cancel: cancel})
+	gateway.RegisterLLBBridgeServer(server, &GatewayProxy{conn: acquireBuilder})
+	/*
+		filesync.RegisterFileSyncServer(server, &FileSyncProxy{conn: buildkitdClient})
+		filesync.RegisterFileSendServer(server, &FileSendProxy{conn: buildkitdClient})
+		auth.RegisterAuthServer(server, &AuthProxy{conn: buildkitdClient})
+		upload.RegisterUploadServer(server, &UploadProxy{conn: buildkitdClient})
+		sshforward.RegisterSSHServer(server, &SshProxy{conn: buildkitdClient})
+		secrets.RegisterSecretsServer(server, &SecretsProxy{conn: buildkitdClient})
+		trace.RegisterTraceServiceServer(server, &TracesProxy{conn: buildkitdClient})
+		content.RegisterContentServer(server, &ContentProxy{conn: buildkitdClient})
+		leases.RegisterLeasesServer(server, &LeasesProxy{conn: buildkitdClient})
+		health.RegisterHealthServer(server, &HealthProxy{conn: buildkitdClient})
+	*/
 
 	go func() {
 		<-ctx.Done()
@@ -100,7 +113,7 @@ func Proxy(ctx context.Context, conn net.Conn, buildkitdClient *grpc.ClientConn,
 }
 
 type GatewayProxy struct {
-	conn *grpc.ClientConn
+	conn func() (*grpc.ClientConn, error)
 }
 
 func (p *GatewayProxy) ResolveImageConfig(ctx context.Context, in *gateway.ResolveImageConfigRequest) (*gateway.ResolveImageConfigResponse, error) {
@@ -108,7 +121,13 @@ func (p *GatewayProxy) ResolveImageConfig(ctx context.Context, in *gateway.Resol
 	if ok {
 		ctx = metadata.NewOutgoingContext(ctx, md)
 	}
-	client := gateway.NewLLBBridgeClient(p.conn)
+
+	conn, err := p.conn()
+	if err != nil {
+		return nil, err
+	}
+
+	client := gateway.NewLLBBridgeClient(conn)
 	return client.ResolveImageConfig(ctx, in)
 }
 
@@ -117,7 +136,13 @@ func (p *GatewayProxy) Solve(ctx context.Context, in *gateway.SolveRequest) (*ga
 	if ok {
 		ctx = metadata.NewOutgoingContext(ctx, md)
 	}
-	client := gateway.NewLLBBridgeClient(p.conn)
+
+	conn, err := p.conn()
+	if err != nil {
+		return nil, err
+	}
+
+	client := gateway.NewLLBBridgeClient(conn)
 	return client.Solve(ctx, in)
 }
 
@@ -126,7 +151,13 @@ func (p *GatewayProxy) ReadFile(ctx context.Context, in *gateway.ReadFileRequest
 	if ok {
 		ctx = metadata.NewOutgoingContext(ctx, md)
 	}
-	client := gateway.NewLLBBridgeClient(p.conn)
+
+	conn, err := p.conn()
+	if err != nil {
+		return nil, err
+	}
+
+	client := gateway.NewLLBBridgeClient(conn)
 	return client.ReadFile(ctx, in)
 }
 
@@ -135,7 +166,13 @@ func (p *GatewayProxy) ReadDir(ctx context.Context, in *gateway.ReadDirRequest) 
 	if ok {
 		ctx = metadata.NewOutgoingContext(ctx, md)
 	}
-	client := gateway.NewLLBBridgeClient(p.conn)
+
+	conn, err := p.conn()
+	if err != nil {
+		return nil, err
+	}
+
+	client := gateway.NewLLBBridgeClient(conn)
 	return client.ReadDir(ctx, in)
 }
 
@@ -144,7 +181,13 @@ func (p *GatewayProxy) StatFile(ctx context.Context, in *gateway.StatFileRequest
 	if ok {
 		ctx = metadata.NewOutgoingContext(ctx, md)
 	}
-	client := gateway.NewLLBBridgeClient(p.conn)
+
+	conn, err := p.conn()
+	if err != nil {
+		return nil, err
+	}
+
+	client := gateway.NewLLBBridgeClient(conn)
 	return client.StatFile(ctx, in)
 }
 
@@ -153,7 +196,13 @@ func (p *GatewayProxy) Evaluate(ctx context.Context, in *gateway.EvaluateRequest
 	if ok {
 		ctx = metadata.NewOutgoingContext(ctx, md)
 	}
-	client := gateway.NewLLBBridgeClient(p.conn)
+
+	conn, err := p.conn()
+	if err != nil {
+		return nil, err
+	}
+
+	client := gateway.NewLLBBridgeClient(conn)
 	return client.Evaluate(ctx, in)
 }
 
@@ -162,7 +211,13 @@ func (p *GatewayProxy) Ping(ctx context.Context, in *gateway.PingRequest) (*gate
 	if ok {
 		ctx = metadata.NewOutgoingContext(ctx, md)
 	}
-	client := gateway.NewLLBBridgeClient(p.conn)
+
+	conn, err := p.conn()
+	if err != nil {
+		return nil, err
+	}
+
+	client := gateway.NewLLBBridgeClient(conn)
 	return client.Ping(ctx, in)
 }
 
@@ -171,7 +226,13 @@ func (p *GatewayProxy) Return(ctx context.Context, in *gateway.ReturnRequest) (*
 	if ok {
 		ctx = metadata.NewOutgoingContext(ctx, md)
 	}
-	client := gateway.NewLLBBridgeClient(p.conn)
+
+	conn, err := p.conn()
+	if err != nil {
+		return nil, err
+	}
+
+	client := gateway.NewLLBBridgeClient(conn)
 	return client.Return(ctx, in)
 }
 
@@ -180,7 +241,13 @@ func (p *GatewayProxy) Inputs(ctx context.Context, in *gateway.InputsRequest) (*
 	if ok {
 		ctx = metadata.NewOutgoingContext(ctx, md)
 	}
-	client := gateway.NewLLBBridgeClient(p.conn)
+
+	conn, err := p.conn()
+	if err != nil {
+		return nil, err
+	}
+
+	client := gateway.NewLLBBridgeClient(conn)
 	return client.Inputs(ctx, in)
 }
 
@@ -189,7 +256,13 @@ func (p *GatewayProxy) NewContainer(ctx context.Context, in *gateway.NewContaine
 	if ok {
 		ctx = metadata.NewOutgoingContext(ctx, md)
 	}
-	client := gateway.NewLLBBridgeClient(p.conn)
+
+	conn, err := p.conn()
+	if err != nil {
+		return nil, err
+	}
+
+	client := gateway.NewLLBBridgeClient(conn)
 	return client.NewContainer(ctx, in)
 }
 
@@ -198,7 +271,13 @@ func (p *GatewayProxy) ReleaseContainer(ctx context.Context, in *gateway.Release
 	if ok {
 		ctx = metadata.NewOutgoingContext(ctx, md)
 	}
-	client := gateway.NewLLBBridgeClient(p.conn)
+
+	conn, err := p.conn()
+	if err != nil {
+		return nil, err
+	}
+
+	client := gateway.NewLLBBridgeClient(conn)
 	return client.ReleaseContainer(ctx, in)
 }
 
@@ -208,7 +287,12 @@ func (p *GatewayProxy) ExecProcess(buildx gateway.LLBBridge_ExecProcessServer) e
 	buildkitCtx, buildkitCancel := context.WithCancel(buildkitCtx)
 	defer buildkitCancel()
 
-	buildkit, err := gateway.NewLLBBridgeClient(p.conn).ExecProcess(buildkitCtx)
+	conn, err := p.conn()
+	if err != nil {
+		return err
+	}
+
+	buildkit, err := gateway.NewLLBBridgeClient(conn).ExecProcess(buildkitCtx)
 	if err != nil {
 		return err
 	}
@@ -241,22 +325,37 @@ func (p *GatewayProxy) Warn(ctx context.Context, in *gateway.WarnRequest) (*gate
 	if ok {
 		ctx = metadata.NewOutgoingContext(ctx, md)
 	}
-	client := gateway.NewLLBBridgeClient(p.conn)
+
+	conn, err := p.conn()
+	if err != nil {
+		return nil, err
+	}
+
+	client := gateway.NewLLBBridgeClient(conn)
 	return client.Warn(ctx, in)
 }
 
 type ControlProxy struct {
-	conn   *grpc.ClientConn
+	conn   func() (*grpc.ClientConn, error)
 	report *progress.Progress
+	cancel context.CancelFunc
+}
+
+func (p *ControlProxy) scheduleShutdown() {
+	go func() { p.cancel() }()
 }
 
 func (p *ControlProxy) DiskUsage(ctx context.Context, in *control.DiskUsageRequest) (*control.DiskUsageResponse, error) {
-	md, ok := metadata.FromIncomingContext(ctx)
-	if ok {
-		ctx = metadata.NewOutgoingContext(ctx, md)
-	}
-	client := control.NewControlClient(p.conn)
-	return client.DiskUsage(ctx, in)
+	p.scheduleShutdown()
+	return &control.DiskUsageResponse{}, nil
+	/*
+		md, ok := metadata.FromIncomingContext(ctx)
+		if ok {
+			ctx = metadata.NewOutgoingContext(ctx, md)
+		}
+		client := control.NewControlClient(p.conn)
+		return client.DiskUsage(ctx, in)
+	*/
 }
 
 func (p *ControlProxy) Prune(in *control.PruneRequest, toBuildx control.Control_PruneServer) error {
@@ -268,7 +367,12 @@ func (p *ControlProxy) Prune(in *control.PruneRequest, toBuildx control.Control_
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	fromBuildkit, err := control.NewControlClient(p.conn).Prune(ctx, in)
+	conn, err := p.conn()
+	if err != nil {
+		return err
+	}
+
+	fromBuildkit, err := control.NewControlClient(conn).Prune(ctx, in)
 	if err != nil {
 		return err
 	}
@@ -296,7 +400,13 @@ func (p *ControlProxy) Solve(ctx context.Context, in *control.SolveRequest) (*co
 	if ok {
 		ctx = metadata.NewOutgoingContext(ctx, md)
 	}
-	client := control.NewControlClient(p.conn)
+
+	conn, err := p.conn()
+	if err != nil {
+		return nil, err
+	}
+
+	client := control.NewControlClient(conn)
 	return client.Solve(ctx, in)
 }
 
@@ -309,7 +419,12 @@ func (p *ControlProxy) Status(in *control.StatusRequest, toBuildx control.Contro
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	fromBuildkit, err := control.NewControlClient(p.conn).Status(ctx, in)
+	conn, err := p.conn()
+	if err != nil {
+		return err
+	}
+
+	fromBuildkit, err := control.NewControlClient(conn).Status(ctx, in)
 	if err != nil {
 		return err
 	}
@@ -340,7 +455,12 @@ func (p *ControlProxy) Session(buildx control.Control_SessionServer) error {
 	buildkitCtx, buildkitCancel := context.WithCancel(buildkitCtx)
 	defer buildkitCancel()
 
-	buildkit, err := control.NewControlClient(p.conn).Session(buildkitCtx)
+	conn, err := p.conn()
+	if err != nil {
+		return err
+	}
+
+	buildkit, err := control.NewControlClient(conn).Session(buildkitCtx)
 	if err != nil {
 		return err
 	}
@@ -369,62 +489,107 @@ func (p *ControlProxy) Session(buildx control.Control_SessionServer) error {
 }
 
 func (p *ControlProxy) ListWorkers(ctx context.Context, in *control.ListWorkersRequest) (*control.ListWorkersResponse, error) {
-	md, ok := metadata.FromIncomingContext(ctx)
-	if ok {
-		ctx = metadata.NewOutgoingContext(ctx, md)
-	}
-	client := control.NewControlClient(p.conn)
-	return client.ListWorkers(ctx, in)
+	return &control.ListWorkersResponse{
+		Record: []*worker.WorkerRecord{
+			{
+				Platforms: []pb.Platform{
+					{
+						Architecture: "amd64",
+						OS:           "linux",
+					},
+					{
+						Architecture: "amd64",
+						OS:           "linux",
+						Variant:      "v2",
+					},
+					{
+						Architecture: "amd64",
+						OS:           "linux",
+						Variant:      "v3",
+					},
+					{
+						Architecture: "amd64",
+						OS:           "linux",
+						Variant:      "v4",
+					},
+					{
+						Architecture: "386",
+						OS:           "linux",
+					},
+				},
+			},
+		},
+	}, nil
+	/*
+		md, ok := metadata.FromIncomingContext(ctx)
+		if ok {
+			ctx = metadata.NewOutgoingContext(ctx, md)
+		}
+		client := control.NewControlClient(p.conn)
+		return client.ListWorkers(ctx, in)
+	*/
 }
 
 func (p *ControlProxy) Info(ctx context.Context, in *control.InfoRequest) (*control.InfoResponse, error) {
-	md, ok := metadata.FromIncomingContext(ctx)
-	if ok {
-		ctx = metadata.NewOutgoingContext(ctx, md)
-	}
-	client := control.NewControlClient(p.conn)
-	return client.Info(ctx, in)
+	p.scheduleShutdown()
+	return nil, status.Errorf(codes.Unimplemented, "method Info not implemented")
+	/*
+		md, ok := metadata.FromIncomingContext(ctx)
+		if ok {
+			ctx = metadata.NewOutgoingContext(ctx, md)
+		}
+		client := control.NewControlClient(p.conn)
+		return client.Info(ctx, in)
+	*/
 }
 
 func (p *ControlProxy) ListenBuildHistory(in *control.BuildHistoryRequest, toBuildx control.Control_ListenBuildHistoryServer) error {
-	ctx := toBuildx.Context()
-	md, ok := metadata.FromIncomingContext(ctx)
-	if ok {
-		ctx = metadata.NewOutgoingContext(ctx, md)
-	}
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
+	p.scheduleShutdown()
+	return status.Errorf(codes.Unimplemented, "method ListenBuildHistory not implemented")
+	/*
+		ctx := toBuildx.Context()
+		md, ok := metadata.FromIncomingContext(ctx)
+		if ok {
+			ctx = metadata.NewOutgoingContext(ctx, md)
+		}
+		ctx, cancel := context.WithCancel(ctx)
+		defer cancel()
 
-	fromBuildkit, err := control.NewControlClient(p.conn).ListenBuildHistory(ctx, in)
-	if err != nil {
-		return err
-	}
-
-	for {
-		msg, err := fromBuildkit.Recv()
+		fromBuildkit, err := control.NewControlClient(p.conn).ListenBuildHistory(ctx, in)
 		if err != nil {
-			if errors.Is(err, io.EOF) {
-				break
+			return err
+		}
+
+		for {
+			msg, err := fromBuildkit.Recv()
+			if err != nil {
+				if errors.Is(err, io.EOF) {
+					break
+				}
+				return err
 			}
-			return err
+
+			err = toBuildx.Send(msg)
+			if err != nil {
+				return err
+			}
 		}
 
-		err = toBuildx.Send(msg)
-		if err != nil {
-			return err
-		}
-	}
-
-	return nil
+		return nil
+	*/
 }
 
 func (p *ControlProxy) UpdateBuildHistory(ctx context.Context, in *control.UpdateBuildHistoryRequest) (*control.UpdateBuildHistoryResponse, error) {
-	md, ok := metadata.FromIncomingContext(ctx)
-	if ok {
-		ctx = metadata.NewOutgoingContext(ctx, md)
-	}
-	client := control.NewControlClient(p.conn)
-	return client.UpdateBuildHistory(ctx, in)
+	p.scheduleShutdown()
+	return &control.UpdateBuildHistoryResponse{}, nil
+	/*
+		md, ok := metadata.FromIncomingContext(ctx)
+		if ok {
+			ctx = metadata.NewOutgoingContext(ctx, md)
+		}
+		client := control.NewControlClient(p.conn)
+		return client.UpdateBuildHistory(ctx, in)
+	*/
 }
 
 type FileSyncProxy struct{ conn *grpc.ClientConn }
@@ -953,4 +1118,41 @@ func forwardBuildxToBuildkit(buildx grpc.ServerStream, buildkit grpc.ClientStrea
 		}
 	}()
 	return ret
+}
+
+func ReportUnary(reporter *progress.Progress) grpc.UnaryServerInterceptor {
+	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+		report(fmt.Sprintf("[internal] %s", info.FullMethod), reporter)
+		resp, err := handler(ctx, req)
+		report(fmt.Sprintf("[finished] %s", info.FullMethod), reporter)
+		return resp, err
+	}
+}
+
+func ReportStream(reporter *progress.Progress) grpc.StreamServerInterceptor {
+	return func(srv interface{}, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+		report(fmt.Sprintf("[internal] %s", info.FullMethod), reporter)
+		err := handler(srv, ss)
+		report(fmt.Sprintf("[finished] %s", info.FullMethod), reporter)
+		return err
+	}
+}
+
+func report(log string, reporter *progress.Progress) {
+	tm := time.Now()
+	status := &client.SolveStatus{
+		Vertexes: []*client.Vertex{
+			{
+				Digest:    digest.Canonical.FromString(identity.NewID()),
+				Name:      log,
+				Started:   &tm,
+				Completed: &tm,
+				Cached:    true,
+			},
+		},
+	}
+
+	if reporter != nil {
+		reporter.Write(status)
+	}
 }
