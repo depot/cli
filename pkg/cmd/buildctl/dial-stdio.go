@@ -30,12 +30,14 @@ func NewBuildctl() *cobra.Command {
 	cmd.AddCommand(NewCmdDial())
 	cmd.AddCommand(&cobra.Command{
 		Use:    "debug",
-		Short:  "Mimics buildctl debug workers",
+		Short:  "Mimics buildctl debug workers for buildx container drivers",
 		Hidden: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return nil
 		},
 	})
+
+	cmd.Version = "buildkitd github.com/moby/buildkit v0.11.6 2951a28cd7085eb18979b1f710678623d94ed578"
 
 	return cmd
 }
