@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	depot "github.com/depot/cli/internal/build"
 	"github.com/depot/cli/pkg/builder"
 	"github.com/depot/cli/pkg/helpers"
 	"github.com/depot/cli/pkg/progress"
@@ -37,8 +38,8 @@ func NewBuildctl() *cobra.Command {
 		},
 	})
 
-	cmd.Version = "buildkitd github.com/moby/buildkit v0.11.6 2951a28cd7085eb18979b1f710678623d94ed578"
-
+	cmd.SetVersionTemplate(`{{with .Name}}{{printf "%s github.com/depot/cli " .}}{{end}}{{printf "%s\n" .Version}}`)
+	cmd.Version = fmt.Sprintf("%s 2951a28cd7085eb18979b1f710678623d94ed578", depot.Version)
 	return cmd
 }
 
