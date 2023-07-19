@@ -9,6 +9,7 @@ import (
 	bakeCmd "github.com/depot/cli/pkg/cmd/bake"
 	buildCmd "github.com/depot/cli/pkg/cmd/build"
 	cacheCmd "github.com/depot/cli/pkg/cmd/cache"
+	dockerCmd "github.com/depot/cli/pkg/cmd/docker"
 	initCmd "github.com/depot/cli/pkg/cmd/init"
 	"github.com/depot/cli/pkg/cmd/list"
 	loginCmd "github.com/depot/cli/pkg/cmd/login"
@@ -52,6 +53,7 @@ func NewCmdRoot(version, buildDate string) *cobra.Command {
 	cmd.AddCommand(loginCmd.NewCmdLogin())
 	cmd.AddCommand(logout.NewCmdLogout())
 	cmd.AddCommand(versionCmd.NewCmdVersion(version, buildDate))
+	cmd.AddCommand(dockerCmd.NewCmdDocker())
 
 	return cmd
 }

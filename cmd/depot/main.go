@@ -11,6 +11,9 @@ import (
 	"github.com/depot/cli/pkg/ci"
 	"github.com/depot/cli/pkg/cmd/root"
 	"github.com/depot/cli/pkg/config"
+	"github.com/docker/cli/cli-plugins/manager"
+	"github.com/docker/cli/cli-plugins/plugin"
+	"github.com/docker/cli/cli/command"
 	"github.com/getsentry/sentry-go"
 	"github.com/mattn/go-isatty"
 	"github.com/mgutz/ansi"
@@ -42,10 +45,31 @@ func runMain() int {
 		updateMessageChan <- rel
 	}()
 
-	rootCmd := root.NewCmdRoot(buildVersion, buildDate)
+	if plugin.RunningStandalone() {
+		rootCmd := root.NewCmdRoot(buildVersion, buildDate)
 
-	if err := rootCmd.Execute(); err != nil {
-		return 1
+		if err := rootCmd.Execute(); err != nil {
+			return 1
+		}
+	} else {
+		cmd, err := command.NewDockerCli()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+
+		rootCmd := root.NewCmdRoot(buildVersion, buildDate)
+
+		err = plugin.RunPlugin(cmd, rootCmd, manager.Metadata{
+			SchemaVersion: "0.1.0",
+			Vendor:        "Depot Technologies Inc.",
+			Version:       buildVersion,
+			URL:           "https://depot.dev",
+		})
+
+		if err != nil {
+			return 1
+		}
 	}
 
 	newRelease := <-updateMessageChan
