@@ -50,6 +50,11 @@ func run() error {
 		return fmt.Errorf("DEPOT_TOKEN is not set")
 	}
 
+	platform := os.Getenv("DEPOT_PLATFORM")
+	if token == "" {
+		return fmt.Errorf("DEPOT_PLATFORM is not set")
+	}
+
 	ctx2, cancel := context.WithCancel(context.TODO())
 	defer cancel()
 	reporter, err := progress.NewProgress(ctx2, "", token, "quiet")
@@ -108,7 +113,7 @@ func run() error {
 			report := func(s *client.SolveStatus) {
 				reporter.Write(s)
 			}
-			builder, err := builder.NewBuilder(token, build.ID, "amd64").Acquire(report)
+			builder, err := builder.NewBuilder(token, build.ID, platform).Acquire(report)
 			if err != nil {
 				builderErr = fmt.Errorf("unable to acquire builder: %w", err)
 				return
@@ -130,7 +135,7 @@ func run() error {
 	}
 
 	buildx := &StdioConn{}
-	Proxy(ctx, buildx, acquireBuilder, reporter)
+	Proxy(ctx, buildx, acquireBuilder, platform, reporter)
 
 	return nil
 }

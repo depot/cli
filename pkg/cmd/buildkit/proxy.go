@@ -77,7 +77,7 @@ func BuildkitdClient(ctx context.Context, conn net.Conn, buildkitdAddress string
 }
 
 // Proxy buildkitd server over connection. Cancel context to shutdown.
-func Proxy(ctx context.Context, conn net.Conn, acquireBuilder func() (*grpc.ClientConn, error), report *progress.Progress) {
+func Proxy(ctx context.Context, conn net.Conn, acquireBuilder func() (*grpc.ClientConn, error), platform string, report *progress.Progress) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -89,7 +89,7 @@ func Proxy(ctx context.Context, conn net.Conn, acquireBuilder func() (*grpc.Clie
 	}
 	server := grpc.NewServer(opts...)
 
-	control.RegisterControlServer(server, &ControlProxy{conn: acquireBuilder, report: report, cancel: cancel})
+	control.RegisterControlServer(server, &ControlProxy{conn: acquireBuilder, platform: platform, report: report, cancel: cancel})
 	gateway.RegisterLLBBridgeServer(server, &GatewayProxy{conn: acquireBuilder})
 	/*
 		filesync.RegisterFileSyncServer(server, &FileSyncProxy{conn: buildkitdClient})
@@ -336,9 +336,10 @@ func (p *GatewayProxy) Warn(ctx context.Context, in *gateway.WarnRequest) (*gate
 }
 
 type ControlProxy struct {
-	conn   func() (*grpc.ClientConn, error)
-	report *progress.Progress
-	cancel context.CancelFunc
+	conn     func() (*grpc.ClientConn, error)
+	report   *progress.Progress
+	platform string
+	cancel   context.CancelFunc
 }
 
 func (p *ControlProxy) scheduleShutdown() {
@@ -489,37 +490,67 @@ func (p *ControlProxy) Session(buildx control.Control_SessionServer) error {
 }
 
 func (p *ControlProxy) ListWorkers(ctx context.Context, in *control.ListWorkersRequest) (*control.ListWorkersResponse, error) {
-	return &control.ListWorkersResponse{
-		Record: []*worker.WorkerRecord{
-			{
-				Platforms: []pb.Platform{
-					{
-						Architecture: "amd64",
-						OS:           "linux",
-					},
-					{
-						Architecture: "amd64",
-						OS:           "linux",
-						Variant:      "v2",
-					},
-					{
-						Architecture: "amd64",
-						OS:           "linux",
-						Variant:      "v3",
-					},
-					{
-						Architecture: "amd64",
-						OS:           "linux",
-						Variant:      "v4",
-					},
-					{
-						Architecture: "386",
-						OS:           "linux",
+	if p.platform == "amd64" {
+		return &control.ListWorkersResponse{
+			Record: []*worker.WorkerRecord{
+				{
+					Platforms: []pb.Platform{
+						{
+							Architecture: "amd64",
+							OS:           "linux",
+						},
+						{
+							Architecture: "amd64",
+							OS:           "linux",
+							Variant:      "v2",
+						},
+						{
+							Architecture: "amd64",
+							OS:           "linux",
+							Variant:      "v3",
+						},
+						{
+							Architecture: "amd64",
+							OS:           "linux",
+							Variant:      "v4",
+						},
+						{
+							Architecture: "386",
+							OS:           "linux",
+						},
 					},
 				},
 			},
-		},
-	}, nil
+		}, nil
+	} else if p.platform == "arm64" {
+		return &control.ListWorkersResponse{
+			Record: []*worker.WorkerRecord{
+				{
+					Platforms: []pb.Platform{
+						{
+							Architecture: "arm64",
+							OS:           "linux",
+						},
+						{
+							Architecture: "arm",
+							OS:           "linux",
+							Variant:      "v7",
+						},
+						{
+							Architecture: "arm",
+							OS:           "linux",
+							Variant:      "v6",
+						},
+					},
+				},
+			},
+		}, nil
+
+	} else {
+		return &control.ListWorkersResponse{
+			Record: []*worker.WorkerRecord{},
+		}, nil
+	}
 	/*
 		md, ok := metadata.FromIncomingContext(ctx)
 		if ok {
