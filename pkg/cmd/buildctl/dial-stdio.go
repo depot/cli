@@ -88,20 +88,17 @@ func run() error {
 	defer cancel()
 
 	var (
-		finish   func(error)
-		buildErr error
-	)
-	defer func() {
-		if finish != nil {
-			finish(buildErr)
-		}
-	}()
-
-	var (
 		once       sync.Once
+		finish     func(error)
 		builderErr error
 		buildkit   *grpc.ClientConn
 	)
+	defer func() {
+		if finish != nil {
+			finish(builderErr)
+		}
+	}()
+
 	acquireBuilder := func() (*grpc.ClientConn, error) {
 		once.Do(func() {
 			validatedOpts := map[string]build.Options{"default": {}}
