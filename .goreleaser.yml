@@ -30,17 +30,13 @@ builds:
 archives:
   - id: nix
     builds: [macos, linux]
-    <<: &archive_defaults
-      name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}{{ if .Arm }}v{{ .Arm }}{{ end }}"
-    replacements:
-      darwin: macOS
     format: tar.gz
 
 changelog:
   skip: true
 
 brews:
-  - tap:
+  - repository:
       owner: depot
       name: homebrew-tap
     commit_author:

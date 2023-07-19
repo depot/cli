@@ -20,7 +20,7 @@ jobs:
         run: echo "::set-output name=tag-name::${GITHUB_REF#refs/tags/}"
       - uses: goreleaser/goreleaser-action@v4
         with:
-          version: 1.13.0
+          version: 1.19.0
           args: release
         env:
           GITHUB_TOKEN: ${{ secrets.BOT_PUBLIC_GITHUB_TOKEN }}
