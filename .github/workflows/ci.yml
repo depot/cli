@@ -5,7 +5,7 @@ on:
 
 jobs:
   lint:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-latest
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.event.pull_request.base.repo.full_name
     steps:
       - uses: actions/checkout@v3
@@ -36,7 +36,7 @@ jobs:
 
       - uses: golangci/golangci-lint-action@v3
         with:
-          version: v1.52.0
+          version: v1.53.3
           only-new-issues: false
           skip-cache: false
           skip-build-cache: true
@@ -56,11 +56,11 @@ jobs:
           cache: true
       - uses: goreleaser/goreleaser-action@v4
         with:
-          version: 1.13.0
-          args: build --rm-dist --snapshot
+          version: 1.19.0
+          args: build --clean --snapshot
 
   package:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-latest
     if: github.event_name != 'pull_request'
     permissions:
       contents: read
