@@ -132,7 +132,7 @@ func run() error {
 					if v.Completed == nil {
 						fmt.Fprintln(os.Stderr, v.Name)
 					} else if v.Started != nil {
-						fmt.Fprintf(os.Stderr, "%s %s done\n", v.Name, v.Completed.Sub(*v.Started))
+						fmt.Fprintf(os.Stderr, "%s %.[3]*[2]f done\n", v.Name, v.Completed.Sub(*v.Started).Seconds(), 2)
 					}
 				}
 				reporter.Write(s)

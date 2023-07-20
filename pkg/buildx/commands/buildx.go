@@ -68,12 +68,13 @@ func runBuildx(dockerCli command.Cli, in DepotOptions, args []string) error {
 		return fmt.Errorf("unable to get current docker endpoint: %w", err)
 	}
 
+	nodeName := "depot_" + projectName
 	ng := &store.NodeGroup{
-		Name:   "depot_" + projectName,
+		Name:   nodeName,
 		Driver: "docker-container",
 		Nodes: []store.Node{
 			{
-				Name:     "depot " + projectName + "_amd64",
+				Name:     nodeName + "_amd64",
 				Endpoint: endpoint,
 				Platforms: []specs.Platform{
 					{
@@ -90,7 +91,7 @@ func runBuildx(dockerCli command.Cli, in DepotOptions, args []string) error {
 				},
 			},
 			{
-				Name:     "depot_" + projectName + "_arm64",
+				Name:     nodeName + "_arm64",
 				Endpoint: endpoint,
 				Platforms: []specs.Platform{
 					{
@@ -121,10 +122,10 @@ func runBuildx(dockerCli command.Cli, in DepotOptions, args []string) error {
 
 	global := false
 	dflt := false
-	if err := txn.SetCurrent(endpoint, projectName, global, dflt); err != nil {
+	if err := txn.SetCurrent(endpoint, nodeName, global, dflt); err != nil {
 		return fmt.Errorf("unable to use node group: %w", err)
 	}
 
-	fmt.Printf("depot buildx driver activated for project %s\n", projectName)
+	fmt.Printf("depot buildx driver %s activated for project %s\n", nodeName, projectName)
 	return nil
 }
