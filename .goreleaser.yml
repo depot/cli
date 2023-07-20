@@ -27,6 +27,13 @@ builds:
     env:
       - CGO_ENABLED=0
 
+  - <<: *build_defaults
+    id: windows
+    goos: [windows]
+    goarch: ["386", arm, amd64, arm64]
+    env:
+      - CGO_ENABLED=0
+
 archives:
   - id: nix
     builds: [macos, linux]
