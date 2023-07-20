@@ -39,6 +39,10 @@ archives:
     builds: [macos, linux]
     format: tar.gz
 
+  - id: windows
+    builds: [windows]
+    format: zip
+
 changelog:
   skip: true
 
