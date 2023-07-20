@@ -127,8 +127,14 @@ func run() error {
 			}()
 
 			finish = build.Finish
-
 			report := func(s *client.SolveStatus) {
+				for _, v := range s.Vertexes {
+					if v.Completed == nil {
+						fmt.Fprintln(os.Stderr, v.Name)
+					} else if v.Started != nil {
+						fmt.Fprintf(os.Stderr, "%s %s done\n", v.Name, v.Completed.Sub(*v.Started))
+					}
+				}
 				reporter.Write(s)
 			}
 			builder, err := builder.NewBuilder(token, build.ID, platform).Acquire(report)
