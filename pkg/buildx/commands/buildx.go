@@ -69,11 +69,11 @@ func runBuildx(dockerCli command.Cli, in DepotOptions, args []string) error {
 	}
 
 	ng := &store.NodeGroup{
-		Name:   projectName,
+		Name:   "depot_" + projectName,
 		Driver: "docker-container",
 		Nodes: []store.Node{
 			{
-				Name:     projectName + "_amd64",
+				Name:     "depot " + projectName + "_amd64",
 				Endpoint: endpoint,
 				Platforms: []specs.Platform{
 					{
@@ -90,7 +90,7 @@ func runBuildx(dockerCli command.Cli, in DepotOptions, args []string) error {
 				},
 			},
 			{
-				Name:     projectName + "_arm64",
+				Name:     "depot_" + projectName + "_arm64",
 				Endpoint: endpoint,
 				Platforms: []specs.Platform{
 					{
