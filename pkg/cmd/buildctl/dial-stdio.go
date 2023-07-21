@@ -59,7 +59,8 @@ func NewCmdDial() *cobra.Command {
 func run() error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	ctx = WithSignals(ctx)
+	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+	defer stop()
 
 	projectID := os.Getenv("DEPOT_PROJECT_ID")
 	if projectID == "" {
@@ -247,22 +248,4 @@ func tlsConn(ctx context.Context, opts *builder.AcquiredBuilder) (net.Conn, erro
 	}
 
 	return nil, err
-}
-
-// WithSignals returns a context that is canceled with SIGINT or SIGTERM.
-func WithSignals(ctx context.Context) context.Context {
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
-
-	ctx, cancel := context.WithCancel(ctx)
-	go func() {
-		defer cancel()
-		select {
-		case <-ctx.Done():
-			return
-		case <-sigCh:
-			return
-		}
-	}()
-	return ctx
 }
