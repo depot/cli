@@ -84,7 +84,11 @@ func installDepotBuildxPlugin(dir, self string) error {
 
 	// If original plugin symlink does not exist, create it
 
-	if _, err := os.Stat(original); err == nil {
+	if _, err := os.Stat(original); err != nil {
+		if !os.IsNotExist(err) {
+			return errors.Wrap(err, "could not stat original-docker-buildx plugin")
+		}
+
 		if _, err := os.Stat(symlink); err == nil {
 			err = os.Rename(symlink, original)
 			if err != nil {
