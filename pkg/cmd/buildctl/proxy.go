@@ -6,10 +6,6 @@ import (
 	"io"
 	"net"
 	"net/url"
-	"os"
-	"sync/atomic"
-	"syscall"
-	"time"
 
 	content "github.com/containerd/containerd/api/services/content/v1"
 	"github.com/containerd/containerd/api/services/leases/v1"
@@ -88,7 +84,7 @@ func Proxy(ctx context.Context, conn net.Conn, acquireBuilder func() (*grpc.Clie
 		conn.Close()
 	}()
 
-	(&http2.Server{}).ServeConn(conn, &http2.ServeConnOpts{Context: ctx, Handler: server})
+	(&http2.Server{}).ServeConn(conn, &http2.ServeConnOpts{Handler: server})
 }
 
 type GatewayProxy struct {
@@ -318,9 +314,7 @@ type ControlProxy struct {
 	conn     func() (*grpc.ClientConn, error)
 	report   *progress.Progress
 	platform string
-
-	activeBuilds atomic.Int32
-	cancel       context.CancelFunc
+	cancel   context.CancelFunc
 }
 
 func (p *ControlProxy) Prune(in *control.PruneRequest, toBuildx control.Control_PruneServer) error {
@@ -361,10 +355,6 @@ func (p *ControlProxy) Prune(in *control.PruneRequest, toBuildx control.Control_
 }
 
 func (p *ControlProxy) Solve(ctx context.Context, in *control.SolveRequest) (*control.SolveResponse, error) {
-	p.activeBuilds.Add(1)
-	defer p.activeBuilds.Add(-1)
-	defer p.scheduleShutdown()
-
 	md, ok := metadata.FromIncomingContext(ctx)
 	if ok {
 		ctx = metadata.NewOutgoingContext(ctx, md)
@@ -527,48 +517,31 @@ func (p *ControlProxy) ListWorkers(ctx context.Context, in *control.ListWorkersR
 	}
 }
 
-// Schedule shutdown will stop the dial-stdio if there have been no active builds
-// one minute in the future.
 func (p *ControlProxy) scheduleShutdown() {
-	go func() {
-		time.Sleep(time.Minute)
-		if p.activeBuilds.Load() == 0 {
-			// Kill the mock buildkitd to turn off the container.
-			process, err := os.FindProcess(1)
-			if err == nil {
-				_ = process.Signal(syscall.SIGTERM)
-			}
-			p.shutdown()
-			return
-		}
-	}()
-}
-
-func (p *ControlProxy) shutdown() {
 	go func() { p.cancel() }()
 }
 
 // Used by desktop.  We ignore and shutdown.
 func (p *ControlProxy) DiskUsage(ctx context.Context, in *control.DiskUsageRequest) (*control.DiskUsageResponse, error) {
-	p.shutdown()
+	p.scheduleShutdown()
 	return &control.DiskUsageResponse{}, nil
 }
 
 // Used by desktop.  We ignore and shutdown.
 func (p *ControlProxy) Info(ctx context.Context, in *control.InfoRequest) (*control.InfoResponse, error) {
-	p.shutdown()
+	p.scheduleShutdown()
 	return nil, status.Errorf(codes.Unimplemented, "method Info not implemented")
 }
 
 // Used by desktop.  We ignore and shutdown.
 func (p *ControlProxy) ListenBuildHistory(in *control.BuildHistoryRequest, toBuildx control.Control_ListenBuildHistoryServer) error {
-	p.shutdown()
+	p.scheduleShutdown()
 	return status.Errorf(codes.Unimplemented, "method ListenBuildHistory not implemented")
 }
 
 // Used by desktop.  We ignore and shutdown.
 func (p *ControlProxy) UpdateBuildHistory(ctx context.Context, in *control.UpdateBuildHistoryRequest) (*control.UpdateBuildHistoryResponse, error) {
-	p.shutdown()
+	p.scheduleShutdown()
 	return &control.UpdateBuildHistoryResponse{}, nil
 }
 
