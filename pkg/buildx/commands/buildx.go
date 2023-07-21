@@ -82,6 +82,10 @@ func runBuildx(dockerCli command.Cli, in DepotOptions, args []string) error {
 						Architecture: "amd64",
 						OS:           "linux",
 					},
+					{
+						Architecture: "386",
+						OS:           "linux",
+					},
 				},
 				Flags: []string{"buildkitd"},
 				DriverOpts: map[string]string{
@@ -97,6 +101,10 @@ func runBuildx(dockerCli command.Cli, in DepotOptions, args []string) error {
 				Platforms: []specs.Platform{
 					{
 						Architecture: "arm64",
+						OS:           "linux",
+					},
+					{
+						Architecture: "arm",
 						OS:           "linux",
 					},
 				},
