@@ -12,6 +12,8 @@ import (
 )
 
 func NewCmdConfigureDocker() *cobra.Command {
+	shimBuildx := false
+
 	cmd := &cobra.Command{
 		Use:   "configure-docker",
 		Short: "Configure Docker to use Depot for builds",
@@ -30,8 +32,10 @@ func NewCmdConfigureDocker() *cobra.Command {
 				return errors.Wrap(err, "could not install depot plugin")
 			}
 
-			if err := installDepotBuildxPlugin(dir, self); err != nil {
-				return errors.Wrap(err, "could not install depot plugin")
+			if shimBuildx {
+				if err := installDepotBuildxPlugin(dir, self); err != nil {
+					return errors.Wrap(err, "could not install depot plugin")
+				}
 			}
 
 			if err := useDepotBuilderAlias(dir); err != nil {
@@ -43,6 +47,9 @@ func NewCmdConfigureDocker() *cobra.Command {
 			return nil
 		},
 	}
+
+	flags := cmd.Flags()
+	flags.BoolVar(&shimBuildx, "shim-buildx", false, "Shim docker buildx build to use Depot")
 
 	return cmd
 }
