@@ -81,6 +81,7 @@ func installDepotBuildxPlugin(dir, self string) error {
 
 	symlink := path.Join(config.Dir(), "cli-plugins", "docker-buildx")
 	original := path.Join(config.Dir(), "cli-plugins", "original-docker-buildx")
+	global := "/usr/libexec/docker/cli-plugins/docker-buildx"
 
 	// If original plugin symlink does not exist, create it
 
@@ -97,7 +98,11 @@ func installDepotBuildxPlugin(dir, self string) error {
 		} else {
 			candidate, err := exec.LookPath("docker-buildx")
 			if err != nil {
-				return errors.Wrap(err, "could not find docker-buildx plugin")
+				if _, err := os.Stat(global); err == nil {
+					candidate = global
+				} else {
+					return errors.Wrap(err, "could not find docker-buildx plugin")
+				}
 			}
 			err = os.Symlink(candidate, original)
 			if err != nil {
