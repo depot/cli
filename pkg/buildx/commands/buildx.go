@@ -24,26 +24,20 @@ func NewBuildxCmd(dockerCli command.Cli) *cobra.Command {
 	var options DepotOptions
 
 	buildx := &cobra.Command{
-		Use:   "buildx",
+		Use:   "configure-buildx",
 		Short: "Create a depot-powered buildx driver for project",
-	}
-
-	use := &cobra.Command{
-		Use:   "use",
-		Short: "Create and use depot-powered buildx driver for project",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runBuildx(dockerCli, options, args)
+			return runConfigureBuildx(dockerCli, options, args)
 		},
 	}
 
-	flags := use.Flags()
-	depotBuildFlags(use, &options, flags)
+	flags := buildx.Flags()
+	depotBuildFlags(buildx, &options, flags)
 
-	buildx.AddCommand(use)
 	return buildx
 }
 
-func runBuildx(dockerCli command.Cli, in DepotOptions, args []string) error {
+func runConfigureBuildx(dockerCli command.Cli, in DepotOptions, args []string) error {
 	token := helpers.ResolveToken(context.Background(), in.token)
 	if token == "" {
 		return fmt.Errorf("missing API token, please run `depot login`")
