@@ -6,6 +6,7 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/depot/cli/internal/build"
 	"github.com/depot/cli/pkg/helpers"
 	"github.com/docker/buildx/store"
 	"github.com/docker/buildx/store/storeutil"
@@ -18,8 +19,6 @@ import (
 	// Register drivers via init() function in factory.go
 	_ "github.com/docker/buildx/driver/docker-container"
 )
-
-const IMAGE = "goller/xmarks:3.5.8"
 
 func NewBuildxCmd(dockerCli command.Cli) *cobra.Command {
 	var options DepotOptions
@@ -69,6 +68,8 @@ func runBuildx(dockerCli command.Cli, in DepotOptions, args []string) error {
 	}
 
 	nodeName := "depot_" + projectName
+	image := "ghcr.io/depot/cli:" + build.Version
+
 	ng := &store.NodeGroup{
 		Name:   nodeName,
 		Driver: "docker-container",
@@ -84,7 +85,7 @@ func runBuildx(dockerCli command.Cli, in DepotOptions, args []string) error {
 				},
 				Flags: []string{"buildkitd"},
 				DriverOpts: map[string]string{
-					"image":                IMAGE,
+					"image":                image,
 					"env.DEPOT_PROJECT_ID": projectName,
 					"env.DEPOT_TOKEN":      token,
 					"env.DEPOT_PLATFORM":   "amd64",
@@ -101,7 +102,7 @@ func runBuildx(dockerCli command.Cli, in DepotOptions, args []string) error {
 				},
 				Flags: []string{"buildkitd"},
 				DriverOpts: map[string]string{
-					"image":                IMAGE,
+					"image":                image,
 					"env.DEPOT_PROJECT_ID": projectName,
 					"env.DEPOT_TOKEN":      token,
 					"env.DEPOT_PLATFORM":   "arm64",
