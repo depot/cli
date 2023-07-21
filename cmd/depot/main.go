@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 
 	"github.com/depot/cli/internal/build"
 	"github.com/depot/cli/internal/update"
@@ -20,8 +21,18 @@ import (
 )
 
 func main() {
-	code := runMain()
-	os.Exit(code)
+	binary := os.Args[0]
+
+	if strings.HasSuffix(binary, "-buildx") {
+		err := buildxMain()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+	} else {
+		code := runMain()
+		os.Exit(code)
+	}
 }
 
 func runMain() int {
