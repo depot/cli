@@ -91,6 +91,7 @@ func run() error {
 	var (
 		once       sync.Once
 		finish     func(error)
+		buildURL   string
 		builderErr error
 		buildkit   *grpc.ClientConn
 	)
@@ -100,7 +101,7 @@ func run() error {
 		}
 	}()
 
-	acquireBuilder := func() (*grpc.ClientConn, error) {
+	acquireBuilder := func() (*grpc.ClientConn, string, error) {
 		once.Do(func() {
 			validatedOpts := map[string]build.Options{"default": {}}
 			exportPush := false
@@ -119,6 +120,7 @@ func run() error {
 				builderErr = fmt.Errorf("unable to begin build: %w", err)
 				return
 			}
+			buildURL = build.BuildURL
 
 			reporter.SetBuildID(build.ID)
 			wg.Add(1)
@@ -156,7 +158,7 @@ func run() error {
 				return
 			}
 		})
-		return buildkit, builderErr
+		return buildkit, buildURL, builderErr
 	}
 
 	buildx := &StdioConn{}

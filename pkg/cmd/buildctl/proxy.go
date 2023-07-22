@@ -10,7 +10,9 @@ import (
 	content "github.com/containerd/containerd/api/services/content/v1"
 	"github.com/containerd/containerd/api/services/leases/v1"
 	"github.com/containerd/containerd/defaults"
+	"github.com/depot/cli/pkg/buildx/commands"
 	"github.com/depot/cli/pkg/progress"
+	buildxprogress "github.com/docker/buildx/util/progress"
 	"github.com/gogo/protobuf/types"
 	control "github.com/moby/buildkit/api/services/control"
 	worker "github.com/moby/buildkit/api/types"
@@ -62,7 +64,7 @@ func BuildkitdClient(ctx context.Context, conn net.Conn, buildkitdAddress string
 }
 
 // Proxy buildkitd server over connection. Cancel context to shutdown.
-func Proxy(ctx context.Context, conn net.Conn, acquireBuilder func() (*grpc.ClientConn, error), platform string, report *progress.Progress) {
+func Proxy(ctx context.Context, conn net.Conn, acquireBuilder func() (*grpc.ClientConn, string, error), platform string, report *progress.Progress) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -88,7 +90,7 @@ func Proxy(ctx context.Context, conn net.Conn, acquireBuilder func() (*grpc.Clie
 }
 
 type GatewayProxy struct {
-	conn func() (*grpc.ClientConn, error)
+	conn func() (*grpc.ClientConn, string, error)
 }
 
 func (p *GatewayProxy) ResolveImageConfig(ctx context.Context, in *gateway.ResolveImageConfigRequest) (*gateway.ResolveImageConfigResponse, error) {
@@ -97,7 +99,7 @@ func (p *GatewayProxy) ResolveImageConfig(ctx context.Context, in *gateway.Resol
 		ctx = metadata.NewOutgoingContext(ctx, md)
 	}
 
-	conn, err := p.conn()
+	conn, _, err := p.conn()
 	if err != nil {
 		return nil, err
 	}
@@ -112,7 +114,7 @@ func (p *GatewayProxy) Solve(ctx context.Context, in *gateway.SolveRequest) (*ga
 		ctx = metadata.NewOutgoingContext(ctx, md)
 	}
 
-	conn, err := p.conn()
+	conn, _, err := p.conn()
 	if err != nil {
 		return nil, err
 	}
@@ -127,7 +129,7 @@ func (p *GatewayProxy) ReadFile(ctx context.Context, in *gateway.ReadFileRequest
 		ctx = metadata.NewOutgoingContext(ctx, md)
 	}
 
-	conn, err := p.conn()
+	conn, _, err := p.conn()
 	if err != nil {
 		return nil, err
 	}
@@ -142,7 +144,7 @@ func (p *GatewayProxy) ReadDir(ctx context.Context, in *gateway.ReadDirRequest) 
 		ctx = metadata.NewOutgoingContext(ctx, md)
 	}
 
-	conn, err := p.conn()
+	conn, _, err := p.conn()
 	if err != nil {
 		return nil, err
 	}
@@ -157,7 +159,7 @@ func (p *GatewayProxy) StatFile(ctx context.Context, in *gateway.StatFileRequest
 		ctx = metadata.NewOutgoingContext(ctx, md)
 	}
 
-	conn, err := p.conn()
+	conn, _, err := p.conn()
 	if err != nil {
 		return nil, err
 	}
@@ -172,7 +174,7 @@ func (p *GatewayProxy) Evaluate(ctx context.Context, in *gateway.EvaluateRequest
 		ctx = metadata.NewOutgoingContext(ctx, md)
 	}
 
-	conn, err := p.conn()
+	conn, _, err := p.conn()
 	if err != nil {
 		return nil, err
 	}
@@ -187,7 +189,7 @@ func (p *GatewayProxy) Ping(ctx context.Context, in *gateway.PingRequest) (*gate
 		ctx = metadata.NewOutgoingContext(ctx, md)
 	}
 
-	conn, err := p.conn()
+	conn, _, err := p.conn()
 	if err != nil {
 		return nil, err
 	}
@@ -202,7 +204,7 @@ func (p *GatewayProxy) Return(ctx context.Context, in *gateway.ReturnRequest) (*
 		ctx = metadata.NewOutgoingContext(ctx, md)
 	}
 
-	conn, err := p.conn()
+	conn, _, err := p.conn()
 	if err != nil {
 		return nil, err
 	}
@@ -217,7 +219,7 @@ func (p *GatewayProxy) Inputs(ctx context.Context, in *gateway.InputsRequest) (*
 		ctx = metadata.NewOutgoingContext(ctx, md)
 	}
 
-	conn, err := p.conn()
+	conn, _, err := p.conn()
 	if err != nil {
 		return nil, err
 	}
@@ -232,7 +234,7 @@ func (p *GatewayProxy) NewContainer(ctx context.Context, in *gateway.NewContaine
 		ctx = metadata.NewOutgoingContext(ctx, md)
 	}
 
-	conn, err := p.conn()
+	conn, _, err := p.conn()
 	if err != nil {
 		return nil, err
 	}
@@ -247,7 +249,7 @@ func (p *GatewayProxy) ReleaseContainer(ctx context.Context, in *gateway.Release
 		ctx = metadata.NewOutgoingContext(ctx, md)
 	}
 
-	conn, err := p.conn()
+	conn, _, err := p.conn()
 	if err != nil {
 		return nil, err
 	}
@@ -262,7 +264,7 @@ func (p *GatewayProxy) ExecProcess(buildx gateway.LLBBridge_ExecProcessServer) e
 	buildkitCtx, buildkitCancel := context.WithCancel(buildkitCtx)
 	defer buildkitCancel()
 
-	conn, err := p.conn()
+	conn, _, err := p.conn()
 	if err != nil {
 		return err
 	}
@@ -301,7 +303,7 @@ func (p *GatewayProxy) Warn(ctx context.Context, in *gateway.WarnRequest) (*gate
 		ctx = metadata.NewOutgoingContext(ctx, md)
 	}
 
-	conn, err := p.conn()
+	conn, _, err := p.conn()
 	if err != nil {
 		return nil, err
 	}
@@ -311,7 +313,7 @@ func (p *GatewayProxy) Warn(ctx context.Context, in *gateway.WarnRequest) (*gate
 }
 
 type ControlProxy struct {
-	conn     func() (*grpc.ClientConn, error)
+	conn     func() (*grpc.ClientConn, string, error)
 	report   *progress.Progress
 	platform string
 	cancel   context.CancelFunc
@@ -326,7 +328,7 @@ func (p *ControlProxy) Prune(in *control.PruneRequest, toBuildx control.Control_
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	conn, err := p.conn()
+	conn, _, err := p.conn()
 	if err != nil {
 		return err
 	}
@@ -360,10 +362,11 @@ func (p *ControlProxy) Solve(ctx context.Context, in *control.SolveRequest) (*co
 		ctx = metadata.NewOutgoingContext(ctx, md)
 	}
 
-	conn, err := p.conn()
+	conn, buildURL, err := p.conn()
 	if err != nil {
 		return nil, err
 	}
+	defer commands.PrintBuildURL(buildURL, buildxprogress.PrinterModePlain)
 
 	client := control.NewControlClient(conn)
 	return client.Solve(ctx, in)
@@ -378,7 +381,7 @@ func (p *ControlProxy) Status(in *control.StatusRequest, toBuildx control.Contro
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	conn, err := p.conn()
+	conn, _, err := p.conn()
 	if err != nil {
 		return err
 	}
@@ -414,7 +417,7 @@ func (p *ControlProxy) Session(buildx control.Control_SessionServer) error {
 	buildkitCtx, buildkitCancel := context.WithCancel(buildkitCtx)
 	defer buildkitCancel()
 
-	conn, err := p.conn()
+	conn, _, err := p.conn()
 	if err != nil {
 		return err
 	}
@@ -546,7 +549,7 @@ func (p *ControlProxy) UpdateBuildHistory(ctx context.Context, in *control.Updat
 }
 
 type TracesProxy struct {
-	conn func() (*grpc.ClientConn, error)
+	conn func() (*grpc.ClientConn, string, error)
 	trace.UnimplementedTraceServiceServer
 }
 
@@ -556,7 +559,7 @@ func (p *TracesProxy) Export(ctx context.Context, in *trace.ExportTraceServiceRe
 		ctx = metadata.NewOutgoingContext(ctx, md)
 	}
 
-	conn, err := p.conn()
+	conn, _, err := p.conn()
 	if err != nil {
 		return nil, err
 	}
@@ -566,7 +569,7 @@ func (p *TracesProxy) Export(ctx context.Context, in *trace.ExportTraceServiceRe
 }
 
 type ContentProxy struct {
-	conn func() (*grpc.ClientConn, error)
+	conn func() (*grpc.ClientConn, string, error)
 }
 
 func (p *ContentProxy) Info(ctx context.Context, in *content.InfoRequest) (*content.InfoResponse, error) {
@@ -575,7 +578,7 @@ func (p *ContentProxy) Info(ctx context.Context, in *content.InfoRequest) (*cont
 		ctx = metadata.NewOutgoingContext(ctx, md)
 	}
 
-	conn, err := p.conn()
+	conn, _, err := p.conn()
 	if err != nil {
 		return nil, err
 	}
@@ -590,7 +593,7 @@ func (p *ContentProxy) Update(ctx context.Context, in *content.UpdateRequest) (*
 		ctx = metadata.NewOutgoingContext(ctx, md)
 	}
 
-	conn, err := p.conn()
+	conn, _, err := p.conn()
 	if err != nil {
 		return nil, err
 	}
@@ -608,7 +611,7 @@ func (p *ContentProxy) List(in *content.ListContentRequest, toBuildx content.Con
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	conn, err := p.conn()
+	conn, _, err := p.conn()
 	if err != nil {
 		return err
 	}
@@ -642,7 +645,7 @@ func (p *ContentProxy) Delete(ctx context.Context, in *content.DeleteContentRequ
 		ctx = metadata.NewOutgoingContext(ctx, md)
 	}
 
-	conn, err := p.conn()
+	conn, _, err := p.conn()
 	if err != nil {
 		return nil, err
 	}
@@ -660,7 +663,7 @@ func (p *ContentProxy) Read(in *content.ReadContentRequest, toBuildx content.Con
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	conn, err := p.conn()
+	conn, _, err := p.conn()
 	if err != nil {
 		return err
 	}
@@ -694,7 +697,7 @@ func (p *ContentProxy) Status(ctx context.Context, in *content.StatusRequest) (*
 		ctx = metadata.NewOutgoingContext(ctx, md)
 	}
 
-	conn, err := p.conn()
+	conn, _, err := p.conn()
 	if err != nil {
 		return nil, err
 	}
@@ -709,7 +712,7 @@ func (p *ContentProxy) ListStatuses(ctx context.Context, in *content.ListStatuse
 		ctx = metadata.NewOutgoingContext(ctx, md)
 	}
 
-	conn, err := p.conn()
+	conn, _, err := p.conn()
 	if err != nil {
 		return nil, err
 	}
@@ -724,7 +727,7 @@ func (p *ContentProxy) Write(buildx content.Content_WriteServer) error {
 	buildkitCtx, buildkitCancel := context.WithCancel(buildkitCtx)
 	defer buildkitCancel()
 
-	conn, err := p.conn()
+	conn, _, err := p.conn()
 	if err != nil {
 		return err
 	}
@@ -763,7 +766,7 @@ func (p *ContentProxy) Abort(ctx context.Context, in *content.AbortRequest) (*ty
 		ctx = metadata.NewOutgoingContext(ctx, md)
 	}
 
-	conn, err := p.conn()
+	conn, _, err := p.conn()
 	if err != nil {
 		return nil, err
 	}
@@ -773,7 +776,7 @@ func (p *ContentProxy) Abort(ctx context.Context, in *content.AbortRequest) (*ty
 }
 
 type LeasesProxy struct {
-	conn func() (*grpc.ClientConn, error)
+	conn func() (*grpc.ClientConn, string, error)
 }
 
 func (p *LeasesProxy) Delete(ctx context.Context, in *leases.DeleteRequest) (*types.Empty, error) {
@@ -782,7 +785,7 @@ func (p *LeasesProxy) Delete(ctx context.Context, in *leases.DeleteRequest) (*ty
 		ctx = metadata.NewOutgoingContext(ctx, md)
 	}
 
-	conn, err := p.conn()
+	conn, _, err := p.conn()
 	if err != nil {
 		return nil, err
 	}
@@ -797,7 +800,7 @@ func (p *LeasesProxy) Create(ctx context.Context, in *leases.CreateRequest) (*le
 		ctx = metadata.NewOutgoingContext(ctx, md)
 	}
 
-	conn, err := p.conn()
+	conn, _, err := p.conn()
 	if err != nil {
 		return nil, err
 	}
@@ -812,7 +815,7 @@ func (p *LeasesProxy) List(ctx context.Context, in *leases.ListRequest) (*leases
 		ctx = metadata.NewOutgoingContext(ctx, md)
 	}
 
-	conn, err := p.conn()
+	conn, _, err := p.conn()
 	if err != nil {
 		return nil, err
 	}
@@ -827,7 +830,7 @@ func (p *LeasesProxy) AddResource(ctx context.Context, in *leases.AddResourceReq
 		ctx = metadata.NewOutgoingContext(ctx, md)
 	}
 
-	conn, err := p.conn()
+	conn, _, err := p.conn()
 	if err != nil {
 		return nil, err
 	}
@@ -842,7 +845,7 @@ func (p *LeasesProxy) DeleteResource(ctx context.Context, in *leases.DeleteResou
 		ctx = metadata.NewOutgoingContext(ctx, md)
 	}
 
-	conn, err := p.conn()
+	conn, _, err := p.conn()
 	if err != nil {
 		return nil, err
 	}
@@ -857,7 +860,7 @@ func (p *LeasesProxy) ListResources(ctx context.Context, in *leases.ListResource
 		ctx = metadata.NewOutgoingContext(ctx, md)
 	}
 
-	conn, err := p.conn()
+	conn, _, err := p.conn()
 	if err != nil {
 		return nil, err
 	}
@@ -867,7 +870,7 @@ func (p *LeasesProxy) ListResources(ctx context.Context, in *leases.ListResource
 }
 
 type HealthProxy struct {
-	conn func() (*grpc.ClientConn, error)
+	conn func() (*grpc.ClientConn, string, error)
 }
 
 func (p *HealthProxy) Check(ctx context.Context, in *health.HealthCheckRequest) (*health.HealthCheckResponse, error) {
@@ -876,7 +879,7 @@ func (p *HealthProxy) Check(ctx context.Context, in *health.HealthCheckRequest) 
 		ctx = metadata.NewOutgoingContext(ctx, md)
 	}
 
-	conn, err := p.conn()
+	conn, _, err := p.conn()
 	if err != nil {
 		return nil, err
 	}
@@ -894,7 +897,7 @@ func (p *HealthProxy) Watch(in *health.HealthCheckRequest, toBuildx health.Healt
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	conn, err := p.conn()
+	conn, _, err := p.conn()
 	if err != nil {
 		return err
 	}
