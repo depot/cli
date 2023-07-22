@@ -15,7 +15,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/depot/cli/pkg/api"
-	"github.com/depot/cli/pkg/config"
 	"github.com/depot/cli/pkg/helpers"
 	cliv1 "github.com/depot/cli/pkg/proto/depot/cli/v1"
 	"github.com/depot/cli/pkg/proto/depot/cli/v1/cliv1connect"
@@ -39,13 +38,7 @@ func NewCmdBuilds() *cobra.Command {
 				return errors.Errorf("unknown project ID (run `depot init` or use --project or $DEPOT_PROJECT_ID)")
 			}
 
-			// TODO: make this a helper
-			if token == "" {
-				token = os.Getenv("DEPOT_TOKEN")
-			}
-			if token == "" {
-				token = config.GetApiToken()
-			}
+			token := helpers.ResolveToken(context.Background(), token)
 			if token == "" {
 				return fmt.Errorf("missing API token, please run `depot login`")
 			}

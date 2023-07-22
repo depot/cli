@@ -12,6 +12,9 @@ import (
 	"github.com/docker/buildx/store/storeutil"
 	"github.com/docker/buildx/util/dockerutil"
 	"github.com/docker/cli/cli/command"
+	"github.com/docker/docker/api/types"
+	"github.com/docker/docker/api/types/filters"
+	docker "github.com/docker/docker/client"
 	specs "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
@@ -32,7 +35,47 @@ func NewBuildxCmd(dockerCli command.Cli) *cobra.Command {
 	}
 
 	flags := buildx.Flags()
-	depotBuildFlags(buildx, &options, flags)
+	depotBuildFlags(&options, flags)
+
+	ls := &cobra.Command{
+		Use: "ls",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			nodes, err := ListDepotNodes(cmd.Context(), dockerCli.Client())
+			if err != nil {
+				return err
+			}
+			if len(nodes) == 0 {
+				return nil
+			}
+
+			fmt.Printf("PROJECT\t\tCONTAINER ID\n")
+			for _, node := range nodes {
+				fmt.Printf("%s\t%s\n", node.ProjectID, node.ContainerID[:12])
+			}
+			return nil
+		},
+	}
+	buildx.AddCommand(ls)
+
+	rm := &cobra.Command{
+		Use: "rm",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			nodes, err := ListDepotNodes(cmd.Context(), dockerCli.Client())
+			if err != nil {
+				return err
+			}
+			return StopDepotNodes(cmd.Context(), dockerCli.Client(), nodes)
+		},
+	}
+	buildx.AddCommand(rm)
+
+	update := &cobra.Command{
+		Use: "update",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return UpdateDrivers(cmd.Context(), dockerCli)
+		},
+	}
+	buildx.AddCommand(update)
 
 	return buildx
 }
@@ -130,5 +173,86 @@ func runConfigureBuildx(dockerCli command.Cli, in DepotOptions, args []string) e
 	}
 
 	fmt.Printf("depot buildx driver %s activated for project %s\n", nodeName, projectName)
+	return nil
+}
+
+type Node struct {
+	ProjectID   string
+	ContainerID string
+}
+
+func ListDepotNodes(ctx context.Context, client docker.APIClient) ([]Node, error) {
+	filters := filters.NewArgs()
+	filters.FuzzyMatch("name", "buildx_buildkit_depot_")
+	containers, err := client.ContainerList(ctx, types.ContainerListOptions{
+		All:     true,
+		Filters: filters,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	nodes := []Node{}
+	for _, container := range containers {
+		for _, name := range container.Names {
+			if len(strings.Split(name, "_")) == 5 {
+				nodes = append(nodes, Node{
+					ProjectID:   strings.Split(name, "_")[3],
+					ContainerID: container.ID,
+				})
+			}
+		}
+	}
+
+	return nodes, nil
+}
+
+func StopDepotNodes(ctx context.Context, client docker.APIClient, nodes []Node) error {
+	for _, node := range nodes {
+		err := client.ContainerRemove(ctx, node.ContainerID, types.ContainerRemoveOptions{Force: true, RemoveVolumes: true})
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func UpdateDrivers(ctx context.Context, dockerCli command.Cli) error {
+	nodes, err := ListDepotNodes(ctx, dockerCli.Client())
+	if err != nil {
+		return err
+	}
+	err = StopDepotNodes(ctx, dockerCli.Client(), nodes)
+	if err != nil {
+		return err
+	}
+	txn, release, err := storeutil.GetStore(dockerCli)
+	if err != nil {
+		return fmt.Errorf("unable to get docker store: %w", err)
+	}
+	nodeGroups, err := txn.List()
+	if err != nil {
+		return fmt.Errorf("unable to list node groups: %w", err)
+	}
+
+	for _, nodeGroup := range nodeGroups {
+		var save bool
+		for i, node := range nodeGroup.Nodes {
+			image := node.DriverOpts["image"]
+			if strings.HasPrefix(image, "ghcr.io/depot/cli") {
+				nodeGroup.Nodes[i].DriverOpts["image"] = "ghcr.io/depot/cli:" + build.Version
+				save = true
+			}
+		}
+
+		if save {
+			if err := txn.Save(nodeGroup); err != nil {
+				return fmt.Errorf("unable to save node group: %w", err)
+			}
+		}
+	}
+
+	defer release()
 	return nil
 }
