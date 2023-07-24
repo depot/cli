@@ -32,17 +32,7 @@ func NewBuilder(token string, buildID string, platform string) *Builder {
 	}
 }
 
-type AcquiredBuilder struct {
-	Addr       string
-	ServerName string
-	CACert     string
-	Cert       string
-	Key        string
-
-	client *client.Client
-}
-
-func (b *Builder) Acquire(ctx context.Context, reporter progress.Logger) (*AcquiredBuilder, error) {
+func (b *Builder) StartBuildkit(ctx context.Context, reporter progress.Logger) (*Buildkit, error) {
 	go func() {
 		err := b.ReportHealth(ctx)
 		if err != nil {
@@ -51,8 +41,8 @@ func (b *Builder) Acquire(ctx context.Context, reporter progress.Logger) (*Acqui
 	}()
 
 	var (
-		err     error
-		builder AcquiredBuilder
+		err      error
+		buildkit Buildkit
 	)
 
 	builderPlatform := cliv1.BuilderPlatform_BUILDER_PLATFORM_UNSPECIFIED
@@ -80,11 +70,11 @@ func (b *Builder) Acquire(ctx context.Context, reporter progress.Logger) (*Acqui
 
 			switch connection := resp.Msg.Connection.(type) {
 			case *cliv1.GetBuildKitConnectionResponse_Active:
-				builder.Addr = connection.Active.Endpoint
-				builder.ServerName = connection.Active.ServerName
-				builder.CACert = connection.Active.CaCert.Cert
-				builder.Cert = connection.Active.Cert.Cert
-				builder.Key = connection.Active.Cert.Key
+				buildkit.Addr = connection.Active.Endpoint
+				buildkit.ServerName = connection.Active.ServerName
+				buildkit.CACert = connection.Active.CaCert.Cert
+				buildkit.Cert = connection.Active.Cert.Cert
+				buildkit.Key = connection.Active.Cert.Key
 				return nil
 
 			case *cliv1.GetBuildKitConnectionResponse_Pending:
@@ -107,7 +97,7 @@ func (b *Builder) Acquire(ctx context.Context, reporter progress.Logger) (*Acqui
 		}
 	}
 
-	return &builder, nil
+	return &buildkit, nil
 }
 
 func (b *Builder) ReportHealth(ctx context.Context) error {
@@ -147,14 +137,24 @@ func (b *Builder) doReportHealth(ctx context.Context, client cliv1connect.BuildS
 	return err
 }
 
-func (b *AcquiredBuilder) Close() error {
+type Buildkit struct {
+	Addr       string
+	ServerName string
+	CACert     string
+	Cert       string
+	Key        string
+
+	client *client.Client
+}
+
+func (b *Buildkit) Close() error {
 	if b.client != nil {
 		return b.client.Close()
 	}
 	return nil
 }
 
-func (b *AcquiredBuilder) Client(ctx context.Context) (*client.Client, error) {
+func (b *Buildkit) Client(ctx context.Context) (*client.Client, error) {
 	if b.client != nil {
 		return b.client, nil
 	}
@@ -208,7 +208,7 @@ func (b *AcquiredBuilder) Client(ctx context.Context) (*client.Client, error) {
 	return client.New(ctx, b.Addr, opts...)
 }
 
-func (b *AcquiredBuilder) IsReady(ctx context.Context) bool {
+func (b *Buildkit) IsReady(ctx context.Context) bool {
 	client, err := b.Client(ctx)
 	if err != nil {
 		return false
@@ -219,7 +219,7 @@ func (b *AcquiredBuilder) IsReady(ctx context.Context) bool {
 	return err == nil
 }
 
-func (b *AcquiredBuilder) WaitUntilReady(ctx context.Context, retries int, retryAfter time.Duration) error {
+func (b *Buildkit) WaitUntilReady(ctx context.Context, retries int, retryAfter time.Duration) error {
 	for i := 0; i < retries; i++ {
 		if b.IsReady(ctx) {
 			return nil

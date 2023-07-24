@@ -14,15 +14,15 @@ import (
 var _ driver.Driver = (*Driver)(nil)
 
 type Driver struct {
-	config      driver.InitConfig
-	factory     driver.Factory
-	builder     *builder.Builder
-	builderInfo *builder.AcquiredBuilder
+	config   driver.InitConfig
+	factory  driver.Factory
+	builder  *builder.Builder
+	buildkit *builder.Buildkit
 }
 
 func (d *Driver) Bootstrap(ctx context.Context, reporter progress.Logger) error {
 	var err error
-	d.builderInfo, err = d.builder.Acquire(ctx, reporter)
+	d.buildkit, err = d.builder.StartBuildkit(ctx, reporter)
 	if err != nil {
 		return errors.Wrap(err, "failed to bootstrap builder")
 	}
@@ -35,7 +35,7 @@ func (d *Driver) Bootstrap(ctx context.Context, reporter progress.Logger) error 
 			RETRIES     int           = 120
 			RETRY_AFTER time.Duration = time.Second
 		)
-		return d.builderInfo.WaitUntilReady(ctx, RETRIES, RETRY_AFTER)
+		return d.buildkit.WaitUntilReady(ctx, RETRIES, RETRY_AFTER)
 	})
 
 	if err != nil {
@@ -46,11 +46,11 @@ func (d *Driver) Bootstrap(ctx context.Context, reporter progress.Logger) error 
 }
 
 func (d *Driver) Info(ctx context.Context) (*driver.Info, error) {
-	if d.builderInfo == nil {
+	if d.buildkit == nil {
 		return &driver.Info{Status: driver.Stopped}, nil
 	}
 
-	if !d.builderInfo.IsReady(ctx) {
+	if !d.buildkit.IsReady(ctx) {
 		return &driver.Info{Status: driver.Inactive}, nil
 	}
 
@@ -58,7 +58,7 @@ func (d *Driver) Info(ctx context.Context) (*driver.Info, error) {
 }
 
 func (d *Driver) Client(ctx context.Context) (*client.Client, error) {
-	return d.builderInfo.Client(ctx)
+	return d.buildkit.Client(ctx)
 }
 
 // Boilerplate

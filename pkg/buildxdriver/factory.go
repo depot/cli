@@ -39,7 +39,7 @@ func (f *factory) New(ctx context.Context, cfg driver.InitConfig) (driver.Driver
 	buildID := cfg.DriverOpts["buildID"]
 	builder := builder.NewBuilder(token, buildID, platform)
 
-	d := &Driver{factory: f, config: cfg, builderInfo: nil, builder: builder}
+	d := &Driver{factory: f, config: cfg, buildkit: nil, builder: builder}
 	return d, nil
 }
 
