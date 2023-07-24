@@ -214,7 +214,7 @@ func (b *AcquiredBuilder) IsReady(ctx context.Context) bool {
 		return false
 	}
 
-	// TODO: Switch to gRPC Healthchecks when AMI is rolled out.
+	// TODO: Switch to gRPC Healthchecks after exposing the client in the client.
 	_, err = client.ListWorkers(ctx)
 	return err == nil
 }

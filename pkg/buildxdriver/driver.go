@@ -11,6 +11,8 @@ import (
 	"github.com/pkg/errors"
 )
 
+var _ driver.Driver = (*Driver)(nil)
+
 type Driver struct {
 	driver.InitConfig
 	factory     driver.Factory
@@ -34,12 +36,7 @@ func (d *Driver) Bootstrap(ctx context.Context, reporter progress.Logger) error 
 
 	err = progress.Wrap("[depot] connecting to "+d.builder.Platform+" builder", reporter, func(sub progress.SubLogger) error {
 		for i := 0; i < 120; i++ {
-
-			info, err := d.Info(ctx)
-			if err != nil {
-				return err
-			}
-			if info.Status != driver.Inactive {
+			if d.builderInfo.IsReady(ctx) {
 				return nil
 			}
 
