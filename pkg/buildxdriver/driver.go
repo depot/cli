@@ -14,14 +14,10 @@ import (
 var _ driver.Driver = (*Driver)(nil)
 
 type Driver struct {
-	driver.InitConfig
+	config      driver.InitConfig
 	factory     driver.Factory
 	builder     *builder.Builder
 	builderInfo *builder.AcquiredBuilder
-
-	client *client.Client
-
-	done chan struct{}
 }
 
 func (d *Driver) Bootstrap(ctx context.Context, reporter progress.Logger) error {
@@ -68,7 +64,7 @@ func (d *Driver) Client(ctx context.Context) (*client.Client, error) {
 // Boilerplate
 
 func (d *Driver) Config() driver.InitConfig {
-	return d.InitConfig
+	return d.config
 }
 
 func (d *Driver) Factory() driver.Factory {
@@ -93,9 +89,6 @@ func (d *Driver) Rm(ctx context.Context, force bool, rmVolume bool, rmDaemon boo
 }
 
 func (d *Driver) Stop(ctx context.Context, force bool) error {
-	go func() {
-		d.done <- struct{}{}
-	}()
 	return nil
 }
 
