@@ -79,6 +79,10 @@ func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator) (er
 	defer wg.Wait() // Required to ensure that the printer is stopped before the context is cancelled.
 	defer cancel()
 
+	if os.Getenv("DEPOT_NO_SUMMARY_LINK") == "" {
+		progress.Write(printer, "[depot] build: "+in.buildURL, func() error { return err })
+	}
+
 	// Upload dockerfile to API.
 	uploader := dockerfile.NewUploader(in.buildID, in.token)
 	wg.Add(1)
@@ -276,6 +280,7 @@ func BakeCmd(dockerCli command.Cli) *cobra.Command {
 			options.builderOptions = []builder.Option{builder.WithDepotOptions(buildPlatform, build)}
 
 			options.buildID = build.ID
+			options.buildURL = build.BuildURL
 			options.token = build.Token
 			options.useLocalRegistry = build.UseLocalRegistry
 			options.proxyImage = build.ProxyImage
