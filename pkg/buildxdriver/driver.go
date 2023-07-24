@@ -34,13 +34,13 @@ type tlsOpts struct {
 	key        string
 }
 
-func (d *Driver) Bootstrap(ctx context.Context, l progress.Logger) error {
+func (d *Driver) Bootstrap(ctx context.Context, reporter progress.Logger) error {
 	err := d.startHealthcheck(context.Background())
 	if err != nil {
 		return err
 	}
 
-	builderInfo, err := d.builder.Acquire(l)
+	builderInfo, err := d.builder.Acquire(ctx, reporter)
 	if err != nil {
 		return errors.Wrap(err, "failed to bootstrap builder")
 	}
@@ -88,7 +88,7 @@ func (d *Driver) Bootstrap(ctx context.Context, l progress.Logger) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
 
-	err = progress.Wrap("[depot] connecting to "+d.builder.Platform+" builder", l, func(sub progress.SubLogger) error {
+	err = progress.Wrap("[depot] connecting to "+d.builder.Platform+" builder", reporter, func(sub progress.SubLogger) error {
 		for i := 0; i < 120; i++ {
 
 			info, err := d.Info(ctx)

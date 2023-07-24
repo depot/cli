@@ -35,7 +35,7 @@ type AcquiredBuilder struct {
 	Key        string
 }
 
-func (b *Builder) Acquire(l progress.Logger) (*AcquiredBuilder, error) {
+func (b *Builder) Acquire(ctx context.Context, reporter progress.Logger) (*AcquiredBuilder, error) {
 	var err error
 	var builder AcquiredBuilder
 
@@ -50,7 +50,6 @@ func (b *Builder) Acquire(l progress.Logger) (*AcquiredBuilder, error) {
 	}
 
 	client := api.NewBuildClient()
-	ctx := context.Background()
 
 	acquireFn := func(sub progress.SubLogger) error {
 		for {
@@ -84,9 +83,9 @@ func (b *Builder) Acquire(l progress.Logger) (*AcquiredBuilder, error) {
 	}
 
 	// Try to acquire builder twice
-	err = progress.Wrap("[depot] launching "+b.Platform+" builder", l, acquireFn)
+	err = progress.Wrap("[depot] launching "+b.Platform+" builder", reporter, acquireFn)
 	if err != nil {
-		err = progress.Wrap("[depot] launching "+b.Platform+" builder", l, acquireFn)
+		err = progress.Wrap("[depot] launching "+b.Platform+" builder", reporter, acquireFn)
 		if err != nil {
 			return nil, err
 		}
