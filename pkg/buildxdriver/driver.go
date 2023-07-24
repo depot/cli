@@ -34,20 +34,12 @@ func (d *Driver) Bootstrap(ctx context.Context, reporter progress.Logger) error 
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
 
-	err = progress.Wrap("[depot] connecting to "+d.builder.Platform+" builder", reporter, func(sub progress.SubLogger) error {
-		for i := 0; i < 120; i++ {
-			if d.builderInfo.IsReady(ctx) {
-				return nil
-			}
-
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case <-time.After(1 * time.Second):
-			}
-		}
-
-		return errors.New("timed out connecting to builder")
+	err = progress.Wrap("[depot] connecting to "+d.builder.Platform+" builder", reporter, func(_ progress.SubLogger) error {
+		const (
+			RETRIES     int           = 120
+			RETRY_AFTER time.Duration = time.Second
+		)
+		return d.builderInfo.WaitUntilReady(ctx, RETRIES, RETRY_AFTER)
 	})
 
 	if err != nil {

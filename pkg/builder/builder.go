@@ -218,3 +218,18 @@ func (b *AcquiredBuilder) IsReady(ctx context.Context) bool {
 	_, err = client.ListWorkers(ctx)
 	return err == nil
 }
+
+func (b *AcquiredBuilder) WaitUntilReady(ctx context.Context, retries int, retryAfter time.Duration) error {
+	for i := 0; i < retries; i++ {
+		if b.IsReady(ctx) {
+			return nil
+		}
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(retryAfter):
+		}
+	}
+	return errors.New("timed out connecting to builder")
+}
