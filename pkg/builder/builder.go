@@ -4,6 +4,9 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/bufbuild/connect-go"
@@ -11,6 +14,7 @@ import (
 	cliv1 "github.com/depot/cli/pkg/proto/depot/cli/v1"
 	"github.com/depot/cli/pkg/proto/depot/cli/v1/cliv1connect"
 	"github.com/docker/buildx/util/progress"
+	"github.com/moby/buildkit/client"
 	"github.com/pkg/errors"
 )
 
@@ -34,6 +38,8 @@ type AcquiredBuilder struct {
 	CACert     string
 	Cert       string
 	Key        string
+
+	client *client.Client
 }
 
 func (b *Builder) Acquire(ctx context.Context, reporter progress.Logger) (*AcquiredBuilder, error) {
@@ -139,4 +145,58 @@ func (b *Builder) doReportHealth(ctx context.Context, client cliv1connect.BuildS
 	req := cliv1.ReportBuildHealthRequest{BuildId: b.BuildID, Platform: builderPlatform}
 	_, err := client.ReportBuildHealth(ctx, api.WithAuthentication(connect.NewRequest(&req), b.token))
 	return err
+}
+
+func (b *AcquiredBuilder) Client(ctx context.Context) (*client.Client, error) {
+	if b.client != nil {
+		return b.client, nil
+	}
+
+	opts := []client.ClientOpt{
+		client.WithContextDialer(func(ctx context.Context, addr string) (net.Conn, error) {
+			addr = strings.TrimPrefix(addr, "tcp://")
+			return net.Dial("tcp", addr)
+		}),
+	}
+
+	// We create all these files as buildkit does not allow control of the gRPC client
+	// without using overly restrictive private structs.
+	if b.Cert != "" {
+		file, err := os.CreateTemp("", "depot-cert")
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to create temp file")
+		}
+		defer file.Close()
+		err = os.WriteFile(file.Name(), []byte(b.Cert), 0600)
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to write cert to temp file")
+		}
+		cert := file.Name()
+
+		file, err = os.CreateTemp("", "depot-key")
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to create temp file")
+		}
+		defer file.Close()
+		err = os.WriteFile(file.Name(), []byte(b.Key), 0600)
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to write key to temp file")
+		}
+		key := file.Name()
+
+		file, err = os.CreateTemp("", "depot-ca-cert")
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to create temp file")
+		}
+		defer file.Close()
+		err = os.WriteFile(file.Name(), []byte(b.CACert), 0600)
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to write CA cert to temp file")
+		}
+		caCert := file.Name()
+
+		opts = append(opts, client.WithCredentials(b.ServerName, caCert, cert, key))
+	}
+
+	return client.New(ctx, b.Addr, opts...)
 }

@@ -2,9 +2,6 @@ package buildxdriver
 
 import (
 	"context"
-	"net"
-	"os"
-	"strings"
 	"time"
 
 	"github.com/depot/cli/pkg/builder"
@@ -19,64 +16,17 @@ type Driver struct {
 	factory     driver.Factory
 	builder     *builder.Builder
 	builderInfo *builder.AcquiredBuilder
-	*tlsOpts
 
 	client *client.Client
 
 	done chan struct{}
 }
 
-type tlsOpts struct {
-	serverName string
-	caCert     string
-	cert       string
-	key        string
-}
-
 func (d *Driver) Bootstrap(ctx context.Context, reporter progress.Logger) error {
-	builderInfo, err := d.builder.Acquire(ctx, reporter)
+	var err error
+	d.builderInfo, err = d.builder.Acquire(ctx, reporter)
 	if err != nil {
 		return errors.Wrap(err, "failed to bootstrap builder")
-	}
-	d.builderInfo = builderInfo
-
-	if builderInfo.Cert != "" {
-		tls := &tlsOpts{}
-
-		file, err := os.CreateTemp("", "depot-cert")
-		if err != nil {
-			return errors.Wrap(err, "failed to create temp file")
-		}
-		defer file.Close()
-		err = os.WriteFile(file.Name(), []byte(builderInfo.Cert), 0600)
-		if err != nil {
-			return errors.Wrap(err, "failed to write cert to temp file")
-		}
-		tls.cert = file.Name()
-
-		file, err = os.CreateTemp("", "depot-key")
-		if err != nil {
-			return errors.Wrap(err, "failed to create temp file")
-		}
-		defer file.Close()
-		err = os.WriteFile(file.Name(), []byte(builderInfo.Key), 0600)
-		if err != nil {
-			return errors.Wrap(err, "failed to write key to temp file")
-		}
-		tls.key = file.Name()
-
-		file, err = os.CreateTemp("", "depot-ca-cert")
-		if err != nil {
-			return errors.Wrap(err, "failed to create temp file")
-		}
-		defer file.Close()
-		err = os.WriteFile(file.Name(), []byte(builderInfo.CACert), 0600)
-		if err != nil {
-			return errors.Wrap(err, "failed to write CA cert to temp file")
-		}
-		tls.caCert = file.Name()
-
-		d.tlsOpts = tls
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
@@ -129,30 +79,7 @@ func (d *Driver) Info(ctx context.Context) (*driver.Info, error) {
 }
 
 func (d *Driver) Client(ctx context.Context) (*client.Client, error) {
-	if d.client != nil {
-		return d.client, nil
-	}
-
-	if d.builderInfo == nil {
-		return nil, errors.New("builder not started")
-	}
-
-	opts := []client.ClientOpt{}
-	if d.tlsOpts != nil {
-		opts = append(opts, client.WithCredentials(d.tlsOpts.serverName, d.tlsOpts.caCert, d.tlsOpts.cert, d.tlsOpts.key))
-	}
-
-	opts = append(opts, client.WithContextDialer(func(ctx context.Context, addr string) (net.Conn, error) {
-		addr = strings.TrimPrefix(addr, "tcp://")
-		return net.Dial("tcp", addr)
-	}))
-
-	c, err := client.New(ctx, d.builderInfo.Addr, opts...)
-	if err != nil {
-		return nil, err
-	}
-	d.client = c
-	return c, nil
+	return d.builderInfo.Client(ctx)
 }
 
 // Boilerplate
