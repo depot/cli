@@ -109,6 +109,7 @@ type DepotOptions struct {
 	project          string
 	token            string
 	buildID          string
+	buildURL         string
 	buildPlatform    string
 	useLocalRegistry bool
 	proxyImage       string
@@ -206,6 +207,10 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.No
 	}()
 	defer wg.Wait() // Required to ensure that the printer is stopped before the context is cancelled.
 	defer cancel()
+
+	if os.Getenv("DEPOT_NO_SUMMARY_LINK") == "" {
+		progress.Write(printer, "[depot] build: "+depotOpts.buildURL, func() error { return err })
+	}
 
 	// Upload dockerfile to API.
 	uploader := dockerfile.NewUploader(depotOpts.buildID, depotOpts.token)
@@ -632,6 +637,7 @@ func BuildCmd(dockerCli command.Cli) *cobra.Command {
 
 			options.builderOptions = []builder.Option{builder.WithDepotOptions(buildPlatform, build)}
 			options.buildID = build.ID
+			options.buildURL = build.BuildURL
 			options.token = build.Token
 			options.useLocalRegistry = build.UseLocalRegistry
 			options.proxyImage = build.ProxyImage
