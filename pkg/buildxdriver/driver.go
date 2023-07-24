@@ -66,12 +66,7 @@ func (d *Driver) Info(ctx context.Context) (*driver.Info, error) {
 		return &driver.Info{Status: driver.Stopped}, nil
 	}
 
-	c, err := d.Client(ctx)
-	if err != nil {
-		return &driver.Info{Status: driver.Inactive}, nil
-	}
-
-	if _, err := c.ListWorkers(ctx); err != nil {
+	if !d.builderInfo.IsReady(ctx) {
 		return &driver.Info{Status: driver.Inactive}, nil
 	}
 

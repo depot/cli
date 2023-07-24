@@ -147,6 +147,13 @@ func (b *Builder) doReportHealth(ctx context.Context, client cliv1connect.BuildS
 	return err
 }
 
+func (b *AcquiredBuilder) Close() error {
+	if b.client != nil {
+		return b.client.Close()
+	}
+	return nil
+}
+
 func (b *AcquiredBuilder) Client(ctx context.Context) (*client.Client, error) {
 	if b.client != nil {
 		return b.client, nil
@@ -199,4 +206,15 @@ func (b *AcquiredBuilder) Client(ctx context.Context) (*client.Client, error) {
 	}
 
 	return client.New(ctx, b.Addr, opts...)
+}
+
+func (b *AcquiredBuilder) IsReady(ctx context.Context) bool {
+	client, err := b.Client(ctx)
+	if err != nil {
+		return false
+	}
+
+	// TODO: Switch to gRPC Healthchecks when AMI is rolled out.
+	_, err = client.ListWorkers(ctx)
+	return err == nil
 }
