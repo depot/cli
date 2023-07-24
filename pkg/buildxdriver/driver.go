@@ -43,8 +43,7 @@ func (d *Driver) Bootstrap(ctx context.Context, reporter progress.Logger) error 
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
-			default:
-				time.Sleep(1 * time.Second)
+			case <-time.After(1 * time.Second):
 			}
 		}
 
