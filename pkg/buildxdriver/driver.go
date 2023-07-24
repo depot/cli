@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/depot/cli/pkg/api"
 	"github.com/depot/cli/pkg/builder"
 	"github.com/docker/buildx/driver"
 	"github.com/docker/buildx/util/progress"
@@ -43,7 +42,7 @@ func (d *Driver) Bootstrap(ctx context.Context, l progress.Logger) error {
 
 	builderInfo, err := d.builder.Acquire(l)
 	if err != nil {
-		return api.NewDepotError(errors.Wrap(err, "failed to bootstrap builder"))
+		return errors.Wrap(err, "failed to bootstrap builder")
 	}
 	d.builderInfo = builderInfo
 
@@ -52,34 +51,34 @@ func (d *Driver) Bootstrap(ctx context.Context, l progress.Logger) error {
 
 		file, err := os.CreateTemp("", "depot-cert")
 		if err != nil {
-			return api.NewDepotError(errors.Wrap(err, "failed to create temp file"))
+			return errors.Wrap(err, "failed to create temp file")
 		}
 		defer file.Close()
 		err = os.WriteFile(file.Name(), []byte(builderInfo.Cert), 0600)
 		if err != nil {
-			return api.NewDepotError(errors.Wrap(err, "failed to write cert to temp file"))
+			return errors.Wrap(err, "failed to write cert to temp file")
 		}
 		tls.cert = file.Name()
 
 		file, err = os.CreateTemp("", "depot-key")
 		if err != nil {
-			return api.NewDepotError(errors.Wrap(err, "failed to create temp file"))
+			return errors.Wrap(err, "failed to create temp file")
 		}
 		defer file.Close()
 		err = os.WriteFile(file.Name(), []byte(builderInfo.Key), 0600)
 		if err != nil {
-			return api.NewDepotError(errors.Wrap(err, "failed to write key to temp file"))
+			return errors.Wrap(err, "failed to write key to temp file")
 		}
 		tls.key = file.Name()
 
 		file, err = os.CreateTemp("", "depot-ca-cert")
 		if err != nil {
-			return api.NewDepotError(errors.Wrap(err, "failed to create temp file"))
+			return errors.Wrap(err, "failed to create temp file")
 		}
 		defer file.Close()
 		err = os.WriteFile(file.Name(), []byte(builderInfo.CACert), 0600)
 		if err != nil {
-			return api.NewDepotError(errors.Wrap(err, "failed to write CA cert to temp file"))
+			return errors.Wrap(err, "failed to write CA cert to temp file")
 		}
 		tls.caCert = file.Name()
 
@@ -112,7 +111,7 @@ func (d *Driver) Bootstrap(ctx context.Context, l progress.Logger) error {
 	})
 
 	if err != nil {
-		return api.NewDepotError(err)
+		return err
 	}
 
 	return nil
@@ -156,7 +155,7 @@ func (d *Driver) Client(ctx context.Context) (*client.Client, error) {
 
 	c, err := client.New(ctx, d.builderInfo.Addr, opts...)
 	if err != nil {
-		return nil, api.NewDepotError(err)
+		return nil, err
 	}
 	d.client = c
 	return c, nil
