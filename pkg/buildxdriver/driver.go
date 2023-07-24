@@ -2,7 +2,6 @@ package buildxdriver
 
 import (
 	"context"
-	"log"
 	"net"
 	"os"
 	"strings"
@@ -35,11 +34,6 @@ type tlsOpts struct {
 }
 
 func (d *Driver) Bootstrap(ctx context.Context, reporter progress.Logger) error {
-	err := d.startHealthcheck(context.Background())
-	if err != nil {
-		return err
-	}
-
 	builderInfo, err := d.builder.Acquire(ctx, reporter)
 	if err != nil {
 		return errors.Wrap(err, "failed to bootstrap builder")
@@ -197,15 +191,4 @@ func (d *Driver) Stop(ctx context.Context, force bool) error {
 
 func (d *Driver) Version(ctx context.Context) (string, error) {
 	return "", nil
-}
-
-func (d *Driver) startHealthcheck(ctx context.Context) error {
-	go func() {
-		err := d.builder.ReportHealth(ctx)
-		if err != nil {
-			log.Printf("warning: failed to report health for %s builder: %v\n", d.builder.Platform, err)
-		}
-	}()
-
-	return nil
 }

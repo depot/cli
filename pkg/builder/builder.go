@@ -3,6 +3,7 @@ package builder
 import (
 	"context"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/bufbuild/connect-go"
@@ -36,8 +37,17 @@ type AcquiredBuilder struct {
 }
 
 func (b *Builder) Acquire(ctx context.Context, reporter progress.Logger) (*AcquiredBuilder, error) {
-	var err error
-	var builder AcquiredBuilder
+	go func() {
+		err := b.ReportHealth(ctx)
+		if err != nil {
+			log.Printf("warning: failed to report health for %s builder: %v\n", b.Platform, err)
+		}
+	}()
+
+	var (
+		err     error
+		builder AcquiredBuilder
+	)
 
 	builderPlatform := cliv1.BuilderPlatform_BUILDER_PLATFORM_UNSPECIFIED
 	switch b.Platform {
