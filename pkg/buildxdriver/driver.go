@@ -33,9 +33,9 @@ func (d *Driver) Bootstrap(ctx context.Context, reporter progress.Logger) error 
 	// Try to acquire builder twice
 	var err error
 	for i := 0; i < 2; i++ {
-		finishSpan := StartSpan(message, reporter)
+		finishLog := StartLog(message, reporter)
 		d.buildkit, err = builder.StartBuildkit(ctx)
-		finishSpan(err)
+		finishLog(err)
 		if err == nil {
 			break
 		}
@@ -49,13 +49,13 @@ func (d *Driver) Bootstrap(ctx context.Context, reporter progress.Logger) error 
 	defer cancel()
 
 	message = "[depot] connecting to " + platform + " builder"
-	finishSpan := StartSpan(message, reporter)
+	finishLog := StartLog(message, reporter)
 	const (
 		RETRIES     int           = 120
 		RETRY_AFTER time.Duration = time.Second
 	)
 	err = d.buildkit.WaitUntilReady(ctx, RETRIES, RETRY_AFTER)
-	finishSpan(err)
+	finishLog(err)
 
 	return err
 }
@@ -111,7 +111,7 @@ func (d *Driver) Version(ctx context.Context) (string, error) {
 	return "", nil
 }
 
-func StartSpan(message string, logger progress.Logger) func(err error) {
+func StartLog(message string, logger progress.Logger) func(err error) {
 	dgst := digest.FromBytes([]byte(identity.NewID()))
 	tm := time.Now()
 	logger(&client.SolveStatus{
