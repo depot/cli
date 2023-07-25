@@ -8,7 +8,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/depot/cli/pkg/helpers"
+	depotbuild "github.com/depot/cli/pkg/build"
 	"github.com/docker/buildx/driver"
 	"github.com/docker/buildx/store"
 	"github.com/docker/buildx/store/storeutil"
@@ -73,7 +73,7 @@ func WithSkippedValidation() Option {
 	}
 }
 
-func WithDepotOptions(buildPlatform string, build helpers.Build) Option {
+func WithDepotOptions(buildPlatform string, build depotbuild.Build) Option {
 	return func(b *Builder) {
 		b.token = build.Token
 		b.buildID = build.ID

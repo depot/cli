@@ -51,7 +51,7 @@ func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator) (er
 
 	ctx2, cancel := context.WithCancel(context.TODO())
 
-	printer, err := depotprogress.NewProgress(ctx2, in.buildID, in.token, in.progress)
+	printer, finish, err := depotprogress.NewProgress(ctx2, in.buildID, in.token, depotprogress.NewProgressMode(in.progress))
 	if err != nil {
 		cancel()
 		return err
@@ -70,13 +70,7 @@ func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator) (er
 		}
 	}()
 
-	wg := &sync.WaitGroup{}
-	wg.Add(1)
-	go func() {
-		printer.Run(ctx2)
-		wg.Done()
-	}()
-	defer wg.Wait() // Required to ensure that the printer is stopped before the context is cancelled.
+	defer finish() // Required to ensure that the printer is stopped before the context is cancelled.
 	defer cancel()
 
 	if os.Getenv("DEPOT_NO_SUMMARY_LINK") == "" {
@@ -85,6 +79,7 @@ func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator) (er
 
 	// Upload dockerfile to API.
 	uploader := dockerfile.NewUploader(in.buildID, in.token)
+	wg := &sync.WaitGroup{}
 	wg.Add(1)
 	go func() {
 		uploader.Run(ctx2)
@@ -263,9 +258,11 @@ func BakeCmd(dockerCli command.Cli) *cobra.Command {
 			req := helpers.NewBakeRequest(
 				options.project,
 				validatedOpts,
-				options.exportPush,
-				options.exportLoad,
-				options.lint,
+				helpers.UsingDepotFeatures{
+					Push: options.exportPush,
+					Load: options.exportLoad,
+					Lint: options.lint,
+				},
 			)
 			build, err := helpers.BeginBuild(context.Background(), req, token)
 			if err != nil {
