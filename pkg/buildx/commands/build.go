@@ -620,9 +620,11 @@ func BuildCmd(dockerCli command.Cli) *cobra.Command {
 			req := helpers.NewBuildRequest(
 				options.project,
 				validatedOpts,
-				options.exportPush,
-				options.exportLoad,
-				options.lint,
+				helpers.UsingDepotFeatures{
+					Push: options.exportPush,
+					Load: options.exportLoad,
+					Lint: options.lint,
+				},
 			)
 
 			build, err := helpers.BeginBuild(context.Background(), req, token)
