@@ -40,6 +40,7 @@ func NewBuild(ctx context.Context, req *cliv1.CreateBuildRequest, token string) 
 
 	build.Response = res
 	build.BuildURL = res.Msg.BuildUrl
+	build.UseLocalRegistry = res.Msg.GetRegistry() != nil && res.Msg.GetRegistry().CanUseLocalRegistry
 	if res.Msg.GetRegistry() != nil {
 		build.ProxyImage = res.Msg.GetRegistry().ProxyImage
 	}

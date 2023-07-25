@@ -50,10 +50,10 @@ func main() {
 		return
 	}
 
-	defer finishReporter() // Required to ensure that the printer is stopped before the context is cancelled.
+	defer finishReporter() // Required to ensure that the printer is stopped before context `cancel()`.
 	defer cancel()
 
-	// 3. Start buildkit machine.
+	// 3. Acquire a buildkit machine.
 	var buildkit *machine.Buildkit
 	buildErr = reporter.WithLog("[depot] launching amd64 machine", func() error {
 		buildkit, buildErr = machine.Acquire(ctx, build.ID, build.Token, "amd64")

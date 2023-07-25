@@ -39,7 +39,6 @@ enum Command {
   COMMAND_UNSPECIFIED = 0;
   COMMAND_BUILD = 1;
   COMMAND_BAKE = 2;
-  COMMAND_SDK = 3;
 }
 
 message BuildOutput {
