@@ -193,19 +193,13 @@ func (c nopCloser) Close() error { return nil }
 func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.Node, opts map[string]build.Options, depotOpts DepotOptions, progressMode, metadataFile string, exportLoad, allowNoOutput bool) (imageIDs []string, res *build.ResultContext, err error) {
 	ctx2, cancel := context.WithCancel(context.TODO())
 
-	printer, err := depotprogress.NewProgress(ctx2, depotOpts.buildID, depotOpts.token, progressMode)
+	printer, finish, err := depotprogress.NewProgress(ctx2, depotOpts.buildID, depotOpts.token, progressMode)
 	if err != nil {
 		cancel()
 		return nil, nil, err
 	}
 
-	wg := &sync.WaitGroup{}
-	wg.Add(1)
-	go func() {
-		printer.Run(ctx2)
-		wg.Done()
-	}()
-	defer wg.Wait() // Required to ensure that the printer is stopped before the context is cancelled.
+	defer finish() // Required to ensure that the printer is stopped before the context is cancelled.
 	defer cancel()
 
 	if os.Getenv("DEPOT_NO_SUMMARY_LINK") == "" {
@@ -214,6 +208,7 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.No
 
 	// Upload dockerfile to API.
 	uploader := dockerfile.NewUploader(depotOpts.buildID, depotOpts.token)
+	wg := &sync.WaitGroup{}
 	wg.Add(1)
 	go func() {
 		uploader.Run(ctx2)

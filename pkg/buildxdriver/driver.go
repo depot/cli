@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/depot/cli/pkg/builder"
+	"github.com/depot/cli/pkg/machine"
 	"github.com/docker/buildx/driver"
 	"github.com/docker/buildx/util/progress"
 	"github.com/moby/buildkit/client"
@@ -18,23 +18,21 @@ type Driver struct {
 	cfg driver.InitConfig
 
 	factory  driver.Factory
-	buildkit *builder.Buildkit
+	buildkit *machine.Buildkit
 }
 
 func (d *Driver) Bootstrap(ctx context.Context, reporter progress.Logger) error {
-	token := d.cfg.DriverOpts["token"]
 	buildID := d.cfg.DriverOpts["buildID"]
+	token := d.cfg.DriverOpts["token"]
 	platform := d.cfg.DriverOpts["platform"]
 
-	builder := builder.NewBuilder(token, buildID, platform)
+	message := "[depot] launching " + platform + " machine"
 
-	message := "[depot] launching " + platform + " builder"
-
-	// Try to acquire builder twice
+	// Try to acquire machine twice
 	var err error
 	for i := 0; i < 2; i++ {
 		finishLog := StartLog(message, reporter)
-		d.buildkit, err = builder.StartBuildkit(ctx)
+		d.buildkit, err = machine.Acquire(ctx, buildID, token, platform)
 		finishLog(err)
 		if err == nil {
 			break
@@ -45,16 +43,13 @@ func (d *Driver) Bootstrap(ctx context.Context, reporter progress.Logger) error 
 		return err
 	}
 
+	message = "[depot] connecting to " + platform + " machine"
+	finishLog := StartLog(message, reporter)
+
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
 
-	message = "[depot] connecting to " + platform + " builder"
-	finishLog := StartLog(message, reporter)
-	const (
-		RETRIES     int           = 120
-		RETRY_AFTER time.Duration = time.Second
-	)
-	_, err = d.buildkit.WaitUntilReady(ctx, RETRIES, RETRY_AFTER)
+	_, err = d.buildkit.Connect(ctx)
 	finishLog(err)
 
 	return err

@@ -1,4 +1,4 @@
-package builder
+package machine
 
 import (
 	"context"
@@ -18,53 +18,50 @@ import (
 	"github.com/pkg/errors"
 )
 
-type Builder struct {
-	Token    string
+type Machine struct {
 	BuildID  string
+	Token    string
 	Platform string
 
 	reportHealth sync.Once
 }
 
 // Platform can be "amd64" or "arm64".
-func NewBuilder(token string, buildID string, platform string) *Builder {
-	return &Builder{
-		Token:    token,
+// This reports health continually to the Depot API and waits for the buildkit
+// machine to be ready.  This can be canceled by canceling the context.
+func Acquire(ctx context.Context, buildID, token, platform string) (*Buildkit, error) {
+	m := &Machine{
 		BuildID:  buildID,
+		Token:    token,
 		Platform: platform,
 	}
-}
-
-// StartBuildkit reports health continually to the Depot API and waits for the buildkit
-// machine to be ready.  This can be canceled by canceling the context.
-func (b *Builder) StartBuildkit(ctx context.Context) (*Buildkit, error) {
-	b.reportHealth.Do(func() {
+	m.reportHealth.Do(func() {
 		go func() {
-			err := b.ReportHealth(ctx)
+			err := m.ReportHealth(ctx)
 			if err != nil {
-				log.Printf("warning: failed to report health for %s builder: %v\n", b.Platform, err)
+				log.Printf("warning: failed to report health for %s machine: %v\n", m.Platform, err)
 			}
 		}()
 	})
 
 	var builderPlatform cliv1.BuilderPlatform
-	switch b.Platform {
+	switch m.Platform {
 	case "amd64":
 		builderPlatform = cliv1.BuilderPlatform_BUILDER_PLATFORM_AMD64
 	case "arm64":
 		builderPlatform = cliv1.BuilderPlatform_BUILDER_PLATFORM_ARM64
 	default:
-		return nil, errors.Errorf("unsupported platform: %s", b.Platform)
+		return nil, errors.Errorf("unsupported platform: %s", m.Platform)
 	}
 
 	client := api.NewBuildClient()
 
 	for {
 		req := cliv1.GetBuildKitConnectionRequest{
-			BuildId:  b.BuildID,
+			BuildId:  m.BuildID,
 			Platform: builderPlatform,
 		}
-		resp, err := client.GetBuildKitConnection(ctx, api.WithAuthentication(connect.NewRequest(&req), b.Token))
+		resp, err := client.GetBuildKitConnection(ctx, api.WithAuthentication(connect.NewRequest(&req), m.Token))
 		if err != nil {
 			return nil, err
 		}
@@ -89,20 +86,20 @@ func (b *Builder) StartBuildkit(ctx context.Context) (*Buildkit, error) {
 	}
 }
 
-func (b *Builder) ReportHealth(ctx context.Context) error {
+func (m *Machine) ReportHealth(ctx context.Context) error {
 	var builderPlatform cliv1.BuilderPlatform
-	switch b.Platform {
+	switch m.Platform {
 	case "amd64":
 		builderPlatform = cliv1.BuilderPlatform_BUILDER_PLATFORM_AMD64
 	case "arm64":
 		builderPlatform = cliv1.BuilderPlatform_BUILDER_PLATFORM_ARM64
 	default:
-		return errors.Errorf("unsupported platform: %s", b.Platform)
+		return errors.Errorf("unsupported platform: %s", m.Platform)
 	}
 
 	client := api.NewBuildClient()
 	for {
-		err := b.doReportHealth(ctx, client, builderPlatform)
+		err := m.doReportHealth(ctx, client, builderPlatform)
 		if err != nil {
 			if errors.Is(err, context.Canceled) {
 				return nil
@@ -118,11 +115,11 @@ func (b *Builder) ReportHealth(ctx context.Context) error {
 	}
 }
 
-func (b *Builder) doReportHealth(ctx context.Context, client cliv1connect.BuildServiceClient, builderPlatform cliv1.BuilderPlatform) error {
+func (m *Machine) doReportHealth(ctx context.Context, client cliv1connect.BuildServiceClient, builderPlatform cliv1.BuilderPlatform) error {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	req := cliv1.ReportBuildHealthRequest{BuildId: b.BuildID, Platform: builderPlatform}
-	_, err := client.ReportBuildHealth(ctx, api.WithAuthentication(connect.NewRequest(&req), b.Token))
+	req := cliv1.ReportBuildHealthRequest{BuildId: m.BuildID, Platform: builderPlatform}
+	_, err := client.ReportBuildHealth(ctx, api.WithAuthentication(connect.NewRequest(&req), m.Token))
 	return err
 }
 
@@ -136,16 +133,17 @@ type Buildkit struct {
 	client *client.Client
 }
 
-func (b *Buildkit) Close() error {
+func (b *Buildkit) Release() error {
+	// TODO: stop reporting health here.
 	if b.client != nil {
 		return b.client.Close()
 	}
 	return nil
 }
 
-func (b *Buildkit) Client(ctx context.Context) (*client.Client, error) {
-	if b.client != nil {
-		return b.client, nil
+func (m *Buildkit) Client(ctx context.Context) (*client.Client, error) {
+	if m.client != nil {
+		return m.client, nil
 	}
 
 	opts := []client.ClientOpt{
@@ -157,13 +155,13 @@ func (b *Buildkit) Client(ctx context.Context) (*client.Client, error) {
 
 	// We create all these files as buildkit does not allow control of the gRPC client
 	// without using overly restrictive private structs.
-	if b.Cert != "" {
+	if m.Cert != "" {
 		file, err := os.CreateTemp("", "depot-cert")
 		if err != nil {
 			return nil, errors.Wrap(err, "failed to create temp file")
 		}
 		defer file.Close()
-		err = os.WriteFile(file.Name(), []byte(b.Cert), 0600)
+		err = os.WriteFile(file.Name(), []byte(m.Cert), 0600)
 		if err != nil {
 			return nil, errors.Wrap(err, "failed to write cert to temp file")
 		}
@@ -174,7 +172,7 @@ func (b *Buildkit) Client(ctx context.Context) (*client.Client, error) {
 			return nil, errors.Wrap(err, "failed to create temp file")
 		}
 		defer file.Close()
-		err = os.WriteFile(file.Name(), []byte(b.Key), 0600)
+		err = os.WriteFile(file.Name(), []byte(m.Key), 0600)
 		if err != nil {
 			return nil, errors.Wrap(err, "failed to write key to temp file")
 		}
@@ -185,7 +183,7 @@ func (b *Buildkit) Client(ctx context.Context) (*client.Client, error) {
 			return nil, errors.Wrap(err, "failed to create temp file")
 		}
 		defer file.Close()
-		err = os.WriteFile(file.Name(), []byte(b.CACert), 0600)
+		err = os.WriteFile(file.Name(), []byte(m.CACert), 0600)
 		if err != nil {
 			return nil, errors.Wrap(err, "failed to write CA cert to temp file")
 		}
@@ -194,17 +192,17 @@ func (b *Buildkit) Client(ctx context.Context) (*client.Client, error) {
 		opts = append(opts, client.WithCredentials("", caCert, cert, key))
 	}
 
-	c, err := client.New(ctx, b.Addr, opts...)
+	c, err := client.New(ctx, m.Addr, opts...)
 	if err != nil {
 		return nil, err
 	}
 
-	b.client = c
+	m.client = c
 	return c, nil
 }
 
-func (b *Buildkit) CheckReady(ctx context.Context) (*client.Client, error) {
-	client, err := b.Client(ctx)
+func (m *Buildkit) CheckReady(ctx context.Context) (*client.Client, error) {
+	client, err := m.Client(ctx)
 	if err != nil {
 		return client, err
 	}
@@ -214,30 +212,32 @@ func (b *Buildkit) CheckReady(ctx context.Context) (*client.Client, error) {
 	return client, err
 }
 
-// WaitUntilReady waits until the buildkitd is ready to accept connections.
-// It tries to connect to the buildkitd every retryAfter until it succeeds or
+// Connect waits until the buildkitd is ready to accept connections.
+// It tries to connect to the buildkitd every one second until it succeeds or
 // the context is canceled.
-func (b *Buildkit) WaitUntilReady(ctx context.Context, retries int, retryAfter time.Duration) (*client.Client, error) {
+func (m *Buildkit) Connect(ctx context.Context) (*client.Client, error) {
 	var (
 		client *client.Client
 		err    error
 	)
-	for i := 0; i < retries; i++ {
-		client, err = b.CheckReady(ctx)
+	client, err = m.CheckReady(ctx)
+	if err == nil {
+		return client, nil
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+				return nil, fmt.Errorf("timed out connecting to machine: %w", err)
+			}
+			return nil, ctx.Err()
+		case <-time.After(time.Second):
+		}
+
+		client, err = m.CheckReady(ctx)
 		if err == nil {
 			return client, nil
 		}
-
-		select {
-		case <-ctx.Done():
-			err = ctx.Err()
-		case <-time.After(retryAfter):
-		}
-
-		if err != nil {
-			break
-		}
 	}
-
-	return nil, fmt.Errorf("timed out connecting to builder: %w", err)
 }
