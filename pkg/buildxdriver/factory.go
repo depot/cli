@@ -3,7 +3,6 @@ package buildxdriver
 import (
 	"context"
 
-	"github.com/depot/cli/pkg/builder"
 	"github.com/docker/buildx/driver"
 	dockerclient "github.com/docker/docker/client"
 )
@@ -34,13 +33,7 @@ func (*factory) Priority(ctx context.Context, endpoint string, api dockerclient.
 }
 
 func (f *factory) New(ctx context.Context, cfg driver.InitConfig) (driver.Driver, error) {
-	token := cfg.DriverOpts["token"]
-	platform := cfg.DriverOpts["platform"]
-	buildID := cfg.DriverOpts["buildID"]
-	builder := builder.NewBuilder(token, buildID, platform)
-
-	d := &Driver{factory: f, config: cfg, buildkit: nil, builder: builder}
-	return d, nil
+	return &Driver{factory: f, cfg: cfg}, nil
 }
 
 func (f *factory) AllowsInstances() bool {

@@ -8,41 +8,56 @@ import (
 	"github.com/docker/buildx/driver"
 	"github.com/docker/buildx/util/progress"
 	"github.com/moby/buildkit/client"
-	"github.com/pkg/errors"
+	"github.com/moby/buildkit/identity"
+	"github.com/opencontainers/go-digest"
 )
 
 var _ driver.Driver = (*Driver)(nil)
 
 type Driver struct {
-	config   driver.InitConfig
+	cfg driver.InitConfig
+
 	factory  driver.Factory
-	builder  *builder.Builder
 	buildkit *builder.Buildkit
 }
 
 func (d *Driver) Bootstrap(ctx context.Context, reporter progress.Logger) error {
+	token := d.cfg.DriverOpts["token"]
+	buildID := d.cfg.DriverOpts["buildID"]
+	platform := d.cfg.DriverOpts["platform"]
+
+	builder := builder.NewBuilder(token, buildID, platform)
+
+	message := "[depot] launching " + platform + " builder"
+
+	// Try to acquire builder twice
 	var err error
-	d.buildkit, err = d.builder.StartBuildkit(ctx, reporter)
-	if err != nil {
-		return errors.Wrap(err, "failed to bootstrap builder")
+	for i := 0; i < 2; i++ {
+		finishSpan := StartSpan(message, reporter)
+		d.buildkit, err = builder.StartBuildkit(ctx)
+		finishSpan(err)
+		if err == nil {
+			break
+		}
 	}
-
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
-	defer cancel()
-
-	err = progress.Wrap("[depot] connecting to "+d.builder.Platform+" builder", reporter, func(_ progress.SubLogger) error {
-		const (
-			RETRIES     int           = 120
-			RETRY_AFTER time.Duration = time.Second
-		)
-		return d.buildkit.WaitUntilReady(ctx, RETRIES, RETRY_AFTER)
-	})
 
 	if err != nil {
 		return err
 	}
 
-	return nil
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
+
+	message = "[depot] connecting to " + platform + " builder"
+	finishSpan := StartSpan(message, reporter)
+	const (
+		RETRIES     int           = 120
+		RETRY_AFTER time.Duration = time.Second
+	)
+	err = d.buildkit.WaitUntilReady(ctx, RETRIES, RETRY_AFTER)
+	finishSpan(err)
+
+	return err
 }
 
 func (d *Driver) Info(ctx context.Context) (*driver.Info, error) {
@@ -64,7 +79,7 @@ func (d *Driver) Client(ctx context.Context) (*client.Client, error) {
 // Boilerplate
 
 func (d *Driver) Config() driver.InitConfig {
-	return d.config
+	return d.cfg
 }
 
 func (d *Driver) Factory() driver.Factory {
@@ -94,4 +109,33 @@ func (d *Driver) Stop(ctx context.Context, force bool) error {
 
 func (d *Driver) Version(ctx context.Context) (string, error) {
 	return "", nil
+}
+
+func StartSpan(message string, logger progress.Logger) func(err error) {
+	dgst := digest.FromBytes([]byte(identity.NewID()))
+	tm := time.Now()
+	logger(&client.SolveStatus{
+		Vertexes: []*client.Vertex{{
+			Digest:  dgst,
+			Name:    message,
+			Started: &tm,
+		}},
+	})
+
+	return func(err error) {
+		tm2 := time.Now()
+		errMsg := ""
+		if err != nil {
+			errMsg = err.Error()
+		}
+		logger(&client.SolveStatus{
+			Vertexes: []*client.Vertex{{
+				Digest:    dgst,
+				Name:      message,
+				Started:   &tm,
+				Completed: &tm2,
+				Error:     errMsg,
+			}},
+		})
+	}
 }

@@ -7,43 +7,42 @@ import (
 	"net"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/bufbuild/connect-go"
 	"github.com/depot/cli/pkg/api"
 	cliv1 "github.com/depot/cli/pkg/proto/depot/cli/v1"
 	"github.com/depot/cli/pkg/proto/depot/cli/v1/cliv1connect"
-	"github.com/docker/buildx/util/progress"
 	"github.com/moby/buildkit/client"
 	"github.com/pkg/errors"
 )
 
 type Builder struct {
-	token    string
+	Token    string
 	BuildID  string
 	Platform string
+
+	reportHealth sync.Once
 }
 
 func NewBuilder(token string, buildID string, platform string) *Builder {
 	return &Builder{
-		token:    token,
+		Token:    token,
 		BuildID:  buildID,
 		Platform: platform,
 	}
 }
 
-func (b *Builder) StartBuildkit(ctx context.Context, reporter progress.Logger) (*Buildkit, error) {
-	go func() {
-		err := b.ReportHealth(ctx)
-		if err != nil {
-			log.Printf("warning: failed to report health for %s builder: %v\n", b.Platform, err)
-		}
-	}()
-
-	var (
-		err      error
-		buildkit Buildkit
-	)
+func (b *Builder) StartBuildkit(ctx context.Context) (*Buildkit, error) {
+	b.reportHealth.Do(func() {
+		go func() {
+			err := b.ReportHealth(ctx)
+			if err != nil {
+				log.Printf("warning: failed to report health for %s builder: %v\n", b.Platform, err)
+			}
+		}()
+	})
 
 	builderPlatform := cliv1.BuilderPlatform_BUILDER_PLATFORM_UNSPECIFIED
 	switch b.Platform {
@@ -57,47 +56,34 @@ func (b *Builder) StartBuildkit(ctx context.Context, reporter progress.Logger) (
 
 	client := api.NewBuildClient()
 
-	acquireFn := func(sub progress.SubLogger) error {
-		for {
-			req := cliv1.GetBuildKitConnectionRequest{
-				BuildId:  b.BuildID,
-				Platform: builderPlatform,
-			}
-			resp, err := client.GetBuildKitConnection(ctx, api.WithAuthentication(connect.NewRequest(&req), b.token))
-			if err != nil {
-				return err
-			}
-
-			switch connection := resp.Msg.Connection.(type) {
-			case *cliv1.GetBuildKitConnectionResponse_Active:
-				buildkit.Addr = connection.Active.Endpoint
-				buildkit.ServerName = connection.Active.ServerName
-				buildkit.CACert = connection.Active.CaCert.Cert
-				buildkit.Cert = connection.Active.Cert.Cert
-				buildkit.Key = connection.Active.Cert.Key
-				return nil
-
-			case *cliv1.GetBuildKitConnectionResponse_Pending:
-				select {
-				case <-time.After(time.Duration(connection.Pending.WaitMs) * time.Millisecond):
-				case <-ctx.Done():
-					return ctx.Err()
-				}
-				continue
-			}
+	for {
+		req := cliv1.GetBuildKitConnectionRequest{
+			BuildId:  b.BuildID,
+			Platform: builderPlatform,
 		}
-	}
-
-	// Try to acquire builder twice
-	err = progress.Wrap("[depot] launching "+b.Platform+" builder", reporter, acquireFn)
-	if err != nil {
-		err = progress.Wrap("[depot] launching "+b.Platform+" builder", reporter, acquireFn)
+		resp, err := client.GetBuildKitConnection(ctx, api.WithAuthentication(connect.NewRequest(&req), b.Token))
 		if err != nil {
 			return nil, err
 		}
-	}
 
-	return &buildkit, nil
+		switch connection := resp.Msg.Connection.(type) {
+		case *cliv1.GetBuildKitConnectionResponse_Active:
+			return &Buildkit{
+				Addr:       connection.Active.Endpoint,
+				ServerName: connection.Active.ServerName,
+				CACert:     connection.Active.CaCert.Cert,
+				Cert:       connection.Active.Cert.Cert,
+				Key:        connection.Active.Cert.Key,
+			}, nil
+		case *cliv1.GetBuildKitConnectionResponse_Pending:
+			select {
+			case <-time.After(time.Duration(connection.Pending.WaitMs) * time.Millisecond):
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+			continue
+		}
+	}
 }
 
 func (b *Builder) ReportHealth(ctx context.Context) error {
@@ -133,7 +119,7 @@ func (b *Builder) doReportHealth(ctx context.Context, client cliv1connect.BuildS
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	req := cliv1.ReportBuildHealthRequest{BuildId: b.BuildID, Platform: builderPlatform}
-	_, err := client.ReportBuildHealth(ctx, api.WithAuthentication(connect.NewRequest(&req), b.token))
+	_, err := client.ReportBuildHealth(ctx, api.WithAuthentication(connect.NewRequest(&req), b.Token))
 	return err
 }
 
