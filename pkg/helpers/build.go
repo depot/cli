@@ -96,6 +96,45 @@ type UsingDepotFeatures struct {
 	Lint bool
 }
 
+// NewSDKRequest creates a build request for SDK users.
+//
+// The build.Options and UsingDepotFeatures are used to report information about
+// the build to the Depot API.
+//
+// Each type of build tag and export kind such as "image" or "tar" is reported;
+// additionally, each unique depot feature is reported.
+//
+// Totally feel free to pass empty structs for both opts and features!
+func NewSDKRequest(project string, opts build.Options, features UsingDepotFeatures) *cliv1.CreateBuildRequest {
+	outputs := make([]*cliv1.BuildOutput, len(opts.Exports))
+	for i := range opts.Exports {
+		outputs[i] = &cliv1.BuildOutput{
+			Kind:       opts.Exports[i].Type,
+			Attributes: opts.Exports[i].Attrs,
+		}
+	}
+
+	var target *string
+	if opts.Target != "" {
+		target = &opts.Target
+	}
+
+	return &cliv1.CreateBuildRequest{
+		ProjectId: project,
+		Options: []*cliv1.BuildOptions{
+			{
+				Command:    cliv1.Command_COMMAND_SDK,
+				Tags:       opts.Tags,
+				Outputs:    outputs,
+				Push:       features.Push,
+				Load:       features.Load,
+				Lint:       features.Lint,
+				TargetName: target,
+			},
+		},
+	}
+}
+
 func NewBuildRequest(project string, opts map[string]build.Options, features UsingDepotFeatures) *cliv1.CreateBuildRequest {
 	// There is only one target for a build request, "default".
 	for _, opts := range opts {

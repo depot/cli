@@ -26,6 +26,7 @@ type Builder struct {
 	reportHealth sync.Once
 }
 
+// Platform can be "amd64" or "arm64".
 func NewBuilder(token string, buildID string, platform string) *Builder {
 	return &Builder{
 		Token:    token,
@@ -34,6 +35,8 @@ func NewBuilder(token string, buildID string, platform string) *Builder {
 	}
 }
 
+// StartBuildkit reports health continually to the Depot API and waits for the buildkit
+// machine to be ready.  This can be canceled by canceling the context.
 func (b *Builder) StartBuildkit(ctx context.Context) (*Buildkit, error) {
 	b.reportHealth.Do(func() {
 		go func() {
@@ -191,35 +194,50 @@ func (b *Buildkit) Client(ctx context.Context) (*client.Client, error) {
 		opts = append(opts, client.WithCredentials("", caCert, cert, key))
 	}
 
-	return client.New(ctx, b.Addr, opts...)
+	c, err := client.New(ctx, b.Addr, opts...)
+	if err != nil {
+		return nil, err
+	}
+
+	b.client = c
+	return c, nil
 }
 
-func (b *Buildkit) CheckReady(ctx context.Context) error {
+func (b *Buildkit) CheckReady(ctx context.Context) (*client.Client, error) {
 	client, err := b.Client(ctx)
 	if err != nil {
-		return err
+		return client, err
 	}
 
 	// TODO: Switch to gRPC Healthchecks after exposing the client in the client.
 	_, err = client.ListWorkers(ctx)
-	return err
+	return client, err
 }
 
-func (b *Buildkit) WaitUntilReady(ctx context.Context, retries int, retryAfter time.Duration) error {
-	var err error
+// WaitUntilReady waits until the buildkitd is ready to accept connections.
+// It tries to connect to the buildkitd every retryAfter until it succeeds or
+// the context is canceled.
+func (b *Buildkit) WaitUntilReady(ctx context.Context, retries int, retryAfter time.Duration) (*client.Client, error) {
+	var (
+		client *client.Client
+		err    error
+	)
 	for i := 0; i < retries; i++ {
-		err = b.CheckReady(ctx)
+		client, err = b.CheckReady(ctx)
 		if err == nil {
-			return nil
+			return client, nil
 		}
 
 		select {
 		case <-ctx.Done():
 			err = ctx.Err()
-			break
 		case <-time.After(retryAfter):
+		}
+
+		if err != nil {
+			break
 		}
 	}
 
-	return fmt.Errorf("timed out connecting to builder: %w", err)
+	return nil, fmt.Errorf("timed out connecting to builder: %w", err)
 }

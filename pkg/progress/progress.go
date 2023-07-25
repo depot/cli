@@ -13,6 +13,7 @@ import (
 	cliv1connect "github.com/depot/cli/pkg/proto/depot/cli/v1/cliv1connect"
 	"github.com/docker/buildx/util/progress"
 	"github.com/moby/buildkit/client"
+	"github.com/moby/buildkit/identity"
 	"github.com/opencontainers/go-digest"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -44,6 +45,41 @@ func NewProgress(ctx context.Context, buildID, token, progressMode string) (*Pro
 		vertices: make(chan []*client.Vertex, channelBufferSize),
 		p:        p,
 	}, nil
+}
+
+// FinishLogFunc is a function that should be called when a log is finished.
+// It records duration and success of the log span to sends to Depot for storage.
+type FinishLogFunc func(err error)
+
+// StartLog starts a log span and returns a function that should be called when the log is finished.
+// Once finished, the log span is recorded and sent to Depot for storage.
+func (p *Progress) StartLog(message string) FinishLogFunc {
+	dgst := digest.FromBytes([]byte(identity.NewID()))
+	tm := time.Now()
+	p.Write(&client.SolveStatus{
+		Vertexes: []*client.Vertex{{
+			Digest:  dgst,
+			Name:    message,
+			Started: &tm,
+		}},
+	})
+
+	return func(err error) {
+		tm2 := time.Now()
+		errMsg := ""
+		if err != nil {
+			errMsg = err.Error()
+		}
+		p.Write(&client.SolveStatus{
+			Vertexes: []*client.Vertex{{
+				Digest:    dgst,
+				Name:      message,
+				Started:   &tm,
+				Completed: &tm2,
+				Error:     errMsg,
+			}},
+		})
+	}
 }
 
 func (p *Progress) Write(s *client.SolveStatus) {

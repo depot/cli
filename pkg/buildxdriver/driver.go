@@ -54,7 +54,7 @@ func (d *Driver) Bootstrap(ctx context.Context, reporter progress.Logger) error 
 		RETRIES     int           = 120
 		RETRY_AFTER time.Duration = time.Second
 	)
-	err = d.buildkit.WaitUntilReady(ctx, RETRIES, RETRY_AFTER)
+	_, err = d.buildkit.WaitUntilReady(ctx, RETRIES, RETRY_AFTER)
 	finishLog(err)
 
 	return err
@@ -65,7 +65,7 @@ func (d *Driver) Info(ctx context.Context) (*driver.Info, error) {
 		return &driver.Info{Status: driver.Stopped}, nil
 	}
 
-	if err := d.buildkit.CheckReady(ctx); err != nil {
+	if _, err := d.buildkit.CheckReady(ctx); err != nil {
 		return &driver.Info{Status: driver.Inactive}, nil
 	}
 
