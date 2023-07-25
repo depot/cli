@@ -193,7 +193,7 @@ func (c nopCloser) Close() error { return nil }
 func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.Node, opts map[string]build.Options, depotOpts DepotOptions, progressMode, metadataFile string, exportLoad, allowNoOutput bool) (imageIDs []string, res *build.ResultContext, err error) {
 	ctx2, cancel := context.WithCancel(context.TODO())
 
-	printer, finish, err := depotprogress.NewProgress(ctx2, depotOpts.buildID, depotOpts.token, progressMode)
+	printer, finish, err := depotprogress.NewProgress(ctx2, depotOpts.buildID, depotOpts.token, depotprogress.NewProgressMode(progressMode))
 	if err != nil {
 		cancel()
 		return nil, nil, err

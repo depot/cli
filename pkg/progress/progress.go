@@ -31,16 +31,25 @@ type Progress struct {
 	p *progress.Printer
 }
 
+type ProgressMode int
+
+const (
+	Auto ProgressMode = iota
+	TTY
+	Plain
+	Quiet
+)
+
 type FinishFn func()
 
 // NewProgress creates a new progress writer that sends build timings to the server.
 // Use the ctx to cancel the long running go routine.
 // Make sure to run FinishFn to flush remaining build timings to the server _AFTER_ ctx has been canceled.
 // NOTE: this means that you need to defer the FinishFn before deferring the cancel.
-func NewProgress(ctx context.Context, buildID, token, progressMode string) (*Progress, FinishFn, error) {
+func NewProgress(ctx context.Context, buildID, token string, mode ProgressMode) (*Progress, FinishFn, error) {
 	// Buffer up to 1024 vertex slices before blocking the build.
 	const channelBufferSize = 1024
-	p, err := progress.NewPrinter(ctx, os.Stderr, os.Stderr, progressMode)
+	p, err := progress.NewPrinter(ctx, os.Stderr, os.Stderr, mode.String())
 	if err != nil {
 		return nil, func() {}, err
 	}
@@ -454,4 +463,34 @@ type Instruction struct {
 	Stage    string
 	Step     int
 	Total    int
+}
+
+func (p ProgressMode) String() string {
+	switch p {
+	case Auto:
+		return "auto"
+	case TTY:
+		return "tty"
+	case Plain:
+		return "plain"
+	case Quiet:
+		return "quiet"
+	default:
+		return "auth"
+	}
+}
+
+func NewProgressMode(s string) ProgressMode {
+	switch s {
+	case "auto":
+		return Auto
+	case "tty":
+		return TTY
+	case "plain":
+		return Plain
+	case "quiet":
+		return Quiet
+	default:
+		return Auto
+	}
 }

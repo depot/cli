@@ -45,7 +45,7 @@ func main() {
 	// 2. Start progress reporter. This will report the build progress logs to the
 	// Depot API and print it to the terminal.
 	ctx, cancel := context.WithCancel(ctx)
-	reporter, finishReporter, buildErr := progress.NewProgress(ctx, build.ID, build.Token, printer.PrinterModePlain)
+	reporter, finishReporter, buildErr := progress.NewProgress(ctx, build.ID, build.Token, progress.Plain)
 	if buildErr != nil {
 		return
 	}
