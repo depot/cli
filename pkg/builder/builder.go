@@ -44,7 +44,7 @@ func (b *Builder) StartBuildkit(ctx context.Context) (*Buildkit, error) {
 		}()
 	})
 
-	builderPlatform := cliv1.BuilderPlatform_BUILDER_PLATFORM_UNSPECIFIED
+	var builderPlatform cliv1.BuilderPlatform
 	switch b.Platform {
 	case "amd64":
 		builderPlatform = cliv1.BuilderPlatform_BUILDER_PLATFORM_AMD64
@@ -188,34 +188,38 @@ func (b *Buildkit) Client(ctx context.Context) (*client.Client, error) {
 		}
 		caCert := file.Name()
 
-		opts = append(opts, client.WithCredentials(b.ServerName, caCert, cert, key))
+		opts = append(opts, client.WithCredentials("", caCert, cert, key))
 	}
 
 	return client.New(ctx, b.Addr, opts...)
 }
 
-func (b *Buildkit) IsReady(ctx context.Context) bool {
+func (b *Buildkit) CheckReady(ctx context.Context) error {
 	client, err := b.Client(ctx)
 	if err != nil {
-		return false
+		return err
 	}
 
 	// TODO: Switch to gRPC Healthchecks after exposing the client in the client.
 	_, err = client.ListWorkers(ctx)
-	return err == nil
+	return err
 }
 
 func (b *Buildkit) WaitUntilReady(ctx context.Context, retries int, retryAfter time.Duration) error {
+	var err error
 	for i := 0; i < retries; i++ {
-		if b.IsReady(ctx) {
+		err = b.CheckReady(ctx)
+		if err == nil {
 			return nil
 		}
 
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			err = ctx.Err()
+			break
 		case <-time.After(retryAfter):
 		}
 	}
-	return errors.New("timed out connecting to builder")
+
+	return fmt.Errorf("timed out connecting to builder: %w", err)
 }

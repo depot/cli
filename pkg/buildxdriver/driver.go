@@ -65,7 +65,7 @@ func (d *Driver) Info(ctx context.Context) (*driver.Info, error) {
 		return &driver.Info{Status: driver.Stopped}, nil
 	}
 
-	if !d.buildkit.IsReady(ctx) {
+	if err := d.buildkit.CheckReady(ctx); err != nil {
 		return &driver.Info{Status: driver.Inactive}, nil
 	}
 
