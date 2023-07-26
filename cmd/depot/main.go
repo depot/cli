@@ -29,7 +29,7 @@ func main() {
 	binary := os.Args[0]
 	if strings.HasSuffix(binary, "-buildx") {
 		cmd, subcmd := parseCmdSubcmd()
-		if cmd == "buildx" && subcmd == "build" {
+		if cmd == "buildx" && (subcmd == "build" || subcmd == "bake") {
 			os.Args = append([]string{binary}, rewriteBuildxArgs()...)
 		} else {
 			err := runOriginalBuildx(os.Args[1:])
@@ -143,34 +143,17 @@ func parseCmdSubcmd() (string, string) {
 
 func rewriteBuildxArgs() []string {
 	args := os.Args[1:]
-	cmd := ""
-	subcmd := ""
-
+	filteredArgs := []string{}
+	done := false
 	for _, arg := range args {
-		if !strings.HasPrefix(arg, "-") {
-			if cmd == "" {
-				cmd = arg
-			} else if subcmd == "" {
-				subcmd = arg
-			}
+		if !done && arg == "buildx" {
+			filteredArgs = append(filteredArgs, "depot")
+			done = true
+		} else {
+			filteredArgs = append(filteredArgs, arg)
 		}
 	}
-
-	if cmd == "buildx" && subcmd == "build" {
-		filteredArgs := []string{}
-		done := false
-		for _, arg := range args {
-			if !done && arg == "buildx" {
-				filteredArgs = append(filteredArgs, "depot")
-				done = true
-			} else {
-				filteredArgs = append(filteredArgs, arg)
-			}
-		}
-		return filteredArgs
-	}
-
-	return args
+	return filteredArgs
 }
 
 func runOriginalBuildx(args []string) error {
