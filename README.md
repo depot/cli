@@ -20,6 +20,7 @@ Official CLI for [Depot](https://depot.dev) - you can use the CLI to build Docke
       - [Flags for `build`](#flags-for-build)
     - [`depot cache`](#depot-cache)
       - [`depot cache reset`](#depot-cache-reset)
+    - [`depot configure-docker`](#depot-configure-docker)
     - [`depot list`](#depot-list)
       - [`depot list projects`](#depot-list-projects)
       - [`depot list builds`](#depot-list-builds)
@@ -222,6 +223,26 @@ Reset the cache of a specific project ID
 
 ```shell
 depot cache reset --project 12345678910
+```
+
+### `depot configure-docker`
+
+Configure Docker to use Depot's remote builder infrastructure. This command installs Depot as a Docker CLI plugin (i.e., `docker depot ...`) and sets the Depot plugin as the default Docker builder (i.e., `docker build`).
+
+```shell
+depot configure-docker
+```
+
+To configure `docker buildx build` to use the Depot plugin, you can specify the `--shim-buildx` flag.
+
+```shell
+depot configure-docker --shim-buildx
+```
+
+If you want to uninstall the plugin, you can specify the `--uninstall` flag.
+
+```shell
+depot configure-docker --uninstall
 ```
 
 ### `depot list`
