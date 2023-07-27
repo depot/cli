@@ -18,7 +18,7 @@ type Driver struct {
 	cfg driver.InitConfig
 
 	factory  driver.Factory
-	buildkit *machine.Buildkit
+	buildkit *machine.Machine
 }
 
 func (d *Driver) Bootstrap(ctx context.Context, reporter progress.Logger) error {
