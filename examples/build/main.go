@@ -54,7 +54,7 @@ func main() {
 	defer cancel()
 
 	// 3. Acquire a buildkit machine.
-	var buildkit *machine.Buildkit
+	var buildkit *machine.Machine
 	buildErr = reporter.WithLog("[depot] launching amd64 machine", func() error {
 		buildkit, buildErr = machine.Acquire(ctx, build.ID, build.Token, "amd64")
 		return buildErr

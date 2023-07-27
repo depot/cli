@@ -7,7 +7,6 @@ import (
 	"net"
 	"os"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/bufbuild/connect-go"
@@ -23,26 +22,33 @@ type Machine struct {
 	Token    string
 	Platform string
 
-	reportHealth sync.Once
+	Addr       string
+	ServerName string
+	CACert     string
+	Cert       string
+	Key        string
+
+	client           *client.Client
+	reportHealthDone chan struct{}
 }
 
 // Platform can be "amd64" or "arm64".
 // This reports health continually to the Depot API and waits for the buildkit
 // machine to be ready.  This can be canceled by canceling the context.
-func Acquire(ctx context.Context, buildID, token, platform string) (*Buildkit, error) {
+func Acquire(ctx context.Context, buildID, token, platform string) (*Machine, error) {
 	m := &Machine{
-		BuildID:  buildID,
-		Token:    token,
-		Platform: platform,
+		BuildID:          buildID,
+		Token:            token,
+		Platform:         platform,
+		reportHealthDone: make(chan struct{}),
 	}
-	m.reportHealth.Do(func() {
-		go func() {
-			err := m.ReportHealth(ctx)
-			if err != nil {
-				log.Printf("warning: failed to report health for %s machine: %v\n", m.Platform, err)
-			}
-		}()
-	})
+
+	go func() {
+		err := m.ReportHealth()
+		if err != nil {
+			log.Printf("warning: failed to report health for %s machine: %v\n", m.Platform, err)
+		}
+	}()
 
 	var builderPlatform cliv1.BuilderPlatform
 	switch m.Platform {
@@ -68,13 +74,12 @@ func Acquire(ctx context.Context, buildID, token, platform string) (*Buildkit, e
 
 		switch connection := resp.Msg.Connection.(type) {
 		case *cliv1.GetBuildKitConnectionResponse_Active:
-			return &Buildkit{
-				Addr:       connection.Active.Endpoint,
-				ServerName: connection.Active.ServerName,
-				CACert:     connection.Active.CaCert.Cert,
-				Cert:       connection.Active.Cert.Cert,
-				Key:        connection.Active.Cert.Key,
-			}, nil
+			m.Addr = connection.Active.Endpoint
+			m.ServerName = connection.Active.ServerName
+			m.CACert = connection.Active.CaCert.Cert
+			m.Cert = connection.Active.Cert.Cert
+			m.Key = connection.Active.Cert.Key
+			return m, nil
 		case *cliv1.GetBuildKitConnectionResponse_Pending:
 			select {
 			case <-time.After(time.Duration(connection.Pending.WaitMs) * time.Millisecond):
@@ -86,7 +91,7 @@ func Acquire(ctx context.Context, buildID, token, platform string) (*Buildkit, e
 	}
 }
 
-func (m *Machine) ReportHealth(ctx context.Context) error {
+func (m *Machine) ReportHealth() error {
 	var builderPlatform cliv1.BuilderPlatform
 	switch m.Platform {
 	case "amd64":
@@ -99,7 +104,7 @@ func (m *Machine) ReportHealth(ctx context.Context) error {
 
 	client := api.NewBuildClient()
 	for {
-		err := m.doReportHealth(ctx, client, builderPlatform)
+		err := m.doReportHealth(context.Background(), client, builderPlatform)
 		if err != nil {
 			if errors.Is(err, context.Canceled) {
 				return nil
@@ -109,7 +114,7 @@ func (m *Machine) ReportHealth(ctx context.Context) error {
 		}
 		select {
 		case <-time.After(5 * time.Second):
-		case <-ctx.Done():
+		case <-m.reportHealthDone:
 			return nil
 		}
 	}
@@ -123,25 +128,15 @@ func (m *Machine) doReportHealth(ctx context.Context, client cliv1connect.BuildS
 	return err
 }
 
-type Buildkit struct {
-	Addr       string
-	ServerName string
-	CACert     string
-	Cert       string
-	Key        string
-
-	client *client.Client
-}
-
-func (b *Buildkit) Release() error {
-	// TODO: stop reporting health here.
-	if b.client != nil {
-		return b.client.Close()
+func (m *Machine) Release() error {
+	close(m.reportHealthDone)
+	if m.client != nil {
+		return m.client.Close()
 	}
 	return nil
 }
 
-func (m *Buildkit) Client(ctx context.Context) (*client.Client, error) {
+func (m *Machine) Client(ctx context.Context) (*client.Client, error) {
 	if m.client != nil {
 		return m.client, nil
 	}
@@ -201,7 +196,7 @@ func (m *Buildkit) Client(ctx context.Context) (*client.Client, error) {
 	return c, nil
 }
 
-func (m *Buildkit) CheckReady(ctx context.Context) (*client.Client, error) {
+func (m *Machine) CheckReady(ctx context.Context) (*client.Client, error) {
 	client, err := m.Client(ctx)
 	if err != nil {
 		return client, err
@@ -215,7 +210,7 @@ func (m *Buildkit) CheckReady(ctx context.Context) (*client.Client, error) {
 // Connect waits until the buildkitd is ready to accept connections.
 // It tries to connect to the buildkitd every one second until it succeeds or
 // the context is canceled.
-func (m *Buildkit) Connect(ctx context.Context) (*client.Client, error) {
+func (m *Machine) Connect(ctx context.Context) (*client.Client, error) {
 	var (
 		client *client.Client
 		err    error
