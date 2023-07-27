@@ -32,7 +32,9 @@ func ImagePullPrivileged(ctx context.Context, dockerapi docker.APIClient, imageN
 
 	if opts.Quiet {
 		_, err := io.Copy(io.Discard, responseBody)
-		return err
+		if err != nil {
+			return err
+		}
 	} else {
 		if err := printPull(ctx, responseBody, logger); err != nil {
 			return err
