@@ -161,7 +161,21 @@ func (l *Linter) Handle(ctx context.Context, target string, driverIndex int, doc
 		}
 	}
 	semgrepLints := UnmarshalSemgreps(&output)
-	lints = append(lints, semgrepLints...)
+	for _, semgrepLint := range semgrepLints {
+		duplicate := false
+		for i, hadoLint := range lints {
+			if semgrepLint.Line == hadoLint.Line && semgrepLint.SourceRuleURL == hadoLint.SourceRuleURL {
+				// Prefer the semgrep message.  It has a lot of great information
+				lints[i] = semgrepLint
+				duplicate = true
+				break
+			}
+		}
+
+		if !duplicate {
+			lints = append(lints, semgrepLint)
+		}
+	}
 
 	var (
 		exceedsFailureSeverity bool
@@ -376,6 +390,8 @@ func UnmarshalHadolints(output *CaptureOutput) []Lint {
 		for i := range lints {
 			lints[i].LintLevel = NewLintLevel(lints[i].Level)
 			lints[i].URL = fmt.Sprintf("https://github.com/hadolint/hadolint/wiki/%s", lints[i].Code)
+			// SourceRuleURL is used to deduplicate hadolint and semgrep lint issues.
+			lints[i].SourceRuleURL = lints[i].URL
 		}
 
 		allLints = append(allLints, lints...)
@@ -387,7 +403,11 @@ type Lint struct {
 	Code string `json:"code"`
 	// URL is the URL to the lint documentation.
 	// It is constructed from other data in the Lint such as `Code`.
-	URL    string `json:"-"`
+	URL string `json:"-"`
+	// SourceRuleURL is used to deduplicate hadolint and semgrep issues as the
+	// semgrep SourceRuleURL is the same as the hadolint URL field.
+	SourceRuleURL string `json:"-"`
+
 	Column int    `json:"column"`
 	File   string `json:"file"`
 	Level  string `json:"level"`
@@ -457,13 +477,14 @@ func UnmarshalSemgreps(output *CaptureOutput) []Lint {
 
 		for _, result := range results.Results {
 			lint := Lint{
-				Code:    result.Extra.Metadata.SemgrepDev.Rule.RuleID,
-				URL:     result.Extra.Metadata.Source,
-				Column:  result.Start.Col,
-				File:    result.Path,
-				Level:   result.Extra.Severity,
-				Line:    result.Start.Line,
-				Message: result.Extra.Message,
+				Code:          result.Extra.Metadata.SemgrepDev.Rule.RuleID,
+				URL:           result.Extra.Metadata.Source,
+				SourceRuleURL: result.Extra.Metadata.SourceRuleURL,
+				Column:        result.Start.Col,
+				File:          result.Path,
+				Level:         result.Extra.Severity,
+				Line:          result.Start.Line,
+				Message:       result.Extra.Message,
 			}
 			lints = append(lints, lint)
 		}
@@ -495,8 +516,9 @@ type SemgrepDev struct {
 }
 
 type Metadata struct {
-	Source     string     `json:"source"`
-	SemgrepDev SemgrepDev `json:"semgrep.dev"`
+	Source        string     `json:"source"`
+	SourceRuleURL string     `json:"source-rule-url"`
+	SemgrepDev    SemgrepDev `json:"semgrep.dev"`
 }
 type Extra struct {
 	Lines    string   `json:"lines"`
