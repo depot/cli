@@ -336,7 +336,7 @@ func RunHadolint(ctx context.Context, client *client.Client, platform ocispecs.P
 }
 
 func RunSemgrep(ctx context.Context, client *client.Client, platform ocispecs.Platform, dockerfile *build.DockerfileInputs) (CaptureOutput, error) {
-	args := []string{"/usr/local/bin/semgrep", "scan", "--config=p/dockerfile", "--json", "--quiet", " --disable-version-check", dockerfile.Filename}
+	args := []string{"/usr/local/bin/semgrep", "scan", "--config=p/dockerfile", "--json", "--quiet", "--disable-version-check", dockerfile.Filename}
 	return RunImage(ctx, Semgrep, args, client, platform, dockerfile)
 }
 
