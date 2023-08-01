@@ -24,7 +24,10 @@ import (
 	"github.com/pkg/errors"
 )
 
-const Hadolint = "hadolint/hadolint:2.12.0"
+const (
+	Hadolint = "hadolint/hadolint:2.12.0"
+	Semgrep  = "returntocorp/semgrep:1.34.1"
+)
 
 // LintFailed is the error returned when linting fails.  Used to fail the build.
 var LintFailed = errors.New("linting failed")
@@ -143,12 +146,22 @@ func (l *Linter) Handle(ctx context.Context, target string, driverIndex int, doc
 	tm := time.Now()
 	printer.WriteLint(client.Vertex{Digest: dgst, Name: lintName, Started: &tm}, nil, nil)
 
-	output, err := RunLint(ctx, l.Clients[driverIndex], l.BuildxNodes[driverIndex].Platforms[0], dockerfile)
+	output, err := RunHadolint(ctx, l.Clients[driverIndex], l.BuildxNodes[driverIndex].Platforms[0], dockerfile)
 	if err != nil {
 		if l.FailureMode != LintNone {
 			return err
 		}
 	}
+	lints := UnmarshalHadolints(&output)
+
+	output, err = RunSemgrep(ctx, l.Clients[driverIndex], l.BuildxNodes[driverIndex].Platforms[0], dockerfile)
+	if err != nil {
+		if l.FailureMode != LintNone {
+			return err
+		}
+	}
+	semgrepLints := UnmarshalSemgreps(&output)
+	lints = append(lints, semgrepLints...)
 
 	var (
 		exceedsFailureSeverity bool
@@ -158,7 +171,7 @@ func (l *Linter) Handle(ctx context.Context, target string, driverIndex int, doc
 		warnings               []client.VertexWarning              // Prints after the buildkit progress has finished before exit.
 	)
 
-	for _, lint := range output.Lints() {
+	for _, lint := range lints {
 		// We are using the iota for both the LintLevel and the LintFailureMode by
 		// assuming they are the same numbers for both.
 		if int(lint.LintLevel) <= int(l.FailureMode) {
@@ -190,7 +203,7 @@ func (l *Linter) Handle(ctx context.Context, target string, driverIndex int, doc
 					},
 				},
 			},
-			URL: fmt.Sprintf("https://github.com/hadolint/hadolint/wiki/%s", lint.Code),
+			URL: lint.URL,
 		}
 		warnings = append(warnings, warning)
 	}
@@ -263,17 +276,17 @@ func (l *Linter) Handle(ctx context.Context, target string, driverIndex int, doc
 	return lintErr
 }
 
-func RunLint(ctx context.Context, c *client.Client, platform ocispecs.Platform, dockerfile *build.DockerfileInputs) (CaptureOutput, error) {
+func RunImage(ctx context.Context, imageName string, args []string, c *client.Client, platform ocispecs.Platform, dockerfile *build.DockerfileInputs) (CaptureOutput, error) {
 	output := CaptureOutput{}
 	_, err := c.Build(ctx, client.SolveOpt{}, "buildx", func(ctx context.Context, c gateway.Client) (*gateway.Result, error) {
-		hadolint := llb.Image(Hadolint).
+		image := llb.Image(imageName).
 			Platform(platform).
 			File(
 				llb.Mkfile(dockerfile.Filename, 0664, dockerfile.Content),
 				llb.WithCustomName("[internal] lint"),
 			)
 
-		def, err := hadolint.Marshal(ctx, llb.Platform(platform))
+		def, err := image.Marshal(ctx, llb.Platform(platform))
 		if err != nil {
 			return nil, err
 		}
@@ -301,7 +314,7 @@ func RunLint(ctx context.Context, c *client.Client, platform ocispecs.Platform, 
 		}
 
 		proc, err := bkContainer.Start(ctx, gateway.StartRequest{
-			Args:   []string{"/bin/hadolint", dockerfile.Filename, "-f", "json"},
+			Args:   args,
 			Stdout: &output,
 		})
 		if err != nil {
@@ -317,6 +330,19 @@ func RunLint(ctx context.Context, c *client.Client, platform ocispecs.Platform, 
 	return output, err
 }
 
+func RunHadolint(ctx context.Context, client *client.Client, platform ocispecs.Platform, dockerfile *build.DockerfileInputs) (CaptureOutput, error) {
+	args := []string{"/bin/hadolint", dockerfile.Filename, "-f", "json"}
+	return RunImage(ctx, Hadolint, args, client, platform, dockerfile)
+}
+
+func RunSemgrep(ctx context.Context, client *client.Client, platform ocispecs.Platform, dockerfile *build.DockerfileInputs) (CaptureOutput, error) {
+	args := []string{"/usr/local/bin/semgrep", "scan", "--config=p/dockerfile", "--json", "--metrics=off", "--quiet", dockerfile.Filename}
+	return RunImage(ctx, Semgrep, args, client, platform, dockerfile)
+}
+
+// CaptureOutput is a io.WriteCloser that captures the output of a container.
+// The buildkit container start expects that stdout will be written to an io.WriteCloser.
+// CaptureOutput collects each newline delimited message and decodes JSON encoded line.
 type CaptureOutput struct {
 	Messages []string
 	Err      error
@@ -339,9 +365,9 @@ func (o *CaptureOutput) Close() error {
 	return nil
 }
 
-func (o *CaptureOutput) Lints() []Lint {
+func UnmarshalHadolints(output *CaptureOutput) []Lint {
 	var allLints []Lint
-	for _, msg := range o.Messages {
+	for _, msg := range output.Messages {
 		var lints []Lint
 		if err := json.Unmarshal([]byte(msg), &lints); err != nil {
 			continue
@@ -349,6 +375,7 @@ func (o *CaptureOutput) Lints() []Lint {
 
 		for i := range lints {
 			lints[i].LintLevel = NewLintLevel(lints[i].Level)
+			lints[i].URL = fmt.Sprintf("https://github.com/hadolint/hadolint/wiki/%s", lints[i].Code)
 		}
 
 		allLints = append(allLints, lints...)
@@ -357,7 +384,10 @@ func (o *CaptureOutput) Lints() []Lint {
 }
 
 type Lint struct {
-	Code   string `json:"code"`
+	Code string `json:"code"`
+	// URL is the URL to the lint documentation.
+	// It is constructed from other data in the Lint such as `Code`.
+	URL    string `json:"-"`
 	Column int    `json:"column"`
 	File   string `json:"file"`
 	Level  string `json:"level"`
@@ -415,6 +445,70 @@ func (l LintLevel) Color() aec.ANSI {
 	default:
 		return aec.DefaultF
 	}
+}
+
+func UnmarshalSemgreps(output *CaptureOutput) []Lint {
+	var lints []Lint
+	for _, msg := range output.Messages {
+		var results SemgrepOutput
+		if err := json.Unmarshal([]byte(msg), &results); err != nil {
+			continue
+		}
+
+		for _, result := range results.Results {
+			lint := Lint{
+				Code:    result.Extra.Metadata.SemgrepDev.Rule.RuleID,
+				URL:     result.Extra.Metadata.Source,
+				Column:  result.Start.Col,
+				File:    result.Path,
+				Level:   result.Extra.Severity,
+				Line:    result.Start.Line,
+				Message: result.Extra.Message,
+			}
+			lints = append(lints, lint)
+		}
+	}
+
+	for i := range lints {
+		lints[i].LintLevel = NewLintLevel(lints[i].Level)
+	}
+
+	return lints
+}
+
+type SemgrepOutput struct {
+	Results []Results `json:"results"`
+}
+
+type Position struct {
+	Col    int `json:"col"`
+	Line   int `json:"line"`
+	Offset int `json:"offset"`
+}
+
+type Rule struct {
+	RuleID string `json:"rule_id"`
+}
+
+type SemgrepDev struct {
+	Rule Rule `json:"rule"`
+}
+
+type Metadata struct {
+	Source     string     `json:"source"`
+	SemgrepDev SemgrepDev `json:"semgrep.dev"`
+}
+type Extra struct {
+	Lines    string   `json:"lines"`
+	Message  string   `json:"message"`
+	Metadata Metadata `json:"metadata"`
+	Severity string   `json:"severity"`
+}
+
+type Results struct {
+	Start Position `json:"start"`
+	Extra Extra    `json:"extra"`
+	Path  string   `json:"path"`
 }
 
 func (l *Linter) Print(w io.Writer, mode string) {
