@@ -141,7 +141,7 @@ func run() error {
 			var builder *machine.Machine
 			message := "[depot] launching " + platform + " machine"
 			fmt.Fprintln(os.Stderr, message)
-			state.Reporter.WithLog(message, func() error {
+			state.Err = state.Reporter.WithLog(message, func() error {
 				for i := 0; i < 2; i++ {
 					builder, state.Err = machine.Acquire(ctx, build.ID, build.Token, platform)
 					if state.Err == nil {
@@ -163,7 +163,7 @@ func run() error {
 			message = "[depot] connecting to " + platform + " machine"
 			fmt.Fprintln(os.Stderr, message)
 
-			state.Reporter.WithLog(message, func() error {
+			state.Err = state.Reporter.WithLog(message, func() error {
 				buildkitConn, err := tlsConn(ctx, builder)
 				if err != nil {
 					state.Err = fmt.Errorf("unable to connect: %w", err)
