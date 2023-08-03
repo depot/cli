@@ -14,6 +14,7 @@ import (
 	cliv1connect "github.com/depot/cli/pkg/proto/depot/cli/v1/cliv1connect"
 	"github.com/docker/buildx/util/progress"
 	"github.com/moby/buildkit/client"
+	"github.com/moby/buildkit/identity"
 	"github.com/opencontainers/go-digest"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -21,7 +22,6 @@ import (
 var _ progress.Writer = (*Progress)(nil)
 
 type Progress struct {
-	mu      sync.Mutex
 	buildID string
 	token   string
 
@@ -31,27 +31,91 @@ type Progress struct {
 	p *progress.Printer
 }
 
-func NewProgress(ctx context.Context, buildID, token, progressMode string) (*Progress, error) {
+type ProgressMode int
+
+const (
+	Auto ProgressMode = iota
+	TTY
+	Plain
+	Quiet
+)
+
+type FinishFn func()
+
+// NewProgress creates a new progress writer that sends build timings to the server.
+// Use the ctx to cancel the long running go routine.
+// Make sure to run FinishFn to flush remaining build timings to the server _AFTER_ ctx has been canceled.
+// NOTE: this means that you need to defer the FinishFn before deferring the cancel.
+func NewProgress(ctx context.Context, buildID, token string, mode ProgressMode) (*Progress, FinishFn, error) {
 	// Buffer up to 1024 vertex slices before blocking the build.
 	const channelBufferSize = 1024
-	p, err := progress.NewPrinter(ctx, os.Stderr, os.Stderr, progressMode)
+	p, err := progress.NewPrinter(ctx, os.Stderr, os.Stderr, mode.String())
 	if err != nil {
-		return nil, err
+		return nil, func() {}, err
 	}
 
-	return &Progress{
+	progress := &Progress{
 		buildID:  buildID,
 		token:    token,
 		client:   depotapi.NewBuildClient(),
 		vertices: make(chan []*client.Vertex, channelBufferSize),
 		p:        p,
-	}, nil
+	}
+
+	wg := &sync.WaitGroup{}
+	wg.Add(1)
+	go func() { progress.Run(ctx); wg.Done() }()
+
+	return progress, func() { wg.Wait() }, nil
 }
 
-func (p *Progress) SetBuildID(buildID string) {
-	p.mu.Lock()
-	p.buildID = buildID
-	p.mu.Unlock()
+// FinishLogFunc is a function that should be called when a log is finished.
+// It records duration and success of the log span to sends to Depot for storage.
+type FinishLogFunc func(err error)
+
+// StartLog starts a log span and returns a function that should be called when the log is finished.
+// Once finished, the log span is recorded and sent to Depot for storage.
+func (p *Progress) StartLog(message string) FinishLogFunc {
+	dgst := digest.FromBytes([]byte(identity.NewID()))
+	tm := time.Now()
+	p.Write(&client.SolveStatus{
+		Vertexes: []*client.Vertex{{
+			Digest:  dgst,
+			Name:    message,
+			Started: &tm,
+		}},
+	})
+
+	return func(err error) {
+		tm2 := time.Now()
+		errMsg := ""
+		if err != nil {
+			errMsg = err.Error()
+		}
+		p.Write(&client.SolveStatus{
+			Vertexes: []*client.Vertex{{
+				Digest:    dgst,
+				Name:      message,
+				Started:   &tm,
+				Completed: &tm2,
+				Error:     errMsg,
+			}},
+		})
+	}
+}
+
+// WithLog wraps a function with timing information.
+func (p *Progress) WithLog(message string, fn func() error) error {
+	finishLog := p.StartLog(message)
+	err := fn()
+	finishLog(err)
+	return err
+}
+
+// Log writes a log message with no duration.
+func (p *Progress) Log(message string, err error) {
+	finishLog := p.StartLog(message)
+	finishLog(err)
 }
 
 func (p *Progress) Write(s *client.SolveStatus) {
@@ -194,8 +258,6 @@ func (p *Progress) Run(ctx context.Context) {
 }
 
 func (p *Progress) HasActiveBuild() bool {
-	p.mu.Lock()
-	defer p.mu.Unlock()
 	return p.buildID != "" && p.token != ""
 }
 
@@ -204,17 +266,7 @@ func (p *Progress) ReportBuildSteps(ctx context.Context, steps []*Step) {
 		return
 	}
 
-	var buildID string
-	{
-		p.mu.Lock()
-		buildID = p.buildID
-		p.mu.Unlock()
-	}
-	if buildID == "" {
-		return
-	}
-
-	req := NewTimingRequest(buildID, steps)
+	req := NewTimingRequest(p.buildID, steps)
 	if req == nil {
 		return
 	}
@@ -411,4 +463,34 @@ type Instruction struct {
 	Stage    string
 	Step     int
 	Total    int
+}
+
+func (p ProgressMode) String() string {
+	switch p {
+	case Auto:
+		return "auto"
+	case TTY:
+		return "tty"
+	case Plain:
+		return "plain"
+	case Quiet:
+		return "quiet"
+	default:
+		return "auth"
+	}
+}
+
+func NewProgressMode(s string) ProgressMode {
+	switch s {
+	case "auto":
+		return Auto
+	case "tty":
+		return TTY
+	case "plain":
+		return Plain
+	case "quiet":
+		return Quiet
+	default:
+		return Auto
+	}
 }

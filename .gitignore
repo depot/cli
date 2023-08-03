@@ -6,3 +6,5 @@ dist/
 
 /CHANGELOG.md
 .vscode
+go.work
+go.work.sum

@@ -73,7 +73,12 @@ func WorkingDirectories(files ...string) ([]string, error) {
 			directories = append(directories, cwd)
 			continue
 		}
-		directories = append(directories, filepath.Dir(file))
+
+		if fi, err := os.Stat(file); err == nil && fi.IsDir() {
+			directories = append(directories, file)
+		} else {
+			directories = append(directories, filepath.Dir(file))
+		}
 	}
 
 	return directories, nil

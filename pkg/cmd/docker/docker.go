@@ -13,6 +13,7 @@ import (
 
 func NewCmdConfigureDocker() *cobra.Command {
 	shimBuildx := false
+	uninstall := false
 
 	cmd := &cobra.Command{
 		Use:   "configure-docker",
@@ -21,6 +22,15 @@ func NewCmdConfigureDocker() *cobra.Command {
 			dir := config.Dir()
 			if err := os.MkdirAll(dir, 0755); err != nil {
 				return errors.Wrap(err, "could not create docker config")
+			}
+
+			if uninstall {
+				err := uninstallDepotPlugin(dir)
+				if err != nil {
+					return errors.Wrap(err, "could not uninstall depot plugin")
+				}
+				fmt.Println("Successfully uninstalled the Depot Docker CLI plugin")
+				return nil
 			}
 
 			self, err := os.Executable()
@@ -50,6 +60,7 @@ func NewCmdConfigureDocker() *cobra.Command {
 
 	flags := cmd.Flags()
 	flags.BoolVar(&shimBuildx, "shim-buildx", false, "Shim docker buildx build to use Depot")
+	flags.BoolVar(&uninstall, "uninstall", false, "Remove Docker plugin")
 
 	return cmd
 }
@@ -139,6 +150,42 @@ func useDepotBuilderAlias(dir string) error {
 
 	if err := cfg.Save(); err != nil {
 		return errors.Wrap(err, "could not write docker config")
+	}
+
+	return nil
+}
+
+func uninstallDepotPlugin(dir string) error {
+	cfg, err := config.Load(dir)
+	if err != nil {
+		return err
+	}
+
+	if cfg.Aliases != nil {
+		builder, ok := cfg.Aliases["builder"]
+		if ok && builder == "depot" {
+			delete(cfg.Aliases, "builder")
+			if err := cfg.Save(); err != nil {
+				return errors.Wrap(err, "could not write docker config")
+			}
+		}
+	}
+
+	buildxPlugin := path.Join(dir, "cli-plugins", "docker-buildx")
+	originalBuildxPlugin := path.Join(dir, "cli-plugins", "original-docker-buildx")
+
+	if _, err := os.Stat(originalBuildxPlugin); err == nil {
+		err = os.Rename(originalBuildxPlugin, buildxPlugin)
+		if err != nil {
+			return errors.Wrap(err, "could not replace original docker-buildx plugin")
+		}
+	}
+
+	depotPlugin := path.Join(dir, "cli-plugins", "docker-depot")
+
+	err = os.RemoveAll(depotPlugin)
+	if err != nil {
+		return errors.Wrap(err, "could not remove depot plugin")
 	}
 
 	return nil

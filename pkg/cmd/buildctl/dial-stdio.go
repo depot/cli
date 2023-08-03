@@ -8,19 +8,18 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"syscall"
 	"time"
 
 	depot "github.com/depot/cli/internal/build"
-	"github.com/depot/cli/pkg/builder"
 	"github.com/depot/cli/pkg/helpers"
+	"github.com/depot/cli/pkg/machine"
 	"github.com/depot/cli/pkg/progress"
-	"github.com/docker/buildx/build"
-	"github.com/moby/buildkit/client"
+	cliv1 "github.com/depot/cli/pkg/proto/depot/cli/v1"
 	"github.com/spf13/cobra"
-	"google.golang.org/grpc"
 )
 
 func NewBuildctl() *cobra.Command {
@@ -39,9 +38,20 @@ func NewBuildctl() *cobra.Command {
 	})
 
 	cmd.SetVersionTemplate(`{{with .Name}}{{printf "%s github.com/depot/cli " .}}{{end}}{{printf "%s\n" .Version}}`)
-	cmd.Version = fmt.Sprintf("%s 2951a28cd7085eb18979b1f710678623d94ed578", depot.Version)
+	cmd.Version = fmt.Sprintf("%s %s", depot.Version, Commit)
 	return cmd
 }
+
+var Commit = func() string {
+	if info, ok := debug.ReadBuildInfo(); ok {
+		for _, setting := range info.Settings {
+			if setting.Key == "vcs.revision" {
+				return setting.Value
+			}
+		}
+	}
+	return ""
+}()
 
 func NewCmdDial() *cobra.Command {
 	cmd := &cobra.Command{
@@ -77,92 +87,104 @@ func run() error {
 		return fmt.Errorf("DEPOT_PLATFORM is not set")
 	}
 
-	ctx2, cancel := context.WithCancel(context.TODO())
-	defer cancel()
-	reporter, err := progress.NewProgress(ctx2, "", token, "quiet")
-	if err != nil {
-		return err
-	}
-	wg := &sync.WaitGroup{}
-
-	defer wg.Wait() // Required to ensure that the reporter is stopped before the context is cancelled.
-	defer cancel()
-
 	var (
-		once       sync.Once
-		finish     func(error)
-		buildURL   string
-		builderErr error
-		buildkit   *grpc.ClientConn
+		once  sync.Once
+		state ProxyState
+
+		cancelStatus   func()
+		finishStatus   func()
+		buildFinish    func(error)
+		machineRelease func() error
 	)
 	defer func() {
-		if finish != nil {
-			finish(builderErr)
+		// Forwards remaining status messages.
+		if cancelStatus != nil {
+			cancelStatus()
+		}
+
+		// Waits until status has finished sending.
+		if finishStatus != nil {
+			finishStatus()
+		}
+
+		// Stop reporting that the CLI is running and close the buildkitd connection.
+		if machineRelease != nil {
+			_ = machineRelease()
+		}
+
+		// Report that the build has finished.
+		if buildFinish != nil {
+			buildFinish(state.Err)
 		}
 	}()
 
-	acquireBuilder := func() (*grpc.ClientConn, string, error) {
+	acquireState := func() ProxyState {
 		once.Do(func() {
-			validatedOpts := map[string]build.Options{"default": {}}
-			exportPush := false
-			exportLoad := false
-			lint := false
-
-			req := helpers.NewBuildRequest(
-				projectID,
-				validatedOpts,
-				exportPush,
-				exportLoad,
-				lint,
-			)
+			req := &cliv1.CreateBuildRequest{
+				ProjectId: projectID,
+				Options:   []*cliv1.BuildOptions{{Command: cliv1.Command_COMMAND_BUILD}},
+			}
 			build, err := helpers.BeginBuild(ctx, req, token)
 			if err != nil {
-				builderErr = fmt.Errorf("unable to begin build: %w", err)
+				state.Err = fmt.Errorf("unable to begin build: %w", err)
 				return
 			}
-			buildURL = build.BuildURL
 
-			reporter.SetBuildID(build.ID)
-			wg.Add(1)
-			go func() {
-				reporter.Run(ctx2)
-				wg.Done()
-			}()
+			ctx2 := context.TODO()
+			ctx2, cancelStatus = context.WithCancel(ctx2)
+			state.Reporter, finishStatus, _ = progress.NewProgress(ctx2, build.ID, build.Token, progress.Quiet)
 
-			finish = build.Finish
-			report := func(s *client.SolveStatus) {
-				for _, v := range s.Vertexes {
-					if v.Completed == nil {
-						fmt.Fprintln(os.Stderr, v.Name)
-					} else if v.Started != nil {
-						fmt.Fprintf(os.Stderr, "%s %.[3]*[2]f done\n", v.Name, v.Completed.Sub(*v.Started).Seconds(), 2)
+			state.SummaryURL = build.BuildURL
+			buildFinish = build.Finish
+
+			started := time.Now()
+			var builder *machine.Machine
+			message := "[depot] launching " + platform + " machine"
+			fmt.Fprintln(os.Stderr, message)
+			state.Reporter.WithLog(message, func() error {
+				for i := 0; i < 2; i++ {
+					builder, state.Err = machine.Acquire(ctx, build.ID, build.Token, platform)
+					if state.Err == nil {
+						break
 					}
 				}
-				reporter.Write(s)
-			}
-			builder, err := builder.NewBuilder(token, build.ID, platform).Acquire(report)
-			if err != nil {
-				builderErr = fmt.Errorf("unable to acquire builder: %w", err)
+				return state.Err
+			})
+			if state.Err != nil {
+				state.Err = fmt.Errorf("unable to acquire builder: %w", state.Err)
+				fmt.Fprintf(os.Stderr, "ERROR: %v\n", state.Err)
 				return
 			}
+			fmt.Fprintf(os.Stderr, "%s %.[3]*[2]f done\n", message, time.Since(started).Seconds(), 2)
 
-			buildkitConn, err := tlsConn(ctx, builder)
-			if err != nil {
-				builderErr = fmt.Errorf("unable to connect: %w", err)
-				return
-			}
+			machineRelease = builder.Release
 
-			buildkit, err = BuildkitdClient(ctx, buildkitConn, builder.Addr)
-			if err != nil {
-				builderErr = fmt.Errorf("unable to dial: %w", err)
-				return
-			}
+			started = time.Now()
+			message = "[depot] connecting to " + platform + " machine"
+			fmt.Fprintln(os.Stderr, message)
+
+			state.Reporter.WithLog(message, func() error {
+				buildkitConn, err := tlsConn(ctx, builder)
+				if err != nil {
+					state.Err = fmt.Errorf("unable to connect: %w", err)
+					return state.Err
+				}
+				fmt.Fprintf(os.Stderr, "%s %.[3]*[2]f done\n", message, time.Since(started).Seconds(), 2)
+
+				state.Conn, err = BuildkitdClient(ctx, buildkitConn, builder.Addr)
+				if err != nil {
+					state.Err = fmt.Errorf("unable to dial: %w", err)
+					return state.Err
+				}
+
+				return nil
+			})
 		})
-		return buildkit, buildURL, builderErr
+		return state
 	}
 
 	buildx := &StdioConn{}
-	Proxy(ctx, buildx, acquireBuilder, platform, reporter)
+	Proxy(ctx, buildx, acquireState, platform)
 
 	return nil
 }
@@ -210,19 +232,19 @@ func (d stdioAddr) String() string {
 	return "localhost"
 }
 
-func tlsConn(ctx context.Context, opts *builder.AcquiredBuilder) (net.Conn, error) {
+func tlsConn(ctx context.Context, builder *machine.Machine) (net.Conn, error) {
 	// Uses similar retry logic as the depot buildx driver.
-	ctx, cancel := context.WithTimeout(ctx, time.Duration(5)*time.Minute)
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
 
 	certPool := x509.NewCertPool()
-	if ok := certPool.AppendCertsFromPEM([]byte(opts.CACert)); !ok {
+	if ok := certPool.AppendCertsFromPEM([]byte(builder.CACert)); !ok {
 		return nil, fmt.Errorf("failed to append ca certs")
 	}
 
 	cfg := &tls.Config{RootCAs: certPool}
-	if opts.Cert != "" || opts.Key != "" {
-		cert, err := tls.X509KeyPair([]byte(opts.Cert), []byte(opts.Key))
+	if builder.Cert != "" || builder.Key != "" {
+		cert, err := tls.X509KeyPair([]byte(builder.Cert), []byte(builder.Key))
 		if err != nil {
 			return nil, fmt.Errorf("could not read certificate/key: %w", err)
 		}
@@ -230,7 +252,7 @@ func tlsConn(ctx context.Context, opts *builder.AcquiredBuilder) (net.Conn, erro
 	}
 
 	dialer := &tls.Dialer{Config: cfg}
-	addr := strings.TrimPrefix(opts.Addr, "tcp://")
+	addr := strings.TrimPrefix(builder.Addr, "tcp://")
 
 	var (
 		conn net.Conn

@@ -2,95 +2,54 @@ package helpers
 
 import (
 	"context"
-	"errors"
-	"log"
 	"os"
 
-	"github.com/bufbuild/connect-go"
-	depotapi "github.com/depot/cli/pkg/api"
+	depotbuild "github.com/depot/cli/pkg/build"
 	"github.com/depot/cli/pkg/load"
 	"github.com/depot/cli/pkg/profiler"
 	cliv1 "github.com/depot/cli/pkg/proto/depot/cli/v1"
-	"github.com/docker/buildx/build"
-	"github.com/moby/buildkit/util/grpcerrors"
-	"google.golang.org/grpc/codes"
+	buildx "github.com/docker/buildx/build"
 )
 
-type Build struct {
-	ID               string
-	Token            string
-	UseLocalRegistry bool
-	ProxyImage       string
-	// BuildURL is the URL to the build on the depot web UI.
-	BuildURL string
-	Finish   func(error)
-}
+func BeginBuild(ctx context.Context, req *cliv1.CreateBuildRequest, token string) (depotbuild.Build, error) {
+	build, err := depotbuild.NewBuild(ctx, req, token)
+	if err != nil {
+		return depotbuild.Build{}, err
+	}
 
-func BeginBuild(ctx context.Context, req *cliv1.CreateBuildRequest, token string) (build Build, err error) {
-	client := depotapi.NewBuildClient()
+	if id := os.Getenv("DEPOT_BUILD_ID"); id != "" {
+		build.ID = id
+	}
 
-	build.Token = token
-	build.ID = os.Getenv("DEPOT_BUILD_ID")
 	profilerToken := ""
-	if build.ID == "" {
-		var b *connect.Response[cliv1.CreateBuildResponse]
-		b, err = client.CreateBuild(ctx, depotapi.WithAuthentication(connect.NewRequest(req), token))
-		if err != nil {
-			return build, err
-		}
-		build.ID = b.Msg.BuildId
-		build.Token = b.Msg.BuildToken
+	if build.Response != nil && build.Response.Msg != nil && build.Response.Msg.Profiler != nil {
+		profilerToken = build.Response.Msg.Profiler.Token
+	}
 
-		if b.Msg.Profiler != nil {
-			profilerToken = b.Msg.Profiler.Token
-		}
+	if os.Getenv("DEPOT_USE_LOCAL_REGISTRY") != "" {
+		build.UseLocalRegistry = true
+	}
 
-		build.UseLocalRegistry = b.Msg.GetRegistry() != nil && b.Msg.GetRegistry().CanUseLocalRegistry
-		if os.Getenv("DEPOT_USE_LOCAL_REGISTRY") != "" {
-			build.UseLocalRegistry = true
-		}
+	if proxyImage := os.Getenv("DEPOT_PROXY_IMAGE"); proxyImage != "" {
+		build.ProxyImage = proxyImage
+	}
 
-		if b.Msg.GetRegistry() != nil {
-			build.ProxyImage = b.Msg.GetRegistry().ProxyImage
-		}
-		if proxyImage := os.Getenv("DEPOT_PROXY_IMAGE"); proxyImage != "" {
-			build.ProxyImage = proxyImage
-		}
-		if build.ProxyImage == "" {
-			build.ProxyImage = load.DefaultProxyImageName
-		}
-
-		build.BuildURL = b.Msg.BuildUrl
+	if build.ProxyImage == "" {
+		build.ProxyImage = load.DefaultProxyImageName
 	}
 
 	profiler.StartProfiler(build.ID, profilerToken)
 
-	build.Finish = func(buildErr error) {
-		req := cliv1.FinishBuildRequest{BuildId: build.ID}
-		req.Result = &cliv1.FinishBuildRequest_Success{Success: &cliv1.FinishBuildRequest_BuildSuccess{}}
-		if buildErr != nil {
-			// Classify errors as canceled by user/ci or build error.
-			if errors.Is(buildErr, context.Canceled) {
-				// Context canceled would happen for steps that are not buildkitd.
-				req.Result = &cliv1.FinishBuildRequest_Canceled{Canceled: &cliv1.FinishBuildRequest_BuildCanceled{}}
-			} else if status, ok := grpcerrors.AsGRPCStatus(buildErr); ok && status.Code() == codes.Canceled {
-				// Cancelled by buildkitd happens during a remote buildkitd step.
-				req.Result = &cliv1.FinishBuildRequest_Canceled{Canceled: &cliv1.FinishBuildRequest_BuildCanceled{}}
-			} else {
-				errorMessage := buildErr.Error()
-				req.Result = &cliv1.FinishBuildRequest_Error{Error: &cliv1.FinishBuildRequest_BuildError{Error: errorMessage}}
-			}
-		}
-		_, err := client.FinishBuild(ctx, depotapi.WithAuthentication(connect.NewRequest(&req), build.Token))
-		if err != nil && !errors.Is(err, context.Canceled) {
-			log.Printf("error releasing builder: %v", err)
-		}
-	}
-
 	return build, err
 }
 
-func NewBuildRequest(project string, opts map[string]build.Options, push, load, lint bool) *cliv1.CreateBuildRequest {
+type UsingDepotFeatures struct {
+	Push bool
+	Load bool
+	Lint bool
+}
+
+func NewBuildRequest(project string, opts map[string]buildx.Options, features UsingDepotFeatures) *cliv1.CreateBuildRequest {
 	// There is only one target for a build request, "default".
 	for _, opts := range opts {
 		outputs := make([]*cliv1.BuildOutput, len(opts.Exports))
@@ -113,9 +72,9 @@ func NewBuildRequest(project string, opts map[string]build.Options, push, load, 
 					Command:    cliv1.Command_COMMAND_BUILD,
 					Tags:       opts.Tags,
 					Outputs:    outputs,
-					Push:       push,
-					Load:       load,
-					Lint:       lint,
+					Push:       features.Push,
+					Load:       features.Load,
+					Lint:       features.Lint,
 					TargetName: target,
 				},
 			},
@@ -126,7 +85,7 @@ func NewBuildRequest(project string, opts map[string]build.Options, push, load, 
 	return &cliv1.CreateBuildRequest{ProjectId: project}
 }
 
-func NewBakeRequest(project string, opts map[string]build.Options, push, load, lint bool) *cliv1.CreateBuildRequest {
+func NewBakeRequest(project string, opts map[string]buildx.Options, features UsingDepotFeatures) *cliv1.CreateBuildRequest {
 	targets := make([]*cliv1.BuildOptions, 0, len(opts))
 
 	for name, opts := range opts {
@@ -143,9 +102,9 @@ func NewBakeRequest(project string, opts map[string]build.Options, push, load, l
 			Command:    cliv1.Command_COMMAND_BAKE,
 			Tags:       opts.Tags,
 			Outputs:    outputs,
-			Push:       push,
-			Load:       load,
-			Lint:       lint,
+			Push:       features.Push,
+			Load:       features.Load,
+			Lint:       features.Lint,
 			TargetName: &name,
 		})
 	}
