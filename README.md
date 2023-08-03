@@ -233,12 +233,6 @@ Configure Docker to use Depot's remote builder infrastructure. This command inst
 depot configure-docker
 ```
 
-To configure `docker buildx build` to use the Depot plugin, you can specify the `--shim-buildx` flag.
-
-```shell
-depot configure-docker --shim-buildx
-```
-
 If you want to uninstall the plugin, you can specify the `--uninstall` flag.
 
 ```shell
