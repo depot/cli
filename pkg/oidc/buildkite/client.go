@@ -10,13 +10,9 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"net/url"
-	"reflect"
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/google/go-querystring/query"
 )
 
 const (
@@ -157,25 +153,6 @@ func (c *Client) newRequest(
 	return req, nil
 }
 
-// NewFormRequest creates an multi-part form request. A relative URL can be
-// provided in urlStr, in which case it is resolved relative to the UploadURL
-// of the Client. Relative URLs should always be specified without a preceding
-// slash.
-func (c *Client) newFormRequest(ctx context.Context, method, urlStr string, body *bytes.Buffer) (*http.Request, error) {
-	u := joinURLPath(c.conf.Endpoint, urlStr)
-
-	req, err := http.NewRequestWithContext(ctx, method, u, body)
-	if err != nil {
-		return nil, err
-	}
-
-	if c.conf.UserAgent != "" {
-		req.Header.Add("User-Agent", c.conf.UserAgent)
-	}
-
-	return req, nil
-}
-
 // Response is a Buildkite Agent API response. This wraps the standard
 // http.Response.
 type Response struct {
@@ -202,7 +179,9 @@ func (c *Client) doRequest(req *http.Request, v any) (*Response, error) {
 	}
 
 	defer resp.Body.Close()
-	defer io.Copy(io.Discard, resp.Body)
+	defer func() {
+		_, _ = io.Copy(io.Discard, resp.Body)
+	}()
 
 	response := newResponse(resp)
 
@@ -215,7 +194,7 @@ func (c *Client) doRequest(req *http.Request, v any) (*Response, error) {
 
 	if v != nil {
 		if w, ok := v.(io.Writer); ok {
-			io.Copy(w, resp.Body)
+			_, _ = io.Copy(w, resp.Body)
 		} else {
 			if strings.Contains(req.Header.Get("Content-Type"), "application/msgpack") {
 				err = errors.New("Msgpack not supported")
@@ -259,32 +238,10 @@ func checkResponse(r *http.Response) error {
 	errorResponse := &ErrorResponse{Response: r}
 	data, err := io.ReadAll(r.Body)
 	if err == nil && data != nil {
-		json.Unmarshal(data, errorResponse)
+		_ = json.Unmarshal(data, errorResponse)
 	}
 
 	return errorResponse
-}
-
-// addOptions adds the parameters in opt as URL query parameters to s. opt must
-// be a struct whose fields may contain "url" tags.
-func addOptions(s string, opt any) (string, error) {
-	v := reflect.ValueOf(opt)
-	if v.Kind() == reflect.Ptr && v.IsNil() {
-		return s, nil
-	}
-
-	u, err := url.Parse(s)
-	if err != nil {
-		return s, err
-	}
-
-	qs, err := query.Values(opt)
-	if err != nil {
-		return s, err
-	}
-
-	u.RawQuery = qs.Encode()
-	return u.String(), nil
 }
 
 func joinURLPath(endpoint string, path string) string {

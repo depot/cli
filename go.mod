@@ -20,7 +20,6 @@ require (
 	github.com/docker/go-connections v0.4.0
 	github.com/docker/go-units v0.5.0
 	github.com/getsentry/sentry-go v0.13.0
-	github.com/google/go-querystring v1.0.0
 	github.com/hashicorp/go-version v1.2.0
 	github.com/mattn/go-isatty v0.0.16
 	github.com/mgutz/ansi v0.0.0-20170206155736-9520e82c474b
