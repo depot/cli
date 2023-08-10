@@ -6,8 +6,7 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/buildkite/agent/v3/api"
-	"github.com/buildkite/agent/v3/logger"
+	"github.com/depot/cli/pkg/oidc/buildkite"
 )
 
 type BuildkiteOIDCProvider struct {
@@ -30,20 +29,8 @@ func (p *BuildkiteOIDCProvider) RetrieveToken(ctx context.Context) (string, erro
 
 	jobID := os.Getenv("BUILDKITE_JOB_ID")
 
-	logLevel := os.Getenv("BUILDKITE_AGENT_LOG_LEVEL")
-	if logLevel == "" {
-		logLevel = "notice"
-	}
-
-	l := logger.NewConsoleLogger(logger.NewTextPrinter(os.Stderr), os.Exit)
-	level, err := logger.LevelFromString(logLevel)
-	if err != nil {
-		return "", err
-	}
-	l.SetLevel(level)
-
-	client := api.NewClient(l, api.Config{Token: agentToken, Endpoint: endpoint})
-	token, response, err := client.OIDCToken(ctx, &api.OIDCTokenRequest{Audience: audience, Job: jobID})
+	client := buildkite.NewClient(buildkite.Config{Token: agentToken, Endpoint: endpoint})
+	token, response, err := client.OIDCToken(ctx, &buildkite.OIDCTokenRequest{Audience: audience, Job: jobID})
 	if err != nil {
 		return "", err
 	}
