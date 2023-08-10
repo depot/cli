@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	"net/url"
+	"sync/atomic"
 
 	content "github.com/containerd/containerd/api/services/content/v1"
 	"github.com/containerd/containerd/api/services/leases/v1"
@@ -39,6 +40,13 @@ var (
 	_ leases.LeasesServer      = (*LeasesProxy)(nil)
 	_ health.HealthServer      = (*HealthProxy)(nil)
 )
+
+// builds counts the number of build requests. We do this because the second
+// build request is the "real" one.  ListWorkers is the only function we have
+// that does not have a timeout.  We wait until the second ListWorkers call
+// to start the buildkitd instance as that eliminates all the _OTHER_ calls
+// buildx uses to get metadata like disk usage and build history.
+var builds atomic.Int64
 
 func BuildkitdClient(ctx context.Context, conn net.Conn, buildkitdAddress string) (*grpc.ClientConn, error) {
 	dialContext := func(context.Context, string) (net.Conn, error) {
@@ -75,7 +83,7 @@ func Proxy(ctx context.Context, conn net.Conn, acquireState func() ProxyState, p
 	server := grpc.NewServer(opts...)
 
 	control.RegisterControlServer(server, &ControlProxy{state: acquireState, platform: platform, cancel: cancel})
-	gateway.RegisterLLBBridgeServer(server, &GatewayProxy{state: acquireState})
+	gateway.RegisterLLBBridgeServer(server, &GatewayProxy{state: acquireState, platform: platform})
 	trace.RegisterTraceServiceServer(server, &TracesProxy{state: acquireState})
 	content.RegisterContentServer(server, &ContentProxy{state: acquireState})
 	leases.RegisterLeasesServer(server, &LeasesProxy{state: acquireState})
@@ -141,6 +149,10 @@ func (p *ControlProxy) Prune(in *control.PruneRequest, toBuildx control.Control_
 }
 
 func (p *ControlProxy) Solve(ctx context.Context, in *control.SolveRequest) (*control.SolveResponse, error) {
+	if builds.Load() == 1 {
+		return &control.SolveResponse{}, nil
+	}
+
 	md, ok := metadata.FromIncomingContext(ctx)
 	if ok {
 		ctx = metadata.NewOutgoingContext(ctx, md)
@@ -158,6 +170,10 @@ func (p *ControlProxy) Solve(ctx context.Context, in *control.SolveRequest) (*co
 }
 
 func (p *ControlProxy) Status(in *control.StatusRequest, toBuildx control.Control_StatusServer) error {
+	if builds.Load() == 1 {
+		return nil
+	}
+
 	ctx := toBuildx.Context()
 	md, ok := metadata.FromIncomingContext(ctx)
 	if ok {
@@ -197,6 +213,10 @@ func (p *ControlProxy) Status(in *control.StatusRequest, toBuildx control.Contro
 }
 
 func (p *ControlProxy) Session(buildx control.Control_SessionServer) error {
+	if builds.Load() == 1 {
+		return nil
+	}
+
 	md, _ := metadata.FromIncomingContext(buildx.Context())
 	buildkitCtx := metadata.NewOutgoingContext(buildx.Context(), md.Copy())
 	buildkitCtx, buildkitCancel := context.WithCancel(buildkitCtx)
@@ -242,66 +262,73 @@ func (p *ControlProxy) Session(buildx control.Control_SessionServer) error {
 // Those API calls would keep the builder alive, even if the user is not using it.
 // ListWorkers call is common among builds and those commands.
 func (p *ControlProxy) ListWorkers(ctx context.Context, in *control.ListWorkersRequest) (*control.ListWorkersResponse, error) {
-	if p.platform == "amd64" {
-		return &control.ListWorkersResponse{
-			Record: []*worker.WorkerRecord{
-				{
-					Platforms: []pb.Platform{
-						{
-							Architecture: "amd64",
-							OS:           "linux",
-						},
-						{
-							Architecture: "amd64",
-							OS:           "linux",
-							Variant:      "v2",
-						},
-						{
-							Architecture: "amd64",
-							OS:           "linux",
-							Variant:      "v3",
-						},
-						{
-							Architecture: "amd64",
-							OS:           "linux",
-							Variant:      "v4",
-						},
-						{
-							Architecture: "386",
-							OS:           "linux",
-						},
-					},
-				},
-			},
-		}, nil
-	} else if p.platform == "arm64" {
-		return &control.ListWorkersResponse{
-			Record: []*worker.WorkerRecord{
-				{
-					Platforms: []pb.Platform{
-						{
-							Architecture: "arm64",
-							OS:           "linux",
-						},
-						{
-							Architecture: "arm",
-							OS:           "linux",
-							Variant:      "v7",
-						},
-						{
-							Architecture: "arm",
-							OS:           "linux",
-							Variant:      "v6",
-						},
-					},
-				},
-			},
-		}, nil
+	num := builds.Add(1)
+	// When we get a second build request we know it is not an buildx metadata call such as disk usage.
+	if num > 1 {
+		state := p.state()
+		if state.Err != nil {
+			return nil, state.Err
+		}
+	}
+	return &control.ListWorkersResponse{
+		Record: platformWorkerRecords(p.platform),
+	}, nil
+}
 
+func platformWorkerRecords(platform string) []*worker.WorkerRecord {
+	if platform == "amd64" {
+		return []*worker.WorkerRecord{
+			{
+				Platforms: []pb.Platform{
+					{
+						Architecture: "amd64",
+						OS:           "linux",
+					},
+					{
+						Architecture: "amd64",
+						OS:           "linux",
+						Variant:      "v2",
+					},
+					{
+						Architecture: "amd64",
+						OS:           "linux",
+						Variant:      "v3",
+					},
+					{
+						Architecture: "amd64",
+						OS:           "linux",
+						Variant:      "v4",
+					},
+					{
+						Architecture: "386",
+						OS:           "linux",
+					},
+				},
+			},
+		}
+	} else if platform == "arm64" {
+		return []*worker.WorkerRecord{
+			{
+				Platforms: []pb.Platform{
+					{
+						Architecture: "arm64",
+						OS:           "linux",
+					},
+					{
+						Architecture: "arm",
+						OS:           "linux",
+						Variant:      "v7",
+					},
+					{
+						Architecture: "arm",
+						OS:           "linux",
+						Variant:      "v6",
+					},
+				},
+			},
+		}
 	} else {
-		return &control.ListWorkersResponse{
-			Record: []*worker.WorkerRecord{},
-		}, nil
+		return []*worker.WorkerRecord{}
 	}
 }
 
@@ -334,7 +361,8 @@ func (p *ControlProxy) UpdateBuildHistory(ctx context.Context, in *control.Updat
 }
 
 type GatewayProxy struct {
-	state func() ProxyState
+	state    func() ProxyState
+	platform string
 }
 
 func (p *GatewayProxy) ResolveImageConfig(ctx context.Context, in *gateway.ResolveImageConfigRequest) (*gateway.ResolveImageConfigResponse, error) {
@@ -427,19 +455,13 @@ func (p *GatewayProxy) Evaluate(ctx context.Context, in *gateway.EvaluateRequest
 	return client.Evaluate(ctx, in)
 }
 
+// Turns out that this only matters for `gha` and `s3`.
 func (p *GatewayProxy) Ping(ctx context.Context, in *gateway.PingRequest) (*gateway.PongResponse, error) {
-	md, ok := metadata.FromIncomingContext(ctx)
-	if ok {
-		ctx = metadata.NewOutgoingContext(ctx, md)
-	}
-
-	state := p.state()
-	if state.Err != nil {
-		return nil, state.Err
-	}
-
-	client := gateway.NewLLBBridgeClient(state.Conn)
-	return client.Ping(ctx, in)
+	return &gateway.PongResponse{
+		FrontendAPICaps: gateway.Caps.All(),
+		LLBCaps:         pb.Caps.All(),
+		Workers:         platformWorkerRecords(p.platform),
+	}, nil
 }
 
 func (p *GatewayProxy) Return(ctx context.Context, in *gateway.ReturnRequest) (*gateway.ReturnResponse, error) {
@@ -562,6 +584,10 @@ type TracesProxy struct {
 }
 
 func (p *TracesProxy) Export(ctx context.Context, in *trace.ExportTraceServiceRequest) (*trace.ExportTraceServiceResponse, error) {
+	if builds.Load() == 1 {
+		return &trace.ExportTraceServiceResponse{}, nil
+	}
+
 	md, ok := metadata.FromIncomingContext(ctx)
 	if ok {
 		ctx = metadata.NewOutgoingContext(ctx, md)
