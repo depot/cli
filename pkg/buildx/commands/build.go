@@ -21,6 +21,7 @@ import (
 	depotbuild "github.com/depot/cli/pkg/buildx/build"
 	"github.com/depot/cli/pkg/buildx/builder"
 	"github.com/depot/cli/pkg/ci"
+	"github.com/depot/cli/pkg/cmd/docker"
 	"github.com/depot/cli/pkg/dockerfile"
 	"github.com/depot/cli/pkg/helpers"
 	"github.com/depot/cli/pkg/load"
@@ -596,7 +597,7 @@ func BuildCmd(dockerCli command.Cli) *cobra.Command {
 				// This helps to keep the drivers up-to-date.
 				ctx, cancel := context.WithTimeout(cmd.Context(), 5*time.Second)
 				defer cancel()
-				_ = UpdateDrivers(ctx, dockerCli)
+				_ = docker.UpdateDrivers(ctx, dockerCli)
 			}()
 
 			options.contextPath = args[0]
