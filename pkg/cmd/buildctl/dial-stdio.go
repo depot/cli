@@ -19,6 +19,7 @@ import (
 	"github.com/depot/cli/pkg/machine"
 	"github.com/depot/cli/pkg/progress"
 	cliv1 "github.com/depot/cli/pkg/proto/depot/cli/v1"
+	"github.com/moby/buildkit/client"
 	"github.com/spf13/cobra"
 )
 
@@ -118,6 +119,14 @@ func run() error {
 		}
 	}()
 
+	status := make(chan *client.SolveStatus, 1024)
+	listener := func(s *client.SolveStatus) {
+		select {
+		case status <- s:
+		default:
+		}
+	}
+
 	acquireState := func() ProxyState {
 		once.Do(func() {
 			req := &cliv1.CreateBuildRequest{
@@ -133,15 +142,17 @@ func run() error {
 			ctx2 := context.TODO()
 			ctx2, cancelStatus = context.WithCancel(ctx2)
 			state.Reporter, finishStatus, _ = progress.NewProgress(ctx2, build.ID, build.Token, progress.Quiet)
+			state.Reporter.AddListener(listener)
 
 			state.SummaryURL = build.BuildURL
 			buildFinish = build.Finish
 
-			started := time.Now()
+			if os.Getenv("DEPOT_NO_SUMMARY_LINK") == "" {
+				state.Reporter.Log("[depot] build: "+state.SummaryURL, nil)
+			}
+
 			var builder *machine.Machine
-			message := "[depot] launching " + platform + " machine"
-			fmt.Fprintln(os.Stderr, message)
-			state.Err = state.Reporter.WithLog(message, func() error {
+			state.Err = state.Reporter.WithLog("[depot] launching "+platform+" machine", func() error {
 				for i := 0; i < 2; i++ {
 					builder, state.Err = machine.Acquire(ctx, build.ID, build.Token, platform)
 					if state.Err == nil {
@@ -152,24 +163,17 @@ func run() error {
 			})
 			if state.Err != nil {
 				state.Err = fmt.Errorf("unable to acquire builder: %w", state.Err)
-				fmt.Fprintf(os.Stderr, "ERROR: %v\n", state.Err)
 				return
 			}
-			fmt.Fprintf(os.Stderr, "%s %.[3]*[2]f done\n", message, time.Since(started).Seconds(), 2)
 
 			machineRelease = builder.Release
 
-			started = time.Now()
-			message = "[depot] connecting to " + platform + " machine"
-			fmt.Fprintln(os.Stderr, message)
-
-			state.Err = state.Reporter.WithLog(message, func() error {
+			state.Err = state.Reporter.WithLog("[depot] connecting to "+platform+" machine", func() error {
 				buildkitConn, err := tlsConn(ctx, builder)
 				if err != nil {
 					state.Err = fmt.Errorf("unable to connect: %w", err)
 					return state.Err
 				}
-				fmt.Fprintf(os.Stderr, "%s %.[3]*[2]f done\n", message, time.Since(started).Seconds(), 2)
 
 				state.Conn, err = BuildkitdClient(ctx, buildkitConn, builder.Addr)
 				if err != nil {
@@ -184,7 +188,7 @@ func run() error {
 	}
 
 	buildx := &StdioConn{}
-	Proxy(ctx, buildx, acquireState, platform)
+	Proxy(ctx, buildx, acquireState, platform, status)
 
 	return nil
 }

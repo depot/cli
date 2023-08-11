@@ -6,14 +6,13 @@ import (
 	"io"
 	"net"
 	"net/url"
+	"os"
 	"sync/atomic"
 
 	content "github.com/containerd/containerd/api/services/content/v1"
 	"github.com/containerd/containerd/api/services/leases/v1"
 	"github.com/containerd/containerd/defaults"
-	"github.com/depot/cli/pkg/buildx/commands"
 	"github.com/depot/cli/pkg/progress"
-	buildxprogress "github.com/docker/buildx/util/progress"
 	"github.com/gogo/protobuf/types"
 	control "github.com/moby/buildkit/api/services/control"
 	worker "github.com/moby/buildkit/api/types"
@@ -72,7 +71,7 @@ func BuildkitdClient(ctx context.Context, conn net.Conn, buildkitdAddress string
 }
 
 // Proxy buildkitd server over connection. Cancel context to shutdown.
-func Proxy(ctx context.Context, conn net.Conn, acquireState func() ProxyState, platform string) {
+func Proxy(ctx context.Context, conn net.Conn, acquireState func() ProxyState, platform string, status <-chan *client.SolveStatus) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -82,7 +81,7 @@ func Proxy(ctx context.Context, conn net.Conn, acquireState func() ProxyState, p
 	}
 	server := grpc.NewServer(opts...)
 
-	control.RegisterControlServer(server, &ControlProxy{state: acquireState, platform: platform, cancel: cancel})
+	control.RegisterControlServer(server, &ControlProxy{state: acquireState, platform: platform, cancel: cancel, status: status})
 	gateway.RegisterLLBBridgeServer(server, &GatewayProxy{state: acquireState, platform: platform})
 	trace.RegisterTraceServiceServer(server, &TracesProxy{state: acquireState})
 	content.RegisterContentServer(server, &ContentProxy{state: acquireState})
@@ -107,6 +106,7 @@ type ProxyState struct {
 
 type ControlProxy struct {
 	state    func() ProxyState
+	status   <-chan *client.SolveStatus
 	platform string
 	cancel   context.CancelFunc
 }
@@ -163,8 +163,6 @@ func (p *ControlProxy) Solve(ctx context.Context, in *control.SolveRequest) (*co
 		return nil, state.Err
 	}
 
-	defer commands.PrintBuildURL(state.SummaryURL, buildxprogress.PrinterModePlain)
-
 	client := control.NewControlClient(state.Conn)
 	return client.Solve(ctx, in)
 }
@@ -192,24 +190,61 @@ func (p *ControlProxy) Status(in *control.StatusRequest, toBuildx control.Contro
 		return err
 	}
 
-	for {
-		msg, err := fromBuildkit.Recv()
-		if err != nil {
-			if errors.Is(err, io.EOF) {
-				break
+	buildkitErr := make(chan error, 1)
+
+	go func() {
+		for {
+			msg, err := fromBuildkit.Recv()
+			if err != nil {
+				if os.Getenv("DEPOT_NO_SUMMARY_LINK") == "" {
+					state.Reporter.Log("Build summary: "+state.SummaryURL, nil)
+				}
+
+				if errors.Is(err, io.EOF) || errors.Is(err, context.Canceled) {
+					buildkitErr <- nil
+					break
+				}
+				buildkitErr <- err
+				return
 			}
-			return err
+
+			state.Reporter.Write(client.NewSolveStatus(msg))
 		}
+	}()
 
-		state.Reporter.Write(client.NewSolveStatus(msg))
-
-		err = toBuildx.Send(msg)
-		if err != nil {
-			return err
+	for {
+		select {
+		case message := <-p.status:
+			for _, response := range message.Marshal() {
+				err := toBuildx.Send(response)
+				if err != nil {
+					if errors.Is(err, context.Canceled) {
+						return nil
+					}
+					return err
+				}
+			}
+		case err := <-buildkitErr:
+			for {
+				select {
+				case message := <-p.status:
+					for _, response := range message.Marshal() {
+						err := toBuildx.Send(response)
+						if err != nil {
+							if errors.Is(err, context.Canceled) {
+								return nil
+							}
+							return err
+						}
+					}
+				default:
+					return err
+				}
+			}
+		case <-ctx.Done():
+			return nil
 		}
 	}
-
-	return nil
 }
 
 func (p *ControlProxy) Session(buildx control.Control_SessionServer) error {
