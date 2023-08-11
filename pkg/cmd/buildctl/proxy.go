@@ -385,7 +385,6 @@ func (p *ControlProxy) Info(ctx context.Context, in *control.InfoRequest) (*cont
 
 // Used by desktop.  We ignore and shutdown.
 func (p *ControlProxy) ListenBuildHistory(in *control.BuildHistoryRequest, toBuildx control.Control_ListenBuildHistoryServer) error {
-	p.scheduleShutdown()
 	return status.Errorf(codes.Unimplemented, "method ListenBuildHistory not implemented")
 }
 
