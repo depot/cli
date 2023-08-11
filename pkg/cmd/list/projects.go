@@ -14,7 +14,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/depot/cli/pkg/api"
-	"github.com/depot/cli/pkg/config"
+	"github.com/depot/cli/pkg/helpers"
 	cliv1beta1 "github.com/depot/cli/pkg/proto/depot/cli/v1beta1"
 	"github.com/depot/cli/pkg/proto/depot/cli/v1beta1/cliv1beta1connect"
 	"github.com/pkg/errors"
@@ -32,13 +32,7 @@ func NewCmdProjects() *cobra.Command {
 		Aliases: []string{"p"},
 		Short:   "List depot projects",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			// TODO: make this a helper
-			if token == "" {
-				token = os.Getenv("DEPOT_TOKEN")
-			}
-			if token == "" {
-				token = config.GetApiToken()
-			}
+			token := helpers.ResolveToken(context.Background(), token)
 			if token == "" {
 				return fmt.Errorf("missing API token, please run `depot login`")
 			}
@@ -237,9 +231,6 @@ type depotProject struct {
 func depotProjects(ctx context.Context, token string, client cliv1beta1connect.ProjectsServiceClient) ([]depotProject, error) {
 	req := cliv1beta1.ListProjectsRequest{}
 	resp, err := client.ListProjects(ctx, api.WithAuthentication(connect.NewRequest(&req), token))
-	if err != nil {
-		return nil, err
-	}
 	if err != nil {
 		return nil, err
 	}

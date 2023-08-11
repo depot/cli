@@ -304,7 +304,7 @@ func BakeCmd(dockerCli command.Cli) *cobra.Command {
 	flags.StringArrayVar(&options.overrides, "set", nil, `Override target value (e.g., "targetpattern.key=value")`)
 
 	commonBuildFlags(&options.commonOptions, flags)
-	depotBuildFlags(cmd, &options.DepotOptions, flags)
+	depotFlags(cmd, &options.DepotOptions, flags)
 
 	return cmd
 }

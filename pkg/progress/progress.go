@@ -28,6 +28,9 @@ type Progress struct {
 	client   cliv1connect.BuildServiceClient
 	vertices chan []*client.Vertex
 
+	lmu       sync.Mutex
+	listeners []Listener
+
 	p *progress.Printer
 }
 
@@ -41,6 +44,7 @@ const (
 )
 
 type FinishFn func()
+type Listener func(s *client.SolveStatus)
 
 // NewProgress creates a new progress writer that sends build timings to the server.
 // Use the ctx to cancel the long running go routine.
@@ -129,6 +133,12 @@ func (p *Progress) Write(s *client.SolveStatus) {
 	}
 
 	p.p.Write(s)
+
+	p.lmu.Lock()
+	defer p.lmu.Unlock()
+	for _, listener := range p.listeners {
+		listener(s)
+	}
 }
 
 // WriteLint specializes the write to remove the error from the vertex before printing to the terminal.
@@ -285,6 +295,12 @@ func (p *Progress) ReportBuildSteps(ctx context.Context, steps []*Step) {
 			steps[i].Reported = true
 		}
 	}
+}
+
+func (p *Progress) AddListener(l Listener) {
+	p.lmu.Lock()
+	defer p.lmu.Unlock()
+	p.listeners = append(p.listeners, l)
 }
 
 // Analyze computes the input duration for each step.

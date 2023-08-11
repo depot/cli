@@ -21,6 +21,7 @@ import (
 	depotbuild "github.com/depot/cli/pkg/buildx/build"
 	"github.com/depot/cli/pkg/buildx/builder"
 	"github.com/depot/cli/pkg/ci"
+	"github.com/depot/cli/pkg/cmd/docker"
 	"github.com/depot/cli/pkg/dockerfile"
 	"github.com/depot/cli/pkg/helpers"
 	"github.com/depot/cli/pkg/load"
@@ -591,6 +592,14 @@ func BuildCmd(dockerCli command.Cli) *cobra.Command {
 		Short:   "Start a build",
 		Args:    cli.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			go func() {
+				// Optimistically update drivers in the background.
+				// This helps to keep the drivers up-to-date.
+				ctx, cancel := context.WithTimeout(cmd.Context(), 5*time.Second)
+				defer cancel()
+				_ = docker.UpdateDrivers(ctx, dockerCli)
+			}()
+
 			options.contextPath = args[0]
 			cmd.Flags().VisitAll(checkWarnedFlags)
 
@@ -769,7 +778,7 @@ func BuildCmd(dockerCli command.Cli) *cobra.Command {
 	_ = flags.MarkHidden("force-rm")
 
 	commonBuildFlags(&options.commonOptions, flags)
-	depotBuildFlags(cmd, &options.DepotOptions, flags)
+	depotFlags(cmd, &options.DepotOptions, flags)
 	return cmd
 }
 
@@ -780,11 +789,25 @@ func commonBuildFlags(options *commonOptions, flags *pflag.FlagSet) {
 	flags.StringVar(&options.metadataFile, "metadata-file", "", "Write build result metadata to the file")
 }
 
-func depotBuildFlags(cmd *cobra.Command, options *DepotOptions, flags *pflag.FlagSet) {
+func depotFlags(cmd *cobra.Command, options *DepotOptions, flags *pflag.FlagSet) {
+	depotBuildFlags(options, flags)
+	depotLintFlags(cmd, options, flags)
+}
+
+func depotBuildFlags(options *DepotOptions, flags *pflag.FlagSet) {
 	flags.StringVar(&options.project, "project", "", "Depot project ID")
 	flags.StringVar(&options.token, "token", "", "Depot API token")
 	flags.StringVar(&options.buildPlatform, "build-platform", "dynamic", `Run builds on this platform ("dynamic", "linux/amd64", "linux/arm64")`)
 
+	allowNoOutput := false
+	if v := os.Getenv("DEPOT_SUPPRESS_NO_OUTPUT_WARNING"); v != "" {
+		allowNoOutput = true
+	}
+	flags.BoolVar(&options.allowNoOutput, "suppress-no-output-warning", allowNoOutput, "Suppress warning if no output is generated")
+	_ = flags.MarkHidden("suppress-no-output-warning")
+}
+
+func depotLintFlags(cmd *cobra.Command, options *DepotOptions, flags *pflag.FlagSet) {
 	flags.BoolVar(&options.lint, "lint", false, `Lint Dockerfiles`)
 	flags.StringVar(&options.lintFailOn, "lint-fail-on", "error", `controls lint severity that fails the build ("info", "warn", "error", "none")`)
 	_ = cmd.RegisterFlagCompletionFunc("lint-fail-on", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
@@ -795,13 +818,6 @@ func depotBuildFlags(cmd *cobra.Command, options *DepotOptions, flags *pflag.Fla
 			"none\tLint issues do not fail the build",
 		}, cobra.ShellCompDirectiveDefault
 	})
-
-	allowNoOutput := false
-	if v := os.Getenv("DEPOT_SUPPRESS_NO_OUTPUT_WARNING"); v != "" {
-		allowNoOutput = true
-	}
-	flags.BoolVar(&options.allowNoOutput, "suppress-no-output-warning", allowNoOutput, "Suppress warning if no output is generated")
-	_ = flags.MarkHidden("suppress-no-output-warning")
 }
 
 func checkWarnedFlags(f *pflag.Flag) {
