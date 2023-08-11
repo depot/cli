@@ -164,6 +164,8 @@ func (p *ControlProxy) Solve(ctx context.Context, in *control.SolveRequest) (*co
 	}
 
 	client := control.NewControlClient(state.Conn)
+	// DEPOT: stop recording the build steps and traces on the server.
+	in.Internal = true
 	return client.Solve(ctx, in)
 }
 
