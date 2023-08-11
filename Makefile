@@ -4,7 +4,7 @@ bin/depot:
 
 .PHONY: image
 image:
-	docker buildx build -t ghcr.io/depot/cli:0.0.0-dev --load .
+	docker --context=default buildx build --builder default -t ghcr.io/depot/cli:0.0.0-dev --load .
 
 .PHONY: clean
 clean:
