@@ -352,7 +352,7 @@ func UpdateDrivers(ctx context.Context, dockerCli command.Cli) error {
 				projectName := node.DriverOpts["env.DEPOT_PROJECT_ID"]
 				token := node.DriverOpts["env.DEPOT_TOKEN"]
 				platform := node.DriverOpts["env.DEPOT_PLATFORM"]
-				Bootstrap(ctx, dockerCli, "ghcr.io/depot/cli:"+version, projectName, token, platform)
+				_ = Bootstrap(ctx, dockerCli, "ghcr.io/depot/cli:"+version, projectName, token, platform)
 			}
 
 		}
