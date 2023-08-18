@@ -192,7 +192,7 @@ func runConfigureBuildx(ctx context.Context, dockerCli command.Cli, project, tok
 
 	version := build.Version
 	if version == "0.0.0-dev" {
-		version = "2.30.0"
+		version = "latest"
 	}
 
 	image := "ghcr.io/depot/cli:" + version
@@ -392,10 +392,36 @@ func RemoveDrivers(ctx context.Context, dockerCli command.Cli) error {
 func Bootstrap(ctx context.Context, dockerCli command.Cli, imageName, projectName, token, platform string) error {
 	err := DownloadImage(ctx, dockerCli, imageName)
 	if err != nil {
-		return err
+		return fmt.Errorf("unable to download image: %w", err)
 	}
 
 	return CreateContainer(ctx, dockerCli, projectName, platform, imageName, token)
+}
+
+func DownloadImage(ctx context.Context, dockerCli command.Cli, imageName string) error {
+	client := dockerCli.Client()
+
+	images, err := client.ImageList(ctx, dockertypes.ImageListOptions{
+		Filters: filters.NewArgs(filters.Arg("reference", imageName)),
+	})
+	if err == nil && len(images) > 0 {
+		return nil
+	}
+
+	ra, err := imagetools.RegistryAuthForRef(imageName, dockerCli.ConfigFile())
+	if err != nil {
+		return err
+	}
+
+	rc, err := client.ImageCreate(ctx, imageName, dockertypes.ImageCreateOptions{
+		RegistryAuth: ra,
+	})
+	if err != nil {
+		return fmt.Errorf("unable to download image: %w", err)
+	}
+
+	_, err = io.Copy(io.Discard, rc)
+	return err
 }
 
 func CreateContainer(ctx context.Context, dockerCli command.Cli, projectName string, platform string, imageName string, token string) error {
@@ -404,16 +430,16 @@ func CreateContainer(ctx context.Context, dockerCli command.Cli, projectName str
 
 	driverContainer, err := client.ContainerInspect(ctx, name)
 	if err == nil {
-		if driverContainer.Image == imageName {
+		if driverContainer.Config.Image == imageName {
 			return nil
 		}
 
 		err := client.ContainerRemove(ctx, driverContainer.ID, dockertypes.ContainerRemoveOptions{Force: true, RemoveVolumes: true})
 		if err != nil {
-			return err
+			return fmt.Errorf("unable to remove container: %w", err)
 		}
 
-		_, _ = client.ImageRemove(ctx, imageName, dockertypes.ImageRemoveOptions{})
+		_, _ = client.ImageRemove(ctx, driverContainer.Config.Image, dockertypes.ImageRemoveOptions{})
 	}
 
 	cfg := &container.Config{
@@ -459,29 +485,9 @@ func CreateContainer(ctx context.Context, dockerCli command.Cli, projectName str
 	}
 
 	_, err = client.ContainerCreate(ctx, cfg, hc, &network.NetworkingConfig{}, nil, name)
-	return err
-}
-
-func DownloadImage(ctx context.Context, dockerCli command.Cli, imageName string) error {
-	client := dockerCli.Client()
-
-	_, _, err := client.ImageInspectWithRaw(ctx, imageName)
-	if err == nil {
-		return nil
-	}
-
-	ra, err := imagetools.RegistryAuthForRef(imageName, dockerCli.ConfigFile())
 	if err != nil {
-		return err
+		return fmt.Errorf("unable to create container: %w", err)
 	}
 
-	rc, err := client.ImageCreate(ctx, imageName, dockertypes.ImageCreateOptions{
-		RegistryAuth: ra,
-	})
-	if err != nil {
-		return err
-	}
-
-	_, err = io.Copy(io.Discard, rc)
-	return err
+	return nil
 }
