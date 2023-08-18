@@ -3,6 +3,7 @@ package docker
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path"
 	"runtime"
@@ -12,11 +13,16 @@ import (
 	"github.com/depot/cli/pkg/helpers"
 	"github.com/docker/buildx/store"
 	"github.com/docker/buildx/store/storeutil"
+	"github.com/docker/buildx/util/confutil"
 	"github.com/docker/buildx/util/dockerutil"
+	"github.com/docker/buildx/util/imagetools"
 	"github.com/docker/cli/cli/command"
 	"github.com/docker/cli/cli/config"
-	"github.com/docker/docker/api/types"
+	dockertypes "github.com/docker/docker/api/types"
+	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
+	"github.com/docker/docker/api/types/mount"
+	"github.com/docker/docker/api/types/network"
 	dockerclient "github.com/docker/docker/client"
 	specs "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/pkg/errors"
@@ -67,7 +73,7 @@ func NewCmdConfigureDocker(dockerCli command.Cli) *cobra.Command {
 				return errors.Wrap(err, "could not set depot builder alias")
 			}
 
-			err = runConfigureBuildx(dockerCli, project, token)
+			err = runConfigureBuildx(cmd.Context(), dockerCli, project, token)
 			if err != nil {
 				return errors.Wrap(err, "could not configure buildx")
 			}
@@ -160,8 +166,8 @@ func uninstallDepotPlugin(dir string) error {
 	return nil
 }
 
-func runConfigureBuildx(dockerCli command.Cli, project, token string) error {
-	token = helpers.ResolveToken(context.Background(), token)
+func runConfigureBuildx(ctx context.Context, dockerCli command.Cli, project, token string) error {
+	token = helpers.ResolveToken(ctx, token)
 	if token == "" {
 		return fmt.Errorf("missing API token, please run `depot login`")
 	}
@@ -184,9 +190,14 @@ func runConfigureBuildx(dockerCli command.Cli, project, token string) error {
 		return fmt.Errorf("unable to get current docker endpoint: %w", err)
 	}
 
-	nodeName := "depot_" + projectName
-	image := "ghcr.io/depot/cli:" + build.Version
+	version := build.Version
+	if version == "0.0.0-dev" {
+		version = "latest"
+	}
 
+	image := "ghcr.io/depot/cli:" + version
+
+	nodeName := "depot_" + projectName
 	ng := &store.NodeGroup{
 		Name:   nodeName,
 		Driver: "docker-container",
@@ -252,6 +263,13 @@ func runConfigureBuildx(dockerCli command.Cli, project, token string) error {
 		return fmt.Errorf("unable to use node group: %w", err)
 	}
 
+	for _, arch := range []string{"amd64", "arm64"} {
+		err = Bootstrap(ctx, dockerCli, image, projectName, token, arch)
+		if err != nil {
+			return fmt.Errorf("unable create driver container: %w", err)
+		}
+	}
+
 	return nil
 }
 
@@ -263,7 +281,7 @@ type Node struct {
 func ListDepotNodes(ctx context.Context, client dockerclient.APIClient) ([]Node, error) {
 	filters := filters.NewArgs()
 	filters.FuzzyMatch("name", "buildx_buildkit_depot_")
-	containers, err := client.ContainerList(ctx, types.ContainerListOptions{
+	containers, err := client.ContainerList(ctx, dockertypes.ContainerListOptions{
 		All:     true,
 		Filters: filters,
 	})
@@ -288,7 +306,7 @@ func ListDepotNodes(ctx context.Context, client dockerclient.APIClient) ([]Node,
 
 func StopDepotNodes(ctx context.Context, client dockerclient.APIClient, nodes []Node) error {
 	for _, node := range nodes {
-		err := client.ContainerRemove(ctx, node.ContainerID, types.ContainerRemoveOptions{Force: true, RemoveVolumes: true})
+		err := client.ContainerRemove(ctx, node.ContainerID, dockertypes.ContainerRemoveOptions{Force: true, RemoveVolumes: true})
 		if err != nil {
 			return err
 		}
@@ -310,9 +328,17 @@ func UpdateDrivers(ctx context.Context, dockerCli command.Cli) error {
 	if err != nil {
 		return fmt.Errorf("unable to get docker store: %w", err)
 	}
+	defer release()
+
 	nodeGroups, err := txn.List()
 	if err != nil {
 		return fmt.Errorf("unable to list node groups: %w", err)
+	}
+
+	// Update to the current build's version.
+	version := build.Version
+	if version == "0.0.0-dev" {
+		version = "latest"
 	}
 
 	for _, nodeGroup := range nodeGroups {
@@ -320,9 +346,15 @@ func UpdateDrivers(ctx context.Context, dockerCli command.Cli) error {
 		for i, node := range nodeGroup.Nodes {
 			image := node.DriverOpts["image"]
 			if strings.HasPrefix(image, "ghcr.io/depot/cli") {
-				nodeGroup.Nodes[i].DriverOpts["image"] = "ghcr.io/depot/cli:" + build.Version
+				nodeGroup.Nodes[i].DriverOpts["image"] = "ghcr.io/depot/cli:" + version
 				save = true
+
+				projectName := node.DriverOpts["env.DEPOT_PROJECT_ID"]
+				token := node.DriverOpts["env.DEPOT_TOKEN"]
+				platform := node.DriverOpts["env.DEPOT_PLATFORM"]
+				_ = Bootstrap(ctx, dockerCli, "ghcr.io/depot/cli:"+version, projectName, token, platform)
 			}
+
 		}
 
 		if save {
@@ -332,7 +364,6 @@ func UpdateDrivers(ctx context.Context, dockerCli command.Cli) error {
 		}
 	}
 
-	defer release()
 	return nil
 }
 
@@ -363,6 +394,112 @@ func RemoveDrivers(ctx context.Context, dockerCli command.Cli) error {
 				return fmt.Errorf("unable to remove node group: %w", err)
 			}
 		}
+	}
+
+	return nil
+}
+
+// Bootstrap is similar to the buildx bootstrap.  It is used to create (but not start) the container.
+// We did this because docker compose and buildx have race conditions that try to start the container
+// more than one time: https://github.com/docker/buildx/pull/2000
+func Bootstrap(ctx context.Context, dockerCli command.Cli, imageName, projectName, token, platform string) error {
+	err := DownloadImage(ctx, dockerCli, imageName)
+	if err != nil {
+		return fmt.Errorf("unable to download image: %w", err)
+	}
+
+	return CreateContainer(ctx, dockerCli, projectName, platform, imageName, token)
+}
+
+func DownloadImage(ctx context.Context, dockerCli command.Cli, imageName string) error {
+	client := dockerCli.Client()
+
+	images, err := client.ImageList(ctx, dockertypes.ImageListOptions{
+		Filters: filters.NewArgs(filters.Arg("reference", imageName)),
+	})
+	if err == nil && len(images) > 0 {
+		return nil
+	}
+
+	ra, err := imagetools.RegistryAuthForRef(imageName, dockerCli.ConfigFile())
+	if err != nil {
+		return err
+	}
+
+	rc, err := client.ImageCreate(ctx, imageName, dockertypes.ImageCreateOptions{
+		RegistryAuth: ra,
+	})
+	if err != nil {
+		return fmt.Errorf("unable to download image: %w", err)
+	}
+
+	_, err = io.Copy(io.Discard, rc)
+	return err
+}
+
+func CreateContainer(ctx context.Context, dockerCli command.Cli, projectName string, platform string, imageName string, token string) error {
+	client := dockerCli.Client()
+	name := "buildx_buildkit_depot_" + projectName + "_" + platform
+
+	driverContainer, err := client.ContainerInspect(ctx, name)
+	if err == nil {
+		if driverContainer.Config.Image == imageName {
+			return nil
+		}
+
+		err := client.ContainerRemove(ctx, driverContainer.ID, dockertypes.ContainerRemoveOptions{Force: true, RemoveVolumes: true})
+		if err != nil {
+			return fmt.Errorf("unable to remove container: %w", err)
+		}
+
+		_, _ = client.ImageRemove(ctx, driverContainer.Config.Image, dockertypes.ImageRemoveOptions{})
+	}
+
+	cfg := &container.Config{
+		Image: imageName,
+		Env: []string{
+			"DEPOT_PROJECT_ID=" + projectName,
+			"DEPOT_TOKEN=" + token,
+			"DEPOT_PLATFORM=" + platform,
+		},
+		Cmd: []string{"buildkitd"},
+	}
+
+	useInit := true
+	hc := &container.HostConfig{
+		Privileged: true,
+		Mounts: []mount.Mount{
+			{
+				Type:   mount.TypeVolume,
+				Source: "buildx_buildkit_depot_" + projectName + "_" + platform + "_state",
+				Target: confutil.DefaultBuildKitStateDir,
+			},
+		},
+		Init: &useInit,
+	}
+
+	if info, err := client.Info(ctx); err == nil {
+		if info.CgroupDriver == "cgroupfs" {
+
+			hc.CgroupParent = "/docker/buildx"
+		}
+
+		secOpts, err := dockertypes.DecodeSecurityOptions(info.SecurityOptions)
+		if err != nil {
+			return err
+		}
+		for _, f := range secOpts {
+			if f.Name == "userns" {
+				hc.UsernsMode = "host"
+				break
+			}
+		}
+
+	}
+
+	_, err = client.ContainerCreate(ctx, cfg, hc, &network.NetworkingConfig{}, nil, name)
+	if err != nil {
+		return fmt.Errorf("unable to create container: %w", err)
 	}
 
 	return nil

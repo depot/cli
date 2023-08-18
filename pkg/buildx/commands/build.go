@@ -592,14 +592,6 @@ func BuildCmd(dockerCli command.Cli) *cobra.Command {
 		Short:   "Start a build",
 		Args:    cli.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			go func() {
-				// Optimistically update drivers in the background.
-				// This helps to keep the drivers up-to-date.
-				ctx, cancel := context.WithTimeout(cmd.Context(), 5*time.Second)
-				defer cancel()
-				_ = docker.UpdateDrivers(ctx, dockerCli)
-			}()
-
 			options.contextPath = args[0]
 			cmd.Flags().VisitAll(checkWarnedFlags)
 
@@ -635,8 +627,17 @@ func BuildCmd(dockerCli command.Cli) *cobra.Command {
 			if err != nil {
 				return err
 			}
+
+			ctxDriverUpdate, driverUpdateCancel := context.WithCancel(cmd.Context())
+			go func() {
+				// Optimistically update drivers in the background.
+				// This helps to keep the drivers up-to-date.
+				_ = docker.UpdateDrivers(ctxDriverUpdate, dockerCli)
+			}()
+
 			var buildErr error
 			defer func() {
+				driverUpdateCancel()
 				build.Finish(buildErr)
 				PrintBuildURL(build.BuildURL, options.progress)
 			}()
