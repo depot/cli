@@ -249,9 +249,7 @@ func runConfigureBuildx(ctx context.Context, dockerCli command.Cli, project, tok
 
 	// Docker uses the first node as default. We try our best to prefer the
 	// local machine's architecture.
-	preferredArch := "amd64"
 	if strings.Contains(runtime.GOARCH, "arm") {
-		preferredArch = "arm64"
 		ng.Nodes[0], ng.Nodes[1] = ng.Nodes[1], ng.Nodes[0]
 	}
 
@@ -265,9 +263,11 @@ func runConfigureBuildx(ctx context.Context, dockerCli command.Cli, project, tok
 		return fmt.Errorf("unable to use node group: %w", err)
 	}
 
-	err = Bootstrap(ctx, dockerCli, image, projectName, token, preferredArch)
-	if err != nil {
-		return fmt.Errorf("unable create driver container: %w", err)
+	for _, arch := range []string{"amd64", "arm64"} {
+		err = Bootstrap(ctx, dockerCli, image, projectName, token, arch)
+		if err != nil {
+			return fmt.Errorf("unable create driver container: %w", err)
+		}
 	}
 
 	return nil
