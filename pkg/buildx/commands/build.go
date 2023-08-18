@@ -627,8 +627,17 @@ func BuildCmd(dockerCli command.Cli) *cobra.Command {
 			if err != nil {
 				return err
 			}
+
+			ctxDriverUpdate, driverUpdateCancel := context.WithCancel(cmd.Context())
+			go func() {
+				// Optimistically update drivers in the background.
+				// This helps to keep the drivers up-to-date.
+				_ = docker.UpdateDrivers(ctxDriverUpdate, dockerCli)
+			}()
+
 			var buildErr error
 			defer func() {
+				driverUpdateCancel()
 				build.Finish(buildErr)
 				PrintBuildURL(build.BuildURL, options.progress)
 			}()
@@ -643,14 +652,6 @@ func BuildCmd(dockerCli command.Cli) *cobra.Command {
 			if options.allowNoOutput {
 				_ = os.Setenv("BUILDX_NO_DEFAULT_LOAD", "1")
 			}
-
-			go func() {
-				// Optimistically update drivers in the background.
-				// This helps to keep the drivers up-to-date.
-				ctx, cancel := context.WithTimeout(cmd.Context(), 5*time.Second)
-				defer cancel()
-				_ = docker.UpdateDrivers(ctx, dockerCli)
-			}()
 
 			buildErr = retryRetryableErrors(context.Background(), func() error {
 				return runBuild(dockerCli, validatedOpts, options)

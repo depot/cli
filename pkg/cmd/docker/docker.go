@@ -328,9 +328,17 @@ func UpdateDrivers(ctx context.Context, dockerCli command.Cli) error {
 	if err != nil {
 		return fmt.Errorf("unable to get docker store: %w", err)
 	}
+	defer release()
+
 	nodeGroups, err := txn.List()
 	if err != nil {
 		return fmt.Errorf("unable to list node groups: %w", err)
+	}
+
+	// Update to the current build's version.
+	version := build.Version
+	if version == "0.0.0-dev" {
+		version = "latest"
 	}
 
 	for _, nodeGroup := range nodeGroups {
@@ -338,9 +346,15 @@ func UpdateDrivers(ctx context.Context, dockerCli command.Cli) error {
 		for i, node := range nodeGroup.Nodes {
 			image := node.DriverOpts["image"]
 			if strings.HasPrefix(image, "ghcr.io/depot/cli") {
-				nodeGroup.Nodes[i].DriverOpts["image"] = "ghcr.io/depot/cli:" + build.Version
+				nodeGroup.Nodes[i].DriverOpts["image"] = "ghcr.io/depot/cli:" + version
 				save = true
+
+				projectName := node.DriverOpts["env.DEPOT_PROJECT_ID"]
+				token := node.DriverOpts["env.DEPOT_TOKEN"]
+				platform := node.DriverOpts["env.DEPOT_PLATFORM"]
+				Bootstrap(ctx, dockerCli, "ghcr.io/depot/cli:"+version, projectName, token, platform)
 			}
+
 		}
 
 		if save {
@@ -350,7 +364,6 @@ func UpdateDrivers(ctx context.Context, dockerCli command.Cli) error {
 		}
 	}
 
-	defer release()
 	return nil
 }
 
