@@ -10,5 +10,6 @@ type OIDCProvider interface {
 
 var Providers = []OIDCProvider{
 	NewGitHubOIDCProvider(),
+	NewCircleCIOIDCProvider(),
 	NewBuildkiteOIDCProvider(),
 }
