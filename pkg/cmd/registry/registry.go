@@ -115,6 +115,7 @@ func run() error {
 	}
 
 	<-shutdown
+	buildkitConn.Close()
 	return nil
 }
 
@@ -142,6 +143,10 @@ func BuildkitdClient(ctx context.Context, caCert, certPEM, keyPEM []byte, buildk
 		grpc.WithDefaultCallOptions(grpc.MaxCallSendMsgSize(defaults.DefaultMaxSendMsgSize)),
 		grpc.WithAuthority(uri.Host),
 		grpc.WithTransportCredentials(credentials.NewTLS(cfg)),
+		grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) {
+			addr := strings.TrimPrefix(buildkitdAddress, "tcp://")
+			return (&net.Dialer{}).DialContext(ctx, "tcp", addr)
+		}),
 	}
 
 	return grpc.DialContext(ctx, buildkitdAddress, opts...)

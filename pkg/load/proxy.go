@@ -5,7 +5,6 @@ import (
 	"encoding/base64"
 	"fmt"
 	"io"
-	"net"
 	"sync"
 
 	"github.com/docker/docker/api/types"
@@ -20,31 +19,47 @@ const DefaultProxyImageName = "ghcr.io/depot/helper:3.0.0"
 type ProxyContainer struct {
 	ID   string
 	Port string
-	Conn net.Conn
+}
+
+type ProxyConfig struct {
+	// Image is the registry proxy image to run.
+	Image string
+
+	// Addr is the remote buildkit address (e.g. tcp://192.168.0.1)
+	Addr   string
+	CACert []byte
+	Key    []byte
+	Cert   []byte
+
+	// RawManifest is the raw manifest bytes for the single image to serve.
+	RawManifest []byte
+	// RawConfig is the raw config bytes for the single image to serve.
+	RawConfig []byte
 }
 
 // Runs a proxy container via the docker API so that the docker daemon can pull from the local depot registry.
 // This is specifically to handle docker for desktop running in a VM restricting access to the host network.
-func RunProxyImage(ctx context.Context, dockerapi docker.APIClient, proxyImage string, rawManifest, rawConfig []byte) (*ProxyContainer, error) {
-	if err := PullProxyImage(ctx, dockerapi, proxyImage); err != nil {
+// The proxy image runs a registry proxy that connects to the remote depot buildkitd instance.
+func RunProxyImage(ctx context.Context, dockerapi docker.APIClient, config *ProxyConfig) (*ProxyContainer, error) {
+	if err := PullProxyImage(ctx, dockerapi, config.Image); err != nil {
 		return nil, err
 	}
 
 	resp, err := dockerapi.ContainerCreate(ctx,
 		&container.Config{
-			Image: proxyImage,
+			Image: config.Image,
 			ExposedPorts: nat.PortSet{
 				nat.Port("8888/tcp"): struct{}{},
 			},
-			AttachStdin:  true,
-			AttachStdout: true,
-			OpenStdin:    true,
-			StdinOnce:    true,
 			Env: []string{
-				fmt.Sprintf("MANIFEST=%s", base64.StdEncoding.EncodeToString(rawManifest)),
-				fmt.Sprintf("CONFIG=%s", base64.StdEncoding.EncodeToString(rawConfig)),
+				fmt.Sprintf("CA_CERT=%s", base64.StdEncoding.EncodeToString(config.CACert)),
+				fmt.Sprintf("KEY=%s", base64.StdEncoding.EncodeToString(config.Key)),
+				fmt.Sprintf("CERT=%s", base64.StdEncoding.EncodeToString(config.Cert)),
+				fmt.Sprintf("ADDR=%s", base64.StdEncoding.EncodeToString([]byte(config.Addr))),
+				fmt.Sprintf("MANIFEST=%s", base64.StdEncoding.EncodeToString(config.RawManifest)),
+				fmt.Sprintf("CONFIG=%s", base64.StdEncoding.EncodeToString(config.RawConfig)),
 			},
-			Cmd: []string{"/srv/helper"},
+			Cmd: []string{"registry"},
 		},
 		&container.HostConfig{
 			PublishAllPorts: true,
@@ -57,11 +72,6 @@ func RunProxyImage(ctx context.Context, dockerapi docker.APIClient, proxyImage s
 		fmt.Sprintf("depot-registry-proxy-%s", RandImageName()), // unique container name
 	)
 
-	if err != nil {
-		return nil, err
-	}
-
-	attach, err := dockerapi.ContainerAttach(ctx, resp.ID, types.ContainerAttachOptions{Stdin: true, Stdout: true, Stderr: true, Logs: true, Stream: true})
 	if err != nil {
 		return nil, err
 	}
@@ -84,7 +94,6 @@ func RunProxyImage(ctx context.Context, dockerapi docker.APIClient, proxyImage s
 	return &ProxyContainer{
 		ID:   resp.ID,
 		Port: proxyPortOnHost,
-		Conn: attach.Conn,
 	}, nil
 }
 
