@@ -8,7 +8,6 @@ import (
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -20,9 +19,11 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/containerd/containerd/api/services/content/v1"
+	"github.com/containerd/containerd"
+	"github.com/containerd/containerd/content"
 	"github.com/containerd/containerd/defaults"
 	"github.com/opencontainers/go-digest"
+	v1 "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -100,13 +101,13 @@ func run() error {
 		cancel()
 	}()
 
-	buildkitConn, err := BuildkitdClient(ctx, caCert, certPEM, keyPEM, string(addr))
+	client, err := NewContainerdClient(ctx, caCert, certPEM, keyPEM, string(addr))
 	if err != nil {
 		return err
 	}
+	defer client.Close()
 
-	client := content.NewContentClient(buildkitConn)
-	registry := NewRegistry(rawConfig, rawManifest, manifest, client)
+	registry := NewRegistry(rawConfig, rawManifest, manifest, client.ContentStore())
 	srv.Handler = registry
 	srv.Addr = ":8888"
 
@@ -115,11 +116,10 @@ func run() error {
 	}
 
 	<-shutdown
-	buildkitConn.Close()
 	return nil
 }
 
-func BuildkitdClient(ctx context.Context, caCert, certPEM, keyPEM []byte, buildkitdAddress string) (*grpc.ClientConn, error) {
+func NewContainerdClient(ctx context.Context, caCert, certPEM, keyPEM []byte, buildkitdAddress string) (*containerd.Client, error) {
 	uri, err := url.Parse(buildkitdAddress)
 	if err != nil {
 		return nil, err
@@ -147,9 +147,16 @@ func BuildkitdClient(ctx context.Context, caCert, certPEM, keyPEM []byte, buildk
 			addr := strings.TrimPrefix(buildkitdAddress, "tcp://")
 			return (&net.Dialer{}).DialContext(ctx, "tcp", addr)
 		}),
+		grpc.FailOnNonTempDialError(true),
+		grpc.WithReturnConnectionError(),
 	}
 
-	return grpc.DialContext(ctx, buildkitdAddress, opts...)
+	conn, err := grpc.DialContext(ctx, buildkitdAddress, opts...)
+	if err != nil {
+		return nil, err
+	}
+
+	return containerd.NewWithConn(conn)
 }
 
 // Registry is a small docker registry serving a single image by forwarding requests to the BuildKit cache.
@@ -161,17 +168,17 @@ type Registry struct {
 	ManifestDigest Digest
 	Manifest       Manifest
 
-	ContentClient content.ContentClient
+	ContentStore content.Store
 }
 
-func NewRegistry(rawConfig, rawManifest []byte, manifest Manifest, client content.ContentClient) *Registry {
+func NewRegistry(rawConfig, rawManifest []byte, manifest Manifest, store content.Store) *Registry {
 	return &Registry{
 		RawConfig:      rawConfig,
 		ConfigDigest:   FromBytes(rawConfig),
 		RawManifest:    rawManifest,
 		ManifestDigest: FromBytes(rawManifest),
 		Manifest:       manifest,
-		ContentClient:  client,
+		ContentStore:   store,
 	}
 }
 
@@ -274,46 +281,18 @@ func (r *Registry) handleBlobs(resp http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	rr := &content.ReadContentRequest{
-		Digest: digest.Digest(blobSHA),
-	}
-
-	childCtx, cancel := context.WithCancel(req.Context())
-	defer cancel()
-	rc, err := r.ContentClient.Read(childCtx, rr)
+	ra, err := r.ContentStore.ReaderAt(req.Context(), v1.Descriptor{Digest: digest.Digest(blobSHA)})
 	if err != nil {
 		writeError(resp, http.StatusInternalServerError, "INTERNAL_SERVER_ERROR", "unable to get blob")
 		return
 	}
 
-	var bodyWritten bool
-	for {
-		select {
-		case <-req.Context().Done():
-			return
-		default:
-		}
+	cr := content.NewReader(ra)
 
-		res, err := rc.Recv()
-		if errors.Is(err, io.EOF) {
-			break
-		}
-
-		if err != nil {
-			if !bodyWritten {
-				writeError(resp, http.StatusNotFound, "NOT_FOUND", "unable to read blob")
-			}
-			log.Printf("unable to read %s", blobSHA)
-			return
-		}
-
-		_, err = resp.Write(res.Data)
-		if err != nil {
-			log.Printf("unable to write %s", blobSHA)
-			return
-		}
-
-		bodyWritten = true
+	_, err = io.Copy(resp, cr)
+	if err != nil {
+		log.Printf("unable to read %s: %v", blobSHA, err)
+		return
 	}
 }
 
