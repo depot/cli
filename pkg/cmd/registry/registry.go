@@ -31,8 +31,9 @@ import (
 
 func NewCmdRegistry() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "registry",
-		Short: "Run a local registry",
+		Use:    "registry",
+		Short:  "Run a local registry",
+		Hidden: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return run()
 		},
