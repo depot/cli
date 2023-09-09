@@ -204,6 +204,7 @@ func (r *Registry) ServeHTTP(resp http.ResponseWriter, req *http.Request) {
 		writeError(resp, http.StatusNotFound, "METHOD_UNKNOWN", "We don't understand your method + url")
 		return
 	}
+	log.Printf("Healthy")
 }
 
 func isManifest(req *http.Request) bool {
@@ -220,6 +221,7 @@ func (r *Registry) handleManifests(resp http.ResponseWriter, req *http.Request) 
 	resp.Header().Set("Docker-Content-Digest", r.ManifestDigest.String())
 	resp.Header().Set("Content-Type", r.Manifest.MediaType)
 
+	log.Printf("Manifest")
 	if req.Method == http.MethodGet {
 		_, _ = io.Copy(resp, bytes.NewReader(r.RawManifest))
 	}
@@ -233,6 +235,7 @@ func (r *Registry) handleConfig(resp http.ResponseWriter, req *http.Request) {
 	resp.Header().Set("Content-Length", strconv.FormatInt(int64(len(r.RawConfig)), 10))
 	resp.Header().Set("Docker-Content-Digest", r.ConfigDigest.String())
 
+	log.Printf("Config")
 	if req.Method == http.MethodGet {
 		_, _ = io.Copy(resp, bytes.NewReader(r.RawConfig))
 	}
@@ -278,6 +281,9 @@ func (r *Registry) handleBlobs(resp http.ResponseWriter, req *http.Request) {
 		writeError(resp, http.StatusNotFound, "BLOB_UNKNOWN", "blob not found")
 		return
 	}
+
+	log.Printf("%s Blob: %s", req.Method, blobSHA)
+
 	if req.Method != http.MethodGet {
 		return
 	}
@@ -298,6 +304,7 @@ func (r *Registry) handleBlobs(resp http.ResponseWriter, req *http.Request) {
 }
 
 func writeError(resp http.ResponseWriter, status int, code, message string) {
+	log.Printf("Error: %s: %s", code, message)
 	resp.WriteHeader(status)
 	type err struct {
 		Code    string `json:"code"`

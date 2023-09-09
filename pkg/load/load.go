@@ -249,36 +249,6 @@ func NewRegistryProxy(ctx context.Context, config *ProxyConfig, dockerapi docker
 		return nil, err
 	}
 
-	// Wait for the registry proxy to be ready.
-	dockerAccessibleHost := fmt.Sprintf("localhost:%s", proxyContainer.Port)
-
-	// Ten 1-second retries to check for the proxy container being active.
-	var ready bool
-	for retry := 0; retry < 10; retry++ {
-		ready = ReadyBy(ctx, dockerAccessibleHost, time.Second)
-		if ready {
-			break
-		}
-
-		var done bool
-		select {
-		case <-ctx.Done():
-			done = true
-		case <-time.After(100 * time.Millisecond):
-		}
-
-		if done {
-			break
-		}
-	}
-
-	if !ready {
-		ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-		defer cancel()
-		_ = StopProxyContainer(ctx, dockerapi, proxyContainer.ID)
-		return nil, errors.New("timed out waiting for registry to be ready")
-	}
-
 	randomImageName := RandImageName()
 	// The tag is only for the UX during a pull.  The first line will be "pulling manifest".
 	tag := "manifest"

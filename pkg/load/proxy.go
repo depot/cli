@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"sync"
+	"time"
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
@@ -60,6 +61,13 @@ func RunProxyImage(ctx context.Context, dockerapi docker.APIClient, config *Prox
 				fmt.Sprintf("CONFIG=%s", base64.StdEncoding.EncodeToString(config.RawConfig)),
 			},
 			Cmd: []string{"registry"},
+			Healthcheck: &container.HealthConfig{
+				Test:        []string{"CMD", "curl", "-f", "http://localhost:8888/v2"},
+				Timeout:     time.Second,
+				Interval:    time.Second,
+				StartPeriod: 0,
+				Retries:     10,
+			},
 		},
 		&container.HostConfig{
 			PublishAllPorts: true,
@@ -80,21 +88,35 @@ func RunProxyImage(ctx context.Context, dockerapi docker.APIClient, config *Prox
 		return nil, err
 	}
 
-	inspect, err := dockerapi.ContainerInspect(ctx, resp.ID)
-	if err != nil {
-		_ = StopProxyContainer(ctx, dockerapi, resp.ID)
-		return nil, err
-	}
-	binds := inspect.NetworkSettings.Ports[nat.Port("8888/tcp")]
-	var proxyPortOnHost string
-	for _, bind := range binds {
-		proxyPortOnHost = bind.HostPort
+	for retries := 0; retries < 10; retries++ {
+		inspect, err := dockerapi.ContainerInspect(ctx, resp.ID)
+		if err != nil {
+			ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			defer cancel()
+			_ = StopProxyContainer(ctx, dockerapi, resp.ID)
+			return nil, err
+		}
+
+		if inspect.State.Health != nil && inspect.State.Health.Status == "healthy" {
+			binds := inspect.NetworkSettings.Ports[nat.Port("8888/tcp")]
+			var proxyPortOnHost string
+			for _, bind := range binds {
+				proxyPortOnHost = bind.HostPort
+			}
+
+			return &ProxyContainer{
+				ID:   resp.ID,
+				Port: proxyPortOnHost,
+			}, nil
+		}
+
+		time.Sleep(1 * time.Second)
 	}
 
-	return &ProxyContainer{
-		ID:   resp.ID,
-		Port: proxyPortOnHost,
-	}, nil
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	_ = StopProxyContainer(ctx, dockerapi, resp.ID)
+	return nil, fmt.Errorf("timed out waiting for registry to be ready")
 }
 
 var (
