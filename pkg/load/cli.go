@@ -12,6 +12,7 @@ import (
 // DepotLoadOptions are options to load images from the depot hosted registry.
 type DepotLoadOptions struct {
 	UseLocalRegistry bool   // Backwards-compat with buildx that uses tar loads.
+	ProxyImage       string // Image to use as a proxy for the depot registry.
 	Project          string // Depot project name; used to tag images.
 	BuildID          string // Depot build ID; used to tag images.
 	IsBake           bool   // If run from bake, we add the bake target to the image tag.
@@ -20,8 +21,9 @@ type DepotLoadOptions struct {
 
 // Options to download from the Depot hosted registry and tag the image with the user provide tag.
 type PullOptions struct {
-	UserTags []string // Tags the user wishes the image to have.
-	Quiet    bool     // No logs plz
+	UserTags   []string // Tags the user wishes the image to have.
+	Quiet      bool     // No logs plz
+	ProxyImage string   // Image to use as a proxy for the depot registry.
 }
 
 // WithDepotImagePull updates buildOpts to push to the depot user's personal registry.
@@ -82,8 +84,9 @@ func WithDepotImagePull(buildOpts map[string]build.Options, loadOpts DepotLoadOp
 			}
 
 			pullOpt := PullOptions{
-				UserTags: userTags,
-				Quiet:    loadOpts.ProgressMode == progress.PrinterModeQuiet,
+				UserTags:   userTags,
+				Quiet:      loadOpts.ProgressMode == progress.PrinterModeQuiet,
+				ProxyImage: loadOpts.ProxyImage,
 			}
 			toPull[target] = pullOpt
 		}

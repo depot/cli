@@ -227,6 +227,7 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.No
 			opts,
 			load.DepotLoadOptions{
 				UseLocalRegistry: depotOpts.useLocalRegistry,
+				ProxyImage:       depotOpts.proxyImage,
 				Project:          depotOpts.project,
 				BuildID:          depotOpts.buildID,
 				IsBake:           false,

@@ -117,6 +117,7 @@ func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator) (er
 			buildOpts,
 			load.DepotLoadOptions{
 				UseLocalRegistry: in.DepotOptions.useLocalRegistry,
+				ProxyImage:       in.DepotOptions.proxyImage,
 				Project:          in.DepotOptions.project,
 				BuildID:          in.DepotOptions.buildID,
 				IsBake:           true,
