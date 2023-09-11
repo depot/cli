@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/http"
 	"runtime"
 	"strings"
 	"time"
@@ -313,16 +312,4 @@ func chooseBestImageManifest(architecture string, index *ocispecs.Index) (ocispe
 	}
 
 	return ocispecs.Descriptor{}, errors.New("no manifests found")
-}
-
-// ReadyBy waits for at most `deadline` for an image registry to respond.
-// This is useful to check if the proxy container is ready to handle requests.
-func ReadyBy(ctx context.Context, addr string, deadline time.Duration) bool {
-	ctx, cancel := context.WithTimeout(ctx, 1*time.Second)
-	defer cancel()
-
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+addr+"/v2/", nil)
-	_, err := http.DefaultClient.Do(req)
-
-	return err == nil
 }
