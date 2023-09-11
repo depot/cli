@@ -5,7 +5,6 @@ import (
 	"os"
 
 	depotbuild "github.com/depot/cli/pkg/build"
-	"github.com/depot/cli/pkg/load"
 	"github.com/depot/cli/pkg/profiler"
 	cliv1 "github.com/depot/cli/pkg/proto/depot/cli/v1"
 	buildx "github.com/docker/buildx/build"
@@ -32,10 +31,6 @@ func BeginBuild(ctx context.Context, req *cliv1.CreateBuildRequest, token string
 
 	if proxyImage := os.Getenv("DEPOT_PROXY_IMAGE"); proxyImage != "" {
 		build.ProxyImage = proxyImage
-	}
-
-	if build.ProxyImage == "" {
-		build.ProxyImage = load.DefaultProxyImageName
 	}
 
 	profiler.StartProfiler(build.ID, profilerToken)

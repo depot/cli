@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/depot/cli/internal/build"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
@@ -15,7 +16,7 @@ import (
 	"github.com/docker/go-connections/nat"
 )
 
-const DefaultProxyImageName = "ghcr.io/depot/helper:3.0.0"
+var proxyImage = "ghcr.io/depot/cli:" + build.Version //
 
 type ProxyContainer struct {
 	ID   string
@@ -23,9 +24,6 @@ type ProxyContainer struct {
 }
 
 type ProxyConfig struct {
-	// Image is the registry proxy image to run.
-	Image string
-
 	// Addr is the remote buildkit address (e.g. tcp://192.168.0.1)
 	Addr   string
 	CACert []byte
@@ -42,13 +40,13 @@ type ProxyConfig struct {
 // This is specifically to handle docker for desktop running in a VM restricting access to the host network.
 // The proxy image runs a registry proxy that connects to the remote depot buildkitd instance.
 func RunProxyImage(ctx context.Context, dockerapi docker.APIClient, config *ProxyConfig) (*ProxyContainer, error) {
-	if err := PullProxyImage(ctx, dockerapi, config.Image); err != nil {
+	if err := PullProxyImage(ctx, dockerapi, proxyImage); err != nil {
 		return nil, err
 	}
 
 	resp, err := dockerapi.ContainerCreate(ctx,
 		&container.Config{
-			Image: config.Image,
+			Image: proxyImage,
 			ExposedPorts: nat.PortSet{
 				nat.Port("8888/tcp"): struct{}{},
 			},

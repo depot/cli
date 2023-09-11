@@ -40,7 +40,6 @@ func DepotFastLoad(ctx context.Context, dockerapi docker.APIClient, resp []depot
 			return err
 		}
 		proxyOpts := &ProxyConfig{
-			Image:       pullOpt.ProxyImage,
 			RawManifest: manifest,
 			RawConfig:   config,
 			Addr:        nodeRes.Node.DriverOpts["addr"],
@@ -240,10 +239,6 @@ type RegistryProxy struct {
 //
 // The running server and proxy container will be cleaned-up when Close() is called.
 func NewRegistryProxy(ctx context.Context, config *ProxyConfig, dockerapi docker.APIClient) (*RegistryProxy, error) {
-	// TODO: TEMP
-	/*****/
-	config.Image = "ghcr.io/depot/cli:0.0.0-dev"
-
 	proxyContainer, err := RunProxyImage(ctx, dockerapi, config)
 	if err != nil {
 		return nil, err
