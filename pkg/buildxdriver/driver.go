@@ -52,16 +52,6 @@ func (d *Driver) Bootstrap(ctx context.Context, reporter progress.Logger) error 
 	_, err = d.buildkit.Connect(ctx)
 	finishLog(err)
 
-	// Store the machine connection details in the driver config so they can be
-	// accessed by clients that need to create new connections to the machine.
-	// This was done because the buildkit client doesn't expose the connection.
-	// This was added originally for the registry proxy.
-	d.cfg.DriverOpts["addr"] = d.buildkit.Addr
-	d.cfg.DriverOpts["serverName"] = d.buildkit.ServerName
-	d.cfg.DriverOpts["caCert"] = d.buildkit.CACert
-	d.cfg.DriverOpts["key"] = d.buildkit.Key
-	d.cfg.DriverOpts["cert"] = d.buildkit.Cert
-
 	return err
 }
 

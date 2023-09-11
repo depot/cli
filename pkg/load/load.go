@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	contentapi "github.com/containerd/containerd/api/services/content/v1"
 	depotbuild "github.com/depot/cli/pkg/buildx/build"
 	depotprogress "github.com/depot/cli/pkg/progress"
 	"github.com/docker/buildx/util/progress"
@@ -31,26 +32,28 @@ func DepotFastLoad(ctx context.Context, dockerapi docker.APIClient, resp []depot
 		pw := progress.WithPrefix(printer, buildRes.Name, len(pullOpts) > 1)
 		// Pick the best node to pull from by checking against local architecture.
 		nodeRes := chooseNodeResponse(buildRes.NodeResponses)
-		pullOpt := pullOpts[buildRes.Name]
+		contentClient, err := contentClient(ctx, nodeRes)
+		if err != nil {
+			return err
+		}
 
 		architecture := nodeRes.Node.DriverOpts["platform"]
 		manifest, config, err := decodeNodeResponse(architecture, nodeRes)
 		if err != nil {
 			return err
 		}
-		proxyOpts := &ProxyConfig{
+
+		pullOpt := pullOpts[buildRes.Name]
+		proxyOpts := &ProxyOpts{
 			RawManifest: manifest,
 			RawConfig:   config,
-			Addr:        nodeRes.Node.DriverOpts["addr"],
-			CACert:      []byte(nodeRes.Node.DriverOpts["caCert"]),
-			Key:         []byte(nodeRes.Node.DriverOpts["key"]),
-			Cert:        []byte(nodeRes.Node.DriverOpts["cert"]),
+			ProxyImage:  pullOpt.ProxyImage,
 		}
 
 		// Start the depot registry proxy.
 		var registry *RegistryProxy
 		err = progress.Wrap("preparing to load", pw.Write, func(logger progress.SubLogger) error {
-			registry, err = NewRegistryProxy(ctx, proxyOpts, dockerapi)
+			registry, err = NewRegistryProxy(ctx, proxyOpts, dockerapi, contentClient, logger)
 			if err != nil {
 				err = logger.Wrap(fmt.Sprintf("[registry] unable to start: %s", err), func() error { return err })
 			}
@@ -89,6 +92,12 @@ func chooseNodeResponse(nodeResponses []depotbuild.DepotNodeResponse) depotbuild
 	}
 
 	return nodeResponses[nodeIdx]
+}
+
+type ProxyOpts struct {
+	RawManifest []byte
+	RawConfig   []byte
+	ProxyImage  string
 }
 
 // ImageExported is the solve response key added for `depot.export.image.version=2`.
@@ -218,12 +227,32 @@ func decodeNodeResponseV1(architecture string, nodeRes depotbuild.DepotNodeRespo
 	return rawManifest, rawConfig, nil
 }
 
+func contentClient(ctx context.Context, nodeResponse depotbuild.DepotNodeResponse) (contentapi.ContentClient, error) {
+	if nodeResponse.Node.Driver == nil {
+		return nil, fmt.Errorf("node %s does not have a driver", nodeResponse.Node.Name)
+	}
+
+	client, err := nodeResponse.Node.Driver.Client(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	if client == nil {
+		return nil, fmt.Errorf("node %s does not have a client", nodeResponse.Node.Name)
+	}
+
+	return client.ContentClient(), nil
+}
+
 type RegistryProxy struct {
 	// ImageToPull is the image that should be pulled.
 	ImageToPull string
 	// ProxyContainerID is the ID of the container that is proxying the registry.
 	// Make sure to remove this container when finished.
 	ProxyContainerID string
+
+	// Cancel is the cancel function for the registry server.
+	Cancel context.CancelFunc
 
 	// Used to stop and remove the proxy container.
 	DockerAPI docker.APIClient
@@ -234,33 +263,66 @@ type RegistryProxy struct {
 //
 // This also handles docker for desktop issues that prevent the registry from being
 // accessed directly because the proxy is accessible by the docker daemon.
-// The proxy registry translates pull requests into requests to containerd via mTLS.
+// The proxy registry translates pull requests into a custom protocol over
+// stdin and stdout.  We use this proprietary protocol as the Docker daemon itself
+// my be remote and the only way to communicate with remote daemons is over `attach`.
 //
 // The running server and proxy container will be cleaned-up when Close() is called.
-func NewRegistryProxy(ctx context.Context, config *ProxyConfig, dockerapi docker.APIClient) (*RegistryProxy, error) {
-	proxyContainer, err := RunProxyImage(ctx, dockerapi, config)
+func NewRegistryProxy(ctx context.Context, opts *ProxyOpts, dockerapi docker.APIClient, contentClient contentapi.ContentClient, logger progress.SubLogger) (*RegistryProxy, error) {
+	proxyContainer, err := RunProxyImage(ctx, dockerapi, opts.ProxyImage, opts.RawManifest, opts.RawConfig)
 	if err != nil {
 		return nil, err
 	}
 
+	// Ten 1-second retries to check for the proxy container being active.
+	var ready bool
+	for retry := 0; retry < 10; retry++ {
+		ready, err = ReadyBy(proxyContainer.Conn, time.Second)
+		if err != nil {
+			ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			defer cancel()
+
+			_ = StopProxyContainer(ctx, dockerapi, proxyContainer.ID)
+			return nil, err
+		}
+		if ready {
+			break
+		}
+	}
+
+	// We fail open to at least try the load because maybe we missed the ready byte.
+	// Otherwise, we would use docker load.
+	if !ready {
+		_ = logger.Wrap("[registry] ready not received", func() error { return nil })
+	}
+
+	transport := NewTransport(proxyContainer.Conn)
 	randomImageName := RandImageName()
 	// The tag is only for the UX during a pull.  The first line will be "pulling manifest".
 	tag := "manifest"
 	// Docker is able to pull from the proxyPort on localhost.  The proxy
-	// forwards registry requests to buildkitd via mTLS.
+	// forwards registry requests to the Transport over docker attach's stdin and stdout.
 	imageToPull := fmt.Sprintf("localhost:%s/%s:%s", proxyContainer.Port, randomImageName, tag)
 
+	ctx, cancel := context.WithCancel(ctx)
 	registryProxy := &RegistryProxy{
 		ImageToPull:      imageToPull,
 		ProxyContainerID: proxyContainer.ID,
+		Cancel:           cancel,
 		DockerAPI:        dockerapi,
 	}
+
+	go func() {
+		// Canceling ctx will stop the transport.
+		_ = transport.Run(ctx, contentClient)
+	}()
 
 	return registryProxy, nil
 }
 
-// Close will stop and remove the registry proxy container if it was created.
+// Close will stop the registry server and remove the proxy container if it was created.
 func (l *RegistryProxy) Close(ctx context.Context) error {
+	l.Cancel() // This stops the serial transport.
 	return StopProxyContainer(ctx, l.DockerAPI, l.ProxyContainerID)
 }
 
