@@ -18,15 +18,16 @@ import (
 	"os/signal"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
-	"github.com/containerd/containerd"
-	"github.com/containerd/containerd/content"
+	contentv1 "github.com/containerd/containerd/api/services/content/v1"
 	"github.com/containerd/containerd/defaults"
 	"github.com/opencontainers/go-digest"
-	v1 "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/keepalive"
 )
 
 func NewCmdRegistry() *cobra.Command {
@@ -102,13 +103,12 @@ func run() error {
 		cancel()
 	}()
 
-	client, err := NewContainerdClient(ctx, caCert, certPEM, keyPEM, string(addr))
+	contentClient, err := NewContentClient(ctx, caCert, certPEM, keyPEM, string(addr))
 	if err != nil {
 		return err
 	}
-	defer client.Close()
 
-	registry := NewRegistry(rawConfig, rawManifest, manifest, client.ContentStore())
+	registry := NewRegistry(rawConfig, rawManifest, manifest, contentClient)
 	srv.Handler = registry
 	srv.Addr = ":8888"
 
@@ -120,7 +120,7 @@ func run() error {
 	return nil
 }
 
-func NewContainerdClient(ctx context.Context, caCert, certPEM, keyPEM []byte, buildkitdAddress string) (*containerd.Client, error) {
+func NewContentClient(ctx context.Context, caCert, certPEM, keyPEM []byte, buildkitdAddress string) (contentv1.ContentClient, error) {
 	uri, err := url.Parse(buildkitdAddress)
 	if err != nil {
 		return nil, err
@@ -150,6 +150,7 @@ func NewContainerdClient(ctx context.Context, caCert, certPEM, keyPEM []byte, bu
 		}),
 		grpc.FailOnNonTempDialError(true),
 		grpc.WithReturnConnectionError(),
+		grpc.WithKeepaliveParams(keepalive.ClientParameters{Time: 10 * time.Second}),
 	}
 
 	conn, err := grpc.DialContext(ctx, buildkitdAddress, opts...)
@@ -157,7 +158,7 @@ func NewContainerdClient(ctx context.Context, caCert, certPEM, keyPEM []byte, bu
 		return nil, err
 	}
 
-	return containerd.NewWithConn(conn)
+	return contentv1.NewContentClient(conn), nil
 }
 
 // Registry is a small docker registry serving a single image by forwarding requests to the BuildKit cache.
@@ -169,17 +170,17 @@ type Registry struct {
 	ManifestDigest Digest
 	Manifest       Manifest
 
-	ContentStore content.Store
+	ContentClient contentv1.ContentClient
 }
 
-func NewRegistry(rawConfig, rawManifest []byte, manifest Manifest, store content.Store) *Registry {
+func NewRegistry(rawConfig, rawManifest []byte, manifest Manifest, contentClient contentv1.ContentClient) *Registry {
 	return &Registry{
 		RawConfig:      rawConfig,
 		ConfigDigest:   FromBytes(rawConfig),
 		RawManifest:    rawManifest,
 		ManifestDigest: FromBytes(rawManifest),
 		Manifest:       manifest,
-		ContentStore:   store,
+		ContentClient:  contentClient,
 	}
 }
 
@@ -288,19 +289,71 @@ func (r *Registry) handleBlobs(resp http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	ra, err := r.ContentStore.ReaderAt(req.Context(), v1.Descriptor{Digest: digest.Digest(blobSHA)})
+	childCtx, cancel := context.WithCancel(req.Context())
+	defer cancel()
+
+	rc, err := r.ContentClient.Read(childCtx, &contentv1.ReadContentRequest{Digest: digest.Digest(blobSHA)})
 	if err != nil {
 		writeError(resp, http.StatusInternalServerError, "INTERNAL_SERVER_ERROR", "unable to get blob")
 		return
 	}
 
-	cr := content.NewReader(ra)
-
-	_, err = io.Copy(resp, cr)
-	if err != nil {
-		log.Printf("unable to read %s: %v", blobSHA, err)
-		return
+	type chunk struct {
+		Data []byte
+		Err  error
 	}
+
+	chunks := make(chan chunk, 8)
+
+	wg := sync.WaitGroup{}
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+
+		for {
+			resp, err := rc.Recv()
+			if err != nil {
+				chunks <- chunk{nil, err}
+				close(chunks)
+				break
+			} else {
+				chunks <- chunk{resp.Data, nil}
+			}
+		}
+	}()
+
+	written := 0
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+
+		bodyWritten := false
+
+		for chunk := range chunks {
+			if chunk.Err != nil {
+				if chunk.Err != io.EOF {
+					log.Printf("Error receiving chunk: %v", chunk.Err)
+					if !bodyWritten {
+						writeError(resp, http.StatusInternalServerError, "INTERNAL_SERVER_ERROR", "unable to get blob")
+					}
+				}
+				return
+			}
+
+			chunkWritten, err := resp.Write(chunk.Data)
+			if err != nil {
+				log.Printf("Error writing chunk: %v", err)
+				return
+			}
+			bodyWritten = true
+
+			written += chunkWritten
+		}
+	}()
+
+	wg.Wait()
 }
 
 func writeError(resp http.ResponseWriter, status int, code, message string) {
