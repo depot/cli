@@ -5,9 +5,10 @@ import (
 	"encoding/base64"
 	"fmt"
 	"io"
-	"net"
 	"sync"
+	"time"
 
+	"github.com/depot/cli/internal/build"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
@@ -15,17 +16,30 @@ import (
 	"github.com/docker/go-connections/nat"
 )
 
-const DefaultProxyImageName = "ghcr.io/depot/helper:3.0.0"
+var proxyImage = "ghcr.io/depot/cli:" + build.Version //
 
 type ProxyContainer struct {
 	ID   string
 	Port string
-	Conn net.Conn
+}
+
+type ProxyConfig struct {
+	// Addr is the remote buildkit address (e.g. tcp://192.168.0.1)
+	Addr   string
+	CACert []byte
+	Key    []byte
+	Cert   []byte
+
+	// RawManifest is the raw manifest bytes for the single image to serve.
+	RawManifest []byte
+	// RawConfig is the raw config bytes for the single image to serve.
+	RawConfig []byte
 }
 
 // Runs a proxy container via the docker API so that the docker daemon can pull from the local depot registry.
 // This is specifically to handle docker for desktop running in a VM restricting access to the host network.
-func RunProxyImage(ctx context.Context, dockerapi docker.APIClient, proxyImage string, rawManifest, rawConfig []byte) (*ProxyContainer, error) {
+// The proxy image runs a registry proxy that connects to the remote depot buildkitd instance.
+func RunProxyImage(ctx context.Context, dockerapi docker.APIClient, config *ProxyConfig) (*ProxyContainer, error) {
 	if err := PullProxyImage(ctx, dockerapi, proxyImage); err != nil {
 		return nil, err
 	}
@@ -36,15 +50,22 @@ func RunProxyImage(ctx context.Context, dockerapi docker.APIClient, proxyImage s
 			ExposedPorts: nat.PortSet{
 				nat.Port("8888/tcp"): struct{}{},
 			},
-			AttachStdin:  true,
-			AttachStdout: true,
-			OpenStdin:    true,
-			StdinOnce:    true,
 			Env: []string{
-				fmt.Sprintf("MANIFEST=%s", base64.StdEncoding.EncodeToString(rawManifest)),
-				fmt.Sprintf("CONFIG=%s", base64.StdEncoding.EncodeToString(rawConfig)),
+				fmt.Sprintf("CA_CERT=%s", base64.StdEncoding.EncodeToString(config.CACert)),
+				fmt.Sprintf("KEY=%s", base64.StdEncoding.EncodeToString(config.Key)),
+				fmt.Sprintf("CERT=%s", base64.StdEncoding.EncodeToString(config.Cert)),
+				fmt.Sprintf("ADDR=%s", base64.StdEncoding.EncodeToString([]byte(config.Addr))),
+				fmt.Sprintf("MANIFEST=%s", base64.StdEncoding.EncodeToString(config.RawManifest)),
+				fmt.Sprintf("CONFIG=%s", base64.StdEncoding.EncodeToString(config.RawConfig)),
 			},
-			Cmd: []string{"/srv/helper"},
+			Cmd: []string{"registry"},
+			Healthcheck: &container.HealthConfig{
+				Test:        []string{"CMD", "curl", "-f", "http://localhost:8888/v2"},
+				Timeout:     time.Second,
+				Interval:    time.Second,
+				StartPeriod: 0,
+				Retries:     10,
+			},
 		},
 		&container.HostConfig{
 			PublishAllPorts: true,
@@ -61,31 +82,39 @@ func RunProxyImage(ctx context.Context, dockerapi docker.APIClient, proxyImage s
 		return nil, err
 	}
 
-	attach, err := dockerapi.ContainerAttach(ctx, resp.ID, types.ContainerAttachOptions{Stdin: true, Stdout: true, Stderr: true, Logs: true, Stream: true})
-	if err != nil {
-		return nil, err
-	}
-
 	if err := dockerapi.ContainerStart(ctx, resp.ID, types.ContainerStartOptions{}); err != nil {
 		return nil, err
 	}
 
-	inspect, err := dockerapi.ContainerInspect(ctx, resp.ID)
-	if err != nil {
-		_ = StopProxyContainer(ctx, dockerapi, resp.ID)
-		return nil, err
-	}
-	binds := inspect.NetworkSettings.Ports[nat.Port("8888/tcp")]
-	var proxyPortOnHost string
-	for _, bind := range binds {
-		proxyPortOnHost = bind.HostPort
+	for retries := 0; retries < 10; retries++ {
+		inspect, err := dockerapi.ContainerInspect(ctx, resp.ID)
+		if err != nil {
+			ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			defer cancel()
+			_ = StopProxyContainer(ctx, dockerapi, resp.ID)
+			return nil, err
+		}
+
+		if inspect.State.Health != nil && inspect.State.Health.Status == "healthy" {
+			binds := inspect.NetworkSettings.Ports[nat.Port("8888/tcp")]
+			var proxyPortOnHost string
+			for _, bind := range binds {
+				proxyPortOnHost = bind.HostPort
+			}
+
+			return &ProxyContainer{
+				ID:   resp.ID,
+				Port: proxyPortOnHost,
+			}, nil
+		}
+
+		time.Sleep(1 * time.Second)
 	}
 
-	return &ProxyContainer{
-		ID:   resp.ID,
-		Port: proxyPortOnHost,
-		Conn: attach.Conn,
-	}, nil
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	_ = StopProxyContainer(ctx, dockerapi, resp.ID)
+	return nil, fmt.Errorf("timed out waiting for registry to be ready")
 }
 
 var (
