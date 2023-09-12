@@ -313,9 +313,9 @@ func (r *Registry) handleBlobs(resp http.ResponseWriter, req *http.Request) {
 
 	start := time.Now()
 
-	buf := make([]byte, 16*1024*1024)
+	buf := make([]byte, 4*1024*1024)
 	written, err := copyBuffer(respWriter, cr, buf)
-	// written, err := io.Copy(respWriter, cr)
+	// written, err := io.Copy(resp, cr)
 	if err != nil {
 		log.Printf("unable to read %s: %v", blobSHA, err)
 		return
