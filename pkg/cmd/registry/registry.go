@@ -1,6 +1,7 @@
 package registry
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto"
@@ -18,6 +19,7 @@ import (
 	"os/signal"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/containerd/containerd"
 	"github.com/containerd/containerd/content"
@@ -27,6 +29,12 @@ import (
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/keepalive"
+)
+
+const (
+	grpcInitialWindowSize     = 4 << 20
+	grpcInitialConnWindowSize = 4 << 20
 )
 
 func NewCmdRegistry() *cobra.Command {
@@ -150,6 +158,13 @@ func NewContainerdClient(ctx context.Context, caCert, certPEM, keyPEM []byte, bu
 		}),
 		grpc.FailOnNonTempDialError(true),
 		grpc.WithReturnConnectionError(),
+		grpc.WithKeepaliveParams(keepalive.ClientParameters{
+			Time: 10 * time.Second,
+		}),
+		// grpc.WithReadBufferSize(4 * 1024 * 1024),
+		// grpc.WithWriteBufferSize(4 * 1024 * 1024),
+		grpc.WithInitialWindowSize(grpcInitialWindowSize),
+		grpc.WithInitialConnWindowSize(grpcInitialConnWindowSize),
 	}
 
 	conn, err := grpc.DialContext(ctx, buildkitdAddress, opts...)
@@ -293,14 +308,30 @@ func (r *Registry) handleBlobs(resp http.ResponseWriter, req *http.Request) {
 		writeError(resp, http.StatusInternalServerError, "INTERNAL_SERVER_ERROR", "unable to get blob")
 		return
 	}
+	defer ra.Close()
 
 	cr := content.NewReader(ra)
 
-	_, err = io.Copy(resp, cr)
+	respWriter := bufio.NewWriterSize(resp, grpcInitialWindowSize)
+
+	start := time.Now()
+
+	buf := make([]byte, grpcInitialWindowSize)
+	written, err := io.CopyBuffer(writerOnly{respWriter}, cr, buf)
 	if err != nil {
 		log.Printf("unable to read %s: %v", blobSHA, err)
 		return
 	}
+	if respWriter.Buffered() > 0 {
+		fmt.Println("Bufferred", respWriter.Buffered())
+		respWriter.Flush()
+	}
+	throughput := float64(written) / time.Since(start).Seconds()
+	log.Printf("Sent %d bytes in %s (%.2f MB/s)", written, time.Since(start), throughput/1024/1024)
+}
+
+type writerOnly struct {
+	io.Writer
 }
 
 func writeError(resp http.ResponseWriter, status int, code, message string) {
