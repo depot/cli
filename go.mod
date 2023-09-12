@@ -73,7 +73,7 @@ require (
 	github.com/compose-spec/compose-go v1.6.0 // indirect
 	github.com/containerd/continuity v0.3.0 // indirect
 	github.com/containerd/ttrpc v1.1.1 // indirect
-	github.com/containerd/typeurl v1.0.3-0.20220422153119-7f6e6d160d67 // indirect
+	github.com/containerd/typeurl v1.0.2 // indirect
 	github.com/creack/pty v1.1.12 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/distribution/distribution/v3 v3.0.0-20220725133111-4bf3547399eb // indirect
