@@ -9,6 +9,7 @@ import (
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -30,11 +31,6 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
-)
-
-const (
-	grpcInitialWindowSize     = 4 << 20
-	grpcInitialConnWindowSize = 4 << 20
 )
 
 func NewCmdRegistry() *cobra.Command {
@@ -161,10 +157,10 @@ func NewContainerdClient(ctx context.Context, caCert, certPEM, keyPEM []byte, bu
 		grpc.WithKeepaliveParams(keepalive.ClientParameters{
 			Time: 10 * time.Second,
 		}),
-		// grpc.WithReadBufferSize(4 * 1024 * 1024),
-		// grpc.WithWriteBufferSize(4 * 1024 * 1024),
-		grpc.WithInitialWindowSize(grpcInitialWindowSize),
-		grpc.WithInitialConnWindowSize(grpcInitialConnWindowSize),
+		// grpc.WithReadBufferSize(1024 * 1024),
+		// grpc.WithWriteBufferSize(1024 * 1024),
+		grpc.WithInitialWindowSize(1 << 30),
+		grpc.WithInitialConnWindowSize(1 << 30),
 	}
 
 	conn, err := grpc.DialContext(ctx, buildkitdAddress, opts...)
@@ -310,14 +306,16 @@ func (r *Registry) handleBlobs(resp http.ResponseWriter, req *http.Request) {
 	}
 	defer ra.Close()
 
-	cr := content.NewReader(ra)
+	cr := readerOnly{readerSpy{content.NewReader(readerAtSpy{ra})}}
 
-	respWriter := bufio.NewWriterSize(resp, grpcInitialWindowSize)
+	// respWriter := writerOnly{newFlushWriter(resp)}
+	respWriter := bufio.NewWriter(writerOnly{newFlushWriter(resp)})
 
 	start := time.Now()
 
-	buf := make([]byte, grpcInitialWindowSize)
-	written, err := io.CopyBuffer(writerOnly{respWriter}, cr, buf)
+	buf := make([]byte, 16*1024*1024)
+	written, err := copyBuffer(respWriter, cr, buf)
+	// written, err := io.Copy(respWriter, cr)
 	if err != nil {
 		log.Printf("unable to read %s: %v", blobSHA, err)
 		return
@@ -332,6 +330,121 @@ func (r *Registry) handleBlobs(resp http.ResponseWriter, req *http.Request) {
 
 type writerOnly struct {
 	io.Writer
+}
+
+type readerOnly struct {
+	io.Reader
+}
+
+type flushWriter struct {
+	f http.Flusher
+	w io.Writer
+}
+
+func newFlushWriter(w io.Writer) io.Writer {
+	f, ok := w.(http.Flusher)
+	if !ok {
+		log.Printf("Not a flush writer")
+		return w
+	}
+	log.Printf("Using flush writer")
+	return &flushWriter{f: f, w: w}
+}
+
+func (fw *flushWriter) Write(bs []byte) (int, error) {
+	log.Printf("Writing %d bytes", len(bs))
+	n, err := fw.w.Write(bs)
+	if err != nil {
+		return n, err
+	}
+	if fw.f != nil {
+		fw.f.Flush()
+	}
+	return n, nil
+}
+
+type readerSpy struct {
+	r io.Reader
+}
+
+func (rs readerSpy) Read(bs []byte) (int, error) {
+	n, err := rs.r.Read(bs)
+	log.Printf("[spy] Read %d: read %d bytes (err %v)", len(bs), n, err)
+	return n, err
+}
+
+type readerAtSpy struct {
+	ra content.ReaderAt
+}
+
+func (rs readerAtSpy) ReadAt(bs []byte, off int64) (int, error) {
+	n, err := rs.ra.ReadAt(bs, off)
+	log.Printf("[spy] ReadAt %d %d: read %d bytes (err %v)", len(bs), off, n, err)
+	return n, err
+}
+
+func (rs readerAtSpy) Close() error {
+	log.Printf("[spy] Close")
+	return rs.ra.Close()
+}
+
+func (rs readerAtSpy) Size() int64 {
+	log.Printf("[spy] Size")
+	return rs.ra.Size()
+}
+
+func copyBuffer(dst io.Writer, src io.Reader, buf []byte) (written int64, err error) {
+	// // If the reader has a WriteTo method, use it to do the copy.
+	// // Avoids an allocation and a copy.
+	// if wt, ok := src.(io.WriterTo); ok {
+	// 	log.Printf("Using WriteTo")
+	// 	return wt.WriteTo(dst)
+	// }
+	// // Similarly, if the writer has a ReadFrom method, use it to do the copy.
+	// if rt, ok := dst.(io.ReaderFrom); ok {
+	// 	log.Printf("Using ReadFrom")
+	// 	return rt.ReadFrom(src)
+	// }
+	if buf == nil {
+		size := 32 * 1024
+		if l, ok := src.(*io.LimitedReader); ok && int64(size) > l.N {
+			if l.N < 1 {
+				size = 1
+			} else {
+				size = int(l.N)
+			}
+		}
+		buf = make([]byte, size)
+	}
+	for {
+		nr, er := src.Read(buf)
+		log.Printf("Read %d bytes", nr)
+		if nr > 0 {
+			nw, ew := dst.Write(buf[0:nr])
+			if nw < 0 || nr < nw {
+				nw = 0
+				if ew == nil {
+					ew = errors.New("invalid write")
+				}
+			}
+			written += int64(nw)
+			if ew != nil {
+				err = ew
+				break
+			}
+			if nr != nw {
+				err = io.ErrShortWrite
+				break
+			}
+		}
+		if er != nil {
+			if er != io.EOF {
+				err = er
+			}
+			break
+		}
+	}
+	return written, err
 }
 
 func writeError(resp http.ResponseWriter, status int, code, message string) {
