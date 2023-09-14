@@ -59,15 +59,73 @@ func ImagePullPrivileged(ctx context.Context, dockerapi docker.APIClient, imageN
 	return nil
 }
 
+type Status int
+
+const (
+	Unknown Status = iota
+	AlreadyExists
+	Downloading
+	Verifying
+	DownloadComplete
+	Extracting
+	PullComplete
+)
+
+func NewStatus(s string) Status {
+	switch s {
+	case "Already exists":
+		return AlreadyExists
+	case "Downloading":
+		return Downloading
+	case "Verifying Checksum":
+		return Verifying
+	case "Download complete":
+		return DownloadComplete
+	case "Extracting":
+		return Extracting
+	case "Pull complete":
+		return PullComplete
+	default:
+		return Unknown
+	}
+}
+
+func (s Status) String() string {
+	switch s {
+	case Unknown:
+		return "unknown"
+	case AlreadyExists:
+		return "already exists"
+	case Downloading:
+		return "downloading"
+	case Verifying:
+		return "verifying"
+	case DownloadComplete:
+		return "download complete"
+	case Extracting:
+		return "extracting"
+	case PullComplete:
+		return "pull complete"
+	default:
+		return "unknown"
+	}
+}
+
+type PullProgress struct {
+	Status Status
+	Vtx    *client.VertexStatus
+}
+
 func printPull(ctx context.Context, rc io.Reader, l progress.SubLogger) error {
-	started := map[string]*client.VertexStatus{}
+	started := map[string]PullProgress{}
 
 	defer func() {
 		for _, st := range started {
-			if st.Completed == nil {
+			if st.Vtx.Completed == nil {
 				now := time.Now()
-				st.Completed = &now
-				l.SetStatus(st)
+				st.Vtx.Completed = &now
+				st.Vtx.Current = st.Vtx.Total
+				l.SetStatus(st.Vtx)
 			}
 		}
 	}()
@@ -98,40 +156,67 @@ func printPull(ctx context.Context, rc io.Reader, l progress.SubLogger) error {
 			continue
 		}
 
-		id := "pulling layer " + jm.ID
+		status := NewStatus(jm.Status)
+		if status == Unknown || status == DownloadComplete {
+			continue
+		}
+
+		id := status.String() + " " + jm.ID
+
 		// The first "layer" is the tag.  We've specially tagged the image to be manifest so the UX looks better.
 		if jm.ID == "manifest" {
 			id = "pulling manifest"
 		}
-		st, ok := started[id]
+		st, ok := started[jm.ID]
 		if !ok {
-			if jm.Progress != nil || strings.HasPrefix(jm.Status, "Pulling") {
-				now := time.Now()
-				st = &client.VertexStatus{
-					ID:      id,
-					Started: &now,
-				}
-				started[id] = st
-			} else {
+			if jm.Progress == nil || status == DownloadComplete || status == PullComplete {
 				continue
 			}
+
+			now := time.Now()
+			st = PullProgress{
+				Status: status,
+				Vtx: &client.VertexStatus{
+					ID:      id,
+					Started: &now,
+				},
+			}
+			started[id] = st
 		}
-		st.Timestamp = time.Now()
+
+		// If our new state is further along than the other state, send the older state and update to the new state.
+		if st.Status < status {
+			now := time.Now()
+			st.Vtx.Completed = &now
+			st.Vtx.Current = st.Vtx.Total
+			l.SetStatus(st.Vtx)
+
+			if status == DownloadComplete || status == PullComplete {
+				delete(started, jm.ID)
+				continue
+			}
+
+			st = PullProgress{
+				Status: status,
+				Vtx: &client.VertexStatus{
+					ID:      id,
+					Started: &now,
+				},
+			}
+			started[id] = st
+		}
+
+		st.Vtx.Timestamp = time.Now()
 		if jm.Progress != nil {
-			st.Current = jm.Progress.Current
-			st.Total = jm.Progress.Total
+			st.Vtx.Current = jm.Progress.Current
+			st.Vtx.Total = jm.Progress.Total
 		}
 		if jm.Error != nil {
 			now := time.Now()
-			st.Completed = &now
+			st.Vtx.Completed = &now
 		}
 
-		if jm.Status == "Pull complete" {
-			now := time.Now()
-			st.Completed = &now
-			st.Current = st.Total
-		}
-		l.SetStatus(st)
+		l.SetStatus(st.Vtx)
 	}
 	return nil
 }
