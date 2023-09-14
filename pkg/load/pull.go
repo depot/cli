@@ -59,15 +59,84 @@ func ImagePullPrivileged(ctx context.Context, dockerapi docker.APIClient, imageN
 	return nil
 }
 
+type Status int
+
+const (
+	Unknown Status = iota
+	PullingFrom
+	PullingFSLayer
+	AlreadyExists
+	Downloading
+	Verifying
+	DownloadComplete
+	Extracting
+	PullComplete
+)
+
+func NewStatus(s string) Status {
+	switch s {
+	case "Pulling fs layer":
+		return PullingFSLayer
+	case "Already exists":
+		return AlreadyExists
+	case "Downloading":
+		return Downloading
+	case "Verifying Checksum":
+		return Verifying
+	case "Download complete":
+		return DownloadComplete
+	case "Extracting":
+		return Extracting
+	case "Pull complete":
+		return PullComplete
+	default:
+		if strings.HasPrefix(s, "Pulling from ") {
+			return PullingFrom
+		}
+		return Unknown
+	}
+}
+
+func (s Status) String() string {
+	switch s {
+	case Unknown:
+		return "unknown"
+	case PullingFrom:
+		return "pulling from"
+	case PullingFSLayer:
+		return "pulling fs layer"
+	case AlreadyExists:
+		return "already exists"
+	case Downloading:
+		return "downloading"
+	case Verifying:
+		return "verifying"
+	case DownloadComplete:
+		return "download complete"
+	case Extracting:
+		return "extracting"
+	case PullComplete:
+		return "pull complete"
+	default:
+		return "unknown"
+	}
+}
+
+type PullProgress struct {
+	Status Status
+	Vtx    *client.VertexStatus
+}
+
 func printPull(ctx context.Context, rc io.Reader, l progress.SubLogger) error {
-	started := map[string]*client.VertexStatus{}
+	started := map[string]PullProgress{}
 
 	defer func() {
 		for _, st := range started {
-			if st.Completed == nil {
+			if st.Vtx.Completed == nil {
 				now := time.Now()
-				st.Completed = &now
-				l.SetStatus(st)
+				st.Vtx.Completed = &now
+				st.Vtx.Current = st.Vtx.Total
+				l.SetStatus(st.Vtx)
 			}
 		}
 	}()
@@ -98,40 +167,79 @@ func printPull(ctx context.Context, rc io.Reader, l progress.SubLogger) error {
 			continue
 		}
 
-		id := "pulling layer " + jm.ID
+		status := NewStatus(jm.Status)
+		// The Pulling fs and pulling from don't seem to be too useful to display.
+		if status == PullingFSLayer || status == PullingFrom {
+			continue
+		}
+
+		// Assume that any unknown status is an error message to be logged.
+		if status == Unknown {
+			l.Log(0, []byte(jm.Status+"\n"))
+			continue
+		}
+
+		id := status.String() + " " + jm.ID
+
 		// The first "layer" is the tag.  We've specially tagged the image to be manifest so the UX looks better.
 		if jm.ID == "manifest" {
 			id = "pulling manifest"
 		}
-		st, ok := started[id]
+		st, ok := started[jm.ID]
 		if !ok {
-			if jm.Progress != nil || strings.HasPrefix(jm.Status, "Pulling") {
-				now := time.Now()
-				st = &client.VertexStatus{
-					ID:      id,
-					Started: &now,
-				}
-				started[id] = st
-			} else {
+			if jm.Progress == nil || status == DownloadComplete || status == PullComplete {
 				continue
 			}
-		}
-		st.Timestamp = time.Now()
-		if jm.Progress != nil {
-			st.Current = jm.Progress.Current
-			st.Total = jm.Progress.Total
-		}
-		if jm.Error != nil {
+
 			now := time.Now()
-			st.Completed = &now
+			st = PullProgress{
+				Status: status,
+				Vtx: &client.VertexStatus{
+					ID:      id,
+					Started: &now,
+				},
+			}
+			started[jm.ID] = st
 		}
 
-		if jm.Status == "Pull complete" {
+		st.Vtx.Timestamp = time.Now()
+
+		// If our new state is further along than the other state, send the older state and update to the new state.
+		if st.Status < status {
 			now := time.Now()
-			st.Completed = &now
-			st.Current = st.Total
+			st.Vtx.Completed = &now
+			st.Vtx.Current = st.Vtx.Total
+			l.SetStatus(st.Vtx)
+
+			// We use the "complete" steps to complete the previous step, but not create a new one.
+			// The "complete" steps don't contain any other extra information.
+			if status == DownloadComplete || status == PullComplete {
+				delete(started, jm.ID)
+				continue
+			}
+
+			st = PullProgress{
+				Status: status,
+				Vtx: &client.VertexStatus{
+					ID:      id,
+					Started: &now,
+				},
+			}
+			started[jm.ID] = st
 		}
-		l.SetStatus(st)
+
+		if jm.Progress != nil {
+			st.Vtx.Current = jm.Progress.Current
+			st.Vtx.Total = jm.Progress.Total
+		}
+
+		// Errors or already exists should complete so that the color changes in the UI.
+		if jm.Error != nil || st.Status == AlreadyExists {
+			now := time.Now()
+			st.Vtx.Completed = &now
+		}
+
+		l.SetStatus(st.Vtx)
 	}
 	return nil
 }
