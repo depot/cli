@@ -63,6 +63,8 @@ type Status int
 
 const (
 	Unknown Status = iota
+	PullingFrom
+	PullingFSLayer
 	AlreadyExists
 	Downloading
 	Verifying
@@ -73,6 +75,8 @@ const (
 
 func NewStatus(s string) Status {
 	switch s {
+	case "Pulling fs layer":
+		return PullingFSLayer
 	case "Already exists":
 		return AlreadyExists
 	case "Downloading":
@@ -86,6 +90,9 @@ func NewStatus(s string) Status {
 	case "Pull complete":
 		return PullComplete
 	default:
+		if strings.HasPrefix(s, "Pulling from ") {
+			return PullingFrom
+		}
 		return Unknown
 	}
 }
@@ -94,6 +101,10 @@ func (s Status) String() string {
 	switch s {
 	case Unknown:
 		return "unknown"
+	case PullingFrom:
+		return "pulling from"
+	case PullingFSLayer:
+		return "pulling fs layer"
 	case AlreadyExists:
 		return "already exists"
 	case Downloading:
@@ -157,7 +168,14 @@ func printPull(ctx context.Context, rc io.Reader, l progress.SubLogger) error {
 		}
 
 		status := NewStatus(jm.Status)
-		if status == Unknown || status == DownloadComplete {
+		// The Pulling fs and pulling from don't seem to be too useful to display.
+		if status == PullingFSLayer || status == PullingFrom {
+			continue
+		}
+
+		// Assume that any unknown status is an error message to be logged.
+		if status == Unknown {
+			l.Log(0, []byte(jm.Status+"\n"))
 			continue
 		}
 
@@ -181,8 +199,10 @@ func printPull(ctx context.Context, rc io.Reader, l progress.SubLogger) error {
 					Started: &now,
 				},
 			}
-			started[id] = st
+			started[jm.ID] = st
 		}
+
+		st.Vtx.Timestamp = time.Now()
 
 		// If our new state is further along than the other state, send the older state and update to the new state.
 		if st.Status < status {
@@ -191,6 +211,8 @@ func printPull(ctx context.Context, rc io.Reader, l progress.SubLogger) error {
 			st.Vtx.Current = st.Vtx.Total
 			l.SetStatus(st.Vtx)
 
+			// We use the "complete" steps to complete the previous step, but not create a new one.
+			// The "complete" steps don't contain any other extra information.
 			if status == DownloadComplete || status == PullComplete {
 				delete(started, jm.ID)
 				continue
@@ -203,15 +225,16 @@ func printPull(ctx context.Context, rc io.Reader, l progress.SubLogger) error {
 					Started: &now,
 				},
 			}
-			started[id] = st
+			started[jm.ID] = st
 		}
 
-		st.Vtx.Timestamp = time.Now()
 		if jm.Progress != nil {
 			st.Vtx.Current = jm.Progress.Current
 			st.Vtx.Total = jm.Progress.Total
 		}
-		if jm.Error != nil {
+
+		// Errors or already exists should complete so that the color changes in the UI.
+		if jm.Error != nil || st.Status == AlreadyExists {
 			now := time.Now()
 			st.Vtx.Completed = &now
 		}
