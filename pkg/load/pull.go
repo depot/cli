@@ -65,6 +65,7 @@ const (
 	Unknown Status = iota
 	PullingFrom
 	PullingFSLayer
+	Waiting
 	AlreadyExists
 	Downloading
 	Verifying
@@ -77,6 +78,8 @@ func NewStatus(s string) Status {
 	switch s {
 	case "Pulling fs layer":
 		return PullingFSLayer
+	case "Waiting":
+		return Waiting
 	case "Already exists":
 		return AlreadyExists
 	case "Downloading":
@@ -105,6 +108,8 @@ func (s Status) String() string {
 		return "pulling from"
 	case PullingFSLayer:
 		return "pulling fs layer"
+	case Waiting:
+		return "waiting"
 	case AlreadyExists:
 		return "already exists"
 	case Downloading:
@@ -168,8 +173,8 @@ func printPull(ctx context.Context, rc io.Reader, l progress.SubLogger) error {
 		}
 
 		status := NewStatus(jm.Status)
-		// The Pulling fs and pulling from don't seem to be too useful to display.
-		if status == PullingFSLayer || status == PullingFrom {
+		// The Pulling fs, pulling from, and waiting don't seem to be too useful to display.
+		if status == PullingFSLayer || status == PullingFrom || status == Waiting {
 			continue
 		}
 
