@@ -49,7 +49,7 @@ jobs:
       - name: Build pnpm packages
         run: make npm
         env:
-          DEPOT_VERSION: ${{ steps.tag-name.outputs.tag-name }}
+          DEPOT_CLI_VERSION: ${{ steps.tag-name.outputs.tag-name }}
 
       - name: Release npm packages
         run: pnpm publish -r --access public --no-git-checks
