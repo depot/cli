@@ -28,3 +28,5 @@ cp ../dist/windows_windows_386/bin/depot.exe packages/cli-win32-ia32/bin/
 cp ../dist/windows_windows_amd64_v1/bin/depot.exe packages/cli-win32-x64/bin/
 cp ../dist/windows_windows_arm_6/bin/depot.exe packages/cli-win32-arm/bin/
 cp ../dist/windows_windows_arm64/bin/depot.exe packages/cli-win32-arm64/bin/
+
+chmod +x packages/*/bin/*
