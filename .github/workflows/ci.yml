@@ -14,6 +14,23 @@ jobs:
           go-version: "1.20.5"
           check-latest: true
           cache: true
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v2.4.0
+        with:
+          version: 8.x.x
+
+      - name: Install Node 18
+        uses: actions/setup-node@v3
+        with:
+          node-version: "18"
+          cache: pnpm
+          cache-dependency-path: npm/pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        working-directory: npm
+
       - name: Verify dependencies
         run: |
           go mod verify
@@ -44,6 +61,12 @@ jobs:
           args: --timeout 5m
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
+      - run: pnpm fmt:check
+        working-directory: npm
+
+      - run: pnpm type-check
+        working-directory: npm
+
   build:
     runs-on: ubuntu-latest-16-cores
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.event.pull_request.base.repo.full_name
@@ -54,10 +77,29 @@ jobs:
           go-version: "1.20.5"
           check-latest: true
           cache: true
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v2.4.0
+        with:
+          version: 8.x.x
+
+      - name: Install Node 18
+        uses: actions/setup-node@v3
+        with:
+          node-version: "18"
+          cache: pnpm
+          cache-dependency-path: npm/pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        working-directory: npm
+
       - uses: goreleaser/goreleaser-action@v4
         with:
           version: 1.19.0
           args: build --clean --snapshot
+
+      - run: make npm
 
   package:
     runs-on: ubuntu-latest
