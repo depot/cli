@@ -26,6 +26,7 @@ import (
 	"github.com/depot/cli/pkg/helpers"
 	"github.com/depot/cli/pkg/load"
 	depotprogress "github.com/depot/cli/pkg/progress"
+	"github.com/depot/cli/pkg/sbom"
 	"github.com/docker/buildx/build"
 	"github.com/docker/buildx/monitor"
 	"github.com/docker/buildx/store"
@@ -107,17 +108,22 @@ type commonOptions struct {
 }
 
 type DepotOptions struct {
-	project          string
-	token            string
-	buildID          string
-	buildURL         string
-	buildPlatform    string
+	project       string
+	token         string
+	buildID       string
+	buildURL      string
+	buildPlatform string
+
 	useLocalRegistry bool
 	proxyImage       string
-	lint             bool
-	lintFailOn       string
-	allowNoOutput    bool
-	builderOptions   []builder.Option
+
+	lint       bool
+	lintFailOn string
+
+	sbomDir string
+
+	allowNoOutput  bool
+	builderOptions []builder.Option
 }
 
 func runBuild(dockerCli command.Cli, validatedOpts map[string]build.Options, in buildOptions) (err error) {
@@ -301,6 +307,13 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.No
 		for _, nodeRes := range buildRes.NodeResponses {
 			digest := nodeRes.SolveResponse.ExporterResponse[exptypes.ExporterImageDigestKey]
 			imageIDs = append(imageIDs, digest)
+		}
+	}
+
+	if depotOpts.sbomDir != "" {
+		err := sbom.Save(depotOpts.sbomDir, resp)
+		if err != nil {
+			return nil, nil, err
 		}
 	}
 
@@ -792,6 +805,7 @@ func commonBuildFlags(options *commonOptions, flags *pflag.FlagSet) {
 func depotFlags(cmd *cobra.Command, options *DepotOptions, flags *pflag.FlagSet) {
 	depotBuildFlags(options, flags)
 	depotLintFlags(cmd, options, flags)
+	depotAttestationFlags(cmd, options, flags)
 }
 
 func depotBuildFlags(options *DepotOptions, flags *pflag.FlagSet) {
@@ -818,6 +832,10 @@ func depotLintFlags(cmd *cobra.Command, options *DepotOptions, flags *pflag.Flag
 			"none\tLint issues do not fail the build",
 		}, cobra.ShellCompDirectiveDefault
 	})
+}
+
+func depotAttestationFlags(cmd *cobra.Command, options *DepotOptions, flags *pflag.FlagSet) {
+	flags.StringVar(&options.sbomDir, "sbom-dir", "", `directory to store SBOM attestations`)
 }
 
 func checkWarnedFlags(f *pflag.Flag) {
