@@ -6,6 +6,7 @@
     "fmt": "prettier --write .",
     "fmt:check": "prettier --check .",
     "generate-types": "dts-bundle-generator src/main.ts -o packages/cli/lib/main.d.ts --external-inlines execa",
+    "update-versions": "node ./update-versions.cjs",
     "type-check": "tsc --noEmit"
   },
   "dependencies": {

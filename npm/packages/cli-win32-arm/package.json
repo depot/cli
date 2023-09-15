@@ -1,6 +1,6 @@
 {
   "name": "@depot/cli-win32-arm",
-  "version": "0.0.1-cli.2.36.1",
+  "version": "0.0.1-cli.0.0.0-dev",
   "description": "The Windows ARM 32-bit binary for @depot/cli.",
   "repository": "https://github.com/depot/cli",
   "license": "MIT",

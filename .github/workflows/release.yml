@@ -48,9 +48,11 @@ jobs:
 
       - name: Build pnpm packages
         run: make npm
+        env:
+          DEPOT_VERSION: ${{ steps.tag-name.outputs.tag-name }}
 
       - name: Release npm packages
-        run: pnpm publish -r --access public
+        run: pnpm publish -r --access public --no-git-checks
         working-directory: npm
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

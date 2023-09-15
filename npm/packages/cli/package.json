@@ -1,6 +1,6 @@
 {
   "name": "@depot/cli",
-  "version": "0.0.1-cli.2.36.1",
+  "version": "0.0.1-cli.0.0.0-dev",
   "description": "Depot CLI",
   "repository": "https://github.com/depot/cli",
   "license": "MIT",
@@ -16,15 +16,15 @@
     "postinstall": "node install.js"
   },
   "optionalDependencies": {
-    "@depot/cli-darwin-arm64": "0.0.1-cli.2.36.1",
-    "@depot/cli-darwin-x64": "0.0.1-cli.2.36.1",
-    "@depot/cli-linux-arm": "0.0.1-cli.2.36.1",
-    "@depot/cli-linux-arm64": "0.0.1-cli.2.36.1",
-    "@depot/cli-linux-ia32": "0.0.1-cli.2.36.1",
-    "@depot/cli-linux-x64": "0.0.1-cli.2.36.1",
-    "@depot/cli-win32-arm64": "0.0.1-cli.2.36.1",
-    "@depot/cli-win32-ia32": "0.0.1-cli.2.36.1",
-    "@depot/cli-win32-x64": "0.0.1-cli.2.36.1"
+    "@depot/cli-darwin-arm64": "0.0.1-cli.0.0.0-dev",
+    "@depot/cli-darwin-x64": "0.0.1-cli.0.0.0-dev",
+    "@depot/cli-linux-arm": "0.0.1-cli.0.0.0-dev",
+    "@depot/cli-linux-arm64": "0.0.1-cli.0.0.0-dev",
+    "@depot/cli-linux-ia32": "0.0.1-cli.0.0.0-dev",
+    "@depot/cli-linux-x64": "0.0.1-cli.0.0.0-dev",
+    "@depot/cli-win32-arm64": "0.0.1-cli.0.0.0-dev",
+    "@depot/cli-win32-ia32": "0.0.1-cli.0.0.0-dev",
+    "@depot/cli-win32-x64": "0.0.1-cli.0.0.0-dev"
   },
   "publishConfig": {
     "access": "public"

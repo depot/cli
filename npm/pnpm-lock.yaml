@@ -46,31 +46,31 @@ importers:
   packages/cli:
     optionalDependencies:
       '@depot/cli-darwin-arm64':
-        specifier: 0.0.1-cli.2.36.1
+        specifier: 0.0.1-cli.0.0.0-dev
         version: link:../cli-darwin-arm64
       '@depot/cli-darwin-x64':
-        specifier: 0.0.1-cli.2.36.1
+        specifier: 0.0.1-cli.0.0.0-dev
         version: link:../cli-darwin-x64
       '@depot/cli-linux-arm':
-        specifier: 0.0.1-cli.2.36.1
+        specifier: 0.0.1-cli.0.0.0-dev
         version: link:../cli-linux-arm
       '@depot/cli-linux-arm64':
-        specifier: 0.0.1-cli.2.36.1
+        specifier: 0.0.1-cli.0.0.0-dev
         version: link:../cli-linux-arm64
       '@depot/cli-linux-ia32':
-        specifier: 0.0.1-cli.2.36.1
+        specifier: 0.0.1-cli.0.0.0-dev
         version: link:../cli-linux-ia32
       '@depot/cli-linux-x64':
-        specifier: 0.0.1-cli.2.36.1
+        specifier: 0.0.1-cli.0.0.0-dev
         version: link:../cli-linux-x64
       '@depot/cli-win32-arm64':
-        specifier: 0.0.1-cli.2.36.1
+        specifier: 0.0.1-cli.0.0.0-dev
         version: link:../cli-win32-arm64
       '@depot/cli-win32-ia32':
-        specifier: 0.0.1-cli.2.36.1
+        specifier: 0.0.1-cli.0.0.0-dev
         version: link:../cli-win32-ia32
       '@depot/cli-win32-x64':
-        specifier: 0.0.1-cli.2.36.1
+        specifier: 0.0.1-cli.0.0.0-dev
         version: link:../cli-win32-x64
 
   packages/cli-darwin-arm64: {}

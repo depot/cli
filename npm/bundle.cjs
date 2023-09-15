@@ -1,7 +1,7 @@
 const esbuild = require('esbuild')
-const pkg = require('./packages/cli/package.json')
 
-const DEPOT_CLI_VERSION = pkg.version.split('-cli.')[1]
+const DEPOT_CLI_VERSION = process.env.DEPOT_CLI_VERSION?.replace('v', '')
+if (!DEPOT_CLI_VERSION) throw new Error('Missing DEPOT_CLI_VERSION')
 
 // packages/cli/install.js
 esbuild.build({

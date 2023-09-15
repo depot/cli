@@ -3,6 +3,7 @@ set -ex
 
 node bundle.cjs
 pnpm generate-types
+pnpm update-versions
 
 chmod +x packages/cli/bin/depot
 
