@@ -15,6 +15,7 @@ import (
 	"github.com/depot/cli/pkg/helpers"
 	"github.com/depot/cli/pkg/load"
 	depotprogress "github.com/depot/cli/pkg/progress"
+	"github.com/depot/cli/pkg/sbom"
 	"github.com/docker/buildx/bake"
 	buildx "github.com/docker/buildx/build"
 	"github.com/docker/buildx/util/buildflags"
@@ -164,6 +165,13 @@ func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator) (er
 			dt[buildRes.Name] = metadata
 		}
 		if err := writeMetadataFile(in.metadataFile, dt); err != nil {
+			return err
+		}
+	}
+
+	if in.sbomDir != "" {
+		err := sbom.Save(in.sbomDir, resp)
+		if err != nil {
 			return err
 		}
 	}
