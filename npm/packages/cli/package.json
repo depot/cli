@@ -10,8 +10,8 @@
   "bin": {
     "depot": "bin/depot"
   },
-  "main": "dist/main.js",
-  "types": "dist/main.d.ts",
+  "main": "lib/main.js",
+  "types": "lib/main.d.ts",
   "scripts": {
     "postinstall": "node install.js"
   },
