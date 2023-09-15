@@ -14,7 +14,10 @@
     "linux"
   ],
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "executableFiles": [
+      "./bin/depot"
+    ]
   },
   "preferUnplugged": true
 }

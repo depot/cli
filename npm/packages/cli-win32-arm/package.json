@@ -14,7 +14,10 @@
     "win32"
   ],
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "executableFiles": [
+      "./bin/depot.exe"
+    ]
   },
   "preferUnplugged": true
 }
