@@ -103,6 +103,8 @@ jobs:
         env:
           DEPOT_CLI_VERSION: v0.0.0-dev
 
+      - uses: mxschmitt/action-tmate@v3
+
   package:
     runs-on: ubuntu-latest
     if: github.event_name != 'pull_request'
