@@ -32,7 +32,7 @@ import {depot, depotBinaryPath} from '@depot/cli'
 async function example() {
   console.log(depotBinaryPath())
 
-  await depot('build', ['-t', 'org/repo:tag', '.'])
+  await depot(['build', '-t', 'org/repo:tag', '.'])
 }
 ```
 
