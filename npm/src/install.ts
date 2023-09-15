@@ -62,8 +62,8 @@ which means the "depot" binary executable can't be run. You can either:
     )
   }
 
-  if (stdout !== versionFromPackageJSON) {
-    throw new Error(`Expected ${JSON.stringify(versionFromPackageJSON)} but got ${JSON.stringify(stdout)}`)
+  if (versionFromStdout !== versionFromPackageJSON) {
+    throw new Error(`Expected ${JSON.stringify(versionFromPackageJSON)} but got ${JSON.stringify(versionFromStdout)}`)
   }
 }
 
