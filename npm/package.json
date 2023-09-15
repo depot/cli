@@ -1,0 +1,37 @@
+{
+  "private": true,
+  "scripts": {
+    "build": "./build.sh",
+    "clean": "rm -rf packages/*/bin packages/*/lib packages/cli/install.js",
+    "fmt": "prettier --write .",
+    "fmt:check": "prettier --check .",
+    "generate-types": "dts-bundle-generator src/main.ts -o packages/cli/lib/main.d.ts --external-inlines execa",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "execa": "^8.0.1"
+  },
+  "devDependencies": {
+    "@tsconfig/node18": "^18.2.1",
+    "@types/node": "^20.5.3",
+    "dts-bundle-generator": "^8.0.1",
+    "esbuild": "^0.19.2",
+    "esbuild-register": "^3.4.2",
+    "prettier": "^3.0.2",
+    "prettier-plugin-organize-imports": "^3.2.3",
+    "prettier-plugin-pkg": "^0.18.0",
+    "tsup": "^7.2.0",
+    "typescript": "^5.1.6"
+  },
+  "prettier": {
+    "printWidth": 120,
+    "semi": false,
+    "singleQuote": true,
+    "trailingComma": "all",
+    "bracketSpacing": false,
+    "plugins": [
+      "prettier-plugin-organize-imports",
+      "prettier-plugin-pkg"
+    ]
+  }
+}

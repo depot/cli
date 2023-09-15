@@ -1,0 +1,32 @@
+{
+  "name": "@depot/cli",
+  "version": "0.0.1-cli.2.36.1",
+  "description": "Depot CLI",
+  "repository": "https://github.com/depot/cli",
+  "license": "MIT",
+  "engines": {
+    "node": ">=14"
+  },
+  "bin": {
+    "depot": "bin/depot"
+  },
+  "main": "dist/main.js",
+  "types": "dist/main.d.ts",
+  "scripts": {
+    "postinstall": "node install.js"
+  },
+  "optionalDependencies": {
+    "@depot/cli-darwin-arm64": "0.0.1-cli.2.36.1",
+    "@depot/cli-darwin-x64": "0.0.1-cli.2.36.1",
+    "@depot/cli-linux-arm": "0.0.1-cli.2.36.1",
+    "@depot/cli-linux-arm64": "0.0.1-cli.2.36.1",
+    "@depot/cli-linux-ia32": "0.0.1-cli.2.36.1",
+    "@depot/cli-linux-x64": "0.0.1-cli.2.36.1",
+    "@depot/cli-win32-arm64": "0.0.1-cli.2.36.1",
+    "@depot/cli-win32-ia32": "0.0.1-cli.2.36.1",
+    "@depot/cli-win32-x64": "0.0.1-cli.2.36.1"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

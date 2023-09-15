@@ -1,0 +1,20 @@
+{
+  "name": "@depot/cli-win32-x64",
+  "version": "0.0.1-cli.2.36.1",
+  "description": "The Windows Intel 64-bit binary for @depot/cli.",
+  "repository": "https://github.com/depot/cli",
+  "license": "MIT",
+  "engines": {
+    "node": ">=14"
+  },
+  "cpu": [
+    "x64"
+  ],
+  "os": [
+    "win32"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "preferUnplugged": true
+}

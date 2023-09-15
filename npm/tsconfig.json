@@ -1,0 +1,17 @@
+{
+  "extends": "@tsconfig/node18/tsconfig.json",
+  "compilerOptions": {
+    "emitDeclarationOnly": true,
+    "rootDir": "src",
+    "outDir": "packages/cli/lib",
+    "alwaysStrict": true,
+    "skipLibCheck": false,
+    "strict": true,
+    "preserveConstEnums": true,
+    "moduleResolution": "node",
+    "module": "commonjs",
+    "declaration": true
+  },
+  "include": ["src"],
+  "exclude": ["node_modules", "dist", "test"]
+}

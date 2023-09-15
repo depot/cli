@@ -1,0 +1,3 @@
+packages/cli/install.js
+packages/*/bin
+packages/*/lib

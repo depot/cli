@@ -1,0 +1,5 @@
+bin/
+dist/
+lib/
+pnpm-lock.yaml
+packages/**/*.js
