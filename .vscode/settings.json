@@ -1,0 +1,5 @@
+{
+  "prettier.prettierPath": "npm/node_modules/prettier/index.cjs",
+  "typescript.tsdk": "npm/node_modules/typescript/lib",
+  "typescript.enablePromptUseWorkspaceTsdk": true
+}

@@ -6,6 +6,10 @@ bin/depot:
 image:
 	docker --context=default buildx build --builder default -t ghcr.io/depot/cli:0.0.0-dev --load .
 
+.PHONY: npm
+npm:
+	cd npm && pnpm run clean && pnpm run build
+
 .PHONY: clean
 clean:
 	rm -rf ./bin

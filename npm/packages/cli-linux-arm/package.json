@@ -1,0 +1,20 @@
+{
+  "name": "@depot/cli-linux-arm",
+  "version": "0.0.1-cli.0.0.0-dev",
+  "description": "The Linux ARM binary for @depot/cli.",
+  "repository": "https://github.com/depot/cli",
+  "license": "MIT",
+  "engines": {
+    "node": ">=14"
+  },
+  "cpu": [
+    "arm"
+  ],
+  "os": [
+    "linux"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "preferUnplugged": true
+}
