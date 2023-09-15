@@ -100,6 +100,8 @@ jobs:
           args: build --clean --snapshot
 
       - run: make npm
+        env:
+          DEPOT_CLI_VERSION: v0.0.0-dev
 
   package:
     runs-on: ubuntu-latest
