@@ -1,6 +1,7 @@
 package sbom
 
 import (
+	"compress/gzip"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -10,10 +11,6 @@ import (
 
 	depotbuild "github.com/depot/cli/pkg/buildx/build"
 )
-
-const SBOMsLabel = "depot/sboms"
-
-type SBOMs map[string][]byte
 
 func Save(outputDir string, resp []depotbuild.DepotBuildResponse) error {
 	err := os.MkdirAll(outputDir, 0750)
@@ -34,8 +31,8 @@ func Save(outputDir string, resp []depotbuild.DepotBuildResponse) error {
 				continue
 			}
 
-			numPlatforms := len(sboms)
-			for platform, sbom := range sboms {
+			numPlatforms := len(sboms.PlatformSBOMs)
+			for platform, sbom := range sboms.PlatformSBOMs {
 				platform = strings.ReplaceAll(platform, "/", "_")
 				var name string
 				if numBuilds == 1 && numPlatforms == 1 {
@@ -59,21 +56,38 @@ func Save(outputDir string, resp []depotbuild.DepotBuildResponse) error {
 	return nil
 }
 
-func DecodeNodeResponses(nodeRes depotbuild.DepotNodeResponse) (SBOMs, error) {
-	sboms := map[string][]byte{}
+// SBOMsLabel is the key for the SBOM attestation.
+const SBOMsLabel = "depot/sboms"
+
+type SBOM struct {
+	// StableDigests are the stable digests of the layer that was scanned.
+	// I'm not sure when there are two digests.
+	StableDigests []string `json:"stable_digests"`
+	// SBOM per platform. Format is spdx.json.
+	PlatformSBOMs map[string][]byte `json:"platform_sboms"`
+}
+
+// DecodeNodeResponses decodes the SBOMs from the node responses. If the
+// response does not have SBOMs, nil is returned.
+func DecodeNodeResponses(nodeRes depotbuild.DepotNodeResponse) (*SBOM, error) {
 	encodedSBOMs, ok := nodeRes.SolveResponse.ExporterResponse[SBOMsLabel]
 	if !ok {
-		return sboms, nil
+		return nil, nil
 	}
 
-	jsonSBOMs, err := base64.StdEncoding.DecodeString(encodedSBOMs)
+	r := strings.NewReader(encodedSBOMs)
+	b64 := base64.NewDecoder(base64.StdEncoding, r)
+	gz, err := gzip.NewReader(b64)
 	if err != nil {
-		return nil, fmt.Errorf("invalid exported images encoding: %w", err)
+		return nil, fmt.Errorf("invalid exported images gzip: %w", err)
 	}
+	defer gz.Close()
 
-	if err := json.Unmarshal(jsonSBOMs, &sboms); err != nil {
+	var sbom SBOM
+	err = json.NewDecoder(gz).Decode(&sbom)
+	if err != nil {
 		return nil, fmt.Errorf("invalid exported images json: %w", err)
 	}
 
-	return sboms, nil
+	return &sbom, nil
 }
