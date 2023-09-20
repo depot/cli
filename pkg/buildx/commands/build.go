@@ -17,7 +17,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/containerd/console"
 	depotbuild "github.com/depot/cli/pkg/buildx/build"
 	"github.com/depot/cli/pkg/buildx/builder"
 	"github.com/depot/cli/pkg/ci"
@@ -28,7 +27,7 @@ import (
 	depotprogress "github.com/depot/cli/pkg/progress"
 	"github.com/depot/cli/pkg/sbom"
 	"github.com/docker/buildx/build"
-	"github.com/docker/buildx/monitor"
+	controllerapi "github.com/docker/buildx/controller/pb"
 	"github.com/docker/buildx/store"
 	"github.com/docker/buildx/store/storeutil"
 	"github.com/docker/buildx/util/buildflags"
@@ -137,6 +136,13 @@ func runBuild(dockerCli command.Cli, validatedOpts map[string]build.Options, in 
 		end(err)
 	}()
 
+	// Avoid leaving a stale file if we eventually fail
+	if in.imageIDFile != "" {
+		if err := os.Remove(in.imageIDFile); err != nil && !os.IsNotExist(err) {
+			return errors.Wrap(err, "removing image ID file")
+		}
+	}
+
 	// key string used for kubernetes "sticky" mode
 	contextPathHash, err := filepath.Abs(in.contextPath)
 	if err != nil {
@@ -157,30 +163,10 @@ func runBuild(dockerCli command.Cli, validatedOpts map[string]build.Options, in 
 		return err
 	}
 
-	imageIDs, res, err := buildTargets(ctx, dockerCli, nodes, validatedOpts, in.DepotOptions, in.progress, in.metadataFile, in.exportLoad, in.invoke != "")
+	imageIDs, _, err := buildTargets(ctx, dockerCli, nodes, validatedOpts, in.DepotOptions, in.progress, in.metadataFile, in.exportLoad)
 	err = wrapBuildError(err, false)
 	if err != nil {
 		return err
-	}
-
-	if in.invoke != "" {
-		cfg, err := parseInvokeConfig(in.invoke)
-		if err != nil {
-			return err
-		}
-		cfg.ResultCtx = res
-		con := console.Current()
-		if err := con.SetRaw(); err != nil {
-			return errors.Errorf("failed to configure terminal: %v", err)
-		}
-		err = monitor.RunMonitor(ctx, cfg, func(ctx context.Context) (*build.ResultContext, error) {
-			_, rr, err := buildTargets(ctx, dockerCli, nodes, validatedOpts, in.DepotOptions, in.progress, in.metadataFile, false, true)
-			return rr, err
-		}, io.NopCloser(os.Stdin), nopCloser{os.Stdout}, nopCloser{os.Stderr})
-		if err != nil {
-			logrus.Warnf("failed to run monitor: %v", err)
-		}
-		_ = con.Reset()
 	}
 
 	if in.quiet {
@@ -188,16 +174,15 @@ func runBuild(dockerCli command.Cli, validatedOpts map[string]build.Options, in 
 			fmt.Println(imageID)
 		}
 	}
+	if in.imageIDFile != "" && len(imageIDs) > 0 {
+		if err := os.WriteFile(in.imageIDFile, []byte(imageIDs[0]), 0644); err != nil {
+			return errors.Wrap(err, "writing image ID file")
+		}
+	}
 	return nil
 }
 
-type nopCloser struct {
-	io.WriteCloser
-}
-
-func (c nopCloser) Close() error { return nil }
-
-func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.Node, opts map[string]build.Options, depotOpts DepotOptions, progressMode, metadataFile string, exportLoad, allowNoOutput bool) (imageIDs []string, res *build.ResultContext, err error) {
+func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.Node, opts map[string]build.Options, depotOpts DepotOptions, progressMode, metadataFile string, exportLoad bool) (imageIDs []string, res *build.ResultHandle, err error) {
 	ctx2, cancel := context.WithCancel(context.TODO())
 
 	buildxprinter, err := progress.NewPrinter(ctx2, os.Stderr, os.Stderr, progressMode)
@@ -248,15 +233,15 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.No
 	}
 
 	buildxNodes := builder.ToBuildxNodes(nodes)
-	buildxNodes, err = depotbuild.FilterAvailableNodes(buildxNodes)
+	buildxNodes, err = build.FilterAvailableNodes(buildxNodes)
 	if err != nil {
 		_ = printer.Wait()
 		return nil, nil, err
 	}
-	buildxopts := depotbuild.BuildxOpts(opts)
+	depotbuild.BuildxOpts(opts)
 
 	// "Boot" the depot nodes.
-	_, clients, err := depotbuild.ResolveDrivers(ctx, buildxNodes, buildxopts, printer)
+	_, clients, err := build.ResolveDrivers(ctx, buildxNodes, opts, printer)
 	if err != nil {
 		_ = printer.Wait()
 		return nil, nil, err
@@ -271,15 +256,15 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.No
 	dockerConfigDir := confutil.ConfigDir(dockerCli)
 
 	linter := NewLinter(NewLintFailureMode(depotOpts.lint, depotOpts.lintFailOn), clients, buildxNodes)
-	dockerfileHandlers := depotbuild.NewDockerfileHandlers(uploader, linter)
+	dockerfileHandlers := build.NewDockerfileHandlers(uploader, linter)
 
-	resp, err := depotbuild.DepotBuildWithResultHandler(ctx, buildxNodes, opts, dockerClient, dockerConfigDir, buildxprinter, dockerfileHandlers, func(driverIndex int, gotRes *build.ResultContext) {
+	resp, err := build.BuildWithResultHandler(ctx, buildxNodes, opts, dockerClient, dockerConfigDir, buildxprinter, dockerfileHandlers, func(driverIndex int, gotRes *build.ResultHandle) {
 		mu.Lock()
 		defer mu.Unlock()
 		if res == nil || driverIndex < idx {
 			idx, res = driverIndex, gotRes
 		}
-	}, allowNoOutput)
+	})
 
 	if err != nil {
 		// Make sure that the printer has completed before returning failed builds.
@@ -340,7 +325,7 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.No
 			if retryable {
 				progress.Write(printer, "[load] fast load failed; retrying", func() error { return err })
 				opts, _ = load.WithDepotImagePull(fallbackOpts, load.DepotLoadOptions{})
-				_, err = depotbuild.DepotBuildWithResultHandler(ctx, buildxNodes, opts, dockerClient, dockerConfigDir, printer, nil, nil, allowNoOutput)
+				_, err = build.BuildWithResultHandler(ctx, buildxNodes, opts, dockerClient, dockerConfigDir, printer, nil, nil)
 			}
 		}
 	}
@@ -364,51 +349,6 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.No
 	}
 
 	return imageIDs, res, err
-}
-
-func parseInvokeConfig(invoke string) (cfg build.ContainerConfig, err error) {
-	cfg.Tty = true
-	if invoke == "default" {
-		return cfg, nil
-	}
-
-	csvReader := csv.NewReader(strings.NewReader(invoke))
-	fields, err := csvReader.Read()
-	if err != nil {
-		return cfg, err
-	}
-	if len(fields) == 1 && !strings.Contains(fields[0], "=") {
-		cfg.Cmd = []string{fields[0]}
-		return cfg, nil
-	}
-	for _, field := range fields {
-		parts := strings.SplitN(field, "=", 2)
-		if len(parts) != 2 {
-			return cfg, errors.Errorf("invalid value %s", field)
-		}
-		key := strings.ToLower(parts[0])
-		value := parts[1]
-		switch key {
-		case "args":
-			cfg.Cmd = append(cfg.Cmd, value) // TODO: support JSON
-		case "entrypoint":
-			cfg.Entrypoint = append(cfg.Entrypoint, value) // TODO: support JSON
-		case "env":
-			cfg.Env = append(cfg.Env, value)
-		case "user":
-			cfg.User = &value
-		case "cwd":
-			cfg.Cwd = &value
-		case "tty":
-			cfg.Tty, err = strconv.ParseBool(value)
-			if err != nil {
-				return cfg, errors.Errorf("failed to parse tty: %v", err)
-			}
-		default:
-			return cfg, errors.Errorf("unknown key %q", key)
-		}
-	}
-	return cfg, nil
 }
 
 func printWarnings(w io.Writer, warnings []client.VertexWarning, mode string) {
@@ -504,7 +444,6 @@ func validateBuildOptions(in *buildOptions) (map[string]build.Options, error) {
 		},
 		BuildArgs:     listToMap(in.buildArgs, true),
 		ExtraHosts:    in.extraHosts,
-		ImageIDFile:   in.imageIDFile,
 		Labels:        listToMap(in.labels, false),
 		NetworkMode:   in.networkMode,
 		NoCache:       noCache,
@@ -517,6 +456,18 @@ func validateBuildOptions(in *buildOptions) (map[string]build.Options, error) {
 		PrintFunc:     printFunc,
 	}
 
+	// TODO: extract env var parsing to a method easily usable by library consumers
+	if v := os.Getenv("SOURCE_DATE_EPOCH"); v != "" {
+		if _, ok := opts.BuildArgs["SOURCE_DATE_EPOCH"]; !ok {
+			opts.BuildArgs["SOURCE_DATE_EPOCH"] = v
+		}
+	}
+
+	opts.SourcePolicy, err = build.ReadSourcePolicy()
+	if err != nil {
+		return nil, err
+	}
+
 	platforms, err := platformutil.Parse(in.platforms)
 	if err != nil {
 		return nil, err
@@ -526,7 +477,11 @@ func validateBuildOptions(in *buildOptions) (map[string]build.Options, error) {
 	dockerConfig := config.LoadDefaultConfigFile(os.Stderr)
 	opts.Session = append(opts.Session, authprovider.NewDockerAuthProvider(dockerConfig))
 
-	secrets, err := buildflags.ParseSecretSpecs(in.secrets)
+	parsedSecrets, err := buildflags.ParseSecretSpecs(in.secrets)
+	if err != nil {
+		return nil, err
+	}
+	secrets, err := controllerapi.CreateSecrets(parsedSecrets)
 	if err != nil {
 		return nil, err
 	}
@@ -536,19 +491,23 @@ func validateBuildOptions(in *buildOptions) (map[string]build.Options, error) {
 	if len(sshSpecs) == 0 && buildflags.IsGitSSH(in.contextPath) {
 		sshSpecs = []string{"default"}
 	}
-	ssh, err := buildflags.ParseSSHSpecs(sshSpecs)
+	parsedSsh, err := buildflags.ParseSSHSpecs(sshSpecs)
+	if err != nil {
+		return nil, err
+	}
+	ssh, err := controllerapi.CreateSSH(parsedSsh)
 	if err != nil {
 		return nil, err
 	}
 	opts.Session = append(opts.Session, ssh)
 
-	outputs, err := buildflags.ParseOutputs(in.outputs)
+	outputs, err := buildflags.ParseExports(in.outputs)
 	if err != nil {
 		return nil, err
 	}
 	if in.exportPush {
 		if len(outputs) == 0 {
-			outputs = []client.ExportEntry{{
+			outputs = []*controllerapi.ExportEntry{{
 				Type: "image",
 				Attrs: map[string]string{
 					"push":                       "true",
@@ -566,7 +525,10 @@ func validateBuildOptions(in *buildOptions) (map[string]build.Options, error) {
 		}
 	}
 
-	opts.Exports = outputs
+	opts.Exports, err = controllerapi.CreateExports(outputs)
+	if err != nil {
+		return nil, err
+	}
 
 	inAttests := append([]string{}, in.attests...)
 	if in.provenance != "" {
@@ -575,22 +537,23 @@ func validateBuildOptions(in *buildOptions) (map[string]build.Options, error) {
 	if in.sbom != "" {
 		inAttests = append(inAttests, buildflags.CanonicalizeAttest("sbom", in.sbom))
 	}
-	opts.Attests, err = buildflags.ParseAttests(inAttests)
+	attests, err := buildflags.ParseAttests(inAttests)
 	if err != nil {
 		return nil, err
 	}
+	opts.Attests = controllerapi.CreateAttestations(attests)
 
 	cacheImports, err := buildflags.ParseCacheEntry(in.cacheFrom)
 	if err != nil {
 		return nil, err
 	}
-	opts.CacheFrom = cacheImports
+	opts.CacheFrom = controllerapi.CreateCaches(cacheImports)
 
 	cacheExports, err := buildflags.ParseCacheEntry(in.cacheTo)
 	if err != nil {
 		return nil, err
 	}
-	opts.CacheTo = cacheExports
+	opts.CacheTo = controllerapi.CreateCaches(cacheExports)
 
 	allow, err := buildflags.ParseEntitlements(in.allow)
 	if err != nil {

@@ -9,8 +9,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/depot/cli/pkg/buildx/build"
 	depotprogress "github.com/depot/cli/pkg/progress"
+	"github.com/docker/buildx/build"
 	"github.com/docker/buildx/builder"
 	"github.com/docker/buildx/util/progress"
 	"github.com/moby/buildkit/client"

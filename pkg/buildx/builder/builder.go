@@ -92,14 +92,16 @@ func New(dockerCli command.Cli, opts ...Option) (_ *Builder, err error) {
 		opt(b)
 	}
 
-	// if store instance is nil we create a short-lived one using the
-	// default store and ensure we release it on completion
-	var release func()
-	b.opts.txn, release, err = storeutil.GetStore(dockerCli)
-	if err != nil {
-		return nil, err
+	if b.opts.txn == nil {
+		// if store instance is nil we create a short-lived one using the
+		// default store and ensure we release it on completion
+		var release func()
+		b.opts.txn, release, err = storeutil.GetStore(dockerCli)
+		if err != nil {
+			return nil, err
+		}
+		defer release()
 	}
-	defer release()
 
 	currentContext := dockerCli.CurrentContext()
 

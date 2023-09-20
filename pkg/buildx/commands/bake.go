@@ -5,11 +5,12 @@ package commands
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"sync"
 
 	"github.com/containerd/containerd/platforms"
-	"github.com/depot/cli/pkg/buildx/build"
+	depotbuild "github.com/depot/cli/pkg/buildx/build"
 	"github.com/depot/cli/pkg/buildx/builder"
 	"github.com/depot/cli/pkg/dockerfile"
 	"github.com/depot/cli/pkg/helpers"
@@ -17,7 +18,7 @@ import (
 	depotprogress "github.com/depot/cli/pkg/progress"
 	"github.com/depot/cli/pkg/sbom"
 	"github.com/docker/buildx/bake"
-	buildx "github.com/docker/buildx/build"
+	build "github.com/docker/buildx/build"
 	"github.com/docker/buildx/util/buildflags"
 	"github.com/docker/buildx/util/confutil"
 	"github.com/docker/buildx/util/dockerutil"
@@ -116,7 +117,7 @@ func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator) (er
 	var (
 		pullOpts map[string]load.PullOptions
 		// Only used for failures to pull images.
-		fallbackOpts map[string]buildx.Options
+		fallbackOpts map[string]build.Options
 	)
 	if in.exportLoad {
 		fallbackOpts = maps.Clone(buildOpts)
@@ -140,17 +141,17 @@ func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator) (er
 
 	dockerClient := dockerutil.NewClient(dockerCli)
 	dockerConfigDir := confutil.ConfigDir(dockerCli)
-	buildxopts := build.BuildxOpts(buildOpts)
+	depotbuild.BuildxOpts(buildOpts)
 
 	// "Boot" the depot nodes.
-	_, clients, err := build.ResolveDrivers(ctx, buildxNodes, buildxopts, printer)
+	_, clients, err := build.ResolveDrivers(ctx, buildxNodes, buildOpts, printer)
 	if err != nil {
 		return wrapBuildError(err, true)
 	}
 
 	linter := NewLinter(NewLintFailureMode(in.lint, in.lintFailOn), clients, buildxNodes)
 	dockerfileHandlers := build.NewDockerfileHandlers(uploader, linter)
-	resp, err := build.DepotBuild(ctx, buildxNodes, buildOpts, dockerClient, dockerConfigDir, buildxprinter, dockerfileHandlers)
+	resp, err := build.Build(ctx, buildxNodes, buildOpts, dockerClient, dockerConfigDir, buildxprinter, dockerfileHandlers)
 	if err != nil {
 		if errors.Is(err, LintFailed) {
 			linter.Print(os.Stderr, in.progress)
@@ -203,7 +204,7 @@ func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator) (er
 			if in.exportLoad {
 				progress.Write(printer, "[load] fast load failed; retrying", func() error { return err })
 				buildOpts, _ = load.WithDepotImagePull(fallbackOpts, load.DepotLoadOptions{})
-				_, err = build.DepotBuild(ctx, buildxNodes, buildOpts, dockerClient, dockerConfigDir, printer, nil)
+				_, err = build.Build(ctx, buildxNodes, buildOpts, dockerClient, dockerConfigDir, printer, nil)
 			}
 
 			return err
@@ -255,12 +256,12 @@ func BakeCmd(dockerCli command.Cli) *cobra.Command {
 
 			var (
 				validator     BakeValidator
-				validatedOpts map[string]buildx.Options
+				validatedOpts map[string]build.Options
 			)
 			if isRemoteTarget(args) {
 				validator = NewRemoteBakeValidator(options, args)
 			} else {
-				validator = NewLocalBakeValidator(options, args)
+				validator = NewLocalBakeValidator(options, dockerCli.In(), args)
 				// Parse the local bake file before starting the build to catch errors early.
 				validatedOpts, err = validator.Validate(context.Background(), nil, nil)
 				if err != nil {
@@ -348,7 +349,7 @@ func isRemoteTarget(targets []string) bool {
 		return false
 	}
 
-	return bake.IsRemoteURL(targets[0])
+	return build.IsRemoteURL(targets[0])
 }
 
 var (
@@ -358,30 +359,32 @@ var (
 
 // BakeValidator returns either local or remote build options for targets.
 type BakeValidator interface {
-	Validate(ctx context.Context, nodes []builder.Node, pw progress.Writer) (map[string]buildx.Options, error)
+	Validate(ctx context.Context, nodes []builder.Node, pw progress.Writer) (map[string]build.Options, error)
 }
 
 type LocalBakeValidator struct {
 	options     BakeOptions
 	bakeTargets bakeTargets
+	stdin       io.Reader
 
 	once      sync.Once
-	buildOpts map[string]buildx.Options
+	buildOpts map[string]build.Options
 	err       error
 }
 
-func NewLocalBakeValidator(options BakeOptions, args []string) *LocalBakeValidator {
+func NewLocalBakeValidator(options BakeOptions, stdin io.Reader, args []string) *LocalBakeValidator {
 	return &LocalBakeValidator{
 		options:     options,
 		bakeTargets: parseBakeTargets(args),
+		stdin:       stdin,
 	}
 }
 
-func (t *LocalBakeValidator) Validate(ctx context.Context, _ []builder.Node, _ progress.Writer) (map[string]buildx.Options, error) {
+func (t *LocalBakeValidator) Validate(ctx context.Context, _ []builder.Node, _ progress.Writer) (map[string]build.Options, error) {
 	// Using a sync.Once because I _think_ the bake file may not always be read
 	// more than one time such as passed over stdin.
 	t.once.Do(func() {
-		files, err := bake.ReadLocalFiles(t.options.files)
+		files, err := bake.ReadLocalFiles(t.options.files, t.stdin)
 		if err != nil {
 			t.err = err
 			return
@@ -417,7 +420,7 @@ func NewRemoteBakeValidator(options BakeOptions, args []string) *RemoteBakeValid
 	}
 }
 
-func (t *RemoteBakeValidator) Validate(ctx context.Context, nodes []builder.Node, pw progress.Writer) (map[string]buildx.Options, error) {
+func (t *RemoteBakeValidator) Validate(ctx context.Context, nodes []builder.Node, pw progress.Writer) (map[string]build.Options, error) {
 	files, inp, err := bake.ReadRemoteFiles(ctx, builder.ToBuildxNodes(nodes), t.bakeTargets.FileURL, t.options.files, pw)
 	if err != nil {
 		return nil, err
@@ -448,11 +451,11 @@ func parseBakeTargets(targets []string) (bkt bakeTargets) {
 	bkt.CmdContext = "cwd://"
 
 	if len(targets) > 0 {
-		if bake.IsRemoteURL(targets[0]) {
+		if build.IsRemoteURL(targets[0]) {
 			bkt.FileURL = targets[0]
 			targets = targets[1:]
 			if len(targets) > 0 {
-				if bake.IsRemoteURL(targets[0]) {
+				if build.IsRemoteURL(targets[0]) {
 					bkt.CmdContext = targets[0]
 					targets = targets[1:]
 				}

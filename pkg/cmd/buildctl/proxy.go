@@ -13,7 +13,6 @@ import (
 	"github.com/containerd/containerd/api/services/leases/v1"
 	"github.com/containerd/containerd/defaults"
 	"github.com/depot/cli/pkg/progress"
-	"github.com/gogo/protobuf/types"
 	control "github.com/moby/buildkit/api/services/control"
 	worker "github.com/moby/buildkit/api/types"
 	"github.com/moby/buildkit/client"
@@ -644,6 +643,7 @@ func (p *TracesProxy) Export(ctx context.Context, in *trace.ExportTraceServiceRe
 
 type ContentProxy struct {
 	state func() ProxyState
+	content.UnimplementedContentServer
 }
 
 func (p *ContentProxy) Info(ctx context.Context, in *content.InfoRequest) (*content.InfoResponse, error) {
@@ -713,7 +713,7 @@ func (p *ContentProxy) List(in *content.ListContentRequest, toBuildx content.Con
 	return nil
 }
 
-func (p *ContentProxy) Delete(ctx context.Context, in *content.DeleteContentRequest) (*types.Empty, error) {
+func (p *ContentProxy) Delete(ctx context.Context, in *content.DeleteContentRequest) (*emptypb.Empty, error) {
 	md, ok := metadata.FromIncomingContext(ctx)
 	if ok {
 		ctx = metadata.NewOutgoingContext(ctx, md)
@@ -834,7 +834,7 @@ func (p *ContentProxy) Write(buildx content.Content_WriteServer) error {
 	return status.Errorf(codes.Internal, "unreachable")
 }
 
-func (p *ContentProxy) Abort(ctx context.Context, in *content.AbortRequest) (*types.Empty, error) {
+func (p *ContentProxy) Abort(ctx context.Context, in *content.AbortRequest) (*emptypb.Empty, error) {
 	md, ok := metadata.FromIncomingContext(ctx)
 	if ok {
 		ctx = metadata.NewOutgoingContext(ctx, md)
@@ -851,9 +851,10 @@ func (p *ContentProxy) Abort(ctx context.Context, in *content.AbortRequest) (*ty
 
 type LeasesProxy struct {
 	state func() ProxyState
+	leases.UnimplementedLeasesServer
 }
 
-func (p *LeasesProxy) Delete(ctx context.Context, in *leases.DeleteRequest) (*types.Empty, error) {
+func (p *LeasesProxy) Delete(ctx context.Context, in *leases.DeleteRequest) (*emptypb.Empty, error) {
 	md, ok := metadata.FromIncomingContext(ctx)
 	if ok {
 		ctx = metadata.NewOutgoingContext(ctx, md)
@@ -898,7 +899,7 @@ func (p *LeasesProxy) List(ctx context.Context, in *leases.ListRequest) (*leases
 	return client.List(ctx, in)
 }
 
-func (p *LeasesProxy) AddResource(ctx context.Context, in *leases.AddResourceRequest) (*types.Empty, error) {
+func (p *LeasesProxy) AddResource(ctx context.Context, in *leases.AddResourceRequest) (*emptypb.Empty, error) {
 	md, ok := metadata.FromIncomingContext(ctx)
 	if ok {
 		ctx = metadata.NewOutgoingContext(ctx, md)
@@ -913,7 +914,7 @@ func (p *LeasesProxy) AddResource(ctx context.Context, in *leases.AddResourceReq
 	return client.AddResource(ctx, in)
 }
 
-func (p *LeasesProxy) DeleteResource(ctx context.Context, in *leases.DeleteResourceRequest) (*types.Empty, error) {
+func (p *LeasesProxy) DeleteResource(ctx context.Context, in *leases.DeleteResourceRequest) (*emptypb.Empty, error) {
 	md, ok := metadata.FromIncomingContext(ctx)
 	if ok {
 		ctx = metadata.NewOutgoingContext(ctx, md)

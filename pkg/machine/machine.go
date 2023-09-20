@@ -188,7 +188,10 @@ func (m *Machine) Client(ctx context.Context) (*client.Client, error) {
 		}
 		caCert := file.Name()
 
-		opts = append(opts, client.WithCredentials("", caCert, cert, key))
+		opts = append(opts,
+			client.WithServerConfig("", caCert),
+			client.WithCredentials(cert, key),
+		)
 	}
 
 	c, err := client.New(ctx, m.Addr, opts...)

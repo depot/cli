@@ -11,6 +11,7 @@ import (
 	"github.com/docker/buildx/util/dockerutil"
 	"github.com/docker/buildx/util/imagetools"
 	"github.com/docker/buildx/util/platformutil"
+	"github.com/moby/buildkit/client"
 	"github.com/moby/buildkit/util/grpcerrors"
 	ocispecs "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/pkg/errors"
@@ -21,9 +22,12 @@ import (
 
 type Node struct {
 	store.Node
-	Driver      driver.Driver
+	Builder     string
+	Driver      *driver.DriverHandle
 	DriverInfo  *driver.Info
 	Platforms   []ocispecs.Platform
+	GCPolicy    []client.PruneInfo
+	Labels      map[string]string
 	ImageOpt    imagetools.Opt
 	ProxyConfig map[string]string
 	Version     string
@@ -72,6 +76,7 @@ func (b *Builder) LoadNodes(ctx context.Context, withData bool) (_ []Node, err e
 					Node:        n,
 					ProxyConfig: storeutil.GetProxyConfig(b.opts.dockerCli),
 					Platforms:   n.Platforms,
+					Builder:     b.Name,
 				}
 				defer func() {
 					b.nodes[i] = node
