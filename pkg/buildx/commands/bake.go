@@ -95,8 +95,11 @@ func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator) (er
 	}()
 
 	contextPathHash, _ := os.Getwd()
-	builderOpts := append([]builder.Option{builder.WithName(in.builder),
-		builder.WithContextPathHash(contextPathHash)}, in.builderOptions...)
+	builderOpts := []builder.Option{
+		builder.WithName(in.builder),
+		builder.WithContextPathHash(contextPathHash),
+	}
+	builderOpts = append(builderOpts, in.builderOptions...)
 	b, err := builder.New(dockerCli, builderOpts...)
 	if err != nil {
 		return err
@@ -400,6 +403,19 @@ func (t *LocalBakeValidator) Validate(ctx context.Context, _ []builder.Node, _ p
 		if err != nil {
 			t.err = err
 			return
+		}
+
+		if v := os.Getenv("SOURCE_DATE_EPOCH"); v != "" {
+			// TODO: extract env var parsing to a method easily usable by library consumers
+			for _, t := range targets {
+				if _, ok := t.Args["SOURCE_DATE_EPOCH"]; ok {
+					continue
+				}
+				if t.Args == nil {
+					t.Args = map[string]*string{}
+				}
+				t.Args["SOURCE_DATE_EPOCH"] = &v
+			}
 		}
 
 		t.buildOpts, t.err = bake.TargetsToBuildOpt(targets, nil)
