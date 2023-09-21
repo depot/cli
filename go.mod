@@ -10,6 +10,7 @@ require (
 	github.com/charmbracelet/bubbletea v0.23.1
 	github.com/charmbracelet/lipgloss v0.6.0
 	github.com/cli/safeexec v1.0.0
+	github.com/containerd/console v1.0.3
 	github.com/containerd/containerd v1.7.2
 	github.com/docker/buildx v0.11.2
 	github.com/docker/cli v24.0.4+incompatible
@@ -70,7 +71,6 @@ require (
 	github.com/cenkalti/backoff/v4 v4.2.0 // indirect
 	github.com/cespare/xxhash/v2 v2.2.0 // indirect
 	github.com/compose-spec/compose-go v1.14.0 // indirect
-	github.com/containerd/console v1.0.3 // indirect
 	github.com/containerd/continuity v0.4.1 // indirect
 	github.com/containerd/ttrpc v1.2.2 // indirect
 	github.com/containerd/typeurl/v2 v2.1.1 // indirect

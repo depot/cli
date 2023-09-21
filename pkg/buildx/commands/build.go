@@ -17,6 +17,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/containerd/console"
+	"github.com/containerd/containerd/platforms"
 	depotbuild "github.com/depot/cli/pkg/buildx/build"
 	"github.com/depot/cli/pkg/buildx/builder"
 	"github.com/depot/cli/pkg/ci"
@@ -27,12 +29,17 @@ import (
 	depotprogress "github.com/depot/cli/pkg/progress"
 	"github.com/depot/cli/pkg/sbom"
 	"github.com/docker/buildx/build"
+	"github.com/docker/buildx/controller"
+	"github.com/docker/buildx/controller/control"
+	controllererrors "github.com/docker/buildx/controller/errdefs"
 	controllerapi "github.com/docker/buildx/controller/pb"
+	"github.com/docker/buildx/monitor"
 	"github.com/docker/buildx/store"
 	"github.com/docker/buildx/store/storeutil"
 	"github.com/docker/buildx/util/buildflags"
 	"github.com/docker/buildx/util/confutil"
 	"github.com/docker/buildx/util/dockerutil"
+	"github.com/docker/buildx/util/ioset"
 	"github.com/docker/buildx/util/platformutil"
 	"github.com/docker/buildx/util/progress"
 	"github.com/docker/buildx/util/tracing"
@@ -49,8 +56,10 @@ import (
 	"github.com/moby/buildkit/session/auth/authprovider"
 	"github.com/moby/buildkit/solver/errdefs"
 	"github.com/moby/buildkit/util/appcontext"
+	"github.com/moby/buildkit/util/entitlements"
 	"github.com/moby/buildkit/util/grpcerrors"
 	"github.com/morikuni/aec"
+	specs "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
@@ -90,6 +99,8 @@ type buildOptions struct {
 	ulimits       *dockeropts.UlimitOpt
 	commonOptions
 	DepotOptions
+
+	control.ControlOptions
 }
 
 type commonOptions struct {
@@ -167,6 +178,11 @@ func runBuild(dockerCli command.Cli, validatedOpts map[string]build.Options, in 
 	err = wrapBuildError(err, false)
 	if err != nil {
 		return err
+	}
+
+	if isExperimental() && in.invoke != "" {
+		_, _ = runControllerBuild(ctx, dockerCli, validatedOpts, in.ControlOptions, in.invoke, in.progress)
+		return nil
 	}
 
 	if in.quiet {
@@ -708,7 +724,14 @@ func BuildCmd(dockerCli command.Cli) *cobra.Command {
 	flags.StringVar(&options.provenance, "provenance", "", `Shortand for "--attest=type=provenance"`)
 
 	if isExperimental() {
-		flags.StringVar(&options.invoke, "invoke", "", "Invoke a command after the build [experimental]")
+		flags.StringVar(&options.invoke, "invoke", "", "Invoke a command after the build")
+		_ = flags.SetAnnotation("invoke", "experimentalCLI", nil)
+		flags.StringVar(&options.Root, "root", "", "Specify root directory of server to connect")
+		_ = flags.SetAnnotation("root", "experimentalCLI", nil)
+		flags.BoolVar(&options.Detach, "detach", false, "Detach buildx server (supported only on linux)")
+		_ = flags.SetAnnotation("detach", "experimentalCLI", nil)
+		flags.StringVar(&options.ServerConfig, "server-config", "", "Specify buildx server config file (used only when launching new server)")
+		_ = flags.SetAnnotation("server-config", "experimentalCLI", nil)
 	}
 
 	// hidden flags
@@ -1042,4 +1065,238 @@ func updateLastActivity(dockerCli command.Cli, ng *store.NodeGroup) error {
 	}
 	defer release()
 	return txn.UpdateLastActivity(ng)
+}
+
+func runControllerBuild(ctx context.Context, dockerCli command.Cli, validatedOpts map[string]build.Options, ctrlOpts control.ControlOptions, invokeFlag, printMode string) (*client.SolveResponse, error) {
+	options := validatedOpts[defaultTargetName]
+	if invokeFlag != "" && (options.Inputs.DockerfilePath == "-" || options.Inputs.ContextPath == "-") {
+		// stdin must be usable for monitor
+		return nil, errors.Errorf("Dockerfile or context from stdin is not supported with invoke")
+	}
+
+	printer, err := progress.NewPrinter(ctx, os.Stderr, os.Stderr, printMode)
+	if err != nil {
+		return nil, err
+	}
+
+	invoke, err := parseInvokeConfig(invokeFlag)
+	if err != nil {
+		return nil, err
+	}
+
+	opts := toControllerOptions(options)
+
+	c, err := controller.NewController(ctx, ctrlOpts, dockerCli, printer)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		if err := c.Close(); err != nil {
+			logrus.Warnf("failed to close server connection %v", err)
+		}
+	}()
+
+	// NOTE: buildx server has the current working directory different from the client
+	// so we need to resolve paths to abosolute ones in the client.
+	opts, err = controllerapi.ResolveOptionPaths(opts)
+	if err != nil {
+		return nil, err
+	}
+
+	var ref string
+	var retErr error
+	var resp *client.SolveResponse
+	f := ioset.NewSingleForwarder()
+	f.SetReader(dockerCli.In())
+	if invokeFlag != "debug-shell" {
+		pr, pw := io.Pipe()
+		f.SetWriter(pw, func() io.WriteCloser {
+			pw.Close() // propagate EOF
+			logrus.Debug("propagating stdin close")
+			return nil
+		})
+
+		ref, resp, err = c.Build(ctx, *opts, pr, printer)
+		if err != nil {
+			var be *controllererrors.BuildError
+			if errors.As(err, &be) {
+				ref = be.Ref
+				retErr = err
+				// We can proceed to monitor
+			} else {
+				return nil, errors.Wrapf(err, "failed to build")
+			}
+		}
+
+		if err := pw.Close(); err != nil {
+			logrus.Debug("failed to close stdin pipe writer")
+		}
+		if err := pr.Close(); err != nil {
+			logrus.Debug("failed to close stdin pipe reader")
+		}
+	}
+
+	// post-build operations
+	if invokeFlag != "" && invoke.needsMonitor(retErr) {
+		pr2, pw2 := io.Pipe()
+		f.SetWriter(pw2, func() io.WriteCloser {
+			pw2.Close() // propagate EOF
+			return nil
+		})
+		con := console.Current()
+		if err := con.SetRaw(); err != nil {
+			if err := c.Disconnect(ctx, ref); err != nil {
+				logrus.Warnf("disconnect error: %v", err)
+			}
+			return nil, errors.Errorf("failed to configure terminal: %v", err)
+		}
+		err = monitor.RunMonitor(ctx, ref, opts, invoke.InvokeConfig, c, pr2, os.Stdout, os.Stderr, printer)
+		_ = con.Reset()
+		if err := pw2.Close(); err != nil {
+			logrus.Debug("failed to close monitor stdin pipe reader")
+		}
+		if err != nil {
+			logrus.Warnf("failed to run monitor: %v", err)
+		}
+	} else {
+		if err := c.Disconnect(ctx, ref); err != nil {
+			logrus.Warnf("disconnect error: %v", err)
+		}
+	}
+
+	return resp, retErr
+}
+
+type invokeConfig struct {
+	controllerapi.InvokeConfig
+	invokeFlag string
+}
+
+func (cfg *invokeConfig) needsMonitor(retErr error) bool {
+	switch cfg.invokeFlag {
+	case "debug-shell":
+		return true
+	case "on-error":
+		return retErr != nil
+	default:
+		return cfg.invokeFlag != ""
+	}
+}
+
+func parseInvokeConfig(invoke string) (cfg invokeConfig, err error) {
+	cfg.invokeFlag = invoke
+	cfg.Tty = true
+	switch invoke {
+	case "default", "debug-shell":
+		return cfg, nil
+	case "on-error":
+		// NOTE: we overwrite the command to run because the original one should fail on the failed step.
+		// TODO: make this configurable via flags or restorable from LLB.
+		// Discussion: https://github.com/docker/buildx/pull/1640#discussion_r1113295900
+		cfg.Cmd = []string{"/bin/sh"}
+		return cfg, nil
+	}
+
+	csvReader := csv.NewReader(strings.NewReader(invoke))
+	csvReader.LazyQuotes = true
+	fields, err := csvReader.Read()
+	if err != nil {
+		return cfg, err
+	}
+	if len(fields) == 1 && !strings.Contains(fields[0], "=") {
+		cfg.Cmd = []string{fields[0]}
+		return cfg, nil
+	}
+	cfg.NoUser = true
+	cfg.NoCwd = true
+	for _, field := range fields {
+		parts := strings.SplitN(field, "=", 2)
+		if len(parts) != 2 {
+			return cfg, errors.Errorf("invalid value %s", field)
+		}
+		key := strings.ToLower(parts[0])
+		value := parts[1]
+		switch key {
+		case "args":
+			cfg.Cmd = append(cfg.Cmd, maybeJSONArray(value)...)
+		case "entrypoint":
+			cfg.Entrypoint = append(cfg.Entrypoint, maybeJSONArray(value)...)
+			if cfg.Cmd == nil {
+				cfg.Cmd = []string{}
+			}
+		case "env":
+			cfg.Env = append(cfg.Env, maybeJSONArray(value)...)
+		case "user":
+			cfg.User = value
+			cfg.NoUser = false
+		case "cwd":
+			cfg.Cwd = value
+			cfg.NoCwd = false
+		case "tty":
+			cfg.Tty, err = strconv.ParseBool(value)
+			if err != nil {
+				return cfg, errors.Errorf("failed to parse tty: %v", err)
+			}
+		default:
+			return cfg, errors.Errorf("unknown key %q", key)
+		}
+	}
+	return cfg, nil
+}
+
+func maybeJSONArray(v string) []string {
+	var list []string
+	if err := json.Unmarshal([]byte(v), &list); err == nil {
+		return list
+	}
+	return []string{v}
+}
+
+func dockerUlimitToControllerUlimit(u *dockeropts.UlimitOpt) *controllerapi.UlimitOpt {
+	if u == nil {
+		return nil
+	}
+	values := make(map[string]*controllerapi.Ulimit)
+	for _, u := range u.GetList() {
+		values[u.Name] = &controllerapi.Ulimit{
+			Name: u.Name,
+			Hard: u.Hard,
+			Soft: u.Soft,
+		}
+	}
+	return &controllerapi.UlimitOpt{Values: values}
+}
+
+func Map[T, V any](ts []T, fn func(T) V) []V {
+	result := make([]V, len(ts))
+	for i, t := range ts {
+		result[i] = fn(t)
+	}
+	return result
+}
+
+func toControllerOptions(o build.Options) *controllerapi.BuildOptions {
+	opts := &controllerapi.BuildOptions{
+		Allow:          Map(o.Allow, func(a entitlements.Entitlement) string { return string(a) }),
+		BuildArgs:      o.BuildArgs,
+		CgroupParent:   o.CgroupParent,
+		ContextPath:    o.Inputs.ContextPath,
+		DockerfileName: o.Inputs.DockerfilePath,
+		ExtraHosts:     o.ExtraHosts,
+		Labels:         o.Labels,
+		NetworkMode:    o.NetworkMode,
+		NoCacheFilter:  o.NoCacheFilter,
+		Platforms:      Map(o.Platforms, func(p specs.Platform) string { return platforms.Format(p) }),
+		ShmSize:        int64(o.ShmSize),
+		Tags:           o.Tags,
+		Target:         o.Target,
+		Ulimits:        dockerUlimitToControllerUlimit(o.Ulimits),
+		NoCache:        o.NoCache,
+		Pull:           o.Pull,
+		// DEPOT: Don't allow push and load for now.
+		ExportPush: false,
+		ExportLoad: false,
+		//Builder:        o.Builder,
+	}
+	return opts
 }
