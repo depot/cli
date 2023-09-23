@@ -95,7 +95,7 @@ func chooseNodeResponse(nodeResponses []depotbuild.DepotNodeResponse) depotbuild
 const ImagesExported = "depot/images.exported"
 
 func decodeNodeResponse(architecture string, nodeRes depotbuild.DepotNodeResponse) (rawManifest, rawConfig []byte, err error) {
-	if _, ok := nodeRes.SolveResponse.ExporterResponse[ImagesExported]; ok {
+	if _, err := EncodedExportedImages(nodeRes.SolveResponse.ExporterResponse); err == nil {
 		return decodeNodeResponseV2(architecture, nodeRes)
 	}
 
@@ -104,29 +104,57 @@ func decodeNodeResponse(architecture string, nodeRes depotbuild.DepotNodeRespons
 }
 
 func decodeNodeResponseV2(architecture string, nodeRes depotbuild.DepotNodeResponse) (rawManifest, rawConfig []byte, err error) {
-	type ExportedImage struct {
-		// JSON-encoded ocispecs.Manifest.
-		// This is double encoded as buildkit has extra fields when used as a docker schema.
-		// This matters as the digest is calculated including all those extra fields.
-		Manifest []byte `json:"manifest"`
-		// JSON-encoded ocispecs.Image.
-		// Double encoded for the same reason.
-		Config []byte `json:"config"`
+	encodedExportedImages, err := EncodedExportedImages(nodeRes.SolveResponse.ExporterResponse)
+	if err != nil {
+		return nil, nil, err
 	}
 
-	encodedExportedImages, ok := nodeRes.SolveResponse.ExporterResponse[ImagesExported]
+	exportedImages, _, imageConfigs, err := DecodeExportImages(encodedExportedImages)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	idx, err := chooseBestImageManifestV2(architecture, imageConfigs)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return exportedImages[idx].Manifest, exportedImages[idx].Config, nil
+}
+
+// EncodedExportedImages returns the encoded exported images from the solve response.
+// This uses the `depot.export.image.version=2` format.
+func EncodedExportedImages(exporterResponse map[string]string) (string, error) {
+	encodedExportedImages, ok := exporterResponse[ImagesExported]
 	if !ok {
-		return nil, nil, errors.New("missing image export response")
+		return "", errors.New("missing image export response")
 	}
+	return encodedExportedImages, nil
+}
 
+// RawExportedImage is the JSON-encoded image manifest and config used loading the image.
+type RawExportedImage struct {
+	// JSON-encoded ocispecs.Manifest.
+	// This is double encoded as buildkit has extra fields when used as a docker schema.
+	// This matters as the digest is calculated including all those extra fields.
+	Manifest []byte `json:"manifest"`
+	// JSON-encoded ocispecs.Image.
+	// Double encoded for the same reason.
+	Config []byte `json:"config"`
+}
+
+// DecodeExportImages decodes the exported images from the solve response.
+// The solve response is encoded with a bunch of JSON/b64 encoding to attempt
+// to pass a variety of data structures to the CLI.
+func DecodeExportImages(encodedExportedImages string) ([]RawExportedImage, []ocispecs.Manifest, []ocispecs.Image, error) {
 	jsonExportedImages, err := base64.StdEncoding.DecodeString(encodedExportedImages)
 	if err != nil {
-		return nil, nil, fmt.Errorf("invalid exported images encoding: %w", err)
+		return nil, nil, nil, fmt.Errorf("invalid exported images encoding: %w", err)
 	}
 
-	var exportedImages []ExportedImage
+	var exportedImages []RawExportedImage
 	if err := json.Unmarshal(jsonExportedImages, &exportedImages); err != nil {
-		return nil, nil, fmt.Errorf("invalid exported images json: %w", err)
+		return nil, nil, nil, fmt.Errorf("invalid exported images json: %w", err)
 	}
 
 	// Potentially multiple platforms were built, so we need to find the
@@ -136,23 +164,18 @@ func decodeNodeResponseV2(architecture string, nodeRes depotbuild.DepotNodeRespo
 	for i := range exportedImages {
 		var manifest ocispecs.Manifest
 		if err := json.Unmarshal(exportedImages[i].Manifest, &manifest); err != nil {
-			return nil, nil, fmt.Errorf("invalid image manifest json: %w", err)
+			return nil, nil, nil, fmt.Errorf("invalid image manifest json: %w", err)
 		}
 		manifests[i] = manifest
 
 		var image ocispecs.Image
 		if err := json.Unmarshal(exportedImages[i].Config, &image); err != nil {
-			return nil, nil, fmt.Errorf("invalid image config json: %w", err)
+			return nil, nil, nil, fmt.Errorf("invalid image config json: %w", err)
 		}
 		imageConfigs[i] = image
 	}
 
-	idx, err := chooseBestImageManifestV2(architecture, imageConfigs)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	return exportedImages[idx].Manifest, exportedImages[idx].Config, nil
+	return exportedImages, manifests, imageConfigs, nil
 }
 
 // We encode the image manifest and image config within the buildkitd Solve response
