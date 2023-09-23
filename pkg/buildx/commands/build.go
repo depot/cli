@@ -934,6 +934,29 @@ func decodeExporterResponse(exporterResponse map[string]string) map[string]inter
 			out[k] = v
 			continue
 		}
+		if k == load.ImagesExported {
+			_, manifests, imageConfigs, err := load.DecodeExportImages(v)
+			if err != nil {
+				out[k] = v
+			} else {
+				out["manifests"] = manifests
+				out["imageConfigs"] = imageConfigs
+			}
+
+			continue
+		}
+
+		if k == sbom.SBOMsLabel {
+			sboms, err := sbom.DecodeSBOMs(v)
+			if err != nil {
+				out[k] = v
+			} else {
+				out["sboms"] = sboms
+			}
+
+			continue
+		}
+
 		var raw map[string]interface{}
 		if err = json.Unmarshal(dt, &raw); err != nil || len(raw) == 0 {
 			out[k] = v

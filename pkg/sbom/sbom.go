@@ -68,6 +68,19 @@ type SBOM struct {
 	Image *ImageSBOM `json:"image"`
 }
 
+// This is a custom marshaler to prevent conversion of JSON statement into base64.
+func (s *SBOM) MarshalJSON() ([]byte, error) {
+	return json.Marshal(&struct {
+		Statement json.RawMessage `json:"statement"`
+		Platform  string          `json:"platform"`
+		Image     *ImageSBOM      `json:"image,omitempty"`
+	}{
+		Statement: json.RawMessage(s.Statement),
+		Platform:  s.Platform,
+		Image:     s.Image,
+	})
+}
+
 // ImageSBOM describes an image that is described by an SBOM.
 type ImageSBOM struct {
 	// Name is the image name and tag.
