@@ -11,13 +11,19 @@ import (
 )
 
 func BeginBuild(ctx context.Context, req *cliv1.CreateBuildRequest, token string) (depotbuild.Build, error) {
-	build, err := depotbuild.NewBuild(ctx, req, token)
-	if err != nil {
-		return depotbuild.Build{}, err
-	}
+	var build depotbuild.Build
+	var err error
 
 	if id := os.Getenv("DEPOT_BUILD_ID"); id != "" {
-		build.ID = id
+		build, err = depotbuild.FromExistingBuild(ctx, id, token)
+		if err != nil {
+			return depotbuild.Build{}, err
+		}
+	}
+
+	build, err = depotbuild.NewBuild(ctx, req, token)
+	if err != nil {
+		return depotbuild.Build{}, err
 	}
 
 	profilerToken := ""
