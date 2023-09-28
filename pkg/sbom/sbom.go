@@ -18,9 +18,9 @@ func Save(outputDir string, resp []depotbuild.DepotBuildResponse) error {
 		return err
 	}
 
-	numBuilds := len(resp)
+	targetPlatforms := map[string]map[string]SBOM{}
 	for _, buildRes := range resp {
-		buildName := buildRes.Name
+		targetName := buildRes.Name
 		for _, nodeRes := range buildRes.NodeResponses {
 			sboms, err := DecodeNodeResponses(nodeRes)
 			if err != nil {
@@ -31,28 +31,46 @@ func Save(outputDir string, resp []depotbuild.DepotBuildResponse) error {
 				continue
 			}
 
-			numPlatforms := len(sboms)
 			for _, sbom := range sboms {
 				platform := strings.ReplaceAll(sbom.Platform, "/", "_")
-				var name string
-				if numBuilds == 1 && numPlatforms == 1 {
-					name = "sbom.spdx.json"
-				} else if numBuilds == 1 {
-					name = fmt.Sprintf("%s.spdx.json", platform)
-				} else if numPlatforms == 1 {
-					name = fmt.Sprintf("%s.spdx.json", buildName)
-				} else {
-					name = fmt.Sprintf("%s_%s.spdx.json", buildName, platform)
+				if _, ok := targetPlatforms[targetName]; !ok {
+					targetPlatforms[targetName] = map[string]SBOM{}
 				}
-				pathName := path.Join(outputDir, name)
-				err := os.WriteFile(pathName, sbom.Statement, 0644)
-				if err != nil {
-					return err
-				}
+				targetPlatforms[targetName][platform] = sbom
 			}
 		}
 	}
 
+	return writeSBOMs(targetPlatforms, outputDir)
+}
+
+func writeSBOMs(targetPlatforms map[string]map[string]SBOM, outputDir string) error {
+	numBuildTargets := len(targetPlatforms)
+	for targetName, platforms := range targetPlatforms {
+		numPlatforms := len(platforms)
+		for platform, sbom := range platforms {
+			if sbom.Statement == nil {
+				continue
+			}
+
+			var fileName string
+			if numBuildTargets == 1 && numPlatforms == 1 {
+				fileName = "sbom.spdx.json"
+			} else if numBuildTargets == 1 {
+				fileName = fmt.Sprintf("%s.spdx.json", platform)
+			} else if numPlatforms == 1 {
+				fileName = fmt.Sprintf("%s.spdx.json", targetName)
+			} else {
+				fileName = fmt.Sprintf("%s_%s.spdx.json", targetName, platform)
+			}
+
+			pathName := path.Join(outputDir, fileName)
+			err := os.WriteFile(pathName, sbom.Statement, 0644)
+			if err != nil {
+				return err
+			}
+		}
+	}
 	return nil
 }
 
