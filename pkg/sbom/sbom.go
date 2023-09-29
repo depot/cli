@@ -2,27 +2,29 @@ package sbom
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path"
 	"strings"
 
+	contentv1 "github.com/containerd/containerd/api/services/content/v1"
 	depotbuild "github.com/depot/cli/pkg/buildx/build"
+	"github.com/docker/buildx/driver"
+	"github.com/opencontainers/go-digest"
+	"golang.org/x/sync/errgroup"
 )
 
-func Save(outputDir string, resp []depotbuild.DepotBuildResponse) error {
-	err := os.MkdirAll(outputDir, 0750)
-	if err != nil {
-		return err
-	}
-
-	targetPlatforms := map[string]map[string]SBOM{}
+func Save(ctx context.Context, outputDir string, resp []depotbuild.DepotBuildResponse) error {
+	targetPlatforms := map[string]map[string]sbomOutput{}
 	for _, buildRes := range resp {
 		targetName := buildRes.Name
 		for _, nodeRes := range buildRes.NodeResponses {
-			sboms, err := DecodeNodeResponses(nodeRes)
+			sboms, err := decodeNodeResponses(nodeRes)
 			if err != nil {
 				return err
 			}
@@ -32,26 +34,53 @@ func Save(outputDir string, resp []depotbuild.DepotBuildResponse) error {
 			}
 
 			for _, sbom := range sboms {
-				platform := strings.ReplaceAll(sbom.Platform, "/", "_")
 				if _, ok := targetPlatforms[targetName]; !ok {
-					targetPlatforms[targetName] = map[string]SBOM{}
+					targetPlatforms[targetName] = map[string]sbomOutput{}
 				}
-				targetPlatforms[targetName][platform] = sbom
+				targetPlatforms[targetName][sbom.Platform] = sbomOutput{driver: nodeRes.Node.Driver, sbom: sbom}
 			}
 		}
 	}
 
-	return writeSBOMs(targetPlatforms, outputDir)
+	sboms := withSBOMPaths(targetPlatforms, outputDir)
+	if len(sboms) == 0 {
+		return nil
+	}
+
+	err := os.MkdirAll(outputDir, 0750)
+	if err != nil {
+		return err
+	}
+
+	downloadGroup, ctx := errgroup.WithContext(ctx)
+	for _, sbom := range sboms {
+		func(sbom sbomOutput) {
+			downloadGroup.Go(func() error { return downloadSBOM(ctx, sbom) })
+		}(sbom)
+	}
+
+	if err := downloadGroup.Wait(); err != nil {
+		return err
+	}
+
+	return nil
 }
 
-func writeSBOMs(targetPlatforms map[string]map[string]SBOM, outputDir string) error {
+type sbomOutput struct {
+	driver     driver.Driver
+	outputPath string
+	sbom       sbomReference
+}
+
+// withSBOMPaths determines the output file name based on the number of build targets and platforms.
+func withSBOMPaths(targetPlatforms map[string]map[string]sbomOutput, outputDir string) []sbomOutput {
+	sboms := []sbomOutput{}
+
 	numBuildTargets := len(targetPlatforms)
 	for targetName, platforms := range targetPlatforms {
 		numPlatforms := len(platforms)
 		for platform, sbom := range platforms {
-			if sbom.Statement == nil {
-				continue
-			}
+			platform = strings.ReplaceAll(platform, "/", "_")
 
 			var fileName string
 			if numBuildTargets == 1 && numPlatforms == 1 {
@@ -64,39 +93,24 @@ func writeSBOMs(targetPlatforms map[string]map[string]SBOM, outputDir string) er
 				fileName = fmt.Sprintf("%s_%s.spdx.json", targetName, platform)
 			}
 
-			pathName := path.Join(outputDir, fileName)
-			err := os.WriteFile(pathName, sbom.Statement, 0644)
-			if err != nil {
-				return err
-			}
+			sbom.outputPath = path.Join(outputDir, fileName)
+			sboms = append(sboms, sbom)
 		}
 	}
-	return nil
+
+	return sboms
 }
 
 // SBOMsLabel is the key for the SBOM attestation.
 const SBOMsLabel = "depot/sboms"
 
-type SBOM struct {
-	// Statement is the spdx.json SBOM scanning output.
-	Statement []byte `json:"statement"`
+type sbomReference struct {
 	// Platform is the specific platform that was scanned.
 	Platform string `json:"platform"`
+	// Digest is the content digest of the SBOM.
+	Digest string `json:"digest"`
 	// If an image was created this is the image name and digest of the scanned SBOM.
 	Image *ImageSBOM `json:"image"`
-}
-
-// This is a custom marshaler to prevent conversion of JSON statement into base64.
-func (s *SBOM) MarshalJSON() ([]byte, error) {
-	return json.Marshal(&struct {
-		Statement json.RawMessage `json:"statement"`
-		Platform  string          `json:"platform"`
-		Image     *ImageSBOM      `json:"image,omitempty"`
-	}{
-		Statement: json.RawMessage(s.Statement),
-		Platform:  s.Platform,
-		Image:     s.Image,
-	})
 }
 
 // ImageSBOM describes an image that is described by an SBOM.
@@ -109,14 +123,14 @@ type ImageSBOM struct {
 	ManifestDigest string `json:"manifest_digest"`
 }
 
-// DecodeNodeResponses decodes the SBOMs from the node responses. If the
+// decodeNodeResponses decodes the SBOMs from the node responses. If the
 // response does not have SBOMs, nil is returned.
-func DecodeNodeResponses(nodeRes depotbuild.DepotNodeResponse) ([]SBOM, error) {
+func decodeNodeResponses(nodeRes depotbuild.DepotNodeResponse) ([]sbomReference, error) {
 	encodedSBOMs, ok := nodeRes.SolveResponse.ExporterResponse[SBOMsLabel]
 	if !ok {
 		return nil, nil
 	}
-	sboms, err := DecodeSBOMs(encodedSBOMs)
+	sboms, err := decodeSBOMReferences(encodedSBOMs)
 	if err != nil {
 		return nil, fmt.Errorf("invalid exported images json: %w", err)
 	}
@@ -124,9 +138,44 @@ func DecodeNodeResponses(nodeRes depotbuild.DepotNodeResponse) ([]SBOM, error) {
 	return sboms, nil
 }
 
-func DecodeSBOMs(encodedSBOMs string) ([]SBOM, error) {
+func decodeSBOMReferences(encodedSBOMs string) ([]sbomReference, error) {
 	b64 := base64.NewDecoder(base64.StdEncoding, bytes.NewBufferString(encodedSBOMs))
-	var sboms []SBOM
+	var sboms []sbomReference
 	err := json.NewDecoder(b64).Decode(&sboms)
 	return sboms, err
+}
+
+// downloadSBOM downloads the SBOM and also writes it to the output file.
+func downloadSBOM(ctx context.Context, sbom sbomOutput) error {
+	client, err := sbom.driver.Client(ctx)
+	if err != nil {
+		return err
+	}
+
+	contentClient := client.ContentClient()
+	r, err := contentClient.Read(ctx, &contentv1.ReadContentRequest{Digest: digest.Digest(sbom.sbom.Digest)})
+	if err != nil {
+		return err
+	}
+
+	output, err := os.OpenFile(sbom.outputPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0640)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = output.Close() }()
+
+	for {
+		resp, err := r.Recv()
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				return nil
+			}
+			return err
+		}
+
+		_, err = output.Write(resp.Data)
+		if err != nil {
+			return err
+		}
+	}
 }

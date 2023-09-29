@@ -311,7 +311,7 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.No
 	}
 
 	if depotOpts.sbomDir != "" {
-		err := sbom.Save(depotOpts.sbomDir, resp)
+		err := sbom.Save(ctx, depotOpts.sbomDir, resp)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -946,14 +946,8 @@ func decodeExporterResponse(exporterResponse map[string]string) map[string]inter
 			continue
 		}
 
+		// Filter out the SBOMs as they can be quite large.
 		if k == sbom.SBOMsLabel {
-			sboms, err := sbom.DecodeSBOMs(v)
-			if err != nil {
-				out[k] = v
-			} else {
-				out["sboms"] = sboms
-			}
-
 			continue
 		}
 

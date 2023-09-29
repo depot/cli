@@ -170,7 +170,7 @@ func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator) (er
 	}
 
 	if in.sbomDir != "" {
-		err := sbom.Save(in.sbomDir, resp)
+		err := sbom.Save(ctx, in.sbomDir, resp)
 		if err != nil {
 			return err
 		}
