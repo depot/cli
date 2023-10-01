@@ -52,7 +52,13 @@ func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator) (er
 
 	ctx2, cancel := context.WithCancel(context.TODO())
 
-	printer, finish, err := depotprogress.NewProgress(ctx2, in.buildID, in.token, depotprogress.NewProgressMode(in.progress))
+	buildxprinter, err := progress.NewPrinter(ctx2, os.Stderr, os.Stderr, in.progress)
+	if err != nil {
+		cancel()
+		return err
+	}
+
+	printer, finish, err := depotprogress.NewProgress(ctx2, in.buildID, in.token, depotprogress.NewProgressMode(in.progress), buildxprinter)
 	if err != nil {
 		cancel()
 		return err

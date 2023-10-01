@@ -19,6 +19,7 @@ import (
 	"github.com/depot/cli/pkg/machine"
 	"github.com/depot/cli/pkg/progress"
 	cliv1 "github.com/depot/cli/pkg/proto/depot/cli/v1"
+	buildxprogress "github.com/docker/buildx/util/progress"
 	"github.com/moby/buildkit/client"
 	"github.com/spf13/cobra"
 )
@@ -141,7 +142,15 @@ func run() error {
 
 			ctx2 := context.TODO()
 			ctx2, cancelStatus = context.WithCancel(ctx2)
-			state.Reporter, finishStatus, _ = progress.NewProgress(ctx2, build.ID, build.Token, progress.Quiet)
+
+			buildxprinter, err := buildxprogress.NewPrinter(ctx2, os.Stderr, os.Stderr, "quiet")
+			if err != nil {
+				state.Err = fmt.Errorf("unable to create buildx printer: %w", err)
+				cancel()
+				return
+			}
+
+			state.Reporter, finishStatus, _ = progress.NewProgress(ctx2, build.ID, build.Token, progress.Quiet, buildxprinter)
 			state.Reporter.AddListener(listener)
 
 			state.SummaryURL = build.BuildURL
