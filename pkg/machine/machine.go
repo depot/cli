@@ -76,6 +76,10 @@ func Acquire(ctx context.Context, buildID, token, platform string) (*Machine, er
 		case *cliv1.GetBuildKitConnectionResponse_Active:
 			m.Addr = connection.Active.Endpoint
 			m.ServerName = connection.Active.ServerName
+			// When testing locally, we don't have TLS certs.
+			if connection.Active.CaCert == nil || connection.Active.Cert == nil {
+				return m, nil
+			}
 			m.CACert = connection.Active.CaCert.Cert
 			m.Cert = connection.Active.Cert.Cert
 			m.Key = connection.Active.Cert.Key

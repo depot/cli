@@ -1,63 +1,59 @@
 package sbom
 
 import (
-	"os"
+	"path"
 	"reflect"
 	"sort"
 	"testing"
 )
 
-func Test_writeSBOMs(t *testing.T) {
+func Test_withSBOMPaths(t *testing.T) {
 	tests := []struct {
 		name            string
-		targetPlatforms map[string]map[string]SBOM
+		targetPlatforms map[string]map[string]sbomOutput
 		wantFiles       []string
-		wantErr         bool
 	}{
 		{
 			name: "single target, single platform",
-			targetPlatforms: map[string]map[string]SBOM{
+			targetPlatforms: map[string]map[string]sbomOutput{
 				"target": {
-					"platform": SBOM{Statement: []byte("sbom")},
+					"platform": {},
 				},
 			},
 			wantFiles: []string{"sbom.spdx.json"},
-			wantErr:   false,
 		},
 		{
 			name: "single target, multiple platforms",
-			targetPlatforms: map[string]map[string]SBOM{
+			targetPlatforms: map[string]map[string]sbomOutput{
 				"target": {
-					"platform1": SBOM{Statement: []byte("sbom1")},
-					"platform2": SBOM{Statement: []byte("sbom2")},
+					"platform1": {},
+					"platform2": {},
 				},
 			},
 			wantFiles: []string{"platform1.spdx.json", "platform2.spdx.json"},
-			wantErr:   false,
 		},
 		{
 			name: "multiple targets, single platform",
-			targetPlatforms: map[string]map[string]SBOM{
+			targetPlatforms: map[string]map[string]sbomOutput{
 				"target1": {
-					"platform": SBOM{Statement: []byte("sbom1")},
+					"platform": {},
 				},
 				"target2": {
-					"platform": SBOM{Statement: []byte("sbom2")},
+					"platform": {},
 				},
 			},
 			wantFiles: []string{"target1.spdx.json", "target2.spdx.json"},
-			wantErr:   false,
 		},
 		{
 			name: "multiple targets, multiple platforms",
-			targetPlatforms: map[string]map[string]SBOM{
+			targetPlatforms: map[string]map[string]sbomOutput{
 				"target1": {
-					"platform1": SBOM{Statement: []byte("sbom1")},
-					"platform2": SBOM{Statement: []byte("sbom2")},
+					"platform1": {},
+					"platform2": {},
 				},
 				"target2": {
-					"platform1": SBOM{Statement: []byte("sbom3")},
-					"platform2": SBOM{Statement: []byte("sbom4")},
+					"platform1": {},
+					"platform2": {},
 				},
 			},
 			wantFiles: []string{
@@ -66,72 +62,52 @@ func Test_writeSBOMs(t *testing.T) {
 				"target2_platform1.spdx.json",
 				"target2_platform2.spdx.json",
 			},
-			wantErr: false,
 		},
 		{
 			name: "no platforms",
-			targetPlatforms: map[string]map[string]SBOM{
+			targetPlatforms: map[string]map[string]sbomOutput{
 				"target1": {},
 				"target2": {},
 			},
 			wantFiles: []string{},
-			wantErr:   false,
 		},
 		{
 			name:            "no targets",
-			targetPlatforms: map[string]map[string]SBOM{},
+			targetPlatforms: map[string]map[string]sbomOutput{},
 			wantFiles:       []string{},
-			wantErr:         false,
 		},
 		{
 			name:      "nil targetPlatforms",
 			wantFiles: []string{},
-			wantErr:   false,
 		},
 		{
 			name: "nil platforms",
-			targetPlatforms: map[string]map[string]SBOM{
+			targetPlatforms: map[string]map[string]sbomOutput{
 				"target1": nil,
 				"target2": nil,
 			},
 			wantFiles: []string{},
-			wantErr:   false,
-		},
-		{
-			name: "nil sbom",
-			targetPlatforms: map[string]map[string]SBOM{
-				"target1": {
-					"platform1": SBOM{Statement: nil},
-				},
-			},
-			wantFiles: []string{},
-			wantErr:   false,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			outputDir := t.TempDir()
-			if err := writeSBOMs(tt.targetPlatforms, outputDir); (err != nil) != tt.wantErr {
-				t.Errorf("writeSBOMs() error = %v, wantErr %v", err, tt.wantErr)
+			output := withSBOMPaths(tt.targetPlatforms, outputDir)
+
+			files := []string{}
+			for _, sbom := range output {
+				files = append(files, sbom.outputPath)
 			}
 
-			dir, err := os.Open(outputDir)
-			if err != nil {
-				t.Errorf("writeSBOMs() error = %v", err)
+			wantFiles := []string{}
+			for _, file := range tt.wantFiles {
+				wantFiles = append(wantFiles, path.Join(outputDir, file))
 			}
 
-			files, err := dir.Readdirnames(0)
-			if err != nil {
-				t.Errorf("writeSBOMs() error = %v", err)
-			}
+			sort.Strings(wantFiles)
 			sort.Strings(files)
-			if len(files) != len(tt.wantFiles) {
-				t.Errorf("writeSBOMs() files = %v, want %v", files, tt.wantFiles)
-			}
-
-			// Compare files
-			if !reflect.DeepEqual(files, tt.wantFiles) {
-				t.Errorf("writeSBOMs() files = %v, want %v", files, tt.wantFiles)
+			if !reflect.DeepEqual(files, wantFiles) {
+				t.Errorf("withSBOMPaths() files = %v, want %v", files, wantFiles)
 			}
 		})
 	}
