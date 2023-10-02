@@ -3,6 +3,7 @@ syntax = "proto3";
 package depot.cli.v1;
 
 import "google/protobuf/timestamp.proto";
+import "moby/buildkit/v1/control.proto";
 
 service BuildService {
   rpc CreateBuild(CreateBuildRequest) returns (CreateBuildResponse);
@@ -10,6 +11,7 @@ service BuildService {
   rpc GetBuildKitConnection(GetBuildKitConnectionRequest) returns (GetBuildKitConnectionResponse);
   rpc ReportBuildHealth(ReportBuildHealthRequest) returns (ReportBuildHealthResponse);
   rpc ReportTimings(ReportTimingsRequest) returns (ReportTimingsResponse);
+  rpc ReportStatus(ReportStatusRequest) returns (ReportStatusResponse);
   rpc ReportBuildContext(ReportBuildContextRequest) returns (ReportBuildContextResponse);
   rpc ListBuilds(ListBuildsRequest) returns (ListBuildsResponse) {}
 }
@@ -145,6 +147,14 @@ message BuildStep {
   repeated string input_digests = 7;
   repeated string ancestor_digests = 8;
 }
+
+message ReportStatusRequest {
+  string build_id = 1;
+  repeated moby.buildkit.v1.StatusResponse statuses = 2;
+  map<string, string> stable_digests = 3;
+}
+
+message ReportStatusResponse {}
 
 message ListBuildsRequest {
   // The project ID to get the builds for

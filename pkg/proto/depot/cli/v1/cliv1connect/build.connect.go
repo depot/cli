@@ -48,6 +48,9 @@ const (
 	// BuildServiceReportTimingsProcedure is the fully-qualified name of the BuildService's
 	// ReportTimings RPC.
 	BuildServiceReportTimingsProcedure = "/depot.cli.v1.BuildService/ReportTimings"
+	// BuildServiceReportStatusProcedure is the fully-qualified name of the BuildService's ReportStatus
+	// RPC.
+	BuildServiceReportStatusProcedure = "/depot.cli.v1.BuildService/ReportStatus"
 	// BuildServiceReportBuildContextProcedure is the fully-qualified name of the BuildService's
 	// ReportBuildContext RPC.
 	BuildServiceReportBuildContextProcedure = "/depot.cli.v1.BuildService/ReportBuildContext"
@@ -62,6 +65,7 @@ type BuildServiceClient interface {
 	GetBuildKitConnection(context.Context, *connect_go.Request[v1.GetBuildKitConnectionRequest]) (*connect_go.Response[v1.GetBuildKitConnectionResponse], error)
 	ReportBuildHealth(context.Context, *connect_go.Request[v1.ReportBuildHealthRequest]) (*connect_go.Response[v1.ReportBuildHealthResponse], error)
 	ReportTimings(context.Context, *connect_go.Request[v1.ReportTimingsRequest]) (*connect_go.Response[v1.ReportTimingsResponse], error)
+	ReportStatus(context.Context, *connect_go.Request[v1.ReportStatusRequest]) (*connect_go.Response[v1.ReportStatusResponse], error)
 	ReportBuildContext(context.Context, *connect_go.Request[v1.ReportBuildContextRequest]) (*connect_go.Response[v1.ReportBuildContextResponse], error)
 	ListBuilds(context.Context, *connect_go.Request[v1.ListBuildsRequest]) (*connect_go.Response[v1.ListBuildsResponse], error)
 }
@@ -101,6 +105,11 @@ func NewBuildServiceClient(httpClient connect_go.HTTPClient, baseURL string, opt
 			baseURL+BuildServiceReportTimingsProcedure,
 			opts...,
 		),
+		reportStatus: connect_go.NewClient[v1.ReportStatusRequest, v1.ReportStatusResponse](
+			httpClient,
+			baseURL+BuildServiceReportStatusProcedure,
+			opts...,
+		),
 		reportBuildContext: connect_go.NewClient[v1.ReportBuildContextRequest, v1.ReportBuildContextResponse](
 			httpClient,
 			baseURL+BuildServiceReportBuildContextProcedure,
@@ -121,6 +130,7 @@ type buildServiceClient struct {
 	getBuildKitConnection *connect_go.Client[v1.GetBuildKitConnectionRequest, v1.GetBuildKitConnectionResponse]
 	reportBuildHealth     *connect_go.Client[v1.ReportBuildHealthRequest, v1.ReportBuildHealthResponse]
 	reportTimings         *connect_go.Client[v1.ReportTimingsRequest, v1.ReportTimingsResponse]
+	reportStatus          *connect_go.Client[v1.ReportStatusRequest, v1.ReportStatusResponse]
 	reportBuildContext    *connect_go.Client[v1.ReportBuildContextRequest, v1.ReportBuildContextResponse]
 	listBuilds            *connect_go.Client[v1.ListBuildsRequest, v1.ListBuildsResponse]
 }
@@ -150,6 +160,11 @@ func (c *buildServiceClient) ReportTimings(ctx context.Context, req *connect_go.
 	return c.reportTimings.CallUnary(ctx, req)
 }
 
+// ReportStatus calls depot.cli.v1.BuildService.ReportStatus.
+func (c *buildServiceClient) ReportStatus(ctx context.Context, req *connect_go.Request[v1.ReportStatusRequest]) (*connect_go.Response[v1.ReportStatusResponse], error) {
+	return c.reportStatus.CallUnary(ctx, req)
+}
+
 // ReportBuildContext calls depot.cli.v1.BuildService.ReportBuildContext.
 func (c *buildServiceClient) ReportBuildContext(ctx context.Context, req *connect_go.Request[v1.ReportBuildContextRequest]) (*connect_go.Response[v1.ReportBuildContextResponse], error) {
 	return c.reportBuildContext.CallUnary(ctx, req)
@@ -167,6 +182,7 @@ type BuildServiceHandler interface {
 	GetBuildKitConnection(context.Context, *connect_go.Request[v1.GetBuildKitConnectionRequest]) (*connect_go.Response[v1.GetBuildKitConnectionResponse], error)
 	ReportBuildHealth(context.Context, *connect_go.Request[v1.ReportBuildHealthRequest]) (*connect_go.Response[v1.ReportBuildHealthResponse], error)
 	ReportTimings(context.Context, *connect_go.Request[v1.ReportTimingsRequest]) (*connect_go.Response[v1.ReportTimingsResponse], error)
+	ReportStatus(context.Context, *connect_go.Request[v1.ReportStatusRequest]) (*connect_go.Response[v1.ReportStatusResponse], error)
 	ReportBuildContext(context.Context, *connect_go.Request[v1.ReportBuildContextRequest]) (*connect_go.Response[v1.ReportBuildContextResponse], error)
 	ListBuilds(context.Context, *connect_go.Request[v1.ListBuildsRequest]) (*connect_go.Response[v1.ListBuildsResponse], error)
 }
@@ -203,6 +219,11 @@ func NewBuildServiceHandler(svc BuildServiceHandler, opts ...connect_go.HandlerO
 		svc.ReportTimings,
 		opts...,
 	))
+	mux.Handle(BuildServiceReportStatusProcedure, connect_go.NewUnaryHandler(
+		BuildServiceReportStatusProcedure,
+		svc.ReportStatus,
+		opts...,
+	))
 	mux.Handle(BuildServiceReportBuildContextProcedure, connect_go.NewUnaryHandler(
 		BuildServiceReportBuildContextProcedure,
 		svc.ReportBuildContext,
@@ -237,6 +258,10 @@ func (UnimplementedBuildServiceHandler) ReportBuildHealth(context.Context, *conn
 
 func (UnimplementedBuildServiceHandler) ReportTimings(context.Context, *connect_go.Request[v1.ReportTimingsRequest]) (*connect_go.Response[v1.ReportTimingsResponse], error) {
 	return nil, connect_go.NewError(connect_go.CodeUnimplemented, errors.New("depot.cli.v1.BuildService.ReportTimings is not implemented"))
+}
+
+func (UnimplementedBuildServiceHandler) ReportStatus(context.Context, *connect_go.Request[v1.ReportStatusRequest]) (*connect_go.Response[v1.ReportStatusResponse], error) {
+	return nil, connect_go.NewError(connect_go.CodeUnimplemented, errors.New("depot.cli.v1.BuildService.ReportStatus is not implemented"))
 }
 
 func (UnimplementedBuildServiceHandler) ReportBuildContext(context.Context, *connect_go.Request[v1.ReportBuildContextRequest]) (*connect_go.Response[v1.ReportBuildContextResponse], error) {

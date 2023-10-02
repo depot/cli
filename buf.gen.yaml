@@ -6,7 +6,7 @@ managed:
     default: github.com/depot/cli/pkg/proto
     except:
       - buf.build/googleapis/googleapis
-
+      - buf.build/depot/buildkit
 plugins:
   - plugin: buf.build/protocolbuffers/go:v1.30.0
     out: pkg/proto
