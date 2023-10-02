@@ -150,7 +150,7 @@ func run() error {
 				return
 			}
 
-			state.Reporter, finishStatus, _ = progress.NewProgress(ctx2, build.ID, build.Token, progress.Quiet, buildxprinter)
+			state.Reporter, finishStatus, _ = progress.NewProgress(ctx2, build.ID, build.Token, buildxprinter)
 			state.Reporter.AddListener(listener)
 
 			state.SummaryURL = build.BuildURL

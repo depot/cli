@@ -33,15 +33,6 @@ type Progress struct {
 	p *progress.Printer
 }
 
-type ProgressMode int
-
-const (
-	Auto ProgressMode = iota
-	TTY
-	Plain
-	Quiet
-)
-
 type FinishFn func()
 type Listener func(s *client.SolveStatus)
 
@@ -49,7 +40,7 @@ type Listener func(s *client.SolveStatus)
 // Use the ctx to cancel the long running go routine.
 // Make sure to run FinishFn to flush remaining build timings to the server _AFTER_ ctx has been canceled.
 // NOTE: this means that you need to defer the FinishFn before deferring the cancel.
-func NewProgress(ctx context.Context, buildID, token string, mode ProgressMode, p *progress.Printer) (*Progress, FinishFn, error) {
+func NewProgress(ctx context.Context, buildID, token string, p *progress.Printer) (*Progress, FinishFn, error) {
 	// Buffer up to 1024 vertex slices before blocking the build.
 	const channelBufferSize = 1024
 
@@ -474,34 +465,4 @@ type Instruction struct {
 	Stage    string
 	Step     int
 	Total    int
-}
-
-func (p ProgressMode) String() string {
-	switch p {
-	case Auto:
-		return "auto"
-	case TTY:
-		return "tty"
-	case Plain:
-		return "plain"
-	case Quiet:
-		return "quiet"
-	default:
-		return "auth"
-	}
-}
-
-func NewProgressMode(s string) ProgressMode {
-	switch s {
-	case "auto":
-		return Auto
-	case "tty":
-		return TTY
-	case "plain":
-		return Plain
-	case "quiet":
-		return Quiet
-	default:
-		return Auto
-	}
 }

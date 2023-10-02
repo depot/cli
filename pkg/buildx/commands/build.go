@@ -206,7 +206,7 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.No
 		return nil, nil, err
 	}
 
-	printer, finish, err := depotprogress.NewProgress(ctx2, depotOpts.buildID, depotOpts.token, depotprogress.NewProgressMode(progressMode), buildxprinter)
+	printer, finish, err := depotprogress.NewProgress(ctx2, depotOpts.buildID, depotOpts.token, buildxprinter)
 	if err != nil {
 		cancel()
 		return nil, nil, err

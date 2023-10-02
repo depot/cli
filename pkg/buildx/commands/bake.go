@@ -58,7 +58,7 @@ func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator) (er
 		return err
 	}
 
-	printer, finish, err := depotprogress.NewProgress(ctx2, in.buildID, in.token, depotprogress.NewProgressMode(in.progress), buildxprinter)
+	printer, finish, err := depotprogress.NewProgress(ctx2, in.buildID, in.token, buildxprinter)
 	if err != nil {
 		cancel()
 		return err
