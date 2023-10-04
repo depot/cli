@@ -2,9 +2,6 @@ package progress
 
 import (
 	"context"
-	"os"
-	"sort"
-	"strings"
 	"sync"
 	"time"
 
@@ -13,10 +10,10 @@ import (
 	cliv1 "github.com/depot/cli/pkg/proto/depot/cli/v1"
 	cliv1connect "github.com/depot/cli/pkg/proto/depot/cli/v1/cliv1connect"
 	"github.com/docker/buildx/util/progress"
+	controlapi "github.com/moby/buildkit/api/services/control"
 	"github.com/moby/buildkit/client"
 	"github.com/moby/buildkit/identity"
 	"github.com/opencontainers/go-digest"
-	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 var _ progress.Writer = (*Progress)(nil)
@@ -26,22 +23,13 @@ type Progress struct {
 	token   string
 
 	client   cliv1connect.BuildServiceClient
-	vertices chan []*client.Vertex
+	vertices chan *client.SolveStatus
 
 	lmu       sync.Mutex
 	listeners []Listener
 
 	p *progress.Printer
 }
-
-type ProgressMode int
-
-const (
-	Auto ProgressMode = iota
-	TTY
-	Plain
-	Quiet
-)
 
 type FinishFn func()
 type Listener func(s *client.SolveStatus)
@@ -50,19 +38,15 @@ type Listener func(s *client.SolveStatus)
 // Use the ctx to cancel the long running go routine.
 // Make sure to run FinishFn to flush remaining build timings to the server _AFTER_ ctx has been canceled.
 // NOTE: this means that you need to defer the FinishFn before deferring the cancel.
-func NewProgress(ctx context.Context, buildID, token string, mode ProgressMode) (*Progress, FinishFn, error) {
+func NewProgress(ctx context.Context, buildID, token string, p *progress.Printer) (*Progress, FinishFn, error) {
 	// Buffer up to 1024 vertex slices before blocking the build.
 	const channelBufferSize = 1024
-	p, err := progress.NewPrinter(ctx, os.Stderr, os.Stderr, mode.String())
-	if err != nil {
-		return nil, func() {}, err
-	}
 
 	progress := &Progress{
 		buildID:  buildID,
 		token:    token,
 		client:   depotapi.NewBuildClient(),
-		vertices: make(chan []*client.Vertex, channelBufferSize),
+		vertices: make(chan *client.SolveStatus, channelBufferSize),
 		p:        p,
 	}
 
@@ -126,7 +110,7 @@ func (p *Progress) Write(s *client.SolveStatus) {
 	// Only buffer vertices to send if this progress writer is running in the context of an active build
 	if p.HasActiveBuild() {
 		select {
-		case p.vertices <- s.Vertexes:
+		case p.vertices <- s:
 		default:
 			// if channel is full skip recording vertex time to prevent blocking the build.
 		}
@@ -147,15 +131,6 @@ func (p *Progress) Write(s *client.SolveStatus) {
 //
 // However, the error message is still uploaded to the API.
 func (p *Progress) WriteLint(vertex client.Vertex, statuses []*client.VertexStatus, logs []*client.VertexLog) {
-	// Only buffer vertices to send if this progress writer is running in the context of an active build
-	if p.HasActiveBuild() {
-		select {
-		case p.vertices <- []*client.Vertex{&vertex}:
-		default:
-			// if channel is full skip recording vertex time to prevent blocking the build.
-		}
-	}
-
 	// We are stripping the error here because the UX printing the error and
 	// the status show the same information twice.
 	withoutError := vertex
@@ -163,11 +138,22 @@ func (p *Progress) WriteLint(vertex client.Vertex, statuses []*client.VertexStat
 		// Filling in a generic error message to cause the UX to fail with a red color.
 		withoutError.Error = "linting failed "
 	}
-	p.p.Write(&client.SolveStatus{
+
+	status := &client.SolveStatus{
 		Vertexes: []*client.Vertex{&withoutError},
 		Statuses: statuses,
 		Logs:     logs,
-	})
+	}
+	// Only buffer vertices to send if this progress writer is running in the context of an active build
+	if p.HasActiveBuild() {
+		select {
+		case p.vertices <- status:
+		default:
+			// if channel is full skip recording vertex time to prevent blocking the build.
+		}
+	}
+
+	p.p.Write(status)
 }
 
 func (p *Progress) ValidateLogSource(digest digest.Digest, v interface{}) bool {
@@ -203,61 +189,41 @@ func (p *Progress) Run(ctx context.Context) {
 	ticker := time.NewTicker(bufferTimeout)
 	defer ticker.Stop()
 
-	// The same vertex can be reported multiple times.  The data appears
-	// the same except for the duration.  It's not clear to me if we should
-	// merge the durations or just use the first one.
-	uniqueVertices := map[digest.Digest]struct{}{}
-	steps := []*Step{}
+	statuses := []*client.SolveStatus{}
 
 	for {
 		select {
-		case vs := <-p.vertices:
-			for _, v := range vs {
-				// Only record vertices that have completed.
-				if v == nil || v.Started == nil || v.Completed == nil {
-					continue
-				}
-
-				// skip if recorded already.
-				if _, ok := uniqueVertices[v.Digest]; ok {
-					continue
-				}
-
-				uniqueVertices[v.Digest] = struct{}{}
-				step := NewStep(v)
-				steps = append(steps, &step)
+		case status := <-p.vertices:
+			if status == nil {
+				continue
 			}
+			statuses = append(statuses, status)
 		case <-ticker.C:
-			Analyze(steps)
 			// Requires a new context because the previous one may be canceled while we are
 			// sending the build timings.  At most one will wait 5 seconds.
 			ctx2, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			p.ReportBuildSteps(ctx2, steps)
+			if err := p.ReportStatus(ctx2, statuses); err == nil {
+				// Clear all reported steps.
+				statuses = statuses[:0]
+			}
+
 			ticker.Reset(bufferTimeout)
 			cancel()
 		case <-ctx.Done():
 			// Send all remaining build timings before exiting.
 			for {
 				select {
-				case vs := <-p.vertices:
-					for _, v := range vs {
-						if v == nil || v.Started == nil || v.Completed == nil {
-							continue
-						}
-
-						if _, ok := uniqueVertices[v.Digest]; ok {
-							continue
-						}
-
-						uniqueVertices[v.Digest] = struct{}{}
-						step := NewStep(v)
-						steps = append(steps, &step)
+				case status := <-p.vertices:
+					if status == nil {
+						continue
 					}
+
+					statuses = append(statuses, status)
 				default:
-					Analyze(steps)
 					// Requires a new context because the previous one was canceled.
 					ctx2, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-					p.ReportBuildSteps(ctx2, steps)
+					// Any errors are ignored and steps are not reported.
+					_ = p.ReportStatus(ctx2, statuses)
 					cancel()
 
 					return
@@ -271,242 +237,50 @@ func (p *Progress) HasActiveBuild() bool {
 	return p.buildID != "" && p.token != ""
 }
 
-func (p *Progress) ReportBuildSteps(ctx context.Context, steps []*Step) {
-	if len(steps) == 0 {
-		return
+func (p *Progress) ReportStatus(ctx context.Context, ss []*client.SolveStatus) error {
+	if len(ss) == 0 {
+		return nil
 	}
 
-	req := NewTimingRequest(p.buildID, steps)
-	if req == nil {
-		return
+	statuses := make([]*controlapi.StatusResponse, 0, len(ss))
+	stableDigests := map[string]string{}
+	for _, s := range ss {
+		status := s.Marshal()
+		statuses = append(statuses, status...)
+
+		for _, sr := range status {
+			for _, v := range sr.Vertexes {
+				// Some vertex may not have stable digests.
+				// This generally happens when the vertex in an informational log like "pulling fs layer."
+				stableDigest := v.StableDigest.String()
+				if stableDigest == "" {
+					stableDigest = digest.FromString(v.Name).String()
+				}
+				stableDigests[v.Digest.String()] = stableDigest
+			}
+		}
+	}
+
+	req := &cliv1.ReportStatusRequest{
+		BuildId:       p.buildID,
+		Statuses:      statuses,
+		StableDigests: stableDigests,
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	_, err := p.client.ReportTimings(ctx, depotapi.WithAuthentication(connect.NewRequest(req), p.token))
-
+	_, err := p.client.ReportStatus(ctx, depotapi.WithAuthentication(connect.NewRequest(req), p.token))
 	if err != nil {
 		// No need to log errors to the user as it is fine if we miss some build timings.
-		return
-	} else {
-		// Mark the steps as reported if the request was successful.
-		for i := range steps {
-			steps[i].Reported = true
-		}
+		return err
 	}
+
+	return nil
 }
 
 func (p *Progress) AddListener(l Listener) {
 	p.lmu.Lock()
 	defer p.lmu.Unlock()
 	p.listeners = append(p.listeners, l)
-}
-
-// Analyze computes the input duration for each step.
-func Analyze(steps []*Step) {
-	// Used to lookup the index of a step's input digests.
-	digestIdx := make(map[digest.Digest]int, len(steps))
-	for i := range steps {
-		digestIdx[steps[i].Digest] = i
-		digestIdx[steps[i].StableDigest] = i
-	}
-
-	stableDigests := make(map[digest.Digest]digest.Digest, len(steps))
-	for i := range steps {
-		// Filters out "random" digests that are not stable.
-		// An example of this is:
-		// { "Name": "[internal] load build context", "StableDigest": "random:8831e066dc1584a0ff85128626b574bcb4bf68e46ab71957522169d84586768d" }
-
-		if !strings.HasPrefix(steps[i].StableDigest.String(), "random:") {
-			stableDigests[steps[i].Digest] = steps[i].StableDigest
-		}
-	}
-
-	// Discover all stable input digests for each step.
-	for i := range steps {
-		// Already analyzed (minor optimization).
-		if len(steps[i].StableInputDigests) > 0 {
-			continue
-		}
-
-		for _, inputDigest := range steps[i].InputDigests {
-			if stableDigest, ok := stableDigests[inputDigest]; ok {
-				steps[i].StableInputDigests = append(steps[i].StableInputDigests, stableDigest)
-			}
-		}
-	}
-
-	// Discover all stable ancestor digests for each step.
-	for i := range steps {
-		// Already analyzed (minor optimization).
-		if len(steps[i].AncestorDigests) > 0 {
-			continue
-		}
-
-		// Using the StableInputDigests filters out any vertex without a stable digest.
-		ancestorDigests := make(map[digest.Digest]struct{}, len(steps[i].InputDigests))
-
-		stack := make([]digest.Digest, len(steps[i].InputDigests))
-		copy(stack, steps[i].InputDigests)
-
-		var stepDigest digest.Digest
-		// Depth first traversal reading from leaves to first cached vertex or to root.
-		for {
-			if len(stack) == 0 {
-				break
-			}
-
-			for j := range stack {
-				ancestorDigests[stack[j]] = struct{}{}
-			}
-
-			stepDigest, stack = stack[len(stack)-1], stack[:len(stack)-1]
-			idx, ok := digestIdx[stepDigest]
-			if !ok {
-				// Missing vertex; not sure this happens.
-				continue
-			}
-
-			step := steps[idx]
-			stack = append(stack, step.InputDigests...)
-		}
-
-		for ancestor := range ancestorDigests {
-			if stableAncestor, ok := stableDigests[ancestor]; ok {
-				steps[i].AncestorDigests = append(steps[i].AncestorDigests, stableAncestor)
-			}
-		}
-
-		// Sort the ancestor digests to ensure that the order is consistent.
-		// Order is the same as the order of the input digests.
-		// Effectively this is a topological sort.
-		sort.Slice(steps[i].AncestorDigests, func(j, k int) bool {
-			return digestIdx[steps[i].AncestorDigests[j]] <
-				digestIdx[steps[i].AncestorDigests[k]]
-		})
-	}
-}
-
-func NewTimingRequest(buildID string, steps []*Step) *cliv1.ReportTimingsRequest {
-	buildSteps := make([]*cliv1.BuildStep, 0, len(steps))
-	for _, step := range steps {
-		// Skip steps that have already been reported.
-		if step.Reported {
-			continue
-		}
-
-		buildStep := &cliv1.BuildStep{
-			StartTime:  timestamppb.New(step.StartTime),
-			DurationMs: int32(step.Duration.Milliseconds()),
-			Name:       step.Name,
-			Cached:     step.Cached,
-		}
-
-		if step.Error != "" {
-			buildStep.Error = &step.Error
-		}
-
-		stableDigest := step.StableDigest.String()
-		// Do not report "random" digests such as local build context.
-		if !strings.HasPrefix(stableDigest, "random:") && stableDigest != "" {
-			buildStep.StableDigest = &stableDigest
-		}
-
-		for _, stableInputDigest := range step.StableInputDigests {
-			buildStep.InputDigests = append(buildStep.InputDigests, stableInputDigest.String())
-		}
-
-		for _, ancestor := range step.AncestorDigests {
-			buildStep.AncestorDigests = append(buildStep.AncestorDigests, ancestor.String())
-		}
-
-		buildSteps = append(buildSteps, buildStep)
-	}
-
-	if len(buildSteps) == 0 {
-		return nil
-	}
-
-	req := &cliv1.ReportTimingsRequest{
-		BuildId:    buildID,
-		BuildSteps: buildSteps,
-	}
-
-	return req
-}
-
-// Step is one of those internal data structures that translates domains from
-// buildkitd to CLI and from CLI to the API server.
-type Step struct {
-	Name string
-
-	Digest       digest.Digest // Buildkit digest is hashed with random inputs to create random input digests.
-	StableDigest digest.Digest // Stable digest is the same for the same inputs. This is a depot extension.
-
-	StartTime time.Time
-	Duration  time.Duration
-
-	Cached bool
-	Error  string
-
-	InputDigests       []digest.Digest // Buildkit input digests are hashed with random inputs to create random input digests.
-	StableInputDigests []digest.Digest // Stable input digests are the same for the same inputs.
-	AncestorDigests    []digest.Digest // Ancestor digests are the input digests of all previous steps.
-
-	Reported bool
-}
-
-// Assumes that Completed and Started are not nil.
-func NewStep(v *client.Vertex) Step {
-	step := Step{
-		Name:         v.Name,
-		Digest:       v.Digest,
-		StartTime:    *v.Started,
-		Duration:     v.Completed.Sub(*v.Started),
-		Cached:       v.Cached,
-		StableDigest: v.StableDigest,
-		Error:        v.Error,
-		InputDigests: v.Inputs,
-	}
-
-	return step
-}
-
-// Instruction is the parsed instruction from a build step.
-type Instruction struct {
-	Platform string
-	Stage    string
-	Step     int
-	Total    int
-}
-
-func (p ProgressMode) String() string {
-	switch p {
-	case Auto:
-		return "auto"
-	case TTY:
-		return "tty"
-	case Plain:
-		return "plain"
-	case Quiet:
-		return "quiet"
-	default:
-		return "auth"
-	}
-}
-
-func NewProgressMode(s string) ProgressMode {
-	switch s {
-	case "auto":
-		return Auto
-	case "tty":
-		return TTY
-	case "plain":
-		return Plain
-	case "quiet":
-		return Quiet
-	default:
-		return Auto
-	}
 }

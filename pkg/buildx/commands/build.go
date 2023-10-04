@@ -200,7 +200,13 @@ func (c nopCloser) Close() error { return nil }
 func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.Node, opts map[string]build.Options, depotOpts DepotOptions, progressMode, metadataFile string, exportLoad, allowNoOutput bool) (imageIDs []string, res *build.ResultContext, err error) {
 	ctx2, cancel := context.WithCancel(context.TODO())
 
-	printer, finish, err := depotprogress.NewProgress(ctx2, depotOpts.buildID, depotOpts.token, depotprogress.NewProgressMode(progressMode))
+	buildxprinter, err := progress.NewPrinter(ctx2, os.Stderr, os.Stderr, progressMode)
+	if err != nil {
+		cancel()
+		return nil, nil, err
+	}
+
+	printer, finish, err := depotprogress.NewProgress(ctx2, depotOpts.buildID, depotOpts.token, buildxprinter)
 	if err != nil {
 		cancel()
 		return nil, nil, err
@@ -267,7 +273,7 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.No
 	linter := NewLinter(NewLintFailureMode(depotOpts.lint, depotOpts.lintFailOn), clients, buildxNodes)
 	dockerfileHandlers := depotbuild.NewDockerfileHandlers(uploader, linter)
 
-	resp, err := depotbuild.DepotBuildWithResultHandler(ctx, buildxNodes, opts, dockerClient, dockerConfigDir, printer, dockerfileHandlers, func(driverIndex int, gotRes *build.ResultContext) {
+	resp, err := depotbuild.DepotBuildWithResultHandler(ctx, buildxNodes, opts, dockerClient, dockerConfigDir, buildxprinter, dockerfileHandlers, func(driverIndex int, gotRes *build.ResultContext) {
 		mu.Lock()
 		defer mu.Unlock()
 		if res == nil || driverIndex < idx {

@@ -52,7 +52,13 @@ func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator) (er
 
 	ctx2, cancel := context.WithCancel(context.TODO())
 
-	printer, finish, err := depotprogress.NewProgress(ctx2, in.buildID, in.token, depotprogress.NewProgressMode(in.progress))
+	buildxprinter, err := progress.NewPrinter(ctx2, os.Stderr, os.Stderr, in.progress)
+	if err != nil {
+		cancel()
+		return err
+	}
+
+	printer, finish, err := depotprogress.NewProgress(ctx2, in.buildID, in.token, buildxprinter)
 	if err != nil {
 		cancel()
 		return err
@@ -144,7 +150,7 @@ func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator) (er
 
 	linter := NewLinter(NewLintFailureMode(in.lint, in.lintFailOn), clients, buildxNodes)
 	dockerfileHandlers := build.NewDockerfileHandlers(uploader, linter)
-	resp, err := build.DepotBuild(ctx, buildxNodes, buildOpts, dockerClient, dockerConfigDir, printer, dockerfileHandlers)
+	resp, err := build.DepotBuild(ctx, buildxNodes, buildOpts, dockerClient, dockerConfigDir, buildxprinter, dockerfileHandlers)
 	if err != nil {
 		if errors.Is(err, LintFailed) {
 			linter.Print(os.Stderr, in.progress)
