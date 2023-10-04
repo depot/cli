@@ -71,7 +71,7 @@ func BuildkitdClient(ctx context.Context, conn net.Conn, buildkitdAddress string
 }
 
 // Proxy buildkitd server over connection. Cancel context to shutdown.
-func Proxy(ctx context.Context, conn net.Conn, acquireState func() ProxyState, platform string, status <-chan *client.SolveStatus) {
+func Proxy(ctx context.Context, conn net.Conn, acquireState func() ProxyState, platform string, status chan *client.SolveStatus) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -106,7 +106,7 @@ type ProxyState struct {
 
 type ControlProxy struct {
 	state    func() ProxyState
-	status   <-chan *client.SolveStatus
+	status   chan *client.SolveStatus
 	platform string
 	cancel   context.CancelFunc
 }
@@ -210,7 +210,11 @@ func (p *ControlProxy) Status(in *control.StatusRequest, toBuildx control.Contro
 				return
 			}
 
-			state.Reporter.Write(client.NewSolveStatus(msg))
+			// Drop if the buffer is backed up.
+			select {
+			case p.status <- client.NewSolveStatus(msg):
+			default:
+			}
 		}
 	}()
 
