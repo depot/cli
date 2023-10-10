@@ -32,7 +32,11 @@ func NewCmdProjects() *cobra.Command {
 		Aliases: []string{"p"},
 		Short:   "List depot projects",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			token := helpers.ResolveToken(context.Background(), token)
+			token, err := helpers.ResolveToken(context.Background(), token)
+			if err != nil {
+				return err
+			}
+
 			if token == "" {
 				return fmt.Errorf("missing API token, please run `depot login`")
 			}
@@ -89,7 +93,7 @@ func NewCmdProjects() *cobra.Command {
 				token:         token,
 			}
 
-			_, err := tea.NewProgram(m, tea.WithAltScreen()).Run()
+			_, err = tea.NewProgram(m, tea.WithAltScreen()).Run()
 			return err
 		},
 	}

@@ -613,10 +613,15 @@ func BuildCmd(dockerCli command.Cli) *cobra.Command {
 			options.contextPath = args[0]
 			cmd.Flags().VisitAll(checkWarnedFlags)
 
-			token := helpers.ResolveToken(context.Background(), options.token)
+			token, err := helpers.ResolveToken(context.Background(), options.token)
+			if err != nil {
+				return err
+			}
+
 			if token == "" {
 				return fmt.Errorf("missing API token, please run `depot login`")
 			}
+
 			options.project = helpers.ResolveProjectID(options.project, options.contextPath, options.dockerfileName)
 			if options.project == "" {
 				return errors.Errorf("unknown project ID (run `depot init` or use --project or $DEPOT_PROJECT_ID)")

@@ -167,7 +167,12 @@ func uninstallDepotPlugin(dir string) error {
 }
 
 func runConfigureBuildx(ctx context.Context, dockerCli command.Cli, project, token string) error {
-	token = helpers.ResolveToken(ctx, token)
+	var err error
+	token, err = helpers.ResolveToken(ctx, token)
+	if err != nil {
+		return err
+	}
+
 	if token == "" {
 		return fmt.Errorf("missing API token, please run `depot login`")
 	}

@@ -38,7 +38,11 @@ func NewCmdBuilds() *cobra.Command {
 				return errors.Errorf("unknown project ID (run `depot init` or use --project or $DEPOT_PROJECT_ID)")
 			}
 
-			token := helpers.ResolveToken(context.Background(), token)
+			token, err := helpers.ResolveToken(context.Background(), token)
+			if err != nil {
+				return err
+			}
+
 			if token == "" {
 				return fmt.Errorf("missing API token, please run `depot login`")
 			}
@@ -64,7 +68,7 @@ func NewCmdBuilds() *cobra.Command {
 
 			m := newBuildsModel(projectID, token, client)
 
-			_, err := tea.NewProgram(m, tea.WithAltScreen()).Run()
+			_, err = tea.NewProgram(m, tea.WithAltScreen()).Run()
 			return err
 		},
 	}
