@@ -248,9 +248,6 @@ func BakeCmd(dockerCli command.Cli) *cobra.Command {
 			}
 
 			options.project = helpers.ResolveProjectID(options.project, options.files...)
-			if options.project == "" {
-				return errors.Errorf("unknown project ID (run `depot init` or use --project or $DEPOT_PROJECT_ID)")
-			}
 
 			buildPlatform, err := helpers.ResolveBuildPlatform(options.buildPlatform)
 			if err != nil {
