@@ -11,7 +11,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/depot/cli/pkg/api"
-	"github.com/depot/cli/pkg/config"
+	"github.com/depot/cli/pkg/helpers"
 	"github.com/depot/cli/pkg/project"
 	cliv1beta1 "github.com/depot/cli/pkg/proto/depot/cli/v1beta1"
 	"github.com/docker/cli/cli"
@@ -19,7 +19,10 @@ import (
 )
 
 func NewCmdInit() *cobra.Command {
-	var projectID string
+	var (
+		projectID string
+		token     string
+	)
 
 	cmd := &cobra.Command{
 		Use:   "init [flags] [<dir>]",
@@ -39,14 +42,14 @@ func NewCmdInit() *cobra.Command {
 
 			_, existingFile, _ := project.ReadConfig(absContext)
 			if existingFile != "" && !force {
-				return fmt.Errorf("Project configuration %s already exists at path \"%s\", re-run with `--force` to overwrite", filepath.Base(existingFile), contextDir)
+				return fmt.Errorf("Project configuration %s already exists at path \"%s\", re-run with `--force` to overwrite", filepath.Base(existingFile), filepath.Dir(existingFile))
 			}
 
-			// TODO: make this a helper
-			token := os.Getenv("DEPOT_TOKEN")
-			if token == "" {
-				token = config.GetApiToken()
+			token, err = helpers.ResolveToken(context.Background(), token)
+			if err != nil {
+				return err
 			}
+
 			if token == "" {
 				return fmt.Errorf("missing API token, please run `depot login`")
 			}
@@ -100,6 +103,7 @@ func NewCmdInit() *cobra.Command {
 
 	cmd.Flags().Bool("force", false, "Overwrite any existing project configuration")
 	cmd.Flags().StringVar(&projectID, "project", "", "The ID of the project to initialize")
+	cmd.Flags().StringVar(&token, "token", "", "Depot API token")
 
 	return cmd
 }
