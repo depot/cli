@@ -28,7 +28,7 @@ func BakePrint(dockerCli command.Cli, targets []string, in BakeOptions) (err err
 		targets = []string{"default"}
 	}
 
-	files, err := bake.ReadLocalFiles(in.files)
+	files, err := bake.ReadLocalFiles(in.files, dockerCli.In())
 	if err != nil {
 		return err
 	}

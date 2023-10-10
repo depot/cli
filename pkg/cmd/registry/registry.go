@@ -292,7 +292,7 @@ func (r *Registry) handleBlobs(resp http.ResponseWriter, req *http.Request) {
 	childCtx, cancel := context.WithCancel(req.Context())
 	defer cancel()
 
-	rc, err := r.ContentClient.Read(childCtx, &contentv1.ReadContentRequest{Digest: digest.Digest(blobSHA)})
+	rc, err := r.ContentClient.Read(childCtx, &contentv1.ReadContentRequest{Digest: digest.Digest(blobSHA).String()})
 	if err != nil {
 		writeError(resp, http.StatusInternalServerError, "INTERNAL_SERVER_ERROR", "unable to get blob")
 		return

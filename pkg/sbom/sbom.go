@@ -13,13 +13,12 @@ import (
 	"strings"
 
 	contentv1 "github.com/containerd/containerd/api/services/content/v1"
-	depotbuild "github.com/depot/cli/pkg/buildx/build"
+	"github.com/docker/buildx/build"
 	"github.com/docker/buildx/driver"
-	"github.com/opencontainers/go-digest"
 	"golang.org/x/sync/errgroup"
 )
 
-func Save(ctx context.Context, outputDir string, resp []depotbuild.DepotBuildResponse) error {
+func Save(ctx context.Context, outputDir string, resp []build.DepotBuildResponse) error {
 	targetPlatforms := map[string]map[string]sbomOutput{}
 	for _, buildRes := range resp {
 		targetName := buildRes.Name
@@ -125,7 +124,7 @@ type ImageSBOM struct {
 
 // decodeNodeResponses decodes the SBOMs from the node responses. If the
 // response does not have SBOMs, nil is returned.
-func decodeNodeResponses(nodeRes depotbuild.DepotNodeResponse) ([]sbomReference, error) {
+func decodeNodeResponses(nodeRes build.DepotNodeResponse) ([]sbomReference, error) {
 	encodedSBOMs, ok := nodeRes.SolveResponse.ExporterResponse[SBOMsLabel]
 	if !ok {
 		return nil, nil
@@ -153,7 +152,7 @@ func downloadSBOM(ctx context.Context, sbom sbomOutput) error {
 	}
 
 	contentClient := client.ContentClient()
-	r, err := contentClient.Read(ctx, &contentv1.ReadContentRequest{Digest: digest.Digest(sbom.sbom.Digest)})
+	r, err := contentClient.Read(ctx, &contentv1.ReadContentRequest{Digest: sbom.sbom.Digest})
 	if err != nil {
 		return err
 	}

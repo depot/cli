@@ -5,12 +5,12 @@ import (
 	"fmt"
 
 	leasesapi "github.com/containerd/containerd/api/services/leases/v1"
-	depotbuild "github.com/depot/cli/pkg/buildx/build"
+	"github.com/docker/buildx/build"
 	"github.com/moby/buildkit/depot"
 )
 
 // DeleteExportLeases removes the long-lived leases we use to inhibit garbage collection of exported images.
-func DeleteExportLeases(ctx context.Context, responses []depotbuild.DepotBuildResponse) {
+func DeleteExportLeases(ctx context.Context, responses []build.DepotBuildResponse) {
 	for _, res := range responses {
 		for _, nodeRes := range res.NodeResponses {
 			if nodeRes.SolveResponse == nil {
@@ -31,7 +31,7 @@ func DeleteExportLeases(ctx context.Context, responses []depotbuild.DepotBuildRe
 	}
 }
 
-func leasesClient(ctx context.Context, nodeResponse depotbuild.DepotNodeResponse) (leasesapi.LeasesClient, error) {
+func leasesClient(ctx context.Context, nodeResponse build.DepotNodeResponse) (leasesapi.LeasesClient, error) {
 	if nodeResponse.Node.Driver == nil {
 		return nil, fmt.Errorf("node %s does not have a driver", nodeResponse.Node.Name)
 	}

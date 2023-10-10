@@ -125,6 +125,9 @@ func (p *Progress) Write(s *client.SolveStatus) {
 	}
 }
 
+// WriteBuildRef is used by buildx to send history to docker for desktop.
+func (p *Progress) WriteBuildRef(string, string) {}
+
 // WriteLint specializes the write to remove the error from the vertex before printing to the terminal.
 // We do this because buildx prints error _and_ status for each vertex.  The error
 // and status contain the same information, so we remove the error to avoid duplicates.

@@ -6,9 +6,9 @@ import (
 
 	"github.com/bufbuild/connect-go"
 	depotapi "github.com/depot/cli/pkg/api"
-	"github.com/depot/cli/pkg/buildx/build"
 	cliv1 "github.com/depot/cli/pkg/proto/depot/cli/v1"
 	"github.com/depot/cli/pkg/proto/depot/cli/v1/cliv1connect"
+	"github.com/docker/buildx/build"
 	"github.com/docker/buildx/util/progress"
 )
 

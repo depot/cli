@@ -91,7 +91,7 @@ func (d *Driver) Factory() driver.Factory {
 	return d.factory
 }
 
-func (d *Driver) Features() map[driver.Feature]bool {
+func (d *Driver) Features(_ context.Context) map[driver.Feature]bool {
 	return map[driver.Feature]bool{
 		driver.OCIExporter:    true,
 		driver.DockerExporter: true,
