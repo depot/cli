@@ -158,24 +158,54 @@ func downloadSBOM(ctx context.Context, sbom sbomOutput) error {
 		return err
 	}
 
-	output, err := os.OpenFile(sbom.outputPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0640)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = output.Close() }()
+	// Preallocate 1MB for the buffer. This is a guess at the size of the SBOM.
+	inner := make([]byte, 0, 1024*1024)
+	buf := bytes.NewBuffer(inner)
 
 	for {
 		resp, err := r.Recv()
 		if err != nil {
 			if errors.Is(err, io.EOF) {
-				return nil
+				break
 			}
 			return err
 		}
-
-		_, err = output.Write(resp.Data)
+		_, err = buf.Write(resp.Data)
 		if err != nil {
 			return err
 		}
 	}
+
+	// Strip the in-toto statement header and save the SBOM predicate.
+	var statement Statement
+	err = json.Unmarshal(buf.Bytes(), &statement)
+	if err != nil {
+		return err
+	}
+
+	octets, err := json.Marshal(statement.Predicate)
+	if err != nil {
+		return err
+	}
+
+	output, err := os.OpenFile(sbom.outputPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0640)
+	if err != nil {
+		return err
+	}
+
+	_, err = output.Write(octets)
+	if err != nil {
+		return err
+	}
+
+	return output.Close()
+}
+
+// Statement copied from in-toto-golang/in_toto but using json.RawMessage
+// to avoid unmarshalling and allocating the subject and predicate.
+type Statement struct {
+	Type          string          `json:"_type"`
+	PredicateType string          `json:"predicateType"`
+	Subject       json.RawMessage `json:"subject"`
+	Predicate     json.RawMessage `json:"predicate"`
 }
