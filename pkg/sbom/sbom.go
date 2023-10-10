@@ -176,7 +176,7 @@ func downloadSBOM(ctx context.Context, sbom sbomOutput) error {
 		}
 	}
 
-	// Strip the in-toto statement header and save the SBOM statement.
+	// Strip the in-toto statement header and save the SBOM predicate.
 	var statement Statement
 	err = json.Unmarshal(buf.Bytes(), &statement)
 	if err != nil {
