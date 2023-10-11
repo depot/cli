@@ -62,8 +62,6 @@ func NewCmdInit() *cobra.Command {
 				return err
 			}
 
-			fmt.Printf("Project %s (%s) initialized in directory %s\n", selectedProject.Name, selectedProject.OrgName, contextDir)
-
 			return nil
 		},
 	}
