@@ -31,7 +31,7 @@ func ConfirmSaveProject(p *SelectedProject) bool {
 		return false
 	}
 
-	prompt := fmt.Sprintf("Selected project %s (%s)\nCreate a depot.json file to remember the project for future builds?", p.Name, p.ID)
+	prompt := fmt.Sprintf("Selected project %s (%s)\nCreate a depot.json file to remember this project for future builds?", p.Name, p.ID)
 
 	input := confirmation.New(prompt, confirmation.NewValue(true))
 	input.Template = confirmation.TemplateArrow
