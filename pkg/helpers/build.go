@@ -22,12 +22,14 @@ func BeginBuild(ctx context.Context, req *cliv1.CreateBuildRequest, token string
 	}
 	if err != nil {
 		var buildErr *connect.Error
+		// If the project doesn't exist, try the onboarding workflow.
 		if errors.As(err, &buildErr) && buildErr.Code() == connect.CodeNotFound {
-			selectedProject, err := InitializeProject(ctx, token, req.ProjectId)
+			selectedProject, err := OnboardProject(ctx, token)
 			if err != nil {
 				return depotbuild.Build{}, err
 			}
 
+			// Ok, now try from the top again!
 			req.ProjectId = selectedProject.ID
 			return BeginBuild(ctx, req, token)
 		}

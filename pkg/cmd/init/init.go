@@ -56,7 +56,8 @@ func NewCmdInit() *cobra.Command {
 			if configFilepath == "" {
 				configFilepath = filepath.Join(absContext, "depot.json")
 			}
-			err = project.WriteConfig(configFilepath, &project.ProjectConfig{ID: selectedProject.ID})
+
+			err = selectedProject.SaveAs(configFilepath)
 			if err != nil {
 				return err
 			}

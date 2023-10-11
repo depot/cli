@@ -99,6 +99,30 @@ type SelectedProject struct {
 	ID      string
 }
 
+// Save will save the depot.json in the current working directory.
+func (p *SelectedProject) Save() error {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+	configFilePath := filepath.Join(cwd, "depot.json")
+
+	return p.SaveAs(configFilePath)
+}
+
+// Save will save the depot.json file in the specified directory.
+func (p *SelectedProject) SaveAs(configFilePath string) error {
+	err := project.WriteConfig(configFilePath, &project.ProjectConfig{ID: p.ID})
+	if err != nil {
+		return err
+	}
+
+	dir := filepath.Dir(configFilePath)
+	fmt.Printf("Project %s (%s) initialized in directory %s\n", p.Name, p.OrgName, dir)
+
+	return nil
+}
+
 func InitializeProject(ctx context.Context, token, projectID string) (*SelectedProject, error) {
 	client := api.NewProjectsClient()
 
@@ -112,35 +136,25 @@ func InitializeProject(ctx context.Context, token, projectID string) (*SelectedP
 		return nil, fmt.Errorf("No projects found. Please create a project first.")
 	}
 
+	// If we're not in a terminal, just print the projects and exit as we need
+	// user intervention to pick a project.
 	if !IsTerminal() {
-		if len(projects.Msg.Projects) > 0 {
-			fmt.Printf("Available Projects\n")
-			fmt.Printf("------------------\n\n")
-
-			w := csv.NewWriter(os.Stdout)
-			if err := w.Write([]string{"Project ID", "Name"}); err != nil {
-				return nil, err
-			}
-			for _, project := range projects.Msg.GetProjects() {
-				row := []string{project.Id, project.Name}
-				if err := w.Write(row); err != nil {
-					return nil, err
-				}
-			}
-			w.Flush()
-			_ = w.Error()
-			fmt.Printf("\n\n")
+		err := printProjectsCSV(projects.Msg.Projects)
+		if err != nil {
+			return nil, err
 		}
 		return nil, fmt.Errorf("missing project ID; please run `depot init` or `depot build --project <id>`")
 	}
 
 	if projectID == "" {
-		projectID, err = GetProjectID(projects.Msg)
+		projectID, err = chooseProjectID(projects.Msg)
 		if err != nil {
 			return nil, fmt.Errorf("No project selected; please run `depot init`")
 		}
 	}
 
+	// In the case that the user specified a project id on the command line with `--project`,
+	// we check to see if the project exists.  If it does not, we return an error.
 	var selectedProject *cliv1beta1.ListProjectsResponse_Project
 	for _, p := range projects.Msg.Projects {
 		if p.Id == projectID {
@@ -160,7 +174,29 @@ func InitializeProject(ctx context.Context, token, projectID string) (*SelectedP
 	}, nil
 }
 
-func GetProjectID(projects *cliv1beta1.ListProjectsResponse) (string, error) {
+func printProjectsCSV(projects []*cliv1beta1.ListProjectsResponse_Project) error {
+	if len(projects) > 0 {
+		fmt.Printf("Available Projects\n")
+		fmt.Printf("------------------\n\n")
+
+		w := csv.NewWriter(os.Stdout)
+		if err := w.Write([]string{"Project ID", "Name"}); err != nil {
+			return err
+		}
+		for _, project := range projects {
+			row := []string{project.Id, project.Name}
+			if err := w.Write(row); err != nil {
+				return err
+			}
+		}
+		w.Flush()
+		_ = w.Error()
+		fmt.Printf("\n\n")
+	}
+	return nil
+}
+
+func chooseProjectID(projects *cliv1beta1.ListProjectsResponse) (string, error) {
 	items := []list.Item{}
 	for _, p := range projects.Projects {
 		items = append(items, item{id: p.Id, title: p.Name, desc: p.OrgName})
