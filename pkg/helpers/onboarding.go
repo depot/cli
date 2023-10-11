@@ -2,6 +2,7 @@ package helpers
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/erikgeiser/promptkit/confirmation"
 )
@@ -30,7 +31,9 @@ func ConfirmSaveProject(p *SelectedProject) bool {
 		return false
 	}
 
-	input := confirmation.New("Remember this project for future builds?", confirmation.NewValue(true))
+	prompt := fmt.Sprintf("Selected project %s (%s)\nCreate a depot.json file to remember the project for future builds?", p.Name, p.ID)
+
+	input := confirmation.New(prompt, confirmation.NewValue(true))
 	input.Template = confirmation.TemplateArrow
 	input.ResultTemplate = confirmation.ResultTemplateArrow
 
