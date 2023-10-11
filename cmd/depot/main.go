@@ -11,16 +11,15 @@ import (
 	"github.com/depot/cli/internal/build"
 	"github.com/depot/cli/internal/update"
 	"github.com/depot/cli/pkg/api"
-	"github.com/depot/cli/pkg/ci"
 	"github.com/depot/cli/pkg/cmd/root"
 	"github.com/depot/cli/pkg/config"
+	"github.com/depot/cli/pkg/helpers"
 	"github.com/docker/cli/cli"
 	"github.com/docker/cli/cli-plugins/manager"
 	"github.com/docker/cli/cli-plugins/plugin"
 	"github.com/docker/cli/cli/command"
 	dockerConfig "github.com/docker/cli/cli/config"
 	"github.com/getsentry/sentry-go"
-	"github.com/mattn/go-isatty"
 	"github.com/mgutz/ansi"
 	"github.com/pkg/errors"
 )
@@ -183,10 +182,5 @@ func shouldCheckForUpdate() bool {
 	if os.Getenv("DEPOT_NO_UPDATE_NOTIFIER") != "" {
 		return false
 	}
-	_, isCI := ci.Provider()
-	return !isCI && isTerminal(os.Stdout) && isTerminal(os.Stderr)
-}
-
-func isTerminal(f *os.File) bool {
-	return isatty.IsTerminal(f.Fd()) || isatty.IsCygwinTerminal(f.Fd())
+	return helpers.IsTerminal()
 }

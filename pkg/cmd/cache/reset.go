@@ -3,12 +3,10 @@ package init
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 
 	"github.com/bufbuild/connect-go"
 	"github.com/depot/cli/pkg/api"
-	"github.com/depot/cli/pkg/config"
 	"github.com/depot/cli/pkg/helpers"
 	cliv1beta1 "github.com/depot/cli/pkg/proto/depot/cli/v1beta1"
 	"github.com/docker/cli/cli"
@@ -34,13 +32,12 @@ func NewCmdResetCache() *cobra.Command {
 				return errors.Errorf("unknown project ID (run `depot init` or use --project or $DEPOT_PROJECT_ID)")
 			}
 
-			// TODO: make this a helper
-			if token == "" {
-				token = os.Getenv("DEPOT_TOKEN")
+			var err error
+			token, err = helpers.ResolveToken(context.Background(), token)
+			if err != nil {
+				return err
 			}
-			if token == "" {
-				token = config.GetApiToken()
-			}
+
 			if token == "" {
 				return fmt.Errorf("missing API token, please run `depot login`")
 			}

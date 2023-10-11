@@ -2,8 +2,10 @@ package helpers
 
 import (
 	"context"
+	"errors"
 	"os"
 
+	"github.com/bufbuild/connect-go"
 	depotbuild "github.com/depot/cli/pkg/build"
 	"github.com/depot/cli/pkg/profiler"
 	cliv1 "github.com/depot/cli/pkg/proto/depot/cli/v1"
@@ -19,6 +21,18 @@ func BeginBuild(ctx context.Context, req *cliv1.CreateBuildRequest, token string
 		build, err = depotbuild.NewBuild(ctx, req, token)
 	}
 	if err != nil {
+		var buildErr *connect.Error
+		// If the project doesn't exist, try the onboarding workflow.
+		if errors.As(err, &buildErr) && buildErr.Code() == connect.CodeNotFound {
+			selectedProject, err := OnboardProject(ctx, token)
+			if err != nil {
+				return depotbuild.Build{}, err
+			}
+
+			// Ok, now try from the top again!
+			req.ProjectId = selectedProject.ID
+			return BeginBuild(ctx, req, token)
+		}
 		return depotbuild.Build{}, err
 	}
 
