@@ -8,13 +8,13 @@ import (
 	"fmt"
 	"runtime"
 	"strings"
-	"time"
 
 	depotbuild "github.com/depot/cli/pkg/buildx/build"
 	depotprogress "github.com/depot/cli/pkg/progress"
 	"github.com/docker/buildx/util/progress"
 	docker "github.com/docker/docker/client"
 	"github.com/moby/buildkit/exporter/containerimage/exptypes"
+	"github.com/opencontainers/go-digest"
 	ocispecs "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
@@ -34,39 +34,15 @@ func DepotFastLoad(ctx context.Context, dockerapi docker.APIClient, resp []depot
 		pullOpt := pullOpts[buildRes.Name]
 
 		architecture := nodeRes.Node.DriverOpts["platform"]
-		manifest, config, err := decodeNodeResponse(architecture, nodeRes)
+		manifest, _, err := decodeNodeResponse(architecture, nodeRes)
 		if err != nil {
 			return err
 		}
-		proxyOpts := &ProxyConfig{
-			RawManifest: manifest,
-			RawConfig:   config,
-			Addr:        nodeRes.Node.DriverOpts["addr"],
-			CACert:      []byte(nodeRes.Node.DriverOpts["caCert"]),
-			Key:         []byte(nodeRes.Node.DriverOpts["key"]),
-			Cert:        []byte(nodeRes.Node.DriverOpts["cert"]),
-		}
 
-		// Start the depot registry proxy.
-		var registry *RegistryProxy
-		err = progress.Wrap("preparing to load", pw.Write, func(logger progress.SubLogger) error {
-			registry, err = NewRegistryProxy(ctx, proxyOpts, dockerapi)
-			if err != nil {
-				err = logger.Wrap(fmt.Sprintf("[registry] unable to start: %s", err), func() error { return err })
-			}
-			return err
-		})
-		if err != nil {
-			return err
-		}
-		defer func() {
-			ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
-			registry.Close(ctx)
-			cancel()
-		}()
-
+		manifestDigest := digest.FromBytes(manifest)
+		imageToPull := fmt.Sprintf("%s/%s/%s@%s", pullOpt.RegistryURL, pullOpt.BuildID, architecture, manifestDigest)
 		// Pull the image and relabel it with the user specified tags.
-		err = PullImages(ctx, dockerapi, registry.ImageToPull, pullOpt, pw)
+		err = PullImages(ctx, dockerapi, imageToPull, pullOpt, pw)
 		if err != nil {
 			return fmt.Errorf("failed to pull image: %w", err)
 		}
@@ -239,52 +215,6 @@ func decodeNodeResponseV1(architecture string, nodeRes depotbuild.DepotNodeRespo
 		return nil, nil, fmt.Errorf("invalid image config json: %w", err)
 	}
 	return rawManifest, rawConfig, nil
-}
-
-type RegistryProxy struct {
-	// ImageToPull is the image that should be pulled.
-	ImageToPull string
-	// ProxyContainerID is the ID of the container that is proxying the registry.
-	// Make sure to remove this container when finished.
-	ProxyContainerID string
-
-	// Used to stop and remove the proxy container.
-	DockerAPI docker.APIClient
-}
-
-// NewRegistryProxy creates a registry proxy that can be used to pull images from
-// buildkitd cache.
-//
-// This also handles docker for desktop issues that prevent the registry from being
-// accessed directly because the proxy is accessible by the docker daemon.
-// The proxy registry translates pull requests into requests to containerd via mTLS.
-//
-// The running server and proxy container will be cleaned-up when Close() is called.
-func NewRegistryProxy(ctx context.Context, config *ProxyConfig, dockerapi docker.APIClient) (*RegistryProxy, error) {
-	proxyContainer, err := RunProxyImage(ctx, dockerapi, config)
-	if err != nil {
-		return nil, err
-	}
-
-	randomImageName := RandImageName()
-	// The tag is only for the UX during a pull.  The first line will be "pulling manifest".
-	tag := "manifest"
-	// Docker is able to pull from the proxyPort on localhost.  The proxy
-	// forwards registry requests to buildkitd via mTLS.
-	imageToPull := fmt.Sprintf("localhost:%s/%s:%s", proxyContainer.Port, randomImageName, tag)
-
-	registryProxy := &RegistryProxy{
-		ImageToPull:      imageToPull,
-		ProxyContainerID: proxyContainer.ID,
-		DockerAPI:        dockerapi,
-	}
-
-	return registryProxy, nil
-}
-
-// Close will stop and remove the registry proxy container if it was created.
-func (l *RegistryProxy) Close(ctx context.Context) error {
-	return StopProxyContainer(ctx, l.DockerAPI, l.ProxyContainerID)
 }
 
 // Prefer architecture, otherwise, take first available index.

@@ -2,6 +2,7 @@ package load
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -24,7 +25,17 @@ func PullImages(ctx context.Context, dockerapi docker.APIClient, imageName strin
 }
 
 func ImagePullPrivileged(ctx context.Context, dockerapi docker.APIClient, imageName string, opts PullOptions, logger progress.SubLogger) error {
-	responseBody, err := dockerapi.ImagePull(ctx, imageName, types.ImagePullOptions{})
+	authConfig := types.AuthConfig{
+		ServerAddress: opts.RegistryURL,
+		RegistryToken: opts.BuildToken,
+	}
+	buf, err := json.Marshal(authConfig)
+	if err != nil {
+		return err
+	}
+	encodedAuth := base64.URLEncoding.EncodeToString(buf)
+
+	responseBody, err := dockerapi.ImagePull(ctx, imageName, types.ImagePullOptions{RegistryAuth: encodedAuth})
 	if err != nil {
 		return err
 	}

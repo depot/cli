@@ -12,6 +12,8 @@ import (
 // DepotLoadOptions are options to load images from the depot hosted registry.
 type DepotLoadOptions struct {
 	UseLocalRegistry bool   // Backwards-compat with buildx that uses tar loads.
+	RegistryURL      string // Depot registry URL.
+	BuildToken       string // Depot ephemeral build token; used to pull images.
 	Project          string // Depot project name; used to tag images.
 	BuildID          string // Depot build ID; used to tag images.
 	IsBake           bool   // If run from bake, we add the bake target to the image tag.
@@ -20,8 +22,11 @@ type DepotLoadOptions struct {
 
 // Options to download from the Depot hosted registry and tag the image with the user provide tag.
 type PullOptions struct {
-	UserTags []string // Tags the user wishes the image to have.
-	Quiet    bool     // No logs plz
+	RegistryURL string   // Depot registry URL.
+	BuildToken  string   // Ephemeral build token used to auth downloading images from the depot registry.
+	BuildID     string   // Used to identify the build on the registry server.
+	UserTags    []string // Tags the user wishes the image to have.
+	Quiet       bool     // No logs plz
 }
 
 // WithDepotImagePull updates buildOpts to push to the depot user's personal registry.
@@ -82,8 +87,11 @@ func WithDepotImagePull(buildOpts map[string]build.Options, loadOpts DepotLoadOp
 			}
 
 			pullOpt := PullOptions{
-				UserTags: userTags,
-				Quiet:    loadOpts.ProgressMode == progress.PrinterModeQuiet,
+				RegistryURL: loadOpts.RegistryURL,
+				BuildToken:  loadOpts.BuildToken,
+				BuildID:     loadOpts.BuildID,
+				UserTags:    userTags,
+				Quiet:       loadOpts.ProgressMode == progress.PrinterModeQuiet,
 			}
 			toPull[target] = pullOpt
 		}

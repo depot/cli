@@ -116,6 +116,7 @@ type DepotOptions struct {
 
 	useLocalRegistry bool
 	proxyImage       string
+	registryURL      string
 
 	lint       bool
 	lintFailOn string
@@ -239,6 +240,8 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.No
 			opts,
 			load.DepotLoadOptions{
 				UseLocalRegistry: depotOpts.useLocalRegistry,
+				RegistryURL:      depotOpts.registryURL,
+				BuildToken:       depotOpts.token,
 				Project:          depotOpts.project,
 				BuildID:          depotOpts.buildID,
 				IsBake:           false,
@@ -669,6 +672,7 @@ func BuildCmd(dockerCli command.Cli) *cobra.Command {
 			options.token = build.Token
 			options.useLocalRegistry = build.UseLocalRegistry
 			options.proxyImage = build.ProxyImage
+			options.registryURL = build.RegistryURL
 
 			if options.allowNoOutput {
 				_ = os.Setenv("BUILDX_NO_DEFAULT_LOAD", "1")
