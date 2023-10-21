@@ -131,7 +131,7 @@ func run() error {
 	acquireState := func() ProxyState {
 		once.Do(func() {
 			req := &cliv1.CreateBuildRequest{
-				ProjectId: projectID,
+				ProjectId: &projectID,
 				Options:   []*cliv1.BuildOptions{{Command: cliv1.Command_COMMAND_BUILDX}},
 			}
 			build, err := helpers.BeginBuild(ctx, req, token)

@@ -30,7 +30,7 @@ func BeginBuild(ctx context.Context, req *cliv1.CreateBuildRequest, token string
 			}
 
 			// Ok, now try from the top again!
-			req.ProjectId = selectedProject.ID
+			req.ProjectId = &selectedProject.ID
 			return BeginBuild(ctx, req, token)
 		}
 		return depotbuild.Build{}, err
@@ -77,7 +77,7 @@ func NewBuildRequest(project string, opts map[string]buildx.Options, features Us
 		}
 
 		return &cliv1.CreateBuildRequest{
-			ProjectId: project,
+			ProjectId: &project,
 			Options: []*cliv1.BuildOptions{
 				{
 					Command:    cliv1.Command_COMMAND_BUILD,
@@ -93,7 +93,7 @@ func NewBuildRequest(project string, opts map[string]buildx.Options, features Us
 	}
 
 	// Should never be reached.
-	return &cliv1.CreateBuildRequest{ProjectId: project}
+	return &cliv1.CreateBuildRequest{ProjectId: &project}
 }
 
 func NewBakeRequest(project string, opts map[string]buildx.Options, features UsingDepotFeatures) *cliv1.CreateBuildRequest {
@@ -121,7 +121,7 @@ func NewBakeRequest(project string, opts map[string]buildx.Options, features Usi
 	}
 
 	return &cliv1.CreateBuildRequest{
-		ProjectId: project,
+		ProjectId: &project,
 		Options:   targets,
 	}
 }

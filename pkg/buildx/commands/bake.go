@@ -290,6 +290,10 @@ func BakeCmd(dockerCli command.Cli) *cobra.Command {
 
 			options.builderOptions = []builder.Option{builder.WithDepotOptions(buildPlatform, build)}
 
+			buildProject := build.BuildProject()
+			if buildProject != "" {
+				options.project = buildProject
+			}
 			options.buildID = build.ID
 			options.buildURL = build.BuildURL
 			options.token = build.Token
