@@ -26,6 +26,16 @@ type Build struct {
 	Response *connect.Response[cliv1.CreateBuildResponse]
 }
 
+// BuildProject returns the project ID to be used for the build.
+// This is important as the API may use a different project ID than the one
+// initially requested (e.g. onboarding)
+func (b *Build) BuildProject() string {
+	if b.Response == nil || b.Response.Msg == nil {
+		return ""
+	}
+	return b.Response.Msg.ProjectId
+}
+
 func NewBuild(ctx context.Context, req *cliv1.CreateBuildRequest, token string) (Build, error) {
 	client := depotapi.NewBuildClient()
 	res, err := client.CreateBuild(ctx, depotapi.WithAuthentication(connect.NewRequest(req), token))

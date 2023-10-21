@@ -17,7 +17,7 @@ service BuildService {
 }
 
 message CreateBuildRequest {
-  string project_id = 1;
+  optional string project_id = 1;
   // This is an option per build target; in other words many for bake and one for build.
   repeated BuildOptions options = 2;
 }
@@ -63,6 +63,8 @@ message CreateBuildResponse {
 
   // Build URL is the URL to the build output.
   string build_url = 5;
+
+  string project_id = 6;
 }
 
 message Registry {
