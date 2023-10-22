@@ -1505,162 +1505,6 @@ func (x *PageToken) GetLastCreatedAt() *timestamppb.Timestamp {
 	return nil
 }
 
-type ReportBuildContextRequest struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
-	unknownFields protoimpl.UnknownFields
-
-	BuildId     string        `protobuf:"bytes,1,opt,name=build_id,json=buildId,proto3" json:"build_id,omitempty"`
-	Dockerfiles []*Dockerfile `protobuf:"bytes,2,rep,name=dockerfiles,proto3" json:"dockerfiles,omitempty"`
-}
-
-func (x *ReportBuildContextRequest) Reset() {
-	*x = ReportBuildContextRequest{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_depot_cli_v1_build_proto_msgTypes[21]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
-}
-
-func (x *ReportBuildContextRequest) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ReportBuildContextRequest) ProtoMessage() {}
-
-func (x *ReportBuildContextRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_depot_cli_v1_build_proto_msgTypes[21]
-	if protoimpl.UnsafeEnabled && x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ReportBuildContextRequest.ProtoReflect.Descriptor instead.
-func (*ReportBuildContextRequest) Descriptor() ([]byte, []int) {
-	return file_depot_cli_v1_build_proto_rawDescGZIP(), []int{21}
-}
-
-func (x *ReportBuildContextRequest) GetBuildId() string {
-	if x != nil {
-		return x.BuildId
-	}
-	return ""
-}
-
-func (x *ReportBuildContextRequest) GetDockerfiles() []*Dockerfile {
-	if x != nil {
-		return x.Dockerfiles
-	}
-	return nil
-}
-
-type Dockerfile struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
-	unknownFields protoimpl.UnknownFields
-
-	Target   string `protobuf:"bytes,1,opt,name=target,proto3" json:"target,omitempty"`
-	Filename string `protobuf:"bytes,2,opt,name=filename,proto3" json:"filename,omitempty"`
-	Contents string `protobuf:"bytes,3,opt,name=contents,proto3" json:"contents,omitempty"`
-}
-
-func (x *Dockerfile) Reset() {
-	*x = Dockerfile{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_depot_cli_v1_build_proto_msgTypes[22]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
-}
-
-func (x *Dockerfile) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*Dockerfile) ProtoMessage() {}
-
-func (x *Dockerfile) ProtoReflect() protoreflect.Message {
-	mi := &file_depot_cli_v1_build_proto_msgTypes[22]
-	if protoimpl.UnsafeEnabled && x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use Dockerfile.ProtoReflect.Descriptor instead.
-func (*Dockerfile) Descriptor() ([]byte, []int) {
-	return file_depot_cli_v1_build_proto_rawDescGZIP(), []int{22}
-}
-
-func (x *Dockerfile) GetTarget() string {
-	if x != nil {
-		return x.Target
-	}
-	return ""
-}
-
-func (x *Dockerfile) GetFilename() string {
-	if x != nil {
-		return x.Filename
-	}
-	return ""
-}
-
-func (x *Dockerfile) GetContents() string {
-	if x != nil {
-		return x.Contents
-	}
-	return ""
-}
-
-type ReportBuildContextResponse struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
-	unknownFields protoimpl.UnknownFields
-}
-
-func (x *ReportBuildContextResponse) Reset() {
-	*x = ReportBuildContextResponse{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_depot_cli_v1_build_proto_msgTypes[23]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
-}
-
-func (x *ReportBuildContextResponse) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ReportBuildContextResponse) ProtoMessage() {}
-
-func (x *ReportBuildContextResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_depot_cli_v1_build_proto_msgTypes[23]
-	if protoimpl.UnsafeEnabled && x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ReportBuildContextResponse.ProtoReflect.Descriptor instead.
-func (*ReportBuildContextResponse) Descriptor() ([]byte, []int) {
-	return file_depot_cli_v1_build_proto_rawDescGZIP(), []int{23}
-}
-
 type CreateBuildResponse_Profiler struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
@@ -1672,7 +1516,7 @@ type CreateBuildResponse_Profiler struct {
 func (x *CreateBuildResponse_Profiler) Reset() {
 	*x = CreateBuildResponse_Profiler{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_depot_cli_v1_build_proto_msgTypes[25]
+		mi := &file_depot_cli_v1_build_proto_msgTypes[22]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1685,7 +1529,7 @@ func (x *CreateBuildResponse_Profiler) String() string {
 func (*CreateBuildResponse_Profiler) ProtoMessage() {}
 
 func (x *CreateBuildResponse_Profiler) ProtoReflect() protoreflect.Message {
-	mi := &file_depot_cli_v1_build_proto_msgTypes[25]
+	mi := &file_depot_cli_v1_build_proto_msgTypes[22]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1717,7 +1561,7 @@ type FinishBuildRequest_BuildSuccess struct {
 func (x *FinishBuildRequest_BuildSuccess) Reset() {
 	*x = FinishBuildRequest_BuildSuccess{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_depot_cli_v1_build_proto_msgTypes[26]
+		mi := &file_depot_cli_v1_build_proto_msgTypes[23]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1730,7 +1574,7 @@ func (x *FinishBuildRequest_BuildSuccess) String() string {
 func (*FinishBuildRequest_BuildSuccess) ProtoMessage() {}
 
 func (x *FinishBuildRequest_BuildSuccess) ProtoReflect() protoreflect.Message {
-	mi := &file_depot_cli_v1_build_proto_msgTypes[26]
+	mi := &file_depot_cli_v1_build_proto_msgTypes[23]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1757,7 +1601,7 @@ type FinishBuildRequest_BuildError struct {
 func (x *FinishBuildRequest_BuildError) Reset() {
 	*x = FinishBuildRequest_BuildError{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_depot_cli_v1_build_proto_msgTypes[27]
+		mi := &file_depot_cli_v1_build_proto_msgTypes[24]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1770,7 +1614,7 @@ func (x *FinishBuildRequest_BuildError) String() string {
 func (*FinishBuildRequest_BuildError) ProtoMessage() {}
 
 func (x *FinishBuildRequest_BuildError) ProtoReflect() protoreflect.Message {
-	mi := &file_depot_cli_v1_build_proto_msgTypes[27]
+	mi := &file_depot_cli_v1_build_proto_msgTypes[24]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1802,7 +1646,7 @@ type FinishBuildRequest_BuildCanceled struct {
 func (x *FinishBuildRequest_BuildCanceled) Reset() {
 	*x = FinishBuildRequest_BuildCanceled{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_depot_cli_v1_build_proto_msgTypes[28]
+		mi := &file_depot_cli_v1_build_proto_msgTypes[25]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1815,7 +1659,7 @@ func (x *FinishBuildRequest_BuildCanceled) String() string {
 func (*FinishBuildRequest_BuildCanceled) ProtoMessage() {}
 
 func (x *FinishBuildRequest_BuildCanceled) ProtoReflect() protoreflect.Message {
-	mi := &file_depot_cli_v1_build_proto_msgTypes[28]
+	mi := &file_depot_cli_v1_build_proto_msgTypes[25]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1842,7 +1686,7 @@ type GetBuildKitConnectionResponse_PendingConnection struct {
 func (x *GetBuildKitConnectionResponse_PendingConnection) Reset() {
 	*x = GetBuildKitConnectionResponse_PendingConnection{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_depot_cli_v1_build_proto_msgTypes[29]
+		mi := &file_depot_cli_v1_build_proto_msgTypes[26]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1855,7 +1699,7 @@ func (x *GetBuildKitConnectionResponse_PendingConnection) String() string {
 func (*GetBuildKitConnectionResponse_PendingConnection) ProtoMessage() {}
 
 func (x *GetBuildKitConnectionResponse_PendingConnection) ProtoReflect() protoreflect.Message {
-	mi := &file_depot_cli_v1_build_proto_msgTypes[29]
+	mi := &file_depot_cli_v1_build_proto_msgTypes[26]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1892,7 +1736,7 @@ type GetBuildKitConnectionResponse_ActiveConnection struct {
 func (x *GetBuildKitConnectionResponse_ActiveConnection) Reset() {
 	*x = GetBuildKitConnectionResponse_ActiveConnection{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_depot_cli_v1_build_proto_msgTypes[30]
+		mi := &file_depot_cli_v1_build_proto_msgTypes[27]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1905,7 +1749,7 @@ func (x *GetBuildKitConnectionResponse_ActiveConnection) String() string {
 func (*GetBuildKitConnectionResponse_ActiveConnection) ProtoMessage() {}
 
 func (x *GetBuildKitConnectionResponse_ActiveConnection) ProtoReflect() protoreflect.Message {
-	mi := &file_depot_cli_v1_build_proto_msgTypes[30]
+	mi := &file_depot_cli_v1_build_proto_msgTypes[27]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2169,22 +2013,7 @@ var file_depot_cli_v1_build_proto_rawDesc = []byte{
 	0x63, 0x72, 0x65, 0x61, 0x74, 0x65, 0x64, 0x5f, 0x61, 0x74, 0x18, 0x02, 0x20, 0x01, 0x28, 0x0b,
 	0x32, 0x1a, 0x2e, 0x67, 0x6f, 0x6f, 0x67, 0x6c, 0x65, 0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x62,
 	0x75, 0x66, 0x2e, 0x54, 0x69, 0x6d, 0x65, 0x73, 0x74, 0x61, 0x6d, 0x70, 0x52, 0x0d, 0x6c, 0x61,
-	0x73, 0x74, 0x43, 0x72, 0x65, 0x61, 0x74, 0x65, 0x64, 0x41, 0x74, 0x22, 0x72, 0x0a, 0x19, 0x52,
-	0x65, 0x70, 0x6f, 0x72, 0x74, 0x42, 0x75, 0x69, 0x6c, 0x64, 0x43, 0x6f, 0x6e, 0x74, 0x65, 0x78,
-	0x74, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x12, 0x19, 0x0a, 0x08, 0x62, 0x75, 0x69, 0x6c,
-	0x64, 0x5f, 0x69, 0x64, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x07, 0x62, 0x75, 0x69, 0x6c,
-	0x64, 0x49, 0x64, 0x12, 0x3a, 0x0a, 0x0b, 0x64, 0x6f, 0x63, 0x6b, 0x65, 0x72, 0x66, 0x69, 0x6c,
-	0x65, 0x73, 0x18, 0x02, 0x20, 0x03, 0x28, 0x0b, 0x32, 0x18, 0x2e, 0x64, 0x65, 0x70, 0x6f, 0x74,
-	0x2e, 0x63, 0x6c, 0x69, 0x2e, 0x76, 0x31, 0x2e, 0x44, 0x6f, 0x63, 0x6b, 0x65, 0x72, 0x66, 0x69,
-	0x6c, 0x65, 0x52, 0x0b, 0x64, 0x6f, 0x63, 0x6b, 0x65, 0x72, 0x66, 0x69, 0x6c, 0x65, 0x73, 0x22,
-	0x5c, 0x0a, 0x0a, 0x44, 0x6f, 0x63, 0x6b, 0x65, 0x72, 0x66, 0x69, 0x6c, 0x65, 0x12, 0x16, 0x0a,
-	0x06, 0x74, 0x61, 0x72, 0x67, 0x65, 0x74, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x06, 0x74,
-	0x61, 0x72, 0x67, 0x65, 0x74, 0x12, 0x1a, 0x0a, 0x08, 0x66, 0x69, 0x6c, 0x65, 0x6e, 0x61, 0x6d,
-	0x65, 0x18, 0x02, 0x20, 0x01, 0x28, 0x09, 0x52, 0x08, 0x66, 0x69, 0x6c, 0x65, 0x6e, 0x61, 0x6d,
-	0x65, 0x12, 0x1a, 0x0a, 0x08, 0x63, 0x6f, 0x6e, 0x74, 0x65, 0x6e, 0x74, 0x73, 0x18, 0x03, 0x20,
-	0x01, 0x28, 0x09, 0x52, 0x08, 0x63, 0x6f, 0x6e, 0x74, 0x65, 0x6e, 0x74, 0x73, 0x22, 0x1c, 0x0a,
-	0x1a, 0x52, 0x65, 0x70, 0x6f, 0x72, 0x74, 0x42, 0x75, 0x69, 0x6c, 0x64, 0x43, 0x6f, 0x6e, 0x74,
-	0x65, 0x78, 0x74, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x2a, 0x5b, 0x0a, 0x07, 0x43,
+	0x73, 0x74, 0x43, 0x72, 0x65, 0x61, 0x74, 0x65, 0x64, 0x41, 0x74, 0x2a, 0x5b, 0x0a, 0x07, 0x43,
 	0x6f, 0x6d, 0x6d, 0x61, 0x6e, 0x64, 0x12, 0x17, 0x0a, 0x13, 0x43, 0x4f, 0x4d, 0x4d, 0x41, 0x4e,
 	0x44, 0x5f, 0x55, 0x4e, 0x53, 0x50, 0x45, 0x43, 0x49, 0x46, 0x49, 0x45, 0x44, 0x10, 0x00, 0x12,
 	0x11, 0x0a, 0x0d, 0x43, 0x4f, 0x4d, 0x4d, 0x41, 0x4e, 0x44, 0x5f, 0x42, 0x55, 0x49, 0x4c, 0x44,
@@ -2206,7 +2035,7 @@ var file_depot_cli_v1_build_proto_rawDesc = []byte{
 	0x4e, 0x49, 0x53, 0x48, 0x45, 0x44, 0x10, 0x02, 0x12, 0x17, 0x0a, 0x13, 0x42, 0x55, 0x49, 0x4c,
 	0x44, 0x5f, 0x53, 0x54, 0x41, 0x54, 0x55, 0x53, 0x5f, 0x46, 0x41, 0x49, 0x4c, 0x45, 0x44, 0x10,
 	0x03, 0x12, 0x19, 0x0a, 0x15, 0x42, 0x55, 0x49, 0x4c, 0x44, 0x5f, 0x53, 0x54, 0x41, 0x54, 0x55,
-	0x53, 0x5f, 0x43, 0x41, 0x4e, 0x43, 0x45, 0x4c, 0x45, 0x44, 0x10, 0x04, 0x32, 0xfb, 0x05, 0x0a,
+	0x53, 0x5f, 0x43, 0x41, 0x4e, 0x43, 0x45, 0x4c, 0x45, 0x44, 0x10, 0x04, 0x32, 0x92, 0x05, 0x0a,
 	0x0c, 0x42, 0x75, 0x69, 0x6c, 0x64, 0x53, 0x65, 0x72, 0x76, 0x69, 0x63, 0x65, 0x12, 0x52, 0x0a,
 	0x0b, 0x43, 0x72, 0x65, 0x61, 0x74, 0x65, 0x42, 0x75, 0x69, 0x6c, 0x64, 0x12, 0x20, 0x2e, 0x64,
 	0x65, 0x70, 0x6f, 0x74, 0x2e, 0x63, 0x6c, 0x69, 0x2e, 0x76, 0x31, 0x2e, 0x43, 0x72, 0x65, 0x61,
@@ -2242,30 +2071,23 @@ var file_depot_cli_v1_build_proto_rawDesc = []byte{
 	0x63, 0x6c, 0x69, 0x2e, 0x76, 0x31, 0x2e, 0x52, 0x65, 0x70, 0x6f, 0x72, 0x74, 0x53, 0x74, 0x61,
 	0x74, 0x75, 0x73, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x22, 0x2e, 0x64, 0x65, 0x70,
 	0x6f, 0x74, 0x2e, 0x63, 0x6c, 0x69, 0x2e, 0x76, 0x31, 0x2e, 0x52, 0x65, 0x70, 0x6f, 0x72, 0x74,
-	0x53, 0x74, 0x61, 0x74, 0x75, 0x73, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x67,
-	0x0a, 0x12, 0x52, 0x65, 0x70, 0x6f, 0x72, 0x74, 0x42, 0x75, 0x69, 0x6c, 0x64, 0x43, 0x6f, 0x6e,
-	0x74, 0x65, 0x78, 0x74, 0x12, 0x27, 0x2e, 0x64, 0x65, 0x70, 0x6f, 0x74, 0x2e, 0x63, 0x6c, 0x69,
-	0x2e, 0x76, 0x31, 0x2e, 0x52, 0x65, 0x70, 0x6f, 0x72, 0x74, 0x42, 0x75, 0x69, 0x6c, 0x64, 0x43,
-	0x6f, 0x6e, 0x74, 0x65, 0x78, 0x74, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x28, 0x2e,
-	0x64, 0x65, 0x70, 0x6f, 0x74, 0x2e, 0x63, 0x6c, 0x69, 0x2e, 0x76, 0x31, 0x2e, 0x52, 0x65, 0x70,
-	0x6f, 0x72, 0x74, 0x42, 0x75, 0x69, 0x6c, 0x64, 0x43, 0x6f, 0x6e, 0x74, 0x65, 0x78, 0x74, 0x52,
-	0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x51, 0x0a, 0x0a, 0x4c, 0x69, 0x73, 0x74, 0x42,
-	0x75, 0x69, 0x6c, 0x64, 0x73, 0x12, 0x1f, 0x2e, 0x64, 0x65, 0x70, 0x6f, 0x74, 0x2e, 0x63, 0x6c,
-	0x69, 0x2e, 0x76, 0x31, 0x2e, 0x4c, 0x69, 0x73, 0x74, 0x42, 0x75, 0x69, 0x6c, 0x64, 0x73, 0x52,
-	0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x20, 0x2e, 0x64, 0x65, 0x70, 0x6f, 0x74, 0x2e, 0x63,
-	0x6c, 0x69, 0x2e, 0x76, 0x31, 0x2e, 0x4c, 0x69, 0x73, 0x74, 0x42, 0x75, 0x69, 0x6c, 0x64, 0x73,
-	0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x22, 0x00, 0x42, 0xa3, 0x01, 0x0a, 0x10, 0x63,
-	0x6f, 0x6d, 0x2e, 0x64, 0x65, 0x70, 0x6f, 0x74, 0x2e, 0x63, 0x6c, 0x69, 0x2e, 0x76, 0x31, 0x42,
-	0x0a, 0x42, 0x75, 0x69, 0x6c, 0x64, 0x50, 0x72, 0x6f, 0x74, 0x6f, 0x50, 0x01, 0x5a, 0x31, 0x67,
-	0x69, 0x74, 0x68, 0x75, 0x62, 0x2e, 0x63, 0x6f, 0x6d, 0x2f, 0x64, 0x65, 0x70, 0x6f, 0x74, 0x2f,
-	0x63, 0x6c, 0x69, 0x2f, 0x70, 0x6b, 0x67, 0x2f, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x2f, 0x64, 0x65,
-	0x70, 0x6f, 0x74, 0x2f, 0x63, 0x6c, 0x69, 0x2f, 0x76, 0x31, 0x3b, 0x63, 0x6c, 0x69, 0x76, 0x31,
-	0xa2, 0x02, 0x03, 0x44, 0x43, 0x58, 0xaa, 0x02, 0x0c, 0x44, 0x65, 0x70, 0x6f, 0x74, 0x2e, 0x43,
-	0x6c, 0x69, 0x2e, 0x56, 0x31, 0xca, 0x02, 0x0c, 0x44, 0x65, 0x70, 0x6f, 0x74, 0x5c, 0x43, 0x6c,
-	0x69, 0x5c, 0x56, 0x31, 0xe2, 0x02, 0x18, 0x44, 0x65, 0x70, 0x6f, 0x74, 0x5c, 0x43, 0x6c, 0x69,
-	0x5c, 0x56, 0x31, 0x5c, 0x47, 0x50, 0x42, 0x4d, 0x65, 0x74, 0x61, 0x64, 0x61, 0x74, 0x61, 0xea,
-	0x02, 0x0e, 0x44, 0x65, 0x70, 0x6f, 0x74, 0x3a, 0x3a, 0x43, 0x6c, 0x69, 0x3a, 0x3a, 0x56, 0x31,
-	0x62, 0x06, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x33,
+	0x53, 0x74, 0x61, 0x74, 0x75, 0x73, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x51,
+	0x0a, 0x0a, 0x4c, 0x69, 0x73, 0x74, 0x42, 0x75, 0x69, 0x6c, 0x64, 0x73, 0x12, 0x1f, 0x2e, 0x64,
+	0x65, 0x70, 0x6f, 0x74, 0x2e, 0x63, 0x6c, 0x69, 0x2e, 0x76, 0x31, 0x2e, 0x4c, 0x69, 0x73, 0x74,
+	0x42, 0x75, 0x69, 0x6c, 0x64, 0x73, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x20, 0x2e,
+	0x64, 0x65, 0x70, 0x6f, 0x74, 0x2e, 0x63, 0x6c, 0x69, 0x2e, 0x76, 0x31, 0x2e, 0x4c, 0x69, 0x73,
+	0x74, 0x42, 0x75, 0x69, 0x6c, 0x64, 0x73, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x22,
+	0x00, 0x42, 0xa3, 0x01, 0x0a, 0x10, 0x63, 0x6f, 0x6d, 0x2e, 0x64, 0x65, 0x70, 0x6f, 0x74, 0x2e,
+	0x63, 0x6c, 0x69, 0x2e, 0x76, 0x31, 0x42, 0x0a, 0x42, 0x75, 0x69, 0x6c, 0x64, 0x50, 0x72, 0x6f,
+	0x74, 0x6f, 0x50, 0x01, 0x5a, 0x31, 0x67, 0x69, 0x74, 0x68, 0x75, 0x62, 0x2e, 0x63, 0x6f, 0x6d,
+	0x2f, 0x64, 0x65, 0x70, 0x6f, 0x74, 0x2f, 0x63, 0x6c, 0x69, 0x2f, 0x70, 0x6b, 0x67, 0x2f, 0x70,
+	0x72, 0x6f, 0x74, 0x6f, 0x2f, 0x64, 0x65, 0x70, 0x6f, 0x74, 0x2f, 0x63, 0x6c, 0x69, 0x2f, 0x76,
+	0x31, 0x3b, 0x63, 0x6c, 0x69, 0x76, 0x31, 0xa2, 0x02, 0x03, 0x44, 0x43, 0x58, 0xaa, 0x02, 0x0c,
+	0x44, 0x65, 0x70, 0x6f, 0x74, 0x2e, 0x43, 0x6c, 0x69, 0x2e, 0x56, 0x31, 0xca, 0x02, 0x0c, 0x44,
+	0x65, 0x70, 0x6f, 0x74, 0x5c, 0x43, 0x6c, 0x69, 0x5c, 0x56, 0x31, 0xe2, 0x02, 0x18, 0x44, 0x65,
+	0x70, 0x6f, 0x74, 0x5c, 0x43, 0x6c, 0x69, 0x5c, 0x56, 0x31, 0x5c, 0x47, 0x50, 0x42, 0x4d, 0x65,
+	0x74, 0x61, 0x64, 0x61, 0x74, 0x61, 0xea, 0x02, 0x0e, 0x44, 0x65, 0x70, 0x6f, 0x74, 0x3a, 0x3a,
+	0x43, 0x6c, 0x69, 0x3a, 0x3a, 0x56, 0x31, 0x62, 0x06, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x33,
 }
 
 var (
@@ -2281,7 +2103,7 @@ func file_depot_cli_v1_build_proto_rawDescGZIP() []byte {
 }
 
 var file_depot_cli_v1_build_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
-var file_depot_cli_v1_build_proto_msgTypes = make([]protoimpl.MessageInfo, 32)
+var file_depot_cli_v1_build_proto_msgTypes = make([]protoimpl.MessageInfo, 29)
 var file_depot_cli_v1_build_proto_goTypes = []interface{}{
 	(Command)(0),                                            // 0: depot.cli.v1.Command
 	(BuilderPlatform)(0),                                    // 1: depot.cli.v1.BuilderPlatform
@@ -2307,67 +2129,61 @@ var file_depot_cli_v1_build_proto_goTypes = []interface{}{
 	(*ListBuildsResponse)(nil),                              // 21: depot.cli.v1.ListBuildsResponse
 	(*Build)(nil),                                           // 22: depot.cli.v1.Build
 	(*PageToken)(nil),                                       // 23: depot.cli.v1.PageToken
-	(*ReportBuildContextRequest)(nil),                       // 24: depot.cli.v1.ReportBuildContextRequest
-	(*Dockerfile)(nil),                                      // 25: depot.cli.v1.Dockerfile
-	(*ReportBuildContextResponse)(nil),                      // 26: depot.cli.v1.ReportBuildContextResponse
-	nil,                                                     // 27: depot.cli.v1.BuildOutput.AttributesEntry
-	(*CreateBuildResponse_Profiler)(nil),                    // 28: depot.cli.v1.CreateBuildResponse.Profiler
-	(*FinishBuildRequest_BuildSuccess)(nil),                 // 29: depot.cli.v1.FinishBuildRequest.BuildSuccess
-	(*FinishBuildRequest_BuildError)(nil),                   // 30: depot.cli.v1.FinishBuildRequest.BuildError
-	(*FinishBuildRequest_BuildCanceled)(nil),                // 31: depot.cli.v1.FinishBuildRequest.BuildCanceled
-	(*GetBuildKitConnectionResponse_PendingConnection)(nil), // 32: depot.cli.v1.GetBuildKitConnectionResponse.PendingConnection
-	(*GetBuildKitConnectionResponse_ActiveConnection)(nil),  // 33: depot.cli.v1.GetBuildKitConnectionResponse.ActiveConnection
-	nil,                            // 34: depot.cli.v1.ReportStatusRequest.StableDigestsEntry
-	(*timestamppb.Timestamp)(nil),  // 35: google.protobuf.Timestamp
-	(*control.StatusResponse)(nil), // 36: moby.buildkit.v1.StatusResponse
+	nil,                                                     // 24: depot.cli.v1.BuildOutput.AttributesEntry
+	(*CreateBuildResponse_Profiler)(nil),                    // 25: depot.cli.v1.CreateBuildResponse.Profiler
+	(*FinishBuildRequest_BuildSuccess)(nil),                 // 26: depot.cli.v1.FinishBuildRequest.BuildSuccess
+	(*FinishBuildRequest_BuildError)(nil),                   // 27: depot.cli.v1.FinishBuildRequest.BuildError
+	(*FinishBuildRequest_BuildCanceled)(nil),                // 28: depot.cli.v1.FinishBuildRequest.BuildCanceled
+	(*GetBuildKitConnectionResponse_PendingConnection)(nil), // 29: depot.cli.v1.GetBuildKitConnectionResponse.PendingConnection
+	(*GetBuildKitConnectionResponse_ActiveConnection)(nil),  // 30: depot.cli.v1.GetBuildKitConnectionResponse.ActiveConnection
+	nil,                            // 31: depot.cli.v1.ReportStatusRequest.StableDigestsEntry
+	(*timestamppb.Timestamp)(nil),  // 32: google.protobuf.Timestamp
+	(*control.StatusResponse)(nil), // 33: moby.buildkit.v1.StatusResponse
 }
 var file_depot_cli_v1_build_proto_depIdxs = []int32{
 	4,  // 0: depot.cli.v1.CreateBuildRequest.options:type_name -> depot.cli.v1.BuildOptions
 	0,  // 1: depot.cli.v1.BuildOptions.command:type_name -> depot.cli.v1.Command
 	5,  // 2: depot.cli.v1.BuildOptions.outputs:type_name -> depot.cli.v1.BuildOutput
-	27, // 3: depot.cli.v1.BuildOutput.attributes:type_name -> depot.cli.v1.BuildOutput.AttributesEntry
+	24, // 3: depot.cli.v1.BuildOutput.attributes:type_name -> depot.cli.v1.BuildOutput.AttributesEntry
 	7,  // 4: depot.cli.v1.CreateBuildResponse.registry:type_name -> depot.cli.v1.Registry
-	28, // 5: depot.cli.v1.CreateBuildResponse.profiler:type_name -> depot.cli.v1.CreateBuildResponse.Profiler
-	29, // 6: depot.cli.v1.FinishBuildRequest.success:type_name -> depot.cli.v1.FinishBuildRequest.BuildSuccess
-	30, // 7: depot.cli.v1.FinishBuildRequest.error:type_name -> depot.cli.v1.FinishBuildRequest.BuildError
-	31, // 8: depot.cli.v1.FinishBuildRequest.canceled:type_name -> depot.cli.v1.FinishBuildRequest.BuildCanceled
+	25, // 5: depot.cli.v1.CreateBuildResponse.profiler:type_name -> depot.cli.v1.CreateBuildResponse.Profiler
+	26, // 6: depot.cli.v1.FinishBuildRequest.success:type_name -> depot.cli.v1.FinishBuildRequest.BuildSuccess
+	27, // 7: depot.cli.v1.FinishBuildRequest.error:type_name -> depot.cli.v1.FinishBuildRequest.BuildError
+	28, // 8: depot.cli.v1.FinishBuildRequest.canceled:type_name -> depot.cli.v1.FinishBuildRequest.BuildCanceled
 	1,  // 9: depot.cli.v1.GetBuildKitConnectionRequest.platform:type_name -> depot.cli.v1.BuilderPlatform
-	32, // 10: depot.cli.v1.GetBuildKitConnectionResponse.pending:type_name -> depot.cli.v1.GetBuildKitConnectionResponse.PendingConnection
-	33, // 11: depot.cli.v1.GetBuildKitConnectionResponse.active:type_name -> depot.cli.v1.GetBuildKitConnectionResponse.ActiveConnection
+	29, // 10: depot.cli.v1.GetBuildKitConnectionResponse.pending:type_name -> depot.cli.v1.GetBuildKitConnectionResponse.PendingConnection
+	30, // 11: depot.cli.v1.GetBuildKitConnectionResponse.active:type_name -> depot.cli.v1.GetBuildKitConnectionResponse.ActiveConnection
 	1,  // 12: depot.cli.v1.ReportBuildHealthRequest.platform:type_name -> depot.cli.v1.BuilderPlatform
 	17, // 13: depot.cli.v1.ReportTimingsRequest.build_steps:type_name -> depot.cli.v1.BuildStep
-	35, // 14: depot.cli.v1.BuildStep.start_time:type_name -> google.protobuf.Timestamp
-	36, // 15: depot.cli.v1.ReportStatusRequest.statuses:type_name -> moby.buildkit.v1.StatusResponse
-	34, // 16: depot.cli.v1.ReportStatusRequest.stable_digests:type_name -> depot.cli.v1.ReportStatusRequest.StableDigestsEntry
+	32, // 14: depot.cli.v1.BuildStep.start_time:type_name -> google.protobuf.Timestamp
+	33, // 15: depot.cli.v1.ReportStatusRequest.statuses:type_name -> moby.buildkit.v1.StatusResponse
+	31, // 16: depot.cli.v1.ReportStatusRequest.stable_digests:type_name -> depot.cli.v1.ReportStatusRequest.StableDigestsEntry
 	22, // 17: depot.cli.v1.ListBuildsResponse.builds:type_name -> depot.cli.v1.Build
 	2,  // 18: depot.cli.v1.Build.status:type_name -> depot.cli.v1.BuildStatus
-	35, // 19: depot.cli.v1.Build.created_at:type_name -> google.protobuf.Timestamp
-	35, // 20: depot.cli.v1.Build.finished_at:type_name -> google.protobuf.Timestamp
-	35, // 21: depot.cli.v1.PageToken.last_created_at:type_name -> google.protobuf.Timestamp
-	25, // 22: depot.cli.v1.ReportBuildContextRequest.dockerfiles:type_name -> depot.cli.v1.Dockerfile
-	12, // 23: depot.cli.v1.GetBuildKitConnectionResponse.ActiveConnection.cert:type_name -> depot.cli.v1.Cert
-	12, // 24: depot.cli.v1.GetBuildKitConnectionResponse.ActiveConnection.ca_cert:type_name -> depot.cli.v1.Cert
-	3,  // 25: depot.cli.v1.BuildService.CreateBuild:input_type -> depot.cli.v1.CreateBuildRequest
-	8,  // 26: depot.cli.v1.BuildService.FinishBuild:input_type -> depot.cli.v1.FinishBuildRequest
-	10, // 27: depot.cli.v1.BuildService.GetBuildKitConnection:input_type -> depot.cli.v1.GetBuildKitConnectionRequest
-	13, // 28: depot.cli.v1.BuildService.ReportBuildHealth:input_type -> depot.cli.v1.ReportBuildHealthRequest
-	15, // 29: depot.cli.v1.BuildService.ReportTimings:input_type -> depot.cli.v1.ReportTimingsRequest
-	18, // 30: depot.cli.v1.BuildService.ReportStatus:input_type -> depot.cli.v1.ReportStatusRequest
-	24, // 31: depot.cli.v1.BuildService.ReportBuildContext:input_type -> depot.cli.v1.ReportBuildContextRequest
-	20, // 32: depot.cli.v1.BuildService.ListBuilds:input_type -> depot.cli.v1.ListBuildsRequest
-	6,  // 33: depot.cli.v1.BuildService.CreateBuild:output_type -> depot.cli.v1.CreateBuildResponse
-	9,  // 34: depot.cli.v1.BuildService.FinishBuild:output_type -> depot.cli.v1.FinishBuildResponse
-	11, // 35: depot.cli.v1.BuildService.GetBuildKitConnection:output_type -> depot.cli.v1.GetBuildKitConnectionResponse
-	14, // 36: depot.cli.v1.BuildService.ReportBuildHealth:output_type -> depot.cli.v1.ReportBuildHealthResponse
-	16, // 37: depot.cli.v1.BuildService.ReportTimings:output_type -> depot.cli.v1.ReportTimingsResponse
-	19, // 38: depot.cli.v1.BuildService.ReportStatus:output_type -> depot.cli.v1.ReportStatusResponse
-	26, // 39: depot.cli.v1.BuildService.ReportBuildContext:output_type -> depot.cli.v1.ReportBuildContextResponse
-	21, // 40: depot.cli.v1.BuildService.ListBuilds:output_type -> depot.cli.v1.ListBuildsResponse
-	33, // [33:41] is the sub-list for method output_type
-	25, // [25:33] is the sub-list for method input_type
-	25, // [25:25] is the sub-list for extension type_name
-	25, // [25:25] is the sub-list for extension extendee
-	0,  // [0:25] is the sub-list for field type_name
+	32, // 19: depot.cli.v1.Build.created_at:type_name -> google.protobuf.Timestamp
+	32, // 20: depot.cli.v1.Build.finished_at:type_name -> google.protobuf.Timestamp
+	32, // 21: depot.cli.v1.PageToken.last_created_at:type_name -> google.protobuf.Timestamp
+	12, // 22: depot.cli.v1.GetBuildKitConnectionResponse.ActiveConnection.cert:type_name -> depot.cli.v1.Cert
+	12, // 23: depot.cli.v1.GetBuildKitConnectionResponse.ActiveConnection.ca_cert:type_name -> depot.cli.v1.Cert
+	3,  // 24: depot.cli.v1.BuildService.CreateBuild:input_type -> depot.cli.v1.CreateBuildRequest
+	8,  // 25: depot.cli.v1.BuildService.FinishBuild:input_type -> depot.cli.v1.FinishBuildRequest
+	10, // 26: depot.cli.v1.BuildService.GetBuildKitConnection:input_type -> depot.cli.v1.GetBuildKitConnectionRequest
+	13, // 27: depot.cli.v1.BuildService.ReportBuildHealth:input_type -> depot.cli.v1.ReportBuildHealthRequest
+	15, // 28: depot.cli.v1.BuildService.ReportTimings:input_type -> depot.cli.v1.ReportTimingsRequest
+	18, // 29: depot.cli.v1.BuildService.ReportStatus:input_type -> depot.cli.v1.ReportStatusRequest
+	20, // 30: depot.cli.v1.BuildService.ListBuilds:input_type -> depot.cli.v1.ListBuildsRequest
+	6,  // 31: depot.cli.v1.BuildService.CreateBuild:output_type -> depot.cli.v1.CreateBuildResponse
+	9,  // 32: depot.cli.v1.BuildService.FinishBuild:output_type -> depot.cli.v1.FinishBuildResponse
+	11, // 33: depot.cli.v1.BuildService.GetBuildKitConnection:output_type -> depot.cli.v1.GetBuildKitConnectionResponse
+	14, // 34: depot.cli.v1.BuildService.ReportBuildHealth:output_type -> depot.cli.v1.ReportBuildHealthResponse
+	16, // 35: depot.cli.v1.BuildService.ReportTimings:output_type -> depot.cli.v1.ReportTimingsResponse
+	19, // 36: depot.cli.v1.BuildService.ReportStatus:output_type -> depot.cli.v1.ReportStatusResponse
+	21, // 37: depot.cli.v1.BuildService.ListBuilds:output_type -> depot.cli.v1.ListBuildsResponse
+	31, // [31:38] is the sub-list for method output_type
+	24, // [24:31] is the sub-list for method input_type
+	24, // [24:24] is the sub-list for extension type_name
+	24, // [24:24] is the sub-list for extension extendee
+	0,  // [0:24] is the sub-list for field type_name
 }
 
 func init() { file_depot_cli_v1_build_proto_init() }
@@ -2628,43 +2444,7 @@ func file_depot_cli_v1_build_proto_init() {
 				return nil
 			}
 		}
-		file_depot_cli_v1_build_proto_msgTypes[21].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*ReportBuildContextRequest); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
 		file_depot_cli_v1_build_proto_msgTypes[22].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*Dockerfile); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-		file_depot_cli_v1_build_proto_msgTypes[23].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*ReportBuildContextResponse); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-		file_depot_cli_v1_build_proto_msgTypes[25].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*CreateBuildResponse_Profiler); i {
 			case 0:
 				return &v.state
@@ -2676,7 +2456,7 @@ func file_depot_cli_v1_build_proto_init() {
 				return nil
 			}
 		}
-		file_depot_cli_v1_build_proto_msgTypes[26].Exporter = func(v interface{}, i int) interface{} {
+		file_depot_cli_v1_build_proto_msgTypes[23].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*FinishBuildRequest_BuildSuccess); i {
 			case 0:
 				return &v.state
@@ -2688,7 +2468,7 @@ func file_depot_cli_v1_build_proto_init() {
 				return nil
 			}
 		}
-		file_depot_cli_v1_build_proto_msgTypes[27].Exporter = func(v interface{}, i int) interface{} {
+		file_depot_cli_v1_build_proto_msgTypes[24].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*FinishBuildRequest_BuildError); i {
 			case 0:
 				return &v.state
@@ -2700,7 +2480,7 @@ func file_depot_cli_v1_build_proto_init() {
 				return nil
 			}
 		}
-		file_depot_cli_v1_build_proto_msgTypes[28].Exporter = func(v interface{}, i int) interface{} {
+		file_depot_cli_v1_build_proto_msgTypes[25].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*FinishBuildRequest_BuildCanceled); i {
 			case 0:
 				return &v.state
@@ -2712,7 +2492,7 @@ func file_depot_cli_v1_build_proto_init() {
 				return nil
 			}
 		}
-		file_depot_cli_v1_build_proto_msgTypes[29].Exporter = func(v interface{}, i int) interface{} {
+		file_depot_cli_v1_build_proto_msgTypes[26].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*GetBuildKitConnectionResponse_PendingConnection); i {
 			case 0:
 				return &v.state
@@ -2724,7 +2504,7 @@ func file_depot_cli_v1_build_proto_init() {
 				return nil
 			}
 		}
-		file_depot_cli_v1_build_proto_msgTypes[30].Exporter = func(v interface{}, i int) interface{} {
+		file_depot_cli_v1_build_proto_msgTypes[27].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*GetBuildKitConnectionResponse_ActiveConnection); i {
 			case 0:
 				return &v.state
@@ -2756,7 +2536,7 @@ func file_depot_cli_v1_build_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: file_depot_cli_v1_build_proto_rawDesc,
 			NumEnums:      3,
-			NumMessages:   32,
+			NumMessages:   29,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
