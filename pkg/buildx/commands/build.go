@@ -270,7 +270,7 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.No
 	dockerClient := dockerutil.NewClient(dockerCli)
 	dockerConfigDir := confutil.ConfigDir(dockerCli)
 
-	linter := NewLinter(NewLintFailureMode(depotOpts.lint, depotOpts.lintFailOn), clients, buildxNodes)
+	linter := NewLinter(printer, NewLintFailureMode(depotOpts.lint, depotOpts.lintFailOn), clients, buildxNodes)
 	dockerfileHandlers := depotbuild.NewDockerfileHandlers(uploader, linter)
 
 	resp, err := depotbuild.DepotBuildWithResultHandler(ctx, buildxNodes, opts, dockerClient, dockerConfigDir, buildxprinter, dockerfileHandlers, func(driverIndex int, gotRes *build.ResultContext) {

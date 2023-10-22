@@ -148,7 +148,7 @@ func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator) (er
 		return wrapBuildError(err, true)
 	}
 
-	linter := NewLinter(NewLintFailureMode(in.lint, in.lintFailOn), clients, buildxNodes)
+	linter := NewLinter(printer, NewLintFailureMode(in.lint, in.lintFailOn), clients, buildxNodes)
 	dockerfileHandlers := build.NewDockerfileHandlers(uploader, linter)
 	resp, err := build.DepotBuild(ctx, buildxNodes, buildOpts, dockerClient, dockerConfigDir, buildxprinter, dockerfileHandlers)
 	if err != nil {
