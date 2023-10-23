@@ -136,10 +136,6 @@ func (m *mockBuildServiceClient) ReportBuildHealth(context.Context, *connect.Req
 	return nil, nil
 }
 
-func (m *mockBuildServiceClient) ReportBuildContext(context.Context, *connect.Request[cliv1.ReportBuildContextRequest]) (*connect.Response[cliv1.ReportBuildContextResponse], error) {
-	return nil, nil
-}
-
 func (m *mockBuildServiceClient) ListBuilds(context.Context, *connect.Request[cliv1.ListBuildsRequest]) (*connect.Response[cliv1.ListBuildsResponse], error) {
 	return nil, nil
 }

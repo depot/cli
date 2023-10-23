@@ -65,6 +65,7 @@ func BuildxOpts(opts map[string]dockerbuild.Options) map[string]Options {
 					}
 				}
 			}
+			opt.BuildArgs["DEPOT_TARGET"] = k
 
 			for _, e := range opt.Exports {
 				if e.Type == "image" {

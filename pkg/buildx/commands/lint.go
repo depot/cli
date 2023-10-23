@@ -84,27 +84,25 @@ type Linter struct {
 	Clients     []*client.Client
 	BuildxNodes []builder.Node
 
+	// Our depot progress has special functionality to print and upload lint issues.
+	printer *depotprogress.Progress
+
 	mu     sync.Mutex
 	issues map[string][]client.VertexWarning
 }
 
-func NewLinter(failureMode LintFailure, clients []*client.Client, nodes []builder.Node) *Linter {
+func NewLinter(printer *depotprogress.Progress, failureMode LintFailure, clients []*client.Client, nodes []builder.Node) *Linter {
 	return &Linter{
 		FailureMode: failureMode,
 		Clients:     clients,
 		BuildxNodes: nodes,
+		printer:     printer,
 		issues:      make(map[string][]client.VertexWarning),
 	}
 }
 
 func (l *Linter) Handle(ctx context.Context, target string, driverIndex int, dockerfile *build.DockerfileInputs, p progress.Writer) error {
 	if l.FailureMode == LintSkip {
-		return nil
-	}
-
-	// Our depot progress has special functionality to print and upload lint issues.
-	printer, ok := p.(*depotprogress.Progress)
-	if !ok {
 		return nil
 	}
 
@@ -144,7 +142,7 @@ func (l *Linter) Handle(ctx context.Context, target string, driverIndex int, doc
 	}
 	dgst := digest.Canonical.FromString(identity.NewID())
 	tm := time.Now()
-	printer.WriteLint(client.Vertex{Digest: dgst, Name: lintName, Started: &tm}, nil, nil)
+	l.printer.WriteLint(client.Vertex{Digest: dgst, Name: lintName, Started: &tm}, nil, nil)
 
 	output, err := RunHadolint(ctx, l.Clients[driverIndex], l.BuildxNodes[driverIndex].Platforms[0], dockerfile)
 	if err != nil {
@@ -278,7 +276,7 @@ func (l *Linter) Handle(ctx context.Context, target string, driverIndex int, doc
 		lintErr = LintFailed
 	}
 
-	printer.WriteLint(lintResults, statuses, logs)
+	l.printer.WriteLint(lintResults, statuses, logs)
 
 	l.mu.Lock()
 	defer l.mu.Unlock()
