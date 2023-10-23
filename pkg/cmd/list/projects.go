@@ -88,7 +88,7 @@ func NewCmdProjects() *cobra.Command {
 				projectClient: projectClient,
 				projectsTable: tbl,
 				columns:       columns,
-				builds:        newBuildsModel("", token, api.NewBuildClient()),
+				builds:        helpers.NewBuildsModel("", token, api.NewBuildClient()),
 				state:         "projects",
 				token:         token,
 			}
@@ -110,7 +110,7 @@ type projectsModel struct {
 	projectsTable table.Model
 	columns       []table.Column
 
-	builds buildsModel
+	builds helpers.BuildsModel
 	// Using state to determine if we're in projects or builds
 	state string
 
@@ -134,7 +134,7 @@ func (m projectsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 			buildsTable, cmd := m.builds.Update(msg)
-			m.builds = buildsTable.(buildsModel)
+			m.builds = buildsTable.(helpers.BuildsModel)
 			return m, cmd
 		}
 	}
@@ -156,7 +156,7 @@ func (m projectsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		if msg.Type == tea.KeyEnter {
 			m.state = "builds"
-			m.builds.projectID = m.projectsTable.SelectedRow()[0]
+			m.builds.ProjectID = m.projectsTable.SelectedRow()[0]
 			cmd = m.builds.Init()
 			return m, cmd
 		}
@@ -164,7 +164,7 @@ func (m projectsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.resizeProjectTable(msg)
 		buildsTable, _ := m.builds.Update(msg)
-		m.builds = buildsTable.(buildsModel)
+		m.builds = buildsTable.(helpers.BuildsModel)
 
 	case projects:
 		m.err = nil

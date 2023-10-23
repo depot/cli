@@ -94,6 +94,7 @@ func WorkingDirectories(files ...string) ([]string, error) {
 }
 
 type SelectedProject struct {
+	OrgID   string
 	OrgName string
 	Name    string
 	ID      string
@@ -121,6 +122,36 @@ func (p *SelectedProject) SaveAs(configFilePath string) error {
 	fmt.Printf("Project %s (%s) initialized in directory %s\n", p.Name, p.OrgName, dir)
 
 	return nil
+}
+
+func ProjectExists(ctx context.Context, token, projectID string) (*SelectedProject, error) {
+	client := api.NewProjectsClient()
+	req := cliv1beta1.ListProjectsRequest{}
+	projects, err := client.ListProjects(ctx, api.WithAuthentication(connect.NewRequest(&req), token))
+	if err != nil {
+		return nil, err
+	}
+
+	// In the case that the user specified a project id on the command line with `--project`,
+	// we check to see if the project exists.  If it does not, we return an error.
+	var selectedProject *cliv1beta1.ListProjectsResponse_Project
+	for _, p := range projects.Msg.Projects {
+		if p.Id == projectID {
+			selectedProject = p
+			break
+		}
+	}
+
+	if selectedProject == nil {
+		return nil, fmt.Errorf("Project with ID %s not found", projectID)
+	}
+
+	return &SelectedProject{
+		OrgName: selectedProject.OrgName,
+		OrgID:   selectedProject.OrgId,
+		Name:    selectedProject.Name,
+		ID:      selectedProject.Id,
+	}, nil
 }
 
 func InitializeProject(ctx context.Context, token, projectID string) (*SelectedProject, error) {
@@ -155,23 +186,7 @@ func InitializeProject(ctx context.Context, token, projectID string) (*SelectedP
 
 	// In the case that the user specified a project id on the command line with `--project`,
 	// we check to see if the project exists.  If it does not, we return an error.
-	var selectedProject *cliv1beta1.ListProjectsResponse_Project
-	for _, p := range projects.Msg.Projects {
-		if p.Id == projectID {
-			selectedProject = p
-			break
-		}
-	}
-
-	if selectedProject == nil {
-		return nil, fmt.Errorf("Project with ID %s not found", projectID)
-	}
-
-	return &SelectedProject{
-		OrgName: selectedProject.OrgName,
-		Name:    selectedProject.Name,
-		ID:      selectedProject.Id,
-	}, nil
+	return ProjectExists(ctx, token, projectID)
 }
 
 func printProjectsCSV(projects []*cliv1beta1.ListProjectsResponse_Project) error {

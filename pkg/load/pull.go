@@ -24,7 +24,11 @@ func PullImages(ctx context.Context, dockerapi docker.APIClient, imageName strin
 }
 
 func ImagePullPrivileged(ctx context.Context, dockerapi docker.APIClient, imageName string, opts PullOptions, logger progress.SubLogger) error {
-	responseBody, err := dockerapi.ImagePull(ctx, imageName, types.ImagePullOptions{})
+	dockerPullOpts := types.ImagePullOptions{}
+	if opts.Platform != nil {
+		dockerPullOpts.Platform = *opts.Platform
+	}
+	responseBody, err := dockerapi.ImagePull(ctx, imageName, dockerPullOpts)
 	if err != nil {
 		return err
 	}
@@ -49,11 +53,13 @@ func ImagePullPrivileged(ctx context.Context, dockerapi docker.APIClient, imageN
 		}
 	}
 
-	// PruneChildren is false to preserve the image if no tag was specified.
-	rmOpts := types.ImageRemoveOptions{PruneChildren: false}
-	_, err = dockerapi.ImageRemove(ctx, imageName, rmOpts)
-	if err != nil {
-		return err
+	if !opts.KeepImage {
+		// PruneChildren is false to preserve the image if no tag was specified.
+		rmOpts := types.ImageRemoveOptions{PruneChildren: false}
+		_, err = dockerapi.ImageRemove(ctx, imageName, rmOpts)
+		if err != nil {
+			return err
+		}
 	}
 
 	return nil
