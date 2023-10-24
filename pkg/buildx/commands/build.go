@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/containerd/console"
+	depotcreds "github.com/depot/cli/pkg/build"
 	depotbuild "github.com/depot/cli/pkg/buildx/build"
 	"github.com/depot/cli/pkg/buildx/builder"
 	"github.com/depot/cli/pkg/ci"
@@ -108,16 +109,17 @@ type commonOptions struct {
 }
 
 type DepotOptions struct {
-	orgID         string
 	project       string
 	token         string
 	buildID       string
 	buildURL      string
 	buildPlatform string
 
-	useLocalRegistry bool
-	proxyImage       string
-	save             bool
+	useLocalRegistry      bool
+	proxyImage            string
+	save                  bool
+	additionalTags        []string
+	additionalCredentials []depotcreds.Credential
 
 	lint       bool
 	lintFailOn string
@@ -241,9 +243,10 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.No
 	}
 	if depotOpts.save {
 		saveOpts := registry.SaveOptions{
-			OrgID:     depotOpts.orgID,
-			ProjectID: depotOpts.project,
-			BuildID:   depotOpts.buildID,
+			ProjectID:             depotOpts.project,
+			BuildID:               depotOpts.buildID,
+			AdditionalTags:        depotOpts.additionalTags,
+			AdditionalCredentials: depotOpts.additionalCredentials,
 		}
 		opts = registry.WithDepotSave(opts, saveOpts)
 	}
@@ -669,7 +672,11 @@ func BuildCmd(dockerCli command.Cli) *cobra.Command {
 			if buildProject != "" {
 				options.project = buildProject
 			}
-			options.orgID = build.BuildOrg()
+			if options.save {
+				// TODO: should this error if we can't get creds?
+				options.additionalCredentials = build.AdditionalCredentials()
+				options.additionalTags = build.AdditionalTags()
+			}
 			options.buildID = build.ID
 			options.buildURL = build.BuildURL
 			options.token = build.Token

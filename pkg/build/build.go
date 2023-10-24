@@ -26,6 +26,52 @@ type Build struct {
 	Response *connect.Response[cliv1.CreateBuildResponse]
 }
 
+type Credential struct {
+	Host  string
+	Token string
+}
+
+func (b *Build) AdditionalTags() []string {
+	if b.Response == nil || b.Response.Msg == nil {
+		return nil
+	}
+
+	tags := make([]string, 0, len(b.Response.Msg.AdditionalTags))
+	for _, tag := range b.Response.Msg.AdditionalTags {
+		if tag == nil {
+			continue
+		}
+
+		tags = append(tags, tag.Tag)
+	}
+
+	return tags
+}
+
+func (b *Build) AdditionalCredentials() []Credential {
+	if b.Response == nil || b.Response.Msg == nil {
+		return nil
+	}
+	if len(b.Response.Msg.AdditionalCredentials) == 0 {
+		return nil
+	}
+
+	creds := make([]Credential, 0, len(b.Response.Msg.AdditionalCredentials))
+
+	for _, cred := range b.Response.Msg.AdditionalCredentials {
+		if cred == nil {
+			continue
+		}
+
+		creds = append(creds, Credential{
+			Host:  cred.Host,
+			Token: cred.Token,
+		})
+	}
+
+	return creds
+}
+
 // BuildProject returns the project ID to be used for the build.
 // This is important as the API may use a different project ID than the one
 // initially requested (e.g. onboarding)
@@ -34,14 +80,6 @@ func (b *Build) BuildProject() string {
 		return ""
 	}
 	return b.Response.Msg.ProjectId
-}
-
-// BuildOrg returns the organization of this build.
-func (b *Build) BuildOrg() string {
-	if b.Response == nil || b.Response.Msg == nil {
-		return ""
-	}
-	return b.Response.Msg.OrgId
 }
 
 func NewBuild(ctx context.Context, req *cliv1.CreateBuildRequest, token string) (Build, error) {

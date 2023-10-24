@@ -124,9 +124,10 @@ func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator) (er
 	}
 	if in.save {
 		opts := registry.SaveOptions{
-			OrgID:     in.orgID,
-			ProjectID: in.project,
-			BuildID:   in.buildID,
+			ProjectID:             in.project,
+			BuildID:               in.buildID,
+			AdditionalTags:        in.additionalTags,
+			AdditionalCredentials: in.additionalCredentials,
 		}
 		buildOpts = registry.WithDepotSave(buildOpts, opts)
 	}
@@ -293,7 +294,10 @@ func BakeCmd(dockerCli command.Cli) *cobra.Command {
 			if buildProject != "" {
 				options.project = buildProject
 			}
-			options.orgID = build.BuildOrg()
+			if options.save {
+				options.additionalCredentials = build.AdditionalCredentials()
+				options.additionalTags = build.AdditionalTags()
+			}
 			options.buildID = build.ID
 			options.buildURL = build.BuildURL
 			options.token = build.Token

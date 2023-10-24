@@ -66,7 +66,18 @@ message CreateBuildResponse {
   string build_url = 5;
 
   string project_id = 6;
-  string org_id = 7;
+
+  repeated Credential additional_credentials = 7;
+  message Credential {
+    string host = 1;
+    string token = 2;
+  }
+
+  repeated Tag additional_tags = 8;
+  message Tag {
+    string tag = 1;
+    bool push = 2;
+  }
 }
 
 message Registry {
