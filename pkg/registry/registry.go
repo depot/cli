@@ -2,7 +2,7 @@ package registry
 
 import "fmt"
 
-const Registry = "load.depot.dev"
+const Registry = "registry.depot.dev"
 
 func DepotImageName(orgID, projectID, buildID string) string {
 	return fmt.Sprintf("%s/%s/%s:%s", Registry, orgID, projectID, buildID)
