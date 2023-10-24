@@ -25,6 +25,7 @@ import (
 	"github.com/depot/cli/pkg/helpers"
 	"github.com/depot/cli/pkg/load"
 	depotprogress "github.com/depot/cli/pkg/progress"
+	"github.com/depot/cli/pkg/registry"
 	"github.com/depot/cli/pkg/sbom"
 	"github.com/docker/buildx/build"
 	"github.com/docker/buildx/monitor"
@@ -107,6 +108,7 @@ type commonOptions struct {
 }
 
 type DepotOptions struct {
+	orgID         string
 	project       string
 	token         string
 	buildID       string
@@ -115,6 +117,7 @@ type DepotOptions struct {
 
 	useLocalRegistry bool
 	proxyImage       string
+	save             bool
 
 	lint       bool
 	lintFailOn string
@@ -235,6 +238,14 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.No
 				ProgressMode:     progressMode,
 			},
 		)
+	}
+	if depotOpts.save {
+		saveOpts := registry.SaveOptions{
+			OrgID:     depotOpts.orgID,
+			ProjectID: depotOpts.project,
+			BuildID:   depotOpts.buildID,
+		}
+		opts = registry.WithDepotSave(opts, saveOpts)
 	}
 
 	buildxNodes := builder.ToBuildxNodes(nodes)
@@ -629,6 +640,7 @@ func BuildCmd(dockerCli command.Cli) *cobra.Command {
 				helpers.UsingDepotFeatures{
 					Push: options.exportPush,
 					Load: options.exportLoad,
+					Save: options.save,
 					Lint: options.lint,
 				},
 			)
@@ -657,6 +669,7 @@ func BuildCmd(dockerCli command.Cli) *cobra.Command {
 			if buildProject != "" {
 				options.project = buildProject
 			}
+			options.orgID = build.BuildOrg()
 			options.buildID = build.ID
 			options.buildURL = build.BuildURL
 			options.token = build.Token
@@ -813,6 +826,7 @@ func depotFlags(cmd *cobra.Command, options *DepotOptions, flags *pflag.FlagSet)
 func depotBuildFlags(options *DepotOptions, flags *pflag.FlagSet) {
 	flags.StringVar(&options.project, "project", "", "Depot project ID")
 	flags.StringVar(&options.token, "token", "", "Depot API token")
+	flags.BoolVar(&options.save, "save", false, `Saves the build to the depot registry`)
 	flags.StringVar(&options.buildPlatform, "build-platform", "dynamic", `Run builds on this platform ("dynamic", "linux/amd64", "linux/arm64")`)
 
 	allowNoOutput := false

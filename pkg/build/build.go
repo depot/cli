@@ -36,6 +36,14 @@ func (b *Build) BuildProject() string {
 	return b.Response.Msg.ProjectId
 }
 
+// BuildOrg returns the organization of this build.
+func (b *Build) BuildOrg() string {
+	if b.Response == nil || b.Response.Msg == nil {
+		return ""
+	}
+	return b.Response.Msg.OrgId
+}
+
 func NewBuild(ctx context.Context, req *cliv1.CreateBuildRequest, token string) (Build, error) {
 	client := depotapi.NewBuildClient()
 	res, err := client.CreateBuild(ctx, depotapi.WithAuthentication(connect.NewRequest(req), token))

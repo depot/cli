@@ -34,6 +34,8 @@ message BuildOptions {
 
   // Linting was requested.
   bool lint = 7;
+  // Save to depot registry.
+  bool save = 8;
 }
 
 enum Command {
@@ -64,6 +66,7 @@ message CreateBuildResponse {
   string build_url = 5;
 
   string project_id = 6;
+  string org_id = 7;
 }
 
 message Registry {

@@ -14,6 +14,7 @@ import (
 	"github.com/depot/cli/pkg/helpers"
 	"github.com/depot/cli/pkg/load"
 	depotprogress "github.com/depot/cli/pkg/progress"
+	"github.com/depot/cli/pkg/registry"
 	"github.com/depot/cli/pkg/sbom"
 	"github.com/docker/buildx/bake"
 	buildx "github.com/docker/buildx/build"
@@ -120,6 +121,14 @@ func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator) (er
 				ProgressMode:     in.progress,
 			},
 		)
+	}
+	if in.save {
+		opts := registry.SaveOptions{
+			OrgID:     in.orgID,
+			ProjectID: in.project,
+			BuildID:   in.buildID,
+		}
+		buildOpts = registry.WithDepotSave(buildOpts, opts)
 	}
 
 	buildxNodes := builder.ToBuildxNodes(nodes)
@@ -264,6 +273,7 @@ func BakeCmd(dockerCli command.Cli) *cobra.Command {
 				helpers.UsingDepotFeatures{
 					Push: options.exportPush,
 					Load: options.exportLoad,
+					Save: options.save,
 					Lint: options.lint,
 				},
 			)
@@ -283,6 +293,7 @@ func BakeCmd(dockerCli command.Cli) *cobra.Command {
 			if buildProject != "" {
 				options.project = buildProject
 			}
+			options.orgID = build.BuildOrg()
 			options.buildID = build.ID
 			options.buildURL = build.BuildURL
 			options.token = build.Token
