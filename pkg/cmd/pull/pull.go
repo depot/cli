@@ -70,12 +70,17 @@ func NewCmdPull(dockerCli command.Cli) *cobra.Command {
 			projectID = selectedProject.ID
 
 			if buildID == "" {
+				client := api.NewBuildClient()
+
 				if !helpers.IsTerminal() {
+					depotBuilds, err := helpers.Builds(ctx, token, projectID, client)
+					if err != nil {
+						return err
+					}
+					_ = depotBuilds.WriteCSV()
 					return errors.New("build ID must be specified")
 				}
 
-				client := api.NewBuildClient()
-				// TODO: print as csv and exit if not terminal.
 				buildID, err = helpers.SelectBuildID(ctx, token, projectID, client)
 				if err != nil {
 					return err

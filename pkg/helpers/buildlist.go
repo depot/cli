@@ -2,7 +2,10 @@ package helpers
 
 import (
 	"context"
+	"encoding/csv"
+	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -241,3 +244,73 @@ func builds(ctx context.Context, projectID, token string, client cliv1connect.Bu
 var baseStyle = lipgloss.NewStyle().
 	BorderStyle(lipgloss.NormalBorder()).
 	BorderForeground(lipgloss.Color("240"))
+
+type DepotBuild struct {
+	ID        string `json:"id"`
+	Status    string `json:"status"`
+	StartTime string `json:"startTime"`
+	Duration  int    `json:"duration"`
+}
+
+type DepotBuilds []DepotBuild
+
+func Builds(ctx context.Context, token, projectID string, client cliv1connect.BuildServiceClient) (DepotBuilds, error) {
+	req := cliv1.ListBuildsRequest{ProjectId: projectID}
+	resp, err := client.ListBuilds(ctx, api.WithAuthentication(connect.NewRequest(&req), token))
+	if err != nil {
+		return nil, err
+	}
+
+	res := []DepotBuild{}
+
+	for _, build := range resp.Msg.Builds {
+		createdAt := build.CreatedAt.AsTime()
+		if build.CreatedAt == nil {
+			createdAt = time.Now()
+		}
+
+		finishedAt := build.FinishedAt.AsTime()
+		// This will will cause the duration to increase until the build is complete.
+		if build.FinishedAt == nil {
+			finishedAt = time.Now()
+		}
+
+		startTime := createdAt.Format(time.RFC3339)
+		duration := int(finishedAt.Sub(createdAt).Seconds())
+		status := strings.ToLower(strings.TrimPrefix(build.Status.String(), "BUILD_STATUS_"))
+
+		res = append(res, DepotBuild{
+			ID:        build.Id,
+			Status:    status,
+			StartTime: startTime,
+			Duration:  duration,
+		})
+	}
+
+	return res, nil
+}
+
+func (depotBuilds DepotBuilds) WriteCSV() error {
+	w := csv.NewWriter(os.Stdout)
+	if len(depotBuilds) > 0 {
+		if err := w.Write([]string{"Build ID", "Status", "Started", "Duration (s)"}); err != nil {
+			return err
+		}
+	}
+
+	for _, build := range depotBuilds {
+		row := []string{build.ID, build.Status, build.StartTime, fmt.Sprintf("%d", build.Duration)}
+		if err := w.Write(row); err != nil {
+			return err
+		}
+	}
+
+	w.Flush()
+	return w.Error()
+}
+
+func (depotBuilds DepotBuilds) WriteJSON() error {
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	return enc.Encode(depotBuilds)
+}
