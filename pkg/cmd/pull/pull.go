@@ -67,7 +67,6 @@ func NewCmdPull(dockerCli command.Cli) *cobra.Command {
 				}
 			}
 
-			orgID := selectedProject.OrgID
 			projectID = selectedProject.ID
 
 			if buildID == "" {
@@ -87,7 +86,7 @@ func NewCmdPull(dockerCli command.Cli) *cobra.Command {
 				}
 			}
 
-			imageName := fmt.Sprintf("load.depot.dev/%s/%s:%s", orgID, projectID, buildID)
+			imageName := fmt.Sprintf("d246do435g16mw.cloudfront.net/%s:%s", projectID, buildID)
 			opts := load.PullOptions{
 				UserTags:  userTags,
 				Quiet:     progress == prog.PrinterModeQuiet,

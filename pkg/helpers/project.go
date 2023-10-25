@@ -94,7 +94,6 @@ func WorkingDirectories(files ...string) ([]string, error) {
 }
 
 type SelectedProject struct {
-	OrgID   string
 	OrgName string
 	Name    string
 	ID      string
@@ -148,7 +147,6 @@ func ProjectExists(ctx context.Context, token, projectID string) (*SelectedProje
 
 	return &SelectedProject{
 		OrgName: selectedProject.OrgName,
-		OrgID:   selectedProject.OrgId,
 		Name:    selectedProject.Name,
 		ID:      selectedProject.Id,
 	}, nil
