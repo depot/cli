@@ -20,10 +20,11 @@ type DepotLoadOptions struct {
 
 // Options to download from the Depot hosted registry and tag the image with the user provide tag.
 type PullOptions struct {
-	UserTags  []string // Tags the user wishes the image to have.
-	Quiet     bool     // No logs plz
-	Platform  *string  // If set, only pull the image if it matches the platform.
-	KeepImage bool     // If set, do not remove the image after pulling and tagging with user tags.
+	UserTags    []string // Tags the user wishes the image to have.
+	Quiet       bool     // No logs plz
+	Credentials *string  // If set, use these base64 encoded credentials for the registry.
+	Platform    *string  // If set, only pull the image if it matches the platform.
+	KeepImage   bool     // If set, do not remove the image after pulling and tagging with user tags.
 }
 
 // WithDepotImagePull updates buildOpts to push to the depot user's personal registry.

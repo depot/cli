@@ -101,6 +101,8 @@ func NewCmdPull(dockerCli command.Cli) *cobra.Command {
 				opts.Platform = &platform
 			}
 
+			opts.Credentials = &token
+
 			displayPhrase := fmt.Sprintf("Pulling image %s", imageName)
 
 			printerCtx, cancel := context.WithCancel(ctx)
