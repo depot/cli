@@ -814,6 +814,7 @@ func BuildCmd(dockerCli command.Cli) *cobra.Command {
 
 	commonBuildFlags(&options.commonOptions, flags)
 	depotFlags(cmd, &options.DepotOptions, flags)
+	depotRegistryFlags(cmd, &options.DepotOptions, flags)
 	return cmd
 }
 
@@ -833,7 +834,6 @@ func depotFlags(cmd *cobra.Command, options *DepotOptions, flags *pflag.FlagSet)
 func depotBuildFlags(options *DepotOptions, flags *pflag.FlagSet) {
 	flags.StringVar(&options.project, "project", "", "Depot project ID")
 	flags.StringVar(&options.token, "token", "", "Depot API token")
-	flags.BoolVar(&options.save, "save", false, `Saves the build to the depot registry`)
 	flags.StringVar(&options.buildPlatform, "build-platform", "dynamic", `Run builds on this platform ("dynamic", "linux/amd64", "linux/arm64")`)
 
 	allowNoOutput := false
@@ -859,6 +859,10 @@ func depotLintFlags(cmd *cobra.Command, options *DepotOptions, flags *pflag.Flag
 
 func depotAttestationFlags(cmd *cobra.Command, options *DepotOptions, flags *pflag.FlagSet) {
 	flags.StringVar(&options.sbomDir, "sbom-dir", "", `directory to store SBOM attestations`)
+}
+
+func depotRegistryFlags(cmd *cobra.Command, options *DepotOptions, flags *pflag.FlagSet) {
+	flags.BoolVar(&options.save, "save", false, `Saves the build to the depot registry`)
 }
 
 func checkWarnedFlags(f *pflag.Flag) {
