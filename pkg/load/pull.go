@@ -26,10 +26,10 @@ func PullImages(ctx context.Context, dockerapi docker.APIClient, imageName strin
 
 func ImagePullPrivileged(ctx context.Context, dockerapi docker.APIClient, imageName string, opts PullOptions, logger progress.SubLogger) error {
 	dockerPullOpts := types.ImagePullOptions{}
-	if opts.Credentials != nil {
+	if opts.Username != nil && opts.Password != nil {
 		authConfig := types.AuthConfig{
-			Username: "x-token",
-			Password: *opts.Credentials,
+			Username: *opts.Username,
+			Password: *opts.Password,
 		}
 		buf, err := json.Marshal(authConfig)
 		if err != nil {

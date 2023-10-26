@@ -18,13 +18,16 @@ import (
 	"time"
 
 	"github.com/containerd/console"
-	depotbuild "github.com/depot/cli/pkg/buildx/build"
+	depotbuild "github.com/depot/cli/pkg/build"
+	depotcreds "github.com/depot/cli/pkg/build"
+	depotbuildxbuild "github.com/depot/cli/pkg/buildx/build"
 	"github.com/depot/cli/pkg/buildx/builder"
 	"github.com/depot/cli/pkg/ci"
 	"github.com/depot/cli/pkg/cmd/docker"
 	"github.com/depot/cli/pkg/helpers"
 	"github.com/depot/cli/pkg/load"
 	depotprogress "github.com/depot/cli/pkg/progress"
+	"github.com/depot/cli/pkg/registry"
 	"github.com/depot/cli/pkg/sbom"
 	"github.com/docker/buildx/build"
 	"github.com/docker/buildx/monitor"
@@ -112,9 +115,13 @@ type DepotOptions struct {
 	buildID       string
 	buildURL      string
 	buildPlatform string
+	build         *depotbuild.Build
 
-	useLocalRegistry bool
-	proxyImage       string
+	useLocalRegistry      bool
+	proxyImage            string
+	save                  bool
+	additionalTags        []string
+	additionalCredentials []depotcreds.Credential
 
 	lint       bool
 	lintFailOn string
@@ -236,17 +243,26 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.No
 			},
 		)
 	}
+	if depotOpts.save {
+		saveOpts := registry.SaveOptions{
+			ProjectID:             depotOpts.project,
+			BuildID:               depotOpts.buildID,
+			AdditionalTags:        depotOpts.additionalTags,
+			AdditionalCredentials: depotOpts.additionalCredentials,
+		}
+		opts = registry.WithDepotSave(opts, saveOpts)
+	}
 
 	buildxNodes := builder.ToBuildxNodes(nodes)
-	buildxNodes, err = depotbuild.FilterAvailableNodes(buildxNodes)
+	buildxNodes, err = depotbuildxbuild.FilterAvailableNodes(buildxNodes)
 	if err != nil {
 		_ = printer.Wait()
 		return nil, nil, err
 	}
-	buildxopts := depotbuild.BuildxOpts(opts)
+	buildxopts := depotbuildxbuild.BuildxOpts(opts)
 
 	// "Boot" the depot nodes.
-	_, clients, err := depotbuild.ResolveDrivers(ctx, buildxNodes, buildxopts, printer)
+	_, clients, err := depotbuildxbuild.ResolveDrivers(ctx, buildxNodes, buildxopts, printer)
 	if err != nil {
 		_ = printer.Wait()
 		return nil, nil, err
@@ -262,13 +278,13 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.No
 
 	linter := NewLinter(printer, NewLintFailureMode(depotOpts.lint, depotOpts.lintFailOn), clients, buildxNodes)
 
-	resp, err := depotbuild.DepotBuildWithResultHandler(ctx, buildxNodes, opts, dockerClient, dockerConfigDir, buildxprinter, linter, func(driverIndex int, gotRes *build.ResultContext) {
+	resp, err := depotbuildxbuild.DepotBuildWithResultHandler(ctx, buildxNodes, opts, dockerClient, dockerConfigDir, buildxprinter, linter, func(driverIndex int, gotRes *build.ResultContext) {
 		mu.Lock()
 		defer mu.Unlock()
 		if res == nil || driverIndex < idx {
 			idx, res = driverIndex, gotRes
 		}
-	}, allowNoOutput)
+	}, allowNoOutput, depotOpts.build)
 
 	if err != nil {
 		// Make sure that the printer has completed before returning failed builds.
@@ -292,7 +308,7 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.No
 				}
 			}
 
-			if err := writeMetadataFile(metadataFile, metadata); err != nil {
+			if err := writeMetadataFile(metadataFile, depotOpts.project, depotOpts.buildID, metadata); err != nil {
 				return nil, nil, err
 			}
 		}
@@ -329,7 +345,7 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.No
 			if retryable {
 				progress.Write(printer, "[load] fast load failed; retrying", func() error { return err })
 				opts, _ = load.WithDepotImagePull(fallbackOpts, load.DepotLoadOptions{})
-				_, err = depotbuild.DepotBuildWithResultHandler(ctx, buildxNodes, opts, dockerClient, dockerConfigDir, printer, nil, nil, allowNoOutput)
+				_, err = depotbuildxbuild.DepotBuildWithResultHandler(ctx, buildxNodes, opts, dockerClient, dockerConfigDir, printer, nil, nil, allowNoOutput, depotOpts.build)
 			}
 		}
 	}
@@ -629,6 +645,7 @@ func BuildCmd(dockerCli command.Cli) *cobra.Command {
 				helpers.UsingDepotFeatures{
 					Push: options.exportPush,
 					Load: options.exportLoad,
+					Save: options.save,
 					Lint: options.lint,
 				},
 			)
@@ -657,11 +674,16 @@ func BuildCmd(dockerCli command.Cli) *cobra.Command {
 			if buildProject != "" {
 				options.project = buildProject
 			}
+			if options.save {
+				options.additionalCredentials = build.AdditionalCredentials()
+				options.additionalTags = build.AdditionalTags()
+			}
 			options.buildID = build.ID
 			options.buildURL = build.BuildURL
 			options.token = build.Token
 			options.useLocalRegistry = build.UseLocalRegistry
 			options.proxyImage = build.ProxyImage
+			options.build = &build
 
 			if options.allowNoOutput {
 				_ = os.Setenv("BUILDX_NO_DEFAULT_LOAD", "1")
@@ -794,6 +816,7 @@ func BuildCmd(dockerCli command.Cli) *cobra.Command {
 
 	commonBuildFlags(&options.commonOptions, flags)
 	depotFlags(cmd, &options.DepotOptions, flags)
+	depotRegistryFlags(cmd, &options.DepotOptions, flags)
 	return cmd
 }
 
@@ -838,6 +861,10 @@ func depotLintFlags(cmd *cobra.Command, options *DepotOptions, flags *pflag.Flag
 
 func depotAttestationFlags(cmd *cobra.Command, options *DepotOptions, flags *pflag.FlagSet) {
 	flags.StringVar(&options.sbomDir, "sbom-dir", "", `directory to store SBOM attestations`)
+}
+
+func depotRegistryFlags(cmd *cobra.Command, options *DepotOptions, flags *pflag.FlagSet) {
+	flags.BoolVar(&options.save, "save", false, `Saves the build to the depot registry`)
 }
 
 func checkWarnedFlags(f *pflag.Flag) {
@@ -920,8 +947,17 @@ func parsePrintFunc(str string) (*build.PrintFunc, error) {
 	return f, nil
 }
 
-func writeMetadataFile(filename string, dt interface{}) error {
-	b, err := json.MarshalIndent(dt, "", "  ")
+func writeMetadataFile(filename, projectID, buildID string, metadata map[string]interface{}) error {
+	depotBuild := struct {
+		BuildID   string `json:"buildID"`
+		ProjectID string `json:"projectID"`
+	}{
+		BuildID:   buildID,
+		ProjectID: projectID,
+	}
+
+	metadata["depot.build"] = depotBuild
+	b, err := json.MarshalIndent(metadata, "", "  ")
 	if err != nil {
 		return err
 	}

@@ -12,7 +12,9 @@ service BuildService {
   rpc ReportBuildHealth(ReportBuildHealthRequest) returns (ReportBuildHealthResponse);
   rpc ReportTimings(ReportTimingsRequest) returns (ReportTimingsResponse);
   rpc ReportStatus(ReportStatusRequest) returns (ReportStatusResponse);
+  rpc ReportBuildContext(ReportBuildContextRequest) returns (ReportBuildContextResponse);
   rpc ListBuilds(ListBuildsRequest) returns (ListBuildsResponse) {}
+  rpc GetPullInfo(GetPullInfoRequest) returns (GetPullInfoResponse);
 }
 
 message CreateBuildRequest {
@@ -34,6 +36,8 @@ message BuildOptions {
 
   // Linting was requested.
   bool lint = 7;
+  // Save to depot registry.
+  bool save = 8;
 }
 
 enum Command {
@@ -64,6 +68,18 @@ message CreateBuildResponse {
   string build_url = 5;
 
   string project_id = 6;
+
+  repeated Credential additional_credentials = 7;
+  message Credential {
+    string host = 1;
+    string token = 2;
+  }
+
+  repeated Tag additional_tags = 8;
+  message Tag {
+    string tag = 1;
+    bool push = 2;
+  }
 }
 
 message Registry {
@@ -192,4 +208,27 @@ enum BuildStatus {
 message PageToken {
   string project_id = 1;
   google.protobuf.Timestamp last_created_at = 2;
+}
+
+message ReportBuildContextRequest {
+  string build_id = 1;
+  repeated Dockerfile dockerfiles = 2;
+}
+
+message Dockerfile {
+  string target = 1;
+  string filename = 2;
+  string contents = 3;
+}
+
+message ReportBuildContextResponse {}
+
+message GetPullInfoRequest {
+  string build_id = 1;
+}
+
+message GetPullInfoResponse {
+  string reference = 1;
+  string username = 2;
+  string password = 3;
 }

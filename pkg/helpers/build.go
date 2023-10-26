@@ -57,6 +57,7 @@ func BeginBuild(ctx context.Context, req *cliv1.CreateBuildRequest, token string
 type UsingDepotFeatures struct {
 	Push bool
 	Load bool
+	Save bool
 	Lint bool
 }
 
@@ -85,6 +86,7 @@ func NewBuildRequest(project string, opts map[string]buildx.Options, features Us
 					Outputs:    outputs,
 					Push:       features.Push,
 					Load:       features.Load,
+					Save:       features.Save,
 					Lint:       features.Lint,
 					TargetName: target,
 				},
@@ -115,6 +117,7 @@ func NewBakeRequest(project string, opts map[string]buildx.Options, features Usi
 			Outputs:    outputs,
 			Push:       features.Push,
 			Load:       features.Load,
+			Save:       features.Save,
 			Lint:       features.Lint,
 			TargetName: &name,
 		})
