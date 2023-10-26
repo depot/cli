@@ -306,7 +306,7 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.No
 				}
 			}
 
-			if err := writeMetadataFile(metadataFile, metadata); err != nil {
+			if err := writeMetadataFile(metadataFile, depotOpts.project, depotOpts.buildID, metadata); err != nil {
 				return nil, nil, err
 			}
 		}
@@ -941,8 +941,17 @@ func parsePrintFunc(str string) (*build.PrintFunc, error) {
 	return f, nil
 }
 
-func writeMetadataFile(filename string, dt interface{}) error {
-	b, err := json.MarshalIndent(dt, "", "  ")
+func writeMetadataFile(filename, projectID, buildID string, metadata map[string]interface{}) error {
+	depotBuild := struct {
+		BuildID   string `json:"buildID"`
+		ProjectID string `json:"projectID"`
+	}{
+		BuildID:   buildID,
+		ProjectID: projectID,
+	}
+
+	metadata["depot.build"] = depotBuild
+	b, err := json.MarshalIndent(metadata, "", "  ")
 	if err != nil {
 		return err
 	}
