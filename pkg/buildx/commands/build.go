@@ -675,7 +675,6 @@ func BuildCmd(dockerCli command.Cli) *cobra.Command {
 				options.project = buildProject
 			}
 			if options.save {
-				// TODO: should this error if we can't get creds?
 				options.additionalCredentials = build.AdditionalCredentials()
 				options.additionalTags = build.AdditionalTags()
 			}
