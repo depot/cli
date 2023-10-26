@@ -18,8 +18,9 @@ import (
 	"time"
 
 	"github.com/containerd/console"
+	depotbuild "github.com/depot/cli/pkg/build"
 	depotcreds "github.com/depot/cli/pkg/build"
-	depotbuild "github.com/depot/cli/pkg/buildx/build"
+	depotbuildxbuild "github.com/depot/cli/pkg/buildx/build"
 	"github.com/depot/cli/pkg/buildx/builder"
 	"github.com/depot/cli/pkg/ci"
 	"github.com/depot/cli/pkg/cmd/docker"
@@ -114,6 +115,7 @@ type DepotOptions struct {
 	buildID       string
 	buildURL      string
 	buildPlatform string
+	build         *depotbuild.Build
 
 	useLocalRegistry      bool
 	proxyImage            string
@@ -252,15 +254,15 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.No
 	}
 
 	buildxNodes := builder.ToBuildxNodes(nodes)
-	buildxNodes, err = depotbuild.FilterAvailableNodes(buildxNodes)
+	buildxNodes, err = depotbuildxbuild.FilterAvailableNodes(buildxNodes)
 	if err != nil {
 		_ = printer.Wait()
 		return nil, nil, err
 	}
-	buildxopts := depotbuild.BuildxOpts(opts)
+	buildxopts := depotbuildxbuild.BuildxOpts(opts)
 
 	// "Boot" the depot nodes.
-	_, clients, err := depotbuild.ResolveDrivers(ctx, buildxNodes, buildxopts, printer)
+	_, clients, err := depotbuildxbuild.ResolveDrivers(ctx, buildxNodes, buildxopts, printer)
 	if err != nil {
 		_ = printer.Wait()
 		return nil, nil, err
@@ -276,13 +278,13 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.No
 
 	linter := NewLinter(printer, NewLintFailureMode(depotOpts.lint, depotOpts.lintFailOn), clients, buildxNodes)
 
-	resp, err := depotbuild.DepotBuildWithResultHandler(ctx, buildxNodes, opts, dockerClient, dockerConfigDir, buildxprinter, linter, func(driverIndex int, gotRes *build.ResultContext) {
+	resp, err := depotbuildxbuild.DepotBuildWithResultHandler(ctx, buildxNodes, opts, dockerClient, dockerConfigDir, buildxprinter, linter, func(driverIndex int, gotRes *build.ResultContext) {
 		mu.Lock()
 		defer mu.Unlock()
 		if res == nil || driverIndex < idx {
 			idx, res = driverIndex, gotRes
 		}
-	}, allowNoOutput)
+	}, allowNoOutput, depotOpts.build)
 
 	if err != nil {
 		// Make sure that the printer has completed before returning failed builds.
@@ -343,7 +345,7 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.No
 			if retryable {
 				progress.Write(printer, "[load] fast load failed; retrying", func() error { return err })
 				opts, _ = load.WithDepotImagePull(fallbackOpts, load.DepotLoadOptions{})
-				_, err = depotbuild.DepotBuildWithResultHandler(ctx, buildxNodes, opts, dockerClient, dockerConfigDir, printer, nil, nil, allowNoOutput)
+				_, err = depotbuildxbuild.DepotBuildWithResultHandler(ctx, buildxNodes, opts, dockerClient, dockerConfigDir, printer, nil, nil, allowNoOutput, depotOpts.build)
 			}
 		}
 	}
@@ -682,6 +684,7 @@ func BuildCmd(dockerCli command.Cli) *cobra.Command {
 			options.token = build.Token
 			options.useLocalRegistry = build.UseLocalRegistry
 			options.proxyImage = build.ProxyImage
+			options.build = &build
 
 			if options.allowNoOutput {
 				_ = os.Setenv("BUILDX_NO_DEFAULT_LOAD", "1")

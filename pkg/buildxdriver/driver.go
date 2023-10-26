@@ -2,8 +2,10 @@ package buildxdriver
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
+	depotbuild "github.com/depot/cli/pkg/build"
 	"github.com/depot/cli/pkg/machine"
 	"github.com/docker/buildx/driver"
 	"github.com/docker/buildx/util/progress"
@@ -25,6 +27,15 @@ func (d *Driver) Bootstrap(ctx context.Context, reporter progress.Logger) error 
 	buildID := d.cfg.DriverOpts["buildID"]
 	token := d.cfg.DriverOpts["token"]
 	platform := d.cfg.DriverOpts["platform"]
+
+	if credentialsJson, ok := d.cfg.DriverOpts["credentials"]; ok {
+		var credentials []depotbuild.Credential
+		err := json.Unmarshal([]byte(credentialsJson), &credentials)
+		if err != nil {
+			return err
+		}
+		d.cfg.Auth = depotbuild.NewAuthProvider(credentials, d.cfg.Auth)
+	}
 
 	message := "[depot] launching " + platform + " machine"
 

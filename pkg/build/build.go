@@ -2,13 +2,17 @@ package build
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"log"
+	"strings"
 
 	"github.com/bufbuild/connect-go"
 	depotapi "github.com/depot/cli/pkg/api"
 	"github.com/depot/cli/pkg/progress"
 	cliv1 "github.com/depot/cli/pkg/proto/depot/cli/v1"
+	"github.com/docker/buildx/driver"
+	clitypes "github.com/docker/cli/cli/config/types"
 	"github.com/moby/buildkit/util/grpcerrors"
 	"google.golang.org/grpc/codes"
 )
@@ -72,6 +76,10 @@ func (b *Build) AdditionalCredentials() []Credential {
 	return creds
 }
 
+func (b *Build) AuthProvider(dockerAuth driver.Auth) driver.Auth {
+	return NewAuthProvider(b.AdditionalCredentials(), dockerAuth)
+}
+
 // BuildProject returns the project ID to be used for the build.
 // This is important as the API may use a different project ID than the one
 // initially requested (e.g. onboarding)
@@ -133,4 +141,44 @@ func FromExistingBuild(ctx context.Context, buildID, token string) (Build, error
 		Token:  token,
 		Finish: finish,
 	}, nil
+}
+
+type authProvider struct {
+	credentials map[string]clitypes.AuthConfig
+	dockerAuth  driver.Auth
+}
+
+func NewAuthProvider(credentials []Credential, dockerAuth driver.Auth) driver.Auth {
+	parsed := make(map[string]clitypes.AuthConfig, len(credentials))
+	for _, cred := range credentials {
+		decodedAuth, err := base64.StdEncoding.DecodeString(cred.Token)
+		if err != nil {
+			continue
+		}
+
+		usernamePassword := strings.SplitN(string(decodedAuth), ":", 2)
+		if len(usernamePassword) != 2 {
+			continue
+		}
+
+		parsed[cred.Host] = clitypes.AuthConfig{
+			Username: usernamePassword[0],
+			Password: usernamePassword[1],
+		}
+	}
+
+	return authProvider{
+		credentials: parsed,
+		dockerAuth:  dockerAuth,
+	}
+}
+
+func (a authProvider) GetAuthConfig(registryHostname string) (clitypes.AuthConfig, error) {
+	for host, cred := range a.credentials {
+		if host == registryHostname {
+			return cred, nil
+		}
+	}
+
+	return a.dockerAuth.GetAuthConfig(registryHostname)
 }
