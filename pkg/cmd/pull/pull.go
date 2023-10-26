@@ -7,11 +7,14 @@ import (
 	"os"
 	"sync"
 
+	"github.com/bufbuild/connect-go"
 	"github.com/containerd/console"
 	"github.com/depot/cli/pkg/api"
+	depotapi "github.com/depot/cli/pkg/api"
 	"github.com/depot/cli/pkg/ci"
 	"github.com/depot/cli/pkg/helpers"
 	"github.com/depot/cli/pkg/load"
+	cliv1 "github.com/depot/cli/pkg/proto/depot/cli/v1"
 	"github.com/docker/buildx/util/logutil"
 	prog "github.com/docker/buildx/util/progress"
 	"github.com/docker/cli/cli"
@@ -36,7 +39,7 @@ func NewCmdPull(dockerCli command.Cli) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "pull [flags] [buildID]",
-		Short: "Pull a projects' build from the Depot registry",
+		Short: "Pull a project's build from the Depot registry",
 		Args:  cli.RequiresMaxArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) > 0 {
@@ -58,23 +61,22 @@ func NewCmdPull(dockerCli command.Cli) *cobra.Command {
 				return fmt.Errorf("missing API token, please run `depot login`")
 			}
 
-			var selectedProject *helpers.SelectedProject
-			projectID = helpers.ResolveProjectID(projectID)
-			if projectID == "" { // No locally saved depot.json.
-				selectedProject, err = helpers.OnboardProject(ctx, token)
-				if err != nil {
-					return err
-				}
-			} else {
-				selectedProject, err = helpers.ProjectExists(ctx, token, projectID)
-				if err != nil {
-					return err
-				}
-			}
-
-			projectID = selectedProject.ID
-
 			if buildID == "" {
+				var selectedProject *helpers.SelectedProject
+				projectID = helpers.ResolveProjectID(projectID)
+				if projectID == "" { // No locally saved depot.json.
+					selectedProject, err = helpers.OnboardProject(ctx, token)
+					if err != nil {
+						return err
+					}
+				} else {
+					selectedProject, err = helpers.ProjectExists(ctx, token, projectID)
+					if err != nil {
+						return err
+					}
+				}
+				projectID = selectedProject.ID
+
 				client := api.NewBuildClient()
 
 				if !helpers.IsTerminal() {
@@ -96,7 +98,13 @@ func NewCmdPull(dockerCli command.Cli) *cobra.Command {
 				}
 			}
 
-			imageName := fmt.Sprintf("registry.depot.dev/%s:%s", projectID, buildID)
+			client := depotapi.NewBuildClient()
+			req := &cliv1.GetPullInfoRequest{BuildId: buildID}
+			res, err := client.GetPullInfo(ctx, depotapi.WithAuthentication(connect.NewRequest(req), token))
+			if err != nil {
+				return err
+			}
+
 			opts := load.PullOptions{
 				UserTags:  userTags,
 				Quiet:     progress == prog.PrinterModeQuiet,
@@ -106,9 +114,10 @@ func NewCmdPull(dockerCli command.Cli) *cobra.Command {
 				opts.Platform = &platform
 			}
 
-			opts.Credentials = &token
+			opts.Username = &res.Msg.Username
+			opts.Password = &res.Msg.Password
 
-			displayPhrase := fmt.Sprintf("Pulling image %s", imageName)
+			displayPhrase := fmt.Sprintf("Pulling image %s", res.Msg.Reference)
 
 			printerCtx, cancel := context.WithCancel(ctx)
 			printer, err := NewPrinter(printerCtx, displayPhrase, os.Stderr, os.Stderr, progress)
@@ -122,7 +131,7 @@ func NewCmdPull(dockerCli command.Cli) *cobra.Command {
 				_ = printer.Wait()
 			}()
 
-			err = load.PullImages(ctx, dockerCli.Client(), imageName, opts, printer)
+			err = load.PullImages(ctx, dockerCli.Client(), res.Msg.Reference, opts, printer)
 			if err != nil {
 				return err
 			}
