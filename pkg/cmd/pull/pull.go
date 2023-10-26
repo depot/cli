@@ -14,6 +14,7 @@ import (
 	"github.com/depot/cli/pkg/load"
 	"github.com/docker/buildx/util/logutil"
 	prog "github.com/docker/buildx/util/progress"
+	"github.com/docker/cli/cli"
 	"github.com/docker/cli/cli/command"
 	"github.com/moby/buildkit/client"
 	"github.com/moby/buildkit/util/progress/progressui"
@@ -34,9 +35,13 @@ func NewCmdPull(dockerCli command.Cli) *cobra.Command {
 	)
 
 	cmd := &cobra.Command{
-		Use:   "pull",
+		Use:   "pull [flags] [buildID]",
 		Short: "Pull a projects' build from the Depot registry",
+		Args:  cli.RequiresMaxArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) > 0 {
+				buildID = args[0]
+			}
 			_, isCI := ci.Provider()
 			if progress == prog.PrinterModeAuto && isCI {
 				progress = prog.PrinterModePlain
@@ -91,7 +96,7 @@ func NewCmdPull(dockerCli command.Cli) *cobra.Command {
 				}
 			}
 
-			imageName := fmt.Sprintf("d246do435g16mw.cloudfront.net/%s:%s", projectID, buildID)
+			imageName := fmt.Sprintf("registry.depot.dev/%s:%s", projectID, buildID)
 			opts := load.PullOptions{
 				UserTags:  userTags,
 				Quiet:     progress == prog.PrinterModeQuiet,
@@ -128,7 +133,6 @@ func NewCmdPull(dockerCli command.Cli) *cobra.Command {
 	cmd.Flags().StringVar(&projectID, "project", "", "Depot project ID")
 	cmd.Flags().StringVar(&token, "token", "", "Depot API token")
 	cmd.Flags().StringVar(&platform, "platform", "", `Pulls image for specific platform ("linux/amd64", "linux/arm64")`)
-	cmd.Flags().StringVar(&buildID, "build", "", "Depot build ID to pull")
 	cmd.Flags().StringSliceVarP(&userTags, "tag", "t", nil, "Optional tags to apply to the image")
 	cmd.Flags().StringVar(&progress, "progress", "auto", `Set type of progress output ("auto", "plain", "tty", "quiet")`)
 
