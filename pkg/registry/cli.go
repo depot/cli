@@ -21,9 +21,9 @@ func WithDepotSave(buildOpts map[string]buildx.Options, opts SaveOptions) map[st
 	}
 
 	for target, buildOpt := range buildOpts {
-		buildOpt.Tags = append(buildOpt.Tags, opts.AdditionalTags...)
 		buildOpt.Session = ReplaceDockerAuth(opts.AdditionalCredentials, buildOpt.Session)
 
+		hadPush := false
 		imageExportIndices := []int{}
 		for i, export := range buildOpt.Exports {
 			if export.Type == "image" {
@@ -32,6 +32,8 @@ func WithDepotSave(buildOpts map[string]buildx.Options, opts SaveOptions) map[st
 		}
 
 		for _, i := range imageExportIndices {
+			_, ok := buildOpt.Exports[i].Attrs["push"]
+			hadPush = hadPush || ok
 			buildOpt.Exports[i].Attrs["push"] = "true"
 		}
 
@@ -43,6 +45,13 @@ func WithDepotSave(buildOpts map[string]buildx.Options, opts SaveOptions) map[st
 			buildOpt.Exports = append(buildOpt.Exports, exportImage)
 		}
 
+		// If the user did not specify push then we do not want to push any
+		// tags that were specified.  We strip those tags to avoid pushing.
+		if !hadPush {
+			buildOpt.Tags = opts.AdditionalTags
+		} else {
+			buildOpt.Tags = append(buildOpt.Tags, opts.AdditionalTags...)
+		}
 		buildOpts[target] = buildOpt
 	}
 
