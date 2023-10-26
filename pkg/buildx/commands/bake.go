@@ -14,6 +14,7 @@ import (
 	"github.com/depot/cli/pkg/helpers"
 	"github.com/depot/cli/pkg/load"
 	depotprogress "github.com/depot/cli/pkg/progress"
+	"github.com/depot/cli/pkg/registry"
 	"github.com/depot/cli/pkg/sbom"
 	"github.com/docker/buildx/bake"
 	buildx "github.com/docker/buildx/build"
@@ -121,6 +122,15 @@ func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator) (er
 			},
 		)
 	}
+	if in.save {
+		opts := registry.SaveOptions{
+			ProjectID:             in.project,
+			BuildID:               in.buildID,
+			AdditionalTags:        in.additionalTags,
+			AdditionalCredentials: in.additionalCredentials,
+		}
+		buildOpts = registry.WithDepotSave(buildOpts, opts)
+	}
 
 	buildxNodes := builder.ToBuildxNodes(nodes)
 	buildxNodes, err = build.FilterAvailableNodes(buildxNodes)
@@ -139,7 +149,7 @@ func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator) (er
 	}
 
 	linter := NewLinter(printer, NewLintFailureMode(in.lint, in.lintFailOn), clients, buildxNodes)
-	resp, err := build.DepotBuild(ctx, buildxNodes, buildOpts, dockerClient, dockerConfigDir, buildxprinter, linter)
+	resp, err := build.DepotBuild(ctx, buildxNodes, buildOpts, dockerClient, dockerConfigDir, buildxprinter, linter, in.DepotOptions.build)
 	if err != nil {
 		if errors.Is(err, LintFailed) {
 			linter.Print(os.Stderr, in.progress)
@@ -159,7 +169,7 @@ func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator) (er
 			}
 			dt[buildRes.Name] = metadata
 		}
-		if err := writeMetadataFile(in.metadataFile, dt); err != nil {
+		if err := writeMetadataFile(in.metadataFile, in.project, in.buildID, dt); err != nil {
 			return err
 		}
 	}
@@ -192,7 +202,7 @@ func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator) (er
 			if in.exportLoad {
 				progress.Write(printer, "[load] fast load failed; retrying", func() error { return err })
 				buildOpts, _ = load.WithDepotImagePull(fallbackOpts, load.DepotLoadOptions{})
-				_, err = build.DepotBuild(ctx, buildxNodes, buildOpts, dockerClient, dockerConfigDir, printer, nil)
+				_, err = build.DepotBuild(ctx, buildxNodes, buildOpts, dockerClient, dockerConfigDir, printer, nil, in.DepotOptions.build)
 			}
 
 			return err
@@ -264,6 +274,7 @@ func BakeCmd(dockerCli command.Cli) *cobra.Command {
 				helpers.UsingDepotFeatures{
 					Push: options.exportPush,
 					Load: options.exportLoad,
+					Save: options.save,
 					Lint: options.lint,
 				},
 			)
@@ -283,11 +294,16 @@ func BakeCmd(dockerCli command.Cli) *cobra.Command {
 			if buildProject != "" {
 				options.project = buildProject
 			}
+			if options.save {
+				options.additionalCredentials = build.AdditionalCredentials()
+				options.additionalTags = build.AdditionalTags()
+			}
 			options.buildID = build.ID
 			options.buildURL = build.BuildURL
 			options.token = build.Token
 			options.useLocalRegistry = build.UseLocalRegistry
 			options.proxyImage = build.ProxyImage
+			options.build = &build
 
 			if options.allowNoOutput {
 				_ = os.Setenv("BUILDX_NO_DEFAULT_LOAD", "1")

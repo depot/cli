@@ -26,6 +26,7 @@ import (
 	"github.com/containerd/containerd/content/local"
 	"github.com/containerd/containerd/images"
 	"github.com/containerd/containerd/platforms"
+	depotbuild "github.com/depot/cli/pkg/build"
 	"github.com/docker/buildx/builder"
 	"github.com/docker/buildx/driver"
 	"github.com/docker/buildx/util/dockerutil"
@@ -750,11 +751,11 @@ type DepotNodeResponse struct {
 	SolveResponse *client.SolveResponse
 }
 
-func Build(ctx context.Context, nodes []builder.Node, opt map[string]Options, docker *dockerutil.Client, configDir string, w progress.Writer, dockerfileCallback DockerfileCallback) (resp []DepotBuildResponse, err error) {
-	return BuildWithResultHandler(ctx, nodes, opt, docker, configDir, w, dockerfileCallback, nil, false)
+func Build(ctx context.Context, nodes []builder.Node, opt map[string]Options, docker *dockerutil.Client, configDir string, w progress.Writer, dockerfileCallback DockerfileCallback, build *depotbuild.Build) (resp []DepotBuildResponse, err error) {
+	return BuildWithResultHandler(ctx, nodes, opt, docker, configDir, w, dockerfileCallback, nil, false, build)
 }
 
-func BuildWithResultHandler(ctx context.Context, nodes []builder.Node, opt map[string]Options, docker *dockerutil.Client, configDir string, w progress.Writer, dockerfileCallback DockerfileCallback, resultHandleFunc func(driverIndex int, rCtx *ResultContext), allowNoOutput bool) (resp []DepotBuildResponse, err error) {
+func BuildWithResultHandler(ctx context.Context, nodes []builder.Node, opt map[string]Options, docker *dockerutil.Client, configDir string, w progress.Writer, dockerfileCallback DockerfileCallback, resultHandleFunc func(driverIndex int, rCtx *ResultContext), allowNoOutput bool, build *depotbuild.Build) (resp []DepotBuildResponse, err error) {
 	if len(nodes) == 0 {
 		return nil, errors.Errorf("driver required for build")
 	}
@@ -1186,6 +1187,8 @@ func BuildWithResultHandler(ctx context.Context, nodes []builder.Node, opt map[s
 									},
 								}
 							}
+
+							imageopt.Auth = build.AuthProvider(imageopt.Auth)
 
 							itpull := imagetools.New(imageopt)
 

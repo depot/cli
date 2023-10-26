@@ -3,14 +3,15 @@ package build
 import (
 	"context"
 
+	depotbuild "github.com/depot/cli/pkg/build"
 	dockerbuild "github.com/docker/buildx/build"
 	"github.com/docker/buildx/builder"
 	"github.com/docker/buildx/util/dockerutil"
 	"github.com/docker/buildx/util/progress"
 )
 
-func DepotBuild(ctx context.Context, nodes []builder.Node, opt map[string]dockerbuild.Options, docker *dockerutil.Client, configDir string, w progress.Writer, dockerfileCallback DockerfileCallback) ([]DepotBuildResponse, error) {
-	return DepotBuildWithResultHandler(ctx, nodes, opt, docker, configDir, w, dockerfileCallback, nil, false)
+func DepotBuild(ctx context.Context, nodes []builder.Node, opt map[string]dockerbuild.Options, docker *dockerutil.Client, configDir string, w progress.Writer, dockerfileCallback DockerfileCallback, build *depotbuild.Build) ([]DepotBuildResponse, error) {
+	return DepotBuildWithResultHandler(ctx, nodes, opt, docker, configDir, w, dockerfileCallback, nil, false, build)
 }
 
 // DepotBuildWithResultHandler is a wrapper around BuildWithResultHandler
@@ -18,7 +19,7 @@ func DepotBuild(ctx context.Context, nodes []builder.Node, opt map[string]docker
 //
 // BuildWithResultHandler was copied from github.com/docker/buildx/build/build.go
 // and modified to return multiple responses.
-func DepotBuildWithResultHandler(ctx context.Context, nodes []builder.Node, opts map[string]dockerbuild.Options, docker *dockerutil.Client, configDir string, w progress.Writer, dockerfileCallback DockerfileCallback, resultHandleFunc func(driverIndex int, rCtx *dockerbuild.ResultContext), allowNoOutput bool) ([]DepotBuildResponse, error) {
+func DepotBuildWithResultHandler(ctx context.Context, nodes []builder.Node, opts map[string]dockerbuild.Options, docker *dockerutil.Client, configDir string, w progress.Writer, dockerfileCallback DockerfileCallback, resultHandleFunc func(driverIndex int, rCtx *dockerbuild.ResultContext), allowNoOutput bool, build *depotbuild.Build) ([]DepotBuildResponse, error) {
 	depotopts := BuildxOpts(opts)
 
 	var depotHandleFunc func(driverIndex int, rCtx *ResultContext)
@@ -35,7 +36,7 @@ func DepotBuildWithResultHandler(ctx context.Context, nodes []builder.Node, opts
 		}
 
 	}
-	return BuildWithResultHandler(ctx, nodes, depotopts, docker, configDir, w, dockerfileCallback, depotHandleFunc, allowNoOutput)
+	return BuildWithResultHandler(ctx, nodes, depotopts, docker, configDir, w, dockerfileCallback, depotHandleFunc, allowNoOutput, build)
 }
 
 func BuildxOpts(opts map[string]dockerbuild.Options) map[string]Options {

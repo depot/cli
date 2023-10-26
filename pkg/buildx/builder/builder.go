@@ -2,6 +2,7 @@ package builder
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"runtime"
 	"sort"
@@ -32,6 +33,7 @@ type Builder struct {
 	token         string
 	buildID       string
 	buildPlatform string
+	credentials   []depotbuild.Credential
 }
 
 type builderOpts struct {
@@ -78,6 +80,7 @@ func WithDepotOptions(buildPlatform string, build depotbuild.Build) Option {
 		b.token = build.Token
 		b.buildID = build.ID
 		b.buildPlatform = buildPlatform
+		b.credentials = build.AdditionalCredentials()
 	}
 }
 
@@ -101,6 +104,11 @@ func New(dockerCli command.Cli, opts ...Option) (_ *Builder, err error) {
 	}
 	defer release()
 
+	credentialsJSON, err := json.Marshal(b.credentials)
+	if err != nil {
+		return nil, err
+	}
+
 	currentContext := dockerCli.CurrentContext()
 
 	amdNode := store.Node{
@@ -111,7 +119,7 @@ func New(dockerCli command.Cli, opts ...Option) (_ *Builder, err error) {
 			{OS: "linux", Architecture: "amd64", Variant: "v3"},
 			{OS: "linux", Architecture: "386"},
 		},
-		DriverOpts: map[string]string{"token": b.token, "platform": "amd64", "buildID": b.buildID},
+		DriverOpts: map[string]string{"token": b.token, "platform": "amd64", "buildID": b.buildID, "credentials": string(credentialsJSON)},
 	}
 
 	armNode := store.Node{
@@ -121,7 +129,7 @@ func New(dockerCli command.Cli, opts ...Option) (_ *Builder, err error) {
 			{OS: "linux", Architecture: "arm", Variant: "v7"},
 			{OS: "linux", Architecture: "arm", Variant: "v6"},
 		},
-		DriverOpts: map[string]string{"token": b.token, "platform": "arm64", "buildID": b.buildID},
+		DriverOpts: map[string]string{"token": b.token, "platform": "arm64", "buildID": b.buildID, "credentials": string(credentialsJSON)},
 	}
 
 	b.NodeGroup = &store.NodeGroup{
