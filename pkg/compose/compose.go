@@ -29,6 +29,11 @@ func TargetTags(files []bake.File) (map[string][]string, error) {
 			})
 		}
 	}
+
+	if len(configFiles) == 0 {
+		return nil, nil
+	}
+
 	envs, err := composeEnv()
 	if err != nil {
 		return nil, err
