@@ -11,7 +11,6 @@ import (
 	"github.com/containerd/containerd/platforms"
 	"github.com/depot/cli/pkg/buildx/build"
 	"github.com/depot/cli/pkg/buildx/builder"
-	"github.com/depot/cli/pkg/compose"
 	"github.com/depot/cli/pkg/helpers"
 	"github.com/depot/cli/pkg/load"
 	depotprogress "github.com/depot/cli/pkg/progress"
@@ -408,18 +407,6 @@ func (t *LocalBakeValidator) Validate(ctx context.Context, _ []builder.Node, _ p
 		if err != nil {
 			t.err = err
 			return
-		}
-
-		tags, err := compose.TargetTags(files)
-		if err != nil {
-			t.err = err
-			return
-		}
-
-		for target, opts := range targets {
-			if tag, ok := tags[target]; ok {
-				opts.Tags = tag
-			}
 		}
 
 		t.buildOpts, t.err = bake.TargetsToBuildOpt(targets, nil)

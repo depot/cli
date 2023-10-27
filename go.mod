@@ -10,7 +10,6 @@ require (
 	github.com/charmbracelet/bubbletea v0.24.2
 	github.com/charmbracelet/lipgloss v0.7.1
 	github.com/cli/safeexec v1.0.0
-	github.com/compose-spec/compose-go v1.6.0
 	github.com/containerd/console v1.0.4-0.20230313162750-1ae8d489ac81
 	github.com/containerd/containerd v1.6.20
 	github.com/docker/buildx v0.10.3
@@ -72,6 +71,7 @@ require (
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cenkalti/backoff/v4 v4.2.0 // indirect
 	github.com/cespare/xxhash/v2 v2.2.0 // indirect
+	github.com/compose-spec/compose-go v1.6.0 // indirect
 	github.com/containerd/continuity v0.3.0 // indirect
 	github.com/containerd/ttrpc v1.1.1 // indirect
 	github.com/containerd/typeurl v1.0.2 // indirect
