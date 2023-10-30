@@ -2,10 +2,12 @@ package docker
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"path"
+	"path/filepath"
 	"runtime"
 	"strings"
 
@@ -181,7 +183,11 @@ func runConfigureBuildx(ctx context.Context, dockerCli command.Cli, project, tok
 		return errors.Errorf("unknown project ID (run `depot init` or use --project or $DEPOT_PROJECT_ID)")
 	}
 
-	txn, release, err := storeutil.GetStore(dockerCli)
+	configStore, err := store.New(confutil.ConfigDir(dockerCli))
+	if err != nil {
+		return fmt.Errorf("unable to create docker configuration store: %w", err)
+	}
+	txn, release, err := configStore.Txn()
 	if err != nil {
 		return fmt.Errorf("unable to get docker store: %w", err)
 	}
@@ -263,7 +269,10 @@ func runConfigureBuildx(ctx context.Context, dockerCli command.Cli, project, tok
 		ng.Nodes[0], ng.Nodes[1] = ng.Nodes[1], ng.Nodes[0]
 	}
 
-	if err := txn.Save(ng); err != nil {
+	// DEPOT: we override the buildx Txn.Save() as its atomic write file
+	// can leave temporary files within the instance directory thus causing
+	// buildx to fail.
+	if err := DepotSaveNodes(confutil.ConfigDir(dockerCli), ng); err != nil {
 		return fmt.Errorf("unable to save node group: %w", err)
 	}
 
@@ -513,4 +522,64 @@ func CreateContainer(ctx context.Context, dockerCli command.Cli, projectName str
 	}
 
 	return nil
+}
+
+// DEPOT: we override the buildx Txn.Save() as its atomic write file
+// can leave temporary files within the instance directory thus causing
+// buildx to fail.
+func DepotSaveNodes(configDir string, ng *store.NodeGroup) (err error) {
+	name, err := store.ValidateName(ng.Name)
+	if err != nil {
+		return err
+	}
+
+	octets, err := json.Marshal(ng)
+	if err != nil {
+		return err
+	}
+
+	instancesDir := filepath.Join(configDir, "instances")
+	fileName := filepath.Join(instancesDir, name)
+
+	// DEPOT: this is the key change for saving the nodes.
+	// Previously, it would save in the instances directory, but
+	// those files would then be read by the Txn.List()/Txn.NodeGroupByName()
+	// methods and thus would fail.
+	//
+	// Instead, we save the file to the TempDir and then rename it.
+	// CreateTemp creates a file with 0600 perms.
+	f, err := os.CreateTemp("", ".tmp-"+filepath.Base(fileName))
+	if err != nil {
+		return err
+	}
+
+	// Require that the file be removed on error.
+	defer func() {
+		if err != nil {
+			_ = f.Close()
+			_ = os.Remove(f.Name())
+		}
+	}()
+
+	n, err := f.Write(octets)
+	if err != nil {
+		return err
+	}
+
+	if n != len(octets) {
+		err = io.ErrShortWrite
+		return err
+	}
+
+	err = f.Sync()
+	if err != nil {
+		return err
+	}
+
+	err = f.Close()
+	if err != nil {
+		return err
+	}
+
+	return os.Rename(f.Name(), fileName)
 }
