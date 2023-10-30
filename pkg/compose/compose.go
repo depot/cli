@@ -12,7 +12,12 @@ import (
 	"github.com/compose-spec/compose-go/types"
 	compose "github.com/compose-spec/compose-go/types"
 	"github.com/docker/buildx/bake"
+	"gopkg.in/yaml.v2"
 )
+
+type xbake struct {
+	Tags []string `yaml:"tags,omitempty"`
+}
 
 // TODO: largely copied from buildx/bake/bake.go.  Refactor in buildx fork.
 func TargetTags(files []bake.File) (map[string][]string, error) {
@@ -72,6 +77,16 @@ func TargetTags(files []bake.File) (map[string][]string, error) {
 		if len(srv.Build.Tags) > 0 {
 			targetTags[target] = srv.Build.Tags
 		} else {
+			if bakeExtension, ok := srv.Build.Extensions["x-bake"]; ok {
+				var xb xbake
+				yb, _ := yaml.Marshal(bakeExtension)
+				err := yaml.Unmarshal(yb, &xb)
+				if err == nil && len(xb.Tags) > 0 {
+					targetTags[target] = xb.Tags
+					continue
+				}
+			}
+
 			imageNames := []string{getImageNameOrDefault(srv, projectName)}
 			targetTags[target] = imageNames
 		}
