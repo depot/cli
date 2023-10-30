@@ -81,11 +81,9 @@ func TargetTags(files []bake.File) (map[string][]string, error) {
 				var xb xbake
 				yb, _ := yaml.Marshal(bakeExtension)
 				err := yaml.Unmarshal(yb, &xb)
-				if err == nil {
-					if len(xb.Tags) > 0 {
-						targetTags[target] = xb.Tags
-						continue
-					}
+				if err == nil && len(xb.Tags) > 0 {
+					targetTags[target] = xb.Tags
+					continue
 				}
 			}
 
