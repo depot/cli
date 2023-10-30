@@ -546,9 +546,9 @@ func DepotSaveNodes(configDir string, ng *store.NodeGroup) (err error) {
 	// those files would then be read by the Txn.List()/Txn.NodeGroupByName()
 	// methods and thus would fail.
 	//
-	// Instead, we save the file to the TempDir and then rename it.
+	// Instead, we save the file to the configDir and then rename it.
 	// CreateTemp creates a file with 0600 perms.
-	f, err := os.CreateTemp("", ".tmp-"+filepath.Base(fileName))
+	f, err := os.CreateTemp(configDir, ".tmp-"+filepath.Base(fileName))
 	if err != nil {
 		return err
 	}
