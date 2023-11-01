@@ -12,6 +12,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -1092,6 +1093,13 @@ func rewriteFriendlyErrors(err error) error {
 	}
 	if strings.Contains(err.Error(), "header key \"exclude-patterns\" contains value with non-printable ASCII characters") {
 		return errors.New(err.Error() + ". Please check your .dockerignore file for invalid characters.")
+	}
+	if strings.Contains(err.Error(), "failed to calculate checksum of ref") {
+		pattern := `failed to solve: failed to compute cache key: failed to calculate checksum of ref [^:]+::[^:]+:`
+		re := regexp.MustCompile(pattern)
+
+		simplified := re.ReplaceAllString(err.Error(), "")
+		return errors.New(simplified + ". Please check if the files exist in the context.")
 	}
 	return err
 }
