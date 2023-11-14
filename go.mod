@@ -13,10 +13,10 @@ require (
 	github.com/compose-spec/compose-go v1.6.0
 	github.com/containerd/console v1.0.4-0.20230313162750-1ae8d489ac81
 	github.com/containerd/containerd v1.6.20
+	github.com/distribution/reference v0.5.0
 	github.com/docker/buildx v0.10.3
 	github.com/docker/cli v24.0.7+incompatible
 	github.com/docker/cli-docs-tool v0.5.1
-	github.com/docker/distribution v2.8.1+incompatible
 	github.com/docker/docker v24.0.7+incompatible
 	github.com/docker/go-connections v0.4.0
 	github.com/docker/go-units v0.5.0
@@ -78,6 +78,7 @@ require (
 	github.com/creack/pty v1.1.12 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/distribution/distribution/v3 v3.0.0-20220725133111-4bf3547399eb // indirect
+	github.com/docker/distribution v2.8.3+incompatible // indirect
 	github.com/docker/docker-credential-helpers v0.7.0 // indirect
 	github.com/docker/go v1.5.1-1.0.20160303222718-d30aec9fd63c // indirect
 	github.com/docker/go-metrics v0.0.1 // indirect

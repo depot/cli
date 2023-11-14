@@ -20,7 +20,6 @@ import (
 
 	"github.com/containerd/console"
 	depotbuild "github.com/depot/cli/pkg/build"
-	depotcreds "github.com/depot/cli/pkg/build"
 	depotbuildxbuild "github.com/depot/cli/pkg/buildx/build"
 	"github.com/depot/cli/pkg/buildx/builder"
 	"github.com/depot/cli/pkg/ci"
@@ -30,6 +29,7 @@ import (
 	depotprogress "github.com/depot/cli/pkg/progress"
 	"github.com/depot/cli/pkg/registry"
 	"github.com/depot/cli/pkg/sbom"
+	"github.com/distribution/reference"
 	"github.com/docker/buildx/build"
 	"github.com/docker/buildx/monitor"
 	"github.com/docker/buildx/store"
@@ -45,7 +45,6 @@ import (
 	"github.com/docker/cli/cli/command"
 	"github.com/docker/cli/cli/config"
 	dockeropts "github.com/docker/cli/opts"
-	"github.com/docker/distribution/reference"
 	"github.com/docker/docker/pkg/ioutils"
 	"github.com/docker/go-units"
 	"github.com/moby/buildkit/client"
@@ -122,7 +121,7 @@ type DepotOptions struct {
 	proxyImage            string
 	save                  bool
 	additionalTags        []string
-	additionalCredentials []depotcreds.Credential
+	additionalCredentials []depotbuild.Credential
 
 	lint       bool
 	lintFailOn string
