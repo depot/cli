@@ -1,4 +1,4 @@
-FROM --platform=$BUILDPLATFORM golang:1.20.5 AS build
+FROM --platform=$BUILDPLATFORM golang:1.20.11 AS build
 WORKDIR /src
 ARG LDFLAGS
 ARG TARGETARCH
