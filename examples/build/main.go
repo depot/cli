@@ -11,6 +11,7 @@ import (
 	"github.com/depot/cli/pkg/machine"
 	"github.com/depot/cli/pkg/progress"
 	cliv1 "github.com/depot/cli/pkg/proto/depot/cli/v1"
+	buildxprogress "github.com/docker/buildx/util/progress"
 	printer "github.com/docker/buildx/util/progress"
 	"github.com/moby/buildkit/client"
 	"github.com/moby/buildkit/client/llb"
@@ -25,7 +26,7 @@ func main() {
 
 	// 1. Register a new build.
 	req := &cliv1.CreateBuildRequest{
-		ProjectId: project,
+		ProjectId: &project,
 		Options: []*cliv1.BuildOptions{
 			{
 				Command: cliv1.Command_COMMAND_BUILD,
@@ -42,10 +43,15 @@ func main() {
 	var buildErr error
 	defer build.Finish(buildErr)
 
-	// 2. Start progress reporter. This will report the build progress logs to the
-	// Depot API and print it to the terminal.
 	ctx, cancel := context.WithCancel(ctx)
-	reporter, finishReporter, buildErr := progress.NewProgress(ctx, build.ID, build.Token, progress.Plain)
+	buildxprinter, buildErr := buildxprogress.NewPrinter(ctx, os.Stderr, os.Stderr, "quiet")
+	if buildErr != nil {
+		return
+	}
+	// 2. Start progress reporter. This will report the build progress logs to the
+	// Depot API and print it to the terminal.  You totally can skip this if you
+	// don't need to report the build progress to the API.
+	reporter, finishReporter, buildErr := progress.NewProgress(ctx, build.ID, build.Token, buildxprinter)
 	if buildErr != nil {
 		return
 	}
