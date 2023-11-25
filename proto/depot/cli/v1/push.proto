@@ -1,0 +1,25 @@
+syntax = "proto3";
+
+package depot.cli.v1;
+
+service PushService {
+  rpc StartPush(StartPushRequest) returns (StartPushResponse);
+  rpc FinishPush(FinishPushRequest) returns (FinishPushResponse);
+}
+
+message StartPushResponse {
+  string push_id = 1;
+}
+
+message FinishPushResponse {}
+
+message StartPushRequest {
+  string tag = 1;
+  string build_id = 2;
+}
+
+message FinishPushRequest {
+  string push_id = 1;
+  string build_id = 2;
+  optional string error = 3;
+}
