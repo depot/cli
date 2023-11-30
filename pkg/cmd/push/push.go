@@ -138,7 +138,6 @@ func Push(ctx context.Context, progressFmt, buildID, tag, token string, dockerCl
 
 	blobs := append(buildDescriptors.Layers, buildDescriptors.Configs...)
 	blobGroup, blobCtx := errgroup.WithContext(ctx)
-	blobGroup.SetLimit(6)
 	for i := range blobs {
 		i := i
 		blobGroup.Go(func() error {
