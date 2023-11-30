@@ -15,6 +15,7 @@ import (
 	"github.com/docker/cli/cli/command"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
+	"golang.org/x/sync/errgroup"
 )
 
 // NewCmdPush pushes a previously saved build to a registry from the Depot ephemeral registry.
@@ -136,21 +137,30 @@ func Push(ctx context.Context, progressFmt, buildID, tag, token string, dockerCl
 	}
 
 	blobs := append(buildDescriptors.Layers, buildDescriptors.Configs...)
-	for _, blob := range blobs {
-		fin = logger(fmt.Sprintf("Pushing blob %s", blob.Digest.String()))
+	blobGroup, blobCtx := errgroup.WithContext(ctx)
+	blobGroup.SetLimit(6)
+	for i := range blobs {
+		i := i
+		blobGroup.Go(func() error {
+			blob := blobs[i]
+			fin = logger(fmt.Sprintf("Pushing blob %s", blob.Digest.String()))
 
-		req := &BlobRequest{
-			ParsedTag:     parsedTag,
-			RegistryToken: registryToken,
-			BuildID:       buildID,
-			Digest:        blob.Digest,
-		}
-		err := PushBlob(ctx, token, req)
-		fin()
-		if err != nil {
-			finishReporting(err)
+			req := &BlobRequest{
+				ParsedTag:     parsedTag,
+				RegistryToken: registryToken,
+				BuildID:       buildID,
+				Digest:        blob.Digest,
+			}
+			err := PushBlob(blobCtx, token, req)
+			fin()
 			return err
-		}
+		})
+	}
+
+	err = blobGroup.Wait()
+	if err != nil {
+		finishReporting(err)
+		return err
 	}
 
 	for _, manifest := range buildDescriptors.Manifests {
