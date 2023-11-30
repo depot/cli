@@ -142,7 +142,7 @@ func Push(ctx context.Context, progressFmt, buildID, tag, token string, dockerCl
 		i := i
 		blobGroup.Go(func() error {
 			blob := blobs[i]
-			fin = logger(fmt.Sprintf("Pushing blob %s", blob.Digest.String()))
+			fin := logger(fmt.Sprintf("Pushing blob %s", blob.Digest.String()))
 
 			req := &BlobRequest{
 				ParsedTag:     parsedTag,

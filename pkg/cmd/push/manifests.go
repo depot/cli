@@ -114,7 +114,7 @@ func GetImageDescriptors(ctx context.Context, token, buildID string, logger Star
 			return err
 		}
 
-		fin = logger(fmt.Sprintf("Fetching manifest %s", desc.Digest.String()))
+		fin := logger(fmt.Sprintf("Fetching manifest %s", desc.Digest.String()))
 		buf, err := fetch(ctx, fetcher, desc)
 		fin()
 		if err != nil {
