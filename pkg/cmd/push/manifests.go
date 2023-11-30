@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 
 	"github.com/bufbuild/connect-go"
 	"github.com/containerd/containerd/errdefs"
@@ -19,6 +20,7 @@ import (
 	cliv1 "github.com/depot/cli/pkg/proto/depot/cli/v1"
 	"github.com/opencontainers/go-digest"
 	ocispecs "github.com/opencontainers/image-spec/specs-go/v1"
+	"golang.org/x/sync/errgroup"
 )
 
 // PushManifest pushes a manifest to a registry.
@@ -96,63 +98,85 @@ func GetImageDescriptors(ctx context.Context, token, buildID string, logger Star
 		return nil, err
 	}
 
-	fin = logger(fmt.Sprintf("Fetching %s", name))
-	fetcher, err := resolver.Fetcher(ctx, name)
-	fin()
-	if err != nil {
-		return nil, err
-	}
-
-	stack := []ocispecs.Descriptor{desc}
+	mu := sync.Mutex{}
 	descs := ImageDescriptors{
 		IndexBytes:    map[digest.Digest][]byte{},
 		ManifestBytes: map[digest.Digest][]byte{},
 	}
 
-	for len(stack) > 0 {
-		desc, stack = stack[len(stack)-1], stack[:len(stack)-1]
-
-		// Only download unique descriptors.
-		if _, ok := descs.IndexBytes[desc.Digest]; ok {
-			continue
-		}
-		if _, ok := descs.ManifestBytes[desc.Digest]; ok {
-			continue
+	// Recursively fetch all the image descriptors. If a descriptor contains
+	// other descriptors, an additional goroutine is spawned on the errgroup.
+	errgroup, ctx := errgroup.WithContext(ctx)
+	var fetchImageDescriptors func(ctx context.Context, desc ocispecs.Descriptor) error
+	fetchImageDescriptors = func(ctx context.Context, desc ocispecs.Descriptor) error {
+		fetcher, err := resolver.Fetcher(ctx, name)
+		if err != nil {
+			return err
 		}
 
 		fin = logger(fmt.Sprintf("Fetching manifest %s", desc.Digest.String()))
 		buf, err := fetch(ctx, fetcher, desc)
 		fin()
 		if err != nil {
-			return nil, err
+			return err
 		}
 
 		if images.IsIndexType(desc.MediaType) {
-			descs.Indices = append(descs.Indices, desc)
 			var index ocispecs.Index
 			if err := json.Unmarshal(buf, &index); err != nil {
-				return nil, err
+				return err
 			}
 
+			mu.Lock()
+			descs.Indices = append(descs.Indices, desc)
 			descs.IndexBytes[desc.Digest] = buf
+			mu.Unlock()
 
 			for _, m := range index.Manifests {
+				m := m
 				if m.Digest != "" {
-					stack = append(stack, m)
+					completed := false
+
+					// Only download unique descriptors.
+					mu.Lock()
+					if _, ok := descs.IndexBytes[m.Digest]; ok {
+						completed = true
+					}
+					if _, ok := descs.ManifestBytes[m.Digest]; ok {
+						completed = true
+					}
+					mu.Unlock()
+
+					if !completed {
+						errgroup.Go(func() error {
+							return fetchImageDescriptors(ctx, m)
+						})
+					}
 				}
 			}
 		} else if images.IsManifestType(desc.MediaType) {
-			descs.Manifests = append(descs.Manifests, desc)
 			var manifest ocispecs.Manifest
 			if err := json.Unmarshal(buf, &manifest); err != nil {
-				return nil, err
+				return err
 			}
 
+			mu.Lock()
+			descs.Manifests = append(descs.Manifests, desc)
 			descs.ManifestBytes[desc.Digest] = buf
-
 			descs.Configs = append(descs.Configs, manifest.Config)
 			descs.Layers = append(descs.Layers, manifest.Layers...)
+			mu.Unlock()
 		}
+		return nil
+	}
+
+	errgroup.Go(func() error {
+		return fetchImageDescriptors(ctx, desc)
+	})
+
+	err = errgroup.Wait()
+	if err != nil {
+		return nil, err
 	}
 
 	return &descs, nil
