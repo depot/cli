@@ -32,10 +32,15 @@ func NewProgress(ctx context.Context, progressFmt string) (*Progress, FinishFn, 
 		progressFmt = override
 	}
 
-	w := io.Discard
-	var c console.Console
+	var (
+		w io.Writer = os.Stderr
+		c console.Console
+	)
+
+	if progressFmt == prog.PrinterModeQuiet {
+		w = io.Discard
+	}
 	if progressFmt == prog.PrinterModeAuto || progressFmt == prog.PrinterModeTty {
-		w = os.Stderr
 		console, err := console.ConsoleFromFile(os.Stderr)
 		if err != nil {
 			if progressFmt == prog.PrinterModeTty {
