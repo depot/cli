@@ -51,7 +51,7 @@ func RegistryToken(authConfig *configtypes.AuthConfig) *Token {
 	return &Token{
 		Token: authConfig.RegistryToken,
 		// As far as I can tell, this is supposed to be bearer.
-		Scheme: "bearer",
+		Scheme: "Bearer",
 	}
 }
 
@@ -130,11 +130,11 @@ func GetOAuthToken(ctx context.Context, username, secret string, challenge *auth
 func scheme(scheme auth.AuthenticationScheme) string {
 	switch scheme {
 	case auth.BasicAuth:
-		return "basic"
+		return "Basic"
 	case auth.DigestAuth:
-		return "digest"
+		return "Digest"
 	case auth.BearerAuth:
-		return "bearer"
+		return "Bearer"
 	default:
 		return ""
 	}
