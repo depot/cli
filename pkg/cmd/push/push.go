@@ -162,11 +162,21 @@ func Push(ctx context.Context, progressFmt, buildID, tag, token string, dockerCl
 		return err
 	}
 
+	// If there are no indices linking together manifests, we assume the manifest should be tagged.
+	tagManifest := len(buildDescriptors.Indices) == 0
+
 	for _, manifest := range buildDescriptors.Manifests {
 		fin = logger(fmt.Sprintf("Pushing manifest %s", manifest.Digest.String()))
 
 		buf := buildDescriptors.ManifestBytes[manifest.Digest]
-		err := PushManifest(ctx, registryToken.Token, parsedTag.Refspec, manifest.Digest.String(), manifest, buf)
+
+		// Tag a manifest with a digest if there are indices.
+		tag := parsedTag.Tag
+		if !tagManifest {
+			tag = manifest.Digest.String()
+		}
+
+		err := PushManifest(ctx, registryToken.Token, parsedTag.Refspec, tag, manifest, buf)
 		fin()
 		if err != nil {
 			finishReporting(err)

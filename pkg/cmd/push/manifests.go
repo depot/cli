@@ -135,9 +135,8 @@ func GetImageDescriptors(ctx context.Context, token, buildID string, logger Star
 			for _, m := range index.Manifests {
 				m := m
 				if m.Digest != "" {
-					completed := false
-
 					// Only download unique descriptors.
+					completed := false
 					mu.Lock()
 					if _, ok := descs.IndexBytes[m.Digest]; ok {
 						completed = true
