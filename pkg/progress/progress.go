@@ -18,14 +18,6 @@ import (
 
 var _ progress.Writer = (*Progress)(nil)
 
-type BuildKitProgressWriter interface {
-	Write(*client.SolveStatus)
-	ValidateLogSource(digest.Digest, interface{}) bool
-	ClearLogSource(interface{})
-	Warnings() []client.VertexWarning
-	Wait() error
-}
-
 type Progress struct {
 	buildID string
 	token   string
@@ -36,7 +28,7 @@ type Progress struct {
 	lmu       sync.Mutex
 	listeners []Listener
 
-	p BuildKitProgressWriter
+	p *progress.Printer
 }
 
 type FinishFn func()
@@ -46,7 +38,7 @@ type Listener func(s *client.SolveStatus)
 // Use the ctx to cancel the long running go routine.
 // Make sure to run FinishFn to flush remaining build timings to the server _AFTER_ ctx has been canceled.
 // NOTE: this means that you need to defer the FinishFn before deferring the cancel.
-func NewProgress(ctx context.Context, buildID, token string, p BuildKitProgressWriter) (*Progress, FinishFn, error) {
+func NewProgress(ctx context.Context, buildID, token string, p *progress.Printer) (*Progress, FinishFn, error) {
 	// Buffer up to 1024 vertex slices before blocking the build.
 	const channelBufferSize = 1024
 
@@ -69,12 +61,9 @@ func NewProgress(ctx context.Context, buildID, token string, p BuildKitProgressW
 // It records duration and success of the log span to sends to Depot for storage.
 type FinishLogFunc func(err error)
 
-// StartLog starts a log detail span and returns a function that should be called when the log detail is finished.
-type StartLogDetailFunc func(message string) FinishLogDetailFunc
-
 // StartLog starts a log span and returns a function that should be called when the log is finished.
 // Once finished, the log span is recorded and sent to Depot for storage.
-func (p *Progress) StartLog(message string) (StartLogDetailFunc, FinishLogFunc) {
+func (p *Progress) StartLog(message string) FinishLogFunc {
 	dgst := digest.FromBytes([]byte(identity.NewID()))
 	tm := time.Now()
 	p.Write(&client.SolveStatus{
@@ -85,11 +74,7 @@ func (p *Progress) StartLog(message string) (StartLogDetailFunc, FinishLogFunc) 
 		}},
 	})
 
-	logDetail := func(message string) FinishLogDetailFunc {
-		return p.StartLogDetail(dgst, message)
-	}
-
-	finishLog := func(err error) {
+	return func(err error) {
 		tm2 := time.Now()
 		errMsg := ""
 		if err != nil {
@@ -105,44 +90,11 @@ func (p *Progress) StartLog(message string) (StartLogDetailFunc, FinishLogFunc) 
 			}},
 		})
 	}
-
-	return logDetail, finishLog
-}
-
-// FinishLogFunc is a function that should be called when a log details are finished.
-// It records duration the log detail span to sends to Depot for storage.
-type FinishLogDetailFunc func()
-
-func (p *Progress) StartLogDetail(vertexDigest digest.Digest, message string) FinishLogDetailFunc {
-	started := time.Now()
-	p.Write(&client.SolveStatus{
-		Statuses: []*client.VertexStatus{
-			{
-				ID:      message,
-				Vertex:  vertexDigest,
-				Started: &started,
-			},
-		},
-	})
-
-	return func() {
-		completed := time.Now()
-		p.Write(&client.SolveStatus{
-			Statuses: []*client.VertexStatus{
-				{
-					ID:        message,
-					Vertex:    vertexDigest,
-					Started:   &started,
-					Completed: &completed,
-				},
-			},
-		})
-	}
 }
 
 // WithLog wraps a function with timing information.
 func (p *Progress) WithLog(message string, fn func() error) error {
-	_, finishLog := p.StartLog(message)
+	finishLog := p.StartLog(message)
 	err := fn()
 	finishLog(err)
 	return err
@@ -150,7 +102,7 @@ func (p *Progress) WithLog(message string, fn func() error) error {
 
 // Log writes a log message with no duration.
 func (p *Progress) Log(message string, err error) {
-	_, finishLog := p.StartLog(message)
+	finishLog := p.StartLog(message)
 	finishLog(err)
 }
 
