@@ -33,6 +33,14 @@ func NewProjectsClient() cliv1beta1connect.ProjectsServiceClient {
 	return cliv1beta1connect.NewProjectsServiceClient(http.DefaultClient, baseURL, WithUserAgent())
 }
 
+func NewPushClient() cliv1connect.PushServiceClient {
+	baseURL := os.Getenv("DEPOT_API_URL")
+	if baseURL == "" {
+		baseURL = "https://api.depot.dev"
+	}
+	return cliv1connect.NewPushServiceClient(http.DefaultClient, baseURL, WithUserAgent())
+}
+
 func WithAuthentication[T any](req *connect.Request[T], token string) *connect.Request[T] {
 	req.Header().Add("Authorization", "Bearer "+token)
 	return req
