@@ -25,6 +25,10 @@ import (
 )
 
 func main() {
+	if os.Getenv("DEPOT_DISABLE_OTEL") != "" {
+		helpers.DisableOTEL()
+	}
+
 	binary := os.Args[0]
 	if strings.HasSuffix(binary, "-buildx") {
 		cmd, subcmd := parseCmdSubcmd()
