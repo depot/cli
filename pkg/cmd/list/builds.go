@@ -68,7 +68,7 @@ func NewCmdBuilds() *cobra.Command {
 	flags := cmd.Flags()
 
 	flags.StringVar(&projectID, "project", "", "Depot project ID")
-	flags.StringVar(&token, "token", "", "Depot API token")
+	flags.StringVar(&token, "token", "", "Depot token")
 	flags.StringVar(&outputFormat, "output", "", "Non-interactive output format (json, csv)")
 
 	return cmd

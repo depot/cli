@@ -56,7 +56,7 @@ func NewCmdResetCache() *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&projectID, "project", "", "Depot project ID for the cache to reset")
-	cmd.Flags().StringVar(&token, "token", "", "Depot API token")
+	cmd.Flags().StringVar(&token, "token", "", "Depot token")
 
 	return cmd
 }

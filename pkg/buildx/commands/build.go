@@ -835,7 +835,7 @@ func depotFlags(cmd *cobra.Command, options *DepotOptions, flags *pflag.FlagSet)
 
 func depotBuildFlags(options *DepotOptions, flags *pflag.FlagSet) {
 	flags.StringVar(&options.project, "project", "", "Depot project ID")
-	flags.StringVar(&options.token, "token", "", "Depot API token")
+	flags.StringVar(&options.token, "token", "", "Depot token")
 	flags.StringVar(&options.buildPlatform, "build-platform", "dynamic", `Run builds on this platform ("dynamic", "linux/amd64", "linux/arm64")`)
 
 	allowNoOutput := false

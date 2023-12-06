@@ -140,7 +140,7 @@ func NewCmdPull(dockerCli command.Cli) *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&projectID, "project", "", "Depot project ID")
-	cmd.Flags().StringVar(&token, "token", "", "Depot API token")
+	cmd.Flags().StringVar(&token, "token", "", "Depot token")
 	cmd.Flags().StringVar(&platform, "platform", "", `Pulls image for specific platform ("linux/amd64", "linux/arm64")`)
 	cmd.Flags().StringSliceVarP(&userTags, "tag", "t", nil, "Optional tags to apply to the image")
 	cmd.Flags().StringVar(&progress, "progress", "auto", `Set type of progress output ("auto", "plain", "tty", "quiet")`)
