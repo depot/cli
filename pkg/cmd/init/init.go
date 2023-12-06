@@ -68,7 +68,7 @@ func NewCmdInit() *cobra.Command {
 
 	cmd.Flags().Bool("force", false, "Overwrite any existing project configuration")
 	cmd.Flags().StringVar(&projectID, "project", "", "The ID of the project to initialize")
-	cmd.Flags().StringVar(&token, "token", "", "Depot API token")
+	cmd.Flags().StringVar(&token, "token", "", "Depot token")
 
 	return cmd
 }

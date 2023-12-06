@@ -89,7 +89,7 @@ func NewCmdConfigureDocker(dockerCli command.Cli) *cobra.Command {
 	flags := cmd.Flags()
 	flags.BoolVar(&uninstall, "uninstall", false, "Remove Docker plugin")
 	flags.StringVar(&project, "project", "", "Depot project ID")
-	flags.StringVar(&token, "token", "", "Depot API token")
+	flags.StringVar(&token, "token", "", "Depot token")
 
 	return cmd
 }

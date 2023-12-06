@@ -76,7 +76,7 @@ func NewCmdPush(dockerCli command.Cli) *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&projectID, "project", "", "Depot project ID")
-	cmd.Flags().StringVar(&token, "token", "", "Depot API token")
+	cmd.Flags().StringVar(&token, "token", "", "Depot token")
 	cmd.Flags().StringVar(&progressFmt, "progress", "auto", `Set type of progress output ("auto", "plain", "tty", "quiet")`)
 	cmd.Flags().StringVarP(&tag, "tag", "t", "", "Tag for the pushed image")
 
