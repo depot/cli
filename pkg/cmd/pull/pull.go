@@ -39,7 +39,7 @@ func NewCmdPull(dockerCli command.Cli) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "pull [flags] [buildID]",
-		Short: "Pull a project's build from the Depot registry",
+		Short: "Pull a project's build from the Depot ephemeral registry",
 		Args:  cli.RequiresMaxArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) > 0 {

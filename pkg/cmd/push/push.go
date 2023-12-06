@@ -30,7 +30,7 @@ func NewCmdPush(dockerCli command.Cli) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "push [flags] [buildID]",
-		Short: "Push a project's build to a registry from the Depot registry",
+		Short: "Push a project's build from the Depot ephemeral registry to a destination registry",
 		Args:  cli.RequiresMaxArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) > 0 {
