@@ -9,6 +9,7 @@ import (
 	bakeCmd "github.com/depot/cli/pkg/cmd/bake"
 	buildCmd "github.com/depot/cli/pkg/cmd/build"
 	cacheCmd "github.com/depot/cli/pkg/cmd/cache"
+	"github.com/depot/cli/pkg/cmd/dagger"
 	dockerCmd "github.com/depot/cli/pkg/cmd/docker"
 	initCmd "github.com/depot/cli/pkg/cmd/init"
 	"github.com/depot/cli/pkg/cmd/list"
@@ -60,6 +61,7 @@ func NewCmdRoot(version, buildDate string) *cobra.Command {
 	cmd.AddCommand(versionCmd.NewCmdVersion(version, buildDate))
 	cmd.AddCommand(dockerCmd.NewCmdConfigureDocker(dockerCli))
 	cmd.AddCommand(registry.NewCmdRegistry())
+	cmd.AddCommand(dagger.NewCmdList())
 
 	return cmd
 }
