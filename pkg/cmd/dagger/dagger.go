@@ -34,8 +34,8 @@ func NewCmdList() *cobra.Command {
 		DisableSuggestions:    true,
 		PreRunE:               CheckDagger,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			for _, arg := range args {
-				if arg == "--help" || arg == "-h" {
+			if len(args) == 1 {
+				if args[0] == "--help" || args[0] == "-h" {
 					return help()
 				}
 			}
