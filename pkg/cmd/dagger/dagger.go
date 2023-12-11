@@ -3,7 +3,6 @@ package dagger
 import (
 	"context"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"strings"
@@ -115,19 +114,14 @@ func run(ctx context.Context, args []string) error {
 	// TODO handle error and context canceling.
 	go func() { _ = proxy.Start(ctx) }()
 	cmd := exec.Command(daggerPath, args...)
-	cmd.Env = append(cmd.Env, fmt.Sprintf("_EXPERIMENTAL_DAGGER_RUNNER_HOST=%s", localAddr))
 
-	stderr, buildErr := cmd.StderrPipe()
-	if err != nil {
-		return err
-	}
+	env := os.Environ()
+	cmd.Env = append(env, fmt.Sprintf("_EXPERIMENTAL_DAGGER_RUNNER_HOST=%s", localAddr))
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
 
 	buildErr = cmd.Start()
-	if buildErr != nil {
-		return buildErr
-	}
-
-	_, buildErr = io.Copy(os.Stderr, stderr)
 	if buildErr != nil {
 		return buildErr
 	}
