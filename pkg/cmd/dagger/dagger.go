@@ -3,19 +3,17 @@ package dagger
 import (
 	"context"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"strings"
 
 	"github.com/depot/cli/pkg/helpers"
 	"github.com/depot/cli/pkg/machine"
+	"github.com/depot/cli/pkg/progress"
+	buildxprogress "github.com/docker/buildx/util/progress"
 	"github.com/spf13/cobra"
 )
-
-/*
-TODO: check context canceling during build.
-
-*/
 
 var (
 	daggerPath    string
@@ -86,33 +84,60 @@ func run(ctx context.Context, args []string) error {
 		build.Finish(buildErr)
 	}()
 
-	var builder *machine.Machine
-	for i := 0; i < 2; i++ {
-		builder, buildErr = machine.Acquire(ctx, build.ID, build.Token, platform)
-		if buildErr == nil {
-			break
-		}
-	}
+	printCtx, cancel := context.WithCancel(ctx)
+	buildxprinter, buildErr := buildxprogress.NewPrinter(printCtx, os.Stderr, os.Stderr, "auto")
 	if buildErr != nil {
+		cancel()
+		return buildErr
+	}
+
+	reporter, finishReporter, buildErr := progress.NewProgress(printCtx, build.ID, build.Token, buildxprinter)
+	if buildErr != nil {
+		cancel()
+		return buildErr
+	}
+
+	var builder *machine.Machine
+	buildErr = reporter.WithLog("[depot] launching amd64 machine", func() error {
+		for i := 0; i < 2; i++ {
+			builder, buildErr = machine.Acquire(ctx, build.ID, build.Token, platform)
+			if buildErr == nil {
+				break
+			}
+		}
+		return buildErr
+	})
+	if buildErr != nil {
+		cancel()
+		finishReporter()
 		return buildErr
 	}
 
 	defer func() { _ = builder.Release() }()
 
-	// Wait until able to connect.
-	conn, buildErr := machine.TLSConn(ctx, builder)
-	if buildErr != nil {
-		return fmt.Errorf("unable to connect: %w", buildErr)
-	}
-	_ = conn.Close()
+	// Wait for connection to be ready.
+	var conn net.Conn
+	buildErr = reporter.WithLog(fmt.Sprintf("[depot] connecting to %s machine", platform), func() error {
+		conn, buildErr = machine.TLSConn(ctx, builder)
+		if buildErr != nil {
+			return fmt.Errorf("unable to connect: %w", buildErr)
+		}
+		_ = conn.Close()
+		return nil
+	})
+	cancel()
+	finishReporter()
 
-	listener, localAddr, err := LocalListener()
-	if err != nil {
-		return err
+	listener, localAddr, buildErr := LocalListener()
+	if buildErr != nil {
+		return buildErr
 	}
 	proxy := NewProxy(listener, builder)
-	// TODO handle error and context canceling.
+
+	ctx, proxyCancel := context.WithCancel(ctx)
+	defer proxyCancel()
 	go func() { _ = proxy.Start(ctx) }()
+
 	cmd := exec.Command(daggerPath, args...)
 
 	env := os.Environ()

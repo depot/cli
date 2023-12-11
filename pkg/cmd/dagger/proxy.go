@@ -82,7 +82,6 @@ func (p *Proxy) run(listener net.Listener, wg *sync.WaitGroup) {
 
 func (p *Proxy) handle(connection net.Conn) {
 	defer func() { _ = connection.Close() }()
-	// TODO: context canceling?
 	remote, err := machine.TLSConn(context.Background(), p.builder)
 	if err != nil {
 		p.mu.Lock()
