@@ -65,6 +65,9 @@ func NewCmdProjects() *cobra.Command {
 			)
 
 			projectClient := api.NewProjectsClient()
+			if !helpers.IsTerminal() {
+				outputFormat = "csv"
+			}
 			if outputFormat != "" {
 				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 				defer cancel()
