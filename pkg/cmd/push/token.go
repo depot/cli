@@ -2,6 +2,7 @@ package push
 
 import (
 	"context"
+	"encoding/base64"
 	"net/http"
 
 	"github.com/containerd/containerd/remotes/docker/auth"
@@ -33,6 +34,21 @@ func FetchToken(ctx context.Context, config *configtypes.AuthConfig, challenge *
 	} else {
 		username = config.Username
 		secret = config.Password
+		if challenge.Scheme == auth.BasicAuth {
+			if username != "" && secret != "" {
+				return &Token{
+					Token:  base64.StdEncoding.EncodeToString([]byte(username + ":" + secret)),
+					Scheme: "Basic",
+				}, nil
+			}
+
+			if config.Auth != "" {
+				return &Token{
+					Token:  config.Auth,
+					Scheme: "Basic",
+				}, nil
+			}
+		}
 	}
 
 	if secret == "" {
@@ -69,7 +85,6 @@ func GetAnonymousToken(ctx context.Context, username string, challenge *auth.Cha
 	}
 	client := http.DefaultClient
 	var headers http.Header
-	// TODO: handle nil fetchtoken
 	res, err := auth.FetchToken(ctx, client, headers, tokenOptions)
 	if err != nil {
 		return nil, err
@@ -96,7 +111,6 @@ func GetOAuthToken(ctx context.Context, username, secret string, challenge *auth
 
 	client := http.DefaultClient
 	var headers http.Header
-	// TODO: handle nil fetchtoken
 	res, err := auth.FetchTokenWithOAuth(ctx, client, headers, "depot-client", tokenOptions)
 	if err == nil {
 		return &Token{

@@ -176,7 +176,7 @@ func Push(ctx context.Context, progressFmt, buildID, tag, token string, dockerCl
 			tag = manifest.Digest.String()
 		}
 
-		err := PushManifest(ctx, registryToken.Token, parsedTag.Refspec, tag, manifest, buf)
+		err := PushManifest(ctx, registryToken, parsedTag.Refspec, tag, manifest, buf)
 		fin()
 		if err != nil {
 			finishReporting(err)
@@ -188,7 +188,7 @@ func Push(ctx context.Context, progressFmt, buildID, tag, token string, dockerCl
 		fin = logger(fmt.Sprintf("Pushing index %s", index.Digest.String()))
 
 		buf := buildDescriptors.IndexBytes[index.Digest]
-		err := PushManifest(ctx, registryToken.Token, parsedTag.Refspec, parsedTag.Tag, index, buf)
+		err := PushManifest(ctx, registryToken, parsedTag.Refspec, parsedTag.Tag, index, buf)
 		fin()
 		if err != nil {
 			finishReporting(err)
