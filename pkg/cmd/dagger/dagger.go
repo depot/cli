@@ -98,7 +98,7 @@ func run(ctx context.Context, args []string) error {
 	}
 
 	var builder *machine.Machine
-	buildErr = reporter.WithLog("[depot] launching amd64 machine", func() error {
+	buildErr = reporter.WithLog(fmt.Sprintf("[depot] launching %s machine", platform), func() error {
 		for i := 0; i < 2; i++ {
 			builder, buildErr = machine.Acquire(ctx, build.ID, build.Token, platform)
 			if buildErr == nil {
