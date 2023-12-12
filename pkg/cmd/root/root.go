@@ -61,7 +61,7 @@ func NewCmdRoot(version, buildDate string) *cobra.Command {
 	cmd.AddCommand(versionCmd.NewCmdVersion(version, buildDate))
 	cmd.AddCommand(dockerCmd.NewCmdConfigureDocker(dockerCli))
 	cmd.AddCommand(registry.NewCmdRegistry())
-	cmd.AddCommand(dagger.NewCmdList())
+	cmd.AddCommand(dagger.NewCmdDagger())
 
 	return cmd
 }

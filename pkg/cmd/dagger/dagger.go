@@ -23,10 +23,11 @@ var (
 	platform      string
 )
 
-func NewCmdList() *cobra.Command {
+func NewCmdDagger() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:                   "dagger [command]",
 		Short:                 "Run Dagger pipelines in Depot",
+		Hidden:                true,
 		DisableFlagParsing:    true,
 		DisableFlagsInUseLine: true,
 		DisableSuggestions:    true,
