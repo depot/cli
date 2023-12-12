@@ -24,7 +24,7 @@ import (
 )
 
 // PushManifest pushes a manifest to a registry.
-func PushManifest(ctx context.Context, registryToken string, refspec reference.Spec, tag string, manifest ocispecs.Descriptor, manifestBytes []byte) error {
+func PushManifest(ctx context.Context, registryToken *Token, refspec reference.Spec, tag string, manifest ocispecs.Descriptor, manifestBytes []byte) error {
 	// Reversing the refspec's path.Join behavior.
 	i := strings.Index(refspec.Locator, "/")
 	host, repository := refspec.Locator[:i], refspec.Locator[i+1:]
@@ -40,8 +40,7 @@ func PushManifest(ctx context.Context, registryToken string, refspec reference.S
 	}
 	req.Header.Set("User-Agent", depotapi.Agent())
 	req.Header.Set("Content-Type", manifest.MediaType)
-	// TODO:
-	req.Header.Set("Authorization", "Bearer "+registryToken)
+	req.Header.Set("Authorization", fmt.Sprintf("%s %s", registryToken.Scheme, registryToken.Token))
 
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
