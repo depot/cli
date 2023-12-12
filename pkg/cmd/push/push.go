@@ -53,13 +53,13 @@ func NewCmdPush(dockerCli command.Cli) *cobra.Command {
 				return fmt.Errorf("missing API token, please run `depot login`")
 			}
 
-			projectID = helpers.ResolveProjectID(projectID)
-			projectID, err = selectProjectID(ctx, token, projectID)
-			if err != nil {
-				return err
-			}
-
 			if buildID == "" {
+				projectID = helpers.ResolveProjectID(projectID)
+				projectID, err = selectProjectID(ctx, token, projectID)
+				if err != nil {
+					return err
+				}
+
 				buildID, err = selectBuildID(ctx, token, projectID)
 				if err != nil {
 					return err
