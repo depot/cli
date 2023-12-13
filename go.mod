@@ -49,6 +49,7 @@ require (
 )
 
 require (
+	connectrpc.com/connect v1.11.1 // indirect
 	github.com/Azure/go-ansiterm v0.0.0-20210617225240-d185dfc1b5a1 // indirect
 	github.com/Microsoft/go-winio v0.6.0 // indirect
 	github.com/agext/levenshtein v1.2.3 // indirect
@@ -187,7 +188,7 @@ require (
 )
 
 replace (
-	github.com/moby/buildkit => github.com/depot/buildkit v0.11.6-depot.14
+	github.com/moby/buildkit => github.com/depot/buildkit v0.11.6-depot.33.0.20231213012123-b6fe97f749c0
 	k8s.io/api => k8s.io/api v0.22.4
 	k8s.io/apimachinery => k8s.io/apimachinery v0.22.4
 	k8s.io/client-go => k8s.io/client-go v0.22.4

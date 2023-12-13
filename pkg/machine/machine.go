@@ -15,6 +15,8 @@ import (
 	"github.com/depot/cli/pkg/proto/depot/cli/v1/cliv1connect"
 	"github.com/moby/buildkit/client"
 	"github.com/pkg/errors"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/encoding/gzip"
 )
 
 type Machine struct {
@@ -190,6 +192,9 @@ func (m *Machine) Client(ctx context.Context) (*client.Client, error) {
 
 		opts = append(opts, client.WithCredentials("", caCert, cert, key))
 	}
+
+	useGzip := grpc.WithDefaultCallOptions(grpc.UseCompressor(gzip.Name))
+	opts = append(opts, useGzip)
 
 	c, err := client.New(ctx, m.Addr, opts...)
 	if err != nil {
