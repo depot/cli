@@ -187,7 +187,7 @@ require (
 )
 
 replace (
-	github.com/moby/buildkit => github.com/depot/buildkit v0.11.6-depot.33.0.20231213012123-b6fe97f749c0
+	github.com/moby/buildkit => github.com/depot/buildkit v0.11.6-depot.34
 	k8s.io/api => k8s.io/api v0.22.4
 	k8s.io/apimachinery => k8s.io/apimachinery v0.22.4
 	k8s.io/client-go => k8s.io/client-go v0.22.4

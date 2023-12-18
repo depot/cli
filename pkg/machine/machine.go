@@ -31,6 +31,7 @@ type Machine struct {
 	Key        string
 
 	client           *client.Client
+	useGzip          bool
 	reportHealthDone chan struct{}
 }
 
@@ -85,6 +86,9 @@ func Acquire(ctx context.Context, buildID, token, platform string) (*Machine, er
 			m.CACert = connection.Active.CaCert.Cert
 			m.Cert = connection.Active.Cert.Cert
 			m.Key = connection.Active.Cert.Key
+			if connection.Active.Compressor != nil {
+				m.useGzip = connection.Active.GetGzip() != nil
+			}
 			return m, nil
 		case *cliv1.GetBuildKitConnectionResponse_Pending:
 			select {
@@ -193,8 +197,10 @@ func (m *Machine) Client(ctx context.Context) (*client.Client, error) {
 		opts = append(opts, client.WithCredentials("", caCert, cert, key))
 	}
 
-	useGzip := grpc.WithDefaultCallOptions(grpc.UseCompressor(gzip.Name))
-	opts = append(opts, useGzip)
+	if m.useGzip {
+		useGzip := grpc.WithDefaultCallOptions(grpc.UseCompressor(gzip.Name))
+		opts = append(opts, useGzip)
+	}
 
 	c, err := client.New(ctx, m.Addr, opts...)
 	if err != nil {

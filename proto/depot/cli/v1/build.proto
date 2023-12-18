@@ -132,6 +132,13 @@ message GetBuildKitConnectionResponse {
     string server_name = 2;
     Cert cert = 3;
     Cert ca_cert = 4;
+    oneof compressor {
+      Identity identity = 5;
+      Gzip gzip = 6;
+    }
+
+    message Identity {}
+    message Gzip {}
   }
 }
 
