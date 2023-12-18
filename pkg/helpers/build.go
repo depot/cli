@@ -5,7 +5,7 @@ import (
 	"errors"
 	"os"
 
-	"github.com/bufbuild/connect-go"
+	"connectrpc.com/connect"
 	depotbuild "github.com/depot/cli/pkg/build"
 	"github.com/depot/cli/pkg/profiler"
 	cliv1 "github.com/depot/cli/pkg/proto/depot/cli/v1"

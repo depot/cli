@@ -5,9 +5,9 @@
 package cliv1connect
 
 import (
+	connect "connectrpc.com/connect"
 	context "context"
 	errors "errors"
-	connect_go "github.com/bufbuild/connect-go"
 	v1 "github.com/depot/cli/pkg/proto/depot/cli/v1"
 	http "net/http"
 	strings "strings"
@@ -18,7 +18,7 @@ import (
 // generated with a version of connect newer than the one compiled into your binary. You can fix the
 // problem by either regenerating this code with an older version of connect or updating the connect
 // version compiled into your binary.
-const _ = connect_go.IsAtLeastVersion0_1_0
+const _ = connect.IsAtLeastVersion0_1_0
 
 const (
 	// PushServiceName is the fully-qualified name of the PushService service.
@@ -41,8 +41,8 @@ const (
 
 // PushServiceClient is a client for the depot.cli.v1.PushService service.
 type PushServiceClient interface {
-	StartPush(context.Context, *connect_go.Request[v1.StartPushRequest]) (*connect_go.Response[v1.StartPushResponse], error)
-	FinishPush(context.Context, *connect_go.Request[v1.FinishPushRequest]) (*connect_go.Response[v1.FinishPushResponse], error)
+	StartPush(context.Context, *connect.Request[v1.StartPushRequest]) (*connect.Response[v1.StartPushResponse], error)
+	FinishPush(context.Context, *connect.Request[v1.FinishPushRequest]) (*connect.Response[v1.FinishPushResponse], error)
 }
 
 // NewPushServiceClient constructs a client for the depot.cli.v1.PushService service. By default, it
@@ -52,15 +52,15 @@ type PushServiceClient interface {
 //
 // The URL supplied here should be the base URL for the Connect or gRPC server (for example,
 // http://api.acme.com or https://acme.com/grpc).
-func NewPushServiceClient(httpClient connect_go.HTTPClient, baseURL string, opts ...connect_go.ClientOption) PushServiceClient {
+func NewPushServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) PushServiceClient {
 	baseURL = strings.TrimRight(baseURL, "/")
 	return &pushServiceClient{
-		startPush: connect_go.NewClient[v1.StartPushRequest, v1.StartPushResponse](
+		startPush: connect.NewClient[v1.StartPushRequest, v1.StartPushResponse](
 			httpClient,
 			baseURL+PushServiceStartPushProcedure,
 			opts...,
 		),
-		finishPush: connect_go.NewClient[v1.FinishPushRequest, v1.FinishPushResponse](
+		finishPush: connect.NewClient[v1.FinishPushRequest, v1.FinishPushResponse](
 			httpClient,
 			baseURL+PushServiceFinishPushProcedure,
 			opts...,
@@ -70,24 +70,24 @@ func NewPushServiceClient(httpClient connect_go.HTTPClient, baseURL string, opts
 
 // pushServiceClient implements PushServiceClient.
 type pushServiceClient struct {
-	startPush  *connect_go.Client[v1.StartPushRequest, v1.StartPushResponse]
-	finishPush *connect_go.Client[v1.FinishPushRequest, v1.FinishPushResponse]
+	startPush  *connect.Client[v1.StartPushRequest, v1.StartPushResponse]
+	finishPush *connect.Client[v1.FinishPushRequest, v1.FinishPushResponse]
 }
 
 // StartPush calls depot.cli.v1.PushService.StartPush.
-func (c *pushServiceClient) StartPush(ctx context.Context, req *connect_go.Request[v1.StartPushRequest]) (*connect_go.Response[v1.StartPushResponse], error) {
+func (c *pushServiceClient) StartPush(ctx context.Context, req *connect.Request[v1.StartPushRequest]) (*connect.Response[v1.StartPushResponse], error) {
 	return c.startPush.CallUnary(ctx, req)
 }
 
 // FinishPush calls depot.cli.v1.PushService.FinishPush.
-func (c *pushServiceClient) FinishPush(ctx context.Context, req *connect_go.Request[v1.FinishPushRequest]) (*connect_go.Response[v1.FinishPushResponse], error) {
+func (c *pushServiceClient) FinishPush(ctx context.Context, req *connect.Request[v1.FinishPushRequest]) (*connect.Response[v1.FinishPushResponse], error) {
 	return c.finishPush.CallUnary(ctx, req)
 }
 
 // PushServiceHandler is an implementation of the depot.cli.v1.PushService service.
 type PushServiceHandler interface {
-	StartPush(context.Context, *connect_go.Request[v1.StartPushRequest]) (*connect_go.Response[v1.StartPushResponse], error)
-	FinishPush(context.Context, *connect_go.Request[v1.FinishPushRequest]) (*connect_go.Response[v1.FinishPushResponse], error)
+	StartPush(context.Context, *connect.Request[v1.StartPushRequest]) (*connect.Response[v1.StartPushResponse], error)
+	FinishPush(context.Context, *connect.Request[v1.FinishPushRequest]) (*connect.Response[v1.FinishPushResponse], error)
 }
 
 // NewPushServiceHandler builds an HTTP handler from the service implementation. It returns the path
@@ -95,28 +95,36 @@ type PushServiceHandler interface {
 //
 // By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
 // and JSON codecs. They also support gzip compression.
-func NewPushServiceHandler(svc PushServiceHandler, opts ...connect_go.HandlerOption) (string, http.Handler) {
-	mux := http.NewServeMux()
-	mux.Handle(PushServiceStartPushProcedure, connect_go.NewUnaryHandler(
+func NewPushServiceHandler(svc PushServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
+	pushServiceStartPushHandler := connect.NewUnaryHandler(
 		PushServiceStartPushProcedure,
 		svc.StartPush,
 		opts...,
-	))
-	mux.Handle(PushServiceFinishPushProcedure, connect_go.NewUnaryHandler(
+	)
+	pushServiceFinishPushHandler := connect.NewUnaryHandler(
 		PushServiceFinishPushProcedure,
 		svc.FinishPush,
 		opts...,
-	))
-	return "/depot.cli.v1.PushService/", mux
+	)
+	return "/depot.cli.v1.PushService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case PushServiceStartPushProcedure:
+			pushServiceStartPushHandler.ServeHTTP(w, r)
+		case PushServiceFinishPushProcedure:
+			pushServiceFinishPushHandler.ServeHTTP(w, r)
+		default:
+			http.NotFound(w, r)
+		}
+	})
 }
 
 // UnimplementedPushServiceHandler returns CodeUnimplemented from all methods.
 type UnimplementedPushServiceHandler struct{}
 
-func (UnimplementedPushServiceHandler) StartPush(context.Context, *connect_go.Request[v1.StartPushRequest]) (*connect_go.Response[v1.StartPushResponse], error) {
-	return nil, connect_go.NewError(connect_go.CodeUnimplemented, errors.New("depot.cli.v1.PushService.StartPush is not implemented"))
+func (UnimplementedPushServiceHandler) StartPush(context.Context, *connect.Request[v1.StartPushRequest]) (*connect.Response[v1.StartPushResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.cli.v1.PushService.StartPush is not implemented"))
 }
 
-func (UnimplementedPushServiceHandler) FinishPush(context.Context, *connect_go.Request[v1.FinishPushRequest]) (*connect_go.Response[v1.FinishPushResponse], error) {
-	return nil, connect_go.NewError(connect_go.CodeUnimplemented, errors.New("depot.cli.v1.PushService.FinishPush is not implemented"))
+func (UnimplementedPushServiceHandler) FinishPush(context.Context, *connect.Request[v1.FinishPushRequest]) (*connect.Response[v1.FinishPushResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.cli.v1.PushService.FinishPush is not implemented"))
 }

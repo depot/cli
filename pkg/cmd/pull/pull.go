@@ -7,7 +7,7 @@ import (
 	"os"
 	"sync"
 
-	"github.com/bufbuild/connect-go"
+	"connectrpc.com/connect"
 	"github.com/containerd/console"
 	"github.com/depot/cli/pkg/api"
 	depotapi "github.com/depot/cli/pkg/api"

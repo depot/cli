@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
+	"connectrpc.com/connect"
 	"github.com/briandowns/spinner"
-	"github.com/bufbuild/connect-go"
 	cliv1beta1 "github.com/depot/cli/pkg/proto/depot/cli/v1beta1"
 )
 

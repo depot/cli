@@ -3,9 +3,9 @@ module github.com/depot/cli
 go 1.20
 
 require (
+	connectrpc.com/connect v1.13.0
 	github.com/adrg/xdg v0.4.0
 	github.com/briandowns/spinner v1.18.1
-	github.com/bufbuild/connect-go v1.7.0
 	github.com/charmbracelet/bubbles v0.16.1
 	github.com/charmbracelet/bubbletea v0.24.2
 	github.com/charmbracelet/lipgloss v0.7.1
@@ -49,7 +49,6 @@ require (
 )
 
 require (
-	connectrpc.com/connect v1.11.1 // indirect
 	github.com/Azure/go-ansiterm v0.0.0-20210617225240-d185dfc1b5a1 // indirect
 	github.com/Microsoft/go-winio v0.6.0 // indirect
 	github.com/agext/levenshtein v1.2.3 // indirect

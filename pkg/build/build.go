@@ -7,7 +7,7 @@ import (
 	"log"
 	"strings"
 
-	"github.com/bufbuild/connect-go"
+	"connectrpc.com/connect"
 	depotapi "github.com/depot/cli/pkg/api"
 	"github.com/depot/cli/pkg/progress"
 	cliv1 "github.com/depot/cli/pkg/proto/depot/cli/v1"

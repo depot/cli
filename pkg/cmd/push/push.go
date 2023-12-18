@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/bufbuild/connect-go"
+	"connectrpc.com/connect"
 	"github.com/depot/cli/pkg/api"
 	depotapi "github.com/depot/cli/pkg/api"
 	"github.com/depot/cli/pkg/ci"
