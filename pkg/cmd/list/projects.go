@@ -65,7 +65,7 @@ func NewCmdProjects() *cobra.Command {
 			)
 
 			projectClient := api.NewProjectsClient()
-			if !helpers.IsTerminal() {
+			if !helpers.IsTerminal() && outputFormat == "" {
 				outputFormat = "csv"
 			}
 			if outputFormat != "" {

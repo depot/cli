@@ -40,7 +40,7 @@ func NewCmdBuilds() *cobra.Command {
 			}
 
 			client := api.NewBuildClient()
-			if !helpers.IsTerminal() {
+			if !helpers.IsTerminal() && outputFormat == "" {
 				outputFormat = "csv"
 			}
 			if outputFormat != "" {
