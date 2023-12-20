@@ -5,9 +5,9 @@
 package cliv1connect
 
 import (
+	connect "connectrpc.com/connect"
 	context "context"
 	errors "errors"
-	connect_go "github.com/bufbuild/connect-go"
 	v1 "github.com/depot/cli/pkg/proto/depot/cli/v1"
 	http "net/http"
 	strings "strings"
@@ -18,7 +18,7 @@ import (
 // generated with a version of connect newer than the one compiled into your binary. You can fix the
 // problem by either regenerating this code with an older version of connect or updating the connect
 // version compiled into your binary.
-const _ = connect_go.IsAtLeastVersion0_1_0
+const _ = connect.IsAtLeastVersion0_1_0
 
 const (
 	// BuildServiceName is the fully-qualified name of the BuildService service.
@@ -63,15 +63,15 @@ const (
 
 // BuildServiceClient is a client for the depot.cli.v1.BuildService service.
 type BuildServiceClient interface {
-	CreateBuild(context.Context, *connect_go.Request[v1.CreateBuildRequest]) (*connect_go.Response[v1.CreateBuildResponse], error)
-	FinishBuild(context.Context, *connect_go.Request[v1.FinishBuildRequest]) (*connect_go.Response[v1.FinishBuildResponse], error)
-	GetBuildKitConnection(context.Context, *connect_go.Request[v1.GetBuildKitConnectionRequest]) (*connect_go.Response[v1.GetBuildKitConnectionResponse], error)
-	ReportBuildHealth(context.Context, *connect_go.Request[v1.ReportBuildHealthRequest]) (*connect_go.Response[v1.ReportBuildHealthResponse], error)
-	ReportTimings(context.Context, *connect_go.Request[v1.ReportTimingsRequest]) (*connect_go.Response[v1.ReportTimingsResponse], error)
-	ReportStatus(context.Context, *connect_go.Request[v1.ReportStatusRequest]) (*connect_go.Response[v1.ReportStatusResponse], error)
-	ReportBuildContext(context.Context, *connect_go.Request[v1.ReportBuildContextRequest]) (*connect_go.Response[v1.ReportBuildContextResponse], error)
-	ListBuilds(context.Context, *connect_go.Request[v1.ListBuildsRequest]) (*connect_go.Response[v1.ListBuildsResponse], error)
-	GetPullInfo(context.Context, *connect_go.Request[v1.GetPullInfoRequest]) (*connect_go.Response[v1.GetPullInfoResponse], error)
+	CreateBuild(context.Context, *connect.Request[v1.CreateBuildRequest]) (*connect.Response[v1.CreateBuildResponse], error)
+	FinishBuild(context.Context, *connect.Request[v1.FinishBuildRequest]) (*connect.Response[v1.FinishBuildResponse], error)
+	GetBuildKitConnection(context.Context, *connect.Request[v1.GetBuildKitConnectionRequest]) (*connect.Response[v1.GetBuildKitConnectionResponse], error)
+	ReportBuildHealth(context.Context, *connect.Request[v1.ReportBuildHealthRequest]) (*connect.Response[v1.ReportBuildHealthResponse], error)
+	ReportTimings(context.Context, *connect.Request[v1.ReportTimingsRequest]) (*connect.Response[v1.ReportTimingsResponse], error)
+	ReportStatus(context.Context, *connect.Request[v1.ReportStatusRequest]) (*connect.Response[v1.ReportStatusResponse], error)
+	ReportBuildContext(context.Context, *connect.Request[v1.ReportBuildContextRequest]) (*connect.Response[v1.ReportBuildContextResponse], error)
+	ListBuilds(context.Context, *connect.Request[v1.ListBuildsRequest]) (*connect.Response[v1.ListBuildsResponse], error)
+	GetPullInfo(context.Context, *connect.Request[v1.GetPullInfoRequest]) (*connect.Response[v1.GetPullInfoResponse], error)
 }
 
 // NewBuildServiceClient constructs a client for the depot.cli.v1.BuildService service. By default,
@@ -81,50 +81,50 @@ type BuildServiceClient interface {
 //
 // The URL supplied here should be the base URL for the Connect or gRPC server (for example,
 // http://api.acme.com or https://acme.com/grpc).
-func NewBuildServiceClient(httpClient connect_go.HTTPClient, baseURL string, opts ...connect_go.ClientOption) BuildServiceClient {
+func NewBuildServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) BuildServiceClient {
 	baseURL = strings.TrimRight(baseURL, "/")
 	return &buildServiceClient{
-		createBuild: connect_go.NewClient[v1.CreateBuildRequest, v1.CreateBuildResponse](
+		createBuild: connect.NewClient[v1.CreateBuildRequest, v1.CreateBuildResponse](
 			httpClient,
 			baseURL+BuildServiceCreateBuildProcedure,
 			opts...,
 		),
-		finishBuild: connect_go.NewClient[v1.FinishBuildRequest, v1.FinishBuildResponse](
+		finishBuild: connect.NewClient[v1.FinishBuildRequest, v1.FinishBuildResponse](
 			httpClient,
 			baseURL+BuildServiceFinishBuildProcedure,
 			opts...,
 		),
-		getBuildKitConnection: connect_go.NewClient[v1.GetBuildKitConnectionRequest, v1.GetBuildKitConnectionResponse](
+		getBuildKitConnection: connect.NewClient[v1.GetBuildKitConnectionRequest, v1.GetBuildKitConnectionResponse](
 			httpClient,
 			baseURL+BuildServiceGetBuildKitConnectionProcedure,
 			opts...,
 		),
-		reportBuildHealth: connect_go.NewClient[v1.ReportBuildHealthRequest, v1.ReportBuildHealthResponse](
+		reportBuildHealth: connect.NewClient[v1.ReportBuildHealthRequest, v1.ReportBuildHealthResponse](
 			httpClient,
 			baseURL+BuildServiceReportBuildHealthProcedure,
 			opts...,
 		),
-		reportTimings: connect_go.NewClient[v1.ReportTimingsRequest, v1.ReportTimingsResponse](
+		reportTimings: connect.NewClient[v1.ReportTimingsRequest, v1.ReportTimingsResponse](
 			httpClient,
 			baseURL+BuildServiceReportTimingsProcedure,
 			opts...,
 		),
-		reportStatus: connect_go.NewClient[v1.ReportStatusRequest, v1.ReportStatusResponse](
+		reportStatus: connect.NewClient[v1.ReportStatusRequest, v1.ReportStatusResponse](
 			httpClient,
 			baseURL+BuildServiceReportStatusProcedure,
 			opts...,
 		),
-		reportBuildContext: connect_go.NewClient[v1.ReportBuildContextRequest, v1.ReportBuildContextResponse](
+		reportBuildContext: connect.NewClient[v1.ReportBuildContextRequest, v1.ReportBuildContextResponse](
 			httpClient,
 			baseURL+BuildServiceReportBuildContextProcedure,
 			opts...,
 		),
-		listBuilds: connect_go.NewClient[v1.ListBuildsRequest, v1.ListBuildsResponse](
+		listBuilds: connect.NewClient[v1.ListBuildsRequest, v1.ListBuildsResponse](
 			httpClient,
 			baseURL+BuildServiceListBuildsProcedure,
 			opts...,
 		),
-		getPullInfo: connect_go.NewClient[v1.GetPullInfoRequest, v1.GetPullInfoResponse](
+		getPullInfo: connect.NewClient[v1.GetPullInfoRequest, v1.GetPullInfoResponse](
 			httpClient,
 			baseURL+BuildServiceGetPullInfoProcedure,
 			opts...,
@@ -134,73 +134,73 @@ func NewBuildServiceClient(httpClient connect_go.HTTPClient, baseURL string, opt
 
 // buildServiceClient implements BuildServiceClient.
 type buildServiceClient struct {
-	createBuild           *connect_go.Client[v1.CreateBuildRequest, v1.CreateBuildResponse]
-	finishBuild           *connect_go.Client[v1.FinishBuildRequest, v1.FinishBuildResponse]
-	getBuildKitConnection *connect_go.Client[v1.GetBuildKitConnectionRequest, v1.GetBuildKitConnectionResponse]
-	reportBuildHealth     *connect_go.Client[v1.ReportBuildHealthRequest, v1.ReportBuildHealthResponse]
-	reportTimings         *connect_go.Client[v1.ReportTimingsRequest, v1.ReportTimingsResponse]
-	reportStatus          *connect_go.Client[v1.ReportStatusRequest, v1.ReportStatusResponse]
-	reportBuildContext    *connect_go.Client[v1.ReportBuildContextRequest, v1.ReportBuildContextResponse]
-	listBuilds            *connect_go.Client[v1.ListBuildsRequest, v1.ListBuildsResponse]
-	getPullInfo           *connect_go.Client[v1.GetPullInfoRequest, v1.GetPullInfoResponse]
+	createBuild           *connect.Client[v1.CreateBuildRequest, v1.CreateBuildResponse]
+	finishBuild           *connect.Client[v1.FinishBuildRequest, v1.FinishBuildResponse]
+	getBuildKitConnection *connect.Client[v1.GetBuildKitConnectionRequest, v1.GetBuildKitConnectionResponse]
+	reportBuildHealth     *connect.Client[v1.ReportBuildHealthRequest, v1.ReportBuildHealthResponse]
+	reportTimings         *connect.Client[v1.ReportTimingsRequest, v1.ReportTimingsResponse]
+	reportStatus          *connect.Client[v1.ReportStatusRequest, v1.ReportStatusResponse]
+	reportBuildContext    *connect.Client[v1.ReportBuildContextRequest, v1.ReportBuildContextResponse]
+	listBuilds            *connect.Client[v1.ListBuildsRequest, v1.ListBuildsResponse]
+	getPullInfo           *connect.Client[v1.GetPullInfoRequest, v1.GetPullInfoResponse]
 }
 
 // CreateBuild calls depot.cli.v1.BuildService.CreateBuild.
-func (c *buildServiceClient) CreateBuild(ctx context.Context, req *connect_go.Request[v1.CreateBuildRequest]) (*connect_go.Response[v1.CreateBuildResponse], error) {
+func (c *buildServiceClient) CreateBuild(ctx context.Context, req *connect.Request[v1.CreateBuildRequest]) (*connect.Response[v1.CreateBuildResponse], error) {
 	return c.createBuild.CallUnary(ctx, req)
 }
 
 // FinishBuild calls depot.cli.v1.BuildService.FinishBuild.
-func (c *buildServiceClient) FinishBuild(ctx context.Context, req *connect_go.Request[v1.FinishBuildRequest]) (*connect_go.Response[v1.FinishBuildResponse], error) {
+func (c *buildServiceClient) FinishBuild(ctx context.Context, req *connect.Request[v1.FinishBuildRequest]) (*connect.Response[v1.FinishBuildResponse], error) {
 	return c.finishBuild.CallUnary(ctx, req)
 }
 
 // GetBuildKitConnection calls depot.cli.v1.BuildService.GetBuildKitConnection.
-func (c *buildServiceClient) GetBuildKitConnection(ctx context.Context, req *connect_go.Request[v1.GetBuildKitConnectionRequest]) (*connect_go.Response[v1.GetBuildKitConnectionResponse], error) {
+func (c *buildServiceClient) GetBuildKitConnection(ctx context.Context, req *connect.Request[v1.GetBuildKitConnectionRequest]) (*connect.Response[v1.GetBuildKitConnectionResponse], error) {
 	return c.getBuildKitConnection.CallUnary(ctx, req)
 }
 
 // ReportBuildHealth calls depot.cli.v1.BuildService.ReportBuildHealth.
-func (c *buildServiceClient) ReportBuildHealth(ctx context.Context, req *connect_go.Request[v1.ReportBuildHealthRequest]) (*connect_go.Response[v1.ReportBuildHealthResponse], error) {
+func (c *buildServiceClient) ReportBuildHealth(ctx context.Context, req *connect.Request[v1.ReportBuildHealthRequest]) (*connect.Response[v1.ReportBuildHealthResponse], error) {
 	return c.reportBuildHealth.CallUnary(ctx, req)
 }
 
 // ReportTimings calls depot.cli.v1.BuildService.ReportTimings.
-func (c *buildServiceClient) ReportTimings(ctx context.Context, req *connect_go.Request[v1.ReportTimingsRequest]) (*connect_go.Response[v1.ReportTimingsResponse], error) {
+func (c *buildServiceClient) ReportTimings(ctx context.Context, req *connect.Request[v1.ReportTimingsRequest]) (*connect.Response[v1.ReportTimingsResponse], error) {
 	return c.reportTimings.CallUnary(ctx, req)
 }
 
 // ReportStatus calls depot.cli.v1.BuildService.ReportStatus.
-func (c *buildServiceClient) ReportStatus(ctx context.Context, req *connect_go.Request[v1.ReportStatusRequest]) (*connect_go.Response[v1.ReportStatusResponse], error) {
+func (c *buildServiceClient) ReportStatus(ctx context.Context, req *connect.Request[v1.ReportStatusRequest]) (*connect.Response[v1.ReportStatusResponse], error) {
 	return c.reportStatus.CallUnary(ctx, req)
 }
 
 // ReportBuildContext calls depot.cli.v1.BuildService.ReportBuildContext.
-func (c *buildServiceClient) ReportBuildContext(ctx context.Context, req *connect_go.Request[v1.ReportBuildContextRequest]) (*connect_go.Response[v1.ReportBuildContextResponse], error) {
+func (c *buildServiceClient) ReportBuildContext(ctx context.Context, req *connect.Request[v1.ReportBuildContextRequest]) (*connect.Response[v1.ReportBuildContextResponse], error) {
 	return c.reportBuildContext.CallUnary(ctx, req)
 }
 
 // ListBuilds calls depot.cli.v1.BuildService.ListBuilds.
-func (c *buildServiceClient) ListBuilds(ctx context.Context, req *connect_go.Request[v1.ListBuildsRequest]) (*connect_go.Response[v1.ListBuildsResponse], error) {
+func (c *buildServiceClient) ListBuilds(ctx context.Context, req *connect.Request[v1.ListBuildsRequest]) (*connect.Response[v1.ListBuildsResponse], error) {
 	return c.listBuilds.CallUnary(ctx, req)
 }
 
 // GetPullInfo calls depot.cli.v1.BuildService.GetPullInfo.
-func (c *buildServiceClient) GetPullInfo(ctx context.Context, req *connect_go.Request[v1.GetPullInfoRequest]) (*connect_go.Response[v1.GetPullInfoResponse], error) {
+func (c *buildServiceClient) GetPullInfo(ctx context.Context, req *connect.Request[v1.GetPullInfoRequest]) (*connect.Response[v1.GetPullInfoResponse], error) {
 	return c.getPullInfo.CallUnary(ctx, req)
 }
 
 // BuildServiceHandler is an implementation of the depot.cli.v1.BuildService service.
 type BuildServiceHandler interface {
-	CreateBuild(context.Context, *connect_go.Request[v1.CreateBuildRequest]) (*connect_go.Response[v1.CreateBuildResponse], error)
-	FinishBuild(context.Context, *connect_go.Request[v1.FinishBuildRequest]) (*connect_go.Response[v1.FinishBuildResponse], error)
-	GetBuildKitConnection(context.Context, *connect_go.Request[v1.GetBuildKitConnectionRequest]) (*connect_go.Response[v1.GetBuildKitConnectionResponse], error)
-	ReportBuildHealth(context.Context, *connect_go.Request[v1.ReportBuildHealthRequest]) (*connect_go.Response[v1.ReportBuildHealthResponse], error)
-	ReportTimings(context.Context, *connect_go.Request[v1.ReportTimingsRequest]) (*connect_go.Response[v1.ReportTimingsResponse], error)
-	ReportStatus(context.Context, *connect_go.Request[v1.ReportStatusRequest]) (*connect_go.Response[v1.ReportStatusResponse], error)
-	ReportBuildContext(context.Context, *connect_go.Request[v1.ReportBuildContextRequest]) (*connect_go.Response[v1.ReportBuildContextResponse], error)
-	ListBuilds(context.Context, *connect_go.Request[v1.ListBuildsRequest]) (*connect_go.Response[v1.ListBuildsResponse], error)
-	GetPullInfo(context.Context, *connect_go.Request[v1.GetPullInfoRequest]) (*connect_go.Response[v1.GetPullInfoResponse], error)
+	CreateBuild(context.Context, *connect.Request[v1.CreateBuildRequest]) (*connect.Response[v1.CreateBuildResponse], error)
+	FinishBuild(context.Context, *connect.Request[v1.FinishBuildRequest]) (*connect.Response[v1.FinishBuildResponse], error)
+	GetBuildKitConnection(context.Context, *connect.Request[v1.GetBuildKitConnectionRequest]) (*connect.Response[v1.GetBuildKitConnectionResponse], error)
+	ReportBuildHealth(context.Context, *connect.Request[v1.ReportBuildHealthRequest]) (*connect.Response[v1.ReportBuildHealthResponse], error)
+	ReportTimings(context.Context, *connect.Request[v1.ReportTimingsRequest]) (*connect.Response[v1.ReportTimingsResponse], error)
+	ReportStatus(context.Context, *connect.Request[v1.ReportStatusRequest]) (*connect.Response[v1.ReportStatusResponse], error)
+	ReportBuildContext(context.Context, *connect.Request[v1.ReportBuildContextRequest]) (*connect.Response[v1.ReportBuildContextResponse], error)
+	ListBuilds(context.Context, *connect.Request[v1.ListBuildsRequest]) (*connect.Response[v1.ListBuildsResponse], error)
+	GetPullInfo(context.Context, *connect.Request[v1.GetPullInfoRequest]) (*connect.Response[v1.GetPullInfoResponse], error)
 }
 
 // NewBuildServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -208,91 +208,113 @@ type BuildServiceHandler interface {
 //
 // By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
 // and JSON codecs. They also support gzip compression.
-func NewBuildServiceHandler(svc BuildServiceHandler, opts ...connect_go.HandlerOption) (string, http.Handler) {
-	mux := http.NewServeMux()
-	mux.Handle(BuildServiceCreateBuildProcedure, connect_go.NewUnaryHandler(
+func NewBuildServiceHandler(svc BuildServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
+	buildServiceCreateBuildHandler := connect.NewUnaryHandler(
 		BuildServiceCreateBuildProcedure,
 		svc.CreateBuild,
 		opts...,
-	))
-	mux.Handle(BuildServiceFinishBuildProcedure, connect_go.NewUnaryHandler(
+	)
+	buildServiceFinishBuildHandler := connect.NewUnaryHandler(
 		BuildServiceFinishBuildProcedure,
 		svc.FinishBuild,
 		opts...,
-	))
-	mux.Handle(BuildServiceGetBuildKitConnectionProcedure, connect_go.NewUnaryHandler(
+	)
+	buildServiceGetBuildKitConnectionHandler := connect.NewUnaryHandler(
 		BuildServiceGetBuildKitConnectionProcedure,
 		svc.GetBuildKitConnection,
 		opts...,
-	))
-	mux.Handle(BuildServiceReportBuildHealthProcedure, connect_go.NewUnaryHandler(
+	)
+	buildServiceReportBuildHealthHandler := connect.NewUnaryHandler(
 		BuildServiceReportBuildHealthProcedure,
 		svc.ReportBuildHealth,
 		opts...,
-	))
-	mux.Handle(BuildServiceReportTimingsProcedure, connect_go.NewUnaryHandler(
+	)
+	buildServiceReportTimingsHandler := connect.NewUnaryHandler(
 		BuildServiceReportTimingsProcedure,
 		svc.ReportTimings,
 		opts...,
-	))
-	mux.Handle(BuildServiceReportStatusProcedure, connect_go.NewUnaryHandler(
+	)
+	buildServiceReportStatusHandler := connect.NewUnaryHandler(
 		BuildServiceReportStatusProcedure,
 		svc.ReportStatus,
 		opts...,
-	))
-	mux.Handle(BuildServiceReportBuildContextProcedure, connect_go.NewUnaryHandler(
+	)
+	buildServiceReportBuildContextHandler := connect.NewUnaryHandler(
 		BuildServiceReportBuildContextProcedure,
 		svc.ReportBuildContext,
 		opts...,
-	))
-	mux.Handle(BuildServiceListBuildsProcedure, connect_go.NewUnaryHandler(
+	)
+	buildServiceListBuildsHandler := connect.NewUnaryHandler(
 		BuildServiceListBuildsProcedure,
 		svc.ListBuilds,
 		opts...,
-	))
-	mux.Handle(BuildServiceGetPullInfoProcedure, connect_go.NewUnaryHandler(
+	)
+	buildServiceGetPullInfoHandler := connect.NewUnaryHandler(
 		BuildServiceGetPullInfoProcedure,
 		svc.GetPullInfo,
 		opts...,
-	))
-	return "/depot.cli.v1.BuildService/", mux
+	)
+	return "/depot.cli.v1.BuildService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case BuildServiceCreateBuildProcedure:
+			buildServiceCreateBuildHandler.ServeHTTP(w, r)
+		case BuildServiceFinishBuildProcedure:
+			buildServiceFinishBuildHandler.ServeHTTP(w, r)
+		case BuildServiceGetBuildKitConnectionProcedure:
+			buildServiceGetBuildKitConnectionHandler.ServeHTTP(w, r)
+		case BuildServiceReportBuildHealthProcedure:
+			buildServiceReportBuildHealthHandler.ServeHTTP(w, r)
+		case BuildServiceReportTimingsProcedure:
+			buildServiceReportTimingsHandler.ServeHTTP(w, r)
+		case BuildServiceReportStatusProcedure:
+			buildServiceReportStatusHandler.ServeHTTP(w, r)
+		case BuildServiceReportBuildContextProcedure:
+			buildServiceReportBuildContextHandler.ServeHTTP(w, r)
+		case BuildServiceListBuildsProcedure:
+			buildServiceListBuildsHandler.ServeHTTP(w, r)
+		case BuildServiceGetPullInfoProcedure:
+			buildServiceGetPullInfoHandler.ServeHTTP(w, r)
+		default:
+			http.NotFound(w, r)
+		}
+	})
 }
 
 // UnimplementedBuildServiceHandler returns CodeUnimplemented from all methods.
 type UnimplementedBuildServiceHandler struct{}
 
-func (UnimplementedBuildServiceHandler) CreateBuild(context.Context, *connect_go.Request[v1.CreateBuildRequest]) (*connect_go.Response[v1.CreateBuildResponse], error) {
-	return nil, connect_go.NewError(connect_go.CodeUnimplemented, errors.New("depot.cli.v1.BuildService.CreateBuild is not implemented"))
+func (UnimplementedBuildServiceHandler) CreateBuild(context.Context, *connect.Request[v1.CreateBuildRequest]) (*connect.Response[v1.CreateBuildResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.cli.v1.BuildService.CreateBuild is not implemented"))
 }
 
-func (UnimplementedBuildServiceHandler) FinishBuild(context.Context, *connect_go.Request[v1.FinishBuildRequest]) (*connect_go.Response[v1.FinishBuildResponse], error) {
-	return nil, connect_go.NewError(connect_go.CodeUnimplemented, errors.New("depot.cli.v1.BuildService.FinishBuild is not implemented"))
+func (UnimplementedBuildServiceHandler) FinishBuild(context.Context, *connect.Request[v1.FinishBuildRequest]) (*connect.Response[v1.FinishBuildResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.cli.v1.BuildService.FinishBuild is not implemented"))
 }
 
-func (UnimplementedBuildServiceHandler) GetBuildKitConnection(context.Context, *connect_go.Request[v1.GetBuildKitConnectionRequest]) (*connect_go.Response[v1.GetBuildKitConnectionResponse], error) {
-	return nil, connect_go.NewError(connect_go.CodeUnimplemented, errors.New("depot.cli.v1.BuildService.GetBuildKitConnection is not implemented"))
+func (UnimplementedBuildServiceHandler) GetBuildKitConnection(context.Context, *connect.Request[v1.GetBuildKitConnectionRequest]) (*connect.Response[v1.GetBuildKitConnectionResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.cli.v1.BuildService.GetBuildKitConnection is not implemented"))
 }
 
-func (UnimplementedBuildServiceHandler) ReportBuildHealth(context.Context, *connect_go.Request[v1.ReportBuildHealthRequest]) (*connect_go.Response[v1.ReportBuildHealthResponse], error) {
-	return nil, connect_go.NewError(connect_go.CodeUnimplemented, errors.New("depot.cli.v1.BuildService.ReportBuildHealth is not implemented"))
+func (UnimplementedBuildServiceHandler) ReportBuildHealth(context.Context, *connect.Request[v1.ReportBuildHealthRequest]) (*connect.Response[v1.ReportBuildHealthResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.cli.v1.BuildService.ReportBuildHealth is not implemented"))
 }
 
-func (UnimplementedBuildServiceHandler) ReportTimings(context.Context, *connect_go.Request[v1.ReportTimingsRequest]) (*connect_go.Response[v1.ReportTimingsResponse], error) {
-	return nil, connect_go.NewError(connect_go.CodeUnimplemented, errors.New("depot.cli.v1.BuildService.ReportTimings is not implemented"))
+func (UnimplementedBuildServiceHandler) ReportTimings(context.Context, *connect.Request[v1.ReportTimingsRequest]) (*connect.Response[v1.ReportTimingsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.cli.v1.BuildService.ReportTimings is not implemented"))
 }
 
-func (UnimplementedBuildServiceHandler) ReportStatus(context.Context, *connect_go.Request[v1.ReportStatusRequest]) (*connect_go.Response[v1.ReportStatusResponse], error) {
-	return nil, connect_go.NewError(connect_go.CodeUnimplemented, errors.New("depot.cli.v1.BuildService.ReportStatus is not implemented"))
+func (UnimplementedBuildServiceHandler) ReportStatus(context.Context, *connect.Request[v1.ReportStatusRequest]) (*connect.Response[v1.ReportStatusResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.cli.v1.BuildService.ReportStatus is not implemented"))
 }
 
-func (UnimplementedBuildServiceHandler) ReportBuildContext(context.Context, *connect_go.Request[v1.ReportBuildContextRequest]) (*connect_go.Response[v1.ReportBuildContextResponse], error) {
-	return nil, connect_go.NewError(connect_go.CodeUnimplemented, errors.New("depot.cli.v1.BuildService.ReportBuildContext is not implemented"))
+func (UnimplementedBuildServiceHandler) ReportBuildContext(context.Context, *connect.Request[v1.ReportBuildContextRequest]) (*connect.Response[v1.ReportBuildContextResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.cli.v1.BuildService.ReportBuildContext is not implemented"))
 }
 
-func (UnimplementedBuildServiceHandler) ListBuilds(context.Context, *connect_go.Request[v1.ListBuildsRequest]) (*connect_go.Response[v1.ListBuildsResponse], error) {
-	return nil, connect_go.NewError(connect_go.CodeUnimplemented, errors.New("depot.cli.v1.BuildService.ListBuilds is not implemented"))
+func (UnimplementedBuildServiceHandler) ListBuilds(context.Context, *connect.Request[v1.ListBuildsRequest]) (*connect.Response[v1.ListBuildsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.cli.v1.BuildService.ListBuilds is not implemented"))
 }
 
-func (UnimplementedBuildServiceHandler) GetPullInfo(context.Context, *connect_go.Request[v1.GetPullInfoRequest]) (*connect_go.Response[v1.GetPullInfoResponse], error) {
-	return nil, connect_go.NewError(connect_go.CodeUnimplemented, errors.New("depot.cli.v1.BuildService.GetPullInfo is not implemented"))
+func (UnimplementedBuildServiceHandler) GetPullInfo(context.Context, *connect.Request[v1.GetPullInfoRequest]) (*connect.Response[v1.GetPullInfoResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.cli.v1.BuildService.GetPullInfo is not implemented"))
 }

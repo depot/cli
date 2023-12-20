@@ -3,9 +3,9 @@ module github.com/depot/cli
 go 1.20
 
 require (
+	connectrpc.com/connect v1.13.0
 	github.com/adrg/xdg v0.4.0
 	github.com/briandowns/spinner v1.18.1
-	github.com/bufbuild/connect-go v1.7.0
 	github.com/charmbracelet/bubbles v0.16.1
 	github.com/charmbracelet/bubbletea v0.24.2
 	github.com/charmbracelet/lipgloss v0.7.1
@@ -187,7 +187,7 @@ require (
 )
 
 replace (
-	github.com/moby/buildkit => github.com/depot/buildkit v0.11.6-depot.14
+	github.com/moby/buildkit => github.com/depot/buildkit v0.11.6-depot.34
 	k8s.io/api => k8s.io/api v0.22.4
 	k8s.io/apimachinery => k8s.io/apimachinery v0.22.4
 	k8s.io/client-go => k8s.io/client-go v0.22.4

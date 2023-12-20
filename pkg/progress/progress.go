@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/bufbuild/connect-go"
+	"connectrpc.com/connect"
 	depotapi "github.com/depot/cli/pkg/api"
 	cliv1 "github.com/depot/cli/pkg/proto/depot/cli/v1"
 	cliv1connect "github.com/depot/cli/pkg/proto/depot/cli/v1/cliv1connect"

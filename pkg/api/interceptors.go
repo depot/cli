@@ -6,7 +6,7 @@ import (
 	"runtime"
 	"sync"
 
-	"github.com/bufbuild/connect-go"
+	"connectrpc.com/connect"
 	"github.com/depot/cli/internal/build"
 	"github.com/depot/cli/pkg/ci"
 )
