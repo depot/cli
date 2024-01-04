@@ -251,6 +251,11 @@ func runConfigureBuildx(ctx context.Context, dockerCli command.Cli, project, tok
 						OS:           "linux",
 						Variant:      "v7",
 					},
+					{
+						Architecture: "arm",
+						OS:           "linux",
+						Variant:      "v8",
+					},
 				},
 				Flags: []string{"buildkitd"},
 				DriverOpts: map[string]string{
