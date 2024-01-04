@@ -358,6 +358,11 @@ func platformWorkerRecords(platform string) []*worker.WorkerRecord {
 					{
 						Architecture: "arm",
 						OS:           "linux",
+						Variant:      "v8",
+					},
+					{
+						Architecture: "arm",
+						OS:           "linux",
 						Variant:      "v7",
 					},
 					{

@@ -126,6 +126,7 @@ func New(dockerCli command.Cli, opts ...Option) (_ *Builder, err error) {
 		Name: "buildx_buildkit_depot_arm64",
 		Platforms: []v1.Platform{
 			{OS: "linux", Architecture: "arm64"},
+			{OS: "linux", Architecture: "arm", Variant: "v8"},
 			{OS: "linux", Architecture: "arm", Variant: "v7"},
 			{OS: "linux", Architecture: "arm", Variant: "v6"},
 		},
