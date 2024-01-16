@@ -25,7 +25,7 @@ func NewCmdPush(dockerCli command.Cli) *cobra.Command {
 		projectID   string
 		buildID     string
 		progressFmt string
-		tag         string
+		tags        []string
 	)
 
 	cmd := &cobra.Command{
@@ -66,19 +66,30 @@ func NewCmdPush(dockerCli command.Cli) *cobra.Command {
 				}
 			}
 
-			finishPush, err := StartPush(ctx, buildID, tag, token)
-			if err != nil {
-				return err
+			if len(tags) == 0 {
+				return fmt.Errorf("missing tag, please specify a tag with --tag")
 			}
-			err = Push(ctx, progressFmt, buildID, tag, token, dockerCli)
-			return finishPush(err)
+
+			for _, tag := range tags {
+				finishPush, err := StartPush(ctx, buildID, tag, token)
+				if err != nil {
+					return err
+				}
+				err = Push(ctx, progressFmt, buildID, tag, token, dockerCli)
+				err = finishPush(err)
+				if err != nil {
+					return err
+				}
+			}
+
+			return nil
 		},
 	}
 
 	cmd.Flags().StringVar(&projectID, "project", "", "Depot project ID")
 	cmd.Flags().StringVar(&token, "token", "", "Depot token")
 	cmd.Flags().StringVar(&progressFmt, "progress", "auto", `Set type of progress output ("auto", "plain", "tty", "quiet")`)
-	cmd.Flags().StringVarP(&tag, "tag", "t", "", "Tag for the pushed image")
+	cmd.Flags().StringArrayVarP(&tags, "tag", "t", []string{}, `Name and tag for the pushed image (format: "name:tag")`)
 
 	return cmd
 }
