@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 
 	"github.com/containerd/containerd/platforms"
@@ -223,6 +224,13 @@ func BakeCmd(dockerCli command.Cli) *cobra.Command {
 		Aliases: []string{"f"},
 		Short:   "Build from a file",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// TODO: remove when upgrading to buildx 0.12
+			for idx, file := range options.files {
+				if strings.HasPrefix(file, "cwd://") {
+					options.files[idx] = strings.TrimPrefix(file, "cwd://")
+				}
+			}
+
 			if options.printOnly {
 				if isRemoteTarget(args) {
 					return errors.New("cannot use remote target with --print")
