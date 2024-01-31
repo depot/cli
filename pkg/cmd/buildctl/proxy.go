@@ -71,7 +71,7 @@ func BuildkitdClient(ctx context.Context, conn net.Conn, buildkitdAddress string
 }
 
 // Proxy buildkitd server over connection. Cancel context to shutdown.
-func Proxy(ctx context.Context, conn net.Conn, acquireState func() ProxyState, platform string, status chan *client.SolveStatus) {
+func Proxy(ctx context.Context, conn net.Conn, acquireState func() *ProxyState, platform string, status chan *client.SolveStatus) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -101,11 +101,11 @@ type ProxyState struct {
 	Conn       *grpc.ClientConn   // Conn is the connection to the buildkitd server.
 	SummaryURL string             // SummaryURL is the UI summary page.
 	Reporter   *progress.Progress // Reporter forwards status events to the API.
-	Err        error              // Err is set when the connection cannot be established.
+	Err        error              // Err is set when the connection cannot be established or the build fails.
 }
 
 type ControlProxy struct {
-	state    func() ProxyState
+	state    func() *ProxyState
 	status   chan *client.SolveStatus
 	platform string
 	cancel   context.CancelFunc
@@ -166,7 +166,11 @@ func (p *ControlProxy) Solve(ctx context.Context, in *control.SolveRequest) (*co
 	client := control.NewControlClient(state.Conn)
 	// DEPOT: stop recording the build steps and traces on the server.
 	in.Internal = true
-	return client.Solve(ctx, in)
+	res, err := client.Solve(ctx, in)
+	if err != nil {
+		state.Err = err
+	}
+	return res, err
 }
 
 func (p *ControlProxy) Status(in *control.StatusRequest, toBuildx control.Control_StatusServer) error {
@@ -406,7 +410,7 @@ func (p *ControlProxy) UpdateBuildHistory(ctx context.Context, in *control.Updat
 }
 
 type GatewayProxy struct {
-	state    func() ProxyState
+	state    func() *ProxyState
 	platform string
 }
 
@@ -624,7 +628,7 @@ func (p *GatewayProxy) Warn(ctx context.Context, in *gateway.WarnRequest) (*gate
 }
 
 type TracesProxy struct {
-	state func() ProxyState
+	state func() *ProxyState
 	trace.UnimplementedTraceServiceServer
 }
 
@@ -648,7 +652,7 @@ func (p *TracesProxy) Export(ctx context.Context, in *trace.ExportTraceServiceRe
 }
 
 type ContentProxy struct {
-	state func() ProxyState
+	state func() *ProxyState
 }
 
 func (p *ContentProxy) Info(ctx context.Context, in *content.InfoRequest) (*content.InfoResponse, error) {
@@ -855,7 +859,7 @@ func (p *ContentProxy) Abort(ctx context.Context, in *content.AbortRequest) (*ty
 }
 
 type LeasesProxy struct {
-	state func() ProxyState
+	state func() *ProxyState
 }
 
 func (p *LeasesProxy) Delete(ctx context.Context, in *leases.DeleteRequest) (*types.Empty, error) {
@@ -949,7 +953,7 @@ func (p *LeasesProxy) ListResources(ctx context.Context, in *leases.ListResource
 }
 
 type HealthProxy struct {
-	state func() ProxyState
+	state func() *ProxyState
 }
 
 func (p *HealthProxy) Check(ctx context.Context, in *health.HealthCheckRequest) (*health.HealthCheckResponse, error) {
