@@ -128,7 +128,7 @@ func run() error {
 		}
 	}
 
-	acquireState := func() ProxyState {
+	acquireState := func() *ProxyState {
 		once.Do(func() {
 			req := &cliv1.CreateBuildRequest{
 				ProjectId: &projectID,
@@ -193,7 +193,7 @@ func run() error {
 				return nil
 			})
 		})
-		return state
+		return &state
 	}
 
 	buildx := &StdioConn{}
