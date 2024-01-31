@@ -11,7 +11,7 @@ import (
 	"os"
 
 	"github.com/containerd/containerd/platforms"
-	"github.com/docker/buildx/bake"
+	"github.com/depot/cli/pkg/buildx/bake"
 	"github.com/docker/buildx/build"
 	buildxprogress "github.com/docker/buildx/util/progress"
 	"github.com/docker/cli/cli/command"

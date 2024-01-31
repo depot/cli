@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/containerd/containerd/platforms"
+	"github.com/depot/cli/pkg/buildx/bake"
 	"github.com/depot/cli/pkg/buildx/build"
 	"github.com/depot/cli/pkg/buildx/builder"
 	"github.com/depot/cli/pkg/compose"
@@ -18,7 +19,6 @@ import (
 	depotprogress "github.com/depot/cli/pkg/progress"
 	"github.com/depot/cli/pkg/registry"
 	"github.com/depot/cli/pkg/sbom"
-	"github.com/docker/buildx/bake"
 	buildx "github.com/docker/buildx/build"
 	"github.com/docker/buildx/util/buildflags"
 	"github.com/docker/buildx/util/confutil"
