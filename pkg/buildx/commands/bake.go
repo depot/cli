@@ -400,7 +400,7 @@ func (t *LocalBakeValidator) Validate(ctx context.Context, _ []builder.Node, _ p
 	// Using a sync.Once because I _think_ the bake file may not always be read
 	// more than one time such as passed over stdin.
 	t.once.Do(func() {
-		files, err := bake.ReadLocalFiles(t.options.files)
+		files, err := bake.ReadLocalFiles(t.options.files, os.Stdin)
 		if err != nil {
 			t.err = err
 			return

@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 
+	composecli "github.com/compose-spec/compose-go/cli"
 	"github.com/depot/cli/pkg/buildx/bake/hclparser"
 	"github.com/docker/buildx/build"
 	"github.com/docker/buildx/util/buildflags"
@@ -23,6 +24,8 @@ import (
 	"github.com/moby/buildkit/client/llb"
 	"github.com/moby/buildkit/session/auth/authprovider"
 	"github.com/pkg/errors"
+	"github.com/zclconf/go-cty/cty"
+	"github.com/zclconf/go-cty/cty/convert"
 )
 
 var (
@@ -44,17 +47,18 @@ type Override struct {
 }
 
 func defaultFilenames() []string {
-	return []string{
-		"docker-compose.yml",  // support app
-		"docker-compose.yaml", // support app
+	names := []string{}
+	names = append(names, composecli.DefaultFileNames...)
+	names = append(names, []string{
 		"docker-bake.json",
 		"docker-bake.override.json",
 		"docker-bake.hcl",
 		"docker-bake.override.hcl",
-	}
+	}...)
+	return names
 }
 
-func ReadLocalFiles(names []string) ([]File, error) {
+func ReadLocalFiles(names []string, stdin io.Reader) ([]File, error) {
 	isDefault := false
 	if len(names) == 0 {
 		isDefault = true
@@ -66,7 +70,7 @@ func ReadLocalFiles(names []string) ([]File, error) {
 		var dt []byte
 		var err error
 		if n == "-" {
-			dt, err = io.ReadAll(os.Stdin)
+			dt, err = io.ReadAll(stdin)
 			if err != nil {
 				return nil, err
 			}
@@ -82,6 +86,21 @@ func ReadLocalFiles(names []string) ([]File, error) {
 		out = append(out, File{Name: n, Data: dt})
 	}
 	return out, nil
+}
+
+func ListTargets(files []File) ([]string, error) {
+	c, err := ParseFiles(files, nil)
+	if err != nil {
+		return nil, err
+	}
+	var targets []string
+	for _, g := range c.Groups {
+		targets = append(targets, g.Name)
+	}
+	for _, t := range c.Targets {
+		targets = append(targets, t.Name)
+	}
+	return dedupSlice(targets), nil
 }
 
 func ReadTargets(ctx context.Context, files []File, targets, overrides []string, defaults map[string]string) (map[string]*Target, map[string]*Group, error) {
@@ -245,13 +264,28 @@ func ParseFiles(files []File, defaults map[string]string) (_ *Config, err error)
 	}
 
 	if len(hclFiles) > 0 {
-		if err := hclparser.Parse(hcl.MergeFiles(hclFiles), hclparser.Opt{
+		renamed, err := hclparser.Parse(hcl.MergeFiles(hclFiles), hclparser.Opt{
 			LookupVar:     os.LookupEnv,
 			Vars:          defaults,
 			ValidateLabel: validateTargetName,
-		}, &c); err.HasErrors() {
+		}, &c)
+		if err.HasErrors() {
 			return nil, err
 		}
+
+		for _, renamed := range renamed {
+			for oldName, newNames := range renamed {
+				newNames = dedupSlice(newNames)
+				if len(newNames) == 1 && oldName == newNames[0] {
+					continue
+				}
+				c.Groups = append(c.Groups, &Group{
+					Name:    oldName,
+					Targets: newNames,
+				})
+			}
+		}
+		c = dedupeConfig(c)
 	}
 
 	return &c, nil
@@ -596,8 +630,13 @@ type Target struct {
 	linked bool
 }
 
+var _ hclparser.WithEvalContexts = &Target{}
+var _ hclparser.WithGetName = &Target{}
+var _ hclparser.WithEvalContexts = &Group{}
+var _ hclparser.WithGetName = &Group{}
+
 func (t *Target) normalize() {
-	t.Attest = removeDupes(t.Attest)
+	// t.Attest = removeAttestDupes(t.Attest)
 	t.Tags = removeDupes(t.Tags)
 	t.Secrets = removeDupes(t.Secrets)
 	t.SSH = removeDupes(t.SSH)
@@ -659,6 +698,7 @@ func (t *Target) Merge(t2 *Target) {
 	}
 	if t2.Attest != nil { // merge
 		t.Attest = append(t.Attest, t2.Attest...)
+		// t.Attest = removeAttestDupes(t.Attest)
 	}
 	if t2.Secrets != nil { // merge
 		t.Secrets = append(t.Secrets, t2.Secrets...)
@@ -779,6 +819,114 @@ func (t *Target) AddOverrides(overrides map[string]Override) error {
 	return nil
 }
 
+func (g *Group) GetEvalContexts(ectx *hcl.EvalContext, block *hcl.Block, loadDeps func(hcl.Expression) hcl.Diagnostics) ([]*hcl.EvalContext, error) {
+	content, _, err := block.Body.PartialContent(&hcl.BodySchema{
+		Attributes: []hcl.AttributeSchema{{Name: "matrix"}},
+	})
+	if err != nil {
+		return nil, err
+	}
+	if _, ok := content.Attributes["matrix"]; ok {
+		return nil, errors.Errorf("matrix is not supported for groups")
+	}
+	return []*hcl.EvalContext{ectx}, nil
+}
+
+func (t *Target) GetEvalContexts(ectx *hcl.EvalContext, block *hcl.Block, loadDeps func(hcl.Expression) hcl.Diagnostics) ([]*hcl.EvalContext, error) {
+	content, _, err := block.Body.PartialContent(&hcl.BodySchema{
+		Attributes: []hcl.AttributeSchema{{Name: "matrix"}},
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	attr, ok := content.Attributes["matrix"]
+	if !ok {
+		return []*hcl.EvalContext{ectx}, nil
+	}
+	if diags := loadDeps(attr.Expr); diags.HasErrors() {
+		return nil, diags
+	}
+	value, err := attr.Expr.Value(ectx)
+	if err != nil {
+		return nil, err
+	}
+
+	if !value.Type().IsMapType() && !value.Type().IsObjectType() {
+		return nil, errors.Errorf("matrix must be a map")
+	}
+	matrix := value.AsValueMap()
+
+	ectxs := []*hcl.EvalContext{ectx}
+	for k, expr := range matrix {
+		if !expr.CanIterateElements() {
+			return nil, errors.Errorf("matrix values must be a list")
+		}
+
+		ectxs2 := []*hcl.EvalContext{}
+		for _, v := range expr.AsValueSlice() {
+			for _, e := range ectxs {
+				e2 := ectx.NewChild()
+				e2.Variables = make(map[string]cty.Value)
+				for k, v := range e.Variables {
+					e2.Variables[k] = v
+				}
+				e2.Variables[k] = v
+				ectxs2 = append(ectxs2, e2)
+			}
+		}
+		ectxs = ectxs2
+	}
+	return ectxs, nil
+}
+
+func (g *Group) GetName(ectx *hcl.EvalContext, block *hcl.Block, loadDeps func(hcl.Expression) hcl.Diagnostics) (string, error) {
+	content, _, diags := block.Body.PartialContent(&hcl.BodySchema{
+		Attributes: []hcl.AttributeSchema{{Name: "name"}, {Name: "matrix"}},
+	})
+	if diags != nil {
+		return "", diags
+	}
+
+	if _, ok := content.Attributes["name"]; ok {
+		return "", errors.Errorf("name is not supported for groups")
+	}
+	if _, ok := content.Attributes["matrix"]; ok {
+		return "", errors.Errorf("matrix is not supported for groups")
+	}
+	return block.Labels[0], nil
+}
+
+func (t *Target) GetName(ectx *hcl.EvalContext, block *hcl.Block, loadDeps func(hcl.Expression) hcl.Diagnostics) (string, error) {
+	content, _, diags := block.Body.PartialContent(&hcl.BodySchema{
+		Attributes: []hcl.AttributeSchema{{Name: "name"}, {Name: "matrix"}},
+	})
+	if diags != nil {
+		return "", diags
+	}
+
+	attr, ok := content.Attributes["name"]
+	if !ok {
+		return block.Labels[0], nil
+	}
+	if _, ok := content.Attributes["matrix"]; !ok {
+		return "", errors.Errorf("name requires matrix")
+	}
+	if diags := loadDeps(attr.Expr); diags.HasErrors() {
+		return "", diags
+	}
+	value, diags := attr.Expr.Value(ectx)
+	if diags != nil {
+		return "", diags
+	}
+
+	value, err := convert.Convert(value, cty.String)
+	if err != nil {
+		return "", err
+	}
+	return value.AsString(), nil
+}
+
 func TargetsToBuildOpt(m map[string]*Target, inp *Input) (map[string]build.Options, error) {
 	m2 := make(map[string]build.Options, len(m))
 	for k, v := range m {
@@ -820,7 +968,12 @@ func updateContext(t *build.Inputs, inp *Input) {
 	if IsRemoteURL(t.ContextPath) {
 		return
 	}
-	st := llb.Scratch().File(llb.Copy(*inp.State, t.ContextPath, "/"), llb.WithCustomNamef("set context to %s", t.ContextPath))
+	st := llb.Scratch().File(
+		llb.Copy(*inp.State, t.ContextPath, "/", &llb.CopyInfo{
+			CopyDirContentsOnly: true,
+		}),
+		llb.WithCustomNamef("set context to %s", t.ContextPath),
+	)
 	t.ContextState = &st
 }
 
@@ -863,6 +1016,10 @@ func checkPath(p string) error {
 		}
 		return err
 	}
+	p, err = filepath.Abs(p)
+	if err != nil {
+		return err
+	}
 	wd, err := os.Getwd()
 	if err != nil {
 		return err
@@ -871,7 +1028,8 @@ func checkPath(p string) error {
 	if err != nil {
 		return err
 	}
-	if strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+	parts := strings.Split(rel, string(os.PathSeparator))
+	if parts[0] == ".." {
 		return errors.Errorf("path %s is outside of the working directory, please set BAKE_ALLOW_REMOTE_FS_ACCESS=1", p)
 	}
 	return nil
