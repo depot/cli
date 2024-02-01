@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/containerd/containerd/platforms"
+	"github.com/depot/cli/pkg/buildx/bake"
 	"github.com/depot/cli/pkg/buildx/build"
 	"github.com/depot/cli/pkg/buildx/builder"
 	"github.com/depot/cli/pkg/compose"
@@ -18,7 +19,6 @@ import (
 	depotprogress "github.com/depot/cli/pkg/progress"
 	"github.com/depot/cli/pkg/registry"
 	"github.com/depot/cli/pkg/sbom"
-	"github.com/docker/buildx/bake"
 	buildx "github.com/docker/buildx/build"
 	"github.com/docker/buildx/util/buildflags"
 	"github.com/docker/buildx/util/confutil"
@@ -400,7 +400,7 @@ func (t *LocalBakeValidator) Validate(ctx context.Context, _ []builder.Node, _ p
 	// Using a sync.Once because I _think_ the bake file may not always be read
 	// more than one time such as passed over stdin.
 	t.once.Do(func() {
-		files, err := bake.ReadLocalFiles(t.options.files)
+		files, err := bake.ReadLocalFiles(t.options.files, os.Stdin)
 		if err != nil {
 			t.err = err
 			return

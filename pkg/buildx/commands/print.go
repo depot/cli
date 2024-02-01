@@ -11,7 +11,7 @@ import (
 	"os"
 
 	"github.com/containerd/containerd/platforms"
-	"github.com/docker/buildx/bake"
+	"github.com/depot/cli/pkg/buildx/bake"
 	"github.com/docker/buildx/build"
 	buildxprogress "github.com/docker/buildx/util/progress"
 	"github.com/docker/cli/cli/command"
@@ -28,7 +28,7 @@ func BakePrint(dockerCli command.Cli, targets []string, in BakeOptions) (err err
 		targets = []string{"default"}
 	}
 
-	files, err := bake.ReadLocalFiles(in.files)
+	files, err := bake.ReadLocalFiles(in.files, os.Stdin)
 	if err != nil {
 		return err
 	}

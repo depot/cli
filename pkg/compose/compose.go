@@ -11,7 +11,7 @@ import (
 	"github.com/compose-spec/compose-go/loader"
 	"github.com/compose-spec/compose-go/types"
 	compose "github.com/compose-spec/compose-go/types"
-	"github.com/docker/buildx/bake"
+	"github.com/depot/cli/pkg/buildx/bake"
 	"gopkg.in/yaml.v2"
 )
 
