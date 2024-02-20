@@ -21,15 +21,15 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func NewCmdProjects() *cobra.Command {
+func NewCmdProjects(commandName, commandAlias string) *cobra.Command {
 	var (
 		token        string
 		outputFormat string
 	)
 
 	cmd := &cobra.Command{
-		Use:     "projects",
-		Aliases: []string{"p"},
+		Use:     commandName,
+		Aliases: []string{commandAlias},
 		Short:   "List depot projects",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			token, err := helpers.ResolveToken(context.Background(), token)
