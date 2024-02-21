@@ -27,8 +27,8 @@ func NewCmdCreate() *cobra.Command {
 		Hidden:  true,
 		Short:   "Create depot project",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if len(args) != 1 {
-				return fmt.Errorf("missing or too many arguments, expected exactly 1 (project name)")
+			if len(args) < 1 {
+				return fmt.Errorf("project name is required")
 			}
 			ctx := cmd.Context()
 			projectName := args[0]
@@ -70,7 +70,7 @@ func NewCmdCreate() *cobra.Command {
 	flags.StringVar(&token, "token", "", "Depot token")
 	flags.StringVarP(&orgID, "organization", "o", "", "Depot organization ID")
 	flags.StringVar(&region, "region", "us-east-1", "Build data will be stored in the chosen region")
-	flags.Int64Var(&keepGigabytes, "keep-cache-size", 50, "Build cache to keep per architecture in GB")
+	flags.Int64Var(&keepGigabytes, "cache-storage-policy", 50, "Build cache to keep per architecture in GB")
 
 	return cmd
 }
