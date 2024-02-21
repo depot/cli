@@ -4,8 +4,8 @@ deps:
   - remote: buf.build
     owner: depot
     repository: api
-    commit: d9787d1716d84b7c9328732ac89b997e
-    digest: shake256:e7ab026c94db437ac5474756d3ac7bce9d7c8f5680039aae9d95b9a4b0ed68873841be150f396e8894fffec19ebadda9d0ccd6898b6f0fbf6febebb7017f4f06
+    commit: e8316610338f48f48fe00f55fe1108a8
+    digest: shake256:dd4a2eedc9419fe6638afde1cf75f40943ee6d10fa445e32a99cf183f414e473d60d1f95554d174ebf25d4f05557dd62053cc7b77e23396cb6c2100d08bfecbe
   - remote: buf.build
     owner: depot
     repository: buildkit

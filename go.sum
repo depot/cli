@@ -1,7 +1,7 @@
-buf.build/gen/go/depot/api/connectrpc/go v1.15.0-20240220165926-8fccc82c3226.1 h1:JPtNTm1/qkPHnNXAUr97RGzCNOGWBvr2/apdt2/UD7w=
-buf.build/gen/go/depot/api/connectrpc/go v1.15.0-20240220165926-8fccc82c3226.1/go.mod h1:Zb0tj5AdWMalcUYmRyXbloYoioO/DHULOEwFP6hyHwE=
-buf.build/gen/go/depot/api/protocolbuffers/go v1.32.0-20240220165926-8fccc82c3226.1 h1:rt5CDaD1PjF3Na2K4y1ElnnqeL+zOU5ikSxH28MBh3o=
-buf.build/gen/go/depot/api/protocolbuffers/go v1.32.0-20240220165926-8fccc82c3226.1/go.mod h1:MP5BDdzxwFdhf/KEm27tKfz9dKjtC9C1kXdpuSOb09g=
+buf.build/gen/go/depot/api/connectrpc/go v1.15.0-20240221184445-e8316610338f.1 h1:VYpSRSXBgukO/q1IhlY362qbFbQ0c60c9R8773vSdzI=
+buf.build/gen/go/depot/api/connectrpc/go v1.15.0-20240221184445-e8316610338f.1/go.mod h1:u3UQrhy7mXGU+2gMag3WeI7FZgLd2GsQxpWqt2ZSNvg=
+buf.build/gen/go/depot/api/protocolbuffers/go v1.32.0-20240221184445-e8316610338f.1 h1:kgC5f06snCbDMa9hN8DY5MEYSeQzBMSXXB3z4SUX5ao=
+buf.build/gen/go/depot/api/protocolbuffers/go v1.32.0-20240221184445-e8316610338f.1/go.mod h1:MP5BDdzxwFdhf/KEm27tKfz9dKjtC9C1kXdpuSOb09g=
 cloud.google.com/go v0.26.0/go.mod h1:aQUYkXzVsufM+DwF1aE+0xfcU+56JwCaLick0ClmMTw=
 cloud.google.com/go v0.34.0/go.mod h1:aQUYkXzVsufM+DwF1aE+0xfcU+56JwCaLick0ClmMTw=
 cloud.google.com/go v0.38.0/go.mod h1:990N+gfupTy94rShfmMCWGDn0LpTmnzTp2qbd1dvSRU=

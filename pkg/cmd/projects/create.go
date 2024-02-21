@@ -43,13 +43,16 @@ func NewCmdCreate() *cobra.Command {
 
 			projectClient := api.NewSDKProjectsClient()
 			req := corev1.CreateProjectRequest{
-				Name:           projectName,
-				OrganizationId: orgID,
-				RegionId:       region,
+				Name:     projectName,
+				RegionId: region,
 				CachePolicy: &corev1.CachePolicy{
 					KeepBytes: keepGigabytes * 1024 * 1024 * 1024,
 				},
 			}
+			if orgID != "" {
+				req.OrganizationId = &orgID
+			}
+
 			res, err := projectClient.CreateProject(ctx, api.WithAuthentication(connect.NewRequest(&req), token))
 			if err != nil {
 				return err

@@ -3,8 +3,8 @@ module github.com/depot/cli
 go 1.20
 
 require (
-	buf.build/gen/go/depot/api/connectrpc/go v1.15.0-20240220165926-8fccc82c3226.1
-	buf.build/gen/go/depot/api/protocolbuffers/go v1.32.0-20240220165926-8fccc82c3226.1
+	buf.build/gen/go/depot/api/connectrpc/go v1.15.0-20240221184445-e8316610338f.1
+	buf.build/gen/go/depot/api/protocolbuffers/go v1.32.0-20240221184445-e8316610338f.1
 	connectrpc.com/connect v1.15.0
 	github.com/adrg/xdg v0.4.0
 	github.com/briandowns/spinner v1.18.1
