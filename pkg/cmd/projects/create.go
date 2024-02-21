@@ -66,6 +66,7 @@ func NewCmdCreate() *cobra.Command {
 	}
 
 	flags := cmd.Flags()
+	flags.SortFlags = false
 	flags.StringVar(&token, "token", "", "Depot token")
 	flags.StringVarP(&orgID, "organization", "o", "", "Depot organization ID")
 	flags.StringVar(&region, "region", "us-east-1", "Build data will be stored in the chosen region")
