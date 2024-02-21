@@ -1132,7 +1132,7 @@ func BuildWithResultHandler(ctx context.Context, nodes []builder.Node, opt map[s
 				}
 
 				if pushNames != "" {
-					progress.Write(pw, fmt.Sprintf("merging manifest list %s", pushNames), func() error {
+					mergeManifestList := func() error {
 						descs := make([]specs.Descriptor, 0, len(res))
 
 						for _, r := range res {
@@ -1257,7 +1257,17 @@ func BuildWithResultHandler(ctx context.Context, nodes []builder.Node, opt map[s
 							}
 						}
 						return nil
+					}
+
+					var mergeErr error
+					progress.Write(pw, fmt.Sprintf("merging manifest list %s", pushNames), func() error {
+						mergeErr = mergeManifestList()
+						return mergeErr
 					})
+
+					if mergeErr != nil {
+						return mergeErr
+					}
 				}
 				return nil
 			})
