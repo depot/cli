@@ -4,7 +4,6 @@ package projects
 import (
 	"encoding/json"
 	"fmt"
-	"time"
 
 	corev1 "buf.build/gen/go/depot/api/protocolbuffers/go/depot/core/v1"
 	"connectrpc.com/connect"
@@ -16,6 +15,7 @@ import (
 func NewCmdCreate() *cobra.Command {
 	var (
 		token         string
+		orgID         string
 		region        string
 		keepGigabytes int64
 	)
@@ -23,10 +23,13 @@ func NewCmdCreate() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "create [flags] <project-name>",
 		Aliases: []string{"c"},
-		Args:    cobra.ExactArgs(1),
+		Args:    cobra.MaximumNArgs(1),
 		Hidden:  true,
 		Short:   "Create depot project",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) != 1 {
+				return fmt.Errorf("missing or too many arguments, expected exactly 1 (project name)")
+			}
 			ctx := cmd.Context()
 			projectName := args[0]
 
@@ -41,8 +44,9 @@ func NewCmdCreate() *cobra.Command {
 
 			projectClient := api.NewSDKProjectsClient()
 			req := corev1.CreateProjectRequest{
-				Name:     projectName,
-				RegionId: region,
+				Name:           projectName,
+				OrganizationId: orgID,
+				RegionId:       region,
 				CachePolicy: &corev1.CachePolicy{
 					KeepBytes: keepGigabytes * 1024 * 1024 * 1024,
 				},
@@ -64,6 +68,7 @@ func NewCmdCreate() *cobra.Command {
 
 	flags := cmd.Flags()
 	flags.StringVar(&token, "token", "", "Depot token")
+	flags.StringVarP(&orgID, "organization", "o", "", "Depot organization ID")
 	flags.StringVar(&region, "region", "us-east-1", "Build data will be stored in the chosen region")
 	flags.Int64Var(&keepGigabytes, "keep-cache-size", 50, "Build cache to keep per architecture in GB")
 
@@ -71,25 +76,15 @@ func NewCmdCreate() *cobra.Command {
 }
 
 type CreateResponse struct {
-	ProjectId      string              `json:"project_id,omitempty"`
-	OrganizationId string              `json:"organization_id,omitempty"`
-	Name           string              `json:"name,omitempty"`
-	RegionId       string              `json:"region_id,omitempty"`
-	CreatedAt      time.Time           `json:"created_at,omitempty"`
-	CachePolicy    *corev1.CachePolicy `json:"cache_policy,omitempty"`
+	ProjectId   string              `json:"project_id,omitempty"`
+	Name        string              `json:"name,omitempty"`
+	CachePolicy *corev1.CachePolicy `json:"cache_policy,omitempty"`
 }
 
 func NewCreateResponse(project *corev1.Project) *CreateResponse {
-	var createdAt time.Time
-	if project.GetCreatedAt() != nil {
-		createdAt = project.GetCreatedAt().AsTime()
-	}
 	return &CreateResponse{
-		ProjectId:      project.GetProjectId(),
-		OrganizationId: project.GetOrganizationId(),
-		Name:           project.GetName(),
-		RegionId:       project.GetRegionId(),
-		CreatedAt:      createdAt,
-		CachePolicy:    project.GetCachePolicy(),
+		ProjectId:   project.GetProjectId(),
+		Name:        project.GetName(),
+		CachePolicy: project.GetCachePolicy(),
 	}
 }
