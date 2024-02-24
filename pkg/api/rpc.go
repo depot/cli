@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"os"
 
+	"buf.build/gen/go/depot/api/connectrpc/go/depot/core/v1/corev1connect"
 	"connectrpc.com/connect"
 	"github.com/depot/cli/pkg/proto/depot/cli/v1/cliv1connect"
 	"github.com/depot/cli/pkg/proto/depot/cli/v1beta1/cliv1beta1connect"
@@ -31,6 +32,14 @@ func NewProjectsClient() cliv1beta1connect.ProjectsServiceClient {
 		baseURL = "https://api.depot.dev"
 	}
 	return cliv1beta1connect.NewProjectsServiceClient(http.DefaultClient, baseURL, WithUserAgent())
+}
+
+func NewSDKProjectsClient() corev1connect.ProjectServiceClient {
+	baseURL := os.Getenv("DEPOT_API_URL")
+	if baseURL == "" {
+		baseURL = "https://api.depot.dev"
+	}
+	return corev1connect.NewProjectServiceClient(http.DefaultClient, baseURL, WithUserAgent())
 }
 
 func NewPushClient() cliv1connect.PushServiceClient {

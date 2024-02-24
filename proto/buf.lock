@@ -3,6 +3,11 @@ version: v1
 deps:
   - remote: buf.build
     owner: depot
+    repository: api
+    commit: e8316610338f48f48fe00f55fe1108a8
+    digest: shake256:dd4a2eedc9419fe6638afde1cf75f40943ee6d10fa445e32a99cf183f414e473d60d1f95554d174ebf25d4f05557dd62053cc7b77e23396cb6c2100d08bfecbe
+  - remote: buf.build
+    owner: depot
     repository: buildkit
     commit: e9588edecd7c4e56b68d0ea0e1d1badc
     digest: shake256:7bbfb36878b80f60a01057ea3d1e70b28e6c4d3501cab9e8320abfdb7b3a03e07e0c327e74f67324dc7d1fdc1ec9374d8055a54dd573d3bd255bdb2a53d5c8a2

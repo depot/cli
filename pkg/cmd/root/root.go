@@ -14,6 +14,7 @@ import (
 	"github.com/depot/cli/pkg/cmd/list"
 	loginCmd "github.com/depot/cli/pkg/cmd/login"
 	logout "github.com/depot/cli/pkg/cmd/logout"
+	"github.com/depot/cli/pkg/cmd/projects"
 	"github.com/depot/cli/pkg/cmd/pull"
 	"github.com/depot/cli/pkg/cmd/push"
 	"github.com/depot/cli/pkg/cmd/registry"
@@ -60,6 +61,7 @@ func NewCmdRoot(version, buildDate string) *cobra.Command {
 	cmd.AddCommand(versionCmd.NewCmdVersion(version, buildDate))
 	cmd.AddCommand(dockerCmd.NewCmdConfigureDocker(dockerCli))
 	cmd.AddCommand(registry.NewCmdRegistry())
+	cmd.AddCommand(projects.NewCmdProjects())
 
 	return cmd
 }
