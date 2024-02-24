@@ -425,7 +425,7 @@ func (t *LocalBakeValidator) Validate(ctx context.Context, _ []builder.Node, _ p
 		}
 
 		for target, opts := range targets {
-			if tag, ok := tags[target]; ok {
+			if tag, ok := tags[target]; ok && len(opts.Tags) == 0 {
 				opts.Tags = tag
 			}
 		}
