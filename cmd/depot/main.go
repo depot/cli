@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"path"
+	"runtime/pprof"
 	"strings"
 	"syscall"
 
@@ -29,6 +30,21 @@ func main() {
 		helpers.DisableOTEL()
 	}
 
+	cpuProfile := os.Getenv("DEPOT_CPU_PROFILE")
+	var cpuProfileFile *os.File
+	if cpuProfile != "" {
+		var err error
+		cpuProfileFile, err = os.Create(cpuProfile)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		err = pprof.StartCPUProfile(cpuProfileFile)
+		if err != nil {
+			log.Fatal(err)
+		}
+	}
+
 	binary := os.Args[0]
 	if strings.HasSuffix(binary, "-buildx") {
 		cmd, subcmd := parseCmdSubcmd()
@@ -44,6 +60,12 @@ func main() {
 	}
 
 	code := runMain()
+
+	if cpuProfile != "" {
+		pprof.StopCPUProfile()
+		cpuProfileFile.Close()
+	}
+
 	os.Exit(code)
 }
 
