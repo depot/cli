@@ -30,6 +30,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 	"golang.org/x/exp/maps"
+	"golang.org/x/exp/slices"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -101,7 +102,7 @@ func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator) (er
 		return err
 	}
 
-	buildOpts, err := validator.Validate(ctx, nodes, printer)
+	buildOpts, requestedTargets, err := validator.Validate(ctx, nodes, printer)
 	if err != nil {
 		return err
 	}
@@ -188,14 +189,18 @@ func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator) (er
 		// Three concurrent pulls at a time to avoid overwhelming the registry.
 		eg.SetLimit(3)
 		for i := range resp {
-			func(i int) {
+			func(i int, requestedTargets []string) {
 				eg.Go(func() error {
 					depotResponses := []build.DepotBuildResponse{resp[i]}
-					err := load.DepotFastLoad(ctx2, dockerCli.Client(), depotResponses, pullOpts, printer)
+					var err error
+					// Only load images from requested targets to avoid pulling unnecessary images.
+					if slices.Contains(requestedTargets, resp[i].Name) {
+						err = load.DepotFastLoad(ctx2, dockerCli.Client(), depotResponses, pullOpts, printer)
+					}
 					load.DeleteExportLeases(ctx2, depotResponses)
 					return err
 				})
-			}(i)
+			}(i, requestedTargets)
 		}
 
 		err := eg.Wait()
@@ -271,7 +276,7 @@ func BakeCmd(dockerCli command.Cli) *cobra.Command {
 			} else {
 				validator = NewLocalBakeValidator(options, args)
 				// Parse the local bake file before starting the build to catch errors early.
-				validatedOpts, err = validator.Validate(context.Background(), nil, nil)
+				validatedOpts, _, err = validator.Validate(context.Background(), nil, nil)
 				if err != nil {
 					return err
 				}
@@ -375,9 +380,9 @@ var (
 	_ BakeValidator = (*LocalBakeValidator)(nil)
 )
 
-// BakeValidator returns either local or remote build options for targets.
+// BakeValidator returns either local or remote build options for targets as well as the targets themselves.
 type BakeValidator interface {
-	Validate(ctx context.Context, nodes []builder.Node, pw progress.Writer) (map[string]buildx.Options, error)
+	Validate(ctx context.Context, nodes []builder.Node, pw progress.Writer) (opts map[string]buildx.Options, targets []string, err error)
 }
 
 type LocalBakeValidator struct {
@@ -386,6 +391,7 @@ type LocalBakeValidator struct {
 
 	once      sync.Once
 	buildOpts map[string]buildx.Options
+	targets   []string
 	err       error
 }
 
@@ -396,7 +402,7 @@ func NewLocalBakeValidator(options BakeOptions, args []string) *LocalBakeValidat
 	}
 }
 
-func (t *LocalBakeValidator) Validate(ctx context.Context, _ []builder.Node, _ progress.Writer) (map[string]buildx.Options, error) {
+func (t *LocalBakeValidator) Validate(ctx context.Context, _ []builder.Node, _ progress.Writer) (map[string]buildx.Options, []string, error) {
 	// Using a sync.Once because I _think_ the bake file may not always be read
 	// more than one time such as passed over stdin.
 	t.once.Do(func() {
@@ -412,10 +418,25 @@ func (t *LocalBakeValidator) Validate(ctx context.Context, _ []builder.Node, _ p
 			"BAKE_LOCAL_PLATFORM": platforms.DefaultString(),
 		}
 
-		targets, _, err := bake.ReadTargets(ctx, files, t.bakeTargets.Targets, overrides, defaults)
+		targets, groups, err := bake.ReadTargets(ctx, files, t.bakeTargets.Targets, overrides, defaults)
 		if err != nil {
 			t.err = err
 			return
+		}
+
+		resolvedTargets := map[string]struct{}{}
+		for _, target := range t.bakeTargets.Targets {
+			if _, ok := targets[target]; ok {
+				resolvedTargets[target] = struct{}{}
+			}
+			if _, ok := groups[target]; ok {
+				for _, t := range groups[target].Targets {
+					resolvedTargets[t] = struct{}{}
+				}
+			}
+		}
+		for target := range resolvedTargets {
+			t.targets = append(t.targets, target)
 		}
 
 		tags, err := compose.TargetTags(files)
@@ -433,7 +454,7 @@ func (t *LocalBakeValidator) Validate(ctx context.Context, _ []builder.Node, _ p
 		t.buildOpts, t.err = bake.TargetsToBuildOpt(targets, nil)
 	})
 
-	return t.buildOpts, t.err
+	return t.buildOpts, t.targets, t.err
 }
 
 type RemoteBakeValidator struct {
@@ -448,10 +469,10 @@ func NewRemoteBakeValidator(options BakeOptions, args []string) *RemoteBakeValid
 	}
 }
 
-func (t *RemoteBakeValidator) Validate(ctx context.Context, nodes []builder.Node, pw progress.Writer) (map[string]buildx.Options, error) {
+func (t *RemoteBakeValidator) Validate(ctx context.Context, nodes []builder.Node, pw progress.Writer) (map[string]buildx.Options, []string, error) {
 	files, inp, err := bake.ReadRemoteFiles(ctx, builder.ToBuildxNodes(nodes), t.bakeTargets.FileURL, t.options.files, pw)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	overrides := overrides(t.options)
@@ -460,12 +481,29 @@ func (t *RemoteBakeValidator) Validate(ctx context.Context, nodes []builder.Node
 		"BAKE_LOCAL_PLATFORM": platforms.DefaultString(),
 	}
 
-	targets, _, err := bake.ReadTargets(ctx, files, t.bakeTargets.Targets, overrides, defaults)
+	targets, groups, err := bake.ReadTargets(ctx, files, t.bakeTargets.Targets, overrides, defaults)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	return bake.TargetsToBuildOpt(targets, inp)
+	requestedTargets := []string{}
+	uniqueTargets := map[string]struct{}{}
+	for _, target := range t.bakeTargets.Targets {
+		if _, ok := targets[target]; ok {
+			uniqueTargets[target] = struct{}{}
+		}
+		if _, ok := groups[target]; ok {
+			for _, t := range groups[target].Targets {
+				uniqueTargets[t] = struct{}{}
+			}
+		}
+	}
+	for target := range uniqueTargets {
+		requestedTargets = append(requestedTargets, target)
+	}
+
+	opts, err := bake.TargetsToBuildOpt(targets, inp)
+	return opts, requestedTargets, err
 }
 
 type bakeTargets struct {
