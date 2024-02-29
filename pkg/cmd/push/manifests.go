@@ -69,7 +69,7 @@ type ImageDescriptors struct {
 }
 
 // GetImageDescriptors returns back all the descriptors for an image.
-func GetImageDescriptors(ctx context.Context, token, buildID string, logger StartLogDetailFunc) (*ImageDescriptors, error) {
+func GetImageDescriptors(ctx context.Context, token, buildID, target string, logger StartLogDetailFunc) (*ImageDescriptors, error) {
 	// Download location and credentials of ephemeral image save.
 	client := depotapi.NewBuildClient()
 	req := &cliv1.GetPullInfoRequest{BuildId: buildID}
@@ -79,6 +79,9 @@ func GetImageDescriptors(ctx context.Context, token, buildID string, logger Star
 	}
 
 	username, password, ref := res.Msg.Username, res.Msg.Password, res.Msg.Reference
+	if target != "" {
+		ref = ref + "-" + target
+	}
 
 	authorizer := &Authorizer{Username: username, Password: password}
 	hosts := docker.ConfigureDefaultRegistries(docker.WithAuthorizer(authorizer))

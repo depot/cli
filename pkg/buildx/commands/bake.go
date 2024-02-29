@@ -131,6 +131,7 @@ func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator) (er
 			BuildID:               in.buildID,
 			AdditionalTags:        in.additionalTags,
 			AdditionalCredentials: in.additionalCredentials,
+			AddTargetSuffix:       true,
 		}
 		buildOpts = registry.WithDepotSave(buildOpts, opts)
 	}
@@ -342,6 +343,7 @@ func BakeCmd(dockerCli command.Cli) *cobra.Command {
 
 	commonBuildFlags(&options.commonOptions, flags)
 	depotFlags(cmd, &options.DepotOptions, flags)
+	depotRegistryFlags(cmd, &options.DepotOptions, flags)
 
 	return cmd
 }

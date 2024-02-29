@@ -35,6 +35,7 @@ func NewCmdPull(dockerCli command.Cli) *cobra.Command {
 		buildID   string
 		progress  string
 		userTags  []string
+		target    string
 	)
 
 	cmd := &cobra.Command{
@@ -116,8 +117,12 @@ func NewCmdPull(dockerCli command.Cli) *cobra.Command {
 
 			opts.Username = &res.Msg.Username
 			opts.Password = &res.Msg.Password
+			imageName := res.Msg.Reference
+			if target != "" {
+				imageName = fmt.Sprintf("%s-%s", imageName, target)
+			}
 
-			displayPhrase := fmt.Sprintf("Pulling image %s", res.Msg.Reference)
+			displayPhrase := fmt.Sprintf("Pulling image %s", imageName)
 
 			printerCtx, cancel := context.WithCancel(ctx)
 			printer, err := NewPrinter(printerCtx, displayPhrase, os.Stderr, os.Stderr, progress)
@@ -131,7 +136,7 @@ func NewCmdPull(dockerCli command.Cli) *cobra.Command {
 				_ = printer.Wait()
 			}()
 
-			err = load.PullImages(ctx, dockerCli.Client(), res.Msg.Reference, opts, printer)
+			err = load.PullImages(ctx, dockerCli.Client(), imageName, opts, printer)
 			if err != nil {
 				return err
 			}
@@ -144,6 +149,7 @@ func NewCmdPull(dockerCli command.Cli) *cobra.Command {
 	cmd.Flags().StringVar(&platform, "platform", "", `Pulls image for specific platform ("linux/amd64", "linux/arm64")`)
 	cmd.Flags().StringSliceVarP(&userTags, "tag", "t", nil, "Optional tags to apply to the image")
 	cmd.Flags().StringVar(&progress, "progress", "auto", `Set type of progress output ("auto", "plain", "tty", "quiet")`)
+	cmd.Flags().StringVar(&target, "target", "", "bake target")
 
 	return cmd
 }
