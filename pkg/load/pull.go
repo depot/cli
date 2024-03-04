@@ -153,7 +153,7 @@ type PullProgress struct {
 	Vtx    *client.VertexStatus
 }
 
-func printPull(ctx context.Context, rc io.Reader, l progress.SubLogger) error {
+func printPull(_ context.Context, rc io.Reader, l progress.SubLogger) error {
 	started := map[string]PullProgress{}
 
 	defer func() {
