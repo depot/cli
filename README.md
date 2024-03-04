@@ -127,6 +127,7 @@ depot bake -f docker-bake.hcl original
 | `provenance`     | Shorthand for "--set=\*.attest=type=provenance"                                                           |
 | `pull`           | Always attempt to pull all referenced images                                                              |
 | `push`           | Shorthand for "--set=\*.output=type=registry"                                                             |
+| `save`           | Saves bake targets to the Depot ephemeral registry                                                        |
 | `sbom`           | Shorthand for "--set=\*.attest=type=sbom"                                                                 |
 | `set`            | Override target value (e.g., "targetpattern.key=value")                                                   |
 | `token`          | Depot API token                                                                                           |
@@ -194,6 +195,7 @@ depot build -t repo/image:tag . --push
 | `pull`            | Always attempt to pull all referenced images                                                              |
 | `push`            | Shorthand for "--output=type=registry"                                                                    |
 | `quiet`           | Suppress the build output and print image ID on success                                                   |
+| `save`           | Saves build to the Depot ephemeral registry                                                                |
 | `sbom`            | Shorthand for "--attest=type=sbom"                                                                        |
 | `secret`          | Secret to expose to the build (format: "id=mysecret[,src=/local/secret]")                                 |
 | `shm-size`        | Size of "/dev/shm"                                                                                        |
@@ -316,6 +318,22 @@ Remove any saved login defails from your local machine.
 
 ```shell
 depot logout
+```
+
+### `depot pull`
+
+Pull an image from the Depot ephemeral registry to your local Docker daemon.
+
+```shell
+depot pull --tag repo:tag <BUILD_ID>
+```
+
+### `depot push`
+
+Push an image from the Depot ephemeral registry to a destination registry.
+
+```shell
+depot push --tag repo:tag <BUILD_ID>
 ```
 
 ## Contributing
