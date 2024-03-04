@@ -308,7 +308,7 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.No
 				}
 			}
 
-			if err := writeMetadataFile(metadataFile, depotOpts.project, depotOpts.buildID, metadata); err != nil {
+			if err := writeMetadataFile(metadataFile, depotOpts.project, depotOpts.buildID, nil, metadata); err != nil {
 				return nil, nil, err
 			}
 		}
@@ -356,6 +356,9 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.No
 	}
 
 	printWarnings(os.Stderr, printer.Warnings(), progressMode)
+	if depotOpts.save {
+		printSaveUsage(depotOpts.project, depotOpts.buildID, progressMode, nil)
+	}
 	linter.Print(os.Stderr, progressMode)
 
 	for _, buildRes := range resp {
@@ -859,11 +862,11 @@ func depotLintFlags(cmd *cobra.Command, options *DepotOptions, flags *pflag.Flag
 	})
 }
 
-func depotAttestationFlags(cmd *cobra.Command, options *DepotOptions, flags *pflag.FlagSet) {
+func depotAttestationFlags(_ *cobra.Command, options *DepotOptions, flags *pflag.FlagSet) {
 	flags.StringVar(&options.sbomDir, "sbom-dir", "", `directory to store SBOM attestations`)
 }
 
-func depotRegistryFlags(cmd *cobra.Command, options *DepotOptions, flags *pflag.FlagSet) {
+func depotRegistryFlags(_ *cobra.Command, options *DepotOptions, flags *pflag.FlagSet) {
 	flags.BoolVar(&options.save, "save", false, `Saves the build to the depot registry`)
 }
 
@@ -947,13 +950,15 @@ func parsePrintFunc(str string) (*build.PrintFunc, error) {
 	return f, nil
 }
 
-func writeMetadataFile(filename, projectID, buildID string, metadata map[string]interface{}) error {
+func writeMetadataFile(filename, projectID, buildID string, targets []string, metadata map[string]interface{}) error {
 	depotBuild := struct {
-		BuildID   string `json:"buildID"`
-		ProjectID string `json:"projectID"`
+		BuildID   string   `json:"buildID"`
+		ProjectID string   `json:"projectID"`
+		Targets   []string `json:"targets,omitempty"`
 	}{
 		BuildID:   buildID,
 		ProjectID: projectID,
+		Targets:   targets,
 	}
 
 	metadata["depot.build"] = depotBuild

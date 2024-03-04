@@ -131,6 +131,7 @@ func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator) (er
 			BuildID:               in.buildID,
 			AdditionalTags:        in.additionalTags,
 			AdditionalCredentials: in.additionalCredentials,
+			AddTargetSuffix:       true,
 		}
 		buildOpts = registry.WithDepotSave(buildOpts, opts)
 	}
@@ -172,7 +173,7 @@ func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator) (er
 			}
 			dt[buildRes.Name] = metadata
 		}
-		if err := writeMetadataFile(in.metadataFile, in.project, in.buildID, dt); err != nil {
+		if err := writeMetadataFile(in.metadataFile, in.project, in.buildID, requestedTargets, dt); err != nil {
 			return err
 		}
 	}
@@ -217,6 +218,10 @@ func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator) (er
 	}
 
 	_ = printer.Wait()
+
+	if in.save {
+		printSaveUsage(in.project, in.buildID, in.progress, requestedTargets)
+	}
 	linter.Print(os.Stderr, in.progress)
 	return nil
 }
@@ -342,6 +347,7 @@ func BakeCmd(dockerCli command.Cli) *cobra.Command {
 
 	commonBuildFlags(&options.commonOptions, flags)
 	depotFlags(cmd, &options.DepotOptions, flags)
+	depotRegistryFlags(cmd, &options.DepotOptions, flags)
 
 	return cmd
 }
@@ -535,4 +541,25 @@ func parseBakeTargets(targets []string) (bkt bakeTargets) {
 
 	bkt.Targets = targets
 	return bkt
+}
+
+// printSaveUsage prints instructions to pull or push the saved targets.
+func printSaveUsage(project, buildID, progressMode string, requestedTargets []string) {
+	if progressMode != progress.PrinterModeQuiet {
+		fmt.Fprintln(os.Stderr)
+		saved := "target"
+		if len(requestedTargets) > 1 {
+			saved += "s"
+		}
+
+		targetUsage := "--target <TARGET> "
+		if len(requestedTargets) == 0 {
+			targetUsage = ""
+		}
+
+		targets := strings.Join(requestedTargets, ",")
+		fmt.Fprintf(os.Stderr, "Saved %s: %s\n", saved, targets)
+		fmt.Fprintf(os.Stderr, "\tTo pull: depot pull %s--project %s %s\n", targetUsage, project, buildID)
+		fmt.Fprintf(os.Stderr, "\tTo push: depot push %s--project %s --tag <REPOSITORY:TAG> %s\n", targetUsage, project, buildID)
+	}
 }

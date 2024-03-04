@@ -24,6 +24,7 @@ func NewCmdPush(dockerCli command.Cli) *cobra.Command {
 		token       string
 		projectID   string
 		buildID     string
+		target      string
 		progressFmt string
 		tags        []string
 	)
@@ -75,7 +76,7 @@ func NewCmdPush(dockerCli command.Cli) *cobra.Command {
 				if err != nil {
 					return err
 				}
-				err = Push(ctx, progressFmt, buildID, tag, token, dockerCli)
+				err = Push(ctx, progressFmt, buildID, target, tag, token, dockerCli)
 				err = finishPush(err)
 				if err != nil {
 					return err
@@ -90,6 +91,7 @@ func NewCmdPush(dockerCli command.Cli) *cobra.Command {
 	cmd.Flags().StringVar(&token, "token", "", "Depot token")
 	cmd.Flags().StringVar(&progressFmt, "progress", "auto", `Set type of progress output ("auto", "plain", "tty", "quiet")`)
 	cmd.Flags().StringArrayVarP(&tags, "tag", "t", []string{}, `Name and tag for the pushed image (format: "name:tag")`)
+	cmd.Flags().StringVar(&target, "target", "", "bake target")
 
 	return cmd
 }
@@ -117,16 +119,20 @@ func StartPush(ctx context.Context, buildID, tag, token string) (func(error) err
 	return finish, nil
 }
 
-func Push(ctx context.Context, progressFmt, buildID, tag, token string, dockerCli command.Cli) error {
+func Push(ctx context.Context, progressFmt, buildID, target, tag, token string, dockerCli command.Cli) error {
 	reporter, done, err := NewProgress(ctx, progressFmt)
 	if err != nil {
 		return err
 	}
 	defer done()
 
-	logger, finishReporting := reporter.StartLog(fmt.Sprintf("[depot] Pushing build %s as %s", buildID, tag))
+	msg := fmt.Sprintf("[depot] Pushing build %s as %s", buildID, tag)
+	if target != "" {
+		msg = fmt.Sprintf("[depot] Pushing build %s of target %s as %s", buildID, target, tag)
+	}
+	logger, finishReporting := reporter.StartLog(msg)
 
-	buildDescriptors, err := GetImageDescriptors(ctx, token, buildID, logger)
+	buildDescriptors, err := GetImageDescriptors(ctx, token, buildID, target, logger)
 	if err != nil {
 		finishReporting(err)
 		return err

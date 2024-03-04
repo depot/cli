@@ -4,6 +4,7 @@ import (
 	"github.com/depot/cli/pkg/build"
 	buildx "github.com/docker/buildx/build"
 	"github.com/moby/buildkit/client"
+	"golang.org/x/exp/slices"
 )
 
 type SaveOptions struct {
@@ -11,6 +12,9 @@ type SaveOptions struct {
 	AdditionalCredentials []build.Credential
 	ProjectID             string
 	BuildID               string
+	// AddTargetSuffix adds the target suffix to the additional tags.
+	// Useful for bake targets.
+	AddTargetSuffix bool
 }
 
 // WithDepotSave adds an output type image with a push to the depot registry.
@@ -45,12 +49,19 @@ func WithDepotSave(buildOpts map[string]buildx.Options, opts SaveOptions) map[st
 			buildOpt.Exports = append(buildOpt.Exports, exportImage)
 		}
 
+		additionalTags := slices.Clone(opts.AdditionalTags)
+		for i, tag := range additionalTags {
+			if opts.AddTargetSuffix {
+				additionalTags[i] = tag + "-" + target
+			}
+		}
+
 		// If the user did not specify push then we do not want to push any
 		// tags that were specified.  We strip those tags to avoid pushing.
 		if !hadPush {
-			buildOpt.Tags = opts.AdditionalTags
+			buildOpt.Tags = additionalTags
 		} else {
-			buildOpt.Tags = append(buildOpt.Tags, opts.AdditionalTags...)
+			buildOpt.Tags = append(buildOpt.Tags, additionalTags...)
 		}
 		buildOpts[target] = buildOpt
 	}
