@@ -1,6 +1,6 @@
 module github.com/depot/cli
 
-go 1.20
+go 1.21
 
 require (
 	buf.build/gen/go/depot/api/connectrpc/go v1.15.0-20240221184445-e8316610338f.1
@@ -15,6 +15,7 @@ require (
 	github.com/compose-spec/compose-go v1.6.0
 	github.com/containerd/console v1.0.4-0.20230313162750-1ae8d489ac81
 	github.com/containerd/containerd v1.6.20
+	github.com/containerd/log v0.1.0
 	github.com/distribution/reference v0.5.0
 	github.com/docker/buildx v0.10.3
 	github.com/docker/cli v24.0.7+incompatible
@@ -37,7 +38,7 @@ require (
 	github.com/pkg/errors v0.9.1
 	github.com/pyroscope-io/client v0.7.2
 	github.com/savioxavier/termlink v1.2.1
-	github.com/sirupsen/logrus v1.9.0
+	github.com/sirupsen/logrus v1.9.3
 	github.com/spf13/cobra v1.6.1
 	github.com/spf13/pflag v1.0.5
 	github.com/spf13/viper v1.14.0
@@ -189,6 +190,7 @@ require (
 )
 
 replace (
+	github.com/docker/docker => github.com/docker/docker v24.0.9+incompatible
 	github.com/moby/buildkit => github.com/depot/buildkit v0.11.6-depot.34
 	k8s.io/api => k8s.io/api v0.22.4
 	k8s.io/apimachinery => k8s.io/apimachinery v0.22.4

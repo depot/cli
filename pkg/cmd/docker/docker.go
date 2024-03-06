@@ -12,12 +12,12 @@ import (
 	"strings"
 
 	"github.com/depot/cli/internal/build"
+	"github.com/depot/cli/pkg/buildx/imagetools"
 	"github.com/depot/cli/pkg/helpers"
 	"github.com/docker/buildx/store"
 	"github.com/docker/buildx/store/storeutil"
 	"github.com/docker/buildx/util/confutil"
 	"github.com/docker/buildx/util/dockerutil"
-	"github.com/docker/buildx/util/imagetools"
 	"github.com/docker/cli/cli/command"
 	"github.com/docker/cli/cli/config"
 	dockertypes "github.com/docker/docker/api/types"
@@ -94,7 +94,7 @@ func NewCmdConfigureDocker(dockerCli command.Cli) *cobra.Command {
 	return cmd
 }
 
-func installDepotPlugin(dir, self string) error {
+func installDepotPlugin(_, self string) error {
 	if err := os.MkdirAll(path.Join(config.Dir(), "cli-plugins"), 0755); err != nil {
 		return errors.Wrap(err, "could not create cli-plugins directory")
 	}
