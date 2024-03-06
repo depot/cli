@@ -10,11 +10,11 @@ import (
 	"sync"
 
 	depotbuild "github.com/depot/cli/pkg/build"
+	"github.com/depot/cli/pkg/buildx/imagetools"
 	"github.com/docker/buildx/driver"
 	"github.com/docker/buildx/store"
 	"github.com/docker/buildx/store/storeutil"
 	"github.com/docker/buildx/util/dockerutil"
-	"github.com/docker/buildx/util/imagetools"
 	"github.com/docker/buildx/util/progress"
 	"github.com/docker/cli/cli/command"
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
@@ -165,7 +165,8 @@ func (b *Builder) ContextName() string {
 
 // ImageOpt returns registry auth configuration
 func (b *Builder) ImageOpt() (imagetools.Opt, error) {
-	return storeutil.GetImageConfig(b.opts.dockerCli, b.NodeGroup)
+	opt, err := storeutil.GetImageConfig(b.opts.dockerCli, b.NodeGroup)
+	return imagetools.Opt{Auth: opt.Auth, RegistryConfig: opt.RegistryConfig}, err
 }
 
 // Boot bootstrap a builder

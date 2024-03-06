@@ -3,13 +3,14 @@ package builder
 import (
 	"context"
 
+	"github.com/depot/cli/pkg/buildx/imagetools"
 	buildxbuilder "github.com/docker/buildx/builder"
 	"github.com/docker/buildx/driver"
 	ctxkube "github.com/docker/buildx/driver/kubernetes/context"
 	"github.com/docker/buildx/store"
 	"github.com/docker/buildx/store/storeutil"
 	"github.com/docker/buildx/util/dockerutil"
-	"github.com/docker/buildx/util/imagetools"
+	buildximagetools "github.com/docker/buildx/util/imagetools"
 	"github.com/docker/buildx/util/platformutil"
 	"github.com/moby/buildkit/util/grpcerrors"
 	ocispecs "github.com/opencontainers/image-spec/specs-go/v1"
@@ -33,7 +34,16 @@ type Node struct {
 func ToBuildxNodes(nodes []Node) []buildxbuilder.Node {
 	ret := make([]buildxbuilder.Node, len(nodes))
 	for i, n := range nodes {
-		ret[i] = buildxbuilder.Node(n)
+		ret[i] = buildxbuilder.Node{
+			Node:        n.Node,
+			Driver:      n.Driver,
+			DriverInfo:  n.DriverInfo,
+			Platforms:   n.Platforms,
+			ImageOpt:    buildximagetools.Opt{Auth: n.ImageOpt.Auth, RegistryConfig: n.ImageOpt.RegistryConfig},
+			ProxyConfig: n.ProxyConfig,
+			Version:     n.Version,
+			Err:         n.Err,
+		}
 	}
 	return ret
 }

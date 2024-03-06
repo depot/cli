@@ -27,11 +27,11 @@ import (
 	"github.com/containerd/containerd/images"
 	"github.com/containerd/containerd/platforms"
 	depotbuild "github.com/depot/cli/pkg/build"
+	"github.com/depot/cli/pkg/buildx/imagetools"
 	"github.com/distribution/reference"
 	"github.com/docker/buildx/builder"
 	"github.com/docker/buildx/driver"
 	"github.com/docker/buildx/util/dockerutil"
-	"github.com/docker/buildx/util/imagetools"
 	"github.com/docker/buildx/util/progress"
 	"github.com/docker/buildx/util/resolver"
 	"github.com/docker/buildx/util/waitmap"
@@ -1167,7 +1167,11 @@ func BuildWithResultHandler(ctx context.Context, nodes []builder.Node, opt map[s
 							var driverIndex int
 
 							for _, dp := range dps {
-								imageopt = nodes[dp.driverIndex].ImageOpt
+								opt := nodes[dp.driverIndex].ImageOpt
+								imageopt = imagetools.Opt{
+									Auth:           opt.Auth,
+									RegistryConfig: opt.RegistryConfig,
+								}
 								driverIndex = dp.driverIndex
 								break
 							}
@@ -1206,7 +1210,7 @@ func BuildWithResultHandler(ctx context.Context, nodes []builder.Node, opt map[s
 								}
 							}
 
-							dt, desc, err := itpull.Combine(ctx, srcs)
+							dt, desc, err := itpull.Combine(ctx, srcs, nil)
 							if err != nil {
 								return err
 							}
