@@ -1,6 +1,6 @@
 module github.com/depot/cli
 
-go 1.20
+go 1.21
 
 require (
 	buf.build/gen/go/depot/api/connectrpc/go v1.15.0-20240221184445-e8316610338f.1
@@ -190,6 +190,7 @@ require (
 )
 
 replace (
+	github.com/docker/docker => github.com/docker/docker v24.0.9+incompatible
 	github.com/moby/buildkit => github.com/depot/buildkit v0.11.6-depot.34
 	k8s.io/api => k8s.io/api v0.22.4
 	k8s.io/apimachinery => k8s.io/apimachinery v0.22.4

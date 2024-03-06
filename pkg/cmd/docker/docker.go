@@ -94,7 +94,7 @@ func NewCmdConfigureDocker(dockerCli command.Cli) *cobra.Command {
 	return cmd
 }
 
-func installDepotPlugin(dir, self string) error {
+func installDepotPlugin(_, self string) error {
 	if err := os.MkdirAll(path.Join(config.Dir(), "cli-plugins"), 0755); err != nil {
 		return errors.Wrap(err, "could not create cli-plugins directory")
 	}
