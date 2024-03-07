@@ -97,7 +97,7 @@ func NewCmdPull(dockerCli command.Cli) *cobra.Command {
 			}
 
 			buildOptions := res.Msg.Options
-			if !isSavedBuild(buildOptions) {
+			if len(buildOptions) > 0 && !isSavedBuild(buildOptions) {
 				return fmt.Errorf("build %s is not a saved build. To use the ephemeral registry use --save when building", buildID)
 			}
 
@@ -114,7 +114,7 @@ func NewCmdPull(dockerCli command.Cli) *cobra.Command {
 	cmd.Flags().StringVar(&platform, "platform", "", `Pulls image for specific platform ("linux/amd64", "linux/arm64")`)
 	cmd.Flags().StringSliceVarP(&userTags, "tag", "t", nil, "Optional tags to apply to the image")
 	cmd.Flags().StringVar(&progress, "progress", "auto", `Set type of progress output ("auto", "plain", "tty", "quiet")`)
-	cmd.Flags().StringSliceVar(&targets, "target", nil, "pull specific bake targets")
+	cmd.Flags().StringSliceVar(&targets, "target", nil, "Pulls image for specific bake targets")
 
 	return cmd
 }
