@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"connectrpc.com/connect"
-	"github.com/depot/cli/pkg/api"
 	depotapi "github.com/depot/cli/pkg/api"
 	"github.com/depot/cli/pkg/ci"
 	"github.com/depot/cli/pkg/helpers"
@@ -69,7 +68,7 @@ func NewCmdPull(dockerCli command.Cli) *cobra.Command {
 				}
 				projectID = selectedProject.ID
 
-				client := api.NewBuildClient()
+				client := depotapi.NewBuildClient()
 
 				if !helpers.IsTerminal() {
 					depotBuilds, err := helpers.Builds(ctx, token, projectID, client)
@@ -98,6 +97,10 @@ func NewCmdPull(dockerCli command.Cli) *cobra.Command {
 			}
 
 			buildOptions := res.Msg.Options
+			if !isSavedBuild(buildOptions) {
+				return fmt.Errorf("build %s is not a saved build. To use the ephemeral registry use --save when building", buildID)
+			}
+
 			if isBake(buildOptions) {
 				return pullBake(ctx, dockerCli, res.Msg, targets, userTags, platform, progress)
 			} else {
