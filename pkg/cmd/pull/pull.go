@@ -134,6 +134,10 @@ func pullBuild(ctx context.Context, dockerCli command.Cli, msg *cliv1.GetPullInf
 }
 
 func pullBake(ctx context.Context, dockerCli command.Cli, msg *cliv1.GetPullInfoResponse, targets, userTags []string, platform string, progress string) error {
+	err := validateTargets(targets, msg)
+	if err != nil {
+		return err
+	}
 	pullOpts := bakePullOpts(msg, targets, userTags, platform, progress)
 	printer, cancel, err := bakePrinter(ctx, pullOpts, progress)
 	if err != nil {

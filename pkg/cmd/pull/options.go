@@ -61,8 +61,21 @@ func buildPullOpt(msg *cliv1.GetPullInfoResponse, userTags []string, platform, p
 	}
 }
 
+func validateTargets(targets []string, msg *cliv1.GetPullInfoResponse) error {
+	var validTargets []string
+	for _, opt := range msg.Options {
+		validTargets = append(validTargets, *opt.TargetName)
+	}
+	for _, target := range targets {
+		if !slices.Contains(validTargets, target) {
+			return fmt.Errorf("target %s not found. The available targets are %s", target, strings.Join(validTargets, ", "))
+		}
+	}
+	return nil
+}
+
 // Collect all the bake targets to pull.
-// Preconditions: isBake(msg.Options) && isSavedBuild(msg.Options)
+// Preconditions: isBake(msg.Options) && isSavedBuild(msg.Options) && validateTargets(targets, msg) == nil
 func bakePullOpts(msg *cliv1.GetPullInfoResponse, targets, userTags []string, platform, progress string) []*pull {
 	pulls := []*pull{}
 	for _, opt := range msg.Options {
