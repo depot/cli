@@ -559,7 +559,7 @@ func printSaveUsage(project, buildID, progressMode string, requestedTargets []st
 
 		targets := strings.Join(requestedTargets, ",")
 		fmt.Fprintf(os.Stderr, "Saved %s: %s\n", saved, targets)
-		fmt.Fprintf(os.Stderr, "\tTo pull: depot pull %s--project %s %s\n", targetUsage, project, buildID)
+		fmt.Fprintf(os.Stderr, "\tTo pull: depot pull --project %s %s\n", project, buildID)
 		fmt.Fprintf(os.Stderr, "\tTo push: depot push %s--project %s --tag <REPOSITORY:TAG> %s\n", targetUsage, project, buildID)
 	}
 }

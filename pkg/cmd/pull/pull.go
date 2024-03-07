@@ -3,28 +3,18 @@ package pull
 import (
 	"context"
 	"fmt"
-	"io"
-	"os"
-	"sync"
 
 	"connectrpc.com/connect"
-	"github.com/containerd/console"
-	"github.com/depot/cli/pkg/api"
 	depotapi "github.com/depot/cli/pkg/api"
 	"github.com/depot/cli/pkg/ci"
 	"github.com/depot/cli/pkg/helpers"
 	"github.com/depot/cli/pkg/load"
 	cliv1 "github.com/depot/cli/pkg/proto/depot/cli/v1"
-	"github.com/docker/buildx/util/logutil"
 	prog "github.com/docker/buildx/util/progress"
 	"github.com/docker/cli/cli"
 	"github.com/docker/cli/cli/command"
-	"github.com/moby/buildkit/client"
-	"github.com/moby/buildkit/util/progress/progressui"
-	"github.com/opencontainers/go-digest"
-	"github.com/pkg/errors"
-	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
+	"golang.org/x/sync/errgroup"
 )
 
 func NewCmdPull(dockerCli command.Cli) *cobra.Command {
@@ -35,7 +25,7 @@ func NewCmdPull(dockerCli command.Cli) *cobra.Command {
 		buildID   string
 		progress  string
 		userTags  []string
-		target    string
+		targets   []string
 	)
 
 	cmd := &cobra.Command{
@@ -78,7 +68,7 @@ func NewCmdPull(dockerCli command.Cli) *cobra.Command {
 				}
 				projectID = selectedProject.ID
 
-				client := api.NewBuildClient()
+				client := depotapi.NewBuildClient()
 
 				if !helpers.IsTerminal() {
 					depotBuilds, err := helpers.Builds(ctx, token, projectID, client)
@@ -86,7 +76,7 @@ func NewCmdPull(dockerCli command.Cli) *cobra.Command {
 						return err
 					}
 					_ = depotBuilds.WriteCSV()
-					return errors.New("build ID must be specified")
+					return fmt.Errorf("build ID must be specified")
 				}
 
 				buildID, err = helpers.SelectBuildID(ctx, token, projectID, client)
@@ -95,7 +85,7 @@ func NewCmdPull(dockerCli command.Cli) *cobra.Command {
 				}
 
 				if buildID == "" {
-					return errors.New("build ID must be specified")
+					return fmt.Errorf("build ID must be specified")
 				}
 			}
 
@@ -106,41 +96,16 @@ func NewCmdPull(dockerCli command.Cli) *cobra.Command {
 				return err
 			}
 
-			opts := load.PullOptions{
-				UserTags:  userTags,
-				Quiet:     progress == prog.PrinterModeQuiet,
-				KeepImage: true,
-			}
-			if platform != "" {
-				opts.Platform = &platform
+			buildOptions := res.Msg.Options
+			if len(buildOptions) > 0 && !isSavedBuild(buildOptions) {
+				return fmt.Errorf("build %s is not a saved build. To use the ephemeral registry use --save when building", buildID)
 			}
 
-			opts.Username = &res.Msg.Username
-			opts.Password = &res.Msg.Password
-			imageName := res.Msg.Reference
-			if target != "" {
-				imageName = fmt.Sprintf("%s-%s", imageName, target)
+			if isBake(buildOptions) {
+				return pullBake(ctx, dockerCli, res.Msg, targets, userTags, platform, progress)
+			} else {
+				return pullBuild(ctx, dockerCli, res.Msg, userTags, platform, progress)
 			}
-
-			displayPhrase := fmt.Sprintf("Pulling image %s", imageName)
-
-			printerCtx, cancel := context.WithCancel(ctx)
-			printer, err := NewPrinter(printerCtx, displayPhrase, os.Stderr, os.Stderr, progress)
-			if err != nil {
-				cancel()
-				return err
-			}
-
-			defer func() {
-				cancel()
-				_ = printer.Wait()
-			}()
-
-			err = load.PullImages(ctx, dockerCli.Client(), imageName, opts, printer)
-			if err != nil {
-				return err
-			}
-			return nil
 		},
 	}
 
@@ -149,86 +114,49 @@ func NewCmdPull(dockerCli command.Cli) *cobra.Command {
 	cmd.Flags().StringVar(&platform, "platform", "", `Pulls image for specific platform ("linux/amd64", "linux/arm64")`)
 	cmd.Flags().StringSliceVarP(&userTags, "tag", "t", nil, "Optional tags to apply to the image")
 	cmd.Flags().StringVar(&progress, "progress", "auto", `Set type of progress output ("auto", "plain", "tty", "quiet")`)
-	cmd.Flags().StringVar(&target, "target", "", "bake target")
+	cmd.Flags().StringSliceVar(&targets, "target", nil, "Pulls image for specific bake targets")
 
 	return cmd
 }
 
-// Specialized printer as the default buildkit one has a hard-coded display phrase, "Building.""
-type Printer struct {
-	status       chan *client.SolveStatus
-	done         <-chan struct{}
-	err          error
-	warnings     []client.VertexWarning
-	logMu        sync.Mutex
-	logSourceMap map[digest.Digest]interface{}
-}
-
-func (p *Printer) Wait() error                      { close(p.status); <-p.done; return p.err }
-func (p *Printer) Write(s *client.SolveStatus)      { p.status <- s }
-func (p *Printer) Warnings() []client.VertexWarning { return p.warnings }
-
-func (p *Printer) ValidateLogSource(dgst digest.Digest, v interface{}) bool {
-	p.logMu.Lock()
-	defer p.logMu.Unlock()
-	src, ok := p.logSourceMap[dgst]
-	if ok {
-		if src == v {
-			return true
-		}
-	} else {
-		p.logSourceMap[dgst] = v
-		return true
+func pullBuild(ctx context.Context, dockerCli command.Cli, msg *cliv1.GetPullInfoResponse, userTags []string, platform string, progress string) error {
+	pull := buildPullOpt(msg, userTags, platform, progress)
+	printer, cancel, err := buildPrinter(ctx, pull, progress)
+	if err != nil {
+		return err
 	}
-	return false
-}
-
-func (p *Printer) ClearLogSource(v interface{}) {
-	p.logMu.Lock()
-	defer p.logMu.Unlock()
-	for d := range p.logSourceMap {
-		if p.logSourceMap[d] == v {
-			delete(p.logSourceMap, d)
-		}
-	}
-}
-
-func NewPrinter(ctx context.Context, displayPhrase string, w io.Writer, out console.File, mode string) (*Printer, error) {
-	statusCh := make(chan *client.SolveStatus)
-	doneCh := make(chan struct{})
-
-	pw := &Printer{
-		status:       statusCh,
-		done:         doneCh,
-		logSourceMap: map[digest.Digest]interface{}{},
-	}
-
-	if v := os.Getenv("BUILDKIT_PROGRESS"); v != "" && mode == prog.PrinterModeAuto {
-		mode = v
-	}
-
-	var c console.Console
-	switch mode {
-	case prog.PrinterModeQuiet:
-		w = io.Discard
-	case prog.PrinterModeAuto, prog.PrinterModeTty:
-		if cons, err := console.ConsoleFromFile(out); err == nil {
-			c = cons
-		} else {
-			if mode == prog.PrinterModeTty {
-				return nil, errors.Wrap(err, "failed to get console")
-			}
-		}
-	}
-
-	go func() {
-		resumeLogs := logutil.Pause(logrus.StandardLogger())
-		// not using shared context to not disrupt display but let is finish reporting errors
-		// DEPOT: allowed displayPhrase to be overridden.
-		pw.warnings, pw.err = progressui.DisplaySolveStatus(ctx, displayPhrase, c, w, statusCh)
-		resumeLogs()
-		close(doneCh)
+	defer func() {
+		cancel()
+		_ = printer.Wait()
 	}()
 
-	return pw, nil
+	return load.PullImages(ctx, dockerCli.Client(), pull.imageName, pull.pullOptions, printer)
+}
+
+func pullBake(ctx context.Context, dockerCli command.Cli, msg *cliv1.GetPullInfoResponse, targets, userTags []string, platform string, progress string) error {
+	err := validateTargets(targets, msg)
+	if err != nil {
+		return err
+	}
+	pullOpts := bakePullOpts(msg, targets, userTags, platform, progress)
+	printer, cancel, err := bakePrinter(ctx, pullOpts, progress)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		cancel()
+		_ = printer.Wait()
+	}()
+
+	eg, ctx2 := errgroup.WithContext(ctx)
+	// Three concurrent pulls at a time to avoid overwhelming the registry.
+	eg.SetLimit(3)
+	for _, p := range pullOpts {
+		func(imageName string, pullOptions load.PullOptions) {
+			eg.Go(func() error {
+				return load.PullImages(ctx2, dockerCli.Client(), imageName, pullOptions, printer)
+			})
+		}(p.imageName, p.pullOptions)
+	}
+	return eg.Wait()
 }

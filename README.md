@@ -328,6 +328,13 @@ Pull an image from the Depot ephemeral registry to your local Docker daemon.
 depot pull --tag repo:tag <BUILD_ID>
 ```
 
+Pull all bake images from the Depot ephemeral registry to your local Docker daemon.
+By default images will be tagged with the bake target names.
+
+```shell
+depot pull <BUILD_ID>
+```
+
 ### `depot push`
 
 Push an image from the Depot ephemeral registry to a destination registry.

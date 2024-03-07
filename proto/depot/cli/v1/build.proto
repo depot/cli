@@ -238,4 +238,5 @@ message GetPullInfoResponse {
   string reference = 1;
   string username = 2;
   string password = 3;
+  repeated BuildOptions options = 4;
 }
