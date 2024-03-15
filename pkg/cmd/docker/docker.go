@@ -202,9 +202,6 @@ func runConfigureBuildx(ctx context.Context, dockerCli command.Cli, project, tok
 	}
 
 	version := build.Version
-	if version == "0.0.0-dev" {
-		version = "latest"
-	}
 
 	image := "ghcr.io/depot/cli:" + version
 
