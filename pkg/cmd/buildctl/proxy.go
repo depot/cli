@@ -7,6 +7,8 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"strconv"
+	"strings"
 	"sync/atomic"
 
 	content "github.com/containerd/containerd/api/services/content/v1"
@@ -315,6 +317,12 @@ func (p *ControlProxy) ListWorkers(ctx context.Context, in *control.ListWorkersR
 			return nil, state.Err
 		}
 	}
+
+	md, ok := metadata.FromIncomingContext(ctx)
+	if ok && !isOlderThanBuildx013(md.Get("user-agent")) {
+		builds.Add(1)
+	}
+
 	return &control.ListWorkersResponse{
 		Record: platformWorkerRecords(p.platform),
 	}, nil
@@ -1059,4 +1067,37 @@ func forwardBuildxToBuildkit(buildx grpc.ServerStream, buildkit grpc.ClientStrea
 		}
 	}()
 	return ret
+}
+
+func isOlderThanBuildx013(userAgent []string) bool {
+	for _, ua := range userAgent {
+		parts := strings.Split(ua, "/")
+		if len(parts) < 2 {
+			continue
+		}
+
+		if parts[0] != "grpc-go" {
+			continue
+		}
+
+		parts = strings.Split(parts[1], ".")
+		if len(parts) < 2 {
+			continue
+		}
+
+		if parts[0] != "1" {
+			continue
+		}
+
+		minor, err := strconv.Atoi(parts[1])
+		if err != nil {
+			continue
+		}
+
+		if minor < 59 {
+			return true
+		}
+	}
+
+	return false
 }
