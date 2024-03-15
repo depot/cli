@@ -147,3 +147,7 @@ func (m *mockBuildServiceClient) ReportBuildContext(context.Context, *connect.Re
 func (m *mockBuildServiceClient) GetPullInfo(context.Context, *connect.Request[cliv1.GetPullInfoRequest]) (*connect.Response[cliv1.GetPullInfoResponse], error) {
 	return nil, nil
 }
+
+func (m *mockBuildServiceClient) GetPullToken(context.Context, *connect.Request[cliv1.GetPullTokenRequest]) (*connect.Response[cliv1.GetPullTokenResponse], error) {
+	return nil, nil
+}
