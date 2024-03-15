@@ -59,6 +59,9 @@ const (
 	// BuildServiceGetPullInfoProcedure is the fully-qualified name of the BuildService's GetPullInfo
 	// RPC.
 	BuildServiceGetPullInfoProcedure = "/depot.cli.v1.BuildService/GetPullInfo"
+	// BuildServiceGetPullTokenProcedure is the fully-qualified name of the BuildService's GetPullToken
+	// RPC.
+	BuildServiceGetPullTokenProcedure = "/depot.cli.v1.BuildService/GetPullToken"
 )
 
 // BuildServiceClient is a client for the depot.cli.v1.BuildService service.
@@ -72,6 +75,7 @@ type BuildServiceClient interface {
 	ReportBuildContext(context.Context, *connect.Request[v1.ReportBuildContextRequest]) (*connect.Response[v1.ReportBuildContextResponse], error)
 	ListBuilds(context.Context, *connect.Request[v1.ListBuildsRequest]) (*connect.Response[v1.ListBuildsResponse], error)
 	GetPullInfo(context.Context, *connect.Request[v1.GetPullInfoRequest]) (*connect.Response[v1.GetPullInfoResponse], error)
+	GetPullToken(context.Context, *connect.Request[v1.GetPullTokenRequest]) (*connect.Response[v1.GetPullTokenResponse], error)
 }
 
 // NewBuildServiceClient constructs a client for the depot.cli.v1.BuildService service. By default,
@@ -129,6 +133,11 @@ func NewBuildServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			baseURL+BuildServiceGetPullInfoProcedure,
 			opts...,
 		),
+		getPullToken: connect.NewClient[v1.GetPullTokenRequest, v1.GetPullTokenResponse](
+			httpClient,
+			baseURL+BuildServiceGetPullTokenProcedure,
+			opts...,
+		),
 	}
 }
 
@@ -143,6 +152,7 @@ type buildServiceClient struct {
 	reportBuildContext    *connect.Client[v1.ReportBuildContextRequest, v1.ReportBuildContextResponse]
 	listBuilds            *connect.Client[v1.ListBuildsRequest, v1.ListBuildsResponse]
 	getPullInfo           *connect.Client[v1.GetPullInfoRequest, v1.GetPullInfoResponse]
+	getPullToken          *connect.Client[v1.GetPullTokenRequest, v1.GetPullTokenResponse]
 }
 
 // CreateBuild calls depot.cli.v1.BuildService.CreateBuild.
@@ -190,6 +200,11 @@ func (c *buildServiceClient) GetPullInfo(ctx context.Context, req *connect.Reque
 	return c.getPullInfo.CallUnary(ctx, req)
 }
 
+// GetPullToken calls depot.cli.v1.BuildService.GetPullToken.
+func (c *buildServiceClient) GetPullToken(ctx context.Context, req *connect.Request[v1.GetPullTokenRequest]) (*connect.Response[v1.GetPullTokenResponse], error) {
+	return c.getPullToken.CallUnary(ctx, req)
+}
+
 // BuildServiceHandler is an implementation of the depot.cli.v1.BuildService service.
 type BuildServiceHandler interface {
 	CreateBuild(context.Context, *connect.Request[v1.CreateBuildRequest]) (*connect.Response[v1.CreateBuildResponse], error)
@@ -201,6 +216,7 @@ type BuildServiceHandler interface {
 	ReportBuildContext(context.Context, *connect.Request[v1.ReportBuildContextRequest]) (*connect.Response[v1.ReportBuildContextResponse], error)
 	ListBuilds(context.Context, *connect.Request[v1.ListBuildsRequest]) (*connect.Response[v1.ListBuildsResponse], error)
 	GetPullInfo(context.Context, *connect.Request[v1.GetPullInfoRequest]) (*connect.Response[v1.GetPullInfoResponse], error)
+	GetPullToken(context.Context, *connect.Request[v1.GetPullTokenRequest]) (*connect.Response[v1.GetPullTokenResponse], error)
 }
 
 // NewBuildServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -254,6 +270,11 @@ func NewBuildServiceHandler(svc BuildServiceHandler, opts ...connect.HandlerOpti
 		svc.GetPullInfo,
 		opts...,
 	)
+	buildServiceGetPullTokenHandler := connect.NewUnaryHandler(
+		BuildServiceGetPullTokenProcedure,
+		svc.GetPullToken,
+		opts...,
+	)
 	return "/depot.cli.v1.BuildService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case BuildServiceCreateBuildProcedure:
@@ -274,6 +295,8 @@ func NewBuildServiceHandler(svc BuildServiceHandler, opts ...connect.HandlerOpti
 			buildServiceListBuildsHandler.ServeHTTP(w, r)
 		case BuildServiceGetPullInfoProcedure:
 			buildServiceGetPullInfoHandler.ServeHTTP(w, r)
+		case BuildServiceGetPullTokenProcedure:
+			buildServiceGetPullTokenHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -317,4 +340,8 @@ func (UnimplementedBuildServiceHandler) ListBuilds(context.Context, *connect.Req
 
 func (UnimplementedBuildServiceHandler) GetPullInfo(context.Context, *connect.Request[v1.GetPullInfoRequest]) (*connect.Response[v1.GetPullInfoResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.cli.v1.BuildService.GetPullInfo is not implemented"))
+}
+
+func (UnimplementedBuildServiceHandler) GetPullToken(context.Context, *connect.Request[v1.GetPullTokenRequest]) (*connect.Response[v1.GetPullTokenResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.cli.v1.BuildService.GetPullToken is not implemented"))
 }

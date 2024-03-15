@@ -15,6 +15,7 @@ service BuildService {
   rpc ReportBuildContext(ReportBuildContextRequest) returns (ReportBuildContextResponse);
   rpc ListBuilds(ListBuildsRequest) returns (ListBuildsResponse) {}
   rpc GetPullInfo(GetPullInfoRequest) returns (GetPullInfoResponse);
+  rpc GetPullToken(GetPullTokenRequest) returns (GetPullTokenResponse);
 }
 
 message CreateBuildRequest {
@@ -239,4 +240,13 @@ message GetPullInfoResponse {
   string username = 2;
   string password = 3;
   repeated BuildOptions options = 4;
+}
+
+message GetPullTokenRequest {
+  optional string project_id = 1;
+  optional string build_id = 2;
+}
+
+message GetPullTokenResponse {
+  string token = 1;
 }
