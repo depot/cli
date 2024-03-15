@@ -46,7 +46,6 @@ enum Command {
   COMMAND_BUILD = 1;
   COMMAND_BAKE = 2;
   COMMAND_BUILDX = 3;
-  COMMAND_DAGGER = 4;
 }
 
 message BuildOutput {
