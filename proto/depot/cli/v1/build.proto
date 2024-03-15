@@ -15,6 +15,7 @@ service BuildService {
   rpc ReportBuildContext(ReportBuildContextRequest) returns (ReportBuildContextResponse);
   rpc ListBuilds(ListBuildsRequest) returns (ListBuildsResponse) {}
   rpc GetPullInfo(GetPullInfoRequest) returns (GetPullInfoResponse);
+  rpc GetPullToken(GetPullTokenRequest) returns (GetPullTokenResponse);
 }
 
 message CreateBuildRequest {
@@ -45,6 +46,7 @@ enum Command {
   COMMAND_BUILD = 1;
   COMMAND_BAKE = 2;
   COMMAND_BUILDX = 3;
+  COMMAND_DAGGER = 4;
 }
 
 message BuildOutput {
@@ -239,4 +241,13 @@ message GetPullInfoResponse {
   string username = 2;
   string password = 3;
   repeated BuildOptions options = 4;
+}
+
+message GetPullTokenRequest {
+  optional string project_id = 1;
+  optional string build_id = 2;
+}
+
+message GetPullTokenResponse {
+  string token = 1;
 }
