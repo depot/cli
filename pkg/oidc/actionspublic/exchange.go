@@ -49,7 +49,7 @@ func RetrieveToken(ctx context.Context, audience string) (string, error) {
 	}
 
 	// Skip if the the repository is private, or the pull request is from the same repository
-	if payload.Repository.Private == true || payload.PullRequest.Head.Repo.FullName == payload.Repository.FullName {
+	if payload.Repository.Private || payload.PullRequest.Head.Repo.FullName == payload.Repository.FullName {
 		return "", nil
 	}
 
