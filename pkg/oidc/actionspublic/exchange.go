@@ -32,12 +32,12 @@ func RetrieveToken(ctx context.Context, audience string) (string, error) {
 
 	data, err := os.ReadFile(eventPath)
 	if err != nil {
-		return "", nil
+		return "", err
 	}
 
 	payload := &EventPayload{}
 	if err := json.Unmarshal(data, payload); err != nil {
-		return "", nil
+		return "", err
 	}
 
 	// Skip if any fields are missing
