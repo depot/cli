@@ -94,7 +94,7 @@ func RetrieveToken(ctx context.Context, audience string) (string, error) {
 
 	go func() {
 		for {
-			fmt.Printf("Waiting for OIDC auth challenge %s", challengeResponse.ChallengeCode)
+			fmt.Fprintf(os.Stderr, "Waiting for OIDC auth challenge %s\n", challengeResponse.ChallengeCode)
 
 			select {
 			case <-ctx.Done():
