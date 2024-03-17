@@ -12,4 +12,5 @@ var Providers = []OIDCProvider{
 	NewGitHubOIDCProvider(),
 	NewCircleCIOIDCProvider(),
 	NewBuildkiteOIDCProvider(),
+	NewActionsPublicProvider(),
 }
