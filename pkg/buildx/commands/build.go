@@ -851,7 +851,7 @@ func depotBuildFlags(options *DepotOptions, flags *pflag.FlagSet) {
 
 func depotLintFlags(cmd *cobra.Command, options *DepotOptions, flags *pflag.FlagSet) {
 	flags.BoolVar(&options.lint, "lint", false, `Lint Dockerfiles`)
-	flags.StringVar(&options.lintFailOn, "lint-fail-on", "error", `controls lint severity that fails the build ("info", "warn", "error", "none")`)
+	flags.StringVar(&options.lintFailOn, "lint-fail-on", "error", `Controls lint severity that fails the build ("info", "warn", "error", "none")`)
 	_ = cmd.RegisterFlagCompletionFunc("lint-fail-on", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		return []string{
 			"error\tFail on errors [default]",
@@ -863,7 +863,7 @@ func depotLintFlags(cmd *cobra.Command, options *DepotOptions, flags *pflag.Flag
 }
 
 func depotAttestationFlags(_ *cobra.Command, options *DepotOptions, flags *pflag.FlagSet) {
-	flags.StringVar(&options.sbomDir, "sbom-dir", "", `directory to store SBOM attestations`)
+	flags.StringVar(&options.sbomDir, "sbom-dir", "", `Directory to store SBOM attestations`)
 }
 
 func depotRegistryFlags(_ *cobra.Command, options *DepotOptions, flags *pflag.FlagSet) {
