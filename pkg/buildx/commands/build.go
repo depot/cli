@@ -867,7 +867,7 @@ func depotAttestationFlags(_ *cobra.Command, options *DepotOptions, flags *pflag
 }
 
 func depotRegistryFlags(_ *cobra.Command, options *DepotOptions, flags *pflag.FlagSet) {
-	flags.BoolVar(&options.save, "save", false, `Saves the build to the depot registry`)
+	flags.BoolVar(&options.save, "save", false, `Saves the build to the Depot ephemeral registry`)
 }
 
 func checkWarnedFlags(f *pflag.Flag) {
