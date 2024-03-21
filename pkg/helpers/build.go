@@ -94,7 +94,6 @@ func NewBuildRequest(project string, opts map[string]buildx.Options, features Us
 		}
 	}
 
-	// Should never be reached.
 	return &cliv1.CreateBuildRequest{ProjectId: &project}
 }
 
