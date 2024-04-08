@@ -107,7 +107,11 @@ func WithDepotImagePull(buildOpts map[string]build.Options, loadOpts DepotLoadOp
 					export.Attrs["name"] = defaultImageName(loadOpts, target)
 				}
 
-				export.Attrs["oci-mediatypes"] = "true"
+				// Don't use OCI mediatypes if pushing to Heroku's registry.
+				if !strings.Contains(export.Attrs["name"], "registry.heroku.com") {
+					export.Attrs["oci-mediatypes"] = "true"
+				}
+
 				export.Attrs["depot.export.lease"] = "true"
 				export.Attrs["depot.export.image.version"] = "2"
 			}
