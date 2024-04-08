@@ -93,6 +93,18 @@ func WithDepotImagePull(buildOpts map[string]build.Options, loadOpts DepotLoadOp
 		}
 	}
 
+	useOCI := true
+
+	// Don't use OCI mediatypes if pushing to Heroku's registry.
+	for _, options := range toPull {
+		for _, tag := range options.UserTags {
+			if strings.Contains(tag, "registry.heroku.com") {
+				useOCI = false
+				break
+			}
+		}
+	}
+
 	// Add oci-mediatypes for any image build regardless of whether we are pulling.
 	// This gives us more flexibility for future options like estargz.
 	for target, buildOpt := range buildOpts {
@@ -107,8 +119,7 @@ func WithDepotImagePull(buildOpts map[string]build.Options, loadOpts DepotLoadOp
 					export.Attrs["name"] = defaultImageName(loadOpts, target)
 				}
 
-				// Don't use OCI mediatypes if pushing to Heroku's registry.
-				if !strings.Contains(export.Attrs["name"], "registry.heroku.com") {
+				if useOCI {
 					export.Attrs["oci-mediatypes"] = "true"
 				}
 
