@@ -29,6 +29,7 @@ func main() {
 	if os.Getenv("DEPOT_DISABLE_OTEL") != "" {
 		helpers.DisableOTEL()
 	}
+	helpers.FixGitHubActionsCacheEnv()
 
 	cpuProfile := os.Getenv("DEPOT_CPU_PROFILE")
 	var cpuProfileFile *os.File
