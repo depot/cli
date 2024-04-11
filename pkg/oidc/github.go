@@ -14,6 +14,10 @@ func NewGitHubOIDCProvider() *GitHubOIDCProvider {
 	return &GitHubOIDCProvider{}
 }
 
+func (p *GitHubOIDCProvider) Name() string {
+	return "github"
+}
+
 func (p *GitHubOIDCProvider) RetrieveToken(ctx context.Context) (string, error) {
 	requestToken := os.Getenv("ACTIONS_ID_TOKEN_REQUEST_TOKEN")
 	if requestToken == "" {

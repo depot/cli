@@ -16,10 +16,14 @@ func NewBuildkiteOIDCProvider() *BuildkiteOIDCProvider {
 	return &BuildkiteOIDCProvider{}
 }
 
+func (p *BuildkiteOIDCProvider) Name() string {
+	return "buildkite"
+}
+
 func (p *BuildkiteOIDCProvider) RetrieveToken(ctx context.Context) (string, error) {
 	agentToken := os.Getenv("BUILDKITE_AGENT_ACCESS_TOKEN")
 	if agentToken == "" {
-		return "", nil
+		return "", fmt.Errorf("Not running in a Buildkite agent environment")
 	}
 
 	endpoint := os.Getenv("BUILDKITE_AGENT_ENDPOINT")
