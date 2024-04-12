@@ -29,8 +29,9 @@ func ImagePullPrivileged(ctx context.Context, dockerapi docker.APIClient, imageN
 	dockerPullOpts := types.ImagePullOptions{}
 	if opts.Username != nil && opts.Password != nil {
 		authConfig := registry.AuthConfig{
-			Username: *opts.Username,
-			Password: *opts.Password,
+			Username:      *opts.Username,
+			Password:      *opts.Password,
+			ServerAddress: "registry.depot.dev",
 		}
 		buf, err := json.Marshal(authConfig)
 		if err != nil {
