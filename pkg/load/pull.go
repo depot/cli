@@ -32,6 +32,9 @@ func ImagePullPrivileged(ctx context.Context, dockerapi docker.APIClient, imageN
 			Username: *opts.Username,
 			Password: *opts.Password,
 		}
+		if opts.ServerAddress != nil {
+			authConfig.ServerAddress = *opts.ServerAddress
+		}
 		buf, err := json.Marshal(authConfig)
 		if err != nil {
 			return err
