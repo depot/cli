@@ -44,12 +44,14 @@ func buildPullOpt(msg *cliv1.GetPullInfoResponse, userTags []string, platform, p
 		tags = msg.Options[0].Tags
 	}
 
+	serverAddress := "registry.depot.dev"
 	opts := load.PullOptions{
-		UserTags:  tags,
-		Quiet:     progress == prog.PrinterModeQuiet,
-		KeepImage: true,
-		Username:  &msg.Username,
-		Password:  &msg.Password,
+		UserTags:      tags,
+		Quiet:         progress == prog.PrinterModeQuiet,
+		KeepImage:     true,
+		Username:      &msg.Username,
+		Password:      &msg.Password,
+		ServerAddress: &serverAddress,
 	}
 	if platform != "" {
 		opts.Platform = &platform
@@ -97,12 +99,14 @@ func bakePullOpts(msg *cliv1.GetPullInfoResponse, targets, userTags []string, pl
 			}
 		}
 
+		serverAddress := "registry.depot.dev"
 		opts := load.PullOptions{
-			UserTags:  tags,
-			Quiet:     progress == prog.PrinterModeQuiet,
-			KeepImage: true,
-			Username:  &msg.Username,
-			Password:  &msg.Password,
+			UserTags:      tags,
+			Quiet:         progress == prog.PrinterModeQuiet,
+			KeepImage:     true,
+			Username:      &msg.Username,
+			Password:      &msg.Password,
+			ServerAddress: &serverAddress,
 		}
 		if platform != "" {
 			opts.Platform = &platform
