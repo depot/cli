@@ -22,6 +22,19 @@ message CreateBuildRequest {
   optional string project_id = 1;
   // This is an option per build target; in other words many for bake and one for build.
   repeated BuildOptions options = 2;
+  optional RequiredEngine required_engine = 3;
+
+  message RequiredEngine {
+    oneof engine {
+      BuildKitEngine buildkit = 1;
+      DaggerEngine dagger = 2;
+    }
+
+    message BuildKitEngine {}
+    message DaggerEngine {
+      string version = 1;
+    }
+  }
 }
 
 message BuildOptions {
@@ -46,6 +59,7 @@ enum Command {
   COMMAND_BUILD = 1;
   COMMAND_BAKE = 2;
   COMMAND_BUILDX = 3;
+  COMMAND_DAGGER = 4;
   COMMAND_EXEC = 5;
 }
 

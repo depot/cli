@@ -127,3 +127,17 @@ func NewBakeRequest(project string, opts map[string]buildx.Options, features Usi
 		Options:   targets,
 	}
 }
+
+func NewDaggerRequest(projectID, daggerVersion string) *cliv1.CreateBuildRequest {
+	return &cliv1.CreateBuildRequest{
+		ProjectId: &projectID,
+		Options:   []*cliv1.BuildOptions{{Command: cliv1.Command_COMMAND_DAGGER}},
+		RequiredEngine: &cliv1.CreateBuildRequest_RequiredEngine{
+			Engine: &cliv1.CreateBuildRequest_RequiredEngine_Dagger{
+				Dagger: &cliv1.CreateBuildRequest_RequiredEngine_DaggerEngine{
+					Version: daggerVersion,
+				},
+			},
+		},
+	}
+}
