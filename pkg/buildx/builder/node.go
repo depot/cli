@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/depot/cli/pkg/buildx/imagetools"
+	"github.com/depot/cli/pkg/debuglog"
 	buildxbuilder "github.com/docker/buildx/builder"
 	"github.com/docker/buildx/driver"
 	ctxkube "github.com/docker/buildx/driver/kubernetes/context"
@@ -56,6 +57,9 @@ func (b *Builder) Nodes() []Node {
 // LoadNodes loads and returns nodes for this builder.
 // TODO: this should be a method on a Node object and lazy load data for each driver.
 func (b *Builder) LoadNodes(ctx context.Context, withData bool) (_ []Node, err error) {
+	debuglog.Log("Node LoadNodes() called")
+	defer debuglog.Log("Node LoadNodes() done")
+
 	eg, _ := errgroup.WithContext(ctx)
 	b.nodes = make([]Node, len(b.NodeGroup.Nodes))
 
@@ -184,6 +188,9 @@ func (b *Builder) LoadNodes(ctx context.Context, withData bool) (_ []Node, err e
 }
 
 func (n *Node) loadData(ctx context.Context) error {
+	debuglog.Log("Node loadData() called")
+	defer debuglog.Log("Node loadData() done")
+
 	if n.Driver == nil {
 		return nil
 	}

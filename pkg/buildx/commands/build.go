@@ -24,6 +24,7 @@ import (
 	"github.com/depot/cli/pkg/buildx/builder"
 	"github.com/depot/cli/pkg/ci"
 	"github.com/depot/cli/pkg/cmd/docker"
+	"github.com/depot/cli/pkg/debuglog"
 	"github.com/depot/cli/pkg/helpers"
 	"github.com/depot/cli/pkg/load"
 	depotprogress "github.com/depot/cli/pkg/progress"
@@ -262,11 +263,13 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.No
 	buildxopts := depotbuildxbuild.BuildxOpts(opts)
 
 	// "Boot" the depot nodes.
+	debuglog.Log("booting depot nodes")
 	_, clients, err := depotbuildxbuild.ResolveDrivers(ctx, buildxNodes, buildxopts, printer)
 	if err != nil {
 		_ = printer.Wait()
 		return nil, nil, err
 	}
+	debuglog.Log("booted depot nodes")
 
 	var (
 		mu  sync.Mutex

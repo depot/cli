@@ -28,6 +28,7 @@ import (
 	"github.com/containerd/containerd/platforms"
 	depotbuild "github.com/depot/cli/pkg/build"
 	"github.com/depot/cli/pkg/buildx/imagetools"
+	"github.com/depot/cli/pkg/debuglog"
 	"github.com/distribution/reference"
 	"github.com/docker/buildx/builder"
 	"github.com/docker/buildx/driver"
@@ -214,6 +215,9 @@ func splitToDriverPairs(availablePlatforms map[string]int, opt map[string]Option
 }
 
 func ResolveDrivers(ctx context.Context, nodes []builder.Node, opt map[string]Options, pw progress.Writer) (map[string][]driverPair, []*client.Client, error) {
+	debuglog.Log("ResolveDrivers() called")
+	defer debuglog.Log("ResolveDrivers() done")
+
 	availablePlatforms := map[string]int{}
 	for i, node := range nodes {
 		for _, p := range node.Platforms {
@@ -760,6 +764,7 @@ func BuildWithResultHandler(ctx context.Context, nodes []builder.Node, opt map[s
 		return nil, errors.Errorf("driver required for build")
 	}
 
+	debuglog.Log("Filtering available nodes")
 	nodes, err = FilterAvailableNodes(nodes)
 	if err != nil {
 		return nil, errors.Wrapf(err, "no valid drivers found")
@@ -792,10 +797,12 @@ func BuildWithResultHandler(ctx context.Context, nodes []builder.Node, opt map[s
 		}
 	}
 
+	debuglog.Log("Resolving drivers")
 	m, clients, err := ResolveDrivers(ctx, nodes, opt, w)
 	if err != nil {
 		return nil, err
 	}
+	debuglog.Log("Drivers resolved")
 
 	defers := make([]func(), 0, 2)
 	defer func() {
@@ -811,10 +818,12 @@ func BuildWithResultHandler(ctx context.Context, nodes []builder.Node, opt map[s
 	for k, opt := range opt {
 		multiDriver := len(m[k]) > 1
 		hasMobyDriver := false
+		debuglog.Log("Fetching git attributes")
 		gitattrs, err := getGitAttributes(ctx, opt.Inputs.ContextPath, opt.Inputs.DockerfilePath)
 		if err != nil {
 			logrus.Warn(err)
 		}
+		debuglog.Log("Git attributes fetched")
 		for i, np := range m[k] {
 			node := nodes[np.driverIndex]
 			if node.Driver.IsMobyDriver() {
@@ -829,9 +838,11 @@ func BuildWithResultHandler(ctx context.Context, nodes []builder.Node, opt map[s
 			}
 
 			if dockerfileCallback != nil {
+				debuglog.Log("Calling dockerfile callback")
 				if err := dockerfileCallback.Handle(ctx, k, np.driverIndex, dockerfile, w); err != nil {
 					return nil, err
 				}
+				debuglog.Log("Dockerfile callback called")
 			}
 
 			for k, v := range gitattrs {
@@ -949,6 +960,7 @@ func BuildWithResultHandler(ctx context.Context, nodes []builder.Node, opt map[s
 
 				c := clients[dp.driverIndex]
 				eg2.Go(func() error {
+					debuglog.Log("Preparing to call client Build()")
 					pw = progress.ResetTime(pw)
 
 					if err := waitContextDeps(ctx, dp.driverIndex, results, &so); err != nil {
@@ -982,7 +994,11 @@ func BuildWithResultHandler(ctx context.Context, nodes []builder.Node, opt map[s
 					var printRes map[string][]byte
 					// DEPOT: stop recording the build steps and traces on the server.
 					so.Internal = true
+					debuglog.Log("Calling buildkit client Build()")
 					rr, err := c.Build(ctx, so, "buildx", func(ctx context.Context, c gateway.Client) (*gateway.Result, error) {
+						debuglog.Log("Inside Build() callback")
+						defer debuglog.Log("Build() callback done")
+
 						var isFallback bool
 						var origErr error
 						for {
@@ -997,7 +1013,9 @@ func BuildWithResultHandler(ctx context.Context, nodes []builder.Node, opt map[s
 									req.FrontendOpt["build-arg:BUILDKIT_SYNTAX"] = printFallbackImage
 								}
 							}
+							debuglog.Log("Calling c.Solve()")
 							res, err := c.Solve(ctx, req)
+							debuglog.Log("c.Solve() done")
 							if err != nil {
 								if origErr != nil {
 									return nil, err

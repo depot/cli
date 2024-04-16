@@ -6,6 +6,7 @@ import (
 	"time"
 
 	depotbuild "github.com/depot/cli/pkg/build"
+	"github.com/depot/cli/pkg/debuglog"
 	"github.com/depot/cli/pkg/machine"
 	"github.com/docker/buildx/driver"
 	"github.com/docker/buildx/util/progress"
@@ -24,6 +25,9 @@ type Driver struct {
 }
 
 func (d *Driver) Bootstrap(ctx context.Context, reporter progress.Logger) error {
+	debuglog.Log("Driver Bootstrap() called")
+	defer debuglog.Log("Driver Bootstrap() done")
+
 	buildID := d.cfg.DriverOpts["buildID"]
 	token := d.cfg.DriverOpts["token"]
 	platform := d.cfg.DriverOpts["platform"]
@@ -77,6 +81,9 @@ func (d *Driver) Bootstrap(ctx context.Context, reporter progress.Logger) error 
 }
 
 func (d *Driver) Info(ctx context.Context) (*driver.Info, error) {
+	debuglog.Log("Driver Info() called")
+	defer debuglog.Log("Driver Info() done")
+
 	if d.buildkit == nil {
 		return &driver.Info{Status: driver.Stopped}, nil
 	}
