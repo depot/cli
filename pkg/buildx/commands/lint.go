@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/depot/cli/pkg/buildx/build"
+	"github.com/depot/cli/pkg/debuglog"
 	depotprogress "github.com/depot/cli/pkg/progress"
 	"github.com/docker/buildx/builder"
 	"github.com/docker/buildx/util/progress"
@@ -102,6 +103,9 @@ func NewLinter(printer *depotprogress.Progress, failureMode LintFailure, clients
 }
 
 func (l *Linter) Handle(ctx context.Context, target string, driverIndex int, dockerfile *build.DockerfileInputs, p progress.Writer) error {
+	debuglog.Log("Lint Handle() called")
+	defer debuglog.Log("Lint Handle() done")
+
 	if l.FailureMode == LintSkip {
 		return nil
 	}
