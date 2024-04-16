@@ -60,6 +60,14 @@ func NewCmdExec(dockerCli command.Cli) *cobra.Command {
 			ProjectId: &projectID,
 			Options:   []*cliv1.BuildOptions{{Command: cliv1.Command_COMMAND_EXEC}},
 		}
+
+		if len(args) > 0 && args[0] == "dagger" {
+			daggerVersion, _ := helpers.ResolveDaggerVersion()
+			if daggerVersion != "" {
+				req = helpers.NewDaggerRequest(projectID, daggerVersion)
+			}
+		}
+
 		build, err := helpers.BeginBuild(ctx, req, token)
 		if err != nil {
 			return fmt.Errorf("unable to begin build: %w", err)
