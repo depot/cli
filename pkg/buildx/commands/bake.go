@@ -117,11 +117,10 @@ func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator) (er
 		buildOpts, pullOpts = load.WithDepotImagePull(
 			buildOpts,
 			load.DepotLoadOptions{
-				UseLocalRegistry: in.DepotOptions.useLocalRegistry,
-				Project:          in.DepotOptions.project,
-				BuildID:          in.DepotOptions.buildID,
-				IsBake:           true,
-				ProgressMode:     in.progress,
+				Project:      in.DepotOptions.project,
+				BuildID:      in.DepotOptions.buildID,
+				IsBake:       true,
+				ProgressMode: in.progress,
 			},
 		)
 	}
@@ -209,7 +208,7 @@ func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator) (er
 			// For now, we will fallback by rebuilding with load.
 			if in.exportLoad {
 				progress.Write(printer, "[load] fast load failed; retrying", func() error { return err })
-				buildOpts, _ = load.WithDepotImagePull(fallbackOpts, load.DepotLoadOptions{})
+				buildOpts = load.WithDockerLoad(fallbackOpts)
 				_, err = build.DepotBuild(ctx, buildxNodes, buildOpts, dockerClient, dockerConfigDir, printer, nil, in.DepotOptions.build)
 			}
 
@@ -320,8 +319,6 @@ func BakeCmd(dockerCli command.Cli) *cobra.Command {
 			options.buildID = build.ID
 			options.buildURL = build.BuildURL
 			options.token = build.Token
-			options.useLocalRegistry = build.UseLocalRegistry
-			options.proxyImage = build.ProxyImage
 			options.build = &build
 
 			if options.allowNoOutput {

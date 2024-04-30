@@ -41,14 +41,6 @@ func BeginBuild(ctx context.Context, req *cliv1.CreateBuildRequest, token string
 		profilerToken = build.Response.Msg.Profiler.Token
 	}
 
-	if os.Getenv("DEPOT_USE_LOCAL_REGISTRY") != "" {
-		build.UseLocalRegistry = true
-	}
-
-	if proxyImage := os.Getenv("DEPOT_PROXY_IMAGE"); proxyImage != "" {
-		build.ProxyImage = proxyImage
-	}
-
 	profiler.StartProfiler(build.ID, profilerToken)
 
 	return build, err

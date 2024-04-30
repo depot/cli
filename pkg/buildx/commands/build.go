@@ -118,8 +118,6 @@ type DepotOptions struct {
 	buildPlatform string
 	build         *depotbuild.Build
 
-	useLocalRegistry      bool
-	proxyImage            string
 	save                  bool
 	additionalTags        []string
 	additionalCredentials []depotbuild.Credential
@@ -236,11 +234,10 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.No
 		opts, pullOpts = load.WithDepotImagePull(
 			opts,
 			load.DepotLoadOptions{
-				UseLocalRegistry: depotOpts.useLocalRegistry,
-				Project:          depotOpts.project,
-				BuildID:          depotOpts.buildID,
-				IsBake:           false,
-				ProgressMode:     progressMode,
+				Project:      depotOpts.project,
+				BuildID:      depotOpts.buildID,
+				IsBake:       false,
+				ProgressMode: progressMode,
 			},
 		)
 	}
@@ -347,7 +344,7 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.No
 
 			if retryable {
 				progress.Write(printer, "[load] fast load failed; retrying", func() error { return err })
-				opts, _ = load.WithDepotImagePull(fallbackOpts, load.DepotLoadOptions{})
+				opts = load.WithDockerLoad(fallbackOpts)
 				_, err = depotbuildxbuild.DepotBuildWithResultHandler(ctx, buildxNodes, opts, dockerClient, dockerConfigDir, printer, nil, nil, allowNoOutput, depotOpts.build)
 			}
 		}
@@ -687,8 +684,6 @@ func BuildCmd(dockerCli command.Cli) *cobra.Command {
 			options.buildID = build.ID
 			options.buildURL = build.BuildURL
 			options.token = build.Token
-			options.useLocalRegistry = build.UseLocalRegistry
-			options.proxyImage = build.ProxyImage
 			options.build = &build
 
 			if options.allowNoOutput {
