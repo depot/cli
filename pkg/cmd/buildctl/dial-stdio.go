@@ -255,7 +255,7 @@ func tlsConn(ctx context.Context, builder *machine.Machine) (net.Conn, error) {
 		return nil, fmt.Errorf("failed to append ca certs")
 	}
 
-	cfg := &tls.Config{RootCAs: certPool}
+	cfg := &tls.Config{RootCAs: certPool, ServerName: builder.ServerName}
 	if builder.Cert != "" || builder.Key != "" {
 		cert, err := tls.X509KeyPair([]byte(builder.Cert), []byte(builder.Key))
 		if err != nil {

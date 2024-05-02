@@ -194,7 +194,7 @@ func (m *Machine) Client(ctx context.Context) (*client.Client, error) {
 		}
 		caCert := file.Name()
 
-		opts = append(opts, client.WithCredentials("", caCert, cert, key))
+		opts = append(opts, client.WithCredentials(m.ServerName, caCert, cert, key))
 	}
 
 	if m.useGzip {
