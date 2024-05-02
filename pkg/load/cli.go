@@ -11,11 +11,10 @@ import (
 
 // DepotLoadOptions are options to load images from the depot hosted registry.
 type DepotLoadOptions struct {
-	UseLocalRegistry bool   // Backwards-compat with buildx that uses tar loads.
-	Project          string // Depot project name; used to tag images.
-	BuildID          string // Depot build ID; used to tag images.
-	IsBake           bool   // If run from bake, we add the bake target to the image tag.
-	ProgressMode     string // ProgressMode quiet will not print progress.
+	Project      string // Depot project name; used to tag images.
+	BuildID      string // Depot build ID; used to tag images.
+	IsBake       bool   // If run from bake, we add the bake target to the image tag.
+	ProgressMode string // ProgressMode quiet will not print progress.
 }
 
 // Options to download from the Depot hosted registry and tag the image with the user provide tag.
@@ -32,26 +31,6 @@ type PullOptions struct {
 // WithDepotImagePull updates buildOpts to push to the depot user's personal registry.
 // allowing us to pull layers in parallel from the depot registry.
 func WithDepotImagePull(buildOpts map[string]build.Options, loadOpts DepotLoadOptions) (map[string]build.Options, map[string]PullOptions) {
-	// For backwards compatibility if the API does not support the depot registry,
-	// we use the previous buildx behavior of pulling the image via the output docker.
-	// NOTE: this means that a single tar will be sent from buildkit to the client and
-	// imported into the docker daemon.  This is quite slow.
-	if !loadOpts.UseLocalRegistry {
-		for key, buildOpt := range buildOpts {
-			if len(buildOpt.Exports) != 0 {
-				continue // assume that exports already has a docker export.
-			}
-			buildOpt.Exports = []client.ExportEntry{
-				{
-					Type:  "docker",
-					Attrs: map[string]string{},
-				},
-			}
-			buildOpts[key] = buildOpt
-		}
-		return buildOpts, map[string]PullOptions{}
-	}
-
 	toPull := make(map[string]PullOptions)
 	for target, buildOpt := range buildOpts {
 		// Gather all tags the user specifies for this image.
@@ -133,6 +112,26 @@ func WithDepotImagePull(buildOpts map[string]build.Options, loadOpts DepotLoadOp
 	}
 
 	return buildOpts, toPull
+}
+
+// For backwards compatibility if the API does not support the depot registry,
+// we use the previous buildx behavior of pulling the image via the output docker.
+// NOTE: this means that a single tar will be sent from buildkit to the client and
+// imported into the docker daemon.  This is quite slow.
+func WithDockerLoad(buildOpts map[string]build.Options) map[string]build.Options {
+	for key, buildOpt := range buildOpts {
+		if len(buildOpt.Exports) != 0 {
+			continue // assume that exports already has a docker export.
+		}
+		buildOpt.Exports = []client.ExportEntry{
+			{
+				Type:  "docker",
+				Attrs: map[string]string{},
+			},
+		}
+		buildOpts[key] = buildOpt
+	}
+	return buildOpts
 }
 
 // https://github.com/moby/containerd/blob/96c5ae04b6784e180aaeee50fba715ac448ddb0d/reference/docker/reference.go#L27-L31

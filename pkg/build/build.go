@@ -18,10 +18,8 @@ import (
 )
 
 type Build struct {
-	ID               string
-	Token            string
-	UseLocalRegistry bool
-	ProxyImage       string
+	ID    string
+	Token string
 	// BuildURL is the URL to the build on the depot web UI.
 	BuildURL string
 	Finish   func(error)
@@ -104,10 +102,6 @@ func NewBuild(ctx context.Context, req *cliv1.CreateBuildRequest, token string) 
 
 	build.Response = res
 	build.BuildURL = res.Msg.BuildUrl
-	build.UseLocalRegistry = res.Msg.GetRegistry() != nil && res.Msg.GetRegistry().CanUseLocalRegistry
-	if res.Msg.GetRegistry() != nil {
-		build.ProxyImage = res.Msg.GetRegistry().ProxyImage
-	}
 
 	return build, nil
 }
