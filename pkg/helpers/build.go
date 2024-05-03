@@ -35,14 +35,6 @@ func BeginBuild(ctx context.Context, req *cliv1.CreateBuildRequest, token string
 		return depotbuild.Build{}, err
 	}
 
-	if os.Getenv("DEPOT_USE_LOCAL_REGISTRY") != "" {
-		build.UseLocalRegistry = true
-	}
-
-	if proxyImage := os.Getenv("DEPOT_PROXY_IMAGE"); proxyImage != "" {
-		build.ProxyImage = proxyImage
-	}
-
 	return build, err
 }
 
