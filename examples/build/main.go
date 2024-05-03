@@ -50,9 +50,11 @@ func main() {
 	}
 	defer cancel()
 
+	reportingWriter := progresshelper.NewReportingWriter(printer, build.ID, build.Token)
+
 	// 3. Acquire a buildkit machine.
 	var buildkit *machine.Machine
-	buildErr = progresshelper.WithLog(printer, "[depot] launching amd64 machine", func() error {
+	buildErr = progresshelper.WithLog(reportingWriter, "[depot] launching amd64 machine", func() error {
 		buildkit, buildErr = machine.Acquire(ctx, build.ID, build.Token, "amd64")
 		return buildErr
 	})
@@ -64,7 +66,7 @@ func main() {
 	// 4. Check buildkitd readiness. When the buildkitd starts, it may take
 	// quite a while to be ready to accept connections when it loads a large boltdb.
 	var buildkitClient *client.Client
-	buildErr = progresshelper.WithLog(printer, "[depot] connecting to amd64 machine", func() error {
+	buildErr = progresshelper.WithLog(reportingWriter, "[depot] connecting to amd64 machine", func() error {
 		ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 		defer cancel()
 		buildkitClient, buildErr = buildkit.Connect(ctx)

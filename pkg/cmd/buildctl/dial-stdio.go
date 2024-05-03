@@ -145,6 +145,8 @@ func run() error {
 			}
 			state.Reporter = progresshelper.Tee(state.Reporter, status)
 
+			reportingWriter := progresshelper.NewReportingWriter(state.Reporter, build.ID, build.Token)
+
 			state.SummaryURL = build.BuildURL
 			buildFinish = build.Finish
 
@@ -153,7 +155,7 @@ func run() error {
 			}
 
 			var builder *machine.Machine
-			state.Err = progresshelper.WithLog(state.Reporter, "[depot] launching "+platform+" machine", func() error {
+			state.Err = progresshelper.WithLog(reportingWriter, "[depot] launching "+platform+" machine", func() error {
 				for i := 0; i < 2; i++ {
 					builder, state.Err = machine.Acquire(ctx, build.ID, build.Token, platform)
 					if state.Err == nil {
@@ -169,7 +171,7 @@ func run() error {
 
 			machineRelease = builder.Release
 
-			state.Err = progresshelper.WithLog(state.Reporter, "[depot] connecting to "+platform+" machine", func() error {
+			state.Err = progresshelper.WithLog(reportingWriter, "[depot] connecting to "+platform+" machine", func() error {
 				buildkitConn, err := tlsConn(ctx, builder)
 				if err != nil {
 					state.Err = fmt.Errorf("unable to connect: %w", err)

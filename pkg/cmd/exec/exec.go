@@ -85,8 +85,10 @@ func NewCmdExec(dockerCli command.Cli) *cobra.Command {
 			return buildErr
 		}
 
+		reportingWriter := progresshelper.NewReportingWriter(printer, build.ID, build.Token)
+
 		var builder *machine.Machine
-		buildErr = progresshelper.WithLog(printer, fmt.Sprintf("[depot] launching %s machine", platform), func() error {
+		buildErr = progresshelper.WithLog(reportingWriter, fmt.Sprintf("[depot] launching %s machine", platform), func() error {
 			for i := 0; i < 2; i++ {
 				builder, buildErr = machine.Acquire(ctx, build.ID, build.Token, platform)
 				if buildErr == nil {
@@ -104,7 +106,7 @@ func NewCmdExec(dockerCli command.Cli) *cobra.Command {
 
 		// Wait for connection to be ready.
 		var conn net.Conn
-		buildErr = progresshelper.WithLog(printer, fmt.Sprintf("[depot] connecting to %s machine", platform), func() error {
+		buildErr = progresshelper.WithLog(reportingWriter, fmt.Sprintf("[depot] connecting to %s machine", platform), func() error {
 			conn, buildErr = connection.TLSConn(ctx, builder)
 			if buildErr != nil {
 				return fmt.Errorf("unable to connect: %w", buildErr)
