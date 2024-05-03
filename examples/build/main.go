@@ -9,10 +9,10 @@ import (
 
 	"github.com/depot/cli/pkg/build"
 	"github.com/depot/cli/pkg/machine"
-	"github.com/depot/cli/pkg/progress"
+	"github.com/depot/cli/pkg/progresshelper"
 	cliv1 "github.com/depot/cli/pkg/proto/depot/cli/v1"
-	buildxprogress "github.com/docker/buildx/util/progress"
 	printer "github.com/docker/buildx/util/progress"
+	progress "github.com/docker/buildx/util/progress"
 	"github.com/moby/buildkit/client"
 	"github.com/moby/buildkit/client/llb"
 )
@@ -44,24 +44,17 @@ func main() {
 	defer build.Finish(buildErr)
 
 	ctx, cancel := context.WithCancel(ctx)
-	buildxprinter, buildErr := buildxprogress.NewPrinter(ctx, os.Stderr, os.Stderr, "quiet")
+	printer, buildErr := progress.NewPrinter(ctx, os.Stderr, os.Stderr, "quiet")
 	if buildErr != nil {
 		return
 	}
-	// 2. Start progress reporter. This will report the build progress logs to the
-	// Depot API and print it to the terminal.  You totally can skip this if you
-	// don't need to report the build progress to the API.
-	reporter, finishReporter, buildErr := progress.NewProgress(ctx, build.ID, build.Token, buildxprinter)
-	if buildErr != nil {
-		return
-	}
-
-	defer finishReporter() // Required to ensure that the printer is stopped before context `cancel()`.
 	defer cancel()
+
+	reportingWriter := progresshelper.NewReportingWriter(printer, build.ID, build.Token)
 
 	// 3. Acquire a buildkit machine.
 	var buildkit *machine.Machine
-	buildErr = reporter.WithLog("[depot] launching amd64 machine", func() error {
+	buildErr = progresshelper.WithLog(reportingWriter, "[depot] launching amd64 machine", func() error {
 		buildkit, buildErr = machine.Acquire(ctx, build.ID, build.Token, "amd64")
 		return buildErr
 	})
@@ -73,7 +66,7 @@ func main() {
 	// 4. Check buildkitd readiness. When the buildkitd starts, it may take
 	// quite a while to be ready to accept connections when it loads a large boltdb.
 	var buildkitClient *client.Client
-	buildErr = reporter.WithLog("[depot] connecting to amd64 machine", func() error {
+	buildErr = progresshelper.WithLog(reportingWriter, "[depot] connecting to amd64 machine", func() error {
 		ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 		defer cancel()
 		buildkitClient, buildErr = buildkit.Connect(ctx)
@@ -84,13 +77,13 @@ func main() {
 	}
 
 	// 5. Use the buildkit client to build the image.
-	buildErr = buildImage(ctx, buildkitClient, reporter)
+	buildErr = buildImage(ctx, buildkitClient, printer)
 	if buildErr != nil {
 		return
 	}
 }
 
-func buildImage(ctx context.Context, buildkitClient *client.Client, reporter *progress.Progress) error {
+func buildImage(ctx context.Context, buildkitClient *client.Client, reporter *progress.Printer) error {
 	statusCh, done := printer.NewChannel(reporter)
 	defer func() { <-done }()
 

@@ -8,6 +8,7 @@ import (
 	depotbuild "github.com/depot/cli/pkg/build"
 	"github.com/depot/cli/pkg/debuglog"
 	"github.com/depot/cli/pkg/machine"
+	"github.com/depot/cli/pkg/progresshelper"
 	"github.com/docker/buildx/driver"
 	"github.com/docker/buildx/util/progress"
 	"github.com/moby/buildkit/client"
@@ -41,12 +42,14 @@ func (d *Driver) Bootstrap(ctx context.Context, reporter progress.Logger) error 
 		d.cfg.Auth = depotbuild.NewAuthProvider(credentials, d.cfg.Auth)
 	}
 
+	reportingLogger := progresshelper.NewReportingLogger(reporter, buildID, token)
+
 	message := "[depot] launching " + platform + " machine"
 
 	// Try to acquire machine twice
 	var err error
 	for i := 0; i < 2; i++ {
-		finishLog := StartLog(message, reporter)
+		finishLog := StartLog(message, reportingLogger)
 		d.buildkit, err = machine.Acquire(ctx, buildID, token, platform)
 		finishLog(err)
 		if err == nil {
@@ -59,7 +62,7 @@ func (d *Driver) Bootstrap(ctx context.Context, reporter progress.Logger) error 
 	}
 
 	message = "[depot] connecting to " + platform + " machine"
-	finishLog := StartLog(message, reporter)
+	finishLog := StartLog(message, reportingLogger)
 
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()

@@ -14,9 +14,9 @@ import (
 	"github.com/depot/cli/pkg/connection"
 	"github.com/depot/cli/pkg/helpers"
 	"github.com/depot/cli/pkg/machine"
-	"github.com/depot/cli/pkg/progress"
+	"github.com/depot/cli/pkg/progresshelper"
 	cliv1 "github.com/depot/cli/pkg/proto/depot/cli/v1"
-	buildxprogress "github.com/docker/buildx/util/progress"
+	"github.com/docker/buildx/util/progress"
 	"github.com/docker/cli/cli"
 	"github.com/docker/cli/cli/command"
 	"github.com/spf13/cobra"
@@ -79,20 +79,16 @@ func NewCmdExec(dockerCli command.Cli) *cobra.Command {
 		}()
 
 		printCtx, cancel := context.WithCancel(ctx)
-		buildxprinter, buildErr := buildxprogress.NewPrinter(printCtx, os.Stderr, os.Stderr, progressMode)
+		printer, buildErr := progress.NewPrinter(printCtx, os.Stderr, os.Stderr, progressMode)
 		if buildErr != nil {
 			cancel()
 			return buildErr
 		}
 
-		reporter, finishReporter, buildErr := progress.NewProgress(printCtx, build.ID, build.Token, buildxprinter)
-		if buildErr != nil {
-			cancel()
-			return buildErr
-		}
+		reportingWriter := progresshelper.NewReportingWriter(printer, build.ID, build.Token)
 
 		var builder *machine.Machine
-		buildErr = reporter.WithLog(fmt.Sprintf("[depot] launching %s machine", platform), func() error {
+		buildErr = progresshelper.WithLog(reportingWriter, fmt.Sprintf("[depot] launching %s machine", platform), func() error {
 			for i := 0; i < 2; i++ {
 				builder, buildErr = machine.Acquire(ctx, build.ID, build.Token, platform)
 				if buildErr == nil {
@@ -103,7 +99,6 @@ func NewCmdExec(dockerCli command.Cli) *cobra.Command {
 		})
 		if buildErr != nil {
 			cancel()
-			finishReporter()
 			return buildErr
 		}
 
@@ -111,7 +106,7 @@ func NewCmdExec(dockerCli command.Cli) *cobra.Command {
 
 		// Wait for connection to be ready.
 		var conn net.Conn
-		buildErr = reporter.WithLog(fmt.Sprintf("[depot] connecting to %s machine", platform), func() error {
+		buildErr = progresshelper.WithLog(reportingWriter, fmt.Sprintf("[depot] connecting to %s machine", platform), func() error {
 			conn, buildErr = connection.TLSConn(ctx, builder)
 			if buildErr != nil {
 				return fmt.Errorf("unable to connect: %w", buildErr)
@@ -120,7 +115,6 @@ func NewCmdExec(dockerCli command.Cli) *cobra.Command {
 			return nil
 		})
 		cancel()
-		finishReporter()
 
 		listener, localAddr, buildErr := connection.LocalListener()
 		if buildErr != nil {

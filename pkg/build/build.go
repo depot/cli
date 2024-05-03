@@ -9,9 +9,9 @@ import (
 
 	"connectrpc.com/connect"
 	depotapi "github.com/depot/cli/pkg/api"
-	"github.com/depot/cli/pkg/progress"
 	cliv1 "github.com/depot/cli/pkg/proto/depot/cli/v1"
 	"github.com/docker/buildx/driver"
+	"github.com/docker/buildx/util/progress"
 	clitypes "github.com/docker/cli/cli/config/types"
 	"github.com/moby/buildkit/util/grpcerrors"
 	"google.golang.org/grpc/codes"
@@ -23,7 +23,7 @@ type Build struct {
 	// BuildURL is the URL to the build on the depot web UI.
 	BuildURL string
 	Finish   func(error)
-	Reporter *progress.Progress
+	Reporter progress.Writer
 
 	Response *connect.Response[cliv1.CreateBuildResponse]
 }

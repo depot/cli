@@ -17,9 +17,9 @@ import (
 	depot "github.com/depot/cli/internal/build"
 	"github.com/depot/cli/pkg/helpers"
 	"github.com/depot/cli/pkg/machine"
-	"github.com/depot/cli/pkg/progress"
+	"github.com/depot/cli/pkg/progresshelper"
 	cliv1 "github.com/depot/cli/pkg/proto/depot/cli/v1"
-	buildxprogress "github.com/docker/buildx/util/progress"
+	"github.com/docker/buildx/util/progress"
 	"github.com/moby/buildkit/client"
 	"github.com/spf13/cobra"
 )
@@ -121,12 +121,6 @@ func run() error {
 	}()
 
 	status := make(chan *client.SolveStatus, 1024)
-	listener := func(s *client.SolveStatus) {
-		select {
-		case status <- s:
-		default:
-		}
-	}
 
 	acquireState := func() *ProxyState {
 		once.Do(func() {
@@ -143,25 +137,25 @@ func run() error {
 			ctx2 := context.TODO()
 			ctx2, cancelStatus = context.WithCancel(ctx2)
 
-			buildxprinter, err := buildxprogress.NewPrinter(ctx2, os.Stderr, os.Stderr, "quiet")
+			state.Reporter, err = progress.NewPrinter(ctx2, os.Stderr, os.Stderr, "quiet")
 			if err != nil {
 				state.Err = fmt.Errorf("unable to create buildx printer: %w", err)
 				cancel()
 				return
 			}
+			state.Reporter = progresshelper.Tee(state.Reporter, status)
 
-			state.Reporter, finishStatus, _ = progress.NewProgress(ctx2, build.ID, build.Token, buildxprinter)
-			state.Reporter.AddListener(listener)
+			reportingWriter := progresshelper.NewReportingWriter(state.Reporter, build.ID, build.Token)
 
 			state.SummaryURL = build.BuildURL
 			buildFinish = build.Finish
 
 			if os.Getenv("DEPOT_NO_SUMMARY_LINK") == "" {
-				state.Reporter.Log("[depot] build: "+state.SummaryURL, nil)
+				progresshelper.Log(state.Reporter, "[depot] build: "+state.SummaryURL, nil)
 			}
 
 			var builder *machine.Machine
-			state.Err = state.Reporter.WithLog("[depot] launching "+platform+" machine", func() error {
+			state.Err = progresshelper.WithLog(reportingWriter, "[depot] launching "+platform+" machine", func() error {
 				for i := 0; i < 2; i++ {
 					builder, state.Err = machine.Acquire(ctx, build.ID, build.Token, platform)
 					if state.Err == nil {
@@ -177,7 +171,7 @@ func run() error {
 
 			machineRelease = builder.Release
 
-			state.Err = state.Reporter.WithLog("[depot] connecting to "+platform+" machine", func() error {
+			state.Err = progresshelper.WithLog(reportingWriter, "[depot] connecting to "+platform+" machine", func() error {
 				buildkitConn, err := tlsConn(ctx, builder)
 				if err != nil {
 					state.Err = fmt.Errorf("unable to connect: %w", err)

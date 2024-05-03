@@ -16,7 +16,6 @@ import (
 	"github.com/depot/cli/pkg/compose"
 	"github.com/depot/cli/pkg/helpers"
 	"github.com/depot/cli/pkg/load"
-	depotprogress "github.com/depot/cli/pkg/progress"
 	"github.com/depot/cli/pkg/registry"
 	"github.com/depot/cli/pkg/sbom"
 	buildx "github.com/docker/buildx/build"
@@ -55,13 +54,7 @@ func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator) (er
 
 	ctx2, cancel := context.WithCancel(context.TODO())
 
-	buildxprinter, err := progress.NewPrinter(ctx2, os.Stderr, os.Stderr, in.progress)
-	if err != nil {
-		cancel()
-		return err
-	}
-
-	printer, finish, err := depotprogress.NewProgress(ctx2, in.buildID, in.token, buildxprinter)
+	printer, err := progress.NewPrinter(ctx2, os.Stderr, os.Stderr, in.progress)
 	if err != nil {
 		cancel()
 		return err
@@ -80,7 +73,6 @@ func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator) (er
 		}
 	}()
 
-	defer finish() // Required to ensure that the printer is stopped before the context is cancelled.
 	defer cancel()
 
 	if os.Getenv("DEPOT_NO_SUMMARY_LINK") == "" {
@@ -152,7 +144,7 @@ func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator) (er
 	}
 
 	linter := NewLinter(printer, NewLintFailureMode(in.lint, in.lintFailOn), clients, buildxNodes)
-	resp, err := build.DepotBuild(ctx, buildxNodes, buildOpts, dockerClient, dockerConfigDir, buildxprinter, linter, in.DepotOptions.build)
+	resp, err := build.DepotBuild(ctx, buildxNodes, buildOpts, dockerClient, dockerConfigDir, printer, linter, in.DepotOptions.build)
 	if err != nil {
 		if errors.Is(err, LintFailed) {
 			linter.Print(os.Stderr, in.progress)

@@ -14,7 +14,8 @@ import (
 	content "github.com/containerd/containerd/api/services/content/v1"
 	"github.com/containerd/containerd/api/services/leases/v1"
 	"github.com/containerd/containerd/defaults"
-	"github.com/depot/cli/pkg/progress"
+	"github.com/depot/cli/pkg/progresshelper"
+	"github.com/docker/buildx/util/progress"
 	"github.com/gogo/protobuf/types"
 	control "github.com/moby/buildkit/api/services/control"
 	worker "github.com/moby/buildkit/api/types"
@@ -100,10 +101,10 @@ func Proxy(ctx context.Context, conn net.Conn, acquireState func() *ProxyState, 
 
 // ProxyState is created once usually during a Status API call.
 type ProxyState struct {
-	Conn       *grpc.ClientConn   // Conn is the connection to the buildkitd server.
-	SummaryURL string             // SummaryURL is the UI summary page.
-	Reporter   *progress.Progress // Reporter forwards status events to the API.
-	Err        error              // Err is set when the connection cannot be established or the build fails.
+	Conn       *grpc.ClientConn // Conn is the connection to the buildkitd server.
+	SummaryURL string           // SummaryURL is the UI summary page.
+	Reporter   progress.Writer  // Reporter forwards status events to the API.
+	Err        error            // Err is set when the connection cannot be established or the build fails.
 }
 
 type ControlProxy struct {
@@ -205,7 +206,7 @@ func (p *ControlProxy) Status(in *control.StatusRequest, toBuildx control.Contro
 			msg, err := fromBuildkit.Recv()
 			if err != nil {
 				if os.Getenv("DEPOT_NO_SUMMARY_LINK") == "" {
-					state.Reporter.Log("Build summary: "+state.SummaryURL, nil)
+					progresshelper.Log(state.Reporter, "Build summary: "+state.SummaryURL, nil)
 				}
 
 				if errors.Is(err, io.EOF) || errors.Is(err, context.Canceled) {
