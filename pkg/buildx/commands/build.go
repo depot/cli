@@ -299,7 +299,7 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.No
 				}
 			}
 
-			if err := writeMetadataFile(metadataFile, depotOpts.project, depotOpts.buildID, nil, metadata); err != nil {
+			if err := writeMetadataFile(metadataFile, depotOpts.project, depotOpts.buildID, nil, depotOpts.additionalTags, metadata); err != nil {
 				return nil, nil, err
 			}
 		}
@@ -939,15 +939,17 @@ func parsePrintFunc(str string) (*build.PrintFunc, error) {
 	return f, nil
 }
 
-func writeMetadataFile(filename, projectID, buildID string, targets []string, metadata map[string]interface{}) error {
+func writeMetadataFile(filename, projectID, buildID string, targets, additionalTags []string, metadata map[string]interface{}) error {
 	depotBuild := struct {
 		BuildID   string   `json:"buildID"`
 		ProjectID string   `json:"projectID"`
 		Targets   []string `json:"targets,omitempty"`
+		Tags      []string `json:"tags,omitempty"`
 	}{
 		BuildID:   buildID,
 		ProjectID: projectID,
 		Targets:   targets,
+		Tags:      additionalTags,
 	}
 
 	metadata["depot.build"] = depotBuild
