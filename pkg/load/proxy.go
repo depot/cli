@@ -25,10 +25,11 @@ type ProxyContainer struct {
 
 type ProxyConfig struct {
 	// Addr is the remote buildkit address (e.g. tcp://192.168.0.1)
-	Addr   string
-	CACert []byte
-	Key    []byte
-	Cert   []byte
+	Addr       string
+	ServerName string
+	CACert     []byte
+	Key        []byte
+	Cert       []byte
 
 	// RawManifest is the raw manifest bytes for the single image to serve.
 	RawManifest []byte
@@ -55,6 +56,7 @@ func RunProxyImage(ctx context.Context, dockerapi docker.APIClient, config *Prox
 				fmt.Sprintf("KEY=%s", base64.StdEncoding.EncodeToString(config.Key)),
 				fmt.Sprintf("CERT=%s", base64.StdEncoding.EncodeToString(config.Cert)),
 				fmt.Sprintf("ADDR=%s", base64.StdEncoding.EncodeToString([]byte(config.Addr))),
+				fmt.Sprintf("SERVER_NAME=%s", base64.StdEncoding.EncodeToString([]byte(config.ServerName))),
 				fmt.Sprintf("MANIFEST=%s", base64.StdEncoding.EncodeToString(config.RawManifest)),
 				fmt.Sprintf("CONFIG=%s", base64.StdEncoding.EncodeToString(config.RawConfig)),
 			},

@@ -13,7 +13,6 @@ import (
 	"log"
 	"net"
 	"net/http"
-	"net/url"
 	"os"
 	"os/signal"
 	"strconv"
@@ -64,6 +63,11 @@ func run() error {
 		return err
 	}
 
+	serverName, err := base64.StdEncoding.DecodeString(os.Getenv("SERVER_NAME"))
+	if err != nil {
+		return err
+	}
+
 	rawConfig, err := base64.StdEncoding.DecodeString(os.Getenv("CONFIG"))
 	if err != nil {
 		return err
@@ -103,7 +107,7 @@ func run() error {
 		cancel()
 	}()
 
-	contentClient, err := NewContentClient(ctx, caCert, certPEM, keyPEM, string(addr))
+	contentClient, err := NewContentClient(ctx, caCert, certPEM, keyPEM, string(serverName), string(addr))
 	if err != nil {
 		return err
 	}
@@ -120,18 +124,13 @@ func run() error {
 	return nil
 }
 
-func NewContentClient(ctx context.Context, caCert, certPEM, keyPEM []byte, buildkitdAddress string) (contentv1.ContentClient, error) {
-	uri, err := url.Parse(buildkitdAddress)
-	if err != nil {
-		return nil, err
-	}
-
+func NewContentClient(ctx context.Context, caCert, certPEM, keyPEM []byte, serverName, buildkitdAddress string) (contentv1.ContentClient, error) {
 	certPool := x509.NewCertPool()
 	if ok := certPool.AppendCertsFromPEM(caCert); !ok {
 		return nil, fmt.Errorf("failed to append ca certs")
 	}
 
-	cfg := &tls.Config{RootCAs: certPool}
+	cfg := &tls.Config{RootCAs: certPool, ServerName: serverName}
 	cert, err := tls.X509KeyPair(certPEM, keyPEM)
 	if err != nil {
 		return nil, fmt.Errorf("could not read certificate/key: %w", err)
@@ -142,7 +141,7 @@ func NewContentClient(ctx context.Context, caCert, certPEM, keyPEM []byte, build
 		grpc.WithBlock(),
 		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(defaults.DefaultMaxRecvMsgSize)),
 		grpc.WithDefaultCallOptions(grpc.MaxCallSendMsgSize(defaults.DefaultMaxSendMsgSize)),
-		grpc.WithAuthority(uri.Host),
+		grpc.WithAuthority(serverName),
 		grpc.WithTransportCredentials(credentials.NewTLS(cfg)),
 		grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) {
 			addr := strings.TrimPrefix(buildkitdAddress, "tcp://")

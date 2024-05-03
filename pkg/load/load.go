@@ -42,6 +42,7 @@ func DepotFastLoad(ctx context.Context, dockerapi docker.APIClient, resp []depot
 			RawManifest: manifest,
 			RawConfig:   config,
 			Addr:        nodeRes.Node.DriverOpts["addr"],
+			ServerName:  nodeRes.Node.DriverOpts["serverName"],
 			CACert:      []byte(nodeRes.Node.DriverOpts["caCert"]),
 			Key:         []byte(nodeRes.Node.DriverOpts["key"]),
 			Cert:        []byte(nodeRes.Node.DriverOpts["cert"]),
