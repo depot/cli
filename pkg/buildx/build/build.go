@@ -1157,6 +1157,9 @@ func BuildWithResultHandler(ctx context.Context, nodes []builder.Node, opt map[s
 						descs := make([]specs.Descriptor, 0, len(res))
 
 						for _, r := range res {
+							// DEPOT: image.name is manipulated above to strip the tag on multi-platform builds.
+							// This adds the user's specified image names back so the tags are included.
+							r.SolveResponse.ExporterResponse["image.name"] = pushNames
 							s, ok := r.SolveResponse.ExporterResponse[exptypes.ExporterImageDescriptorKey]
 							if ok {
 								dt, err := base64.StdEncoding.DecodeString(s)
