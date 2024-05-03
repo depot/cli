@@ -164,7 +164,7 @@ func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator) (er
 			}
 			dt[buildRes.Name] = metadata
 		}
-		if err := writeMetadataFile(in.metadataFile, in.project, in.buildID, in.additionalTags, requestedTargets, dt); err != nil {
+		if err := writeMetadataFile(in.metadataFile, in.project, in.buildID, requestedTargets, dt); err != nil {
 			return err
 		}
 	}
