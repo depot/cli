@@ -11,14 +11,13 @@ import (
 	"time"
 
 	depotbuild "github.com/depot/cli/pkg/buildx/build"
-	depotprogress "github.com/depot/cli/pkg/progress"
 	"github.com/docker/buildx/util/progress"
 	docker "github.com/docker/docker/client"
 	"github.com/moby/buildkit/exporter/containerimage/exptypes"
 	ocispecs "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
-func DepotFastLoad(ctx context.Context, dockerapi docker.APIClient, resp []depotbuild.DepotBuildResponse, pullOpts map[string]PullOptions, printer *depotprogress.Progress) error {
+func DepotFastLoad(ctx context.Context, dockerapi docker.APIClient, resp []depotbuild.DepotBuildResponse, pullOpts map[string]PullOptions, printer progress.Writer) error {
 	if len(resp) == 0 {
 		return nil
 	}

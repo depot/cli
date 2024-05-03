@@ -11,7 +11,7 @@ import (
 
 	"github.com/depot/cli/pkg/buildx/build"
 	"github.com/depot/cli/pkg/debuglog"
-	depotprogress "github.com/depot/cli/pkg/progress"
+	"github.com/depot/cli/pkg/progresshelper"
 	"github.com/docker/buildx/builder"
 	"github.com/docker/buildx/util/progress"
 	"github.com/moby/buildkit/client"
@@ -84,15 +84,13 @@ type Linter struct {
 	FailureMode LintFailure
 	Clients     []*client.Client
 	BuildxNodes []builder.Node
-
-	// Our depot progress has special functionality to print and upload lint issues.
-	printer *depotprogress.Progress
+	printer     *progress.Printer
 
 	mu     sync.Mutex
 	issues map[string][]client.VertexWarning
 }
 
-func NewLinter(printer *depotprogress.Progress, failureMode LintFailure, clients []*client.Client, nodes []builder.Node) *Linter {
+func NewLinter(printer *progress.Printer, failureMode LintFailure, clients []*client.Client, nodes []builder.Node) *Linter {
 	return &Linter{
 		FailureMode: failureMode,
 		Clients:     clients,
@@ -146,7 +144,7 @@ func (l *Linter) Handle(ctx context.Context, target string, driverIndex int, doc
 	}
 	dgst := digest.Canonical.FromString(identity.NewID())
 	tm := time.Now()
-	l.printer.WriteLint(client.Vertex{Digest: dgst, Name: lintName, Started: &tm}, nil, nil)
+	progresshelper.WriteLint(l.printer, client.Vertex{Digest: dgst, Name: lintName, Started: &tm}, nil, nil)
 
 	output, err := RunHadolint(ctx, l.Clients[driverIndex], l.BuildxNodes[driverIndex].Platforms[0], dockerfile)
 	if err != nil {
@@ -280,7 +278,7 @@ func (l *Linter) Handle(ctx context.Context, target string, driverIndex int, doc
 		lintErr = LintFailed
 	}
 
-	l.printer.WriteLint(lintResults, statuses, logs)
+	progresshelper.WriteLint(l.printer, lintResults, statuses, logs)
 
 	l.mu.Lock()
 	defer l.mu.Unlock()

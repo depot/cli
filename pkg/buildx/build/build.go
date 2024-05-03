@@ -29,7 +29,7 @@ import (
 	depotbuild "github.com/depot/cli/pkg/build"
 	"github.com/depot/cli/pkg/buildx/imagetools"
 	"github.com/depot/cli/pkg/debuglog"
-	depotprogress "github.com/depot/cli/pkg/progress"
+	"github.com/depot/cli/pkg/progresshelper"
 	"github.com/distribution/reference"
 	"github.com/docker/buildx/builder"
 	"github.com/docker/buildx/driver"
@@ -820,7 +820,7 @@ func BuildWithResultHandler(ctx context.Context, nodes []builder.Node, opt map[s
 		multiDriver := len(m[k]) > 1
 		hasMobyDriver := false
 		debuglog.Log("Fetching git attributes")
-		finishLog := depotprogress.StartLog(w, "[internal] fetching git attributes")
+		finishLog := progresshelper.StartLog(w, "[internal] fetching git attributes")
 		gitattrs, err := getGitAttributes(ctx, opt.Inputs.ContextPath, opt.Inputs.DockerfilePath)
 		finishLog(err)
 		if err != nil {

@@ -1,4 +1,4 @@
-package progress
+package progresshelper
 
 import (
 	"time"
@@ -9,9 +9,7 @@ import (
 	"github.com/opencontainers/go-digest"
 )
 
-// Log is a helper to log a message with a progress.Writer.
-// progress.Writer is pretty intricate and thus can be a lot of boilerplate.
-
+// StartLog is a helper to log a message with a progress.Writer.
 func StartLog(w progress.Writer, message string) func(err error) {
 	dgst := digest.FromBytes([]byte(identity.NewID()))
 	tm := time.Now()
@@ -39,4 +37,18 @@ func StartLog(w progress.Writer, message string) func(err error) {
 			}},
 		})
 	}
+}
+
+// WithLog wraps a function with timing information.
+func WithLog(w progress.Writer, message string, fn func() error) error {
+	finishLog := StartLog(w, message)
+	err := fn()
+	finishLog(err)
+	return err
+}
+
+// Log writes a log message with no duration.
+func Log(w progress.Writer, message string, err error) {
+	finishLog := StartLog(w, message)
+	finishLog(err)
 }

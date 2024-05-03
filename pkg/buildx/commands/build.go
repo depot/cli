@@ -27,7 +27,6 @@ import (
 	"github.com/depot/cli/pkg/debuglog"
 	"github.com/depot/cli/pkg/helpers"
 	"github.com/depot/cli/pkg/load"
-	depotprogress "github.com/depot/cli/pkg/progress"
 	"github.com/depot/cli/pkg/registry"
 	"github.com/depot/cli/pkg/sbom"
 	"github.com/distribution/reference"
@@ -205,19 +204,11 @@ func (c nopCloser) Close() error { return nil }
 func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.Node, opts map[string]build.Options, depotOpts DepotOptions, progressMode, metadataFile string, exportLoad, allowNoOutput bool) (imageIDs []string, res *build.ResultContext, err error) {
 	ctx2, cancel := context.WithCancel(context.TODO())
 
-	buildxprinter, err := progress.NewPrinter(ctx2, os.Stderr, os.Stderr, progressMode)
+	printer, err := progress.NewPrinter(ctx2, os.Stderr, os.Stderr, progressMode)
 	if err != nil {
 		cancel()
 		return nil, nil, err
 	}
-
-	printer, finish, err := depotprogress.NewProgress(ctx2, depotOpts.buildID, depotOpts.token, buildxprinter)
-	if err != nil {
-		cancel()
-		return nil, nil, err
-	}
-
-	defer finish() // Required to ensure that the printer is stopped before the context is cancelled.
 	defer cancel()
 
 	if os.Getenv("DEPOT_NO_SUMMARY_LINK") == "" {
@@ -278,7 +269,7 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.No
 
 	linter := NewLinter(printer, NewLintFailureMode(depotOpts.lint, depotOpts.lintFailOn), clients, buildxNodes)
 
-	resp, err := depotbuildxbuild.DepotBuildWithResultHandler(ctx, buildxNodes, opts, dockerClient, dockerConfigDir, buildxprinter, linter, func(driverIndex int, gotRes *build.ResultContext) {
+	resp, err := depotbuildxbuild.DepotBuildWithResultHandler(ctx, buildxNodes, opts, dockerClient, dockerConfigDir, printer, linter, func(driverIndex int, gotRes *build.ResultContext) {
 		mu.Lock()
 		defer mu.Unlock()
 		if res == nil || driverIndex < idx {
