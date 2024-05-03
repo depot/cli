@@ -36,7 +36,6 @@ require (
 	github.com/opencontainers/go-digest v1.0.0
 	github.com/opencontainers/image-spec v1.1.0-rc2.0.20221005185240-3a7f492d3f1b
 	github.com/pkg/errors v0.9.1
-	github.com/pyroscope-io/client v0.7.2
 	github.com/savioxavier/termlink v1.2.1
 	github.com/sirupsen/logrus v1.9.3
 	github.com/spf13/cobra v1.6.1
@@ -142,7 +141,6 @@ require (
 	github.com/prometheus/client_model v0.3.0 // indirect
 	github.com/prometheus/common v0.37.0 // indirect
 	github.com/prometheus/procfs v0.8.0 // indirect
-	github.com/pyroscope-io/godeltaprof v0.1.2 // indirect
 	github.com/rivo/uniseg v0.4.4 // indirect
 	github.com/sahilm/fuzzy v0.1.0 // indirect
 	github.com/spf13/afero v1.9.2 // indirect
@@ -191,7 +189,7 @@ require (
 
 replace (
 	github.com/docker/docker => github.com/docker/docker v24.0.9+incompatible
-	github.com/moby/buildkit => github.com/depot/buildkit v0.11.6-depot.34
+	github.com/moby/buildkit => github.com/depot/buildkit v0.11.6-depot.39
 	k8s.io/api => k8s.io/api v0.22.4
 	k8s.io/apimachinery => k8s.io/apimachinery v0.22.4
 	k8s.io/client-go => k8s.io/client-go v0.22.4

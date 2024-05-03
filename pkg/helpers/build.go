@@ -7,7 +7,6 @@ import (
 
 	"connectrpc.com/connect"
 	depotbuild "github.com/depot/cli/pkg/build"
-	"github.com/depot/cli/pkg/profiler"
 	cliv1 "github.com/depot/cli/pkg/proto/depot/cli/v1"
 	buildx "github.com/docker/buildx/build"
 )
@@ -36,11 +35,6 @@ func BeginBuild(ctx context.Context, req *cliv1.CreateBuildRequest, token string
 		return depotbuild.Build{}, err
 	}
 
-	profilerToken := ""
-	if build.Response != nil && build.Response.Msg != nil && build.Response.Msg.Profiler != nil {
-		profilerToken = build.Response.Msg.Profiler.Token
-	}
-
 	if os.Getenv("DEPOT_USE_LOCAL_REGISTRY") != "" {
 		build.UseLocalRegistry = true
 	}
@@ -48,8 +42,6 @@ func BeginBuild(ctx context.Context, req *cliv1.CreateBuildRequest, token string
 	if proxyImage := os.Getenv("DEPOT_PROXY_IMAGE"); proxyImage != "" {
 		build.ProxyImage = proxyImage
 	}
-
-	profiler.StartProfiler(build.ID, profilerToken)
 
 	return build, err
 }
