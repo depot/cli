@@ -27,6 +27,7 @@ import (
 	"github.com/depot/cli/pkg/debuglog"
 	"github.com/depot/cli/pkg/helpers"
 	"github.com/depot/cli/pkg/load"
+	"github.com/depot/cli/pkg/progresshelper"
 	"github.com/depot/cli/pkg/registry"
 	"github.com/depot/cli/pkg/sbom"
 	"github.com/distribution/reference"
@@ -320,7 +321,8 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.No
 	}
 
 	// NOTE: the err is returned at the end of this function after the final prints.
-	err = load.DepotFastLoad(ctx, dockerCli.Client(), resp, pullOpts, printer)
+	reportingPrinter := progresshelper.NewReportingWriter(printer, depotOpts.buildID, depotOpts.token)
+	err = load.DepotFastLoad(ctx, dockerCli.Client(), resp, pullOpts, reportingPrinter)
 	if err != nil && !errors.Is(err, context.Canceled) {
 		// For now, we will fallback by rebuilding with load.
 		if exportLoad {
@@ -334,7 +336,7 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.No
 			}
 
 			if retryable {
-				progress.Write(printer, "[load] fast load failed; retrying", func() error { return err })
+				progress.Write(reportingPrinter, "[load] fast load failed; retrying", func() error { return err })
 				opts = load.WithDockerLoad(fallbackOpts)
 				_, err = depotbuildxbuild.DepotBuildWithResultHandler(ctx, buildxNodes, opts, dockerClient, dockerConfigDir, printer, nil, nil, allowNoOutput, depotOpts.build)
 			}
