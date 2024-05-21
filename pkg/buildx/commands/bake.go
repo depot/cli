@@ -16,6 +16,7 @@ import (
 	"github.com/depot/cli/pkg/compose"
 	"github.com/depot/cli/pkg/helpers"
 	"github.com/depot/cli/pkg/load"
+	"github.com/depot/cli/pkg/progresshelper"
 	"github.com/depot/cli/pkg/registry"
 	"github.com/depot/cli/pkg/sbom"
 	buildx "github.com/docker/buildx/build"
@@ -187,7 +188,8 @@ func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator) (er
 					var err error
 					// Only load images from requested targets to avoid pulling unnecessary images.
 					if slices.Contains(requestedTargets, resp[i].Name) {
-						err = load.DepotFastLoad(ctx2, dockerCli.Client(), depotResponses, pullOpts, printer)
+						reportingPrinter := progresshelper.NewReportingWriter(printer, in.buildID, in.token)
+						err = load.DepotFastLoad(ctx2, dockerCli.Client(), depotResponses, pullOpts, reportingPrinter)
 					}
 					load.DeleteExportLeases(ctx2, depotResponses)
 					return err
