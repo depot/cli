@@ -232,6 +232,10 @@ type xbake struct {
 	// docs/manuals/bake/compose-file.md#extension-field-with-x-bake
 }
 
+type XDepot struct {
+	ProjectID string `yaml:"project-id,omitempty"`
+}
+
 type stringMap map[string]string
 type stringArray []string
 
@@ -253,6 +257,18 @@ func (sa *stringArray) UnmarshalYAML(unmarshal func(interface{}) error) error {
 // composeExtTarget converts Compose build extension x-bake to bake Target
 // https://github.com/compose-spec/compose-spec/blob/master/spec.md#extension
 func (t *Target) composeExtTarget(exts map[string]interface{}) error {
+	var xdepot XDepot
+	buf, ok := exts["x-depot"]
+	if ok && buf != nil {
+		yb, _ := yaml.Marshal(buf)
+		if err := yaml.Unmarshal(yb, &xdepot); err != nil {
+			return err
+		}
+		if xdepot.ProjectID != "" {
+			t.ProjectID = xdepot.ProjectID
+		}
+	}
+
 	var xb xbake
 
 	ext, ok := exts["x-bake"]

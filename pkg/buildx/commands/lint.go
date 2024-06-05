@@ -84,13 +84,13 @@ type Linter struct {
 	FailureMode LintFailure
 	Clients     []*client.Client
 	BuildxNodes []builder.Node
-	printer     *progress.Printer
+	printer     progress.Writer
 
 	mu     sync.Mutex
 	issues map[string][]client.VertexWarning
 }
 
-func NewLinter(printer *progress.Printer, failureMode LintFailure, clients []*client.Client, nodes []builder.Node) *Linter {
+func NewLinter(printer progress.Writer, failureMode LintFailure, clients []*client.Client, nodes []builder.Node) *Linter {
 	return &Linter{
 		FailureMode: failureMode,
 		Clients:     clients,
