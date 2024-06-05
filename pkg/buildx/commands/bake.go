@@ -206,7 +206,7 @@ func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator, pri
 	_ = printer.Wait()
 
 	if in.save {
-		printSaveUsage(in.project, in.buildID, in.progress, requestedTargets)
+		printSaveHelp(in.project, in.buildID, in.progress, requestedTargets)
 	}
 	linter.Print(os.Stderr, in.progress)
 	return nil
@@ -328,13 +328,15 @@ func BakeCmd(dockerCli command.Cli) *cobra.Command {
 					_ = os.Setenv("BUILDX_NO_DEFAULT_LOAD", "1")
 				}
 
-				eg.Go(func() error {
-					buildErr = retryRetryableErrors(ctx, func() error {
-						return RunBake(dockerCli, options, validator, printer)
-					})
+				func(c command.Cli, o BakeOptions, v BakeValidator, p *progresshelper.SharedPrinter) {
+					eg.Go(func() error {
+						buildErr = retryRetryableErrors(ctx, func() error {
+							return RunBake(c, o, v, p)
+						})
 
-					return rewriteFriendlyErrors(buildErr)
-				})
+						return rewriteFriendlyErrors(buildErr)
+					})
+				}(dockerCli, options, validator, printer)
 			}
 
 			return eg.Wait()
@@ -549,8 +551,8 @@ func parseBakeTargets(targets []string) (bkt bakeTargets) {
 	return bkt
 }
 
-// printSaveUsage prints instructions to pull or push the saved targets.
-func printSaveUsage(project, buildID, progressMode string, requestedTargets []string) {
+// printSaveHelp prints instructions to pull or push the saved targets.
+func printSaveHelp(project, buildID, progressMode string, requestedTargets []string) {
 	if progressMode != progress.PrinterModeQuiet {
 		fmt.Fprintln(os.Stderr)
 		saved := "target"
