@@ -82,7 +82,7 @@ func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator, pri
 		return err
 	}
 
-	validatedOpts, requestedTargets, err := validator.Validate(ctx, nodes, printer)
+	validatedOpts, _, err := validator.Validate(ctx, nodes, printer)
 	if err != nil {
 		return err
 	}
@@ -90,6 +90,11 @@ func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator, pri
 	buildOpts := validatedOpts.ProjectOpts(in.project)
 	if buildOpts == nil {
 		return fmt.Errorf("project %s build options not found", in.project)
+	}
+
+	requestedTargets := make([]string, 0, len(buildOpts))
+	for target := range buildOpts {
+		requestedTargets = append(requestedTargets, target)
 	}
 
 	var (
