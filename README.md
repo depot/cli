@@ -63,11 +63,12 @@ For all other platforms, you can download the binary directly from [the latest r
 
 Run a Docker build from a HCL, JSON, or Compose file using Depot's remote builder infrastructure. This command accepts all the command line flags as Docker's `docker buildx bake` command, you can run `depot bake --help` for the full list.
 
-The `bake` command needs to know which [project](https://depot.dev/docs/core-concepts#projects) id to route the build to. For passing the project id you have three options available to you:
+The `bake` command needs to know which [project](https://depot.dev/docs/core-concepts#projects) id to route the build to. For passing the project id you have four options available to you:
 
 1. Run `depot init` at the root of your repository and commit the resulting `depot.json` file
 2. Use the `--project` flag in your `depot bake` command
-3. Set the `DEPOT_PROJECT_ID` environment variable which will be automatically detected
+3. Set the `DEPOT_PROJECT_ID` environment variable which will be automatically detected.
+4. Use [`x-depot` ](http://depot.dev/docs/cli/reference#compose-support) extension field in your `docker-compose.yml` file.
 
 By default, `depot bake` will leave the built image in the remote builder cache. If you would like to download the image to your local Docker daemon (for instance, to `docker run` the result), you can use the `--load` flag.
 
@@ -107,6 +108,43 @@ If you want to build a specific target in the bake file, you can specify it in t
 
 ```shell
 depot bake -f docker-bake.hcl original
+```
+
+#### compose support
+
+Depot supports using bake to build [Docker Compose](https://depot.dev/blog/depot-with-docker-compose) files.
+
+To use `depot bake` with a Docker Compose file, you can specify the file with the `-f` flag:
+
+```shell
+depot bake -f docker-compose.yml
+```
+
+Compose files have special extensions prefixed with `x-` to give additional information to the build process.
+
+In this example, the `x-bake` extension is used to specify the tags for each service
+and the `x-depot` extension is used to specify different project IDs for each.
+
+```yaml
+services:
+  mydb:
+    build:
+      dockerfile: ./Dockerfile.db
+      x-bake:
+        tags:
+          - ghcr.io/myorg/mydb:latest
+          - ghcr.io/myorg/mydb:v1.0.0
+      x-depot:
+        project-id: 1234567890
+  myapp:
+    build:
+      dockerfile: ./Dockerfile.app
+      x-bake:
+        tags:
+          - ghcr.io/myorg/myapp:latest
+          - ghcr.io/myorg/myapp:v1.0.0
+      x-depot:
+        project-id: 9876543210
 ```
 
 #### Flags for `bake`

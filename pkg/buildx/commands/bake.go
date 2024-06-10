@@ -42,7 +42,7 @@ type BakeOptions struct {
 	DepotOptions
 }
 
-func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator) (err error) {
+func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator, printer *progresshelper.SharedPrinter) (err error) {
 	ctx := appcontext.Context()
 
 	ctx, end, err := tracing.TraceCurrentCommand(ctx, "bake")
@@ -53,28 +53,15 @@ func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator) (er
 		end(err)
 	}()
 
-	ctx2, cancel := context.WithCancel(context.TODO())
-
-	printer, err := progress.NewPrinter(ctx2, os.Stderr, os.Stderr, in.progress)
-	if err != nil {
-		cancel()
-		return err
-	}
-
 	defer func() {
 		// There is extra logic far below that will also do a printer.Wait()
 		// if there are no errors.  We want to control when the buildx printer
 		// finishes writing so that we can write our own information such as
 		// linting without it being interleaved.
 		if printer != nil && err != nil {
-			err1 := printer.Wait()
-			if err == nil && !errors.Is(err1, context.Canceled) {
-				err = err1
-			}
+			_ = printer.Wait()
 		}
 	}()
-
-	defer cancel()
 
 	if os.Getenv("DEPOT_NO_SUMMARY_LINK") == "" {
 		progress.Write(printer, "[depot] build: "+in.buildURL, func() error { return err })
@@ -95,9 +82,19 @@ func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator) (er
 		return err
 	}
 
-	buildOpts, requestedTargets, err := validator.Validate(ctx, nodes, printer)
+	validatedOpts, _, err := validator.Validate(ctx, nodes, printer)
 	if err != nil {
 		return err
+	}
+
+	buildOpts := validatedOpts.ProjectOpts(in.project)
+	if buildOpts == nil {
+		return fmt.Errorf("project %s build options not found", in.project)
+	}
+
+	requestedTargets := make([]string, 0, len(buildOpts))
+	for target := range buildOpts {
+		requestedTargets = append(requestedTargets, target)
 	}
 
 	var (
@@ -165,13 +162,14 @@ func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator) (er
 			}
 			dt[buildRes.Name] = metadata
 		}
-		if err := writeMetadataFile(in.metadataFile, in.project, in.buildID, requestedTargets, dt); err != nil {
+		err = writeMetadataFile(in.metadataFile, in.project, in.buildID, requestedTargets, dt)
+		if err != nil {
 			return err
 		}
 	}
 
 	if in.sbomDir != "" {
-		err := sbom.Save(ctx, in.sbomDir, resp)
+		err = sbom.Save(ctx, in.sbomDir, resp)
 		if err != nil {
 			return err
 		}
@@ -197,7 +195,7 @@ func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator) (er
 			}(i, requestedTargets)
 		}
 
-		err := eg.Wait()
+		err = eg.Wait()
 		if err != nil && !errors.Is(err, context.Canceled) {
 			// For now, we will fallback by rebuilding with load.
 			if in.exportLoad {
@@ -213,7 +211,7 @@ func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator) (er
 	_ = printer.Wait()
 
 	if in.save {
-		printSaveUsage(in.project, in.buildID, in.progress, requestedTargets)
+		printSaveHelp(in.project, in.buildID, in.progress, requestedTargets)
 	}
 	linter.Print(os.Stderr, in.progress)
 	return nil
@@ -267,7 +265,7 @@ func BakeCmd(dockerCli command.Cli) *cobra.Command {
 
 			var (
 				validator     BakeValidator
-				validatedOpts map[string]buildx.Options
+				validatedOpts *bake.DepotBakeOptions
 			)
 			if isRemoteTarget(args) {
 				validator = NewRemoteBakeValidator(options, args)
@@ -280,49 +278,73 @@ func BakeCmd(dockerCli command.Cli) *cobra.Command {
 				}
 			}
 
-			req := helpers.NewBakeRequest(
-				options.project,
-				validatedOpts,
-				helpers.UsingDepotFeatures{
-					Push: options.exportPush,
-					Load: options.exportLoad,
-					Save: options.save,
-					Lint: options.lint,
-				},
-			)
-			build, err := helpers.BeginBuild(context.Background(), req, token)
+			projectIDs := validatedOpts.ProjectIDs()
+
+			printer, err := progresshelper.NewSharedPrinter(options.progress)
 			if err != nil {
 				return err
 			}
-			var buildErr error
-			defer func() {
-				build.Finish(buildErr)
-				PrintBuildURL(build.BuildURL, options.progress)
-			}()
 
-			options.builderOptions = []builder.Option{builder.WithDepotOptions(buildPlatform, build)}
-
-			buildProject := build.BuildProject()
-			if buildProject != "" {
-				options.project = buildProject
-			}
-			if options.save {
-				options.additionalCredentials = build.AdditionalCredentials()
-				options.additionalTags = build.AdditionalTags()
-			}
-			options.buildID = build.ID
-			options.buildURL = build.BuildURL
-			options.token = build.Token
-			options.build = &build
-
-			if options.allowNoOutput {
-				_ = os.Setenv("BUILDX_NO_DEFAULT_LOAD", "1")
+			for range projectIDs {
+				printer.Add()
 			}
 
-			buildErr = retryRetryableErrors(context.Background(), func() error {
-				return RunBake(dockerCli, options, validator)
-			})
-			return rewriteFriendlyErrors(buildErr)
+			eg, ctx := errgroup.WithContext(context.Background())
+			for _, projectID := range projectIDs {
+				options.project = projectID
+				bakeOpts := validatedOpts.ProjectOpts(projectID)
+
+				req := helpers.NewBakeRequest(
+					options.project,
+					bakeOpts,
+					helpers.UsingDepotFeatures{
+						Push: options.exportPush,
+						Load: options.exportLoad,
+						Save: options.save,
+						Lint: options.lint,
+					},
+				)
+				build, err := helpers.BeginBuild(context.Background(), req, token)
+				if err != nil {
+					return err
+				}
+				var buildErr error
+				defer func() {
+					build.Finish(buildErr)
+					PrintBuildURL(build.BuildURL, options.progress)
+				}()
+
+				options.builderOptions = []builder.Option{builder.WithDepotOptions(buildPlatform, build)}
+
+				buildProject := build.BuildProject()
+				if buildProject != "" {
+					options.project = buildProject
+				}
+				if options.save {
+					options.additionalCredentials = build.AdditionalCredentials()
+					options.additionalTags = build.AdditionalTags()
+				}
+				options.buildID = build.ID
+				options.buildURL = build.BuildURL
+				options.token = build.Token
+				options.build = &build
+
+				if options.allowNoOutput {
+					_ = os.Setenv("BUILDX_NO_DEFAULT_LOAD", "1")
+				}
+
+				func(c command.Cli, o BakeOptions, v BakeValidator, p *progresshelper.SharedPrinter) {
+					eg.Go(func() error {
+						buildErr = retryRetryableErrors(ctx, func() error {
+							return RunBake(c, o, v, p)
+						})
+
+						return rewriteFriendlyErrors(buildErr)
+					})
+				}(dockerCli, options, validator, printer)
+			}
+
+			return eg.Wait()
 		},
 	}
 
@@ -379,7 +401,7 @@ var (
 
 // BakeValidator returns either local or remote build options for targets as well as the targets themselves.
 type BakeValidator interface {
-	Validate(ctx context.Context, nodes []builder.Node, pw progress.Writer) (opts map[string]buildx.Options, targets []string, err error)
+	Validate(ctx context.Context, nodes []builder.Node, pw progress.Writer) (opts *bake.DepotBakeOptions, targets []string, err error)
 }
 
 type LocalBakeValidator struct {
@@ -387,7 +409,7 @@ type LocalBakeValidator struct {
 	bakeTargets bakeTargets
 
 	once      sync.Once
-	buildOpts map[string]buildx.Options
+	buildOpts *bake.DepotBakeOptions
 	targets   []string
 	err       error
 }
@@ -399,7 +421,7 @@ func NewLocalBakeValidator(options BakeOptions, args []string) *LocalBakeValidat
 	}
 }
 
-func (t *LocalBakeValidator) Validate(ctx context.Context, _ []builder.Node, _ progress.Writer) (map[string]buildx.Options, []string, error) {
+func (t *LocalBakeValidator) Validate(ctx context.Context, _ []builder.Node, _ progress.Writer) (*bake.DepotBakeOptions, []string, error) {
 	// Using a sync.Once because I _think_ the bake file may not always be read
 	// more than one time such as passed over stdin.
 	t.once.Do(func() {
@@ -448,7 +470,7 @@ func (t *LocalBakeValidator) Validate(ctx context.Context, _ []builder.Node, _ p
 			}
 		}
 
-		t.buildOpts, t.err = bake.TargetsToBuildOpt(targets, nil)
+		t.buildOpts, t.err = bake.NewDepotBakeOptions(t.options.project, targets, nil)
 	})
 
 	return t.buildOpts, t.targets, t.err
@@ -466,7 +488,7 @@ func NewRemoteBakeValidator(options BakeOptions, args []string) *RemoteBakeValid
 	}
 }
 
-func (t *RemoteBakeValidator) Validate(ctx context.Context, nodes []builder.Node, pw progress.Writer) (map[string]buildx.Options, []string, error) {
+func (t *RemoteBakeValidator) Validate(ctx context.Context, nodes []builder.Node, pw progress.Writer) (*bake.DepotBakeOptions, []string, error) {
 	files, inp, err := bake.ReadRemoteFiles(ctx, builder.ToBuildxNodes(nodes), t.bakeTargets.FileURL, t.options.files, pw)
 	if err != nil {
 		return nil, nil, err
@@ -499,7 +521,7 @@ func (t *RemoteBakeValidator) Validate(ctx context.Context, nodes []builder.Node
 		requestedTargets = append(requestedTargets, target)
 	}
 
-	opts, err := bake.TargetsToBuildOpt(targets, inp)
+	opts, err := bake.NewDepotBakeOptions(t.options.project, targets, inp)
 	return opts, requestedTargets, err
 }
 
@@ -534,8 +556,8 @@ func parseBakeTargets(targets []string) (bkt bakeTargets) {
 	return bkt
 }
 
-// printSaveUsage prints instructions to pull or push the saved targets.
-func printSaveUsage(project, buildID, progressMode string, requestedTargets []string) {
+// printSaveHelp prints instructions to pull or push the saved targets.
+func printSaveHelp(project, buildID, progressMode string, requestedTargets []string) {
 	if progressMode != progress.PrinterModeQuiet {
 		fmt.Fprintln(os.Stderr)
 		saved := "target"

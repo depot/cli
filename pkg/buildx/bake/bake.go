@@ -628,6 +628,8 @@ type Target struct {
 
 	// linked is a private field to mark a target used as a linked one
 	linked bool
+
+	ProjectID string `json:"project_id,omitempty" hcl:"project_id,optional" cty:"project_id"`
 }
 
 var _ hclparser.WithEvalContexts = &Target{}
@@ -729,6 +731,9 @@ func (t *Target) Merge(t2 *Target) {
 	}
 	if t2.NoCacheFilter != nil { // merge
 		t.NoCacheFilter = append(t.NoCacheFilter, t2.NoCacheFilter...)
+	}
+	if t2.ProjectID != "" {
+		t.ProjectID = t2.ProjectID
 	}
 	t.Inherits = append(t.Inherits, t2.Inherits...)
 }
@@ -927,16 +932,50 @@ func (t *Target) GetName(ectx *hcl.EvalContext, block *hcl.Block, loadDeps func(
 	return value.AsString(), nil
 }
 
-func TargetsToBuildOpt(m map[string]*Target, inp *Input) (map[string]build.Options, error) {
-	m2 := make(map[string]build.Options, len(m))
-	for k, v := range m {
-		bo, err := toBuildOpt(v, inp)
+type DepotBakeOptions struct {
+	ProjectTargetOptions map[string]map[string]build.Options
+}
+
+// input is only used for remote bake.
+func NewDepotBakeOptions(defaultProjectID string, targets map[string]*Target, input *Input) (*DepotBakeOptions, error) {
+	opts := &DepotBakeOptions{
+		ProjectTargetOptions: map[string]map[string]build.Options{},
+	}
+
+	for targetName, target := range targets {
+		projectID := target.ProjectID
+		if projectID == "" {
+			projectID = defaultProjectID
+		}
+		if projectID == "" {
+			return nil, errors.Errorf("Project ID is missing for target %s, please specify with --project, DEPOT_PROJECT_ID, or run `depot init`", targetName)
+		}
+		buildOpt, err := toBuildOpt(target, input)
 		if err != nil {
 			return nil, err
 		}
-		m2[k] = *bo
+
+		if _, ok := opts.ProjectTargetOptions[projectID]; !ok {
+			opts.ProjectTargetOptions[projectID] = map[string]build.Options{}
+		}
+		opts.ProjectTargetOptions[projectID][targetName] = *buildOpt
 	}
-	return m2, nil
+
+	return opts, nil
+}
+
+// ProjectOpts returns the targeted build options for a specific project ID.
+func (o *DepotBakeOptions) ProjectOpts(id string) map[string]build.Options {
+	return o.ProjectTargetOptions[id]
+}
+
+// ProjectIDs returns the x-depot project IDs.
+func (o *DepotBakeOptions) ProjectIDs() []string {
+	projectIDs := make([]string, 0, len(o.ProjectTargetOptions))
+	for projectID := range o.ProjectTargetOptions {
+		projectIDs = append(projectIDs, projectID)
+	}
+	return projectIDs
 }
 
 func updateContext(t *build.Inputs, inp *Input) {
