@@ -947,6 +947,9 @@ func NewDepotBakeOptions(defaultProjectID string, targets map[string]*Target, in
 		if projectID == "" {
 			projectID = defaultProjectID
 		}
+		if projectID == "" {
+			return nil, errors.Errorf("Project ID is missing for target %s, please specify with --project, DEPOT_PROJECT_ID, or run `depot init`", targetName)
+		}
 		buildOpt, err := toBuildOpt(target, input)
 		if err != nil {
 			return nil, err
