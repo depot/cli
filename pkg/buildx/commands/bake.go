@@ -53,16 +53,6 @@ func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator, pri
 		end(err)
 	}()
 
-	defer func() {
-		// There is extra logic far below that will also do a printer.Wait()
-		// if there are no errors.  We want to control when the buildx printer
-		// finishes writing so that we can write our own information such as
-		// linting without it being interleaved.
-		if printer != nil && err != nil {
-			_ = printer.Wait()
-		}
-	}()
-
 	if os.Getenv("DEPOT_NO_SUMMARY_LINK") == "" {
 		progress.Write(printer, "[depot] build: "+in.buildURL, func() error { return err })
 	}
@@ -338,6 +328,9 @@ func BakeCmd(dockerCli command.Cli) *cobra.Command {
 						buildErr = retryRetryableErrors(ctx, func() error {
 							return RunBake(c, o, v, p)
 						})
+						if buildErr != nil {
+							_ = p.Wait()
+						}
 
 						return rewriteFriendlyErrors(buildErr)
 					})
