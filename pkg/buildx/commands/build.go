@@ -1096,6 +1096,9 @@ func rewriteFriendlyErrors(err error) error {
 		simplified := re.ReplaceAllString(err.Error(), "")
 		return errors.New(simplified + ". Please check if the files exist in the context.")
 	}
+	if strings.Contains(err.Error(), "code = Canceled desc = grpc: the client connection is closing") {
+		return errors.New("build canceled")
+	}
 	return err
 }
 
