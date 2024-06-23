@@ -17,6 +17,7 @@ import (
 	"github.com/pkg/errors"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/encoding/gzip"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 type Machine struct {
@@ -114,13 +115,18 @@ func (m *Machine) ReportHealth() error {
 
 	client := api.NewBuildClient()
 	for {
-		err := m.doReportHealth(context.Background(), client, builderPlatform)
+		cancelAt, err := m.doReportHealth(context.Background(), client, builderPlatform)
 		if err != nil {
 			if errors.Is(err, context.Canceled) {
 				return nil
 			}
 			fmt.Printf("error reporting health: %s", err.Error())
 			client = api.NewBuildClient()
+		}
+
+		// If canceling the build was requested, release the machine to interrupt the build step.
+		if cancelAt != nil && time.Now().After(cancelAt.AsTime()) {
+			_ = m.Release()
 		}
 		select {
 		case <-time.After(5 * time.Second):
@@ -130,12 +136,15 @@ func (m *Machine) ReportHealth() error {
 	}
 }
 
-func (m *Machine) doReportHealth(ctx context.Context, client cliv1connect.BuildServiceClient, builderPlatform cliv1.BuilderPlatform) error {
+func (m *Machine) doReportHealth(ctx context.Context, client cliv1connect.BuildServiceClient, builderPlatform cliv1.BuilderPlatform) (*timestamppb.Timestamp, error) {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	req := cliv1.ReportBuildHealthRequest{BuildId: m.BuildID, Platform: builderPlatform}
-	_, err := client.ReportBuildHealth(ctx, api.WithAuthentication(connect.NewRequest(&req), m.Token))
-	return err
+	res, err := client.ReportBuildHealth(ctx, api.WithAuthentication(connect.NewRequest(&req), m.Token))
+	if err != nil {
+		return nil, err
+	}
+	return res.Msg.GetCancelsAt(), nil
 }
 
 func (m *Machine) Release() error {

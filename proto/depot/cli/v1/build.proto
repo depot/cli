@@ -168,7 +168,10 @@ message ReportBuildHealthRequest {
   BuilderPlatform platform = 2;
 }
 
-message ReportBuildHealthResponse {}
+message ReportBuildHealthResponse {
+  // Cancel the build after this time.
+  google.protobuf.Timestamp cancels_at = 1;
+}
 
 message ReportTimingsRequest {
   string build_id = 1;
