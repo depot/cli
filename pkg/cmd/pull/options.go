@@ -80,22 +80,36 @@ func validateTargets(targets []string, msg *cliv1.GetPullInfoResponse) error {
 // Preconditions: isBake(msg.Options) && isSavedBuild(msg.Options) && validateTargets(targets, msg) == nil
 func bakePullOpts(msg *cliv1.GetPullInfoResponse, targets, userTags []string, platform, progress string) []*pull {
 	pulls := []*pull{}
+
+	filteredOptions := []*cliv1.BuildOptions{}
 	for _, opt := range msg.Options {
 		// Bake builds always have a target name.
 		targetName := *opt.TargetName
 		if len(targets) > 0 && !slices.Contains(targets, targetName) {
 			continue
 		}
+		filteredOptions = append(filteredOptions, opt)
+	}
+
+	isPullingMultipleTargets := len(filteredOptions) > 1
+
+	for _, opt := range filteredOptions {
+		// Bake builds always have a target name.
+		targetName := *opt.TargetName
 
 		imageName := fmt.Sprintf("%s-%s", msg.Reference, targetName)
 
 		// If a user specified tags, we override the tags in the bake file
-		// with <TAG>-<TARGET_NAME>.
+		// with <TAG>-<TARGET_NAME> if pulling multiple targets.
 		tags := opt.Tags
 		if len(userTags) > 0 {
-			tags = make([]string, len(userTags))
-			for i, tag := range userTags {
-				tags[i] = fmt.Sprintf("%s-%s", tag, targetName)
+			if isPullingMultipleTargets {
+				tags = make([]string, len(userTags))
+				for i, tag := range userTags {
+					tags[i] = fmt.Sprintf("%s-%s", tag, targetName)
+				}
+			} else {
+				tags = userTags
 			}
 		}
 
