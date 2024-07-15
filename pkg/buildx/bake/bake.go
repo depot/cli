@@ -13,7 +13,7 @@ import (
 	"strconv"
 	"strings"
 
-	composecli "github.com/compose-spec/compose-go/cli"
+	composecli "github.com/compose-spec/compose-go/v2/cli"
 	"github.com/depot/cli/pkg/buildx/bake/hclparser"
 	"github.com/docker/buildx/build"
 	"github.com/docker/buildx/util/buildflags"

@@ -7,10 +7,10 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/compose-spec/compose-go/dotenv"
-	"github.com/compose-spec/compose-go/loader"
-	"github.com/compose-spec/compose-go/types"
-	compose "github.com/compose-spec/compose-go/types"
+	"github.com/compose-spec/compose-go/v2/dotenv"
+	"github.com/compose-spec/compose-go/v2/loader"
+	"github.com/compose-spec/compose-go/v2/types"
+	compose "github.com/compose-spec/compose-go/v2/types"
 	"github.com/depot/cli/pkg/buildx/bake"
 	"gopkg.in/yaml.v2"
 )
@@ -186,7 +186,7 @@ func loadDotEnv(curenv map[string]string, workingDir string) (map[string]string,
 		return nil, err
 	}
 
-	envs, err := dotenv.UnmarshalBytes(dt)
+	envs, err := dotenv.UnmarshalBytesWithLookup(dt, nil)
 	if err != nil {
 		return nil, err
 	}

@@ -1,13 +1,16 @@
 package bake
 
 import (
+	"context"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
-	"github.com/compose-spec/compose-go/dotenv"
-	"github.com/compose-spec/compose-go/loader"
-	compose "github.com/compose-spec/compose-go/types"
+	"github.com/compose-spec/compose-go/v2/consts"
+	"github.com/compose-spec/compose-go/v2/dotenv"
+	"github.com/compose-spec/compose-go/v2/loader"
+	compose "github.com/compose-spec/compose-go/v2/types"
 	"github.com/pkg/errors"
 	"gopkg.in/yaml.v3"
 )
@@ -28,11 +31,20 @@ func ParseComposeFiles(fs []File) (*Config, error) {
 }
 
 func ParseCompose(cfgs []compose.ConfigFile, envs map[string]string) (*Config, error) {
-	cfg, err := loader.Load(compose.ConfigDetails{
+	if envs == nil {
+		envs = make(map[string]string)
+	}
+	cfg, err := loader.LoadWithContext(context.Background(), compose.ConfigDetails{
 		ConfigFiles: cfgs,
 		Environment: envs,
 	}, func(options *loader.Options) {
+		projectName := "bake"
+		if v, ok := envs[consts.ComposeProjectName]; ok && v != "" {
+			projectName = v
+		}
+		options.SetProjectName(projectName, false)
 		options.SkipNormalization = true
+		options.Profiles = []string{"*"}
 	})
 	if err != nil {
 		return nil, err
@@ -65,6 +77,26 @@ func ParseCompose(cfgs []compose.ConfigFile, envs map[string]string) (*Config, e
 				dockerfilePath := s.Build.Dockerfile
 				dockerfilePathP = &dockerfilePath
 			}
+			var dockerfileInlineP *string
+			if s.Build.DockerfileInline != "" {
+				dockerfileInline := s.Build.DockerfileInline
+				dockerfileInlineP = &dockerfileInline
+			}
+
+			var additionalContexts map[string]string
+			if s.Build.AdditionalContexts != nil {
+				additionalContexts = map[string]string{}
+				for k, v := range s.Build.AdditionalContexts {
+					additionalContexts[k] = v
+				}
+			}
+
+			var ssh []string
+			for _, bkey := range s.Build.SSH {
+				sshkey := composeToBuildkitSSH(bkey)
+				ssh = append(ssh, sshkey)
+			}
+			sort.Strings(ssh)
 
 			var secrets []string
 			for _, bs := range s.Build.Secrets {
@@ -84,11 +116,13 @@ func ParseCompose(cfgs []compose.ConfigFile, envs map[string]string) (*Config, e
 
 			g.Targets = append(g.Targets, targetName)
 			t := &Target{
-				Name:       targetName,
-				Context:    contextPathP,
-				Dockerfile: dockerfilePathP,
-				Tags:       s.Build.Tags,
-				Labels:     labels,
+				Name:             targetName,
+				Context:          contextPathP,
+				Contexts:         additionalContexts,
+				Dockerfile:       dockerfilePathP,
+				DockerfileInline: dockerfileInlineP,
+				Tags:             s.Build.Tags,
+				Labels:           labels,
 				Args: flatten(s.Build.Args.Resolve(func(val string) (string, bool) {
 					if val, ok := s.Environment[val]; ok && val != nil {
 						return *val, true
@@ -99,6 +133,7 @@ func ParseCompose(cfgs []compose.ConfigFile, envs map[string]string) (*Config, e
 				CacheFrom:   s.Build.CacheFrom,
 				CacheTo:     s.Build.CacheTo,
 				NetworkMode: &s.Build.Network,
+				SSH:         ssh,
 				Secrets:     secrets,
 			}
 			if err = t.composeExtTarget(s.Build.Extensions); err != nil {
@@ -145,6 +180,7 @@ func validateCompose(dt []byte, envs map[string]string) error {
 		},
 		Environment: envs,
 	}, func(options *loader.Options) {
+		options.SetProjectName("bake", false)
 		options.SkipNormalization = true
 		// consistency is checked later in ParseCompose to ensure multiple
 		// compose files can be merged together
@@ -185,7 +221,7 @@ func loadDotEnv(curenv map[string]string, workingDir string) (map[string]string,
 		return nil, err
 	}
 
-	envs, err := dotenv.UnmarshalBytes(dt)
+	envs, err := dotenv.UnmarshalBytesWithLookup(dt, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -295,6 +331,7 @@ func (t *Target) composeExtTarget(exts map[string]interface{}) error {
 	}
 	if len(xb.SSH) > 0 {
 		t.SSH = dedupSlice(append(t.SSH, xb.SSH...))
+		sort.Strings(t.SSH)
 	}
 	if len(xb.Platforms) > 0 {
 		t.Platforms = dedupSlice(append(t.Platforms, xb.Platforms...))
@@ -321,7 +358,7 @@ func (t *Target) composeExtTarget(exts map[string]interface{}) error {
 // composeToBuildkitSecret converts secret from compose format to buildkit's
 // csv format.
 func composeToBuildkitSecret(inp compose.ServiceSecretConfig, psecret compose.SecretConfig) (string, error) {
-	if psecret.External.External {
+	if psecret.External {
 		return "", errors.Errorf("unsupported external secret %s", psecret.Name)
 	}
 
@@ -337,4 +374,18 @@ func composeToBuildkitSecret(inp compose.ServiceSecretConfig, psecret compose.Se
 	}
 
 	return strings.Join(bkattrs, ","), nil
+}
+
+// composeToBuildkitSSH converts secret from compose format to buildkit's
+// csv format.
+func composeToBuildkitSSH(sshKey compose.SSHKey) string {
+	var bkattrs []string
+
+	bkattrs = append(bkattrs, sshKey.ID)
+
+	if sshKey.Path != "" {
+		bkattrs = append(bkattrs, sshKey.Path)
+	}
+
+	return strings.Join(bkattrs, "=")
 }
