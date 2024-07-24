@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/compose-spec/compose-go/v2/consts"
 	"github.com/compose-spec/compose-go/v2/dotenv"
 	"github.com/compose-spec/compose-go/v2/loader"
 	"github.com/compose-spec/compose-go/v2/types"
@@ -49,6 +50,19 @@ func TargetTags(files []bake.File) (map[string][]string, error) {
 		Environment: envs,
 	}
 	opts := func(options *loader.Options) {
+		if nameFromEnv, ok := envs[consts.ComposeProjectName]; ok && nameFromEnv != "" {
+			options.SetProjectName(nameFromEnv, true)
+		} else {
+			path, err := filepath.Abs(files[0].Name)
+			if err != nil {
+				return
+			}
+			absWorkingDir := filepath.Dir(path)
+			options.SetProjectName(
+				loader.NormalizeProjectName(filepath.Base(absWorkingDir)),
+				false,
+			)
+		}
 		options.SkipNormalization = true
 	}
 
@@ -130,6 +144,11 @@ func isComposeFile(file string, content []byte) bool {
 	}
 
 	opts := func(options *loader.Options) {
+		projectName := "bake"
+		if v, ok := envs[consts.ComposeProjectName]; ok && v != "" {
+			projectName = v
+		}
+		options.SetProjectName(projectName, false)
 		options.SkipNormalization = true
 		options.SkipConsistencyCheck = true
 	}
