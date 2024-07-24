@@ -2,7 +2,6 @@ package compose
 
 import (
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -38,7 +37,6 @@ func TargetTags(files []bake.File) (map[string][]string, error) {
 	}
 
 	if len(configFiles) == 0 {
-		fmt.Println("no config files")
 		return nil, nil
 	}
 
