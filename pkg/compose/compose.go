@@ -44,16 +44,6 @@ func TargetTags(files []bake.File) (map[string][]string, error) {
 		return nil, err
 	}
 
-	var projectName string
-	path, err := filepath.Abs(files[0].Name)
-	if err != nil {
-		return nil, err
-	}
-	dir := filepath.Base(filepath.Dir(path))
-	if dir != "." {
-		projectName = dir
-	}
-
 	details := compose.ConfigDetails{
 		ConfigFiles: configFiles,
 		Environment: envs,
@@ -65,6 +55,18 @@ func TargetTags(files []bake.File) (map[string][]string, error) {
 	cfg, err := loader.Load(details, opts)
 	if err != nil {
 		return nil, err
+	}
+
+	projectName := cfg.Name
+	if projectName == "" {
+		path, err := filepath.Abs(files[0].Name)
+		if err != nil {
+			return nil, err
+		}
+		dir := filepath.Base(filepath.Dir(path))
+		if dir != "." {
+			projectName = dir
+		}
 	}
 
 	targetTags := map[string][]string{}
