@@ -41,7 +41,7 @@ func main() {
 
 	// Set the buildErr to any error that represents the build failing.
 	var buildErr error
-	defer build.Finish(buildErr)
+	defer func() { build.Finish(buildErr) }()
 
 	ctx, cancel := context.WithCancel(ctx)
 	printer, buildErr := progress.NewPrinter(ctx, os.Stderr, os.Stderr, "quiet")
