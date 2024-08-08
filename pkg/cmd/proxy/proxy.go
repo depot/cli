@@ -130,6 +130,7 @@ func NewCmdProxy(dockerCli command.Cli) *cobra.Command {
 		signal.Notify(sigChan)
 
 		subCmd := exec.CommandContext(ctx, args[0], args[1:]...)
+		fmt.Printf("Proxying on %s\n", localAddr)
 
 		env := os.Environ()
 		subCmd.Env = append(env, fmt.Sprintf("%s=%s", envVar, localAddr))
