@@ -119,6 +119,8 @@ func (p *ControlProxy) Solve(ctx context.Context, in *control.SolveRequest) (*co
 		ctx = metadata.NewOutgoingContext(ctx, md)
 	}
 
+	in.Exporter = ""
+
 	client := control.NewControlClient(p.BuildkitClient)
 	// DEPOT: stop recording the build steps and traces on the server.
 	in.Internal = true
