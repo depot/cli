@@ -11,6 +11,7 @@ import (
 
 	"connectrpc.com/connect"
 	"github.com/depot/cli/pkg/api"
+	"github.com/depot/cli/pkg/cleanup"
 	cliv1 "github.com/depot/cli/pkg/proto/depot/cli/v1"
 	"github.com/depot/cli/pkg/proto/depot/cli/v1/cliv1connect"
 	"github.com/moby/buildkit/client"
@@ -180,6 +181,7 @@ func (m *Machine) Client(ctx context.Context) (*client.Client, error) {
 			return nil, errors.Wrap(err, "failed to write cert to temp file")
 		}
 		cert := file.Name()
+		cleanup.RegisterTmpfile(cert)
 
 		file, err = os.CreateTemp("", "depot-key")
 		if err != nil {
@@ -191,6 +193,7 @@ func (m *Machine) Client(ctx context.Context) (*client.Client, error) {
 			return nil, errors.Wrap(err, "failed to write key to temp file")
 		}
 		key := file.Name()
+		cleanup.RegisterTmpfile(key)
 
 		file, err = os.CreateTemp("", "depot-ca-cert")
 		if err != nil {
@@ -202,6 +205,7 @@ func (m *Machine) Client(ctx context.Context) (*client.Client, error) {
 			return nil, errors.Wrap(err, "failed to write CA cert to temp file")
 		}
 		caCert := file.Name()
+		cleanup.RegisterTmpfile(caCert)
 
 		opts = append(opts, client.WithCredentials(m.ServerName, caCert, cert, key))
 	}

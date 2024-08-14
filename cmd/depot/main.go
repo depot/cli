@@ -12,6 +12,7 @@ import (
 	"github.com/depot/cli/internal/build"
 	"github.com/depot/cli/internal/update"
 	"github.com/depot/cli/pkg/api"
+	"github.com/depot/cli/pkg/cleanup"
 	"github.com/depot/cli/pkg/cmd/root"
 	"github.com/depot/cli/pkg/config"
 	"github.com/depot/cli/pkg/helpers"
@@ -81,6 +82,8 @@ func runMain() int {
 			log.Fatalf("sentry.Init: %s", err)
 		}
 	}
+
+	defer cleanup.CleanupTmpfiles()
 
 	buildVersion := build.Version
 	buildDate := build.Date
