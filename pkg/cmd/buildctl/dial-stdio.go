@@ -145,7 +145,8 @@ func run() error {
 			}
 			state.Reporter = progresshelper.Tee(state.Reporter, status)
 
-			reportingWriter := progresshelper.NewReportingWriter(state.Reporter, build.ID, build.Token)
+			reportingWriter := progresshelper.NewReporter(ctx2, state.Reporter, build.ID, build.Token)
+			defer reportingWriter.Close()
 
 			state.SummaryURL = build.BuildURL
 			buildFinish = build.Finish

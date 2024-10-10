@@ -12,6 +12,7 @@ service BuildService {
   rpc ReportBuildHealth(ReportBuildHealthRequest) returns (ReportBuildHealthResponse);
   rpc ReportTimings(ReportTimingsRequest) returns (ReportTimingsResponse);
   rpc ReportStatus(ReportStatusRequest) returns (ReportStatusResponse);
+  rpc ReportStatusStream(stream ReportStatusStreamRequest) returns (ReportStatusStreamResponse);
   rpc ReportBuildContext(ReportBuildContextRequest) returns (ReportBuildContextResponse);
   rpc ListBuilds(ListBuildsRequest) returns (ListBuildsResponse) {}
   rpc GetPullInfo(GetPullInfoRequest) returns (GetPullInfoResponse);
@@ -61,6 +62,7 @@ enum Command {
   COMMAND_BUILDX = 3;
   COMMAND_DAGGER = 4;
   COMMAND_EXEC = 5;
+  COMMAND_FLYCTL = 6;
 }
 
 message BuildOutput {
@@ -198,6 +200,14 @@ message ReportStatusRequest {
 }
 
 message ReportStatusResponse {}
+
+message ReportStatusStreamRequest {
+  string build_id = 1;
+  repeated moby.buildkit.v1.StatusResponse statuses = 2;
+  map<string, string> stable_digests = 3;
+}
+
+message ReportStatusStreamResponse {}
 
 message ListBuildsRequest {
   // The project ID to get the builds for

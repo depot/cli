@@ -321,7 +321,7 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.No
 	}
 
 	// NOTE: the err is returned at the end of this function after the final prints.
-	reportingPrinter := progresshelper.NewReportingWriter(printer, depotOpts.buildID, depotOpts.token)
+	reportingPrinter := progresshelper.NewReporter(ctx, printer, depotOpts.buildID, depotOpts.token)
 	err = load.DepotFastLoad(ctx, dockerCli.Client(), resp, pullOpts, reportingPrinter)
 	if err != nil && !errors.Is(err, context.Canceled) {
 		// For now, we will fallback by rebuilding with load.
@@ -342,6 +342,8 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.No
 			}
 		}
 	}
+	reportingPrinter.Close()
+
 	load.DeleteExportLeases(ctx, resp)
 
 	if err := printer.Wait(); err != nil {

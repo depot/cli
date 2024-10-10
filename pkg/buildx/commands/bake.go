@@ -176,7 +176,8 @@ func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator, pri
 					var err error
 					// Only load images from requested targets to avoid pulling unnecessary images.
 					if slices.Contains(requestedTargets, resp[i].Name) {
-						reportingPrinter := progresshelper.NewReportingWriter(printer, in.buildID, in.token)
+						reportingPrinter := progresshelper.NewReporter(ctx2, printer, in.buildID, in.token)
+						defer reportingPrinter.Close()
 						err = load.DepotFastLoad(ctx2, dockerCli.Client(), depotResponses, pullOpts, reportingPrinter)
 					}
 					load.DeleteExportLeases(ctx2, depotResponses)

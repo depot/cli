@@ -1,30 +1,9 @@
 package progresshelper
 
 import (
-	"context"
-	"time"
-
-	"connectrpc.com/connect"
-	depotapi "github.com/depot/cli/pkg/api"
-	cliv1 "github.com/depot/cli/pkg/proto/depot/cli/v1"
-	cliv1connect "github.com/depot/cli/pkg/proto/depot/cli/v1/cliv1connect"
 	controlapi "github.com/moby/buildkit/api/services/control"
 	"github.com/moby/buildkit/client"
 )
-
-func reportToAPI(client cliv1connect.BuildServiceClient, status *client.SolveStatus, buildID, token string) {
-	if buildID != "" && token != "" {
-		req := &cliv1.ReportStatusRequest{
-			BuildId:  buildID,
-			Statuses: []*controlapi.StatusResponse{toStatusResponse(status)},
-		}
-
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-
-		_, _ = client.ReportStatus(ctx, depotapi.WithAuthentication(connect.NewRequest(req), token))
-	}
-}
 
 func toStatusResponse(status *client.SolveStatus) *controlapi.StatusResponse {
 	vertexes := make([]*controlapi.Vertex, 0, len(status.Vertexes))
