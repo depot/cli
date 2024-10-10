@@ -756,10 +756,6 @@ type DepotNodeResponse struct {
 	SolveResponse *client.SolveResponse
 }
 
-func Build(ctx context.Context, nodes []builder.Node, opt map[string]Options, docker *dockerutil.Client, configDir string, w progress.Writer, dockerfileCallback DockerfileCallback, build *depotbuild.Build) (resp []DepotBuildResponse, err error) {
-	return BuildWithResultHandler(ctx, nodes, opt, docker, configDir, w, dockerfileCallback, nil, false, build)
-}
-
 func BuildWithResultHandler(ctx context.Context, nodes []builder.Node, opt map[string]Options, docker *dockerutil.Client, configDir string, w progress.Writer, dockerfileCallback DockerfileCallback, resultHandleFunc func(driverIndex int, rCtx *ResultContext), allowNoOutput bool, build *depotbuild.Build) (resp []DepotBuildResponse, err error) {
 	if len(nodes) == 0 {
 		return nil, errors.Errorf("driver required for build")

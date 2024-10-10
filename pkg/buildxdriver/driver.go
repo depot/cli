@@ -41,8 +41,8 @@ func (d *Driver) Bootstrap(ctx context.Context, reporter progress.Logger) error 
 		}
 		d.cfg.Auth = depotbuild.NewAuthProvider(credentials, d.cfg.Auth)
 	}
-
-	reportingLogger := progresshelper.NewReportingLogger(reporter, buildID, token)
+	reportingLogger := progresshelper.NewReporterFromLogger(ctx, reporter, buildID, token)
+	defer reportingLogger.Close()
 
 	message := "[depot] launching " + platform + " machine"
 
@@ -137,10 +137,10 @@ func (d *Driver) Version(ctx context.Context) (string, error) {
 	return "", nil
 }
 
-func StartLog(message string, logger progress.Logger) func(err error) {
+func StartLog(message string, logger *progresshelper.Reporter) func(err error) {
 	dgst := digest.FromBytes([]byte(identity.NewID()))
 	tm := time.Now()
-	logger(&client.SolveStatus{
+	logger.Write(&client.SolveStatus{
 		Vertexes: []*client.Vertex{{
 			Digest:  dgst,
 			Name:    message,
@@ -154,7 +154,7 @@ func StartLog(message string, logger progress.Logger) func(err error) {
 		if err != nil {
 			errMsg = err.Error()
 		}
-		logger(&client.SolveStatus{
+		logger.Write(&client.SolveStatus{
 			Vertexes: []*client.Vertex{{
 				Digest:    dgst,
 				Name:      message,

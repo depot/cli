@@ -85,7 +85,7 @@ func NewCmdExec(dockerCli command.Cli) *cobra.Command {
 			return buildErr
 		}
 
-		reportingWriter := progresshelper.NewReportingWriter(printer, build.ID, build.Token)
+		reportingWriter := progresshelper.NewReporter(printCtx, printer, build.ID, build.Token)
 
 		var builder *machine.Machine
 		buildErr = progresshelper.WithLog(reportingWriter, fmt.Sprintf("[depot] launching %s machine", platform), func() error {
@@ -99,6 +99,7 @@ func NewCmdExec(dockerCli command.Cli) *cobra.Command {
 		})
 		if buildErr != nil {
 			cancel()
+			reportingWriter.Close()
 			return buildErr
 		}
 
@@ -115,6 +116,7 @@ func NewCmdExec(dockerCli command.Cli) *cobra.Command {
 			return nil
 		})
 		cancel()
+		reportingWriter.Close()
 
 		listener, localAddr, buildErr := connection.LocalListener()
 		if buildErr != nil {

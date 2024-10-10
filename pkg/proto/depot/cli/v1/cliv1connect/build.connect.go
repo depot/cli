@@ -51,6 +51,9 @@ const (
 	// BuildServiceReportStatusProcedure is the fully-qualified name of the BuildService's ReportStatus
 	// RPC.
 	BuildServiceReportStatusProcedure = "/depot.cli.v1.BuildService/ReportStatus"
+	// BuildServiceReportStatusStreamProcedure is the fully-qualified name of the BuildService's
+	// ReportStatusStream RPC.
+	BuildServiceReportStatusStreamProcedure = "/depot.cli.v1.BuildService/ReportStatusStream"
 	// BuildServiceReportBuildContextProcedure is the fully-qualified name of the BuildService's
 	// ReportBuildContext RPC.
 	BuildServiceReportBuildContextProcedure = "/depot.cli.v1.BuildService/ReportBuildContext"
@@ -72,6 +75,7 @@ type BuildServiceClient interface {
 	ReportBuildHealth(context.Context, *connect.Request[v1.ReportBuildHealthRequest]) (*connect.Response[v1.ReportBuildHealthResponse], error)
 	ReportTimings(context.Context, *connect.Request[v1.ReportTimingsRequest]) (*connect.Response[v1.ReportTimingsResponse], error)
 	ReportStatus(context.Context, *connect.Request[v1.ReportStatusRequest]) (*connect.Response[v1.ReportStatusResponse], error)
+	ReportStatusStream(context.Context) *connect.ClientStreamForClient[v1.ReportStatusStreamRequest, v1.ReportStatusStreamResponse]
 	ReportBuildContext(context.Context, *connect.Request[v1.ReportBuildContextRequest]) (*connect.Response[v1.ReportBuildContextResponse], error)
 	ListBuilds(context.Context, *connect.Request[v1.ListBuildsRequest]) (*connect.Response[v1.ListBuildsResponse], error)
 	GetPullInfo(context.Context, *connect.Request[v1.GetPullInfoRequest]) (*connect.Response[v1.GetPullInfoResponse], error)
@@ -118,6 +122,11 @@ func NewBuildServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			baseURL+BuildServiceReportStatusProcedure,
 			opts...,
 		),
+		reportStatusStream: connect.NewClient[v1.ReportStatusStreamRequest, v1.ReportStatusStreamResponse](
+			httpClient,
+			baseURL+BuildServiceReportStatusStreamProcedure,
+			opts...,
+		),
 		reportBuildContext: connect.NewClient[v1.ReportBuildContextRequest, v1.ReportBuildContextResponse](
 			httpClient,
 			baseURL+BuildServiceReportBuildContextProcedure,
@@ -149,6 +158,7 @@ type buildServiceClient struct {
 	reportBuildHealth     *connect.Client[v1.ReportBuildHealthRequest, v1.ReportBuildHealthResponse]
 	reportTimings         *connect.Client[v1.ReportTimingsRequest, v1.ReportTimingsResponse]
 	reportStatus          *connect.Client[v1.ReportStatusRequest, v1.ReportStatusResponse]
+	reportStatusStream    *connect.Client[v1.ReportStatusStreamRequest, v1.ReportStatusStreamResponse]
 	reportBuildContext    *connect.Client[v1.ReportBuildContextRequest, v1.ReportBuildContextResponse]
 	listBuilds            *connect.Client[v1.ListBuildsRequest, v1.ListBuildsResponse]
 	getPullInfo           *connect.Client[v1.GetPullInfoRequest, v1.GetPullInfoResponse]
@@ -185,6 +195,11 @@ func (c *buildServiceClient) ReportStatus(ctx context.Context, req *connect.Requ
 	return c.reportStatus.CallUnary(ctx, req)
 }
 
+// ReportStatusStream calls depot.cli.v1.BuildService.ReportStatusStream.
+func (c *buildServiceClient) ReportStatusStream(ctx context.Context) *connect.ClientStreamForClient[v1.ReportStatusStreamRequest, v1.ReportStatusStreamResponse] {
+	return c.reportStatusStream.CallClientStream(ctx)
+}
+
 // ReportBuildContext calls depot.cli.v1.BuildService.ReportBuildContext.
 func (c *buildServiceClient) ReportBuildContext(ctx context.Context, req *connect.Request[v1.ReportBuildContextRequest]) (*connect.Response[v1.ReportBuildContextResponse], error) {
 	return c.reportBuildContext.CallUnary(ctx, req)
@@ -213,6 +228,7 @@ type BuildServiceHandler interface {
 	ReportBuildHealth(context.Context, *connect.Request[v1.ReportBuildHealthRequest]) (*connect.Response[v1.ReportBuildHealthResponse], error)
 	ReportTimings(context.Context, *connect.Request[v1.ReportTimingsRequest]) (*connect.Response[v1.ReportTimingsResponse], error)
 	ReportStatus(context.Context, *connect.Request[v1.ReportStatusRequest]) (*connect.Response[v1.ReportStatusResponse], error)
+	ReportStatusStream(context.Context, *connect.ClientStream[v1.ReportStatusStreamRequest]) (*connect.Response[v1.ReportStatusStreamResponse], error)
 	ReportBuildContext(context.Context, *connect.Request[v1.ReportBuildContextRequest]) (*connect.Response[v1.ReportBuildContextResponse], error)
 	ListBuilds(context.Context, *connect.Request[v1.ListBuildsRequest]) (*connect.Response[v1.ListBuildsResponse], error)
 	GetPullInfo(context.Context, *connect.Request[v1.GetPullInfoRequest]) (*connect.Response[v1.GetPullInfoResponse], error)
@@ -255,6 +271,11 @@ func NewBuildServiceHandler(svc BuildServiceHandler, opts ...connect.HandlerOpti
 		svc.ReportStatus,
 		opts...,
 	)
+	buildServiceReportStatusStreamHandler := connect.NewClientStreamHandler(
+		BuildServiceReportStatusStreamProcedure,
+		svc.ReportStatusStream,
+		opts...,
+	)
 	buildServiceReportBuildContextHandler := connect.NewUnaryHandler(
 		BuildServiceReportBuildContextProcedure,
 		svc.ReportBuildContext,
@@ -289,6 +310,8 @@ func NewBuildServiceHandler(svc BuildServiceHandler, opts ...connect.HandlerOpti
 			buildServiceReportTimingsHandler.ServeHTTP(w, r)
 		case BuildServiceReportStatusProcedure:
 			buildServiceReportStatusHandler.ServeHTTP(w, r)
+		case BuildServiceReportStatusStreamProcedure:
+			buildServiceReportStatusStreamHandler.ServeHTTP(w, r)
 		case BuildServiceReportBuildContextProcedure:
 			buildServiceReportBuildContextHandler.ServeHTTP(w, r)
 		case BuildServiceListBuildsProcedure:
@@ -328,6 +351,10 @@ func (UnimplementedBuildServiceHandler) ReportTimings(context.Context, *connect.
 
 func (UnimplementedBuildServiceHandler) ReportStatus(context.Context, *connect.Request[v1.ReportStatusRequest]) (*connect.Response[v1.ReportStatusResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.cli.v1.BuildService.ReportStatus is not implemented"))
+}
+
+func (UnimplementedBuildServiceHandler) ReportStatusStream(context.Context, *connect.ClientStream[v1.ReportStatusStreamRequest]) (*connect.Response[v1.ReportStatusStreamResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.cli.v1.BuildService.ReportStatusStream is not implemented"))
 }
 
 func (UnimplementedBuildServiceHandler) ReportBuildContext(context.Context, *connect.Request[v1.ReportBuildContextRequest]) (*connect.Response[v1.ReportBuildContextResponse], error) {
