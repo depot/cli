@@ -8,11 +8,10 @@ import (
 	"github.com/depot/cli/pkg/helpers"
 	cliv1 "github.com/depot/cli/pkg/proto/depot/cli/v1"
 	"github.com/docker/cli/cli"
-	"github.com/docker/cli/cli/command"
 	"github.com/spf13/cobra"
 )
 
-func NewCmdPullToken(dockerCli command.Cli) *cobra.Command {
+func NewCmdPullToken() *cobra.Command {
 	var (
 		token     string
 		projectID string
