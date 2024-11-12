@@ -8,6 +8,7 @@ import (
 	"github.com/depot/cli/pkg/api"
 	depotapi "github.com/depot/cli/pkg/api"
 	"github.com/depot/cli/pkg/ci"
+	"github.com/depot/cli/pkg/dockerclient"
 	"github.com/depot/cli/pkg/helpers"
 	cliv1 "github.com/depot/cli/pkg/proto/depot/cli/v1"
 	prog "github.com/docker/buildx/util/progress"
@@ -19,7 +20,7 @@ import (
 )
 
 // NewCmdPush pushes a previously saved build to a registry from the Depot ephemeral registry.
-func NewCmdPush(dockerCli command.Cli) *cobra.Command {
+func NewCmdPush() *cobra.Command {
 	var (
 		token       string
 		projectID   string
@@ -34,6 +35,11 @@ func NewCmdPush(dockerCli command.Cli) *cobra.Command {
 		Short: "Push a project's build from the Depot ephemeral registry to a destination registry",
 		Args:  cli.RequiresMaxArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			dockerCli, err := dockerclient.NewDockerCLI()
+			if err != nil {
+				return err
+			}
+
 			if len(args) > 0 {
 				buildID = args[0]
 			}

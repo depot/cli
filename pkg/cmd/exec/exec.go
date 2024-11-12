@@ -18,11 +18,10 @@ import (
 	cliv1 "github.com/depot/cli/pkg/proto/depot/cli/v1"
 	"github.com/docker/buildx/util/progress"
 	"github.com/docker/cli/cli"
-	"github.com/docker/cli/cli/command"
 	"github.com/spf13/cobra"
 )
 
-func NewCmdExec(dockerCli command.Cli) *cobra.Command {
+func NewCmdExec() *cobra.Command {
 	var (
 		envVar       string
 		token        string

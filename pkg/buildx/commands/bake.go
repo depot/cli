@@ -14,6 +14,7 @@ import (
 	"github.com/depot/cli/pkg/buildx/build"
 	"github.com/depot/cli/pkg/buildx/builder"
 	"github.com/depot/cli/pkg/compose"
+	"github.com/depot/cli/pkg/dockerclient"
 	"github.com/depot/cli/pkg/helpers"
 	"github.com/depot/cli/pkg/load"
 	"github.com/depot/cli/pkg/progresshelper"
@@ -208,7 +209,7 @@ func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator, pri
 	return nil
 }
 
-func BakeCmd(dockerCli command.Cli) *cobra.Command {
+func BakeCmd() *cobra.Command {
 	var options BakeOptions
 
 	cmd := &cobra.Command{
@@ -216,6 +217,11 @@ func BakeCmd(dockerCli command.Cli) *cobra.Command {
 		Aliases: []string{"f"},
 		Short:   "Build from a file",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			dockerCli, err := dockerclient.NewDockerCLI()
+			if err != nil {
+				return err
+			}
+
 			// TODO: remove when upgrading to buildx 0.12
 			for idx, file := range options.files {
 				if strings.HasPrefix(file, "cwd://") {

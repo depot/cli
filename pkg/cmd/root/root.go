@@ -1,7 +1,6 @@
 package root
 
 import (
-	"fmt"
 	"os"
 
 	"github.com/spf13/cobra"
@@ -22,10 +21,11 @@ import (
 	"github.com/depot/cli/pkg/cmd/registry"
 	versionCmd "github.com/depot/cli/pkg/cmd/version"
 	"github.com/depot/cli/pkg/config"
-	"github.com/depot/cli/pkg/docker"
 )
 
 func NewCmdRoot(version, buildDate string) *cobra.Command {
+	var dockerConfig string
+
 	var cmd = &cobra.Command{
 		Use:          "depot <command> [flags]",
 		Short:        "Depot CLI",
@@ -33,6 +33,12 @@ func NewCmdRoot(version, buildDate string) *cobra.Command {
 
 		Run: func(cmd *cobra.Command, args []string) {
 			_ = cmd.Usage()
+		},
+
+		PersistentPreRun: func(cmd *cobra.Command, args []string) {
+			if dockerConfig != "" {
+				os.Setenv("DOCKER_CONFIG", dockerConfig)
+			}
 		},
 	}
 
@@ -44,28 +50,25 @@ func NewCmdRoot(version, buildDate string) *cobra.Command {
 	cmd.Version = formattedVersion
 	cmd.Flags().Bool("version", false, "Print the version and exit")
 
-	dockerCli, err := docker.NewDockerCLI()
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
-	}
+	cmd.PersistentFlags().StringVar(&dockerConfig, "config", "", "Override the location of Docker client config files")
+	_ = cmd.PersistentFlags().MarkHidden("config")
 
 	// Child commands
-	cmd.AddCommand(bakeCmd.NewCmdBake(dockerCli))
-	cmd.AddCommand(buildCmd.NewCmdBuild(dockerCli))
+	cmd.AddCommand(bakeCmd.NewCmdBake())
+	cmd.AddCommand(buildCmd.NewCmdBuild())
 	cmd.AddCommand(cacheCmd.NewCmdCache())
 	cmd.AddCommand(initCmd.NewCmdInit())
 	cmd.AddCommand(list.NewCmdList())
 	cmd.AddCommand(loginCmd.NewCmdLogin())
 	cmd.AddCommand(logout.NewCmdLogout())
-	cmd.AddCommand(pull.NewCmdPull(dockerCli))
-	cmd.AddCommand(pulltoken.NewCmdPullToken(dockerCli))
-	cmd.AddCommand(push.NewCmdPush(dockerCli))
+	cmd.AddCommand(pull.NewCmdPull())
+	cmd.AddCommand(pulltoken.NewCmdPullToken())
+	cmd.AddCommand(push.NewCmdPush())
 	cmd.AddCommand(versionCmd.NewCmdVersion(version, buildDate))
-	cmd.AddCommand(dockerCmd.NewCmdConfigureDocker(dockerCli))
+	cmd.AddCommand(dockerCmd.NewCmdConfigureDocker())
 	cmd.AddCommand(registry.NewCmdRegistry())
 	cmd.AddCommand(projects.NewCmdProjects())
-	cmd.AddCommand(exec.NewCmdExec(dockerCli))
+	cmd.AddCommand(exec.NewCmdExec())
 
 	return cmd
 }

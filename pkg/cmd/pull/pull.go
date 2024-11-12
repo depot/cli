@@ -7,6 +7,7 @@ import (
 	"connectrpc.com/connect"
 	depotapi "github.com/depot/cli/pkg/api"
 	"github.com/depot/cli/pkg/ci"
+	"github.com/depot/cli/pkg/dockerclient"
 	"github.com/depot/cli/pkg/helpers"
 	"github.com/depot/cli/pkg/load"
 	cliv1 "github.com/depot/cli/pkg/proto/depot/cli/v1"
@@ -17,7 +18,7 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-func NewCmdPull(dockerCli command.Cli) *cobra.Command {
+func NewCmdPull() *cobra.Command {
 	var (
 		token     string
 		projectID string
@@ -33,6 +34,11 @@ func NewCmdPull(dockerCli command.Cli) *cobra.Command {
 		Short: "Pull a project's build from the Depot ephemeral registry",
 		Args:  cli.RequiresMaxArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			dockerCli, err := dockerclient.NewDockerCLI()
+			if err != nil {
+				return err
+			}
+
 			if len(args) > 0 {
 				buildID = args[0]
 			}

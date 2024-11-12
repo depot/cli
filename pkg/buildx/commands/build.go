@@ -25,6 +25,7 @@ import (
 	"github.com/depot/cli/pkg/ci"
 	"github.com/depot/cli/pkg/cmd/docker"
 	"github.com/depot/cli/pkg/debuglog"
+	"github.com/depot/cli/pkg/dockerclient"
 	"github.com/depot/cli/pkg/helpers"
 	"github.com/depot/cli/pkg/load"
 	"github.com/depot/cli/pkg/progresshelper"
@@ -604,7 +605,7 @@ func validateBuildOptions(in *buildOptions) (map[string]build.Options, error) {
 	return map[string]build.Options{defaultTargetName: opts}, nil
 }
 
-func BuildCmd(dockerCli command.Cli) *cobra.Command {
+func BuildCmd() *cobra.Command {
 	options := newBuildOptions()
 
 	cmd := &cobra.Command{
@@ -613,6 +614,11 @@ func BuildCmd(dockerCli command.Cli) *cobra.Command {
 		Short:   "Start a build",
 		Args:    cli.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			dockerCli, err := dockerclient.NewDockerCLI()
+			if err != nil {
+				return err
+			}
+
 			options.contextPath = args[0]
 			cmd.Flags().VisitAll(checkWarnedFlags)
 

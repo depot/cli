@@ -13,6 +13,7 @@ import (
 
 	"github.com/depot/cli/internal/build"
 	"github.com/depot/cli/pkg/buildx/imagetools"
+	depotdockerclient "github.com/depot/cli/pkg/dockerclient"
 	"github.com/depot/cli/pkg/helpers"
 	"github.com/docker/buildx/store"
 	"github.com/docker/buildx/store/storeutil"
@@ -31,7 +32,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func NewCmdConfigureDocker(dockerCli command.Cli) *cobra.Command {
+func NewCmdConfigureDocker() *cobra.Command {
 	uninstall := false
 	var (
 		project string
@@ -42,6 +43,11 @@ func NewCmdConfigureDocker(dockerCli command.Cli) *cobra.Command {
 		Use:   "configure-docker",
 		Short: "Configure Docker to use Depot for builds",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			dockerCli, err := depotdockerclient.NewDockerCLI()
+			if err != nil {
+				return err
+			}
+
 			dir := config.Dir()
 			if err := os.MkdirAll(dir, 0755); err != nil {
 				return errors.Wrap(err, "could not create docker config")
