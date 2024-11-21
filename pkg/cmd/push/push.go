@@ -167,13 +167,13 @@ func Push(ctx context.Context, progressFmt, buildID, target, tag, token string, 
 			blob := blobs[i]
 			fin := logger(fmt.Sprintf("Pushing blob %s", blob.Digest.String()))
 
-			req := &BlobRequest{
+			blobToPush := &BlobToPush{
 				ParsedTag:     parsedTag,
 				RegistryToken: registryToken,
 				BuildID:       buildID,
 				Digest:        blob.Digest,
 			}
-			err := PushBlob(blobCtx, token, req)
+			err := PushBlob(blobCtx, token, blobToPush)
 			fin()
 			return err
 		})
