@@ -209,7 +209,7 @@ func runConfigureBuildx(ctx context.Context, dockerCli command.Cli, project, tok
 
 	version := build.Version
 
-	image := "ghcr.io/depot/cli:" + version
+	image := "public.ecr.aws/depot/cli:" + version
 
 	nodeName := "depot_" + projectName
 	ng := &store.NodeGroup{
@@ -372,14 +372,14 @@ func UpdateDrivers(ctx context.Context, dockerCli command.Cli) error {
 		var save bool
 		for i, node := range nodeGroup.Nodes {
 			image := node.DriverOpts["image"]
-			if strings.HasPrefix(image, "ghcr.io/depot/cli") {
-				nodeGroup.Nodes[i].DriverOpts["image"] = "ghcr.io/depot/cli:" + version
+			if strings.HasPrefix(image, "ghcr.io/depot/cli") || strings.HasPrefix(image, "public.ecr.aws/depot/cli") {
+				nodeGroup.Nodes[i].DriverOpts["image"] = "public.ecr.aws/depot/cli:" + version
 				save = true
 
 				projectName := node.DriverOpts["env.DEPOT_PROJECT_ID"]
 				token := node.DriverOpts["env.DEPOT_TOKEN"]
 				platform := node.DriverOpts["env.DEPOT_PLATFORM"]
-				_ = Bootstrap(ctx, dockerCli, "ghcr.io/depot/cli:"+version, projectName, token, platform)
+				_ = Bootstrap(ctx, dockerCli, "public.ecr.aws/depot/cli:"+version, projectName, token, platform)
 			}
 
 		}
