@@ -16,7 +16,7 @@ import (
 	"github.com/docker/go-connections/nat"
 )
 
-var proxyImage = "ghcr.io/depot/cli:" + build.Version //
+var proxyImage = "public.ecr.aws/depot/cli:" + build.Version //
 
 type ProxyContainer struct {
 	ID   string
