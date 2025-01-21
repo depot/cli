@@ -12,7 +12,7 @@ require (
 	github.com/charmbracelet/bubbletea v0.24.2
 	github.com/charmbracelet/lipgloss v0.7.1
 	github.com/cli/safeexec v1.0.0
-	github.com/compose-spec/compose-go/v2 v2.1.3
+	github.com/compose-spec/compose-go/v2 v2.4.1
 	github.com/containerd/console v1.0.4-0.20230313162750-1ae8d489ac81
 	github.com/containerd/containerd v1.6.20
 	github.com/containerd/log v0.1.0
