@@ -15,7 +15,7 @@ func BeginBuild(ctx context.Context, req *cliv1.CreateBuildRequest, token string
 	var build depotbuild.Build
 	var err error
 	if id := os.Getenv("DEPOT_BUILD_ID"); id != "" {
-		build, err = depotbuild.FromExistingBuild(ctx, id, token)
+		build, err = depotbuild.FromExistingBuild(ctx, id, token, nil)
 	} else {
 		build, err = depotbuild.NewBuild(ctx, req, token)
 	}

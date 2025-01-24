@@ -99,18 +99,15 @@ func NewBuild(ctx context.Context, req *cliv1.CreateBuildRequest, token string) 
 		return Build{}, err
 	}
 
-	build, err := FromExistingBuild(ctx, res.Msg.BuildId, res.Msg.BuildToken)
+	build, err := FromExistingBuild(ctx, res.Msg.BuildId, res.Msg.BuildToken, res)
 	if err != nil {
 		return Build{}, err
 	}
 
-	build.Response = res
-	build.BuildURL = res.Msg.BuildUrl
-
 	return build, nil
 }
 
-func FromExistingBuild(ctx context.Context, buildID, token string) (Build, error) {
+func FromExistingBuild(ctx context.Context, buildID, token string, buildRes *connect.Response[cliv1.CreateBuildResponse]) (Build, error) {
 	client := depotapi.NewBuildClient()
 
 	finish := func(buildErr error) {
@@ -135,19 +132,29 @@ func FromExistingBuild(ctx context.Context, buildID, token string) (Build, error
 		}
 	}
 
-	req := cliv1.GetBuildRequest{BuildId: buildID}
-	res, err := client.GetBuild(ctx, depotapi.WithAuthentication(connect.NewRequest(&req), token))
-	if err != nil {
-		return Build{}, err
+	if buildRes == nil {
+		req := cliv1.GetBuildRequest{BuildId: buildID}
+		res, err := client.GetBuild(ctx, depotapi.WithAuthentication(connect.NewRequest(&req), token))
+		if err != nil {
+			return Build{}, err
+		}
+		return Build{
+			ID:        buildID,
+			Token:     token,
+			Finish:    finish,
+			BuildURL:  res.Msg.BuildUrl,
+			projectID: res.Msg.ProjectId,
+		}, nil
+	} else {
+		return Build{
+			ID:       buildID,
+			Token:    token,
+			Finish:   finish,
+			BuildURL: buildRes.Msg.BuildUrl,
+			Response: buildRes,
+		}, nil
 	}
 
-	return Build{
-		ID:        buildID,
-		Token:     token,
-		Finish:    finish,
-		BuildURL:  res.Msg.BuildUrl,
-		projectID: res.Msg.ProjectId,
-	}, nil
 }
 
 type authProvider struct {
