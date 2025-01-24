@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"log"
 	"strings"
 
@@ -25,7 +26,8 @@ type Build struct {
 	Finish   func(error)
 	Reporter progress.Writer
 
-	Response *connect.Response[cliv1.CreateBuildResponse]
+	Response  *connect.Response[cliv1.CreateBuildResponse]
+	projectID string
 }
 
 type Credential struct {
@@ -35,7 +37,7 @@ type Credential struct {
 
 func (b *Build) AdditionalTags() []string {
 	if b.Response == nil || b.Response.Msg == nil {
-		return nil
+		return []string{fmt.Sprintf("registry.depot.dev/%s:%s", b.projectID, b.ID)}
 	}
 
 	tags := make([]string, 0, len(b.Response.Msg.AdditionalTags))
@@ -52,10 +54,7 @@ func (b *Build) AdditionalTags() []string {
 
 func (b *Build) AdditionalCredentials() []Credential {
 	if b.Response == nil || b.Response.Msg == nil {
-		return nil
-	}
-	if len(b.Response.Msg.AdditionalCredentials) == 0 {
-		return nil
+		return []Credential{{Host: "registry.depot.dev", Token: b.Token}}
 	}
 
 	creds := make([]Credential, 0, len(b.Response.Msg.AdditionalCredentials))
@@ -82,6 +81,10 @@ func (b *Build) AuthProvider(dockerAuth driver.Auth) driver.Auth {
 // This is important as the API may use a different project ID than the one
 // initially requested (e.g. onboarding)
 func (b *Build) BuildProject() string {
+	if b.projectID != "" {
+		return b.projectID
+	}
+
 	if b.Response == nil || b.Response.Msg == nil {
 		return ""
 	}
@@ -107,8 +110,9 @@ func NewBuild(ctx context.Context, req *cliv1.CreateBuildRequest, token string) 
 }
 
 func FromExistingBuild(ctx context.Context, buildID, token string) (Build, error) {
+	client := depotapi.NewBuildClient()
+
 	finish := func(buildErr error) {
-		client := depotapi.NewBuildClient()
 		req := cliv1.FinishBuildRequest{BuildId: buildID}
 		req.Result = &cliv1.FinishBuildRequest_Success{Success: &cliv1.FinishBuildRequest_BuildSuccess{}}
 		if buildErr != nil {
@@ -130,10 +134,18 @@ func FromExistingBuild(ctx context.Context, buildID, token string) (Build, error
 		}
 	}
 
+	req := cliv1.GetBuildRequest{BuildId: buildID}
+	res, err := client.GetBuild(ctx, depotapi.WithAuthentication(connect.NewRequest(&req), token))
+	if err != nil {
+		return Build{}, err
+	}
+
 	return Build{
-		ID:     buildID,
-		Token:  token,
-		Finish: finish,
+		ID:        buildID,
+		Token:     token,
+		Finish:    finish,
+		BuildURL:  res.Msg.BuildUrl,
+		projectID: res.Msg.ProjectId,
 	}, nil
 }
 

@@ -36,6 +36,8 @@ const (
 	// BuildServiceCreateBuildProcedure is the fully-qualified name of the BuildService's CreateBuild
 	// RPC.
 	BuildServiceCreateBuildProcedure = "/depot.cli.v1.BuildService/CreateBuild"
+	// BuildServiceGetBuildProcedure is the fully-qualified name of the BuildService's GetBuild RPC.
+	BuildServiceGetBuildProcedure = "/depot.cli.v1.BuildService/GetBuild"
 	// BuildServiceFinishBuildProcedure is the fully-qualified name of the BuildService's FinishBuild
 	// RPC.
 	BuildServiceFinishBuildProcedure = "/depot.cli.v1.BuildService/FinishBuild"
@@ -70,6 +72,7 @@ const (
 // BuildServiceClient is a client for the depot.cli.v1.BuildService service.
 type BuildServiceClient interface {
 	CreateBuild(context.Context, *connect.Request[v1.CreateBuildRequest]) (*connect.Response[v1.CreateBuildResponse], error)
+	GetBuild(context.Context, *connect.Request[v1.GetBuildRequest]) (*connect.Response[v1.GetBuildResponse], error)
 	FinishBuild(context.Context, *connect.Request[v1.FinishBuildRequest]) (*connect.Response[v1.FinishBuildResponse], error)
 	GetBuildKitConnection(context.Context, *connect.Request[v1.GetBuildKitConnectionRequest]) (*connect.Response[v1.GetBuildKitConnectionResponse], error)
 	ReportBuildHealth(context.Context, *connect.Request[v1.ReportBuildHealthRequest]) (*connect.Response[v1.ReportBuildHealthResponse], error)
@@ -95,6 +98,11 @@ func NewBuildServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 		createBuild: connect.NewClient[v1.CreateBuildRequest, v1.CreateBuildResponse](
 			httpClient,
 			baseURL+BuildServiceCreateBuildProcedure,
+			opts...,
+		),
+		getBuild: connect.NewClient[v1.GetBuildRequest, v1.GetBuildResponse](
+			httpClient,
+			baseURL+BuildServiceGetBuildProcedure,
 			opts...,
 		),
 		finishBuild: connect.NewClient[v1.FinishBuildRequest, v1.FinishBuildResponse](
@@ -153,6 +161,7 @@ func NewBuildServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 // buildServiceClient implements BuildServiceClient.
 type buildServiceClient struct {
 	createBuild           *connect.Client[v1.CreateBuildRequest, v1.CreateBuildResponse]
+	getBuild              *connect.Client[v1.GetBuildRequest, v1.GetBuildResponse]
 	finishBuild           *connect.Client[v1.FinishBuildRequest, v1.FinishBuildResponse]
 	getBuildKitConnection *connect.Client[v1.GetBuildKitConnectionRequest, v1.GetBuildKitConnectionResponse]
 	reportBuildHealth     *connect.Client[v1.ReportBuildHealthRequest, v1.ReportBuildHealthResponse]
@@ -168,6 +177,11 @@ type buildServiceClient struct {
 // CreateBuild calls depot.cli.v1.BuildService.CreateBuild.
 func (c *buildServiceClient) CreateBuild(ctx context.Context, req *connect.Request[v1.CreateBuildRequest]) (*connect.Response[v1.CreateBuildResponse], error) {
 	return c.createBuild.CallUnary(ctx, req)
+}
+
+// GetBuild calls depot.cli.v1.BuildService.GetBuild.
+func (c *buildServiceClient) GetBuild(ctx context.Context, req *connect.Request[v1.GetBuildRequest]) (*connect.Response[v1.GetBuildResponse], error) {
+	return c.getBuild.CallUnary(ctx, req)
 }
 
 // FinishBuild calls depot.cli.v1.BuildService.FinishBuild.
@@ -223,6 +237,7 @@ func (c *buildServiceClient) GetPullToken(ctx context.Context, req *connect.Requ
 // BuildServiceHandler is an implementation of the depot.cli.v1.BuildService service.
 type BuildServiceHandler interface {
 	CreateBuild(context.Context, *connect.Request[v1.CreateBuildRequest]) (*connect.Response[v1.CreateBuildResponse], error)
+	GetBuild(context.Context, *connect.Request[v1.GetBuildRequest]) (*connect.Response[v1.GetBuildResponse], error)
 	FinishBuild(context.Context, *connect.Request[v1.FinishBuildRequest]) (*connect.Response[v1.FinishBuildResponse], error)
 	GetBuildKitConnection(context.Context, *connect.Request[v1.GetBuildKitConnectionRequest]) (*connect.Response[v1.GetBuildKitConnectionResponse], error)
 	ReportBuildHealth(context.Context, *connect.Request[v1.ReportBuildHealthRequest]) (*connect.Response[v1.ReportBuildHealthResponse], error)
@@ -244,6 +259,11 @@ func NewBuildServiceHandler(svc BuildServiceHandler, opts ...connect.HandlerOpti
 	buildServiceCreateBuildHandler := connect.NewUnaryHandler(
 		BuildServiceCreateBuildProcedure,
 		svc.CreateBuild,
+		opts...,
+	)
+	buildServiceGetBuildHandler := connect.NewUnaryHandler(
+		BuildServiceGetBuildProcedure,
+		svc.GetBuild,
 		opts...,
 	)
 	buildServiceFinishBuildHandler := connect.NewUnaryHandler(
@@ -300,6 +320,8 @@ func NewBuildServiceHandler(svc BuildServiceHandler, opts ...connect.HandlerOpti
 		switch r.URL.Path {
 		case BuildServiceCreateBuildProcedure:
 			buildServiceCreateBuildHandler.ServeHTTP(w, r)
+		case BuildServiceGetBuildProcedure:
+			buildServiceGetBuildHandler.ServeHTTP(w, r)
 		case BuildServiceFinishBuildProcedure:
 			buildServiceFinishBuildHandler.ServeHTTP(w, r)
 		case BuildServiceGetBuildKitConnectionProcedure:
@@ -331,6 +353,10 @@ type UnimplementedBuildServiceHandler struct{}
 
 func (UnimplementedBuildServiceHandler) CreateBuild(context.Context, *connect.Request[v1.CreateBuildRequest]) (*connect.Response[v1.CreateBuildResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.cli.v1.BuildService.CreateBuild is not implemented"))
+}
+
+func (UnimplementedBuildServiceHandler) GetBuild(context.Context, *connect.Request[v1.GetBuildRequest]) (*connect.Response[v1.GetBuildResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.cli.v1.BuildService.GetBuild is not implemented"))
 }
 
 func (UnimplementedBuildServiceHandler) FinishBuild(context.Context, *connect.Request[v1.FinishBuildRequest]) (*connect.Response[v1.FinishBuildResponse], error) {
