@@ -54,7 +54,8 @@ func (b *Build) AdditionalTags() []string {
 
 func (b *Build) AdditionalCredentials() []Credential {
 	if b.Response == nil || b.Response.Msg == nil {
-		return []Credential{{Host: "registry.depot.dev", Token: b.Token}}
+		token := base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("x-token:%s", b.Token)))
+		return []Credential{{Host: "registry.depot.dev", Token: token}}
 	}
 
 	creds := make([]Credential, 0, len(b.Response.Msg.AdditionalCredentials))
