@@ -7,6 +7,7 @@ import "moby/buildkit/v1/control.proto";
 
 service BuildService {
   rpc CreateBuild(CreateBuildRequest) returns (CreateBuildResponse);
+  rpc GetBuild(GetBuildRequest) returns (GetBuildResponse);
   rpc FinishBuild(FinishBuildRequest) returns (FinishBuildResponse);
   rpc GetBuildKitConnection(GetBuildKitConnectionRequest) returns (GetBuildKitConnectionResponse);
   rpc ReportBuildHealth(ReportBuildHealthRequest) returns (ReportBuildHealthResponse);
@@ -98,6 +99,16 @@ message CreateBuildResponse {
     string tag = 1;
     bool push = 2;
   }
+}
+
+message GetBuildRequest {
+  string build_id = 1;
+}
+
+message GetBuildResponse {
+  string build_id = 1;
+  string project_id = 2;
+  string build_url = 3;
 }
 
 message Registry {
