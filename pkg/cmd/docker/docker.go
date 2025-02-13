@@ -15,6 +15,7 @@ import (
 	"github.com/depot/cli/pkg/buildx/imagetools"
 	depotdockerclient "github.com/depot/cli/pkg/dockerclient"
 	"github.com/depot/cli/pkg/helpers"
+	"github.com/depot/cli/pkg/retry"
 	"github.com/docker/buildx/store"
 	"github.com/docker/buildx/store/storeutil"
 	"github.com/docker/buildx/util/confutil"
@@ -291,7 +292,10 @@ func runConfigureBuildx(ctx context.Context, dockerCli command.Cli, project, tok
 	}
 
 	for _, arch := range []string{"amd64", "arm64"} {
-		err = Bootstrap(ctx, dockerCli, image, projectName, token, arch)
+		// Occasionally Docker fails to pull the driver containers on the first try. We retry up to 3 times.
+		err = retry.Retry(func() error {
+			return Bootstrap(ctx, dockerCli, image, projectName, token, arch)
+		}, 3)
 		if err != nil {
 			return fmt.Errorf("unable create driver container: %w", err)
 		}
