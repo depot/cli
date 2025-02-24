@@ -39,6 +39,11 @@ func NewCmdGoCache() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
 
+			err := os.MkdirAll(dir, 0755)
+			if err != nil {
+				return err
+			}
+
 			token, err := helpers.ResolveToken(ctx, token)
 			if err != nil {
 				return err
