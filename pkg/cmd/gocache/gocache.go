@@ -56,7 +56,6 @@ func NewCmdGoCache() *cobra.Command {
 			p := NewCache(CacheServer, orgID, token, dir, verbose)
 			return p.Run(ctx)
 		},
-		Hidden: true,
 	}
 
 	flags := cmd.Flags()

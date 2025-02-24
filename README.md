@@ -20,6 +20,7 @@ Official CLI for [Depot](https://depot.dev) - you can use the CLI to build Docke
       - [Flags for `build`](#flags-for-build)
     - [`depot cache`](#depot-cache)
       - [`depot cache reset`](#depot-cache-reset)
+    - [`depot gocache`](#depot-gocache)
     - [`depot configure-docker`](#depot-configure-docker)
     - [`depot list`](#depot-list)
       - [`depot list projects`](#depot-list-projects)
@@ -263,6 +264,31 @@ Reset the cache of a specific project ID
 
 ```shell
 depot cache reset --project 12345678910
+```
+
+### `depot gocache`
+
+Configure Go tools to use Depot remote cache.
+The Go tools will store build artifacts in the Depot cache, and retrieve them from the cache when building again.
+
+This requires Go 1.24 or later.
+
+Export the environment variable `GOCACHEPROG` to use the Depot cache.
+
+```shell
+export GOCACHEPROG='depot gocache'
+```
+
+Next, run your Go build commands as usual.
+
+```shell
+go build ./...
+```
+
+To set verbose output, add the --verbose option:
+
+```shell
+export GOCACHEPROG='depot gocache --verbose'
 ```
 
 ### `depot configure-docker`
