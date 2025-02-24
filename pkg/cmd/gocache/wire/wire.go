@@ -60,12 +60,7 @@ type ProgRequest struct {
 	// BodySize is the number of bytes of Body. If zero, the body isn't written.
 	BodySize int64 `json:",omitempty"`
 
-	// ObjectID is the accidental spelling of OutputID that was used prior to Go
-	// 1.24.
-	//
-	// Deprecated: use OutputID. This field is only populated temporarily for
-	// backwards compatibility with Go 1.23 and earlier when
-	// GOEXPERIMENT=gocacheprog is set. It will be removed in Go 1.25.
+	// ObjectID is the accidental spelling of OutputID that was used prior to Go 1.24.
 	ObjectID []byte `json:",omitempty"`
 }
 
