@@ -35,9 +35,13 @@ func NewCmdGoCache() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "gocache",
 		Short: `Go compiler remote cache using Depot. To use set GOCACHEPROG="depot gocache"`,
-		Long:  "depot gocache implements the Go compiler external cache protocol. It communicates over stdin/stdout with the Go tool cache.",
+		Long:  "depot gocache implements the Go compiler external cache protocol.\nTo clean the cache use `go clean -cache`.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
+
+			if dir == "" {
+				return fmt.Errorf("missing cache directory")
+			}
 
 			err := os.MkdirAll(dir, 0755)
 			if err != nil {
@@ -69,11 +73,22 @@ func NewCmdGoCache() *cobra.Command {
 }
 
 func defaultCacheDir() string {
+	dir := os.Getenv("GOCACHE")
+	if dir != "" {
+		if dir == "off" {
+			return ""
+		} else if !filepath.IsAbs(dir) {
+			return ""
+		} else {
+			return dir
+		}
+	}
+
 	dir, err := os.UserCacheDir()
 	if err != nil {
 		return ""
 	}
-	dir = filepath.Join(dir, "depot-go-cache")
+	dir = filepath.Join(dir, "go-build")
 	return dir
 }
 
@@ -464,7 +479,7 @@ type DiskCache struct {
 }
 
 func (dc *DiskCache) Get(ctx context.Context, actionID string) (outputID, diskPath string, err error) {
-	actionFile := filepath.Join(dc.Dir, fmt.Sprintf("a-%s", actionID))
+	actionFile := fileNameAction(dc.Dir, actionID)
 	ij, err := os.ReadFile(actionFile)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -484,7 +499,8 @@ func (dc *DiskCache) Get(ctx context.Context, actionID string) (outputID, diskPa
 		// Protect against malicious non-hex OutputID on disk
 		return "", "", nil
 	}
-	return ie.OutputID, filepath.Join(dc.Dir, fmt.Sprintf("o-%v", ie.OutputID)), nil
+	outputFile := fileNameOutput(dc.Dir, ie.OutputID)
+	return ie.OutputID, outputFile, nil
 }
 
 func (dc *DiskCache) OutputFilename(objectID string) string {
@@ -498,11 +514,12 @@ func (dc *DiskCache) OutputFilename(objectID string) string {
 		}
 		return ""
 	}
-	return filepath.Join(dc.Dir, fmt.Sprintf("o-%s", objectID))
+
+	return fileNameOutput(dc.Dir, objectID)
 }
 
 func (dc *DiskCache) Put(ctx context.Context, actionID, objectID string, size int64, body io.Reader) (diskPath string, _ error) {
-	file := filepath.Join(dc.Dir, fmt.Sprintf("o-%s", objectID))
+	file := fileNameOutput(dc.Dir, objectID)
 
 	// Special case empty files; they're both common and easier to do race-free.
 	if size == 0 {
@@ -530,7 +547,7 @@ func (dc *DiskCache) Put(ctx context.Context, actionID, objectID string, size in
 	if err != nil {
 		return "", err
 	}
-	actionFile := filepath.Join(dc.Dir, fmt.Sprintf("a-%s", actionID))
+	actionFile := fileNameAction(dc.Dir, actionID)
 	if _, err := writeAtomic(actionFile, bytes.NewReader(ij)); err != nil {
 		return "", err
 	}
@@ -557,4 +574,19 @@ func writeAtomic(dest string, r io.Reader) (int64, error) {
 		return 0, err
 	}
 	return size, nil
+}
+
+// fileName is very similar to the Go compiler's file name.
+// This allows us to use the same `go clean -cache` command to clean up the cache.
+// We prefix "depot-" to the filename to avoid conflicts with the Go compiler's cache.
+func fileName(dir, id, key string) string {
+	return filepath.Join(dir, id[:2], "depot-"+id+"-"+key)
+}
+
+func fileNameAction(dir, actionID string) string {
+	return fileName(dir, actionID, "a")
+}
+
+func fileNameOutput(dir, outputID string) string {
+	return fileName(dir, outputID, "d")
 }

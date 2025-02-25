@@ -291,6 +291,18 @@ To set verbose output, add the --verbose option:
 export GOCACHEPROG='depot gocache --verbose'
 ```
 
+To clean the cache, you can use the typical `go clean` workflow:
+
+```shell
+go clean -cache
+```
+
+If you are in multiple Depot organizations and want to specify the organization, you can use the `--organization` flag.
+
+```shell
+export GOCACHEPROG='depot gocache --organization ORG_ID'
+```
+
 ### `depot configure-docker`
 
 Configure Docker to use Depot's remote builder infrastructure. This command installs Depot as a Docker CLI plugin (i.e., `docker depot ...`) and sets the Depot plugin as the default Docker builder (i.e., `docker build`).
