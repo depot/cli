@@ -268,12 +268,12 @@ depot cache reset --project 12345678910
 
 ### `depot gocache`
 
-Configure Go tools to use Depot remote cache.
-The Go tools will store build artifacts in the Depot cache, and retrieve them from the cache when building again.
+Configure Go tools to use Depot Cache. The Go tools will use the remote cache service to store and retrieve build artifacts.
 
-This requires Go 1.24 or later.
+_Note: This requires Go 1.24 or later._
 
-Export the environment variable `GOCACHEPROG` to use the Depot cache.
+
+Set the environment variable `GOCACHEPROG` to `depot gocache` to configure Go to use Depot Cache.
 
 ```shell
 export GOCACHEPROG='depot gocache'
