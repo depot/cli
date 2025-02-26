@@ -48,7 +48,8 @@ func NewCmdGoCache() *cobra.Command {
 				return err
 			}
 
-			token, err := helpers.ResolveToken(ctx, token)
+			token := os.Getenv("DEPOT_CACHE_TOKEN")
+			token, err = helpers.ResolveToken(ctx, token)
 			if err != nil {
 				return err
 			}
@@ -66,7 +67,7 @@ func NewCmdGoCache() *cobra.Command {
 	flags.SortFlags = false
 	flags.BoolVarP(&verbose, "verbose", "v", false, "Print verbose output")
 	flags.StringVar(&token, "token", "", "Depot token")
-	flags.StringVarP(&orgID, "organization", "o", "", "Depot organization ID")
+	flags.StringVarP(&orgID, "organization", "o", os.Getenv("DEPOT_ORG_ID"), "Depot organization ID")
 	flags.StringVar(&dir, "dir", defaultCacheDir(), "Directory to store cache files")
 
 	return cmd
@@ -126,6 +127,10 @@ func NewCache(baseURL, orgID, token, dir string, verbose bool) *Cache {
 }
 
 func (p *Cache) Run(ctx context.Context) error {
+	if p.Verbose {
+		log.Printf("using depot gocache")
+	}
+
 	defer p.RemoteCache.Close()
 
 	br := bufio.NewReader(os.Stdin)
