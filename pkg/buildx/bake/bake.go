@@ -52,8 +52,8 @@ func defaultFilenames() []string {
 	names = append(names, composecli.DefaultFileNames...)
 	names = append(names, []string{
 		"docker-bake.json",
-		"docker-bake.override.json",
 		"docker-bake.hcl",
+		"docker-bake.override.json",
 		"docker-bake.override.hcl",
 	}...)
 	return names
@@ -427,8 +427,8 @@ func (c Config) loadLinks(name string, t *Target, m map[string]*Target, o map[st
 				return err
 			}
 			if len(t.Platforms) > 1 && len(t2.Platforms) > 1 {
-				if !sliceEqual(t.Platforms, t2.Platforms) {
-					return errors.Errorf("target %s can't be used by %s because it is defined for different platforms %v and %v", target, name, t2.Platforms, t.Platforms)
+				if !isSubset(t.Platforms, t2.Platforms) {
+					return errors.Errorf("target %s can't be used by %s because its platforms %v are not a subset of %v", target, name, t.Platforms, t2.Platforms)
 				}
 			}
 		}
@@ -1295,14 +1295,9 @@ func sanitizeTargetName(target string) string {
 	return strings.ReplaceAll(target, ".", "_")
 }
 
-func sliceEqual(s1, s2 []string) bool {
-	if len(s1) != len(s2) {
-		return false
-	}
-	sort.Strings(s1)
-	sort.Strings(s2)
-	for i := range s1 {
-		if s1[i] != s2[i] {
+func isSubset(s1, s2 []string) bool {
+	for _, item := range s1 {
+		if !slices.Contains(s2, item) {
 			return false
 		}
 	}
