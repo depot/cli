@@ -941,7 +941,7 @@ func key(ks ...any) uint64 {
 			hash.Write([]byte(v.String()))
 		case reflect.Pointer:
 			ptr := reflect.ValueOf(k).Pointer()
-			binary.Write(hash, binary.LittleEndian, uint64(ptr))
+			_ = binary.Write(hash, binary.LittleEndian, uint64(ptr))
 		default:
 			panic(fmt.Sprintf("unknown key kind %s", v.Kind().String()))
 		}
