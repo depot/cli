@@ -1,6 +1,6 @@
 module github.com/depot/cli/examples
 
-go 1.21
+go 1.22
 
 require (
 	github.com/depot/cli v1.8.3
