@@ -798,13 +798,13 @@ func (t *Target) AddOverrides(overrides map[string]Override) error {
 		case "secrets":
 			secrets, err := parseArrValue[buildflags.Secret](o.ArrValue)
 			if err != nil {
-				return errors.Wrap(err, "invalid value for outputs")
+				return errors.Wrap(err, "invalid value for secrets")
 			}
 			t.Secrets = secrets
 		case "ssh":
 			ssh, err := parseArrValue[buildflags.SSH](o.ArrValue)
 			if err != nil {
-				return errors.Wrap(err, "invalid value for outputs")
+				return errors.Wrap(err, "invalid value for ssh")
 			}
 			t.SSH = ssh
 		case "platform":
