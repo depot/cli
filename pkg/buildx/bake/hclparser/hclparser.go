@@ -73,7 +73,12 @@ type WithGetName interface {
 	GetName(ectx *hcl.EvalContext, block *hcl.Block, loadDeps func(hcl.Expression) hcl.Diagnostics) (string, error)
 }
 
-var errUndefined = errors.New("undefined")
+// errUndefined is returned when a variable or function is not defined.
+type errUndefined struct{}
+
+func (errUndefined) Error() string {
+	return "undefined"
+}
 
 func (p *parser) loadDeps(ectx *hcl.EvalContext, exp hcl.Expression, exclude map[string]struct{}, allowMissing bool) hcl.Diagnostics {
 	fns, hcldiags := funcCalls(exp)
@@ -83,7 +88,7 @@ func (p *parser) loadDeps(ectx *hcl.EvalContext, exp hcl.Expression, exclude map
 
 	for _, fn := range fns {
 		if err := p.resolveFunction(ectx, fn); err != nil {
-			if allowMissing && errors.Is(err, errUndefined) {
+			if allowMissing && errors.Is(err, errUndefined{}) {
 				continue
 			}
 			return wrapErrorDiagnostic("Invalid expression", err, exp.Range().Ptr(), exp.Range().Ptr())
@@ -137,7 +142,7 @@ func (p *parser) loadDeps(ectx *hcl.EvalContext, exp hcl.Expression, exclude map
 			}
 			for _, block := range blocks {
 				if err := p.resolveBlock(block, target); err != nil {
-					if allowMissing && errors.Is(err, errUndefined) {
+					if allowMissing && errors.Is(err, errUndefined{}) {
 						continue
 					}
 					return wrapErrorDiagnostic("Invalid expression", err, exp.Range().Ptr(), exp.Range().Ptr())
@@ -145,7 +150,7 @@ func (p *parser) loadDeps(ectx *hcl.EvalContext, exp hcl.Expression, exclude map
 			}
 		} else {
 			if err := p.resolveValue(ectx, v.RootName()); err != nil {
-				if allowMissing && errors.Is(err, errUndefined) {
+				if allowMissing && errors.Is(err, errUndefined{}) {
 					continue
 				}
 				return wrapErrorDiagnostic("Invalid expression", err, exp.Range().Ptr(), exp.Range().Ptr())
@@ -167,7 +172,7 @@ func (p *parser) resolveFunction(ectx *hcl.EvalContext, name string) error {
 	}
 	f, ok := p.funcs[name]
 	if !ok {
-		return errors.Wrapf(errUndefined, "function %q does not exist", name)
+		return errors.Wrapf(errUndefined{}, "function %q does not exist", name)
 	}
 	if _, ok := p.progressF[key(ectx, name)]; ok {
 		return errors.Errorf("function cycle not allowed for %s", name)
@@ -257,7 +262,7 @@ func (p *parser) resolveValue(ectx *hcl.EvalContext, name string) (err error) {
 	if _, builtin := p.opt.Vars[name]; !ok && !builtin {
 		vr, ok := p.vars[name]
 		if !ok {
-			return errors.Wrapf(errUndefined, "variable %q does not exist", name)
+			return errors.Wrapf(errUndefined{}, "variable %q does not exist", name)
 		}
 		def = vr.Default
 		ectx = p.ectx
@@ -631,13 +636,14 @@ func Parse(b hcl.Body, opt Opt, val interface{}) (map[string]map[string][]string
 	}
 
 	for _, a := range content.Attributes {
+		a := a
 		return nil, hcl.Diagnostics{
 			&hcl.Diagnostic{
 				Severity: hcl.DiagError,
 				Summary:  "Invalid attribute",
 				Detail:   "global attributes currently not supported",
-				Subject:  &a.Range,
-				Context:  &a.Range,
+				Subject:  a.Range.Ptr(),
+				Context:  a.Range.Ptr(),
 			},
 		}
 	}
@@ -660,13 +666,14 @@ func Parse(b hcl.Body, opt Opt, val interface{}) (map[string]map[string][]string
 			var subject *hcl.Range
 			var context *hcl.Range
 			if p.funcs[k].Params != nil {
-				subject = &p.funcs[k].Params.Range
+				subject = p.funcs[k].Params.Range.Ptr()
 				context = subject
 			} else {
 				for _, block := range blocks.Blocks {
+					block := block
 					if block.Type == "function" && len(block.Labels) == 1 && block.Labels[0] == k {
-						subject = &block.LabelRanges[0]
-						context = &block.DefRange
+						subject = block.LabelRanges[0].Ptr()
+						context = block.DefRange.Ptr()
 						break
 					}
 				}
@@ -732,6 +739,7 @@ func Parse(b hcl.Body, opt Opt, val interface{}) (map[string]map[string][]string
 
 	diags = hcl.Diagnostics{}
 	for _, b := range content.Blocks {
+		b := b
 		v := reflect.ValueOf(val)
 
 		err := p.resolveBlock(b, nil)
@@ -742,7 +750,7 @@ func Parse(b hcl.Body, opt Opt, val interface{}) (map[string]map[string][]string
 					continue
 				}
 			} else {
-				return nil, wrapErrorDiagnostic("Invalid block", err, &b.LabelRanges[0], &b.DefRange)
+				return nil, wrapErrorDiagnostic("Invalid block", err, b.LabelRanges[0].Ptr(), b.DefRange.Ptr())
 			}
 		}
 
@@ -894,7 +902,7 @@ func key(ks ...any) uint64 {
 			hash.Write([]byte(v.String()))
 		case reflect.Pointer:
 			ptr := reflect.ValueOf(k).Pointer()
-			_ = binary.Write(hash, binary.LittleEndian, uint64(ptr))
+			binary.Write(hash, binary.LittleEndian, uint64(ptr))
 		default:
 			panic(fmt.Sprintf("unknown key kind %s", v.Kind().String()))
 		}

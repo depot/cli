@@ -273,8 +273,10 @@ type XDepot struct {
 	ProjectID string `yaml:"project-id,omitempty"`
 }
 
-type stringMap map[string]string
-type stringArray []string
+type (
+	stringMap   map[string]string
+	stringArray []string
+)
 
 func (sa *stringArray) UnmarshalYAML(unmarshal func(interface{}) error) error {
 	var multi []string

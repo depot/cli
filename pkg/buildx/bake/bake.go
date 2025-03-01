@@ -118,8 +118,9 @@ func ReadTargets(ctx context.Context, files []File, targets, overrides []string,
 	if err != nil {
 		return nil, nil, err
 	}
-	m := map[string]*Target{}
-	n := map[string]*Group{}
+
+	targetsMap := map[string]*Target{}
+	groupsMap := map[string]*Group{}
 	for _, target := range targets {
 		ts, gs := c.ResolveGroup(target)
 		for _, tname := range ts {
@@ -128,13 +129,13 @@ func ReadTargets(ctx context.Context, files []File, targets, overrides []string,
 				return nil, nil, err
 			}
 			if t != nil {
-				m[tname] = t
+				targetsMap[tname] = t
 			}
 		}
 		for _, gname := range gs {
 			for _, group := range c.Groups {
 				if group.Name == gname {
-					n[gname] = group
+					groupsMap[gname] = group
 					break
 				}
 			}
@@ -142,20 +143,21 @@ func ReadTargets(ctx context.Context, files []File, targets, overrides []string,
 	}
 
 	for _, target := range targets {
-		if target == "default" {
+		if _, ok := groupsMap["default"]; ok && target == "default" {
 			continue
 		}
-		if _, ok := n["default"]; !ok {
-			n["default"] = &Group{Name: "default"}
+		if _, ok := groupsMap["default"]; !ok {
+			groupsMap["default"] = &Group{Name: "default"}
 		}
-		n["default"].Targets = append(n["default"].Targets, target)
+		groupsMap["default"].Targets = append(groupsMap["default"].Targets, target)
 	}
-	if g, ok := n["default"]; ok {
+	if g, ok := groupsMap["default"]; ok {
 		g.Targets = dedupSlice(g.Targets)
+		sort.Strings(g.Targets)
 	}
 
-	for name, t := range m {
-		if err := c.loadLinks(name, t, m, o, nil); err != nil {
+	for name, t := range targetsMap {
+		if err := c.loadLinks(name, t, targetsMap, o, nil); err != nil {
 			return nil, nil, err
 		}
 	}
@@ -163,7 +165,7 @@ func ReadTargets(ctx context.Context, files []File, targets, overrides []string,
 	// Propagate SOURCE_DATE_EPOCH from the client env.
 	// The logic is purposely duplicated from `build/build`.go for keeping this visible in `bake --print`.
 	if v := os.Getenv("SOURCE_DATE_EPOCH"); v != "" {
-		for _, f := range m {
+		for _, f := range targetsMap {
 			if f.Args == nil {
 				f.Args = make(map[string]*string)
 			}
@@ -173,7 +175,7 @@ func ReadTargets(ctx context.Context, files []File, targets, overrides []string,
 		}
 	}
 
-	return m, n, nil
+	return targetsMap, groupsMap, nil
 }
 
 func dedupSlice(s []string) []string {
@@ -248,7 +250,7 @@ func ParseFiles(files []File, defaults map[string]string) (_ *Config, err error)
 				}
 				hclFiles = append(hclFiles, hf)
 			} else if composeErr != nil {
-				return nil, fmt.Errorf("failed to parse %s: parsing yaml: %v, parsing hcl: %w", f.Name, composeErr, err)
+				return nil, errors.Wrapf(err, "failed to parse %s: parsing yaml: %v, parsing hcl", f.Name, composeErr)
 			} else {
 				return nil, err
 			}
@@ -634,10 +636,12 @@ type Target struct {
 	ProjectID string `json:"project_id,omitempty" hcl:"project_id,optional" cty:"project_id"`
 }
 
-var _ hclparser.WithEvalContexts = &Target{}
-var _ hclparser.WithGetName = &Target{}
-var _ hclparser.WithEvalContexts = &Group{}
-var _ hclparser.WithGetName = &Group{}
+var (
+	_ hclparser.WithEvalContexts = &Target{}
+	_ hclparser.WithGetName      = &Target{}
+	_ hclparser.WithEvalContexts = &Group{}
+	_ hclparser.WithGetName      = &Group{}
+)
 
 func (t *Target) normalize() {
 	t.Attest = removeDupes(t.Attest)
@@ -754,7 +758,7 @@ func (t *Target) AddOverrides(overrides map[string]Override) error {
 			t.Dockerfile = &value
 		case "args":
 			if len(keys) != 2 {
-				return errors.Errorf("args require name")
+				return errors.Errorf("invalid format for args, expecting args.<name>=<value>")
 			}
 			if t.Args == nil {
 				t.Args = map[string]*string{}
@@ -762,7 +766,7 @@ func (t *Target) AddOverrides(overrides map[string]Override) error {
 			t.Args[keys[1]] = &value
 		case "contexts":
 			if len(keys) != 2 {
-				return errors.Errorf("contexts require name")
+				return errors.Errorf("invalid format for contexts, expecting contexts.<name>=<value>")
 			}
 			if t.Contexts == nil {
 				t.Contexts = map[string]string{}
@@ -770,7 +774,7 @@ func (t *Target) AddOverrides(overrides map[string]Override) error {
 			t.Contexts[keys[1]] = value
 		case "labels":
 			if len(keys) != 2 {
-				return errors.Errorf("labels require name")
+				return errors.Errorf("invalid format for labels, expecting labels.<name>=<value>")
 			}
 			if t.Labels == nil {
 				t.Labels = map[string]*string{}
