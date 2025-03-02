@@ -346,14 +346,25 @@ func (c *RemoteCache) Get(ctx context.Context, actionID string) (outputID, diskP
 
 	res, err := c.httpClient().Do(req)
 	if err != nil {
-		return "", "", err
+		if c.Verbose {
+			log.Printf("error GET /gocache/v1/%s: %v", actionID, err)
+		}
+		// If we have network errors, return that we do not have the cached file.
+		return "", "", nil
 	}
 	defer res.Body.Close()
 	if res.StatusCode == http.StatusNotFound {
 		return "", "", nil
 	}
 	if res.StatusCode != http.StatusOK {
-		return "", "", fmt.Errorf("unexpected GET /gocache/v1/%s status %v", outputID, res.Status)
+		serverError := res.StatusCode >= 500 && res.StatusCode <= 599
+		if serverError {
+			if c.Verbose {
+				log.Printf("Unexpected GET server error /gocache/v1/%s status %v", actionID, res.Status)
+			}
+			return "", "", nil
+		}
+		return "", "", fmt.Errorf("unexpected GET /gocache/v1/%s status %v", actionID, res.Status)
 	}
 
 	var size uint32
@@ -364,39 +375,60 @@ func (c *RemoteCache) Get(ctx context.Context, actionID string) (outputID, diskP
 		b := make([]byte, 1)
 		_, err = io.ReadAtLeast(io.LimitReader(res.Body, 1), b, 1)
 		if err != nil {
-			return "", "", fmt.Errorf("unable to read outputID length: %v", err)
+			if c.Verbose {
+				log.Printf("unable to read outputID length for actionID %s: %v", actionID, err)
+			}
+			// If we are unable to read the content, return that we do not have the cached file.
+			return "", "", nil
 		}
 		outputIDLen := int64(b[0])
 
 		outputIDBuf := make([]byte, outputIDLen)
 		_, err = io.ReadAtLeast(io.LimitReader(res.Body, outputIDLen), outputIDBuf, int(outputIDLen))
 		if err != nil {
-			return "", "", fmt.Errorf("unable to read outputID: %v", err)
+			if c.Verbose {
+				log.Printf("unable to read outputID for actionID %s: %v", actionID, err)
+			}
+			// If we are unable to read the content, return that we do not have the cached file.
+			return "", "", nil
 		}
 		outputID = string(outputIDBuf)
 
 		err = binary.Read(res.Body, binary.LittleEndian, &size)
 		if err != nil {
-			return "", "", fmt.Errorf("unable to read size: %v", err)
+			if c.Verbose {
+				log.Printf("unable to read size for actionID %s: %v", actionID, err)
+			}
+			// If we are unable to read the content, return that we do not have the cached file.
+			return "", "", nil
 		}
 	}
 
-	if c.Verbose {
-		dur := time.Since(now)
-		log.Printf("GET /gocache/v1/%s/%s: %d bytes in %v", actionID, outputID, size, dur)
+	// The rest of the body is the actual output.
+	// Buffering the body because we want to error early before writing to disk.
+	buf := make([]byte, size)
+	_, err = io.ReadFull(res.Body, buf)
+	if err != nil {
+		if c.Verbose {
+			log.Printf("error reading body of actionID %s: %v", actionID, err)
+		}
+		// If we are unable to read the body, return that we do not have the cached file.
+		return "", "", nil
 	}
 
-	// The rest of the body is the actual output.
-	now = time.Now()
-	diskPath, err = c.Disk.Put(ctx, actionID, outputID, int64(size), res.Body)
+	diskPath, err = c.Disk.Put(ctx, actionID, outputID, int64(size), bytes.NewReader(buf))
 	if err != nil {
-		return "", "", err
+		if c.Verbose {
+			log.Printf("unable to cache actionID %s to disk: %v", actionID, err)
+		}
+		// If we are unable to write to disk, return that we do not have the cached file.
+		return "", "", nil
 	}
 	if c.Verbose {
 		dur := time.Since(now)
-		log.Printf("CACHED %s: %d bytes in %v", actionID, size, dur)
+		log.Printf("GET /gocache/v1/%s: %d bytes in %v", actionID, size, dur)
 	}
-	return outputID, diskPath, err
+	return outputID, diskPath, nil
 }
 
 func (c *RemoteCache) Put(ctx context.Context, actionID, outputID string, size int64, body io.Reader) (diskPath string, _ error) {
@@ -410,6 +442,8 @@ func (c *RemoteCache) Put(ctx context.Context, actionID, outputID string, size i
 		return "", fmt.Errorf("outputID too long: %d", len(outputID))
 	}
 
+	now := time.Now()
+
 	// Header is 1 byte for the length of the outputID, the outputID itself, and 4 bytes for the size.
 	headerSize := 1 + len(outputID) + 4
 	b := bytes.NewBuffer(make([]byte, 0, headerSize+int(size)))
@@ -418,13 +452,13 @@ func (c *RemoteCache) Put(ctx context.Context, actionID, outputID string, size i
 	_ = binary.Write(b, binary.LittleEndian, uint32(size))
 	_, err := io.Copy(b, body)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("error caching actionID %s: %w", actionID, err)
 	}
 	buf := b.Bytes()
 
 	diskPath, err = c.Disk.Put(ctx, actionID, outputID, size, bytes.NewReader(buf[headerSize:]))
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("unable to write actionID %s to disk: %w", actionID, err)
 	}
 
 	if len(outputID) == 0 {
@@ -454,15 +488,23 @@ func (c *RemoteCache) Put(ctx context.Context, actionID, outputID string, size i
 		res, err := c.httpClient().Do(req)
 		if err != nil {
 			if !errors.Is(err, context.Canceled) {
-				log.Printf("error PUT /%s/%s: %v", actionID, outputID, err)
+				if c.Verbose {
+					log.Printf("error PUT /gocache/v1/%s : %v", actionID, err)
+				}
 			}
 			return
+		}
+		dur := time.Since(now)
+		if c.Verbose {
+			log.Printf("PUT /gocache/v1/%s: %d bytes in %v", actionID, size, dur)
 		}
 
 		defer res.Body.Close()
 		if res.StatusCode != http.StatusCreated {
 			all, _ := io.ReadAll(io.LimitReader(res.Body, 4<<10))
-			log.Printf("unexpected PUT /gocache/v1/%s/%s status %v: %s", actionID, outputID, res.Status, all)
+			if c.Verbose {
+				log.Printf("unexpected PUT /gocache/v1/%s status %v: %s", actionID, res.Status, all)
+			}
 			return
 		}
 	}()
@@ -497,7 +539,9 @@ func (dc *DiskCache) Get(ctx context.Context, actionID string) (outputID, diskPa
 	}
 	var ie indexEntry
 	if err := json.Unmarshal(ij, &ie); err != nil {
-		log.Printf("Warning: JSON error for action %q: %v", actionID, err)
+		if dc.Verbose {
+			log.Printf("Warning: JSON error for action %q: %v", actionID, err)
+		}
 		return "", "", nil
 	}
 	if _, err := hex.DecodeString(ie.OutputID); err != nil {
@@ -536,7 +580,7 @@ func (dc *DiskCache) Put(ctx context.Context, actionID, objectID string, size in
 	} else {
 		wrote, err := writeAtomic(file, body)
 		if err != nil {
-			return "", err
+			return "", fmt.Errorf("unable to write to disk: %w", err)
 		}
 		if wrote != size {
 			return "", fmt.Errorf("wrote %d bytes, expected %d", wrote, size)
