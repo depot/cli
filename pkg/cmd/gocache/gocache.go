@@ -444,6 +444,16 @@ func (c *RemoteCache) Put(ctx context.Context, actionID, outputID string, size i
 
 	now := time.Now()
 
+	/*
+		     ┌1┐         ┌─────4────┐
+		     ┌─┬─────────┬──────────┬──────────┬       ┬───────┐
+		     │ │ outputID│ file len │   file     ● ● ●         │
+		     └─┴─────────┴──────────┴──────────┴       ┴───────┘
+		      ▲
+		      │
+		outputID len
+	*/
+
 	// Header is 1 byte for the length of the outputID, the outputID itself, and 4 bytes for the size.
 	headerSize := 1 + len(outputID) + 4
 	b := bytes.NewBuffer(make([]byte, 0, headerSize+int(size)))
