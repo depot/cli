@@ -579,6 +579,16 @@ func (dc *DiskCache) OutputFilename(objectID string) string {
 
 func (dc *DiskCache) Put(ctx context.Context, actionID, objectID string, size int64, body io.Reader) (diskPath string, _ error) {
 	file := fileNameOutput(dc.Dir, objectID)
+	actionFile := fileNameAction(dc.Dir, actionID)
+
+	// Skip writing the file if it already exists and is the right size.
+	stat, err := os.Stat(file)
+	if err == nil && stat.Size() == size {
+		_, err = os.Stat(actionFile)
+		if err == nil {
+			return file, nil
+		}
+	}
 
 	// Special case empty files; they're both common and easier to do race-free.
 	if size == 0 {
@@ -606,7 +616,7 @@ func (dc *DiskCache) Put(ctx context.Context, actionID, objectID string, size in
 	if err != nil {
 		return "", err
 	}
-	actionFile := fileNameAction(dc.Dir, actionID)
+
 	if _, err := writeAtomic(actionFile, bytes.NewReader(ij)); err != nil {
 		return "", err
 	}
