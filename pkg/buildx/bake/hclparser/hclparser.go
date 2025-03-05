@@ -10,12 +10,11 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/depot/cli/pkg/buildx/bake/hclparser/gohcl"
 	"github.com/docker/buildx/util/userfunc"
 	"github.com/hashicorp/hcl/v2"
-	"github.com/hashicorp/hcl/v2/gohcl"
 	"github.com/pkg/errors"
 	"github.com/zclconf/go-cty/cty"
-	"github.com/zclconf/go-cty/cty/gocty"
 )
 
 type Opt struct {
@@ -73,7 +72,12 @@ type WithGetName interface {
 	GetName(ectx *hcl.EvalContext, block *hcl.Block, loadDeps func(hcl.Expression) hcl.Diagnostics) (string, error)
 }
 
-var errUndefined = errors.New("undefined")
+// errUndefined is returned when a variable or function is not defined.
+type errUndefined struct{}
+
+func (errUndefined) Error() string {
+	return "undefined"
+}
 
 func (p *parser) loadDeps(ectx *hcl.EvalContext, exp hcl.Expression, exclude map[string]struct{}, allowMissing bool) hcl.Diagnostics {
 	fns, hcldiags := funcCalls(exp)
@@ -83,7 +87,7 @@ func (p *parser) loadDeps(ectx *hcl.EvalContext, exp hcl.Expression, exclude map
 
 	for _, fn := range fns {
 		if err := p.resolveFunction(ectx, fn); err != nil {
-			if allowMissing && errors.Is(err, errUndefined) {
+			if allowMissing && errors.Is(err, errUndefined{}) {
 				continue
 			}
 			return wrapErrorDiagnostic("Invalid expression", err, exp.Range().Ptr(), exp.Range().Ptr())
@@ -137,7 +141,7 @@ func (p *parser) loadDeps(ectx *hcl.EvalContext, exp hcl.Expression, exclude map
 			}
 			for _, block := range blocks {
 				if err := p.resolveBlock(block, target); err != nil {
-					if allowMissing && errors.Is(err, errUndefined) {
+					if allowMissing && errors.Is(err, errUndefined{}) {
 						continue
 					}
 					return wrapErrorDiagnostic("Invalid expression", err, exp.Range().Ptr(), exp.Range().Ptr())
@@ -145,7 +149,7 @@ func (p *parser) loadDeps(ectx *hcl.EvalContext, exp hcl.Expression, exclude map
 			}
 		} else {
 			if err := p.resolveValue(ectx, v.RootName()); err != nil {
-				if allowMissing && errors.Is(err, errUndefined) {
+				if allowMissing && errors.Is(err, errUndefined{}) {
 					continue
 				}
 				return wrapErrorDiagnostic("Invalid expression", err, exp.Range().Ptr(), exp.Range().Ptr())
@@ -167,7 +171,7 @@ func (p *parser) resolveFunction(ectx *hcl.EvalContext, name string) error {
 	}
 	f, ok := p.funcs[name]
 	if !ok {
-		return errors.Wrapf(errUndefined, "function %q does not exist", name)
+		return errors.Wrapf(errUndefined{}, "function %q does not exist", name)
 	}
 	if _, ok := p.progressF[key(ectx, name)]; ok {
 		return errors.Errorf("function cycle not allowed for %s", name)
@@ -257,7 +261,7 @@ func (p *parser) resolveValue(ectx *hcl.EvalContext, name string) (err error) {
 	if _, builtin := p.opt.Vars[name]; !ok && !builtin {
 		vr, ok := p.vars[name]
 		if !ok {
-			return errors.Wrapf(errUndefined, "variable %q does not exist", name)
+			return errors.Wrapf(errUndefined{}, "variable %q does not exist", name)
 		}
 		def = vr.Default
 		ectx = p.ectx
@@ -441,7 +445,7 @@ func (p *parser) resolveBlock(block *hcl.Block, target *hcl.BodySchema) (err err
 		}
 
 		// decode!
-		diag = gohcl.DecodeBody(body(), ectx, output.Interface())
+		diag = decodeBody(body(), ectx, output.Interface())
 		if diag.HasErrors() {
 			return diag
 		}
@@ -463,11 +467,11 @@ func (p *parser) resolveBlock(block *hcl.Block, target *hcl.BodySchema) (err err
 		}
 
 		// store the result into the evaluation context (so it can be referenced)
-		outputType, err := gocty.ImpliedType(output.Interface())
+		outputType, err := ImpliedType(output.Interface())
 		if err != nil {
 			return err
 		}
-		outputValue, err := gocty.ToCtyValue(output.Interface(), outputType)
+		outputValue, err := ToCtyValue(output.Interface(), outputType)
 		if err != nil {
 			return err
 		}
@@ -479,7 +483,12 @@ func (p *parser) resolveBlock(block *hcl.Block, target *hcl.BodySchema) (err err
 			m = map[string]cty.Value{}
 		}
 		m[name] = outputValue
-		p.ectx.Variables[block.Type] = cty.MapVal(m)
+
+		// The logical contents of this structure is similar to a map,
+		// but it's possible for some attributes to be different in a way that's
+		// illegal for a map so we use an object here instead which is structurally
+		// equivalent but allows disparate types for different keys.
+		p.ectx.Variables[block.Type] = cty.ObjectVal(m)
 	}
 
 	return nil
@@ -534,7 +543,18 @@ func (p *parser) resolveBlockNames(block *hcl.Block) ([]string, error) {
 	return names, nil
 }
 
-func Parse(b hcl.Body, opt Opt, val interface{}) (map[string]map[string][]string, hcl.Diagnostics) {
+type Variable struct {
+	Name        string  `json:"name"`
+	Description string  `json:"description,omitempty"`
+	Value       *string `json:"value,omitempty"`
+}
+
+type ParseMeta struct {
+	Renamed      map[string]map[string][]string
+	AllVariables []*Variable
+}
+
+func Parse(b hcl.Body, opt Opt, val interface{}) (*ParseMeta, hcl.Diagnostics) {
 	reserved := map[string]struct{}{}
 	schema, _ := gohcl.ImpliedBodySchema(val)
 
@@ -613,7 +633,7 @@ func Parse(b hcl.Body, opt Opt, val interface{}) (map[string]map[string][]string
 
 	attrs, diags := b.JustAttributes()
 	if diags.HasErrors() {
-		if d := removeAttributesDiags(diags, reserved, p.vars); len(d) > 0 {
+		if d := removeAttributesDiags(diags, reserved, p.vars, attrs); len(d) > 0 {
 			return nil, d
 		}
 	}
@@ -631,17 +651,19 @@ func Parse(b hcl.Body, opt Opt, val interface{}) (map[string]map[string][]string
 	}
 
 	for _, a := range content.Attributes {
+		a := a
 		return nil, hcl.Diagnostics{
 			&hcl.Diagnostic{
 				Severity: hcl.DiagError,
 				Summary:  "Invalid attribute",
 				Detail:   "global attributes currently not supported",
-				Subject:  &a.Range,
-				Context:  &a.Range,
+				Subject:  a.Range.Ptr(),
+				Context:  a.Range.Ptr(),
 			},
 		}
 	}
 
+	vars := make([]*Variable, 0, len(p.vars))
 	for k := range p.vars {
 		if err := p.resolveValue(p.ectx, k); err != nil {
 			if diags, ok := err.(hcl.Diagnostics); ok {
@@ -650,6 +672,20 @@ func Parse(b hcl.Body, opt Opt, val interface{}) (map[string]map[string][]string
 			r := p.vars[k].Body.MissingItemRange()
 			return nil, wrapErrorDiagnostic("Invalid value", err, &r, &r)
 		}
+		v := &Variable{
+			Name: p.vars[k].Name,
+		}
+		if vv := p.ectx.Variables[k]; !vv.IsNull() {
+			var s string
+			switch vv.Type() {
+			case cty.String:
+				s = vv.AsString()
+			case cty.Bool:
+				s = strconv.FormatBool(vv.True())
+			}
+			v.Value = &s
+		}
+		vars = append(vars, v)
 	}
 
 	for k := range p.funcs {
@@ -660,13 +696,14 @@ func Parse(b hcl.Body, opt Opt, val interface{}) (map[string]map[string][]string
 			var subject *hcl.Range
 			var context *hcl.Range
 			if p.funcs[k].Params != nil {
-				subject = &p.funcs[k].Params.Range
+				subject = p.funcs[k].Params.Range.Ptr()
 				context = subject
 			} else {
 				for _, block := range blocks.Blocks {
+					block := block
 					if block.Type == "function" && len(block.Labels) == 1 && block.Labels[0] == k {
-						subject = &block.LabelRanges[0]
-						context = &block.DefRange
+						subject = block.LabelRanges[0].Ptr()
+						context = block.DefRange.Ptr()
 						break
 					}
 				}
@@ -732,6 +769,7 @@ func Parse(b hcl.Body, opt Opt, val interface{}) (map[string]map[string][]string
 
 	diags = hcl.Diagnostics{}
 	for _, b := range content.Blocks {
+		b := b
 		v := reflect.ValueOf(val)
 
 		err := p.resolveBlock(b, nil)
@@ -742,7 +780,7 @@ func Parse(b hcl.Body, opt Opt, val interface{}) (map[string]map[string][]string
 					continue
 				}
 			} else {
-				return nil, wrapErrorDiagnostic("Invalid block", err, &b.LabelRanges[0], &b.DefRange)
+				return nil, wrapErrorDiagnostic("Invalid block", err, b.LabelRanges[0].Ptr(), b.DefRange.Ptr())
 			}
 		}
 
@@ -792,7 +830,10 @@ func Parse(b hcl.Body, opt Opt, val interface{}) (map[string]map[string][]string
 		}
 	}
 
-	return renamed, nil
+	return &ParseMeta{
+		Renamed:      renamed,
+		AllVariables: vars,
+	}, nil
 }
 
 // wrapErrorDiagnostic wraps an error into a hcl.Diagnostics object.
@@ -854,7 +895,7 @@ func getNameIndex(v reflect.Value) (int, bool) {
 	return 0, false
 }
 
-func removeAttributesDiags(diags hcl.Diagnostics, reserved map[string]struct{}, vars map[string]*variable) hcl.Diagnostics {
+func removeAttributesDiags(diags hcl.Diagnostics, reserved map[string]struct{}, vars map[string]*variable, attrs hcl.Attributes) hcl.Diagnostics {
 	var fdiags hcl.Diagnostics
 	for _, d := range diags {
 		if fout := func(d *hcl.Diagnostic) bool {
@@ -873,6 +914,12 @@ func removeAttributesDiags(diags hcl.Diagnostics, reserved map[string]struct{}, 
 			for v := range vars {
 				// Do the same for global variables
 				if strings.HasPrefix(d.Detail, fmt.Sprintf(`Argument "%s" was already set at `, v)) {
+					return true
+				}
+			}
+			for a := range attrs {
+				// Do the same for attributes
+				if strings.HasPrefix(d.Detail, fmt.Sprintf(`Argument "%s" was already set at `, a)) {
 					return true
 				}
 			}
@@ -900,4 +947,9 @@ func key(ks ...any) uint64 {
 		}
 	}
 	return hash.Sum64()
+}
+
+func decodeBody(body hcl.Body, ctx *hcl.EvalContext, val interface{}) hcl.Diagnostics {
+	dec := gohcl.DecodeOptions{ImpliedType: ImpliedType}
+	return dec.DecodeBody(body, ctx, val)
 }
