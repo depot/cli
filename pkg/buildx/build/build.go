@@ -401,6 +401,10 @@ func toSolveOpt(ctx context.Context, node builder.Node, multiDriver bool, opt Op
 	supportsAttestations := true
 	if len(attests) > 0 {
 		for k, v := range attests {
+			// DEPOT: Bake does not have `attest:` and build does.
+			if !strings.HasPrefix(k, "attest:") {
+				k = "attest:" + k
+			}
 			so.FrontendAttrs[k] = v
 		}
 	}
