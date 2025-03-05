@@ -1,15 +1,11 @@
 package buildflags
 
 import (
-	"context"
 	"encoding/csv"
 	"encoding/json"
 	"maps"
-	"os"
-	"strconv"
 	"strings"
 
-	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/moby/buildkit/client"
 	"github.com/pkg/errors"
 	"github.com/zclconf/go-cty/cty"
@@ -187,9 +183,6 @@ func CreateCaches(entries []*CacheOptionsEntry) []client.CacheOptionsEntry {
 		return nil
 	}
 	for _, entry := range entries {
-		addGithubToken(entry)
-		addAwsCredentials(entry)
-
 		out := client.CacheOptionsEntry{
 			Type:  entry.Type,
 			Attrs: map[string]string{},
@@ -200,68 +193,4 @@ func CreateCaches(entries []*CacheOptionsEntry) []client.CacheOptionsEntry {
 		outs = append(outs, out)
 	}
 	return outs
-}
-
-func addGithubToken(ci *CacheOptionsEntry) {
-	if ci.Type != "gha" {
-		return
-	}
-	version, ok := ci.Attrs["version"]
-	if !ok {
-		// https://github.com/actions/toolkit/blob/2b08dc18f261b9fdd978b70279b85cbef81af8bc/packages/cache/src/internal/config.ts#L19
-		if v, ok := os.LookupEnv("ACTIONS_CACHE_SERVICE_V2"); ok {
-			if b, err := strconv.ParseBool(v); err == nil && b {
-				version = "2"
-			}
-		}
-	}
-	if _, ok := ci.Attrs["token"]; !ok {
-		if v, ok := os.LookupEnv("ACTIONS_RUNTIME_TOKEN"); ok {
-			ci.Attrs["token"] = v
-		}
-	}
-	if _, ok := ci.Attrs["url_v2"]; !ok && version == "2" {
-		// https://github.com/actions/toolkit/blob/2b08dc18f261b9fdd978b70279b85cbef81af8bc/packages/cache/src/internal/config.ts#L34-L35
-		if v, ok := os.LookupEnv("ACTIONS_RESULTS_URL"); ok {
-			ci.Attrs["url_v2"] = v
-		}
-	}
-	if _, ok := ci.Attrs["url"]; !ok {
-		// https://github.com/actions/toolkit/blob/2b08dc18f261b9fdd978b70279b85cbef81af8bc/packages/cache/src/internal/config.ts#L28-L33
-		if v, ok := os.LookupEnv("ACTIONS_CACHE_URL"); ok {
-			ci.Attrs["url"] = v
-		} else if v, ok := os.LookupEnv("ACTIONS_RESULTS_URL"); ok {
-			ci.Attrs["url"] = v
-		}
-	}
-}
-
-func addAwsCredentials(ci *CacheOptionsEntry) {
-	if ci.Type != "s3" {
-		return
-	}
-	_, okAccessKeyID := ci.Attrs["access_key_id"]
-	_, okSecretAccessKey := ci.Attrs["secret_access_key"]
-	// If the user provides access_key_id, secret_access_key, do not override the session token.
-	if okAccessKeyID && okSecretAccessKey {
-		return
-	}
-	ctx := context.TODO()
-	awsConfig, err := awsconfig.LoadDefaultConfig(ctx)
-	if err != nil {
-		return
-	}
-	credentials, err := awsConfig.Credentials.Retrieve(ctx)
-	if err != nil {
-		return
-	}
-	if !okAccessKeyID && credentials.AccessKeyID != "" {
-		ci.Attrs["access_key_id"] = credentials.AccessKeyID
-	}
-	if !okSecretAccessKey && credentials.SecretAccessKey != "" {
-		ci.Attrs["secret_access_key"] = credentials.SecretAccessKey
-	}
-	if _, ok := ci.Attrs["session_token"]; !ok && credentials.SessionToken != "" {
-		ci.Attrs["session_token"] = credentials.SessionToken
-	}
 }
