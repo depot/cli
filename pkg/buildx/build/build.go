@@ -401,7 +401,7 @@ func toSolveOpt(ctx context.Context, node builder.Node, multiDriver bool, opt Op
 	supportsAttestations := true
 	if len(attests) > 0 {
 		for k, v := range attests {
-			so.FrontendAttrs[k] = v
+			so.FrontendAttrs["attest:"+k] = v
 		}
 	}
 	if _, ok := opt.Attests["attest:provenance"]; !ok && supportsAttestations {
