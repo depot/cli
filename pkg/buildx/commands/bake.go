@@ -295,10 +295,11 @@ func BakeCmd() *cobra.Command {
 					options.project,
 					bakeOpts,
 					helpers.UsingDepotFeatures{
-						Push: options.exportPush,
-						Load: options.exportLoad,
-						Save: options.save,
-						Lint: options.lint,
+						Push:     options.exportPush,
+						Load:     options.exportLoad,
+						Save:     options.save,
+						SaveTags: options.saveTags,
+						Lint:     options.lint,
 					},
 				)
 				build, err := helpers.BeginBuild(context.Background(), req, token)

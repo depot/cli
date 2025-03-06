@@ -120,6 +120,7 @@ type DepotOptions struct {
 	build         *depotbuild.Build
 
 	save                  bool
+	saveTags              []string
 	additionalTags        []string
 	additionalCredentials []depotbuild.Credential
 
@@ -647,10 +648,11 @@ func BuildCmd() *cobra.Command {
 				options.project,
 				validatedOpts,
 				helpers.UsingDepotFeatures{
-					Push: options.exportPush,
-					Load: options.exportLoad,
-					Save: options.save,
-					Lint: options.lint,
+					Push:     options.exportPush,
+					Load:     options.exportLoad,
+					Save:     options.save,
+					SaveTags: options.saveTags,
+					Lint:     options.lint,
 				},
 			)
 
@@ -867,6 +869,8 @@ func depotAttestationFlags(_ *cobra.Command, options *DepotOptions, flags *pflag
 
 func depotRegistryFlags(_ *cobra.Command, options *DepotOptions, flags *pflag.FlagSet) {
 	flags.BoolVar(&options.save, "save", false, `Saves the build to the depot registry`)
+	// TODO(billy): bad wording
+	flags.StringArrayVar(&options.saveTags, "save-tags", []string{}, `Custom tags to save the image with`)
 }
 
 func checkWarnedFlags(f *pflag.Flag) {
