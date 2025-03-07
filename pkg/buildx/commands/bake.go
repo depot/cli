@@ -203,7 +203,7 @@ func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator, pri
 	_ = printer.Wait()
 
 	if in.save {
-		printSaveHelp(in.project, in.buildID, in.progress, requestedTargets)
+		printSaveHelp(in.project, in.buildID, in.progress, requestedTargets, in.additionalTags)
 	}
 	linter.Print(os.Stderr, in.progress)
 	return nil
@@ -558,7 +558,7 @@ func parseBakeTargets(targets []string) (bkt bakeTargets) {
 }
 
 // printSaveHelp prints instructions to pull or push the saved targets.
-func printSaveHelp(project, buildID, progressMode string, requestedTargets []string) {
+func printSaveHelp(project, buildID, progressMode string, requestedTargets, additionalTags []string) {
 	if progressMode != progress.PrinterModeQuiet {
 		fmt.Fprintln(os.Stderr)
 		saved := "target"
@@ -574,6 +574,47 @@ func printSaveHelp(project, buildID, progressMode string, requestedTargets []str
 		targets := strings.Join(requestedTargets, ",")
 		fmt.Fprintf(os.Stderr, "Saved %s: %s\n", saved, targets)
 		fmt.Fprintf(os.Stderr, "\tTo pull: depot pull --project %s %s\n", project, buildID)
+
+		if len(additionalTags) > 1 {
+			fmt.Fprintf(os.Stderr, "\tTo pull save-tags:\n")
+			fmt.Fprintf(os.Stderr, "\t\tdocker login registry.depot.dev -u x-token -p $(depot pull-token)\n")
+			fmt.Fprintln(os.Stderr)
+
+			// the api will send multiple of the same tag back for each target
+			if len(requestedTargets) > 0 {
+				seenTags := map[string]struct{}{}
+				for _, target := range requestedTargets {
+					if target == "default" {
+						continue
+					}
+
+					for _, tag := range additionalTags {
+						if strings.Contains(tag, buildID) {
+							continue
+						}
+
+						trueTag := tag + "-" + target
+						if _, ok := seenTags[trueTag]; ok {
+							continue
+						}
+						seenTags[trueTag] = struct{}{}
+
+						fmt.Fprintf(os.Stderr, "\t\tdocker pull %s\n", trueTag)
+					}
+				}
+			} else {
+				for _, tag := range additionalTags {
+					if strings.Contains(tag, buildID) {
+						continue
+					}
+
+					fmt.Fprintf(os.Stderr, "\t\tdocker pull %s\n", tag)
+				}
+			}
+
+			fmt.Fprintln(os.Stderr)
+		}
+
 		fmt.Fprintf(os.Stderr, "\tTo push: depot push %s--project %s --tag <REPOSITORY:TAG> %s\n", targetUsage, project, buildID)
 	}
 }

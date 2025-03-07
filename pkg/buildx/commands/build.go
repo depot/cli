@@ -354,7 +354,7 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.No
 
 	printWarnings(os.Stderr, printer.Warnings(), progressMode)
 	if depotOpts.save {
-		printSaveHelp(depotOpts.project, depotOpts.buildID, progressMode, nil)
+		printSaveHelp(depotOpts.project, depotOpts.buildID, progressMode, nil, depotOpts.additionalTags)
 	}
 	linter.Print(os.Stderr, progressMode)
 
