@@ -112,7 +112,7 @@ func NewBakeRequest(project string, opts map[string]buildx.Options, features Usi
 			Load:       features.Load,
 			Save:       features.Save,
 			Lint:       features.Lint,
-			SaveTags:   targetSaveTags,
+			SaveTags:   features.SaveTags,
 			TargetName: &targetName,
 		})
 	}
