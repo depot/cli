@@ -869,8 +869,7 @@ func depotAttestationFlags(_ *cobra.Command, options *DepotOptions, flags *pflag
 
 func depotRegistryFlags(_ *cobra.Command, options *DepotOptions, flags *pflag.FlagSet) {
 	flags.BoolVar(&options.save, "save", false, `Saves the build to the depot registry`)
-	// TODO(billy): bad wording
-	flags.StringArrayVar(&options.saveTags, "save-tag", []string{}, `Custom tags to save the image with`)
+	flags.StringArrayVar(&options.saveTags, "save-tag", []string{}, `Additional custom tag for the saved image, use with --save`)
 }
 
 func checkWarnedFlags(f *pflag.Flag) {
