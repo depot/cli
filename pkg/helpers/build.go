@@ -3,7 +3,6 @@ package helpers
 import (
 	"context"
 	"errors"
-	"fmt"
 	"os"
 
 	"connectrpc.com/connect"
@@ -95,13 +94,6 @@ func NewBakeRequest(project string, opts map[string]buildx.Options, features Usi
 				Kind:       opts.Exports[i].Type,
 				Attributes: opts.Exports[i].Attrs,
 			}
-		}
-
-		// prepend the target name to each tag
-		targetSaveTags := []string{}
-		for _, saveTag := range features.SaveTags {
-			targetSaveTag := fmt.Sprintf("%s-%s", targetName, saveTag)
-			targetSaveTags = append(targetSaveTags, targetSaveTag)
 		}
 
 		targets = append(targets, &cliv1.BuildOptions{
