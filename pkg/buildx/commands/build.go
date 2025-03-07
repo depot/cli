@@ -120,6 +120,7 @@ type DepotOptions struct {
 	build         *depotbuild.Build
 
 	save                  bool
+	saveTags              []string
 	additionalTags        []string
 	additionalCredentials []depotbuild.Credential
 
@@ -353,7 +354,7 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.No
 
 	printWarnings(os.Stderr, printer.Warnings(), progressMode)
 	if depotOpts.save {
-		printSaveHelp(depotOpts.project, depotOpts.buildID, progressMode, nil)
+		printSaveHelp(depotOpts.project, depotOpts.buildID, progressMode, nil, depotOpts.additionalTags)
 	}
 	linter.Print(os.Stderr, progressMode)
 
@@ -647,10 +648,11 @@ func BuildCmd() *cobra.Command {
 				options.project,
 				validatedOpts,
 				helpers.UsingDepotFeatures{
-					Push: options.exportPush,
-					Load: options.exportLoad,
-					Save: options.save,
-					Lint: options.lint,
+					Push:     options.exportPush,
+					Load:     options.exportLoad,
+					Save:     options.save,
+					SaveTags: options.saveTags,
+					Lint:     options.lint,
 				},
 			)
 
@@ -867,6 +869,7 @@ func depotAttestationFlags(_ *cobra.Command, options *DepotOptions, flags *pflag
 
 func depotRegistryFlags(_ *cobra.Command, options *DepotOptions, flags *pflag.FlagSet) {
 	flags.BoolVar(&options.save, "save", false, `Saves the build to the depot registry`)
+	flags.StringArrayVar(&options.saveTags, "save-tag", []string{}, `Additional custom tag for the saved image, use with --save`)
 }
 
 func checkWarnedFlags(f *pflag.Flag) {
