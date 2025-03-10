@@ -408,7 +408,25 @@ func toSolveOpt(ctx context.Context, node builder.Node, multiDriver bool, opt Op
 			so.FrontendAttrs[k] = v
 		}
 	}
-	if _, ok := opt.Attests["attest:provenance"]; !ok && supportsAttestations {
+
+	// DEPOT: Bake uses "provenance" and build uses "attest:provenance".
+	//
+	// There are three cases:
+	//
+	// When the CLI arg is --provenance=false, the value is nil, attests[] is not set and so.FrontAttrs[] is not set
+	// When the CLI arg is --provenance=true, the value is not nil, attests[] and so.FrontAttrs[] are set.
+	// When the CLI arg is not specified, attests[] is NOT set and so.FrontendAttrs[] IS set.
+	// Thus, NOT setting --provenance will by default add provenance.
+	//
+	// If attests[] is set and exporting to docker tar, the command will error with:
+	// "docker exporter does not currently support exporting manifest lists"
+	//
+	// This means that not setting --provenance and exporting to docker will work, but
+	// setting --provenance=true and exporting to docker will error.
+	_, hasBuildProvenance := opt.Attests["attest:provenance"]
+	_, hasBakeProvenance := opt.Attests["provenance"]
+	hasProvenance := hasBuildProvenance || hasBakeProvenance
+	if !hasProvenance && supportsAttestations {
 		so.FrontendAttrs["attest:provenance"] = "mode=min,inline-only=true"
 	}
 
