@@ -130,6 +130,12 @@ func (a *Attest) UnmarshalText(text []byte) error {
 				return errors.Wrapf(err, "invalid value %s", field)
 			}
 			a.Disabled = disabled
+		case "enabled":
+			enabled, err := strconv.ParseBool(value)
+			if err != nil {
+				return errors.Wrapf(err, "invalid value %s", field)
+			}
+			a.Disabled = !enabled
 		default:
 			a.Attrs[key] = value
 		}
