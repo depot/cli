@@ -27,6 +27,7 @@ type ClaimRequest struct {
 	EventName string `json:"eventName"`
 	Repo      string `json:"repo"`
 	RunID     string `json:"runID"`
+	Attempt   string `json:"attempt"`
 }
 
 type ChallengeResponse struct {

@@ -19,6 +19,7 @@ func RetrieveToken(ctx context.Context, audience string) (string, error) {
 	runID := os.Getenv("GITHUB_RUN_ID")
 	eventName := os.Getenv("GITHUB_EVENT_NAME")
 	eventPath := os.Getenv("GITHUB_EVENT_PATH")
+	attempt := os.Getenv("GITHUB_RUN_ATTEMPT")
 
 	// Skip if not running in a GitHub Actions environment
 	if runID == "" || eventName == "" || eventPath == "" {
@@ -58,6 +59,7 @@ func RetrieveToken(ctx context.Context, audience string) (string, error) {
 		EventName: eventName,
 		Repo:      payload.Repository.FullName,
 		RunID:     runID,
+		Attempt:   attempt,
 	})
 	if err != nil {
 		return "", err
