@@ -70,7 +70,7 @@ type ImageDescriptors struct {
 
 // GetImageDescriptors returns back all the descriptors for an image.
 func GetImageDescriptors(ctx context.Context, token, buildID, target string, logger StartLogDetailFunc) (*ImageDescriptors, error) {
-	// Download location and credentials of ephemeral image save.
+	// Download location and credentials of image save.
 	client := depotapi.NewBuildClient()
 	req := &cliv1.GetPullInfoRequest{BuildId: buildID}
 	res, err := client.GetPullInfo(ctx, depotapi.WithAuthentication(connect.NewRequest(req), token))
@@ -192,7 +192,7 @@ func fetch(ctx context.Context, fetcher remotes.Fetcher, desc ocispecs.Descripto
 	return io.ReadAll(r)
 }
 
-// Authorizer is a static authorizer used to authenticate with the Depot ephemeral registry.
+// Authorizer is a static authorizer used to authenticate with the Depot registry.
 type Authorizer struct {
 	Username string
 	Password string
