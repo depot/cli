@@ -19,7 +19,7 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-// NewCmdPush pushes a previously saved build to a registry from the Depot ephemeral registry.
+// NewCmdPush pushes a previously saved build to a registry from the Depot registry.
 func NewCmdPush() *cobra.Command {
 	var (
 		token       string
@@ -32,7 +32,7 @@ func NewCmdPush() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "push [flags] [buildID]",
-		Short: "Push a project's build from the Depot ephemeral registry to a destination registry",
+		Short: "Push a project's build from the Depot registry to a destination registry",
 		Args:  cli.RequiresMaxArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			dockerCli, err := dockerclient.NewDockerCLI()

@@ -31,7 +31,7 @@ func NewCmdPull() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "pull [flags] [buildID]",
-		Short: "Pull a project's build from the Depot ephemeral registry",
+		Short: "Pull a project's build from the Depot registry",
 		Args:  cli.RequiresMaxArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			dockerCli, err := dockerclient.NewDockerCLI()
@@ -104,7 +104,7 @@ func NewCmdPull() *cobra.Command {
 
 			buildOptions := res.Msg.Options
 			if len(buildOptions) > 0 && !isSavedBuild(buildOptions) {
-				return fmt.Errorf("build %s is not a saved build. To use the ephemeral registry use --save when building", buildID)
+				return fmt.Errorf("build %s is not a saved build. To use the registry use --save when building", buildID)
 			}
 
 			if isBake(buildOptions) {

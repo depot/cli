@@ -20,7 +20,7 @@ func NewCmdPullToken() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "pull-token [flags] ([buildID])",
-		Short: "Create a new pull token for the ephemeral registry",
+		Short: "Create a new pull token for the registry",
 		Args:  cli.RequiresMaxArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) > 0 {
