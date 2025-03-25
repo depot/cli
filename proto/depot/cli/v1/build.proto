@@ -115,6 +115,7 @@ message GetBuildResponse {
 message Registry {
   bool can_use_local_registry = 1;
   string proxy_image = 2;
+  bool load_using_registry = 3;
 }
 
 message FinishBuildRequest {
