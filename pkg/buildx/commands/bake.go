@@ -104,7 +104,7 @@ func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator, pri
 				IsBake:       true,
 				ProgressMode: in.progress,
 				UseRegistry:  in.DepotOptions.loadUsingRegistry,
-				BuildCreds:   &load.BuildCreds{Username: in.DepotOptions.pullInfo.Username, Password: in.DepotOptions.pullInfo.Password},
+				PullInfo:     in.DepotOptions.pullInfo,
 			},
 		)
 	}

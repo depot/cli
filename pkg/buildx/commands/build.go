@@ -235,7 +235,7 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.No
 				IsBake:       false,
 				ProgressMode: progressMode,
 				UseRegistry:  depotOpts.loadUsingRegistry,
-				BuildCreds:   &load.BuildCreds{Username: depotOpts.pullInfo.Username, Password: depotOpts.pullInfo.Password},
+				PullInfo:     depotOpts.pullInfo,
 			},
 		)
 	}
