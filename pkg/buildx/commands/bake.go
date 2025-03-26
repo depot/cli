@@ -327,7 +327,7 @@ func BakeCmd() *cobra.Command {
 				}
 				loadUsingRegistry := build.LoadUsingRegistry()
 				if options.exportLoad && loadUsingRegistry {
-					pullInfo, err := depotbuild.PullBuildInfo(context.Background(), build.ID, build.Token)
+					pullInfo, err := depotbuild.PullBuildInfo(context.Background(), build.ID, token)
 					// if we cannot get pull info, dont fail; load as normal
 					if err == nil {
 						options.loadUsingRegistry = loadUsingRegistry
