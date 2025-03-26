@@ -35,6 +35,12 @@ type Credential struct {
 	Token string
 }
 
+type PullInfo struct {
+	Reference string
+	Username  string
+	Password  string
+}
+
 func (b *Build) AdditionalTags() []string {
 	if b.Response == nil || b.Response.Msg == nil {
 		return []string{fmt.Sprintf("registry.depot.dev/%s:%s", b.projectID, b.ID)}
@@ -90,6 +96,14 @@ func (b *Build) BuildProject() string {
 		return ""
 	}
 	return b.Response.Msg.ProjectId
+}
+
+func (b *Build) LoadUsingRegistry() bool {
+	if b.Response == nil || b.Response.Msg == nil {
+		return false
+	}
+
+	return b.Response.Msg.Registry.LoadUsingRegistry
 }
 
 func NewBuild(ctx context.Context, req *cliv1.CreateBuildRequest, token string) (Build, error) {
@@ -155,6 +169,22 @@ func FromExistingBuild(ctx context.Context, buildID, token string, buildRes *con
 		}, nil
 	}
 
+}
+
+func PullBuildInfo(ctx context.Context, buildID, token string) (*PullInfo, error) {
+	// Download location and credentials of image save.
+	client := depotapi.NewBuildClient()
+	req := &cliv1.GetPullInfoRequest{BuildId: buildID}
+	res, err := client.GetPullInfo(ctx, depotapi.WithAuthentication(connect.NewRequest(req), token))
+	if err != nil {
+		return nil, err
+	}
+
+	return &PullInfo{
+		Reference: res.Msg.Reference,
+		Username:  res.Msg.Username,
+		Password:  res.Msg.Password,
+	}, nil
 }
 
 type authProvider struct {

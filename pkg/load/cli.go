@@ -11,10 +11,17 @@ import (
 
 // DepotLoadOptions are options to load images from the depot hosted registry.
 type DepotLoadOptions struct {
-	Project      string // Depot project name; used to tag images.
-	BuildID      string // Depot build ID; used to tag images.
-	IsBake       bool   // If run from bake, we add the bake target to the image tag.
-	ProgressMode string // ProgressMode quiet will not print progress.
+	Project      string      // Depot project name; used to tag images.
+	BuildID      string      // Depot build ID; used to tag images.
+	IsBake       bool        // If run from bake, we add the bake target to the image tag.
+	ProgressMode string      // ProgressMode quiet will not print progress.
+	UseRegistry  bool        // If UseRegistry, load build from registry instead of proxy
+	BuildCreds   *BuildCreds // If UseRegistry, the credentials for pulling from registry
+}
+
+type BuildCreds struct {
+	Username string
+	Password string
 }
 
 // Options to download from the Depot hosted registry and tag the image with the user provide tag.
@@ -69,6 +76,15 @@ func WithDepotImagePull(buildOpts map[string]build.Options, loadOpts DepotLoadOp
 				UserTags: userTags,
 				Quiet:    loadOpts.ProgressMode == progress.PrinterModeQuiet,
 			}
+
+			if loadOpts.UseRegistry && loadOpts.BuildCreds != nil {
+				serverAddress := "registry.depot.dev"
+				pullOpt.KeepImage = true
+				pullOpt.Username = &loadOpts.BuildCreds.Username
+				pullOpt.Password = &loadOpts.BuildCreds.Password
+				pullOpt.ServerAddress = &serverAddress
+			}
+
 			toPull[target] = pullOpt
 		}
 	}
