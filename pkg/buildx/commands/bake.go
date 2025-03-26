@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/containerd/containerd/platforms"
+	depotbuild "github.com/depot/cli/pkg/build"
 	"github.com/depot/cli/pkg/buildx/bake"
 	"github.com/depot/cli/pkg/buildx/build"
 	"github.com/depot/cli/pkg/buildx/builder"
@@ -102,10 +103,12 @@ func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator, pri
 				BuildID:      in.DepotOptions.buildID,
 				IsBake:       true,
 				ProgressMode: in.progress,
+				UseRegistry:  in.DepotOptions.loadUsingRegistry,
+				BuildCreds:   &load.BuildCreds{Username: in.DepotOptions.pullInfo.Username, Password: in.DepotOptions.pullInfo.Password},
 			},
 		)
 	}
-	if in.save {
+	if in.save || in.loadUsingRegistry {
 		opts := registry.SaveOptions{
 			ProjectID:             in.project,
 			BuildID:               in.buildID,
@@ -179,7 +182,11 @@ func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator, pri
 					if slices.Contains(requestedTargets, resp[i].Name) {
 						reportingPrinter := progresshelper.NewReporter(ctx2, printer, in.buildID, in.token)
 						defer reportingPrinter.Close()
-						err = load.DepotFastLoad(ctx2, dockerCli.Client(), depotResponses, pullOpts, reportingPrinter)
+						if in.DepotOptions.loadUsingRegistry && in.DepotOptions.pullInfo != nil {
+							err = load.DepotLoadFromRegistry(ctx, dockerCli.Client(), in.DepotOptions.pullInfo.Reference, false, pullOpts, reportingPrinter)
+						} else {
+							err = load.DepotFastLoad(ctx2, dockerCli.Client(), depotResponses, pullOpts, reportingPrinter)
+						}
 					}
 					load.DeleteExportLeases(ctx2, depotResponses)
 					return err
@@ -318,7 +325,16 @@ func BakeCmd() *cobra.Command {
 				if buildProject != "" {
 					options.project = buildProject
 				}
-				if options.save {
+				loadUsingRegistry := build.LoadUsingRegistry()
+				if options.exportLoad && loadUsingRegistry {
+					pullInfo, err := depotbuild.PullBuildInfo(context.Background(), build.ID, build.Token)
+					// if we cannot get pull info, dont fail; load as normal
+					if err == nil {
+						options.loadUsingRegistry = loadUsingRegistry
+						options.pullInfo = pullInfo
+					}
+				}
+				if options.save || options.loadUsingRegistry {
 					options.additionalCredentials = build.AdditionalCredentials()
 					options.additionalTags = build.AdditionalTags()
 				}
