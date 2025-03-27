@@ -108,7 +108,7 @@ func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator, pri
 			},
 		)
 	}
-	if in.save || in.loadUsingRegistry {
+	if in.save {
 		opts := registry.SaveOptions{
 			ProjectID:             in.project,
 			BuildID:               in.buildID,
@@ -327,6 +327,7 @@ func BakeCmd() *cobra.Command {
 				}
 				loadUsingRegistry := build.LoadUsingRegistry()
 				if options.exportLoad && loadUsingRegistry {
+					options.save = true
 					pullInfo, err := depotbuild.PullBuildInfo(context.Background(), build.ID, token)
 					// if we cannot get pull info, dont fail; load as normal
 					if err == nil {
@@ -334,7 +335,7 @@ func BakeCmd() *cobra.Command {
 						options.pullInfo = pullInfo
 					}
 				}
-				if options.save || options.loadUsingRegistry {
+				if options.save {
 					options.additionalCredentials = build.AdditionalCredentials()
 					options.additionalTags = build.AdditionalTags()
 				}

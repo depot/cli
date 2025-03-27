@@ -239,7 +239,7 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.No
 			},
 		)
 	}
-	if depotOpts.save || depotOpts.loadUsingRegistry {
+	if depotOpts.save {
 		saveOpts := registry.SaveOptions{
 			ProjectID:             depotOpts.project,
 			BuildID:               depotOpts.buildID,
@@ -692,6 +692,7 @@ func BuildCmd() *cobra.Command {
 			}
 			loadUsingRegistry := build.LoadUsingRegistry()
 			if options.exportLoad && loadUsingRegistry {
+				options.save = true
 				pullInfo, err := depotbuild.PullBuildInfo(context.Background(), build.ID, token)
 				// if we cannot get pull info, dont fail; load as normal
 				if err == nil {
@@ -699,7 +700,7 @@ func BuildCmd() *cobra.Command {
 					options.pullInfo = pullInfo
 				}
 			}
-			if options.save || options.loadUsingRegistry {
+			if options.save {
 				options.additionalCredentials = build.AdditionalCredentials()
 				options.additionalTags = build.AdditionalTags()
 			}
