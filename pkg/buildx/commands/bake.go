@@ -183,7 +183,7 @@ func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator, pri
 						reportingPrinter := progresshelper.NewReporter(ctx2, printer, in.buildID, in.token)
 						defer reportingPrinter.Close()
 						if in.DepotOptions.loadUsingRegistry && in.DepotOptions.pullInfo != nil {
-							err = load.DepotLoadFromRegistry(ctx, dockerCli.Client(), in.DepotOptions.pullInfo.Reference, false, pullOpts, reportingPrinter)
+							err = load.DepotLoadFromRegistry(ctx, dockerCli.Client(), in.DepotOptions.pullInfo.Reference, true, pullOpts, reportingPrinter)
 						} else {
 							err = load.DepotFastLoad(ctx2, dockerCli.Client(), depotResponses, pullOpts, reportingPrinter)
 						}
