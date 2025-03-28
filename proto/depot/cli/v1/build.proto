@@ -275,7 +275,7 @@ message GetPullInfoResponse {
   string username = 2;
   string password = 3;
   repeated BuildOptions options = 4;
-  bool saveForLoad = 5;
+  bool save_for_load = 5;
 }
 
 message GetPullTokenRequest {
