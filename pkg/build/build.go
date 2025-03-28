@@ -103,7 +103,12 @@ func (b *Build) LoadUsingRegistry() bool {
 		return false
 	}
 
-	return b.Response.Msg.Registry.LoadUsingRegistry
+	registry := b.Response.Msg.GetRegistry()
+	if registry == nil {
+		return false
+	}
+
+	return registry.LoadUsingRegistry
 }
 
 func NewBuild(ctx context.Context, req *cliv1.CreateBuildRequest, token string) (Build, error) {
