@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/containerd/containerd/platforms"
+	depotbuild "github.com/depot/cli/pkg/build"
 	"github.com/depot/cli/pkg/buildx/bake"
 	"github.com/depot/cli/pkg/buildx/build"
 	"github.com/depot/cli/pkg/buildx/builder"
@@ -102,6 +103,8 @@ func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator, pri
 				BuildID:      in.DepotOptions.buildID,
 				IsBake:       true,
 				ProgressMode: in.progress,
+				UseRegistry:  in.DepotOptions.loadUsingRegistry,
+				PullInfo:     in.DepotOptions.pullInfo,
 			},
 		)
 	}
@@ -179,7 +182,11 @@ func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator, pri
 					if slices.Contains(requestedTargets, resp[i].Name) {
 						reportingPrinter := progresshelper.NewReporter(ctx2, printer, in.buildID, in.token)
 						defer reportingPrinter.Close()
-						err = load.DepotFastLoad(ctx2, dockerCli.Client(), depotResponses, pullOpts, reportingPrinter)
+						if in.DepotOptions.loadUsingRegistry && in.DepotOptions.pullInfo != nil {
+							err = load.DepotLoadFromRegistry(ctx, dockerCli.Client(), in.DepotOptions.pullInfo.Reference, true, pullOpts, reportingPrinter)
+						} else {
+							err = load.DepotFastLoad(ctx2, dockerCli.Client(), depotResponses, pullOpts, reportingPrinter)
+						}
 					}
 					load.DeleteExportLeases(ctx2, depotResponses)
 					return err
@@ -317,6 +324,16 @@ func BakeCmd() *cobra.Command {
 				buildProject := build.BuildProject()
 				if buildProject != "" {
 					options.project = buildProject
+				}
+				loadUsingRegistry := build.LoadUsingRegistry()
+				if options.exportLoad && loadUsingRegistry {
+					options.save = true
+					pullInfo, err := depotbuild.PullBuildInfo(context.Background(), build.ID, token)
+					// if we cannot get pull info, dont fail; load as normal
+					if err == nil {
+						options.loadUsingRegistry = loadUsingRegistry
+						options.pullInfo = pullInfo
+					}
 				}
 				if options.save {
 					options.additionalCredentials = build.AdditionalCredentials()

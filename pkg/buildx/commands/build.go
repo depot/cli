@@ -123,6 +123,8 @@ type DepotOptions struct {
 	saveTags              []string
 	additionalTags        []string
 	additionalCredentials []depotbuild.Credential
+	loadUsingRegistry     bool
+	pullInfo              *depotbuild.PullInfo
 
 	lint       bool
 	lintFailOn string
@@ -232,6 +234,8 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.No
 				BuildID:      depotOpts.buildID,
 				IsBake:       false,
 				ProgressMode: progressMode,
+				UseRegistry:  depotOpts.loadUsingRegistry,
+				PullInfo:     depotOpts.pullInfo,
 			},
 		)
 	}
@@ -324,7 +328,13 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.No
 
 	// NOTE: the err is returned at the end of this function after the final prints.
 	reportingPrinter := progresshelper.NewReporter(ctx, printer, depotOpts.buildID, depotOpts.token)
-	err = load.DepotFastLoad(ctx, dockerCli.Client(), resp, pullOpts, reportingPrinter)
+
+	if depotOpts.loadUsingRegistry && depotOpts.pullInfo != nil {
+		err = load.DepotLoadFromRegistry(ctx, dockerCli.Client(), depotOpts.pullInfo.Reference, false, pullOpts, reportingPrinter)
+	} else {
+		err = load.DepotFastLoad(ctx, dockerCli.Client(), resp, pullOpts, reportingPrinter)
+	}
+
 	if err != nil && !errors.Is(err, context.Canceled) {
 		// For now, we will fallback by rebuilding with load.
 		if exportLoad {
@@ -679,6 +689,16 @@ func BuildCmd() *cobra.Command {
 			buildProject := build.BuildProject()
 			if buildProject != "" {
 				options.project = buildProject
+			}
+			loadUsingRegistry := build.LoadUsingRegistry()
+			if options.exportLoad && loadUsingRegistry {
+				options.save = true
+				pullInfo, err := depotbuild.PullBuildInfo(context.Background(), build.ID, token)
+				// if we cannot get pull info, dont fail; load as normal
+				if err == nil {
+					options.loadUsingRegistry = loadUsingRegistry
+					options.pullInfo = pullInfo
+				}
 			}
 			if options.save {
 				options.additionalCredentials = build.AdditionalCredentials()
