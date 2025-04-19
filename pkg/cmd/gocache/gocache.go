@@ -23,7 +23,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const CacheServer = "https://cache.depot.dev"
+const DefaultCacheHost = "https://cache.depot.dev"
 
 func NewCmdGoCache() *cobra.Command {
 	var (
@@ -58,7 +58,12 @@ func NewCmdGoCache() *cobra.Command {
 				return fmt.Errorf("missing API token, please run `depot login`")
 			}
 
-			p := NewCache(CacheServer, orgID, token, dir, verbose)
+			cacheHost := os.Getenv("DEPOT_CACHE_HOST")
+			if cacheHost == "" {
+				cacheHost = DefaultCacheHost
+			}
+
+			p := NewCache(cacheHost, orgID, token, dir, verbose)
 			return p.Run(ctx)
 		},
 	}
