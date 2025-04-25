@@ -12,13 +12,13 @@ import (
 	"golang.org/x/exp/slices"
 )
 
-func isSavedBuild(options []*cliv1.BuildOptions) bool {
+func isSavedBuild(options []*cliv1.BuildOptions, savedForLoad bool) bool {
 	for _, opt := range options {
 		if opt.Save {
 			return true
 		}
 	}
-	return false
+	return savedForLoad
 }
 
 func isBake(options []*cliv1.BuildOptions) bool {

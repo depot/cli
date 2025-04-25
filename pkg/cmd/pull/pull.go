@@ -103,7 +103,8 @@ func NewCmdPull() *cobra.Command {
 			}
 
 			buildOptions := res.Msg.Options
-			if len(buildOptions) > 0 && !isSavedBuild(buildOptions) {
+			savedForLoad := res.Msg.SaveForLoad
+			if len(buildOptions) > 0 && !isSavedBuild(buildOptions, savedForLoad) {
 				return fmt.Errorf("build %s is not a saved build. To use the registry use --save when building", buildID)
 			}
 

@@ -254,6 +254,17 @@ func (p *Cache) handleGet(ctx context.Context, req *wire.ProgRequest, res *wire.
 }
 
 func (p *Cache) handlePut(ctx context.Context, req *wire.ProgRequest, res *wire.ProgResponse) (retErr error) {
+	if req.OutputID == nil && req.ObjectID != nil {
+		req.OutputID = req.ObjectID
+	}
+	if req.OutputID == nil && req.ObjectID == nil {
+		return fmt.Errorf("missing OutputID")
+	}
+
+	if len(req.OutputID) < 2 {
+		return fmt.Errorf("invalid OutputID length: %d", len(req.OutputID))
+	}
+
 	actionID, objectID := fmt.Sprintf("%x", req.ActionID), fmt.Sprintf("%x", req.OutputID)
 	p.Puts.Add(1)
 	defer func() {
@@ -262,13 +273,6 @@ func (p *Cache) handlePut(ctx context.Context, req *wire.ProgRequest, res *wire.
 			log.Printf("put(action %s, obj %s, %v bytes): %v", actionID, objectID, req.BodySize, retErr)
 		}
 	}()
-
-	if req.OutputID == nil && req.ObjectID != nil {
-		req.OutputID = req.ObjectID
-	}
-	if req.OutputID == nil && req.ObjectID == nil {
-		return fmt.Errorf("missing OutputID")
-	}
 
 	var body io.Reader = req.Body
 	if body == nil {

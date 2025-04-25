@@ -75,6 +75,29 @@ func DepotFastLoad(ctx context.Context, dockerapi docker.APIClient, resp []depot
 	return nil
 }
 
+func DepotLoadFromRegistry(ctx context.Context, dockerapi docker.APIClient, reference string, isBake bool, pullOpts map[string]PullOptions, printer progress.Writer) error {
+	if len(pullOpts) == 0 {
+		return nil
+	}
+
+	for target, pullOpt := range pullOpts {
+		pw := progress.WithPrefix(printer, target, len(pullOpts) > 1)
+
+		imageName := reference
+
+		if isBake {
+			imageName = fmt.Sprintf("%s-%s", reference, target)
+		}
+
+		err := PullImages(ctx, dockerapi, imageName, pullOpt, pw)
+		if err != nil {
+			return fmt.Errorf("failed to pull image: %w", err)
+		}
+	}
+
+	return nil
+}
+
 // For now if there is a multi-platform build we try to only download the
 // architecture of the depot CLI host.  If there is not a node with the same
 // architecture as the  depot CLI host, we take the first node in the list.
