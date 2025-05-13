@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"log"
 	"net"
 	"net/url"
 	"os"
@@ -50,6 +51,8 @@ var (
 // buildx uses to get metadata like disk usage and build history.
 var builds atomic.Int64
 
+const PROXY_DEBUG = false
+
 func BuildkitdClient(ctx context.Context, conn net.Conn, buildkitdAddress string) (*grpc.ClientConn, error) {
 	dialContext := func(context.Context, string) (net.Conn, error) {
 		return conn, nil
@@ -78,13 +81,26 @@ func Proxy(ctx context.Context, conn net.Conn, acquireState func() *ProxyState, 
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
+	var logger *log.Logger
+	if PROXY_DEBUG {
+		logFile, err := os.OpenFile("/var/log/proxy.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		if err != nil {
+			log.Printf("Failed to open proxy log file: %v", err)
+			return
+		}
+		defer logFile.Close()
+		logger = log.New(logFile, "", log.LstdFlags)
+	} else {
+		logger = log.New(io.Discard, "", log.LstdFlags)
+	}
+
 	opts := []grpc.ServerOption{
 		grpc.KeepaliveEnforcementPolicy(depot.LoadKeepaliveEnforcementPolicy()),
 		grpc.KeepaliveParams(depot.LoadKeepaliveServerParams()),
 	}
 	server := grpc.NewServer(opts...)
 
-	control.RegisterControlServer(server, &ControlProxy{state: acquireState, platform: platform, cancel: cancel, status: status})
+	control.RegisterControlServer(server, &ControlProxy{state: acquireState, platform: platform, cancel: cancel, status: status, logger: logger})
 	gateway.RegisterLLBBridgeServer(server, &GatewayProxy{state: acquireState, platform: platform})
 	trace.RegisterTraceServiceServer(server, &TracesProxy{state: acquireState})
 	content.RegisterContentServer(server, &ContentProxy{state: acquireState})
@@ -112,9 +128,11 @@ type ControlProxy struct {
 	status   chan *client.SolveStatus
 	platform string
 	cancel   context.CancelFunc
+	logger   *log.Logger
 }
 
 func (p *ControlProxy) Prune(in *control.PruneRequest, toBuildx control.Control_PruneServer) error {
+	p.logger.Printf("Prune called!\n")
 	ctx := toBuildx.Context()
 	md, ok := metadata.FromIncomingContext(ctx)
 	if ok {
@@ -152,6 +170,7 @@ func (p *ControlProxy) Prune(in *control.PruneRequest, toBuildx control.Control_
 }
 
 func (p *ControlProxy) Solve(ctx context.Context, in *control.SolveRequest) (*control.SolveResponse, error) {
+	p.logger.Printf("Solve called!\n")
 	if builds.Load() == 1 {
 		return &control.SolveResponse{}, nil
 	}
@@ -177,6 +196,7 @@ func (p *ControlProxy) Solve(ctx context.Context, in *control.SolveRequest) (*co
 }
 
 func (p *ControlProxy) Status(in *control.StatusRequest, toBuildx control.Control_StatusServer) error {
+	p.logger.Printf("Status called!\n")
 	if builds.Load() == 1 {
 		return nil
 	}
@@ -261,6 +281,7 @@ func (p *ControlProxy) Status(in *control.StatusRequest, toBuildx control.Contro
 }
 
 func (p *ControlProxy) Session(buildx control.Control_SessionServer) error {
+	p.logger.Printf("Session called!\n")
 	if builds.Load() == 1 {
 		return nil
 	}
@@ -310,6 +331,7 @@ func (p *ControlProxy) Session(buildx control.Control_SessionServer) error {
 // Those API calls would keep the builder alive, even if the user is not using it.
 // ListWorkers call is common among builds and those commands.
 func (p *ControlProxy) ListWorkers(ctx context.Context, in *control.ListWorkersRequest) (*control.ListWorkersResponse, error) {
+	p.logger.Printf("ListWorkers called %d!\n", builds.Load())
 	num := builds.Add(1)
 	// When we get a second build request we know it is not an buildx metadata call such as disk usage.
 	if num > 1 {
@@ -322,6 +344,9 @@ func (p *ControlProxy) ListWorkers(ctx context.Context, in *control.ListWorkersR
 	md, ok := metadata.FromIncomingContext(ctx)
 	if ok && !isOlderThanBuildx013(md.Get("user-agent")) {
 		builds.Add(1)
+		p.logger.Printf("new buildx detected, incremented builds to %d!\n", builds.Load())
+	} else {
+		p.logger.Printf("new buildx not detected, builds is %d!\n", builds.Load())
 	}
 
 	return &control.ListWorkersResponse{
@@ -397,24 +422,30 @@ func (p *ControlProxy) scheduleShutdown() {
 
 // Used by desktop.  We ignore and shutdown.
 func (p *ControlProxy) DiskUsage(ctx context.Context, in *control.DiskUsageRequest) (*control.DiskUsageResponse, error) {
+	p.logger.Printf("DiskUsage called!\n")
 	p.scheduleShutdown()
 	return &control.DiskUsageResponse{}, nil
 }
 
 // Used by desktop.  We ignore and shutdown.
 func (p *ControlProxy) Info(ctx context.Context, in *control.InfoRequest) (*control.InfoResponse, error) {
-	p.scheduleShutdown()
-	return nil, status.Errorf(codes.Unimplemented, "method Info not implemented")
+	p.logger.Printf("Info called!\n")
+	return &control.InfoResponse{BuildkitVersion: &worker.BuildkitVersion{
+		Package:  "buildkit",
+		Version:  "v0.13.2",
+		Revision: "1234567890",
+	}}, nil
 }
 
 // Used by desktop.  We ignore and shutdown.
 func (p *ControlProxy) ListenBuildHistory(in *control.BuildHistoryRequest, toBuildx control.Control_ListenBuildHistoryServer) error {
+	p.logger.Printf("ListenBuildHistory called!\n")
 	return status.Errorf(codes.Unimplemented, "method ListenBuildHistory not implemented")
 }
 
 // Used by desktop.  We ignore and shutdown.
 func (p *ControlProxy) UpdateBuildHistory(ctx context.Context, in *control.UpdateBuildHistoryRequest) (*control.UpdateBuildHistoryResponse, error) {
-	p.scheduleShutdown()
+	p.logger.Printf("UpdateBuildHistory called!\n")
 	return &control.UpdateBuildHistoryResponse{}, nil
 }
 
