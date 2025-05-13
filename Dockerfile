@@ -10,7 +10,7 @@ RUN \
   go build -ldflags="${LDFLAGS}" \
   -o /out/ ./cmd/...
 
-FROM --platform=$TARGETPLATFORM ubuntu:20.04
+FROM ubuntu:24.04
 
 RUN apt-get update && apt-get install -y ca-certificates curl && rm -rf /var/lib/apt/lists/*
 COPY entrypoint.sh /usr/bin/entrypoint.sh
