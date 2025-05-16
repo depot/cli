@@ -403,6 +403,10 @@ func (c *RemoteCache) Get(ctx context.Context, actionID string) (outputID, diskP
 		}
 		outputID = string(outputIDBuf)
 
+		if len(outputID) == 0 {
+			log.Printf("outputID has length 0: %s %d", actionID, outputIDLen)
+		}
+
 		err = binary.Read(res.Body, binary.LittleEndian, &size)
 		if err != nil {
 			if c.Verbose {
