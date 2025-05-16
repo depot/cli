@@ -403,10 +403,6 @@ func (c *RemoteCache) Get(ctx context.Context, actionID string) (outputID, diskP
 		}
 		outputID = string(outputIDBuf)
 
-		if len(outputID) == 0 {
-			log.Printf("outputID has length 0: %s %d", actionID, outputIDLen)
-		}
-
 		err = binary.Read(res.Body, binary.LittleEndian, &size)
 		if err != nil {
 			if c.Verbose {
@@ -427,6 +423,10 @@ func (c *RemoteCache) Get(ctx context.Context, actionID string) (outputID, diskP
 		}
 		// If we are unable to read the body, return that we do not have the cached file.
 		return "", "", nil
+	}
+
+	if len(outputID) == 0 {
+		log.Printf("outputID has length 0: %s %d, %s", actionID, size, buf)
 	}
 
 	diskPath, err = c.Disk.Put(ctx, actionID, outputID, int64(size), bytes.NewReader(buf))
