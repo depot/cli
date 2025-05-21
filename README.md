@@ -20,14 +20,22 @@ Official CLI for [Depot](https://depot.dev) - you can use the CLI to build Docke
       - [Flags for `build`](#flags-for-build)
     - [`depot cache`](#depot-cache)
       - [`depot cache reset`](#depot-cache-reset)
+    - [`depot exec`](#depot-exec)
     - [`depot gocache`](#depot-gocache)
     - [`depot configure-docker`](#depot-configure-docker)
     - [`depot list`](#depot-list)
       - [`depot list projects`](#depot-list-projects)
       - [`depot list builds`](#depot-list-builds)
+    - [`depot projects`](#depot-projects)
+      - [`depot projects create`](#depot-projects-create)
+      - [`depot projects list`](#depot-projects-list)
     - [`depot init`](#depot-init)
     - [`depot login`](#depot-login)
     - [`depot logout`](#depot-logout)
+    - [`depot pull`](#depot-pull)
+    - [`depot push`](#depot-push)
+    - [`depot pull-token`](#depot-pull-token)
+    - [`depot version`](#depot-version)
   - [Contributing](#contributing)
   - [License](#license)
 
@@ -266,6 +274,30 @@ Reset the cache of a specific project ID
 depot cache reset --project 12345678910
 ```
 
+### `depot exec`
+
+Execute a command with an injected BuildKit connection. This command launches a remote machine in Depot's infrastructure, establishes a connection to it, and makes this connection available to the specified command through an environment variable.
+
+**Example**
+
+```shell
+# Run a command with access to a remote BuildKit instance
+depot exec --platform linux/amd64 docker build .
+
+# Run a Dagger command using Depot's infrastructure
+depot exec dagger run ...
+```
+
+#### Flags for `exec`
+
+| Name          | Description                                                       |
+| ------------- | ----------------------------------------------------------------- |
+| `env-var`     | Environment variable name for the BuildKit connection (default: "BUILDKIT_HOST") |
+| `platform`    | Platform to execute the command on (linux/amd64 or linux/arm64)   |
+| `project`     | Depot project ID                                                  |
+| `progress`    | Set type of progress output ("auto", "plain", "tty")              |
+| `token`       | Depot token                                                       |
+
 ### `depot gocache`
 
 Configure Go tools to use Depot Cache. The Go tools will use the remote cache service to store and retrieve build artifacts.
@@ -366,6 +398,43 @@ Output builds in JSON for the project in the current directory.
 depot list builds --output json
 ```
 
+### `depot projects`
+
+Create and manage Depot projects.
+
+#### `depot projects create`
+
+Create a new Depot project. This command creates a new project in your Depot account with the specified configuration.
+
+**Example**
+
+```shell
+# Create a project with default settings
+depot projects create
+
+# Create a project with custom settings
+depot projects create --organization your-org-id --region us-west-2 --cache-storage-policy 100
+```
+
+#### Flags for `projects create`
+
+| Name                  | Description                                                  |
+| --------------------- | ------------------------------------------------------------ |
+| `organization` / `-o` | Depot organization ID                                        |
+| `region`              | Build data storage region (default: "us-east-1")             |
+| `cache-storage-policy`| Build cache to keep per architecture in GB (default: 50)     |
+| `token`               | Depot API token                                              |
+
+#### `depot projects list`
+
+List Depot projects. This command is functionally identical to `depot list projects` and provides an interactive listing of your Depot projects.
+
+**Example**
+
+```shell
+depot projects list
+```
+
 ### `depot init`
 
 Initialize an existing Depot project in the current directory. The CLI will display an interactive list of your Depot projects for you to choose from, then write a `depot.json` file in the current directory with the contents `{"projectID": "xxxxxxxxxx"}`.
@@ -417,6 +486,37 @@ Push an image from the Depot registry to a destination registry.
 
 ```shell
 depot push --tag repo:tag <BUILD_ID>
+```
+
+### `depot pull-token`
+
+Create a new pull token for the Depot registry. This command outputs a token string that can be used to authenticate with the Depot registry to pull images, which is useful in CI/CD environments or when direct authentication isn't possible.
+
+**Example**
+
+```shell
+# Create a pull token for a specific build
+depot pull-token <BUILD_ID>
+
+# Create a pull token for a specific project
+depot pull-token --project <PROJECT_ID>
+```
+
+#### Flags for `pull-token`
+
+| Name       | Description        |
+| ---------- | ------------------ |
+| `project`  | Depot project ID   |
+| `token`    | Depot API token    |
+
+### `depot version`
+
+Display version information for the Depot CLI, including the version number, build date, and a link to the corresponding GitHub release.
+
+**Example**
+
+```shell
+depot version
 ```
 
 ## Contributing
