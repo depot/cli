@@ -18,16 +18,23 @@ Official CLI for [Depot](https://depot.dev) - you can use the CLI to build Docke
       - [Flags for `bake`](#flags-for-bake)
     - [`depot build`](#depot-build)
       - [Flags for `build`](#flags-for-build)
+    - [`depot buildctl`](#depot-buildctl)
+    - [`depot buildkitd`](#depot-buildkitd)
     - [`depot cache`](#depot-cache)
       - [`depot cache reset`](#depot-cache-reset)
-    - [`depot gocache`](#depot-gocache)
     - [`depot configure-docker`](#depot-configure-docker)
+    - [`depot exec`](#depot-exec)
+    - [`depot gocache`](#depot-gocache)
+    - [`depot init`](#depot-init)
     - [`depot list`](#depot-list)
       - [`depot list projects`](#depot-list-projects)
       - [`depot list builds`](#depot-list-builds)
-    - [`depot init`](#depot-init)
     - [`depot login`](#depot-login)
     - [`depot logout`](#depot-logout)
+    - [`depot projects`](#depot-projects)
+      - [`depot projects create`](#depot-projects-create)
+    - [`depot pull`](#depot-pull)
+    - [`depot push`](#depot-push)
   - [Contributing](#contributing)
   - [License](#license)
 
@@ -74,6 +81,8 @@ The `bake` command needs to know which [project](https://depot.dev/docs/core-con
 By default, `depot bake` will leave the built image in the remote builder cache. If you would like to download the image to your local Docker daemon (for instance, to `docker run` the result), you can use the `--load` flag.
 
 Alternatively, to push the image to a remote registry directly from the builder instance, you can use the `--push` flag.
+
+You can also use the `--save` flag to save the build to the Depot registry, making it available for later use with `depot pull` and `depot push` commands.
 
 The `bake` command allows you to define all of your build targets in a central file, either HCL, JSON, or Compose. You can then pass that file to the `bake` command and Depot will build all of the target images with all of their options (i.e. platforms, tags, build arguments, etc.).
 
@@ -150,26 +159,29 @@ services:
 
 #### Flags for `bake`
 
-| Name             | Description                                                                                               |
-| ---------------- | --------------------------------------------------------------------------------------------------------- |
-| `build-platform` | Run builds on this platform ("dynamic", "linux/amd64", "linux/arm64") (default "dynamic")                 |
-| `file`           | Build definition file                                                                                     |
-| `help`           | Show the help doc for `bake`                                                                              |
-| `lint`           | Lint Dockerfiles of targets before the build                                                              |
-| `lint-fail-on`   | Set the lint severity that fails the build ("info", "warn", "error", "none") (default "error")            |
-| `load`           | Shorthand for "--set=\*.output=type=docker"                                                               |
-| `metadata-file`  | Write build result metadata to the file                                                                   |
-| `no-cache`       | Do not use cache when building the image                                                                  |
-| `print`          | Print the options without building                                                                        |
-| `progress`       | Set type of progress output ("auto", "plain", "tty"). Use plain to show container output (default "auto") |
-| `project`        | Depot project ID                                                                                          |
-| `provenance`     | Shorthand for "--set=\*.attest=type=provenance"                                                           |
-| `pull`           | Always attempt to pull all referenced images                                                              |
-| `push`           | Shorthand for "--set=\*.output=type=registry"                                                             |
-| `save`           | Saves bake targets to the Depot registry                                                        |
-| `sbom`           | Shorthand for "--set=\*.attest=type=sbom"                                                                 |
-| `set`            | Override target value (e.g., "targetpattern.key=value")                                                   |
-| `token`          | Depot API token                                                                                           |
+| Name                        | Description                                                                                               |
+| --------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `build-platform`            | Run builds on this platform ("dynamic", "linux/amd64", "linux/arm64") (default "dynamic")                 |
+| `file`                      | Build definition file                                                                                     |
+| `help`                      | Show the help doc for `bake`                                                                              |
+| `lint`                      | Lint Dockerfiles of targets before the build                                                              |
+| `lint-fail-on`              | Set the lint severity that fails the build ("info", "warn", "error", "none") (default "error")            |
+| `load`                      | Shorthand for "--set=\*.output=type=docker"                                                               |
+| `metadata-file`             | Write build result metadata to the file                                                                   |
+| `no-cache`                  | Do not use cache when building the image                                                                  |
+| `print`                     | Print the options without building                                                                        |
+| `progress`                  | Set type of progress output ("auto", "plain", "tty"). Use plain to show container output (default "auto") |
+| `project`                   | Depot project ID                                                                                          |
+| `provenance`                | Shorthand for "--set=\*.attest=type=provenance"                                                           |
+| `pull`                      | Always attempt to pull all referenced images                                                              |
+| `push`                      | Shorthand for "--set=\*.output=type=registry"                                                             |
+| `save`                      | Saves bake targets to the Depot registry                                                                  |
+| `save-tag`                  | Additional custom tag for saved images (used with --save)                                                 |
+| `sbom`                      | Shorthand for "--set=\*.attest=type=sbom"                                                                 |
+| `sbom-dir`                  | Directory to store SBOM attestations                                                                      |
+| `set`                       | Override target value (e.g., "targetpattern.key=value")                                                   |
+| `suppress-no-output-warning`| Suppress warning if no output is generated                                                                |
+| `token`                     | Depot API token                                                                                           |
 
 ### `depot build`
 
@@ -184,6 +196,8 @@ The `build` command needs to know which [project](https://depot.dev/docs/core-co
 By default, `depot build` will leave the built image in the remote builder cache. If you would like to download the image to your local Docker daemon (for instance, to `docker run` the result), you can use the `--load` flag.
 
 Alternatively, to push the image to a remote registry directly from the builder instance, you can use the `--push` flag.
+
+You can also use the `--save` flag to save the build to the Depot registry, making it available for later use with `depot pull` and `depot push` commands.
 
 **Example**
 
@@ -204,45 +218,62 @@ depot build -t repo/image:tag . --push
 
 #### Flags for `build`
 
-| Name              | Description                                                                                               |
-| ----------------- | --------------------------------------------------------------------------------------------------------- |
-| `add-host`        | Add a custom host-to-IP mapping (format: "host:ip")                                                       |
-| `allow`           | Allow extra privileged entitlement (e.g., "network.host", "security.insecure")                            |
-| `attest`          | Attestation parameters (format: "type=sbom,generator=image")                                              |
-| `build-arg`       | Set build-time variables                                                                                  |
-| `build-context`   | Additional build contexts (e.g., name=path)                                                               |
-| `build-platform`  | Run builds on this platform ("dynamic", "linux/amd64", "linux/arm64") (default "dynamic")                 |
-| `cache-from`      | External cache sources (e.g., "user/app:cache", "type=local,src=path/to/dir")                             |
-| `cache-to`        | Cache export destinations (e.g., "user/app:cache", "type=local,dest=path/to/dir")                         |
-| `cgroup-parent`   | Optional parent cgroup for the container                                                                  |
-| `file`            | Name of the Dockerfile (default: "PATH/Dockerfile")                                                       |
-| `help`            | Show help doc for `build`                                                                                 |
-| `iidfile`         | Write the image ID to the file                                                                            |
-| `label`           | Set metadata for an image                                                                                 |
-| `lint`            | Lint Dockerfile before the build                                                                          |
-| `lint-fail-on`    | Set the lint severity that fails the build ("info", "warn", "error", "none") (default "error")            |
-| `load`            | Shorthand for "--output=type=docker"                                                                      |
-| `metadata-file`   | Write build result metadata to the file                                                                   |
-| `network`         | Set the networking mode for the "RUN" instructions during build (default "default")                       |
-| `no-cache`        | Do not use cache when building the image                                                                  |
-| `no-cache-filter` | Do not cache specified stages                                                                             |
-| `output`          | Output destination (format: "type=local,dest=path")                                                       |
-| `platform`        | Set target platform for build                                                                             |
-| `progress`        | Set type of progress output ("auto", "plain", "tty"). Use plain to show container output (default "auto") |
-| `project`         | Depot project ID                                                                                          |
-| `provenance`      | Shortand for "--attest=type=provenance"                                                                   |
-| `pull`            | Always attempt to pull all referenced images                                                              |
-| `push`            | Shorthand for "--output=type=registry"                                                                    |
-| `quiet`           | Suppress the build output and print image ID on success                                                   |
-| `save`           | Saves build to the Depot registry                                                                |
-| `sbom`            | Shorthand for "--attest=type=sbom"                                                                        |
-| `secret`          | Secret to expose to the build (format: "id=mysecret[,src=/local/secret]")                                 |
-| `shm-size`        | Size of "/dev/shm"                                                                                        |
-| `ssh`             | SSH agent socket or keys to expose to the build                                                           |
-| `tag`             | Name and optionally a tag (format: "name:tag")                                                            |
-| `target`          | Set the target build stage to build                                                                       |
-| `token`           | Depot API token                                                                                           |
-| `ulimit`          | Ulimit options (default [])                                                                               |
+| Name                        | Description                                                                                               |
+| --------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `add-host`                  | Add a custom host-to-IP mapping (format: "host:ip")                                                       |
+| `allow`                     | Allow extra privileged entitlement (e.g., "network.host", "security.insecure")                            |
+| `attest`                    | Attestation parameters (format: "type=sbom,generator=image")                                              |
+| `build-arg`                 | Set build-time variables                                                                                  |
+| `build-context`             | Additional build contexts (e.g., name=path)                                                               |
+| `build-platform`            | Run builds on this platform ("dynamic", "linux/amd64", "linux/arm64") (default "dynamic")                 |
+| `cache-from`                | External cache sources (e.g., "user/app:cache", "type=local,src=path/to/dir")                            |
+| `cache-to`                  | Cache export destinations (e.g., "user/app:cache", "type=local,dest=path/to/dir")                        |
+| `cgroup-parent`             | Optional parent cgroup for the container                                                                  |
+| `file`                      | Name of the Dockerfile (default: "PATH/Dockerfile")                                                       |
+| `help`                      | Show help doc for `build`                                                                                 |
+| `iidfile`                   | Write the image ID to the file                                                                            |
+| `label`                     | Set metadata for an image                                                                                 |
+| `lint`                      | Lint Dockerfile before the build                                                                          |
+| `lint-fail-on`              | Set the lint severity that fails the build ("info", "warn", "error", "none") (default "error")            |
+| `load`                      | Shorthand for "--output=type=docker"                                                                      |
+| `metadata-file`             | Write build result metadata to the file                                                                   |
+| `network`                   | Set the networking mode for the "RUN" instructions during build (default "default")                       |
+| `no-cache`                  | Do not use cache when building the image                                                                  |
+| `no-cache-filter`           | Do not cache specified stages                                                                             |
+| `output`                    | Output destination (format: "type=local,dest=path")                                                       |
+| `platform`                  | Set target platform for build                                                                             |
+| `progress`                  | Set type of progress output ("auto", "plain", "tty"). Use plain to show container output (default "auto") |
+| `project`                   | Depot project ID                                                                                          |
+| `provenance`                | Shortand for "--attest=type=provenance"                                                                   |
+| `pull`                      | Always attempt to pull all referenced images                                                              |
+| `push`                      | Shorthand for "--output=type=registry"                                                                    |
+| `quiet`                     | Suppress the build output and print image ID on success                                                   |
+| `save`                      | Saves build to the Depot registry                                                                         |
+| `save-tag`                  | Additional custom tag for saved images (used with --save)                                                 |
+| `sbom`                      | Shorthand for "--attest=type=sbom"                                                                        |
+| `sbom-dir`                  | Directory to store SBOM attestations                                                                      |
+| `secret`                    | Secret to expose to the build (format: "id=mysecret[,src=/local/secret]")                                 |
+| `shm-size`                  | Size of "/dev/shm"                                                                                        |
+| `ssh`                       | SSH agent socket or keys to expose to the build                                                           |
+| `suppress-no-output-warning`| Suppress warning if no output is generated                                                                |
+| `tag`                       | Name and optionally a tag (format: "name:tag")                                                            |
+| `target`                    | Set the target build stage to build                                                                       |
+| `token`                     | Depot API token                                                                                           |
+| `ulimit`                    | Ulimit options (default [])                                                                               |
+
+### `depot buildctl`
+
+Forwards buildctl dial-stdio to depot. This command is primarily used internally and for advanced use cases.
+
+**Example**
+
+```shell
+depot buildctl dial-stdio
+```
+
+### `depot buildkitd`
+
+Mock buildkitd for buildx container driver. This command is primarily used internally to integrate with the Docker BuildKit ecosystem.
 
 ### `depot cache`
 
@@ -265,6 +296,40 @@ Reset the cache of a specific project ID
 ```shell
 depot cache reset --project 12345678910
 ```
+
+### `depot configure-docker`
+
+Configure Docker to use Depot's remote builder infrastructure. This command installs Depot as a Docker CLI plugin (i.e., `docker depot ...`) and sets the Depot plugin as the default Docker builder (i.e., `docker build`).
+
+```shell
+depot configure-docker
+```
+
+If you want to uninstall the plugin, you can specify the `--uninstall` flag.
+
+```shell
+depot configure-docker --uninstall
+```
+
+### `depot exec`
+
+Execute a command with injected BuildKit connection. This command allows you to run build-related commands in an environment configured to use Depot's remote BuildKit infrastructure.
+
+**Example**
+
+```shell
+depot exec -- your-command-here
+```
+
+**Flags**
+
+| Name         | Description                                                                                |
+| ------------ | ------------------------------------------------------------------------------------------ |
+| `env-var`    | Environment variable name for the BuildKit connection (default: "BUILDKIT_HOST")           |
+| `platform`   | Platform to execute the command on (linux/amd64, linux/arm64)                              |
+| `project`    | Depot project ID                                                                           |
+| `progress`   | Set type of progress output ("auto", "plain", "tty") (default: "auto")                     |
+| `token`      | Depot API token                                                                            |
 
 ### `depot gocache`
 
@@ -303,19 +368,29 @@ If you are in multiple Depot organizations and want to specify the organization,
 export GOCACHEPROG='depot gocache --organization ORG_ID'
 ```
 
-### `depot configure-docker`
+**Flags**
 
-Configure Docker to use Depot's remote builder infrastructure. This command installs Depot as a Docker CLI plugin (i.e., `docker depot ...`) and sets the Depot plugin as the default Docker builder (i.e., `docker build`).
+| Name            | Description                                                           |
+| --------------- | --------------------------------------------------------------------- |
+| `dir`           | Specify directory to store cache files                                |
+| `organization`, `-o` | Specify the Depot organization ID                               |
+| `verbose`, `-v` | Enable verbose output                                                 |
 
-```shell
-depot configure-docker
+### `depot init`
+
+Initialize an existing Depot project in the current directory. The CLI will display an interactive list of your Depot projects for you to choose from, then write a `depot.json` file in the current directory with the contents `{"projectID": "xxxxxxxxxx"}`.
+
+**Example**
+
+```
+depot init
 ```
 
-If you want to uninstall the plugin, you can specify the `--uninstall` flag.
+**Flags**
 
-```shell
-depot configure-docker --uninstall
-```
+| Name         | Description                                       |
+| ------------ | ------------------------------------------------- |
+| `force`      | Overwrite any existing project configuration      |
 
 ### `depot list`
 
@@ -366,16 +441,6 @@ Output builds in JSON for the project in the current directory.
 depot list builds --output json
 ```
 
-### `depot init`
-
-Initialize an existing Depot project in the current directory. The CLI will display an interactive list of your Depot projects for you to choose from, then write a `depot.json` file in the current directory with the contents `{"projectID": "xxxxxxxxxx"}`.
-
-**Example**
-
-```
-depot init
-```
-
 ### `depot login`
 
 Authenticates with your Depot account, automatically creating and storing a personal API token on your local machine.
@@ -386,6 +451,12 @@ Authenticates with your Depot account, automatically creating and storing a pers
 depot login
 ```
 
+**Flags**
+
+| Name         | Description                                |
+| ------------ | ------------------------------------------ |
+| `clear`      | Clear any existing token before logging in |
+
 ### `depot logout`
 
 Remove any saved login defails from your local machine.
@@ -395,6 +466,29 @@ Remove any saved login defails from your local machine.
 ```shell
 depot logout
 ```
+
+### `depot projects`
+
+Create or display Depot project information. This command allows you to interact with your Depot projects.
+
+#### `depot projects create`
+
+Create a new Depot project. This will create a new project in your Depot account and optionally initialize it in the current directory.
+
+**Example**
+
+```shell
+depot projects create my-project
+```
+
+**Flags**
+
+| Name                 | Description                                              |
+| -------------------- | -------------------------------------------------------- |
+| `organization`, `-o` | Depot organization ID                                    |
+| `region`             | Build data storage region (default: "us-east-1")         |
+| `cache-storage-policy` | Build cache to keep per architecture in GB (default: 50) |
+| `token`              | Depot API token                                          |
 
 ### `depot pull`
 
@@ -411,6 +505,15 @@ By default images will be tagged with the bake target names.
 depot pull <BUILD_ID>
 ```
 
+**Flags**
+
+| Name         | Description                                              |
+| ------------ | -------------------------------------------------------- |
+| `platform`   | Pull image for specific platform (linux/amd64, linux/arm64) |
+| `target`     | Pull image for specific bake targets                     |
+| `output`     | Output format for the pull operation                     |
+| `quiet`      | Suppress output (only show essential information)        |
+
 ### `depot push`
 
 Push an image from the Depot registry to a destination registry.
@@ -418,6 +521,14 @@ Push an image from the Depot registry to a destination registry.
 ```shell
 depot push --tag repo:tag <BUILD_ID>
 ```
+
+**Flags**
+
+| Name         | Description                                              |
+| ------------ | -------------------------------------------------------- |
+| `progress`   | Control progress output format ("auto", "plain", "tty", "quiet") |
+| `auth`       | Authentication method for registry access                |
+| `token`      | Depot API token                                          |
 
 ## Contributing
 
