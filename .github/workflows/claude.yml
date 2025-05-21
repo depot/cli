@@ -33,4 +33,4 @@ jobs:
         uses: anthropics/claude-code-action@beta
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          allowed_tools: "mcp__github__create_pull_request"
+          allowed_tools: "mcp__github_file_ops__commit_files,mcp__github__create_pull_request"
