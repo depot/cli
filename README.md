@@ -20,14 +20,21 @@ Official CLI for [Depot](https://depot.dev) - you can use the CLI to build Docke
       - [Flags for `build`](#flags-for-build)
     - [`depot cache`](#depot-cache)
       - [`depot cache reset`](#depot-cache-reset)
-    - [`depot gocache`](#depot-gocache)
     - [`depot configure-docker`](#depot-configure-docker)
+    - [`depot exec`](#depot-exec)
+    - [`depot gocache`](#depot-gocache)
+    - [`depot init`](#depot-init)
     - [`depot list`](#depot-list)
       - [`depot list projects`](#depot-list-projects)
       - [`depot list builds`](#depot-list-builds)
-    - [`depot init`](#depot-init)
     - [`depot login`](#depot-login)
     - [`depot logout`](#depot-logout)
+    - [`depot projects`](#depot-projects)
+      - [`depot projects create`](#depot-projects-create)
+      - [`depot projects list`](#depot-projects-list)
+    - [`depot pull`](#depot-pull)
+    - [`depot pull-token`](#depot-pull-token)
+    - [`depot push`](#depot-push)
   - [Contributing](#contributing)
   - [License](#license)
 
@@ -266,6 +273,47 @@ Reset the cache of a specific project ID
 depot cache reset --project 12345678910
 ```
 
+### `depot configure-docker`
+
+Configure Docker to use Depot's remote builder infrastructure. This command installs Depot as a Docker CLI plugin (i.e., `docker depot ...`) and sets the Depot plugin as the default Docker builder (i.e., `docker build`).
+
+```shell
+depot configure-docker
+```
+
+If you want to uninstall the plugin, you can specify the `--uninstall` flag.
+
+```shell
+depot configure-docker --uninstall
+```
+
+### `depot exec`
+
+Execute a command with injected BuildKit connection. This allows running commands that need access to BuildKit on a remote Depot machine.
+
+**Flags**
+
+| Name          | Default          | Description                                                                        |
+| ------------- | ---------------- | ---------------------------------------------------------------------------------- |
+| `--env-var`   | `BUILDKIT_HOST`  | Environment variable name that will contain the BuildKit connection address        |
+| `--platform`  | (auto-detected)  | Platform to execute the command on (`linux/amd64` or `linux/arm64`)               |
+| `--project`   | (interactive)    | Depot project ID                                                                   |
+| `--progress`  | `auto`           | Set type of progress output (options: `auto`, `plain`, `tty`)                      |
+| `--token`     |                  | Depot API token (if not provided, will use logged-in token)                        |
+
+**Examples**
+
+```shell
+# Running a Docker BuildX command with Depot
+depot exec -- docker buildx build --platform linux/amd64,linux/arm64 -t myorg/myimage:latest .
+
+# Running Dagger with Depot
+depot exec -- dagger do build
+
+# Specifying a project and platform
+depot exec --project my-project-id --platform linux/arm64 -- docker build .
+```
+
 ### `depot gocache`
 
 Configure Go tools to use Depot Cache. The Go tools will use the remote cache service to store and retrieve build artifacts.
@@ -303,18 +351,14 @@ If you are in multiple Depot organizations and want to specify the organization,
 export GOCACHEPROG='depot gocache --organization ORG_ID'
 ```
 
-### `depot configure-docker`
+### `depot init`
 
-Configure Docker to use Depot's remote builder infrastructure. This command installs Depot as a Docker CLI plugin (i.e., `docker depot ...`) and sets the Depot plugin as the default Docker builder (i.e., `docker build`).
+Initialize an existing Depot project in the current directory. The CLI will display an interactive list of your Depot projects for you to choose from, then write a `depot.json` file in the current directory with the contents `{"projectID": "xxxxxxxxxx"}`.
 
-```shell
-depot configure-docker
+**Example**
+
 ```
-
-If you want to uninstall the plugin, you can specify the `--uninstall` flag.
-
-```shell
-depot configure-docker --uninstall
+depot init
 ```
 
 ### `depot list`
@@ -366,16 +410,6 @@ Output builds in JSON for the project in the current directory.
 depot list builds --output json
 ```
 
-### `depot init`
-
-Initialize an existing Depot project in the current directory. The CLI will display an interactive list of your Depot projects for you to choose from, then write a `depot.json` file in the current directory with the contents `{"projectID": "xxxxxxxxxx"}`.
-
-**Example**
-
-```
-depot init
-```
-
 ### `depot login`
 
 Authenticates with your Depot account, automatically creating and storing a personal API token on your local machine.
@@ -388,7 +422,7 @@ depot login
 
 ### `depot logout`
 
-Remove any saved login defails from your local machine.
+Remove any saved login details from your local machine.
 
 **Example**
 
@@ -396,27 +430,182 @@ Remove any saved login defails from your local machine.
 depot logout
 ```
 
+### `depot projects`
+
+Create or display information about Depot projects.
+
+**Aliases:** `p`
+
+#### `depot projects create`
+
+Creates a new Depot project.
+
+**Usage**
+
+```shell
+depot projects create [flags] <project-name>
+```
+
+**Aliases:** `c`
+
+**Flags**
+
+| Name                  | Description                                           |
+| --------------------- | ----------------------------------------------------- |
+| `--token`             | Depot API token                                       |
+| `--organization`, `-o`| Depot organization ID                                 |
+| `--region`            | Region for build data storage (default: "us-east-1")  |
+| `--cache-storage-policy` | Build cache size per architecture in GB (default: 50) |
+
+**Examples**
+
+```shell
+# Create a basic project
+depot projects create my-new-project
+
+# Create a project in a specific organization and region
+depot projects create my-org-project --organization org-123 --region eu-west-1
+
+# Create a project with larger cache size
+depot projects create large-cache-project --cache-storage-policy 100
+```
+
+#### `depot projects list`
+
+Lists all Depot projects available to the authenticated user.
+
+**Usage**
+
+```shell
+depot projects list [flags]
+```
+
+**Aliases:** `ls`
+
+**Flags**
+
+| Name       | Description                                              |
+| ---------- | -------------------------------------------------------- |
+| `--token`  | Depot API token                                          |
+| `--output` | Non-interactive output format (options: json, csv)       |
+
+**Examples**
+
+```shell
+# List projects interactively
+depot projects list
+
+# Export project list to JSON
+depot projects list --output=json
+
+# Export project list to CSV
+depot projects list --output=csv > projects.csv
+```
+
 ### `depot pull`
 
 Pull an image from the Depot registry to your local Docker daemon.
 
+**Usage**
+
 ```shell
-depot pull --tag repo:tag <BUILD_ID>
+depot pull [flags] [buildID]
 ```
 
-Pull all bake images from the Depot registry to your local Docker daemon.
-By default images will be tagged with the bake target names.
+**Flags**
+
+| Name              | Description                                                                        |
+| ----------------- | ---------------------------------------------------------------------------------- |
+| `--project`       | Depot project ID                                                                   |
+| `--token`         | Depot token                                                                        |
+| `--platform`      | Pull image for a specific platform ("linux/amd64", "linux/arm64")                  |
+| `-t, --tag`       | Optional tags to apply to the image when pulled locally (can specify multiple)     |
+| `--progress`      | Set type of progress output ("auto", "plain", "tty", "quiet") (default "auto")     |
+| `--target`        | Pull image for specific bake targets (only applicable for bake builds)             |
+
+**Examples**
 
 ```shell
+# Pull a specific build by ID
+depot pull abc123
+
+# Pull a build and tag it locally
+depot pull --tag repo:tag <BUILD_ID>
+
+# Pull all bake images from a build
 depot pull <BUILD_ID>
+
+# Pull a specific bake target from a build
+depot pull abc123 --target frontend
+
+# Pull a specific platform
+depot pull abc123 --platform linux/arm64
+```
+
+### `depot pull-token`
+
+Create a new pull token for the Depot registry.
+
+**Usage**
+
+```shell
+depot pull-token [flags] ([buildID])
+```
+
+**Flags**
+
+| Name         | Description                                            |
+| ------------ | ------------------------------------------------------ |
+| `--project`  | Depot project ID (required if no build ID provided)    |
+| `--token`    | Depot API token                                        |
+
+**Examples**
+
+```shell
+# Generate a pull token for a specific build
+depot pull-token abc123def456
+
+# Generate a pull token for a specific project
+depot pull-token --project proj_123456
+
+# Use with Docker login
+docker login registry.depot.dev -u x-token -p $(depot pull-token)
 ```
 
 ### `depot push`
 
 Push an image from the Depot registry to a destination registry.
 
+**Usage**
+
 ```shell
-depot push --tag repo:tag <BUILD_ID>
+depot push [flags] [buildID]
+```
+
+**Flags**
+
+| Name              | Description                                                                     |
+| ----------------- | ------------------------------------------------------------------------------- |
+| `--project`       | Depot project ID                                                                |
+| `--token`         | Depot token                                                                     |
+| `--progress`      | Set type of progress output ("auto", "plain", "tty", "quiet") (default "auto")  |
+| `-t, --tag`       | Name and tag for the pushed image (format: "name:tag") - **REQUIRED**           |
+| `--target`        | Bake target to push (only needed for bake builds with multiple targets)         |
+
+**Examples**
+
+```shell
+# Push a specific build to Docker Hub
+depot push abc123 --tag username/repo:latest
+
+# Push to GitHub Container Registry
+depot push abc123 --tag ghcr.io/username/repo:v1.0.0
+
+# Push a specific bake target
+depot push abc123 --tag username/repo:latest --target backend
+
+# Push to multiple registries/tags
+depot push abc123 --tag username/repo:latest --tag username/repo:v1.0.0
 ```
 
 ## Contributing
