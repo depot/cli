@@ -19,7 +19,6 @@ Official CLI for [Depot](https://depot.dev) - you can use the CLI to build Docke
     - [`depot build`](#depot-build)
       - [Flags for `build`](#flags-for-build)
     - [`depot buildctl`](#depot-buildctl)
-    - [`depot buildkitd`](#depot-buildkitd)
     - [`depot cache`](#depot-cache)
       - [`depot cache reset`](#depot-cache-reset)
     - [`depot configure-docker`](#depot-configure-docker)
@@ -273,15 +272,6 @@ Forwards buildctl dial-stdio to depot. This command is a proxy that forwards bui
 DEPOT_PROJECT_ID=123 DEPOT_TOKEN=token123 DEPOT_PLATFORM=linux/amd64 buildctl build --frontend=dockerfile.v0 --local context=. --local dockerfile=.
 ```
 
-### `depot buildkitd`
-
-Mock buildkitd for buildx container driver. This command provides a compatibility layer for tools expecting to connect to buildkitd directly.
-
-**Example**
-
-```shell
-depot buildkitd
-```
 
 ### `depot cache`
 
