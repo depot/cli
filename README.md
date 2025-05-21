@@ -18,16 +18,31 @@ Official CLI for [Depot](https://depot.dev) - you can use the CLI to build Docke
       - [Flags for `bake`](#flags-for-bake)
     - [`depot build`](#depot-build)
       - [Flags for `build`](#flags-for-build)
+    - [`depot buildctl`](#depot-buildctl)
+    - [`depot buildkitd`](#depot-buildkitd)
     - [`depot cache`](#depot-cache)
       - [`depot cache reset`](#depot-cache-reset)
-    - [`depot gocache`](#depot-gocache)
     - [`depot configure-docker`](#depot-configure-docker)
+    - [`depot exec`](#depot-exec)
+      - [Flags for `exec`](#flags-for-exec)
+    - [`depot gocache`](#depot-gocache)
+      - [Flags for `gocache`](#flags-for-gocache)
+    - [`depot init`](#depot-init)
+      - [Flags for `init`](#flags-for-init)
     - [`depot list`](#depot-list)
       - [`depot list projects`](#depot-list-projects)
       - [`depot list builds`](#depot-list-builds)
-    - [`depot init`](#depot-init)
     - [`depot login`](#depot-login)
+      - [Flags for `login`](#flags-for-login)
     - [`depot logout`](#depot-logout)
+    - [`depot projects`](#depot-projects)
+      - [`depot projects create`](#depot-projects-create)
+      - [Flags for `projects create`](#flags-for-projects-create)
+      - [`depot projects list`](#depot-projects-list)
+    - [`depot pull`](#depot-pull)
+      - [Flags for `pull`](#flags-for-pull)
+    - [`depot push`](#depot-push)
+      - [Flags for `push`](#flags-for-push)
   - [Contributing](#contributing)
   - [License](#license)
 
@@ -74,6 +89,8 @@ The `bake` command needs to know which [project](https://depot.dev/docs/core-con
 By default, `depot bake` will leave the built image in the remote builder cache. If you would like to download the image to your local Docker daemon (for instance, to `docker run` the result), you can use the `--load` flag.
 
 Alternatively, to push the image to a remote registry directly from the builder instance, you can use the `--push` flag.
+
+You can also use the `--save` flag to store the built images in Depot's registry, making them available for later use with `depot pull` or `depot push` commands.
 
 The `bake` command allows you to define all of your build targets in a central file, either HCL, JSON, or Compose. You can then pass that file to the `bake` command and Depot will build all of the target images with all of their options (i.e. platforms, tags, build arguments, etc.).
 
@@ -166,7 +183,7 @@ services:
 | `provenance`     | Shorthand for "--set=\*.attest=type=provenance"                                                           |
 | `pull`           | Always attempt to pull all referenced images                                                              |
 | `push`           | Shorthand for "--set=\*.output=type=registry"                                                             |
-| `save`           | Saves bake targets to the Depot registry                                                        |
+| `save`           | Saves bake targets to the Depot registry for later use with pull or push commands                         |
 | `sbom`           | Shorthand for "--set=\*.attest=type=sbom"                                                                 |
 | `set`            | Override target value (e.g., "targetpattern.key=value")                                                   |
 | `token`          | Depot API token                                                                                           |
@@ -185,6 +202,8 @@ By default, `depot build` will leave the built image in the remote builder cache
 
 Alternatively, to push the image to a remote registry directly from the builder instance, you can use the `--push` flag.
 
+You can also use the `--save` flag to store the built image in Depot's registry, making it available for later use with `depot pull` or `depot push` commands.
+
 **Example**
 
 ```shell
@@ -200,6 +219,11 @@ depot build -t repo/image:tag . --load
 ```shell
 # Build remotely, push to a registry
 depot build -t repo/image:tag . --push
+```
+
+```shell
+# Build remotely, save to Depot registry for later use
+depot build -t repo/image:tag . --save
 ```
 
 #### Flags for `build`
@@ -234,7 +258,7 @@ depot build -t repo/image:tag . --push
 | `pull`            | Always attempt to pull all referenced images                                                              |
 | `push`            | Shorthand for "--output=type=registry"                                                                    |
 | `quiet`           | Suppress the build output and print image ID on success                                                   |
-| `save`           | Saves build to the Depot registry                                                                |
+| `save`            | Saves build to the Depot registry for later use with pull or push commands                                |
 | `sbom`            | Shorthand for "--attest=type=sbom"                                                                        |
 | `secret`          | Secret to expose to the build (format: "id=mysecret[,src=/local/secret]")                                 |
 | `shm-size`        | Size of "/dev/shm"                                                                                        |
@@ -243,6 +267,22 @@ depot build -t repo/image:tag . --push
 | `target`          | Set the target build stage to build                                                                       |
 | `token`           | Depot API token                                                                                           |
 | `ulimit`          | Ulimit options (default [])                                                                               |
+
+### `depot buildctl`
+
+Forwards buildctl dial-stdio to depot. This command is primarily used internally by Docker BuildKit to communicate with Depot's remote builder infrastructure.
+
+```shell
+depot buildctl <command> [flags]
+```
+
+### `depot buildkitd`
+
+Mock buildkitd implementation for buildx container driver. This command provides a compatibility layer for tools that expect to interact with a buildkitd instance.
+
+```shell
+depot buildkitd <command> [flags]
+```
 
 ### `depot cache`
 
@@ -265,6 +305,38 @@ Reset the cache of a specific project ID
 ```shell
 depot cache reset --project 12345678910
 ```
+
+### `depot configure-docker`
+
+Configure Docker to use Depot's remote builder infrastructure. This command installs Depot as a Docker CLI plugin (i.e., `docker depot ...`) and sets the Depot plugin as the default Docker builder (i.e., `docker build`).
+
+```shell
+depot configure-docker
+```
+
+If you want to uninstall the plugin, you can specify the `--uninstall` flag.
+
+```shell
+depot configure-docker --uninstall
+```
+
+### `depot exec`
+
+Execute commands with injected BuildKit connection. This command lets you run applications that expect a BuildKit connection, making them work with Depot's remote builder infrastructure.
+
+```shell
+depot exec [flags] command [args...]
+```
+
+#### Flags for `exec`
+
+| Name        | Description                                                                      |
+| ----------- | -------------------------------------------------------------------------------- |
+| `env-var`   | Environment variable name for the BuildKit connection (default "BUILDKIT_HOST")  |
+| `platform`  | Platform to execute the command on ("linux/amd64", "linux/arm64")                |
+| `progress`  | Set type of progress output ("auto", "plain", "tty") (default "auto")            |
+| `project`   | Depot project ID                                                                 |
+| `token`     | Depot API token                                                                  |
 
 ### `depot gocache`
 
@@ -303,19 +375,37 @@ If you are in multiple Depot organizations and want to specify the organization,
 export GOCACHEPROG='depot gocache --organization ORG_ID'
 ```
 
-### `depot configure-docker`
+#### Flags for `gocache`
 
-Configure Docker to use Depot's remote builder infrastructure. This command installs Depot as a Docker CLI plugin (i.e., `docker depot ...`) and sets the Depot plugin as the default Docker builder (i.e., `docker build`).
+| Name           | Description                                               |
+| -------------- | --------------------------------------------------------- |
+| `organization` | Depot organization ID                                     |
+| `token`        | Depot API token                                           |
+| `verbose`      | Enable verbose output                                     |
 
-```shell
-depot configure-docker
+### `depot init`
+
+Initialize an existing Depot project in the current directory. The CLI will display an interactive list of your Depot projects for you to choose from, then write a `depot.json` file in the current directory with the contents `{"projectID": "xxxxxxxxxx"}`.
+
+**Example**
+
+```
+depot init
 ```
 
-If you want to uninstall the plugin, you can specify the `--uninstall` flag.
+Initialize with a specific project ID:
 
-```shell
-depot configure-docker --uninstall
 ```
+depot init --project 12345678910
+```
+
+#### Flags for `init`
+
+| Name        | Description                                    |
+| ----------- | ---------------------------------------------- |
+| `force`     | Overwrite any existing project configuration   |
+| `project`   | The ID of the project to initialize            |
+| `token`     | Depot API token                                |
 
 ### `depot list`
 
@@ -366,16 +456,6 @@ Output builds in JSON for the project in the current directory.
 depot list builds --output json
 ```
 
-### `depot init`
-
-Initialize an existing Depot project in the current directory. The CLI will display an interactive list of your Depot projects for you to choose from, then write a `depot.json` file in the current directory with the contents `{"projectID": "xxxxxxxxxx"}`.
-
-**Example**
-
-```
-depot init
-```
-
 ### `depot login`
 
 Authenticates with your Depot account, automatically creating and storing a personal API token on your local machine.
@@ -386,15 +466,53 @@ Authenticates with your Depot account, automatically creating and storing a pers
 depot login
 ```
 
+#### Flags for `login`
+
+| Name      | Description                                              |
+| --------- | -------------------------------------------------------- |
+| `browser` | Open browser for authentication (default true)           |
+| `token`   | Use a pre-existing token instead of creating a new one   |
+
 ### `depot logout`
 
-Remove any saved login defails from your local machine.
+Remove any saved login details from your local machine.
 
 **Example**
 
 ```shell
 depot logout
 ```
+
+### `depot projects`
+
+Create or display Depot project information.
+
+#### `depot projects create`
+
+Create a new Depot project.
+
+```shell
+depot projects create [flags] <project-name>
+```
+
+#### Flags for `projects create`
+
+| Name                 | Description                                         |
+| -------------------- | --------------------------------------------------- |
+| `token`              | Depot API token                                     |
+| `organization`, `-o` | Depot organization ID                               |
+| `region`             | Build data will be stored in the chosen region (default "us-east-1") |
+| `cache-storage-policy` | Build cache to keep per architecture in GB (default 50) |
+
+#### `depot projects list`
+
+Display an interactive listing of current Depot projects.
+
+```shell
+depot projects list
+```
+
+Alias: `depot projects ls`
 
 ### `depot pull`
 
@@ -411,6 +529,17 @@ By default images will be tagged with the bake target names.
 depot pull <BUILD_ID>
 ```
 
+#### Flags for `pull`
+
+| Name        | Description                                                     |
+| ----------- | --------------------------------------------------------------- |
+| `platform`  | Pulls image for specific platform ("linux/amd64", "linux/arm64")|
+| `progress`  | Set type of progress output ("auto", "plain", "tty", "quiet")   |
+| `project`   | Depot project ID                                                |
+| `tag`, `-t` | Optional tags to apply to the image                             |
+| `target`    | Pulls image for specific bake targets                           |
+| `token`     | Depot API token                                                 |
+
 ### `depot push`
 
 Push an image from the Depot registry to a destination registry.
@@ -418,6 +547,16 @@ Push an image from the Depot registry to a destination registry.
 ```shell
 depot push --tag repo:tag <BUILD_ID>
 ```
+
+#### Flags for `push`
+
+| Name        | Description                                                   |
+| ----------- | ------------------------------------------------------------- |
+| `progress`  | Set type of progress output ("auto", "plain", "tty", "quiet") |
+| `project`   | Depot project ID                                              |
+| `tag`, `-t` | Name and tag for the pushed image (format: "name:tag")        |
+| `target`    | bake target                                                   |
+| `token`     | Depot API token                                               |
 
 ## Contributing
 
