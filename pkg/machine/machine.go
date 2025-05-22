@@ -12,6 +12,7 @@ import (
 	"connectrpc.com/connect"
 	"github.com/depot/cli/pkg/api"
 	"github.com/depot/cli/pkg/cleanup"
+	"github.com/depot/cli/pkg/helpers"
 	cliv1 "github.com/depot/cli/pkg/proto/depot/cli/v1"
 	"github.com/depot/cli/pkg/proto/depot/cli/v1/cliv1connect"
 	"github.com/moby/buildkit/client"
@@ -72,6 +73,16 @@ func Acquire(ctx context.Context, buildID, token, platform string) (*Machine, er
 			BuildId:  m.BuildID,
 			Platform: builderPlatform,
 		}
+
+		// If running in Depot GHA environment, request private IP for better connectivity.
+		// This allows the CLI to connect to builders using internal networking instead of
+		// going through the public internet, ensuring connectivity even when the egress filter
+		// js enabled. By default, we whitelist the internal IP range of builders
+		if helpers.IsDepotGitHubActionsRunner() {
+			ipKind := cliv1.IPKind_IP_KIND_PRIVATE
+			req.IpKind = &ipKind
+		}
+
 		resp, err := client.GetBuildKitConnection(ctx, api.WithAuthentication(connect.NewRequest(&req), m.Token))
 		if err != nil {
 			return nil, err
