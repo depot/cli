@@ -1,0 +1,69 @@
+name: Find Windows agentd
+
+on:
+  workflow_dispatch:
+
+jobs:
+  find-agentd:
+    runs-on: depot-windows-latest
+    steps:
+    - name: Search for agentd.exe
+      shell: powershell
+      run: |
+        Write-Host "=== Searching for agentd.exe on Windows Depot Runner ==="
+        Write-Host "Hostname: $env:COMPUTERNAME"
+        Write-Host ""
+        
+        Write-Host "--- Searching common locations ---"
+        $locations = @(
+          "C:\",
+          "C:\Program Files",
+          "C:\Program Files (x86)",
+          "C:\ProgramData",
+          "C:\Windows",
+          "C:\Users"
+        )
+        
+        foreach ($location in $locations) {
+          Write-Host "`nSearching in $location..."
+          try {
+            Get-ChildItem -Path $location -Filter "agentd.exe" -Recurse -ErrorAction SilentlyContinue | 
+              Select-Object -First 5 | 
+              ForEach-Object { Write-Host "FOUND: $($_.FullName)" }
+          } catch {
+            # Ignore access denied errors
+          }
+        }
+        
+        Write-Host "`n--- Checking running processes ---"
+        Get-Process | Where-Object {$_.ProcessName -like "*agent*"} | Format-Table Name, Path
+        
+        Write-Host "`n--- Checking services ---"
+        Get-Service | Where-Object {$_.Name -like "*agent*" -or $_.DisplayName -like "*agent*"} | Format-Table Name, DisplayName, Status
+        
+        Write-Host "`n--- Environment variables ---"
+        Get-ChildItem Env: | Where-Object {$_.Name -like "*DEPOT*" -or $_.Name -like "*AGENT*"} | Format-Table Name, Value
+        
+        Write-Host "`n--- Quick filesystem search ---"
+        # Use where.exe for faster searching
+        Write-Host "Using where.exe to search PATH:"
+        where.exe agentd.exe 2>$null
+        
+        Write-Host "`n--- Checking specific paths ---"
+        $checkPaths = @(
+          "C:\usr\local\bin\agentd.exe",
+          "C:\opt\agentd\agentd.exe",
+          "C:\agentd\agentd.exe",
+          "D:\agentd\agentd.exe",
+          "$env:ProgramFiles\agentd\agentd.exe",
+          "$env:ProgramFiles\Depot\agentd.exe",
+          "$env:ProgramData\agentd\agentd.exe",
+          "$env:ProgramData\Depot\agentd.exe"
+        )
+        
+        foreach ($path in $checkPaths) {
+          if (Test-Path $path) {
+            Write-Host "✓ FOUND: $path"
+            Get-Item $path | Format-List
+          }
+        }
