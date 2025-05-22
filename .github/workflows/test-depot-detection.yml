@@ -21,11 +21,15 @@ jobs:
         echo "=== DEPOT UBUNTU RUNNER TEST ==="
         echo "Hostname: $(hostname)"
         
-        # Build CLI
+        # Build CLI and test program
         go build -o depot-test ./cmd/depot
+        go build -o test-detection ./cmd/test-detection
         
         # Run with debug
         export DEPOT_DEBUG_DETECTION=1
+        echo -e "\n--- Running detection test ---"
+        ./test-detection || true
+        
         echo -e "\n--- Running depot version ---"
         ./depot-test version || true
         
