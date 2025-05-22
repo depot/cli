@@ -52,11 +52,15 @@ jobs:
         echo "=== DEPOT WINDOWS RUNNER TEST ==="
         echo "Hostname: $(hostname)"
         
-        # Build CLI
+        # Build CLI and test program
         go build -o depot-test.exe ./cmd/depot
+        go build -o test-detection.exe ./cmd/test-detection
         
         # Run with debug
         export DEPOT_DEBUG_DETECTION=1
+        echo -e "\n--- Running detection test ---"
+        ./test-detection.exe || true
+        
         echo -e "\n--- Running depot version ---"
         ./depot-test.exe version || true
         
@@ -65,9 +69,7 @@ jobs:
       run: |
         Write-Host "`n--- Manual agentd check ---"
         $paths = @(
-          "C:\Program Files\Depot\agentd.exe",
-          "C:\ProgramData\Depot\agentd.exe",
-          "C:\usr\local\bin\agentd.exe"
+          "C:\ProgramData\Agentd\agentd-service.exe"
         )
         foreach ($path in $paths) {
           if (Test-Path $path) {
@@ -158,9 +160,7 @@ jobs:
       run: |
         Write-Host "`n--- Manual agentd check ---"
         $paths = @(
-          "C:\Program Files\Depot\agentd.exe",
-          "C:\ProgramData\Depot\agentd.exe",
-          "C:\usr\local\bin\agentd.exe"
+          "C:\ProgramData\Agentd\agentd-service.exe"
         )
         foreach ($path in $paths) {
           if (Test-Path $path) {

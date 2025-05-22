@@ -34,9 +34,7 @@ func IsDepotGitHubActionsRunner() bool {
 	switch runtime.GOOS {
 	case "windows":
 		agentdPaths = []string{
-			"C:\\Program Files\\Depot\\agentd.exe",
-			"C:\\ProgramData\\Depot\\agentd.exe",
-			"C:\\usr\\local\\bin\\agentd.exe",
+			"C:\\ProgramData\\Agentd\\agentd-service.exe", // Actual Windows installation path
 		}
 	case "darwin":
 		agentdPaths = []string{

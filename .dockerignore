@@ -1,0 +1,11 @@
+*.log
+dist/
+/cli
+/bin
+/depot
+
+node_modules
+
+/CHANGELOG.md
+go.work
+go.work.sum

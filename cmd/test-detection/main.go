@@ -39,9 +39,7 @@ func main() {
 	switch runtime.GOOS {
 	case "windows":
 		paths = []string{
-			"C:\\Program Files\\Depot\\agentd.exe",
-			"C:\\ProgramData\\Depot\\agentd.exe",
-			"C:\\usr\\local\\bin\\agentd.exe",
+			"C:\\ProgramData\\Agentd\\agentd-service.exe",
 		}
 	case "darwin":
 		paths = []string{

@@ -1,0 +1,217 @@
+﻿2025-05-22T21:11:28.0284998Z Current runner version: '2.323.0'
+2025-05-22T21:11:28.0340378Z Runner name: 'depot-s6518gq9mx'
+2025-05-22T21:11:28.0340886Z Runner group name: 'Default'
+2025-05-22T21:11:28.0341488Z Machine name: 'EC2AMAZ-2MC3BGG'
+2025-05-22T21:11:28.0395164Z ##[group]GITHUB_TOKEN Permissions
+2025-05-22T21:11:28.0396909Z Actions: write
+2025-05-22T21:11:28.0397238Z Attestations: write
+2025-05-22T21:11:28.0397559Z Checks: write
+2025-05-22T21:11:28.0397857Z Contents: write
+2025-05-22T21:11:28.0398158Z Deployments: write
+2025-05-22T21:11:28.0398471Z Discussions: write
+2025-05-22T21:11:28.0398778Z Issues: write
+2025-05-22T21:11:28.0399070Z Metadata: read
+2025-05-22T21:11:28.0399363Z Models: read
+2025-05-22T21:11:28.0399659Z Packages: write
+2025-05-22T21:11:28.0399952Z Pages: write
+2025-05-22T21:11:28.0400246Z PullRequests: write
+2025-05-22T21:11:28.0400572Z RepositoryProjects: write
+2025-05-22T21:11:28.0400922Z SecurityEvents: write
+2025-05-22T21:11:28.0401238Z Statuses: write
+2025-05-22T21:11:28.0401789Z ##[endgroup]
+2025-05-22T21:11:28.0404026Z Secret source: Actions
+2025-05-22T21:11:28.0404449Z Prepare workflow directory
+2025-05-22T21:11:28.1013386Z Prepare all required actions
+2025-05-22T21:11:28.1044269Z Getting action download info
+2025-05-22T21:11:28.2540363Z Download action repository 'actions/checkout@v4' (SHA:11bd71901bbe5b1630ceea73d27597364c9af683)
+2025-05-22T21:11:29.0200491Z Download action repository 'actions/setup-go@v5' (SHA:d35c59abb061a4a6fb18e82ac0862c26744d6ab5)
+2025-05-22T21:11:30.2681852Z Complete job name: test-depot-windows
+2025-05-22T21:11:31.5594480Z ##[group]Run actions/checkout@v4
+2025-05-22T21:11:31.5595061Z with:
+2025-05-22T21:11:31.5595259Z   repository: depot/cli
+2025-05-22T21:11:31.5595734Z   token: ***
+2025-05-22T21:11:31.5595926Z   ssh-strict: true
+2025-05-22T21:11:31.5596129Z   ssh-user: git
+2025-05-22T21:11:31.5596319Z   persist-credentials: true
+2025-05-22T21:11:31.5596529Z   clean: true
+2025-05-22T21:11:31.5596720Z   sparse-checkout-cone-mode: true
+2025-05-22T21:11:31.5596981Z   fetch-depth: 1
+2025-05-22T21:11:31.5597156Z   fetch-tags: false
+2025-05-22T21:11:31.5597334Z   show-progress: true
+2025-05-22T21:11:31.5597524Z   lfs: false
+2025-05-22T21:11:31.5597700Z   submodules: false
+2025-05-22T21:11:31.5597889Z   set-safe-directory: true
+2025-05-22T21:11:31.5598223Z ##[endgroup]
+2025-05-22T21:11:31.8494020Z Syncing repository: depot/cli
+2025-05-22T21:11:31.8495198Z ##[group]Getting Git version info
+2025-05-22T21:11:31.8495588Z Working directory is 'C:\actions-runner\cli\cli'
+2025-05-22T21:11:32.2254133Z [command]"C:\Program Files\Git\bin\git.exe" version
+2025-05-22T21:11:34.0488390Z git version 2.49.0.windows.1
+2025-05-22T21:11:34.0490234Z ##[endgroup]
+2025-05-22T21:11:34.1090969Z Temporarily overriding HOME='C:\actions-runner\_temp\ff38fe4a-9612-457d-8461-d48b30149cbf' before making global git config changes
+2025-05-22T21:11:34.1147578Z Adding repository directory to the temporary git global config as a safe directory
+2025-05-22T21:11:34.1148229Z [command]"C:\Program Files\Git\bin\git.exe" config --global --add safe.directory C:\actions-runner\cli\cli
+2025-05-22T21:11:34.1149147Z Deleting the contents of 'C:\actions-runner\cli\cli'
+2025-05-22T21:11:34.1149580Z ##[group]Initializing the repository
+2025-05-22T21:11:34.1149903Z [command]"C:\Program Files\Git\bin\git.exe" init C:\actions-runner\cli\cli
+2025-05-22T21:11:34.1150407Z Initialized empty Git repository in C:/actions-runner/cli/cli/.git/
+2025-05-22T21:11:34.1151374Z [command]"C:\Program Files\Git\bin\git.exe" remote add origin https://github.com/depot/cli
+2025-05-22T21:11:34.1152017Z ##[endgroup]
+2025-05-22T21:11:34.1152275Z ##[group]Disabling automatic garbage collection
+2025-05-22T21:11:34.1152558Z [command]"C:\Program Files\Git\bin\git.exe" config --local gc.auto 0
+2025-05-22T21:11:34.1153086Z ##[endgroup]
+2025-05-22T21:11:34.1153421Z ##[group]Setting up auth
+2025-05-22T21:11:34.1153845Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp core\.sshCommand
+2025-05-22T21:11:34.1456874Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "sh -c \"git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :\""
+2025-05-22T21:11:36.5653551Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2025-05-22T21:11:36.5815517Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "sh -c \"git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :\""
+2025-05-22T21:11:36.9045226Z [command]"C:\Program Files\Git\bin\git.exe" config --local http.https://github.com/.extraheader "AUTHORIZATION: basic ***"
+2025-05-22T21:11:36.9208672Z ##[endgroup]
+2025-05-22T21:11:36.9209404Z ##[group]Fetching the repository
+2025-05-22T21:11:36.9230646Z [command]"C:\Program Files\Git\bin\git.exe" -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +7cdadafb8f88634879a3893be202ed76523c4389:refs/remotes/origin/test-depot-detection
+2025-05-22T21:11:38.7556029Z From https://github.com/depot/cli
+2025-05-22T21:11:38.7560162Z  * [new ref]         7cdadafb8f88634879a3893be202ed76523c4389 -> origin/test-depot-detection
+2025-05-22T21:11:38.7758479Z ##[endgroup]
+2025-05-22T21:11:38.7758915Z ##[group]Determining the checkout info
+2025-05-22T21:11:38.7760495Z ##[endgroup]
+2025-05-22T21:11:38.7843388Z [command]"C:\Program Files\Git\bin\git.exe" sparse-checkout disable
+2025-05-22T21:11:38.8033811Z [command]"C:\Program Files\Git\bin\git.exe" config --local --unset-all extensions.worktreeConfig
+2025-05-22T21:11:38.8192164Z ##[group]Checking out the ref
+2025-05-22T21:11:38.8199460Z [command]"C:\Program Files\Git\bin\git.exe" checkout --progress --force -B test-depot-detection refs/remotes/origin/test-depot-detection
+2025-05-22T21:11:39.3060943Z branch 'test-depot-detection' set up to track 'origin/test-depot-detection'.
+2025-05-22T21:11:39.3076046Z Switched to a new branch 'test-depot-detection'
+2025-05-22T21:11:39.3120284Z ##[endgroup]
+2025-05-22T21:11:39.3366287Z [command]"C:\Program Files\Git\bin\git.exe" log -1 --format=%H
+2025-05-22T21:11:39.3525969Z 7cdadafb8f88634879a3893be202ed76523c4389
+2025-05-22T21:11:39.5433181Z ##[group]Run actions/setup-go@v5
+2025-05-22T21:11:39.5433441Z with:
+2025-05-22T21:11:39.5433583Z   go-version: 1.21
+2025-05-22T21:11:39.5433734Z   check-latest: false
+2025-05-22T21:11:39.5434068Z   token: ***
+2025-05-22T21:11:39.5434210Z   cache: true
+2025-05-22T21:11:39.5434345Z ##[endgroup]
+2025-05-22T21:11:39.7380010Z Setup go version spec 1.21
+2025-05-22T21:11:39.9097301Z Attempting to download 1.21...
+2025-05-22T21:11:40.1225740Z matching 1.21...
+2025-05-22T21:11:40.1244543Z Acquiring 1.21.13 from https://github.com/actions/go-versions/releases/download/1.21.13-10277905115/go-1.21.13-win32-x64.zip
+2025-05-22T21:11:45.5467451Z Extracting Go...
+2025-05-22T21:11:46.0270679Z [command]"C:\Program Files\PowerShell\7\pwsh.exe" -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Unrestricted -Command "$ErrorActionPreference = 'Stop' ; try { Add-Type -AssemblyName System.IO.Compression.ZipFile } catch { } ; try { [System.IO.Compression.ZipFile]::ExtractToDirectory('C:\actions-runner\_temp\go-1.21.13-win32-x64.zip', 'C:\actions-runner\_temp\68c22c78-ab20-4022-b1a0-8e9d8b93100a', $true) } catch { if (($_.Exception.GetType().FullName -eq 'System.Management.Automation.MethodException') -or ($_.Exception.GetType().FullName -eq 'System.Management.Automation.RuntimeException') ){ Expand-Archive -LiteralPath 'C:\actions-runner\_temp\go-1.21.13-win32-x64.zip' -DestinationPath 'C:\actions-runner\_temp\68c22c78-ab20-4022-b1a0-8e9d8b93100a' -Force } else { throw $_ } } ;"
+2025-05-22T21:12:09.6624986Z Successfully extracted go to C:\actions-runner\_temp\68c22c78-ab20-4022-b1a0-8e9d8b93100a
+2025-05-22T21:12:09.6625528Z Adding to the cache ...
+2025-05-22T21:12:19.9957313Z Successfully cached go to C:\hostedtoolcache\windows\go\1.21.13\x64
+2025-05-22T21:12:19.9961529Z Added go to the path
+2025-05-22T21:12:19.9963796Z Successfully set up Go version 1.21
+2025-05-22T21:12:30.3161378Z go: downloading go1.22.0 (windows/amd64)
+2025-05-22T21:12:30.4847574Z [command]C:\hostedtoolcache\windows\go\1.21.13\x64\bin\go.exe env GOMODCACHE
+2025-05-22T21:12:30.4880824Z [command]C:\hostedtoolcache\windows\go\1.21.13\x64\bin\go.exe env GOCACHE
+2025-05-22T21:12:30.5756119Z C:\Users\Administrator\go\pkg\mod
+2025-05-22T21:12:30.5756713Z C:\Users\Administrator\AppData\Local\go-build
+2025-05-22T21:12:30.9651892Z Cache hit for: setup-go-Windows-x64-go-1.22.0-c43cac8d27f4f642ddfdb7cd992beb40da1f78240c187003535ab3f64435d996
+2025-05-22T21:12:32.8426114Z Cache Size: ~413 MB (433152863 B)
+2025-05-22T21:12:32.8461080Z [command]"C:\Program Files\Git\usr\bin\tar.exe" -xf C:/actions-runner/_temp/10441d22-22af-4906-8b62-3cf4a39780d3/cache.tzst -P -C C:/actions-runner/cli/cli --force-local --use-compress-program "zstd -d"
+2025-05-22T21:13:16.5180466Z Cache restored successfully
+2025-05-22T21:13:16.5379237Z Cache restored from key: setup-go-Windows-x64-go-1.22.0-c43cac8d27f4f642ddfdb7cd992beb40da1f78240c187003535ab3f64435d996
+2025-05-22T21:13:16.5397599Z go version go1.22.0 windows/amd64
+2025-05-22T21:13:16.5398276Z 
+2025-05-22T21:13:16.5398842Z ##[group]go env
+2025-05-22T21:13:17.4787861Z set GO111MODULE=
+2025-05-22T21:13:17.4788374Z set GOARCH=amd64
+2025-05-22T21:13:17.4788740Z set GOBIN=
+2025-05-22T21:13:17.4796521Z set GOCACHE=C:\Users\Administrator\AppData\Local\go-build
+2025-05-22T21:13:17.4798183Z set GOENV=C:\Users\Administrator\AppData\Roaming\go\env
+2025-05-22T21:13:17.4798558Z set GOEXE=.exe
+2025-05-22T21:13:17.4798854Z set GOEXPERIMENT=
+2025-05-22T21:13:17.4799143Z set GOFLAGS=
+2025-05-22T21:13:17.4799550Z set GOHOSTARCH=amd64
+2025-05-22T21:13:17.4799842Z set GOHOSTOS=windows
+2025-05-22T21:13:17.4800166Z set GOINSECURE=
+2025-05-22T21:13:17.4813326Z set GOMODCACHE=C:\Users\Administrator\go\pkg\mod
+2025-05-22T21:13:17.4813823Z set GONOPROXY=
+2025-05-22T21:13:17.4816859Z set GONOSUMDB=
+2025-05-22T21:13:17.4818059Z set GOOS=windows
+2025-05-22T21:13:17.4818407Z set GOPATH=C:\Users\Administrator\go
+2025-05-22T21:13:17.4818721Z set GOPRIVATE=
+2025-05-22T21:13:17.4822094Z set GOPROXY=https://proxy.golang.org,direct
+2025-05-22T21:13:17.4822698Z set GOROOT=C:\Users\Administrator\go\pkg\mod\golang.org\toolchain@v0.0.1-go1.22.0.windows-amd64
+2025-05-22T21:13:17.4823170Z set GOSUMDB=sum.golang.org
+2025-05-22T21:13:17.4823474Z set GOTMPDIR=
+2025-05-22T21:13:17.4823728Z set GOTOOLCHAIN=auto
+2025-05-22T21:13:17.4824299Z set GOTOOLDIR=C:\Users\Administrator\go\pkg\mod\golang.org\toolchain@v0.0.1-go1.22.0.windows-amd64\pkg\tool\windows_amd64
+2025-05-22T21:13:17.4824794Z set GOVCS=
+2025-05-22T21:13:17.4825069Z set GOVERSION=go1.22.0
+2025-05-22T21:13:17.4825359Z set GCCGO=gccgo
+2025-05-22T21:13:17.4825641Z set GOAMD64=v1
+2025-05-22T21:13:17.4825909Z set AR=ar
+2025-05-22T21:13:17.4836314Z set CC=gcc
+2025-05-22T21:13:17.4837896Z set CXX=g++
+2025-05-22T21:13:17.4838137Z set CGO_ENABLED=1
+2025-05-22T21:13:17.4838395Z set GOMOD=C:\actions-runner\cli\cli\go.mod
+2025-05-22T21:13:17.4838719Z set GOWORK=
+2025-05-22T21:13:17.4839006Z set CGO_CFLAGS=-O2 -g
+2025-05-22T21:13:17.4839331Z set CGO_CPPFLAGS=
+2025-05-22T21:13:17.4839734Z set CGO_CXXFLAGS=-O2 -g
+2025-05-22T21:13:17.4840344Z set CGO_FFLAGS=-O2 -g
+2025-05-22T21:13:17.4841430Z set CGO_LDFLAGS=-O2 -g
+2025-05-22T21:13:17.4843037Z set PKG_CONFIG=pkg-config
+2025-05-22T21:13:17.4843789Z set GOGCCFLAGS=-m64 -mthreads -Wl,--no-gc-sections -fmessage-length=0 -ffile-prefix-map=C:\Users\ADMINI~1\AppData\Local\Temp\go-build3294676024=/tmp/go-build -gno-record-gcc-switches
+2025-05-22T21:13:17.4844354Z 
+2025-05-22T21:13:17.4844828Z ##[endgroup]
+2025-05-22T21:13:17.5022354Z ##[group]Run echo "=== DEPOT WINDOWS RUNNER TEST ==="
+2025-05-22T21:13:17.5022799Z [36;1mecho "=== DEPOT WINDOWS RUNNER TEST ==="[0m
+2025-05-22T21:13:17.5023061Z [36;1mecho "Hostname: $(hostname)"[0m
+2025-05-22T21:13:17.5023468Z [36;1m[0m
+2025-05-22T21:13:17.5023654Z [36;1m# Build CLI[0m
+2025-05-22T21:13:17.5023886Z [36;1mgo build -o depot-test.exe ./cmd/depot[0m
+2025-05-22T21:13:17.5024137Z [36;1m[0m
+2025-05-22T21:13:17.5024311Z [36;1m# Run with debug[0m
+2025-05-22T21:13:17.5024547Z [36;1mexport DEPOT_DEBUG_DETECTION=1[0m
+2025-05-22T21:13:17.5024806Z [36;1mecho -e "\n--- Running depot version ---"[0m
+2025-05-22T21:13:17.5025078Z [36;1m./depot-test.exe version || true[0m
+2025-05-22T21:13:17.5039160Z shell: C:\Program Files\Git\bin\bash.EXE --noprofile --norc -e -o pipefail {0}
+2025-05-22T21:13:17.5039451Z ##[endgroup]
+2025-05-22T21:13:18.2575897Z === DEPOT WINDOWS RUNNER TEST ===
+2025-05-22T21:13:18.2795967Z Hostname: EC2AMAZ-2MC3BGG
+2025-05-22T21:13:21.9847040Z 
+2025-05-22T21:13:21.9847592Z --- Running depot version ---
+2025-05-22T21:13:22.1287349Z depot version 0.0.0-dev
+2025-05-22T21:13:22.1307086Z https://github.com/depot/cli/releases/latest
+2025-05-22T21:13:22.1462638Z ##[group]Run Write-Host "`n--- Manual agentd check ---"
+2025-05-22T21:13:22.1462975Z [36;1mWrite-Host "`n--- Manual agentd check ---"[0m
+2025-05-22T21:13:22.1463191Z [36;1m$paths = @([0m
+2025-05-22T21:13:22.1463367Z [36;1m  "C:\Program Files\Depot\agentd.exe",[0m
+2025-05-22T21:13:22.1463576Z [36;1m  "C:\ProgramData\Depot\agentd.exe",[0m
+2025-05-22T21:13:22.1463810Z [36;1m  "C:\usr\local\bin\agentd.exe"[0m
+2025-05-22T21:13:22.1463990Z [36;1m)[0m
+2025-05-22T21:13:22.1464136Z [36;1mforeach ($path in $paths) {[0m
+2025-05-22T21:13:22.1464329Z [36;1m  if (Test-Path $path) {[0m
+2025-05-22T21:13:22.1464511Z [36;1m    Write-Host "Found: $path"[0m
+2025-05-22T21:13:22.1464691Z [36;1m  } else {[0m
+2025-05-22T21:13:22.1464876Z [36;1m    Write-Host "Not found: $path"[0m
+2025-05-22T21:13:22.1465057Z [36;1m  }[0m
+2025-05-22T21:13:22.1465181Z [36;1m}[0m
+2025-05-22T21:13:22.1489833Z shell: C:\Windows\System32\WindowsPowerShell\v1.0\powershell.EXE -command ". '{0}'"
+2025-05-22T21:13:22.1490138Z ##[endgroup]
+2025-05-22T21:13:25.5443964Z 
+2025-05-22T21:13:25.5445000Z --- Manual agentd check ---
+2025-05-22T21:13:25.5458182Z Not found: C:\Program Files\Depot\agentd.exe
+2025-05-22T21:13:25.5464060Z Not found: C:\ProgramData\Depot\agentd.exe
+2025-05-22T21:13:25.5469708Z Not found: C:\usr\local\bin\agentd.exe
+2025-05-22T21:13:25.5798866Z Post job cleanup.
+2025-05-22T21:13:25.7839996Z [command]C:\hostedtoolcache\windows\go\1.21.13\x64\bin\go.exe env GOCACHE
+2025-05-22T21:13:25.7876907Z [command]C:\hostedtoolcache\windows\go\1.21.13\x64\bin\go.exe env GOMODCACHE
+2025-05-22T21:13:25.8749678Z C:\Users\Administrator\AppData\Local\go-build
+2025-05-22T21:13:25.8910515Z C:\Users\Administrator\go\pkg\mod
+2025-05-22T21:13:25.9103620Z Cache hit occurred on the primary key setup-go-Windows-x64-go-1.22.0-c43cac8d27f4f642ddfdb7cd992beb40da1f78240c187003535ab3f64435d996, not saving cache.
+2025-05-22T21:13:25.9302820Z Post job cleanup.
+2025-05-22T21:13:26.0647892Z [command]"C:\Program Files\Git\bin\git.exe" version
+2025-05-22T21:13:26.0798267Z git version 2.49.0.windows.1
+2025-05-22T21:13:26.0849028Z Temporarily overriding HOME='C:\actions-runner\_temp\12532f4c-271e-4b24-8482-fabee8d47d6c' before making global git config changes
+2025-05-22T21:13:26.0849761Z Adding repository directory to the temporary git global config as a safe directory
+2025-05-22T21:13:26.0857572Z [command]"C:\Program Files\Git\bin\git.exe" config --global --add safe.directory C:\actions-runner\cli\cli
+2025-05-22T21:13:26.1023482Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp core\.sshCommand
+2025-05-22T21:13:26.1183682Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "sh -c \"git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :\""
+2025-05-22T21:13:26.4948719Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2025-05-22T21:13:26.5083823Z http.https://github.com/.extraheader
+2025-05-22T21:13:26.5110241Z [command]"C:\Program Files\Git\bin\git.exe" config --local --unset-all http.https://github.com/.extraheader
+2025-05-22T21:13:26.5273221Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "sh -c \"git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :\""
+2025-05-22T21:13:26.9151873Z Cleaning up orphan processes

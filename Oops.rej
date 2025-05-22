@@ -1,0 +1,10 @@
+@@ -319,7 +319,7 @@
+ 						PrintBuildURL(build.BuildURL, options.progress)
+ 					}()
+ 
+-					options.builderOptions = []builder.Option{builder.WithDepotOptions(buildPlatform, build)}
++					options.builderOptions = []builder.Option{builder.WithDepotOptions(buildPlatform, build, false)}
+ 
+ 					buildProject := build.BuildProject()
+ 					if buildProject != "" {
+\ No newline at end of line
