@@ -1,0 +1,208 @@
+name: Test Depot Detection
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ test-depot-detection ]
+
+jobs:
+  # Test on Depot runners
+  test-depot-ubuntu:
+    runs-on: depot-ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - uses: actions/setup-go@v5
+      with:
+        go-version: '1.21'
+    
+    - name: Test on Depot Ubuntu
+      run: |
+        echo "=== DEPOT UBUNTU RUNNER TEST ==="
+        echo "Hostname: $(hostname)"
+        
+        # Build CLI
+        go build -o depot-test ./cmd/depot
+        
+        # Run with debug
+        export DEPOT_DEBUG_DETECTION=1
+        echo -e "\n--- Running depot version ---"
+        ./depot-test version || true
+        
+        # Check for agentd manually
+        echo -e "\n--- Manual agentd check ---"
+        ls -la /usr/local/bin/agentd || echo "agentd not found"
+
+  test-depot-windows:
+    runs-on: depot-windows-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - uses: actions/setup-go@v5
+      with:
+        go-version: '1.21'
+    
+    - name: Test on Depot Windows
+      shell: bash
+      run: |
+        echo "=== DEPOT WINDOWS RUNNER TEST ==="
+        echo "Hostname: $(hostname)"
+        
+        # Build CLI
+        go build -o depot-test.exe ./cmd/depot
+        
+        # Run with debug
+        export DEPOT_DEBUG_DETECTION=1
+        echo -e "\n--- Running depot version ---"
+        ./depot-test.exe version || true
+        
+    - name: Check for agentd (PowerShell)
+      shell: powershell
+      run: |
+        Write-Host "`n--- Manual agentd check ---"
+        $paths = @(
+          "C:\Program Files\Depot\agentd.exe",
+          "C:\ProgramData\Depot\agentd.exe",
+          "C:\usr\local\bin\agentd.exe"
+        )
+        foreach ($path in $paths) {
+          if (Test-Path $path) {
+            Write-Host "Found: $path"
+          } else {
+            Write-Host "Not found: $path"
+          }
+        }
+
+  test-depot-macos:
+    runs-on: depot-macos-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - uses: actions/setup-go@v5
+      with:
+        go-version: '1.21'
+    
+    - name: Test on Depot macOS
+      run: |
+        echo "=== DEPOT MACOS RUNNER TEST ==="
+        echo "Hostname: $(hostname)"
+        
+        # Build CLI
+        go build -o depot-test ./cmd/depot
+        
+        # Run with debug
+        export DEPOT_DEBUG_DETECTION=1
+        echo -e "\n--- Running depot version ---"
+        ./depot-test version || true
+        
+        # Check for agentd manually
+        echo -e "\n--- Manual agentd check ---"
+        ls -la /usr/local/bin/agentd || echo "agentd not found"
+
+  # Test on GitHub runners
+  test-github-ubuntu:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - uses: actions/setup-go@v5
+      with:
+        go-version: '1.21'
+    
+    - name: Test on GitHub Ubuntu
+      run: |
+        echo "=== GITHUB UBUNTU RUNNER TEST ==="
+        echo "Hostname: $(hostname)"
+        
+        # Build CLI
+        go build -o depot-test ./cmd/depot
+        
+        # Run with debug
+        export DEPOT_DEBUG_DETECTION=1
+        echo -e "\n--- Running depot version ---"
+        ./depot-test version || true
+        
+        # Check for agentd manually
+        echo -e "\n--- Manual agentd check ---"
+        ls -la /usr/local/bin/agentd || echo "agentd not found"
+
+  test-github-windows:
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - uses: actions/setup-go@v5
+      with:
+        go-version: '1.21'
+    
+    - name: Test on GitHub Windows
+      shell: bash
+      run: |
+        echo "=== GITHUB WINDOWS RUNNER TEST ==="
+        echo "Hostname: $(hostname)"
+        
+        # Build CLI
+        go build -o depot-test.exe ./cmd/depot
+        
+        # Run with debug
+        export DEPOT_DEBUG_DETECTION=1
+        echo -e "\n--- Running depot version ---"
+        ./depot-test.exe version || true
+        
+    - name: Check for agentd (PowerShell)
+      shell: powershell
+      run: |
+        Write-Host "`n--- Manual agentd check ---"
+        $paths = @(
+          "C:\Program Files\Depot\agentd.exe",
+          "C:\ProgramData\Depot\agentd.exe",
+          "C:\usr\local\bin\agentd.exe"
+        )
+        foreach ($path in $paths) {
+          if (Test-Path $path) {
+            Write-Host "Found: $path"
+          } else {
+            Write-Host "Not found: $path"
+          }
+        }
+
+  test-github-macos:
+    runs-on: macos-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - uses: actions/setup-go@v5
+      with:
+        go-version: '1.21'
+    
+    - name: Test on GitHub macOS
+      run: |
+        echo "=== GITHUB MACOS RUNNER TEST ==="
+        echo "Hostname: $(hostname)"
+        
+        # Build CLI
+        go build -o depot-test ./cmd/depot
+        
+        # Run with debug
+        export DEPOT_DEBUG_DETECTION=1
+        echo -e "\n--- Running depot version ---"
+        ./depot-test version || true
+        
+        # Check for agentd manually
+        echo -e "\n--- Manual agentd check ---"
+        ls -la /usr/local/bin/agentd || echo "agentd not found"
+
+  # Summary job
+  test-summary:
+    needs: [test-depot-ubuntu, test-depot-windows, test-depot-macos, test-github-ubuntu, test-github-windows, test-github-macos]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+    - name: Summary
+      run: |
+        echo "=== TEST SUMMARY ==="
+        echo "All tests completed. Check individual job outputs for results."
+        echo ""
+        echo "Expected results:"
+        echo "- Depot runners: Should detect agentd and show 'Depot runner DETECTED'"
+        echo "- GitHub runners: Should NOT detect agentd and show 'NOT a Depot runner'"

@@ -141,9 +141,16 @@ enum BuilderPlatform {
   BUILDER_PLATFORM_ARM64 = 2;
 }
 
+enum IPKind {
+  IP_KIND_UNSPECIFIED = 0;
+  IP_KIND_PUBLIC = 1;
+  IP_KIND_PRIVATE = 2;
+}
+
 message GetBuildKitConnectionRequest {
   string build_id = 1;
   BuilderPlatform platform = 2;
+  optional IPKind ip_kind = 3;
 }
 
 message GetBuildKitConnectionResponse {
