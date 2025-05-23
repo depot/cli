@@ -12,6 +12,7 @@ import (
 	"connectrpc.com/connect"
 	"github.com/depot/cli/pkg/api"
 	"github.com/depot/cli/pkg/cleanup"
+	"github.com/depot/cli/pkg/helpers"
 	cliv1 "github.com/depot/cli/pkg/proto/depot/cli/v1"
 	"github.com/depot/cli/pkg/proto/depot/cli/v1/cliv1connect"
 	"github.com/moby/buildkit/client"
@@ -81,6 +82,15 @@ func Acquire(ctx context.Context, buildID, token, platform string) (*Machine, er
 		case *cliv1.GetBuildKitConnectionResponse_Active:
 			m.Addr = connection.Active.Endpoint
 			m.ServerName = connection.Active.ServerName
+
+			// If running in Depot GHA environment, allowlist the builder IP via IPC
+			if helpers.IsDepotGitHubActionsRunner() {
+				if err := AllowBuilderIPViaIPC(ctx, m.Addr); err != nil {
+					// Log the error but don't fail the build
+					log.Printf("Warning: failed to allowlist builder IP via IPC: %v", err)
+				}
+			}
+
 			// When testing locally, we don't have TLS certs.
 			if connection.Active.CaCert == nil || connection.Active.Cert == nil {
 				return m, nil
