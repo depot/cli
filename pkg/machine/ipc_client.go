@@ -18,6 +18,10 @@ type IPCAllowRequest struct {
 
 // AllowBuilderIPViaIPC sends the builder IP to the agentd IPC server to allow it through the firewall
 func AllowBuilderIPViaIPC(ctx context.Context, endpoint string) error {
+	// Wait at most 30 seconds to finish the request
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
 	client, err := ipc.StartClient("depot-agentd", nil)
 	if err != nil {
 		// If we can't connect to the IPC server, log it but don't fail the build
@@ -32,16 +36,11 @@ func AllowBuilderIPViaIPC(ctx context.Context, endpoint string) error {
 		return fmt.Errorf("failed to extract IP from endpoint: %w", err)
 	}
 
-	connectionTimeout := time.After(10 * time.Second)
 connected:
 	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-
-		case <-connectionTimeout:
-			log.Printf("Warning: timeout waiting for IPC connection")
-			return nil
 		default:
 			if client.Status() == "Connected" {
 				break connected
@@ -65,12 +64,8 @@ connected:
 	}
 
 	// Wait for response
-	responseTimeout := time.After(15 * time.Second)
 	for {
 		select {
-		case <-responseTimeout:
-			log.Printf("Warning: timeout waiting for IPC response")
-			return nil
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
