@@ -22,7 +22,9 @@ func AllowBuilderIPViaIPC(ctx context.Context, endpoint string) error {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	client, err := ipc.StartClient("depot-agentd", nil)
+	client, err := ipc.StartClient("depot-agentd", &ipc.ClientConfig{
+		Encryption: false,
+	})
 	if err != nil {
 		// If we can't connect to the IPC server, log it but don't fail the build
 		// The IPC server only runs if the egress filter is enabled
