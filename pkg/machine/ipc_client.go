@@ -32,7 +32,7 @@ func AllowBuilderIPViaIPC(ctx context.Context, endpoint string) error {
 	}
 	defer client.Close()
 
-	// Extract the IP from the endpoint (format is usually "ip:port" or "https://ip:port")
+	// Extract the IP from the endpoint (format is usually "tcp://ip:port")
 	ip, err := extractIPFromEndpoint(endpoint)
 	if err != nil {
 		return fmt.Errorf("failed to extract IP from endpoint: %w", err)
