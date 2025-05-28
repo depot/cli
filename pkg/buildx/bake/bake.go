@@ -1286,6 +1286,8 @@ func setPushOverride(outputs []*buildflags.ExportEntry, push bool) []*buildflags
 				outputs[i] = output
 			}
 		}
+
+		return outputs
 	}
 
 	for i, output := range outputs {
