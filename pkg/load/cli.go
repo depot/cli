@@ -6,6 +6,7 @@ import (
 
 	depotbuild "github.com/depot/cli/pkg/build"
 	"github.com/docker/buildx/build"
+	"github.com/docker/buildx/util/platformutil"
 	"github.com/docker/buildx/util/progress"
 	"github.com/moby/buildkit/client"
 )
@@ -79,6 +80,13 @@ func WithDepotImagePull(buildOpts map[string]build.Options, loadOpts DepotLoadOp
 				pullOpt.Username = &loadOpts.PullInfo.Username
 				pullOpt.Password = &loadOpts.PullInfo.Password
 				pullOpt.ServerAddress = &serverAddress
+
+				platforms := platformutil.Format(buildOpt.Platforms)
+				// only specify a platform to pull when a single platform is used
+				if len(platforms) == 1 {
+					platform := platforms[0]
+					pullOpt.Platform = &platform
+				}
 			}
 
 			toPull[target] = pullOpt
