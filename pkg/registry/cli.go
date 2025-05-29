@@ -35,10 +35,12 @@ func WithDepotSave(buildOpts map[string]buildx.Options, opts SaveOptions) map[st
 			}
 		}
 
+		exports := deepCloneExports(buildOpt.Exports)
+
 		for _, i := range imageExportIndices {
-			_, ok := buildOpt.Exports[i].Attrs["push"]
+			_, ok := exports[i].Attrs["push"]
 			hadPush = hadPush || ok
-			buildOpt.Exports[i].Attrs["push"] = "true"
+			exports[i].Attrs["push"] = "true"
 		}
 
 		if len(imageExportIndices) == 0 {
@@ -46,8 +48,10 @@ func WithDepotSave(buildOpts map[string]buildx.Options, opts SaveOptions) map[st
 				Type:  "image",
 				Attrs: map[string]string{"push": "true"},
 			}
-			buildOpt.Exports = append(buildOpt.Exports, exportImage)
+			exports = append(exports, exportImage)
 		}
+
+		buildOpt.Exports = exports
 
 		additionalTags := slices.Clone(opts.AdditionalTags)
 		for i, tag := range additionalTags {
@@ -67,4 +71,24 @@ func WithDepotSave(buildOpts map[string]buildx.Options, opts SaveOptions) map[st
 	}
 
 	return buildOpts
+}
+
+func deepCloneExports(original []client.ExportEntry) []client.ExportEntry {
+	if original == nil {
+		return nil
+	}
+
+	exports := make([]client.ExportEntry, len(original))
+	for i := range original {
+		clone := original[i]
+		// Attrs is the only field with references
+		clone.Attrs = make(map[string]string, len(original[i].Attrs))
+		for k, v := range original[i].Attrs {
+			clone.Attrs[k] = v
+		}
+
+		exports[i] = clone
+	}
+
+	return exports
 }
