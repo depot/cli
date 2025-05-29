@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"os"
 	"strings"
 	"time"
 
@@ -22,12 +23,21 @@ func AllowBuilderIPViaIPC(ctx context.Context, endpoint string) error {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
+	// first, just check if the ipc socket is actually running, since otherwise Dial will wait for a few seconds attempting to connect
+	if _, err := os.Stat("/tmp/depot-agentd.sock"); err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		log.Printf("failed to check IPC socket: %v\n", err)
+	}
+
 	client, err := ipc.StartClient("depot-agentd", &ipc.ClientConfig{
 		Encryption: false,
 	})
 	if err != nil {
 		// If we can't connect to the IPC server, log it but don't fail the build
 		// The IPC server only runs if the egress filter is enabled
+		log.Println("failed to connect to IPC server", "error", err)
 		return nil
 	}
 	defer client.Close()
@@ -42,7 +52,7 @@ connected:
 	for {
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			return fmt.Errorf("timed out waiting for connection")
 		default:
 			if client.Status() == "Connected" {
 				break connected
@@ -69,7 +79,7 @@ connected:
 	for {
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			return fmt.Errorf("timed out waiting for response to allow buildkit IP")
 		default:
 			msg, err := client.Read()
 			if err != nil {
