@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net"
 	"os"
 	"strings"
@@ -28,7 +27,6 @@ func AllowBuilderIPViaIPC(ctx context.Context, endpoint string) error {
 		if os.IsNotExist(err) {
 			return nil
 		}
-		log.Printf("failed to check IPC socket: %v\n", err)
 	}
 
 	client, err := ipc.StartClient("depot-agentd", &ipc.ClientConfig{
@@ -37,7 +35,6 @@ func AllowBuilderIPViaIPC(ctx context.Context, endpoint string) error {
 	if err != nil {
 		// If we can't connect to the IPC server, log it but don't fail the build
 		// The IPC server only runs if the egress filter is enabled
-		log.Println("failed to connect to IPC server", "error", err)
 		return nil
 	}
 	defer client.Close()
@@ -93,7 +90,6 @@ connected:
 				}
 
 				if success, ok := response["success"].(bool); ok && success {
-					log.Printf("Successfully added builder IP %s to allowlist", ip)
 					return nil
 				}
 
