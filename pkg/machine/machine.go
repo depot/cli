@@ -83,10 +83,9 @@ func Acquire(ctx context.Context, buildID, token, platform string) (*Machine, er
 			m.Addr = connection.Active.Endpoint
 			m.ServerName = connection.Active.ServerName
 
-			// If running in Depot GHA environment, allowlist the builder IP via IPC
 			if helpers.IsDepotGitHubActionsRunner() {
-				// if this is failing, we can check by ssh'ing into the machine
-				_ = AllowBuilderIPViaIPC(ctx, m.Addr)
+				// if this is failing, we can check what the actual issue is by ssh'ing into the GHA runner machine
+				_ = AllowBuilderIPViaHTTP(ctx, m.Addr)
 			}
 
 			// When testing locally, we don't have TLS certs.

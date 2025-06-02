@@ -30,7 +30,6 @@ require (
 	github.com/hashicorp/go-cty-funcs v0.0.0-20200930094925-2721b1e36840
 	github.com/hashicorp/go-version v1.2.0
 	github.com/hashicorp/hcl/v2 v2.8.2
-	github.com/james-barrow/golang-ipc v1.2.4
 	github.com/mattn/go-isatty v0.0.19
 	github.com/mgutz/ansi v0.0.0-20170206155736-9520e82c474b
 	github.com/moby/buildkit v0.11.2
