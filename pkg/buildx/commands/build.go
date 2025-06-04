@@ -106,6 +106,7 @@ type commonOptions struct {
 
 	exportPush bool
 	exportLoad bool
+	loadTarget []string
 
 	sbom       string
 	provenance string
