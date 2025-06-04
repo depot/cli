@@ -12,6 +12,7 @@ import (
 	"connectrpc.com/connect"
 	"github.com/depot/cli/pkg/api"
 	"github.com/depot/cli/pkg/cleanup"
+	"github.com/depot/cli/pkg/helpers"
 	cliv1 "github.com/depot/cli/pkg/proto/depot/cli/v1"
 	"github.com/depot/cli/pkg/proto/depot/cli/v1/cliv1connect"
 	"github.com/moby/buildkit/client"
@@ -81,6 +82,12 @@ func Acquire(ctx context.Context, buildID, token, platform string) (*Machine, er
 		case *cliv1.GetBuildKitConnectionResponse_Active:
 			m.Addr = connection.Active.Endpoint
 			m.ServerName = connection.Active.ServerName
+
+			if helpers.IsDepotGitHubActionsRunner() {
+				// if this is failing, we can check what the actual issue is by ssh'ing into the GHA runner machine
+				_ = AllowBuilderIPViaHTTP(ctx, m.Addr)
+			}
+
 			// When testing locally, we don't have TLS certs.
 			if connection.Active.CaCert == nil || connection.Active.Cert == nil {
 				return m, nil
