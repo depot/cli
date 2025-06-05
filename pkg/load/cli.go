@@ -138,8 +138,33 @@ func WithDepotImagePull(buildOpts map[string]build.Options, loadOpts DepotLoadOp
 // we use the previous buildx behavior of pulling the image via the output docker.
 // NOTE: this means that a single tar will be sent from buildkit to the client and
 // imported into the docker daemon.  This is quite slow.
+// WithDockerLoad adds docker export to all targets
 func WithDockerLoad(buildOpts map[string]build.Options) map[string]build.Options {
+	return WithSelectiveDockerLoad(buildOpts, nil)
+}
+
+// WithSelectiveDockerLoad adds docker export to specified targets only.
+// If targetsToLoad is nil or empty, all targets will have docker exports added
+func WithSelectiveDockerLoad(buildOpts map[string]build.Options, targetsToLoad []string) map[string]build.Options {
+	loadAll := len(targetsToLoad) == 0
+
+	keyInTargetsToLoad := func(key string, targetsToLoad []string) bool {
+		keyInTargetsToLoad := false
+		for _, target := range targetsToLoad {
+			if key == target {
+				keyInTargetsToLoad = true
+				break
+			}
+		}
+		return keyInTargetsToLoad
+	}
+
 	for key, buildOpt := range buildOpts {
+		shouldLoad := loadAll || keyInTargetsToLoad(key, targetsToLoad)
+		if !shouldLoad {
+			continue
+		}
+
 		if len(buildOpt.Exports) != 0 {
 			continue // assume that exports already has a docker export.
 		}
