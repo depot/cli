@@ -136,7 +136,7 @@ func TestBuildPullOpt(t *testing.T) {
 			platform: "",
 			progress: "auto",
 			want: &pull{
-				imageName: "registry.depot.dev/project123/build456",
+				imageName:   "registry.depot.dev/project123/build456",
 				pullOptions: pullOptionsWithDefaults([]string{"myapp:latest", "myapp:v1.0"}, "", false),
 			},
 		},
@@ -146,7 +146,7 @@ func TestBuildPullOpt(t *testing.T) {
 			platform: "",
 			progress: "auto",
 			want: &pull{
-				imageName: "registry.depot.dev/project123/build456",
+				imageName:   "registry.depot.dev/project123/build456",
 				pullOptions: pullOptionsWithDefaults([]string{"custom:tag"}, "", false),
 			},
 		},
@@ -156,7 +156,7 @@ func TestBuildPullOpt(t *testing.T) {
 			platform: "linux/amd64",
 			progress: "auto",
 			want: &pull{
-				imageName: "registry.depot.dev/project123/build456",
+				imageName:   "registry.depot.dev/project123/build456",
 				pullOptions: pullOptionsWithDefaults([]string{"custom:tag"}, "linux/amd64", false),
 			},
 		},
@@ -166,7 +166,7 @@ func TestBuildPullOpt(t *testing.T) {
 			platform: "",
 			progress: "quiet",
 			want: &pull{
-				imageName: "registry.depot.dev/project123/build456",
+				imageName:   "registry.depot.dev/project123/build456",
 				pullOptions: pullOptionsWithDefaults([]string{"custom:tag"}, "", true),
 			},
 		},
@@ -266,11 +266,11 @@ func TestBakePullOpts(t *testing.T) {
 			progress: "auto",
 			want: []*pull{
 				{
-					imageName: "registry.depot.dev/project123/build456-web",
+					imageName:   "registry.depot.dev/project123/build456-web",
 					pullOptions: pullOptionsWithDefaults([]string{"myapp-web:latest"}, "", false),
 				},
 				{
-					imageName: "registry.depot.dev/project123/build456-api",
+					imageName:   "registry.depot.dev/project123/build456-api",
 					pullOptions: pullOptionsWithDefaults([]string{"myapp-api:latest"}, "", false),
 				},
 			},
@@ -283,7 +283,7 @@ func TestBakePullOpts(t *testing.T) {
 			progress: "auto",
 			want: []*pull{
 				{
-					imageName: "registry.depot.dev/project123/build456-web",
+					imageName:   "registry.depot.dev/project123/build456-web",
 					pullOptions: pullOptionsWithDefaults([]string{"myapp-web:latest"}, "", false),
 				},
 			},
@@ -296,11 +296,11 @@ func TestBakePullOpts(t *testing.T) {
 			progress: "auto",
 			want: []*pull{
 				{
-					imageName: "registry.depot.dev/project123/build456-web",
+					imageName:   "registry.depot.dev/project123/build456-web",
 					pullOptions: pullOptionsWithDefaults([]string{"custom:v1-web"}, "", false),
 				},
 				{
-					imageName: "registry.depot.dev/project123/build456-api",
+					imageName:   "registry.depot.dev/project123/build456-api",
 					pullOptions: pullOptionsWithDefaults([]string{"custom:v1-api"}, "", false),
 				},
 			},
@@ -313,7 +313,7 @@ func TestBakePullOpts(t *testing.T) {
 			progress: "auto",
 			want: []*pull{
 				{
-					imageName: "registry.depot.dev/project123/build456-web",
+					imageName:   "registry.depot.dev/project123/build456-web",
 					pullOptions: pullOptionsWithDefaults([]string{"custom:v1"}, "", false),
 				},
 			},
@@ -339,7 +339,7 @@ func pullOptionsWithDefaults(tags []string, platform string, quiet bool) pullOpt
 	username := "depot"
 	password := "token123"
 	serverAddress := "registry.depot.dev"
-	
+
 	opts := pullOptions{
 		UserTags:      tags,
 		Quiet:         quiet,
@@ -348,10 +348,10 @@ func pullOptionsWithDefaults(tags []string, platform string, quiet bool) pullOpt
 		Password:      &password,
 		ServerAddress: &serverAddress,
 	}
-	
+
 	if platform != "" {
 		opts.Platform = &platform
 	}
-	
+
 	return opts
 }

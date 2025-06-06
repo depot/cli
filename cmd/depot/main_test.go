@@ -8,46 +8,46 @@ import (
 
 func TestParseCmdSubcmd(t *testing.T) {
 	tests := []struct {
-		name     string
-		args     []string
-		wantCmd  string
-		wantSub  string
+		name    string
+		args    []string
+		wantCmd string
+		wantSub string
 	}{
 		{
-			name:     "buildx build command",
-			args:     []string{"buildx", "build", "."},
-			wantCmd:  "buildx",
-			wantSub:  "build",
+			name:    "buildx build command",
+			args:    []string{"buildx", "build", "."},
+			wantCmd: "buildx",
+			wantSub: "build",
 		},
 		{
-			name:     "buildx bake command",
-			args:     []string{"buildx", "bake", "target"},
-			wantCmd:  "buildx",
-			wantSub:  "bake",
+			name:    "buildx bake command",
+			args:    []string{"buildx", "bake", "target"},
+			wantCmd: "buildx",
+			wantSub: "bake",
 		},
 		{
-			name:     "command with flags",
-			args:     []string{"--verbose", "buildx", "--debug", "build", "."},
-			wantCmd:  "buildx",
-			wantSub:  "build",
+			name:    "command with flags",
+			args:    []string{"--verbose", "buildx", "--debug", "build", "."},
+			wantCmd: "buildx",
+			wantSub: "build",
 		},
 		{
-			name:     "single command",
-			args:     []string{"login"},
-			wantCmd:  "login",
-			wantSub:  "",
+			name:    "single command",
+			args:    []string{"login"},
+			wantCmd: "login",
+			wantSub: "",
 		},
 		{
-			name:     "command with flags only",
-			args:     []string{"--help"},
-			wantCmd:  "",
-			wantSub:  "",
+			name:    "command with flags only",
+			args:    []string{"--help"},
+			wantCmd: "",
+			wantSub: "",
 		},
 		{
-			name:     "empty args",
-			args:     []string{},
-			wantCmd:  "",
-			wantSub:  "",
+			name:    "empty args",
+			args:    []string{},
+			wantCmd: "",
+			wantSub: "",
 		},
 	}
 
@@ -56,10 +56,10 @@ func TestParseCmdSubcmd(t *testing.T) {
 			// Save original args
 			originalArgs := os.Args
 			defer func() { os.Args = originalArgs }()
-			
+
 			// Set test args
 			os.Args = append([]string{"depot"}, tt.args...)
-			
+
 			gotCmd, gotSub := parseCmdSubcmd()
 			if gotCmd != tt.wantCmd {
 				t.Errorf("parseCmdSubcmd() cmd = %v, want %v", gotCmd, tt.wantCmd)
@@ -114,10 +114,10 @@ func TestRewriteBuildxArgs(t *testing.T) {
 			// Save original args
 			originalArgs := os.Args
 			defer func() { os.Args = originalArgs }()
-			
+
 			// Set test args
 			os.Args = append([]string{"depot"}, tt.args...)
-			
+
 			got := rewriteBuildxArgs()
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("rewriteBuildxArgs() = %v, want %v", got, tt.want)
@@ -146,9 +146,9 @@ func TestShouldCheckForUpdate(t *testing.T) {
 			},
 		},
 		{
-			name:   "check enabled when env var not set",
-			want:   true, // This assumes we're running in a terminal
-			setup:  func() {},
+			name:    "check enabled when env var not set",
+			want:    true, // This assumes we're running in a terminal
+			setup:   func() {},
 			cleanup: func() {},
 		},
 	}
@@ -157,7 +157,7 @@ func TestShouldCheckForUpdate(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			tt.setup()
 			defer tt.cleanup()
-			
+
 			got := shouldCheckForUpdate()
 			// Note: This test depends on whether we're actually running in a terminal
 			// In CI environments, this might be false even without the env var

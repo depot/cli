@@ -148,7 +148,7 @@ func TestListToMap(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			tt.setup()
 			defer tt.cleanup()
-			
+
 			got := listToMap(tt.values, tt.defaultEnv)
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("listToMap() = %v, want %v", got, tt.want)
