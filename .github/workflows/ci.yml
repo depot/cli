@@ -5,7 +5,7 @@ on:
 
 jobs:
   lint:
-    runs-on: ubuntu-latest
+    runs-on: depot-ubuntu-latest
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.event.pull_request.base.repo.full_name
     steps:
       - uses: actions/checkout@v4
@@ -67,8 +67,27 @@ jobs:
       - run: pnpm type-check
         working-directory: npm
 
+  test:
+    runs-on: depot-ubuntu-latest
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.event.pull_request.base.repo.full_name
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+          check-latest: true
+          cache: true
+
+      - name: Verify dependencies
+        run: |
+          go mod verify
+          go mod download
+
+      - name: Run tests
+        run: go test -v ./...
+
   build:
-    runs-on: ubuntu-latest-16-cores
+    runs-on: depot-ubuntu-latest-16
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.event.pull_request.base.repo.full_name
     steps:
       - uses: actions/checkout@v4
@@ -104,7 +123,7 @@ jobs:
           DEPOT_CLI_VERSION: v0.0.0-dev
 
   package:
-    runs-on: ubuntu-latest
+    runs-on: depot-ubuntu-latest
     if: github.event_name != 'pull_request'
     permissions:
       contents: read
