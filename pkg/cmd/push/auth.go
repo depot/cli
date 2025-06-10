@@ -2,8 +2,10 @@ package push
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
 
 	"github.com/containerd/containerd/reference"
@@ -40,6 +42,34 @@ func GetAuthToken(ctx context.Context, dockerCli command.Cli, parsedTag *ParsedT
 
 // GetAuthConfig gets the auth config from the local docker login.
 func GetAuthConfig(dockerCli command.Cli, host string) (*configtypes.AuthConfig, error) {
+	username := os.Getenv("DEPOT_PUSH_REGISTRY_USERNAME")
+	registryPassword := os.Getenv("DEPOT_PUSH_REGISTRY_PASSWORD")
+
+	if username != "" && registryPassword != "" {
+		return &configtypes.AuthConfig{
+			Username: username,
+			Password: registryPassword,
+		}, nil
+	}
+
+	auth := os.Getenv("DEPOT_PUSH_REGISTRY_AUTH")
+	if auth != "" {
+		decoded, err := base64.StdEncoding.DecodeString(auth)
+		if err != nil {
+			return nil, err
+		}
+
+		parts := strings.SplitN(string(decoded), ":", 2)
+		if len(parts) != 2 || parts[0] == "" {
+			return nil, fmt.Errorf("invalid DEPOT_PUSH_REGISTRY_AUTH format, expected 'username:password'")
+		}
+
+		return &configtypes.AuthConfig{
+			Username: parts[0],
+			Password: parts[1],
+		}, nil
+	}
+
 	if host == "registry-1.docker.io" {
 		host = "https://index.docker.io/v1/"
 	}
