@@ -89,6 +89,21 @@ func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator, pri
 		requestedTargets = append(requestedTargets, target)
 	}
 
+	targetsToLoad := make([]string, 0)
+	for target, opts := range buildOpts {
+		shouldLoad := true
+		for _, export := range opts.Exports {
+			if export.Type == "cacheonly" {
+				shouldLoad = false
+				break
+			}
+		}
+
+		if shouldLoad {
+			targetsToLoad = append(targetsToLoad, target)
+		}
+	}
+
 	var (
 		pullOpts map[string]load.PullOptions
 		// Only used for failures to pull images.
@@ -174,12 +189,12 @@ func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator, pri
 		// Three concurrent pulls at a time to avoid overwhelming the registry.
 		eg.SetLimit(3)
 		for i := range resp {
-			func(i int, requestedTargets []string) {
+			func(i int, targetsToLoad []string) {
 				eg.Go(func() error {
 					depotResponses := []build.DepotBuildResponse{resp[i]}
 					var err error
 					// Only load images from requested targets to avoid pulling unnecessary images.
-					if slices.Contains(requestedTargets, resp[i].Name) {
+					if slices.Contains(targetsToLoad, resp[i].Name) {
 						reportingPrinter := progresshelper.NewReporter(ctx2, printer, in.buildID, in.token)
 						defer reportingPrinter.Close()
 						if in.DepotOptions.loadUsingRegistry && in.DepotOptions.pullInfo != nil {
@@ -191,7 +206,7 @@ func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator, pri
 					load.DeleteExportLeases(ctx2, depotResponses)
 					return err
 				})
-			}(i, requestedTargets)
+			}(i, targetsToLoad)
 		}
 
 		err = eg.Wait()
@@ -199,7 +214,7 @@ func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator, pri
 			// For now, we will fallback by rebuilding with load.
 			if in.exportLoad {
 				progress.Write(printer, "[load] fast load failed; retrying", func() error { return err })
-				buildOpts = load.WithDockerLoad(fallbackOpts)
+				buildOpts = load.WithSelectiveDockerLoad(fallbackOpts, targetsToLoad)
 				_, err = build.DepotBuild(ctx, buildxNodes, buildOpts, dockerClient, dockerConfigDir, printer, nil, in.DepotOptions.build)
 			}
 
