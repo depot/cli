@@ -483,6 +483,12 @@ depot pull <BUILD_ID>
 ### `depot push`
 
 Push an image from the Depot registry to a destination registry.
+By default, it uses registry credentials stored in Docker when pushing to registries.
+If you have not already authenticated with your registry, you can do so with `docker login`
+before running `depot push`.
+
+Alternatively, you can specify the environment variables `DEPOT_PUSH_REGISTRY_USERNAME` and `DEPOT_PUSH_REGISTRY_PASSWORD`
+for the registry credentials. This allows you to skip the `docker login` step.
 
 ```shell
 depot push --tag repo:tag <BUILD_ID>
