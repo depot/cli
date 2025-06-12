@@ -45,13 +45,11 @@ import (
 	"github.com/docker/cli-docs-tool/annotation"
 	"github.com/docker/cli/cli"
 	"github.com/docker/cli/cli/command"
-	"github.com/docker/cli/cli/config"
 	dockeropts "github.com/docker/cli/opts"
 	"github.com/docker/docker/pkg/ioutils"
 	"github.com/docker/go-units"
 	"github.com/moby/buildkit/client"
 	"github.com/moby/buildkit/exporter/containerimage/exptypes"
-	"github.com/moby/buildkit/session/auth/authprovider"
 	"github.com/moby/buildkit/solver/errdefs"
 	"github.com/moby/buildkit/util/appcontext"
 	"github.com/moby/buildkit/util/grpcerrors"
@@ -538,8 +536,7 @@ func validateBuildOptions(in *buildOptions) (map[string]build.Options, error) {
 	}
 	opts.Platforms = platforms
 
-	dockerConfig := config.LoadDefaultConfigFile(os.Stderr)
-	opts.Session = append(opts.Session, authprovider.NewDockerAuthProvider(dockerConfig))
+	opts.Session = append(opts.Session, registry.NewDockerAuthProviderWithDepotAuth())
 
 	secrets, err := buildflags.ParseSecretSpecs(in.secrets)
 	if err != nil {

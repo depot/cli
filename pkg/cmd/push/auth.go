@@ -2,16 +2,15 @@ package push
 
 import (
 	"context"
-	"encoding/base64"
 	"fmt"
 	"net/http"
-	"os"
 	"strings"
 
 	"github.com/containerd/containerd/reference"
 	"github.com/containerd/containerd/remotes/docker"
 	"github.com/containerd/containerd/remotes/docker/auth"
 	depotapi "github.com/depot/cli/pkg/api"
+	"github.com/depot/cli/pkg/registry"
 	"github.com/docker/cli/cli/command"
 	configtypes "github.com/docker/cli/cli/config/types"
 	ocispecs "github.com/opencontainers/image-spec/specs-go/v1"
@@ -42,32 +41,9 @@ func GetAuthToken(ctx context.Context, dockerCli command.Cli, parsedTag *ParsedT
 
 // GetAuthConfig gets the auth config from the local docker login.
 func GetAuthConfig(dockerCli command.Cli, host string) (*configtypes.AuthConfig, error) {
-	username := os.Getenv("DEPOT_PUSH_REGISTRY_USERNAME")
-	registryPassword := os.Getenv("DEPOT_PUSH_REGISTRY_PASSWORD")
-
-	if username != "" && registryPassword != "" {
-		return &configtypes.AuthConfig{
-			Username: username,
-			Password: registryPassword,
-		}, nil
-	}
-
-	auth := os.Getenv("DEPOT_PUSH_REGISTRY_AUTH")
-	if auth != "" {
-		decoded, err := base64.StdEncoding.DecodeString(auth)
-		if err != nil {
-			return nil, err
-		}
-
-		parts := strings.SplitN(string(decoded), ":", 2)
-		if len(parts) != 2 || parts[0] == "" {
-			return nil, fmt.Errorf("invalid DEPOT_PUSH_REGISTRY_AUTH format, expected 'username:password'")
-		}
-
-		return &configtypes.AuthConfig{
-			Username: parts[0],
-			Password: parts[1],
-		}, nil
+	// First try to get credentials from DEPOT environment variables
+	if depotAuth := registry.GetDepotAuthConfig(); depotAuth != nil {
+		return (*configtypes.AuthConfig)(depotAuth), nil
 	}
 
 	if host == "registry-1.docker.io" {
