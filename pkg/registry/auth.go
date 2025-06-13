@@ -100,7 +100,7 @@ type DepotAuthProvider struct {
 func NewDockerAuthProviderWithDepotAuth() session.Attachable {
 	dockerConfig := config.LoadDefaultConfigFile(os.Stderr)
 	innerProvider := authprovider.NewDockerAuthProvider(dockerConfig)
-	
+
 	return &DepotAuthProvider{
 		inner: innerProvider.(auth.AuthServer),
 	}
@@ -118,7 +118,7 @@ func (a *DepotAuthProvider) Credentials(ctx context.Context, req *auth.Credentia
 			Secret:   creds.Password,
 		}, nil
 	}
-	
+
 	// Fall back to the default Docker auth provider
 	return a.inner.Credentials(ctx, req)
 }
@@ -141,14 +141,14 @@ func GetDepotAuthConfig() *types.AuthConfig {
 	// Try username/password environment variables first
 	username := os.Getenv("DEPOT_PUSH_REGISTRY_USERNAME")
 	registryPassword := os.Getenv("DEPOT_PUSH_REGISTRY_PASSWORD")
-	
+
 	if username != "" && registryPassword != "" {
 		return &types.AuthConfig{
 			Username: username,
 			Password: registryPassword,
 		}
 	}
-	
+
 	// Try base64 encoded auth string
 	auth := os.Getenv("DEPOT_PUSH_REGISTRY_AUTH")
 	if auth != "" {
@@ -163,6 +163,6 @@ func GetDepotAuthConfig() *types.AuthConfig {
 			}
 		}
 	}
-	
+
 	return nil
 }
