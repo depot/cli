@@ -139,9 +139,27 @@ func WithDepotImagePull(buildOpts map[string]build.Options, loadOpts DepotLoadOp
 // NOTE: this means that a single tar will be sent from buildkit to the client and
 // imported into the docker daemon.  This is quite slow.
 func WithDockerLoad(buildOpts map[string]build.Options) map[string]build.Options {
+	targetsToLoad := make([]string, 0, len(buildOpts))
+	for key := range buildOpts {
+		targetsToLoad = append(targetsToLoad, key)
+	}
+	return WithSelectiveDockerLoad(buildOpts, targetsToLoad)
+}
+
+// WithSelectiveDockerLoad adds docker export only to specified targets
+func WithSelectiveDockerLoad(buildOpts map[string]build.Options, targetsToLoad []string) map[string]build.Options {
+	targetSet := make(map[string]bool)
+	for _, target := range targetsToLoad {
+		targetSet[target] = true
+	}
+
 	for key, buildOpt := range buildOpts {
+		if !targetSet[key] {
+			continue
+		}
+
 		if len(buildOpt.Exports) != 0 {
-			continue // assume that exports already has a docker export.
+			continue
 		}
 		buildOpt.Exports = []client.ExportEntry{
 			{
