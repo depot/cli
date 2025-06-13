@@ -16,14 +16,13 @@ import (
 	composecli "github.com/compose-spec/compose-go/v2/cli"
 	"github.com/depot/cli/pkg/buildx/bake/buildflags"
 	"github.com/depot/cli/pkg/buildx/bake/hclparser"
+	"github.com/depot/cli/pkg/registry"
 	"github.com/docker/buildx/build"
 	"github.com/docker/buildx/util/platformutil"
-	"github.com/docker/cli/cli/config"
 	"github.com/docker/cli/opts"
 	"github.com/docker/docker/builder/remotecontext/urlutil"
 	hcl "github.com/hashicorp/hcl/v2"
 	"github.com/moby/buildkit/client/llb"
-	"github.com/moby/buildkit/session/auth/authprovider"
 	"github.com/pkg/errors"
 	"github.com/zclconf/go-cty/cty"
 	"github.com/zclconf/go-cty/cty/convert"
@@ -1206,8 +1205,7 @@ func toBuildOpt(t *Target, inp *Input) (*build.Options, error) {
 	}
 	bo.Platforms = platforms
 
-	dockerConfig := config.LoadDefaultConfigFile(os.Stderr)
-	bo.Session = append(bo.Session, authprovider.NewDockerAuthProvider(dockerConfig))
+	bo.Session = append(bo.Session, registry.NewDockerAuthProviderWithDepotAuth())
 
 	secrets := t.Secrets.Normalize()
 	secretAttachment, err := buildflags.CreateSecrets(secrets)
