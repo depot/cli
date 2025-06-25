@@ -25,7 +25,7 @@ import (
 // Unfortunately, we need to manually parse flags to allow passing argv to Claude
 func NewCmdClaude() *cobra.Command {
 	var (
-		sessionID       string
+		customSessionID string
 		orgID           string
 		token           string
 		resumeSessionID string
@@ -38,9 +38,9 @@ func NewCmdClaude() *cobra.Command {
 		Short: "Run claude with automatic session persistence",
 		Long: `Run claude CLI with automatic session saving and resuming via Depot.
 		
-Sessions are stored by Depot and can be resumed by tag or session ID.
-When using --session-id, the session will be uploaded on exit.
-When using --resume <session-id-or-tag>, Depot will first check for a local session file,
+Sessions are stored by Depot and can be resumed by session ID
+The session is always uploaded on exit, though you can modify the name of the session with the --session-id flag
+When using --resume <session-id>, Depot will first check for a local session file,
 and if not found, will attempt to download it from Depot's servers.
 
 Organization ID is required and can be specified via:
@@ -60,8 +60,9 @@ All other flags are passed through to the claude CLI.`,
   # Non-interactive usage - use -p flag for scripts
   depot claude --session-id feature-branch -p "implement user authentication"
   
-  # Resume a session by tag or ID
+  # Resume a session by ID
   depot claude --resume feature-branch -p "add error handling"
+  depot claude --resume 09b15b34-2df4-48ae-9b9e-1de0aa09e43f -p "continue where we left off"
   depot claude --resume abc123def456
   
   # Use in a script with piped input
@@ -83,7 +84,7 @@ All other flags are passed through to the claude CLI.`,
 				switch arg {
 				case "--session-id":
 					if i+1 < len(args) {
-						sessionID = args[i+1]
+						customSessionID = args[i+1]
 						i++
 					}
 				case "--org":
@@ -105,7 +106,7 @@ All other flags are passed through to the claude CLI.`,
 					}
 				default:
 					if strings.HasPrefix(arg, "--session-id=") {
-						sessionID = strings.TrimPrefix(arg, "--session-id=")
+						customSessionID = strings.TrimPrefix(arg, "--session-id=")
 					} else if strings.HasPrefix(arg, "--resume=") {
 						resumeSessionID = strings.TrimPrefix(arg, "--resume=")
 					} else if strings.HasPrefix(arg, "--org=") {
@@ -159,11 +160,12 @@ All other flags are passed through to the claude CLI.`,
 			}
 			sessionDir := filepath.Join(homeDir, ".claude", "projects")
 
+			cwd, err := os.Getwd()
+			if err != nil {
+				return fmt.Errorf("failed to get working directory: %w", err)
+			}
+
 			if resumeSessionID != "" {
-				cwd, err := os.Getwd()
-				if err != nil {
-					return fmt.Errorf("failed to get working directory: %w", err)
-				}
 				projectDir := filepath.Join(sessionDir, convertPathToProjectName(cwd))
 				localSessionFile := filepath.Join(projectDir, fmt.Sprintf("%s.jsonl", resumeSessionID))
 
@@ -185,23 +187,21 @@ All other flags are passed through to the claude CLI.`,
 
 			err = claudeCmd.Run()
 
-			if sessionID != "" {
-				cwd, cwdErr := os.Getwd()
-				if cwdErr != nil {
-					return fmt.Errorf("failed to get working directory: %w", cwdErr)
-				}
-
-				sessionFile, findErr := findLatestSessionFile(sessionDir, cwd)
-				if findErr != nil {
-					return fmt.Errorf("failed to find session file: %w", findErr)
-				}
-
-				if saveErr := saveSession(ctx, client, token, sessionID, sessionFile, retryCount, retryDelay, orgID); saveErr != nil {
-					return fmt.Errorf("failed to save session: %w", saveErr)
-				}
-
-				fmt.Fprintf(os.Stderr, "\n✓ Session saved with tag: %s\n", sessionID)
+			sessionFileName, findErr := findLatestSessionFile(sessionDir, cwd)
+			if findErr != nil {
+				return fmt.Errorf("failed to find session file: %w", findErr)
 			}
+
+			if customSessionID == "" {
+				customSessionID = filepath.Base(strings.TrimSuffix(sessionFileName, ".jsonl"))
+			}
+
+			saveErr := saveSession(ctx, client, token, customSessionID, sessionFileName, retryCount, retryDelay, orgID)
+			if saveErr != nil {
+				return fmt.Errorf("failed to save session: %w", saveErr)
+			}
+
+			fmt.Fprintf(os.Stderr, "\n✓ Session saved with ID: %s\n", customSessionID)
 
 			return err
 		},
@@ -253,7 +253,7 @@ func resumeSession(ctx context.Context, client agentv1connect.ClaudeServiceClien
 		return "", fmt.Errorf("failed to write session file: %w", err)
 	}
 
-	fmt.Fprintf(os.Stderr, "✓ Resumed session with tag: %s\n", identifier)
+	fmt.Fprintf(os.Stderr, "✓ Resumed session with ID: %s\n", identifier)
 	return resp.Msg.SessionId, nil
 }
 
