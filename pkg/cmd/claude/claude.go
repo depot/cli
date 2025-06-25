@@ -3,6 +3,7 @@ package claude
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -23,12 +24,12 @@ import (
 // Unfortunately, we need to manually parse flags to allow passing argv to Claude
 func NewCmdClaude() *cobra.Command {
 	var (
-		saveTag    string
-		resumeTag  string
-		orgID      string
-		token      string
-		retryCount = 3
-		retryDelay = 2 * time.Second
+		saveTag         string
+		orgID           string
+		token           string
+		resumeSessionID string
+		retryCount      = 3
+		retryDelay      = 2 * time.Second
 	)
 
 	cmd := &cobra.Command{
@@ -36,9 +37,10 @@ func NewCmdClaude() *cobra.Command {
 		Short: "Run claude with automatic session persistence",
 		Long: `Run claude CLI with automatic session saving and resuming via Depot.
 		
-Sessions are stored by Depot and can be resumed by tag.
+Sessions are stored by Depot and can be resumed by tag or session ID.
 When using --save-tag, the session will be uploaded on exit.
-When using --resume-tag, the previous session will be downloaded before starting.
+When using --resume <session-id-or-tag>, Depot will first check for a local session file,
+and if not found, will attempt to download it from Depot's servers.
 
 Organization ID is required and can be specified via:
 - --org flag
@@ -47,7 +49,9 @@ Organization ID is required and can be specified via:
 Authentication token can be specified via:
 - --token flag
 - DEPOT_TOKEN environment variable
-- depot login command`,
+- depot login command
+
+All other flags are passed through to the claude CLI.`,
 		Example: `
   # Interactive usage - run claude and save session
   depot claude --save-tag feature-branch
@@ -55,8 +59,9 @@ Authentication token can be specified via:
   # Non-interactive usage - use -p flag for scripts
   depot claude --save-tag feature-branch -p "implement user authentication"
   
-  # Resume a session and provide prompt
-  depot claude --resume-tag feature-branch -p "add error handling"
+  # Resume a session by tag or ID
+  depot claude --resume feature-branch -p "add error handling"
+  depot claude --resume abc123def456
   
   # Use in a script with piped input
   cat code.py | depot claude -p "review this code" --save-tag code-review
@@ -80,11 +85,6 @@ Authentication token can be specified via:
 						saveTag = args[i+1]
 						i++
 					}
-				case "--resume-tag":
-					if i+1 < len(args) {
-						resumeTag = args[i+1]
-						i++
-					}
 				case "--org":
 					if i+1 < len(args) {
 						orgID = args[i+1]
@@ -95,11 +95,18 @@ Authentication token can be specified via:
 						token = args[i+1]
 						i++
 					}
+				case "--resume":
+					if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
+						resumeSessionID = args[i+1]
+						i++
+					} else {
+						claudeArgs = append(claudeArgs, arg)
+					}
 				default:
 					if strings.HasPrefix(arg, "--save-tag=") {
 						saveTag = strings.TrimPrefix(arg, "--save-tag=")
-					} else if strings.HasPrefix(arg, "--resume-tag=") {
-						resumeTag = strings.TrimPrefix(arg, "--resume-tag=")
+					} else if strings.HasPrefix(arg, "--resume=") {
+						resumeSessionID = strings.TrimPrefix(arg, "--resume=")
 					} else if strings.HasPrefix(arg, "--org=") {
 						orgID = strings.TrimPrefix(arg, "--org=")
 					} else if strings.HasPrefix(arg, "--token=") {
@@ -159,19 +166,22 @@ Authentication token can be specified via:
 			}
 			sessionDir := filepath.Join(homeDir, ".claude", "projects")
 
-			var sessionID string
-			if resumeTag != "" {
+			if resumeSessionID != "" {
 				cwd, err := os.Getwd()
 				if err != nil {
 					return fmt.Errorf("failed to get working directory: %w", err)
 				}
+				projectDir := filepath.Join(sessionDir, convertPathToProjectName(cwd))
+				localSessionFile := filepath.Join(projectDir, fmt.Sprintf("%s.jsonl", resumeSessionID))
 
-				sessionID, err = resumeSession(ctx, client, token, resumeTag, sessionDir, cwd, orgID, retryCount, retryDelay)
-				if err != nil {
-					return fmt.Errorf("failed to resume session: %w", err)
+				if _, err := os.Stat(localSessionFile); errors.Is(err, os.ErrNotExist) {
+					sessionID, err := resumeSession(ctx, client, token, resumeSessionID, sessionDir, cwd, orgID, retryCount, retryDelay)
+					if err != nil {
+						return fmt.Errorf("session '%s' not found locally or remotely: %w", resumeSessionID, err)
+					}
+					resumeSessionID = sessionID
 				}
-
-				claudeArgs = append([]string{"--resume", sessionID}, claudeArgs...)
+				claudeArgs = append(claudeArgs, "--resume", resumeSessionID)
 			}
 
 			claudeCmd := exec.Command(claudePath, claudeArgs...)
