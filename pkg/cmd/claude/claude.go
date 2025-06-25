@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -334,10 +335,14 @@ func findLatestSessionFile(sessionDir, cwd string) (string, error) {
 	return latestFile, nil
 }
 
+var nonAlphanumericRegex = regexp.MustCompile(`[^a-zA-Z0-9]`)
+
 func convertPathToProjectName(path string) string {
 	// Convert absolute path to project name format used by claude
 	// e.g., /Users/billy/Work -> -Users-billy-Work
+	// e.g., /Users/jacobwgillespie/.dotfiles -> -Users-jacobwgillespie--dotfiles
 	cleaned := filepath.Clean(path)
-	// Replace all path separators with dashes
-	return strings.ReplaceAll(cleaned, string(filepath.Separator), "-")
+
+	// this matches Claude's implementation: B.replace(/[^a-zA-Z0-9]/g, "-"))
+	return nonAlphanumericRegex.ReplaceAllString(cleaned, "-")
 }
