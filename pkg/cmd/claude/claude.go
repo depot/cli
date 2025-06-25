@@ -18,6 +18,7 @@ import (
 	"github.com/depot/cli/pkg/helpers"
 	agentv1 "github.com/depot/cli/pkg/proto/depot/agent/v1"
 	"github.com/depot/cli/pkg/proto/depot/agent/v1/agentv1connect"
+	"github.com/fsnotify/fsnotify"
 	"github.com/spf13/cobra"
 )
 
@@ -179,13 +180,28 @@ All other flags are passed through to the claude CLI.`,
 				claudeArgs = append(claudeArgs, "--resume", resumeSessionID)
 			}
 
-			claudeCmd := exec.Command(claudePath, claudeArgs...)
+			claudeCtx, claudeCtxCancel := context.WithCancel(ctx)
+			defer claudeCtxCancel()
+
+			claudeCmd := exec.CommandContext(claudeCtx, claudePath, claudeArgs...)
 			claudeCmd.Stdin = os.Stdin
 			claudeCmd.Stdout = os.Stdout
 			claudeCmd.Stderr = os.Stderr
 			claudeCmd.Env = os.Environ()
 
-			err = claudeCmd.Run()
+			if err := claudeCmd.Start(); err != nil {
+				return fmt.Errorf("failed to start claude: %w", err)
+			}
+
+			projectDir := filepath.Join(sessionDir, convertPathToProjectName(cwd))
+			go func() {
+				if err := continouslySaveSessionFile(claudeCtx, projectDir, client, token, customSessionID, orgID); err != nil {
+					fmt.Fprintf(os.Stderr, "\nFailed to continiously save session file: %s", err)
+				}
+			}()
+
+			claudeErr := claudeCmd.Wait()
+			claudeCtxCancel()
 
 			sessionFileName, findErr := findLatestSessionFile(sessionDir, cwd)
 			if findErr != nil {
@@ -203,7 +219,7 @@ All other flags are passed through to the claude CLI.`,
 
 			fmt.Fprintf(os.Stderr, "\n✓ Session saved with ID: %s\n", customSessionID)
 
-			return err
+			return claudeErr
 		},
 	}
 
@@ -335,4 +351,98 @@ func convertPathToProjectName(path string) string {
 
 	// this matches Claude's implementation: B.replace(/[^a-zA-Z0-9]/g, "-"))
 	return nonAlphanumericRegex.ReplaceAllString(cleaned, "-")
+}
+
+// continouslySaveSessionFile monitors the project directory for new or changed session files and automatically saves them
+func continouslySaveSessionFile(ctx context.Context, projectDir string, client agentv1connect.ClaudeServiceClient, token, customSessionID, orgID string) error {
+	var sessionFile string
+	var lastModTime time.Time
+	startTime := time.Now()
+
+	saveFile := func(filePath string) {
+		// check if file was modified after we started
+		fileInfo, err := os.Stat(filePath)
+		if err != nil {
+			return
+		}
+		if fileInfo.ModTime().Before(startTime) {
+			return
+		}
+
+		if lastModTime.Equal(fileInfo.ModTime()) {
+			return
+		}
+
+		lastModTime = fileInfo.ModTime()
+
+		sessionID := customSessionID
+		if sessionID == "" {
+			sessionID = filepath.Base(strings.TrimSuffix(filePath, ".jsonl"))
+		}
+
+		if debug {
+			fmt.Fprintf(os.Stderr, "[DEBUG] Uploading session %s from file %s\n", sessionID, filePath)
+		}
+
+		if err := saveSession(ctx, client, token, sessionID, filePath, 3, 2*time.Second, orgID); err != nil {
+			fmt.Fprintf(os.Stderr, "\nWarning: failed to continuously save session: %v\n", err)
+		}
+	}
+
+	if err := os.MkdirAll(projectDir, 0755); err != nil {
+		return fmt.Errorf("failed to create project directory: %w", err)
+	}
+
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		return fmt.Errorf("failed to create file watcher: %w", err)
+	}
+	defer watcher.Close()
+
+	if err := watcher.Add(projectDir); err != nil {
+		return fmt.Errorf("failed to watch directory: %w", err)
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+
+		case event, ok := <-watcher.Events:
+			if !ok {
+				return nil
+			}
+
+			if event.Op&(fsnotify.Write|fsnotify.Create) == 0 {
+				continue
+			}
+
+			changedFileAbsPath, err := filepath.Abs(event.Name)
+			if err != nil {
+				return fmt.Errorf("failed to create absolute path for file %s", event.Name)
+			}
+
+			shouldProcess := false
+			if sessionFile == "" {
+				// no session tracked yet, check if this is a .jsonl file
+				shouldProcess = strings.HasSuffix(changedFileAbsPath, ".jsonl")
+			} else {
+				// we're already tracking a session, only process if it's our file
+				shouldProcess = changedFileAbsPath == sessionFile
+			}
+
+			if shouldProcess {
+				saveFile(changedFileAbsPath)
+			}
+
+		case err, ok := <-watcher.Errors:
+			if !ok {
+				return nil
+			}
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "\nWarning: file watcher error: %v\n", err)
+			}
+
+		}
+	}
 }
