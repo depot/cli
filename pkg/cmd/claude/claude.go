@@ -25,7 +25,7 @@ import (
 // Unfortunately, we need to manually parse flags to allow passing argv to Claude
 func NewCmdClaude() *cobra.Command {
 	var (
-		saveTag         string
+		sessionID       string
 		orgID           string
 		token           string
 		resumeSessionID string
@@ -39,7 +39,7 @@ func NewCmdClaude() *cobra.Command {
 		Long: `Run claude CLI with automatic session saving and resuming via Depot.
 		
 Sessions are stored by Depot and can be resumed by tag or session ID.
-When using --save-tag, the session will be uploaded on exit.
+When using --session-id, the session will be uploaded on exit.
 When using --resume <session-id-or-tag>, Depot will first check for a local session file,
 and if not found, will attempt to download it from Depot's servers.
 
@@ -55,23 +55,23 @@ Authentication token can be specified via:
 All other flags are passed through to the claude CLI.`,
 		Example: `
   # Interactive usage - run claude and save session
-  depot claude --save-tag feature-branch
+  depot claude --session-id feature-branch
   
   # Non-interactive usage - use -p flag for scripts
-  depot claude --save-tag feature-branch -p "implement user authentication"
+  depot claude --session-id feature-branch -p "implement user authentication"
   
   # Resume a session by tag or ID
   depot claude --resume feature-branch -p "add error handling"
   depot claude --resume abc123def456
   
   # Use in a script with piped input
-  cat code.py | depot claude -p "review this code" --save-tag code-review
+  cat code.py | depot claude -p "review this code" --session-id code-review
   
   # Set an organization with --org flag
-  depot claude --org different-org-id --save-tag team-session -p "create API endpoint"
+  depot claude --org different-org-id --session-id team-session -p "create API endpoint"
   
   # Use a specific token
-  depot claude --token my-api-token --save-tag secure-session -p "analyze security logs"`,
+  depot claude --token my-api-token --session-id secure-session -p "analyze security logs"`,
 		Args:               cobra.ArbitraryArgs,
 		DisableFlagParsing: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -81,9 +81,9 @@ All other flags are passed through to the claude CLI.`,
 			for i := 0; i < len(args); i++ {
 				arg := args[i]
 				switch arg {
-				case "--save-tag":
+				case "--session-id":
 					if i+1 < len(args) {
-						saveTag = args[i+1]
+						sessionID = args[i+1]
 						i++
 					}
 				case "--org":
@@ -104,8 +104,8 @@ All other flags are passed through to the claude CLI.`,
 						claudeArgs = append(claudeArgs, arg)
 					}
 				default:
-					if strings.HasPrefix(arg, "--save-tag=") {
-						saveTag = strings.TrimPrefix(arg, "--save-tag=")
+					if strings.HasPrefix(arg, "--session-id=") {
+						sessionID = strings.TrimPrefix(arg, "--session-id=")
 					} else if strings.HasPrefix(arg, "--resume=") {
 						resumeSessionID = strings.TrimPrefix(arg, "--resume=")
 					} else if strings.HasPrefix(arg, "--org=") {
@@ -185,7 +185,7 @@ All other flags are passed through to the claude CLI.`,
 
 			err = claudeCmd.Run()
 
-			if saveTag != "" {
+			if sessionID != "" {
 				cwd, cwdErr := os.Getwd()
 				if cwdErr != nil {
 					return fmt.Errorf("failed to get working directory: %w", cwdErr)
@@ -196,11 +196,11 @@ All other flags are passed through to the claude CLI.`,
 					return fmt.Errorf("failed to find session file: %w", findErr)
 				}
 
-				if saveErr := saveSession(ctx, client, token, saveTag, sessionFile, retryCount, retryDelay, orgID); saveErr != nil {
+				if saveErr := saveSession(ctx, client, token, sessionID, sessionFile, retryCount, retryDelay, orgID); saveErr != nil {
 					return fmt.Errorf("failed to save session: %w", saveErr)
 				}
 
-				fmt.Fprintf(os.Stderr, "\n✓ Session saved with tag: %s\n", saveTag)
+				fmt.Fprintf(os.Stderr, "\n✓ Session saved with tag: %s\n", sessionID)
 			}
 
 			return err
