@@ -1,0 +1,30 @@
+syntax = "proto3";
+
+package depot.agent.v1;
+
+service ClaudeService {
+  rpc UploadClaudeSession(UploadClaudeSessionRequest) returns (UploadClaudeSessionResponse);
+  rpc DownloadClaudeSession(DownloadClaudeSessionRequest) returns (DownloadClaudeSessionResponse);
+}
+
+message UploadClaudeSessionRequest {
+  string tag = 1;
+  bytes session_data = 2;
+  string session_id = 3;
+  string organization_id = 4;
+}
+
+message UploadClaudeSessionResponse {
+  string session_id = 1;
+  bool success = 2;
+}
+
+message DownloadClaudeSessionRequest {
+  string tag = 1;
+  string organization_id = 2;
+}
+
+message DownloadClaudeSessionResponse {
+  string session_id = 1;
+  bytes session_data = 2;
+}
