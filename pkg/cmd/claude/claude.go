@@ -205,7 +205,7 @@ All other flags are passed through to the claude CLI.`,
 
 			projectDir := filepath.Join(sessionDir, convertPathToProjectName(cwd))
 			go func() {
-				if err := continouslySaveSessionFile(claudeCtx, projectDir, client, token, customSessionID, orgID); err != nil {
+				if err := continuouslySaveSessionFile(claudeCtx, projectDir, client, token, customSessionID, orgID); err != nil {
 					fmt.Fprintf(os.Stderr, "\nFailed to continiously save session file: %s", err)
 				}
 			}()
@@ -364,7 +364,7 @@ func convertPathToProjectName(path string) string {
 }
 
 // continouslySaveSessionFile monitors the project directory for new or changed session files and automatically saves them
-func continouslySaveSessionFile(ctx context.Context, projectDir string, client agentv1connect.ClaudeServiceClient, token, customSessionID, orgID string) error {
+func continuouslySaveSessionFile(ctx context.Context, projectDir string, client agentv1connect.ClaudeServiceClient, token, customSessionID, orgID string) error {
 	var sessionFile string
 	var lastModTime time.Time
 	startTime := time.Now()
