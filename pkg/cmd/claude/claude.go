@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,6 +14,7 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"github.com/depot/cli/pkg/api"
 	"github.com/depot/cli/pkg/helpers"
 	agentv1 "github.com/depot/cli/pkg/proto/depot/agent/v1"
 	"github.com/depot/cli/pkg/proto/depot/agent/v1/agentv1connect"
@@ -139,11 +139,6 @@ All other flags are passed through to the claude CLI.`,
 				return fmt.Errorf("missing API token, please run `depot login`")
 			}
 
-			apiURL := os.Getenv("DEPOT_API_URL")
-			if apiURL == "" {
-				apiURL = "https://api.depot.dev"
-			}
-
 			if orgID == "" {
 				orgID = os.Getenv("DEPOT_ORG_ID")
 			}
@@ -151,10 +146,7 @@ All other flags are passed through to the claude CLI.`,
 				return fmt.Errorf("organization ID is required. Set DEPOT_ORG_ID environment variable or use --org flag")
 			}
 
-			client := agentv1connect.NewClaudeServiceClient(
-				http.DefaultClient,
-				apiURL,
-			)
+			client := api.NewClaudeClient()
 
 			claudePath, err := exec.LookPath("claude")
 			if err != nil {
