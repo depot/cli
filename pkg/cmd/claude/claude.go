@@ -295,7 +295,7 @@ func findLatestSessionFile(sessionDir, cwd string) (string, error) {
 
 	entries, err := os.ReadDir(projectDir)
 	if err != nil {
-		return "", fmt.Errorf("project directory not found: %s", projectDir)
+		return "", fmt.Errorf("project directory %s not found: %w", projectDir, err)
 	}
 
 	var latestFile string
