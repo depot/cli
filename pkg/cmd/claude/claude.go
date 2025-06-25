@@ -223,9 +223,8 @@ func resumeSession(ctx context.Context, client agentv1connect.ClaudeServiceClien
 			Tag:            identifier,
 			OrganizationId: orgID,
 		})
-		req.Header().Set("Authorization", "Bearer "+token)
 
-		resp, lastErr = client.DownloadClaudeSession(ctx, req)
+		resp, lastErr = client.DownloadClaudeSession(ctx, api.WithAuthentication(req, token))
 		if lastErr == nil {
 			break
 		}
@@ -275,9 +274,8 @@ func saveSession(ctx context.Context, client agentv1connect.ClaudeServiceClient,
 			SessionData:    data,
 			OrganizationId: orgID,
 		})
-		req.Header().Set("Authorization", "Bearer "+token)
 
-		resp, err := client.UploadClaudeSession(ctx, req)
+		resp, err := client.UploadClaudeSession(ctx, api.WithAuthentication(req, token))
 		if err != nil {
 			lastErr = err
 			continue
