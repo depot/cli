@@ -228,7 +228,7 @@ All other flags are passed through to the claude CLI.`,
 				return fmt.Errorf("failed to save session: %w", saveErr)
 			}
 
-			fmt.Fprintf(os.Stderr, "\n✓ Session saved with ID: %s\n", customSessionID)
+			fmt.Fprintf(os.Stdout, "\n✓ Session saved with ID: %s\n", customSessionID)
 
 			if claudeErr != nil {
 				return claudeErr
