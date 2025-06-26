@@ -133,18 +133,17 @@ All other flags are passed through to the claude CLI.`,
 				}
 			}
 
+			// show Depot help, then Claude's
 			if helpRequested {
-				// Show depot help first
-				cmd.Help()
+				if err := cmd.Help(); err != nil {
+					return err
+				}
 
-				// Then show claude help
 				fmt.Fprintln(os.Stderr, "\n--- Claude CLI Help ---")
 				claudeCmd := exec.CommandContext(ctx, "claude", "--help")
 				claudeCmd.Stdout = os.Stderr
 				claudeCmd.Stderr = os.Stderr
-				claudeCmd.Run()
-
-				return nil
+				return claudeCmd.Run()
 			}
 
 			token, err := helpers.ResolveToken(ctx, token)
