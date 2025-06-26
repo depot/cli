@@ -44,7 +44,7 @@ The session is always uploaded on exit. You can modify the name of the session w
 When using --resume <session-id>, Depot will first check for a local session file,
 and if not found, will attempt to download it from Depot's servers.
 
-IMPORTANT: All flags not recognized by depot (--session-id, --org, --token, --resume)
+All flags not recognized by depot (--session-id, --org, --token, --resume)
 are passed directly through to the claude CLI. This includes claude flags like -p, --model, etc.
 
 Organization ID can be specified via:
