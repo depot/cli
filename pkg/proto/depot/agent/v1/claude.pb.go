@@ -25,10 +25,10 @@ type UploadClaudeSessionRequest struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	Tag            string `protobuf:"bytes,1,opt,name=tag,proto3" json:"tag,omitempty"`
-	SessionData    []byte `protobuf:"bytes,2,opt,name=session_data,json=sessionData,proto3" json:"session_data,omitempty"`
-	SessionId      string `protobuf:"bytes,3,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
-	OrganizationId string `protobuf:"bytes,4,opt,name=organization_id,json=organizationId,proto3" json:"organization_id,omitempty"`
+	Tag            string  `protobuf:"bytes,1,opt,name=tag,proto3" json:"tag,omitempty"`
+	SessionData    []byte  `protobuf:"bytes,2,opt,name=session_data,json=sessionData,proto3" json:"session_data,omitempty"`
+	SessionId      string  `protobuf:"bytes,3,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	OrganizationId *string `protobuf:"bytes,4,opt,name=organization_id,json=organizationId,proto3,oneof" json:"organization_id,omitempty"`
 }
 
 func (x *UploadClaudeSessionRequest) Reset() {
@@ -85,8 +85,8 @@ func (x *UploadClaudeSessionRequest) GetSessionId() string {
 }
 
 func (x *UploadClaudeSessionRequest) GetOrganizationId() string {
-	if x != nil {
-		return x.OrganizationId
+	if x != nil && x.OrganizationId != nil {
+		return *x.OrganizationId
 	}
 	return ""
 }
@@ -151,8 +151,8 @@ type DownloadClaudeSessionRequest struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	Tag            string `protobuf:"bytes,1,opt,name=tag,proto3" json:"tag,omitempty"`
-	OrganizationId string `protobuf:"bytes,2,opt,name=organization_id,json=organizationId,proto3" json:"organization_id,omitempty"`
+	Tag            string  `protobuf:"bytes,1,opt,name=tag,proto3" json:"tag,omitempty"`
+	OrganizationId *string `protobuf:"bytes,2,opt,name=organization_id,json=organizationId,proto3,oneof" json:"organization_id,omitempty"`
 }
 
 func (x *DownloadClaudeSessionRequest) Reset() {
@@ -195,8 +195,8 @@ func (x *DownloadClaudeSessionRequest) GetTag() string {
 }
 
 func (x *DownloadClaudeSessionRequest) GetOrganizationId() string {
-	if x != nil {
-		return x.OrganizationId
+	if x != nil && x.OrganizationId != nil {
+		return *x.OrganizationId
 	}
 	return ""
 }
@@ -256,12 +256,177 @@ func (x *DownloadClaudeSessionResponse) GetSessionData() []byte {
 	return nil
 }
 
+type ListClaudeSessionsRequest struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	OrganizationId *string `protobuf:"bytes,1,opt,name=organization_id,json=organizationId,proto3,oneof" json:"organization_id,omitempty"`
+}
+
+func (x *ListClaudeSessionsRequest) Reset() {
+	*x = ListClaudeSessionsRequest{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_depot_agent_v1_claude_proto_msgTypes[4]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *ListClaudeSessionsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListClaudeSessionsRequest) ProtoMessage() {}
+
+func (x *ListClaudeSessionsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_depot_agent_v1_claude_proto_msgTypes[4]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListClaudeSessionsRequest.ProtoReflect.Descriptor instead.
+func (*ListClaudeSessionsRequest) Descriptor() ([]byte, []int) {
+	return file_depot_agent_v1_claude_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *ListClaudeSessionsRequest) GetOrganizationId() string {
+	if x != nil && x.OrganizationId != nil {
+		return *x.OrganizationId
+	}
+	return ""
+}
+
+type ListClaudeSessionsResponse struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	Sessions []*ClaudeSession `protobuf:"bytes,1,rep,name=sessions,proto3" json:"sessions,omitempty"`
+}
+
+func (x *ListClaudeSessionsResponse) Reset() {
+	*x = ListClaudeSessionsResponse{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_depot_agent_v1_claude_proto_msgTypes[5]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *ListClaudeSessionsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListClaudeSessionsResponse) ProtoMessage() {}
+
+func (x *ListClaudeSessionsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_depot_agent_v1_claude_proto_msgTypes[5]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListClaudeSessionsResponse.ProtoReflect.Descriptor instead.
+func (*ListClaudeSessionsResponse) Descriptor() ([]byte, []int) {
+	return file_depot_agent_v1_claude_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *ListClaudeSessionsResponse) GetSessions() []*ClaudeSession {
+	if x != nil {
+		return x.Sessions
+	}
+	return nil
+}
+
+type ClaudeSession struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	SessionId      string `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	Tag            string `protobuf:"bytes,2,opt,name=tag,proto3" json:"tag,omitempty"`
+	UpdatedAt      int64  `protobuf:"varint,3,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	LastAccessedAt int64  `protobuf:"varint,4,opt,name=last_accessed_at,json=lastAccessedAt,proto3" json:"last_accessed_at,omitempty"`
+}
+
+func (x *ClaudeSession) Reset() {
+	*x = ClaudeSession{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_depot_agent_v1_claude_proto_msgTypes[6]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *ClaudeSession) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ClaudeSession) ProtoMessage() {}
+
+func (x *ClaudeSession) ProtoReflect() protoreflect.Message {
+	mi := &file_depot_agent_v1_claude_proto_msgTypes[6]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ClaudeSession.ProtoReflect.Descriptor instead.
+func (*ClaudeSession) Descriptor() ([]byte, []int) {
+	return file_depot_agent_v1_claude_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *ClaudeSession) GetSessionId() string {
+	if x != nil {
+		return x.SessionId
+	}
+	return ""
+}
+
+func (x *ClaudeSession) GetTag() string {
+	if x != nil {
+		return x.Tag
+	}
+	return ""
+}
+
+func (x *ClaudeSession) GetUpdatedAt() int64 {
+	if x != nil {
+		return x.UpdatedAt
+	}
+	return 0
+}
+
+func (x *ClaudeSession) GetLastAccessedAt() int64 {
+	if x != nil {
+		return x.LastAccessedAt
+	}
+	return 0
+}
+
 var File_depot_agent_v1_claude_proto protoreflect.FileDescriptor
 
 var file_depot_agent_v1_claude_proto_rawDesc = []byte{
 	0x0a, 0x1b, 0x64, 0x65, 0x70, 0x6f, 0x74, 0x2f, 0x61, 0x67, 0x65, 0x6e, 0x74, 0x2f, 0x76, 0x31,
 	0x2f, 0x63, 0x6c, 0x61, 0x75, 0x64, 0x65, 0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x12, 0x0e, 0x64,
-	0x65, 0x70, 0x6f, 0x74, 0x2e, 0x61, 0x67, 0x65, 0x6e, 0x74, 0x2e, 0x76, 0x31, 0x22, 0x99, 0x01,
+	0x65, 0x70, 0x6f, 0x74, 0x2e, 0x61, 0x67, 0x65, 0x6e, 0x74, 0x2e, 0x76, 0x31, 0x22, 0xb2, 0x01,
 	0x0a, 0x1a, 0x55, 0x70, 0x6c, 0x6f, 0x61, 0x64, 0x43, 0x6c, 0x61, 0x75, 0x64, 0x65, 0x53, 0x65,
 	0x73, 0x73, 0x69, 0x6f, 0x6e, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x12, 0x10, 0x0a, 0x03,
 	0x74, 0x61, 0x67, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x03, 0x74, 0x61, 0x67, 0x12, 0x21,
