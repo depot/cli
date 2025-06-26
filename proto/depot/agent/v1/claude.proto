@@ -11,7 +11,7 @@ message UploadClaudeSessionRequest {
   string tag = 1;
   bytes session_data = 2;
   string session_id = 3;
-  string organization_id = 4;
+  optional string organization_id = 4;
 }
 
 message UploadClaudeSessionResponse {
@@ -21,7 +21,7 @@ message UploadClaudeSessionResponse {
 
 message DownloadClaudeSessionRequest {
   string tag = 1;
-  string organization_id = 2;
+  optional string organization_id = 2;
 }
 
 message DownloadClaudeSessionResponse {
