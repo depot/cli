@@ -96,7 +96,7 @@ This includes claude flags like -p, --model, etc.`,
 						resumeSessionID = args[i+1]
 						i++
 					} else {
-						return nil, fmt.Errorf("--resume flag requires a session ID")
+						return fmt.Errorf("--resume flag requires a session ID")
 					}
 				default:
 					if strings.HasPrefix(arg, "--session-id=") {
