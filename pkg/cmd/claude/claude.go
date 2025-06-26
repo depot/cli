@@ -158,6 +158,11 @@ This includes claude flags like -p, --model, etc.`,
 
 			client := api.NewClaudeClient()
 
+			// early auth check to prevent starting Claude if saving or resuming will fail
+			if err := verifyAuthentication(ctx, client, token, orgID); err != nil {
+				return err
+			}
+
 			claudePath, err := exec.LookPath("claude")
 			if err != nil {
 				return fmt.Errorf("claude CLI not found in PATH: %w", err)
@@ -476,4 +481,20 @@ func continuouslySaveSessionFile(ctx context.Context, projectDir string, client 
 
 		}
 	}
+}
+
+// verifyAuthentication performs an early auth check by calling the list-sessions API
+// this prevents starting Claude if authentication or organization access will fail
+func verifyAuthentication(ctx context.Context, client agentv1connect.ClaudeServiceClient, token, orgID string) error {
+	req := &agentv1.ListClaudeSessionsRequest{}
+	if orgID != "" {
+		req.OrganizationId = &orgID
+	}
+
+	_, err := client.ListClaudeSessions(ctx, api.WithAuthentication(connect.NewRequest(req), token))
+	if err != nil {
+		return fmt.Errorf("authentication failed: %w", err)
+	}
+
+	return nil
 }

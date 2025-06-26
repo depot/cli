@@ -39,12 +39,16 @@ const (
 	// ClaudeServiceDownloadClaudeSessionProcedure is the fully-qualified name of the ClaudeService's
 	// DownloadClaudeSession RPC.
 	ClaudeServiceDownloadClaudeSessionProcedure = "/depot.agent.v1.ClaudeService/DownloadClaudeSession"
+	// ClaudeServiceListClaudeSessionsProcedure is the fully-qualified name of the ClaudeService's
+	// ListClaudeSessions RPC.
+	ClaudeServiceListClaudeSessionsProcedure = "/depot.agent.v1.ClaudeService/ListClaudeSessions"
 )
 
 // ClaudeServiceClient is a client for the depot.agent.v1.ClaudeService service.
 type ClaudeServiceClient interface {
 	UploadClaudeSession(context.Context, *connect.Request[v1.UploadClaudeSessionRequest]) (*connect.Response[v1.UploadClaudeSessionResponse], error)
 	DownloadClaudeSession(context.Context, *connect.Request[v1.DownloadClaudeSessionRequest]) (*connect.Response[v1.DownloadClaudeSessionResponse], error)
+	ListClaudeSessions(context.Context, *connect.Request[v1.ListClaudeSessionsRequest]) (*connect.Response[v1.ListClaudeSessionsResponse], error)
 }
 
 // NewClaudeServiceClient constructs a client for the depot.agent.v1.ClaudeService service. By
@@ -67,6 +71,11 @@ func NewClaudeServiceClient(httpClient connect.HTTPClient, baseURL string, opts 
 			baseURL+ClaudeServiceDownloadClaudeSessionProcedure,
 			opts...,
 		),
+		listClaudeSessions: connect.NewClient[v1.ListClaudeSessionsRequest, v1.ListClaudeSessionsResponse](
+			httpClient,
+			baseURL+ClaudeServiceListClaudeSessionsProcedure,
+			opts...,
+		),
 	}
 }
 
@@ -74,6 +83,7 @@ func NewClaudeServiceClient(httpClient connect.HTTPClient, baseURL string, opts 
 type claudeServiceClient struct {
 	uploadClaudeSession   *connect.Client[v1.UploadClaudeSessionRequest, v1.UploadClaudeSessionResponse]
 	downloadClaudeSession *connect.Client[v1.DownloadClaudeSessionRequest, v1.DownloadClaudeSessionResponse]
+	listClaudeSessions    *connect.Client[v1.ListClaudeSessionsRequest, v1.ListClaudeSessionsResponse]
 }
 
 // UploadClaudeSession calls depot.agent.v1.ClaudeService.UploadClaudeSession.
@@ -86,10 +96,16 @@ func (c *claudeServiceClient) DownloadClaudeSession(ctx context.Context, req *co
 	return c.downloadClaudeSession.CallUnary(ctx, req)
 }
 
+// ListClaudeSessions calls depot.agent.v1.ClaudeService.ListClaudeSessions.
+func (c *claudeServiceClient) ListClaudeSessions(ctx context.Context, req *connect.Request[v1.ListClaudeSessionsRequest]) (*connect.Response[v1.ListClaudeSessionsResponse], error) {
+	return c.listClaudeSessions.CallUnary(ctx, req)
+}
+
 // ClaudeServiceHandler is an implementation of the depot.agent.v1.ClaudeService service.
 type ClaudeServiceHandler interface {
 	UploadClaudeSession(context.Context, *connect.Request[v1.UploadClaudeSessionRequest]) (*connect.Response[v1.UploadClaudeSessionResponse], error)
 	DownloadClaudeSession(context.Context, *connect.Request[v1.DownloadClaudeSessionRequest]) (*connect.Response[v1.DownloadClaudeSessionResponse], error)
+	ListClaudeSessions(context.Context, *connect.Request[v1.ListClaudeSessionsRequest]) (*connect.Response[v1.ListClaudeSessionsResponse], error)
 }
 
 // NewClaudeServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -108,12 +124,19 @@ func NewClaudeServiceHandler(svc ClaudeServiceHandler, opts ...connect.HandlerOp
 		svc.DownloadClaudeSession,
 		opts...,
 	)
+	claudeServiceListClaudeSessionsHandler := connect.NewUnaryHandler(
+		ClaudeServiceListClaudeSessionsProcedure,
+		svc.ListClaudeSessions,
+		opts...,
+	)
 	return "/depot.agent.v1.ClaudeService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case ClaudeServiceUploadClaudeSessionProcedure:
 			claudeServiceUploadClaudeSessionHandler.ServeHTTP(w, r)
 		case ClaudeServiceDownloadClaudeSessionProcedure:
 			claudeServiceDownloadClaudeSessionHandler.ServeHTTP(w, r)
+		case ClaudeServiceListClaudeSessionsProcedure:
+			claudeServiceListClaudeSessionsHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -129,4 +152,8 @@ func (UnimplementedClaudeServiceHandler) UploadClaudeSession(context.Context, *c
 
 func (UnimplementedClaudeServiceHandler) DownloadClaudeSession(context.Context, *connect.Request[v1.DownloadClaudeSessionRequest]) (*connect.Response[v1.DownloadClaudeSessionResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.agent.v1.ClaudeService.DownloadClaudeSession is not implemented"))
+}
+
+func (UnimplementedClaudeServiceHandler) ListClaudeSessions(context.Context, *connect.Request[v1.ListClaudeSessionsRequest]) (*connect.Response[v1.ListClaudeSessionsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.agent.v1.ClaudeService.ListClaudeSessions is not implemented"))
 }

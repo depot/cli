@@ -1,10 +1,13 @@
 syntax = "proto3";
 
+import "google/protobuf/timestamp.proto";
+
 package depot.agent.v1;
 
 service ClaudeService {
   rpc UploadClaudeSession(UploadClaudeSessionRequest) returns (UploadClaudeSessionResponse);
   rpc DownloadClaudeSession(DownloadClaudeSessionRequest) returns (DownloadClaudeSessionResponse);
+  rpc ListClaudeSessions(ListClaudeSessionsRequest) returns (ListClaudeSessionsResponse);
 }
 
 message UploadClaudeSessionRequest {
@@ -27,4 +30,19 @@ message DownloadClaudeSessionRequest {
 message DownloadClaudeSessionResponse {
   string session_id = 1;
   bytes session_data = 2;
+}
+
+message ListClaudeSessionsRequest {
+  optional string organization_id = 1;
+}
+
+message ListClaudeSessionsResponse {
+  repeated ClaudeSession sessions = 1;
+}
+
+message ClaudeSession {
+  string session_id = 1;
+  string tag = 2;
+  google.protobuf.Timestamp updated_at = 3;
+  google.protobuf.Timestamp last_accessed_at = 4;
 }
