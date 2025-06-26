@@ -3,7 +3,6 @@ package claude
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -39,11 +38,14 @@ func NewCmdClaude() *cobra.Command {
 		Use:   "claude [flags] [claude args...]",
 		Short: "Run claude with automatic session persistence",
 		Long: `Run claude CLI with automatic session saving and resuming via Depot.
-		
-Sessions are stored by Depot and can be resumed by session ID
-The session is always uploaded on exit, though you can modify the name of the session with the --session-id flag
+
+Sessions are stored by Depot and can be resumed by session ID.
+The session is always uploaded on exit. You can modify the name of the session with the --session-id flag.
 When using --resume <session-id>, Depot will first check for a local session file,
 and if not found, will attempt to download it from Depot's servers.
+
+IMPORTANT: All flags not recognized by depot (--session-id, --org, --token, --resume)
+are passed directly through to the claude CLI. This includes claude flags like -p, --model, etc.
 
 Organization ID can be specified via:
 - --org flag
