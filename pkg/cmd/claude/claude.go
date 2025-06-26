@@ -398,13 +398,8 @@ func continuouslySaveSessionFile(ctx context.Context, projectDir string, client 
 			sessionID = filepath.Base(strings.TrimSuffix(filePath, ".jsonl"))
 		}
 
-		if debug {
-			fmt.Fprintf(os.Stderr, "[DEBUG] Uploading session %s from file %s\n", sessionID, filePath)
-		}
-
-		if err := saveSession(ctx, client, token, sessionID, filePath, 3, 2*time.Second, orgID); err != nil {
-			fmt.Fprintf(os.Stderr, "\nWarning: failed to continuously save session: %v\n", err)
-		}
+		// if the continuous save fails, it doesn't matter much. this is really only for the live view of the conversation
+		_ = saveSession(ctx, client, token, sessionID, filePath, 3, 2*time.Second, orgID)
 	}
 
 	if err := os.MkdirAll(projectDir, 0755); err != nil {
