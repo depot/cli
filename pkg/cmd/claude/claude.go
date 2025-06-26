@@ -3,6 +3,7 @@ package claude
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -44,9 +45,10 @@ The session is always uploaded on exit, though you can modify the name of the se
 When using --resume <session-id>, Depot will first check for a local session file,
 and if not found, will attempt to download it from Depot's servers.
 
-Organization ID is required and can be specified via:
+Organization ID can be specified via:
 - --org flag
 - DEPOT_ORG_ID environment variable
+Specifying an organization ID is required if you're a member of multiple organizations
 
 Authentication token can be specified via:
 - --token flag
@@ -69,7 +71,7 @@ All other flags are passed through to the claude CLI.`,
   # Use in a script with piped input
   cat code.py | depot claude -p "review this code" --session-id code-review
   
-  # Set an organization with --org flag
+  # Optionally specify a different organization with --org flag
   depot claude --org different-org-id --session-id team-session -p "create API endpoint"
   
   # Use a specific token
@@ -154,9 +156,6 @@ All other flags are passed through to the claude CLI.`,
 			if orgID == "" {
 				orgID = os.Getenv("DEPOT_ORG_ID")
 			}
-			if orgID == "" {
-				return fmt.Errorf("organization ID is required. Set DEPOT_ORG_ID environment variable or use --org flag")
-			}
 
 			client := api.NewClaudeClient()
 
@@ -229,7 +228,10 @@ All other flags are passed through to the claude CLI.`,
 
 			fmt.Fprintf(os.Stderr, "\n✓ Session saved with ID: %s\n", customSessionID)
 
-			return claudeErr
+			if claudeErr != nil {
+				return claudeErr
+			}
+			return saveErr
 		},
 	}
 
@@ -245,12 +247,14 @@ func resumeSession(ctx context.Context, client agentv1connect.ClaudeServiceClien
 			time.Sleep(retryDelay)
 		}
 
-		req := connect.NewRequest(&agentv1.DownloadClaudeSessionRequest{
-			Tag:            identifier,
-			OrganizationId: orgID,
-		})
+		req := &agentv1.DownloadClaudeSessionRequest{
+			Tag: identifier,
+		}
+		if orgID != "" {
+			req.OrganizationId = &orgID
+		}
 
-		resp, lastErr = client.DownloadClaudeSession(ctx, api.WithAuthentication(req, token))
+		resp, lastErr = client.DownloadClaudeSession(ctx, api.WithAuthentication(connect.NewRequest(req), token))
 		if lastErr == nil {
 			break
 		}
@@ -295,13 +299,15 @@ func saveSession(ctx context.Context, client agentv1connect.ClaudeServiceClient,
 			time.Sleep(retryDelay)
 		}
 
-		req := connect.NewRequest(&agentv1.UploadClaudeSessionRequest{
-			Tag:            tag,
-			SessionData:    data,
-			OrganizationId: orgID,
-		})
+		req := &agentv1.UploadClaudeSessionRequest{
+			Tag:         tag,
+			SessionData: data,
+		}
+		if orgID != "" {
+			req.OrganizationId = &orgID
+		}
 
-		resp, err := client.UploadClaudeSession(ctx, api.WithAuthentication(req, token))
+		resp, err := client.UploadClaudeSession(ctx, api.WithAuthentication(connect.NewRequest(req), token))
 		if err != nil {
 			lastErr = err
 			continue
