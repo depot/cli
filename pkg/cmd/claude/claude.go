@@ -40,44 +40,33 @@ func NewCmdClaude() *cobra.Command {
 		Long: `Run claude CLI with automatic session saving and resuming via Depot.
 
 Sessions are stored by Depot and can be resumed by session ID.
-The session is always uploaded on exit. You can modify the name of the session with the --session-id flag.
-When using --resume <session-id>, Depot will first check for a local session file,
+The session is always uploaded on exit.
+
+When using --resume, Depot will first check for a local session file,
 and if not found, will attempt to download it from Depot's servers.
 
-All flags not recognized by depot (--session-id, --org, --token, --resume)
-are passed directly through to the claude CLI. This includes claude flags like -p, --model, etc.
-
-Organization ID can be specified via:
-- --org flag
-- DEPOT_ORG_ID environment variable
-Specifying an organization ID is required if you're a member of multiple organizations
-
-Authentication token can be specified via:
-- --token flag
-- DEPOT_TOKEN environment variable
-- depot login command
-
-All other flags are passed through to the claude CLI.`,
+All flags not recognized by depot are passed directly through to the claude CLI.
+This includes claude flags like -p, --model, etc.`,
 		Example: `
   # Interactive usage - run claude and save session
   depot claude --session-id feature-branch
   
-  # Non-interactive usage - use -p flag for scripts
+  # Non-interactive usage - claude's -p flag is passed through
   depot claude --session-id feature-branch -p "implement user authentication"
+  
+  # Mix depot flags (--session-id) with claude flags (-p, --model)
+  depot claude --session-id older-claude-pr-9953 --model claude-3-opus-20240229 -p "write tests"
   
   # Resume a session by ID
   depot claude --resume feature-branch -p "add error handling"
   depot claude --resume 09b15b34-2df4-48ae-9b9e-1de0aa09e43f -p "continue where we left off"
   depot claude --resume abc123def456
   
-  # Use in a script with piped input
+  # Use in a script with piped input (claude's -p flag)
   cat code.py | depot claude -p "review this code" --session-id code-review
   
-  # Optionally specify a different organization with --org flag
-  depot claude --org different-org-id --session-id team-session -p "create API endpoint"
-  
-  # Use a specific token
-  depot claude --token my-api-token --session-id secure-session -p "analyze security logs"`,
+  # The --org flag is only required if you're a member of multiple organizations
+  depot claude --org different-org-id --session-id team-session -p "create API endpoint"`,
 		Args:               cobra.ArbitraryArgs,
 		DisableFlagParsing: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -234,6 +223,11 @@ All other flags are passed through to the claude CLI.`,
 			return claudeErr
 		},
 	}
+
+	cmd.Flags().String("session-id", "", "Custom session ID for saving")
+	cmd.Flags().String("resume", "", "Resume a session by ID or tag")
+	cmd.Flags().String("org", "", "Organization ID")
+	cmd.Flags().String("token", "", "Depot API token")
 
 	return cmd
 }
