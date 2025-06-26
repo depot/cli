@@ -185,6 +185,8 @@ All other flags are passed through to the claude CLI.`,
 					if err != nil {
 						return fmt.Errorf("session '%s' not found locally or remotely: %w", resumeSessionID, err)
 					}
+
+					fmt.Fprintf(os.Stdout, "Opened Claude session from Depot with ID: %s\n", resumeSessionID)
 					resumeSessionID = sessionID
 				}
 				claudeArgs = append(claudeArgs, "--resume", resumeSessionID)
@@ -227,7 +229,7 @@ All other flags are passed through to the claude CLI.`,
 				return fmt.Errorf("failed to save session: %w", saveErr)
 			}
 
-			fmt.Fprintf(os.Stdout, "\n✓ Session saved with ID: %s\n", customSessionID)
+			fmt.Fprintf(os.Stdout, "Claude session saved to Depot with ID: %s\n", customSessionID)
 
 			if claudeErr != nil {
 				return claudeErr
@@ -284,7 +286,6 @@ func resumeSession(ctx context.Context, client agentv1connect.ClaudeServiceClien
 		return "", fmt.Errorf("failed to write session file: %w", err)
 	}
 
-	fmt.Fprintf(os.Stderr, "✓ Resumed session with ID: %s\n", identifier)
 	return resp.Msg.SessionId, nil
 }
 
