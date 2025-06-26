@@ -231,10 +231,7 @@ All other flags are passed through to the claude CLI.`,
 
 			fmt.Fprintf(os.Stdout, "Claude session saved to Depot with ID: %s\n", customSessionID)
 
-			if claudeErr != nil {
-				return claudeErr
-			}
-			return saveErr
+			return claudeErr
 		},
 	}
 
