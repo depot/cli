@@ -226,7 +226,7 @@ This includes claude flags like -p, --model, etc.`,
 
 	cmd.Flags().String("session-id", "", "Custom session ID for saving")
 	cmd.Flags().String("resume", "", "Resume a session by ID or tag")
-	cmd.Flags().String("org", "", "Organization ID")
+	cmd.Flags().String("org", "", "Organization ID (required when user is a member of multiple organizations)")
 	cmd.Flags().String("token", "", "Depot API token")
 
 	return cmd
