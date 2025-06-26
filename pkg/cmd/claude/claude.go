@@ -450,6 +450,9 @@ func continuouslySaveSessionFile(ctx context.Context, projectDir string, client 
 			}
 
 			if shouldProcess {
+				if sessionFile == "" {
+					sessionFile = changedFileAbsPath
+				}
 				saveFile(changedFileAbsPath)
 			}
 
