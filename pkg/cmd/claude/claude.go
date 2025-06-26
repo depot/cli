@@ -30,6 +30,7 @@ func NewCmdClaude() *cobra.Command {
 		orgID           string
 		token           string
 		resumeSessionID string
+		output          string
 		retryCount      = 3
 		retryDelay      = 2 * time.Second
 	)
@@ -91,6 +92,12 @@ This includes claude flags like -p, --model, etc.`,
 						token = args[i+1]
 						i++
 					}
+				case "--output":
+					if i+1 < len(args) {
+						output = args[i+1]
+						i++
+					}
+
 				case "--resume":
 					if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
 						resumeSessionID = args[i+1]
@@ -107,6 +114,8 @@ This includes claude flags like -p, --model, etc.`,
 						orgID = strings.TrimPrefix(arg, "--org=")
 					} else if strings.HasPrefix(arg, "--token=") {
 						token = strings.TrimPrefix(arg, "--token=")
+					} else if strings.HasPrefix(arg, "--output=") {
+						output = strings.TrimPrefix(arg, "--output=")
 					} else {
 						// Pass through any other flags to claude
 						claudeArgs = append(claudeArgs, arg)
@@ -175,7 +184,14 @@ This includes claude flags like -p, --model, etc.`,
 						return fmt.Errorf("session '%s' not found locally or remotely: %w", resumeSessionID, err)
 					}
 
-					fmt.Fprintf(os.Stdout, "Opened Claude session from Depot with ID: %s\n", resumeSessionID)
+					switch output {
+					case "json":
+						fmt.Fprintf(os.Stdout, `{"action":"opened","session_id":"%s"}`+"\n", resumeSessionID)
+					case "csv":
+						fmt.Fprintf(os.Stdout, "action,session_id\nopened,%s\n", resumeSessionID)
+					default:
+						fmt.Fprintf(os.Stdout, "Opened Claude session from Depot with ID: %s\n", resumeSessionID)
+					}
 					resumeSessionID = sessionID
 				}
 				claudeArgs = append(claudeArgs, "--resume", resumeSessionID)
@@ -218,7 +234,14 @@ This includes claude flags like -p, --model, etc.`,
 				return fmt.Errorf("failed to save session: %w", saveErr)
 			}
 
-			fmt.Fprintf(os.Stdout, "Claude session saved to Depot with ID: %s\n", customSessionID)
+			switch output {
+			case "json":
+				fmt.Fprintf(os.Stdout, `{"action":"saved","session_id":"%s"}`+"\n", customSessionID)
+			case "csv":
+				fmt.Fprintf(os.Stdout, "action,session_id\nsaved,%s\n", customSessionID)
+			default:
+				fmt.Fprintf(os.Stdout, "Claude session saved to Depot with ID: %s\n", customSessionID)
+			}
 
 			return claudeErr
 		},
@@ -228,6 +251,7 @@ This includes claude flags like -p, --model, etc.`,
 	cmd.Flags().String("resume", "", "Resume a session by ID or tag")
 	cmd.Flags().String("org", "", "Organization ID (required when user is a member of multiple organizations)")
 	cmd.Flags().String("token", "", "Depot API token")
+	cmd.Flags().String("output", "", "Output format (json, csv)")
 
 	return cmd
 }
