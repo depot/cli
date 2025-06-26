@@ -116,7 +116,7 @@ This includes claude flags like -p, --model, etc.`,
 
 			helpRequested := false
 			for _, arg := range args {
-				if arg == "--help" || arg == "-h" || arg == "help" {
+				if arg == "--help" || arg == "-h" {
 					helpRequested = true
 					break
 				}
