@@ -178,31 +178,16 @@ This includes claude flags like -p, --model, etc.`,
 				return fmt.Errorf("failed to get working directory: %w", err)
 			}
 
-			sessionIDChan := make(chan sessionIDUpdate, 1)
-
 			var claudeSessionID string
 			if resumeSessionID != "" {
 				if sessionID == "" {
 					sessionID = resumeSessionID
 				}
 
-				resumeParams := ResumeSessionParams{
-					Client:     client,
-					Token:      token,
-					SessionID:  resumeSessionID,
-					SessionDir: sessionDir,
-					Cwd:        cwd,
-					OrgID:      orgID,
-					RetryCount: retryCount,
-					RetryDelay: retryDelay,
-				}
-				claudeSessionID, err = resumeSession(ctx, resumeParams)
+				claudeSessionID, err := resumeSession(ctx, client, token, resumeSessionID, sessionDir, cwd, orgID, retryCount, retryDelay)
 				if err != nil {
 					return fmt.Errorf("session '%s' not found remotely: %w", resumeSessionID, err)
 				}
-				// Send initial session ID to channel
-				sessionIDChan <- sessionIDUpdate{id: claudeSessionID}
-
 				switch output {
 				case "json":
 					fmt.Fprintf(os.Stdout, `{"action":"opened","session_id":"%s"}`+"\n", resumeSessionID)
@@ -211,6 +196,7 @@ This includes claude flags like -p, --model, etc.`,
 				default:
 					fmt.Fprintf(os.Stdout, "Opened Claude session from Depot with ID: %s\n", resumeSessionID)
 				}
+				resumeSessionID = sessionID
 				claudeArgs = append(claudeArgs, "--resume", claudeSessionID)
 			}
 
@@ -229,15 +215,7 @@ This includes claude flags like -p, --model, etc.`,
 
 			projectDir := filepath.Join(sessionDir, convertPathToProjectName(cwd))
 			go func() {
-				continuousParams := ContinuousSaveParams{
-					ProjectDir:    projectDir,
-					Client:        client,
-					Token:         token,
-					SessionID:     sessionID,
-					SessionIDChan: sessionIDChan,
-					OrgID:         orgID,
-				}
-				if err := continuouslySaveSessionFile(claudeCtx, continuousParams); err != nil {
+				if err := continuouslySaveSessionFile(claudeCtx, projectDir, client, token, sessionID, orgID); err != nil {
 					fmt.Fprintf(os.Stderr, "\nFailed to continuously save session file: %s", err)
 				}
 			}()
@@ -245,39 +223,16 @@ This includes claude flags like -p, --model, etc.`,
 			claudeErr := claudeCmd.Wait()
 			claudeCtxCancel()
 
-			select {
-			case update := <-sessionIDChan:
-				claudeSessionID = update.id
-			default:
-			}
-
-			var sessionFilePath string
-
-			if claudeSessionID != "" {
-				sessionFilePath = filepath.Join(projectDir, fmt.Sprintf("%s.jsonl", claudeSessionID))
-			} else {
-				sessionFilePath, err = findLatestSessionFile(sessionDir, cwd)
-				if err != nil {
-					return fmt.Errorf("failed to find session file: %w", err)
-				}
-				claudeSessionID = filepath.Base(strings.TrimSuffix(sessionFilePath, ".jsonl"))
+			sessionFileName, findErr := findLatestSessionFile(sessionDir, cwd)
+			if findErr != nil {
+				return fmt.Errorf("failed to find session file: %w", findErr)
 			}
 
 			if sessionID == "" {
-				sessionID = filepath.Base(strings.TrimSuffix(sessionFilePath, ".jsonl"))
+				sessionID = filepath.Base(strings.TrimSuffix(sessionFileName, ".jsonl"))
 			}
 
-			saveParams := SaveSessionParams{
-				Client:          client,
-				Token:           token,
-				SessionID:       sessionID,
-				ClaudeSessionID: claudeSessionID,
-				SessionFilePath: sessionFilePath,
-				RetryCount:      retryCount,
-				RetryDelay:      retryDelay,
-				OrgID:           orgID,
-			}
-			saveErr := saveSession(ctx, saveParams)
+			saveErr := saveSession(ctx, client, token, sessionID, sessionFileName, retryCount, retryDelay, orgID)
 			if saveErr != nil {
 				return fmt.Errorf("failed to save session: %w", saveErr)
 			}
@@ -304,45 +259,35 @@ This includes claude flags like -p, --model, etc.`,
 	return cmd
 }
 
-type ResumeSessionParams struct {
-	Client     agentv1connect.ClaudeServiceClient
-	Token      string
-	SessionID  string
-	SessionDir string
-	Cwd        string
-	OrgID      string
-	RetryCount int
-	RetryDelay time.Duration
-}
-
-func resumeSession(ctx context.Context, params ResumeSessionParams) (string, error) {
+// returns the session file UUID that claude should resume from
+func resumeSession(ctx context.Context, client agentv1connect.ClaudeServiceClient, token, sessionID, sessionDir, cwd, orgID string, retryCount int, retryDelay time.Duration) (string, error) {
 	var resp *connect.Response[agentv1.DownloadClaudeSessionResponse]
 	var lastErr error
 
-	for i := range params.RetryCount {
+	for i := range retryCount {
 		if i > 0 {
-			time.Sleep(params.RetryDelay)
+			time.Sleep(retryDelay)
 		}
 
 		req := &agentv1.DownloadClaudeSessionRequest{
-			SessionId:      params.SessionID,
+			SessionId:      sessionID,
 			OrganizationId: new(string),
 		}
-		if params.OrgID != "" {
-			req.OrganizationId = &params.OrgID
+		if orgID != "" {
+			req.OrganizationId = &orgID
 		}
 
-		resp, lastErr = params.Client.DownloadClaudeSession(ctx, api.WithAuthentication(connect.NewRequest(req), params.Token))
+		resp, lastErr = client.DownloadClaudeSession(ctx, api.WithAuthentication(connect.NewRequest(req), token))
 		if lastErr == nil {
 			break
 		}
 	}
 
 	if lastErr != nil {
-		return "", fmt.Errorf("failed after %d retries: %w", params.RetryCount, lastErr)
+		return "", fmt.Errorf("failed after %d retries: %w", retryCount, lastErr)
 	}
 
-	projectDir := filepath.Join(params.SessionDir, convertPathToProjectName(params.Cwd))
+	projectDir := filepath.Join(sessionDir, convertPathToProjectName(cwd))
 
 	if err := os.MkdirAll(projectDir, 0755); err != nil {
 		return "", fmt.Errorf("failed to create project directory: %w", err)
@@ -364,42 +309,33 @@ func resumeSession(ctx context.Context, params ResumeSessionParams) (string, err
 	return resp.Msg.ClaudeSessionId, nil
 }
 
-type SaveSessionParams struct {
-	Client          agentv1connect.ClaudeServiceClient
-	Token           string
-	SessionID       string
-	ClaudeSessionID string
-	SessionFilePath string
-	RetryCount      int
-	RetryDelay      time.Duration
-	OrgID           string
-}
-
-func saveSession(ctx context.Context, params SaveSessionParams) error {
-	data, err := os.ReadFile(params.SessionFilePath)
+func saveSession(ctx context.Context, client agentv1connect.ClaudeServiceClient, token, sessionID, sessionFilePath string, retryCount int, retryDelay time.Duration, orgID string) error {
+	data, err := os.ReadFile(sessionFilePath)
 	if err != nil {
 		return fmt.Errorf("failed to read session file: %w", err)
 	}
 
 	var lastErr error
-	for i := range params.RetryCount {
+	for i := range retryCount {
 		if i > 0 {
-			time.Sleep(params.RetryDelay)
+			time.Sleep(retryDelay)
 		}
+
+		claudeSessionID := filepath.Base(strings.TrimSuffix(sessionFilePath, ".jsonl"))
 
 		req := &agentv1.UploadClaudeSessionRequest{
 			SessionData:    data,
-			SessionId:      params.SessionID,
+			SessionId:      sessionID,
 			OrganizationId: new(string),
 			// TODO(billy)
 			Summary:         new(string),
-			ClaudeSessionId: params.ClaudeSessionID,
+			ClaudeSessionId: claudeSessionID,
 		}
-		if params.OrgID != "" {
-			req.OrganizationId = &params.OrgID
+		if orgID != "" {
+			req.OrganizationId = &orgID
 		}
 
-		_, err := params.Client.UploadClaudeSession(ctx, api.WithAuthentication(connect.NewRequest(req), params.Token))
+		_, err := client.UploadClaudeSession(ctx, api.WithAuthentication(connect.NewRequest(req), token))
 		if err != nil {
 			lastErr = err
 			continue
@@ -408,7 +344,7 @@ func saveSession(ctx context.Context, params SaveSessionParams) error {
 		return nil
 	}
 
-	return fmt.Errorf("failed after %d retries: %w", params.RetryCount, lastErr)
+	return fmt.Errorf("failed after %d retries: %w", retryCount, lastErr)
 }
 
 func findLatestSessionFile(sessionDir, cwd string) (string, error) {
@@ -457,22 +393,9 @@ func convertPathToProjectName(path string) string {
 	return nonAlphanumericRegex.ReplaceAllString(cleaned, "-")
 }
 
-type sessionIDUpdate struct {
-	id string
-}
-
-type ContinuousSaveParams struct {
-	ProjectDir    string
-	Client        agentv1connect.ClaudeServiceClient
-	Token         string
-	SessionID     string
-	SessionIDChan chan sessionIDUpdate
-	OrgID         string
-}
-
 // continuouslySaveSessionFile monitors the project directory for new or changed session files and automatically saves them
-func continuouslySaveSessionFile(ctx context.Context, params ContinuousSaveParams) error {
-	if err := os.MkdirAll(params.ProjectDir, 0755); err != nil {
+func continuouslySaveSessionFile(ctx context.Context, projectDir string, client agentv1connect.ClaudeServiceClient, token, sessionID, orgID string) error {
+	if err := os.MkdirAll(projectDir, 0755); err != nil {
 		return fmt.Errorf("failed to create project directory: %w", err)
 	}
 
@@ -482,19 +405,12 @@ func continuouslySaveSessionFile(ctx context.Context, params ContinuousSaveParam
 	}
 	defer watcher.Close()
 
-	if err := watcher.Add(params.ProjectDir); err != nil {
+	if err := watcher.Add(projectDir); err != nil {
 		return fmt.Errorf("failed to watch directory: %w", err)
 	}
 
 	var sessionFilePath string
 	var claudeSessionID string
-
-	select {
-	case update := <-params.SessionIDChan:
-		claudeSessionID = update.id
-		sessionFilePath = filepath.Join(params.ProjectDir, fmt.Sprintf("%s.jsonl", claudeSessionID))
-	default:
-	}
 
 	for {
 		select {
@@ -521,31 +437,16 @@ func continuouslySaveSessionFile(ctx context.Context, params ContinuousSaveParam
 				continue
 			}
 
-			sessionID := params.SessionID
 			if sessionID == "" {
 				sessionID = filepath.Base(strings.TrimSuffix(sessionFilePath, ".jsonl"))
 			}
 
 			if claudeSessionID == "" {
 				claudeSessionID = filepath.Base(strings.TrimSuffix(sessionFilePath, ".jsonl"))
-				select {
-				case params.SessionIDChan <- sessionIDUpdate{id: claudeSessionID}:
-				default:
-				}
 			}
 
-			saveParams := SaveSessionParams{
-				Client:          params.Client,
-				Token:           params.Token,
-				SessionID:       sessionID,
-				ClaudeSessionID: claudeSessionID,
-				SessionFilePath: sessionFilePath,
-				RetryCount:      3,
-				RetryDelay:      2 * time.Second,
-				OrgID:           params.OrgID,
-			}
 			// if the continuous save fails, it doesn't matter much. this is really only for the live view of the conversation
-			_ = saveSession(ctx, saveParams)
+			_ = saveSession(ctx, client, token, sessionID, sessionFilePath, 3, 2*time.Second, orgID)
 
 		case err, ok := <-watcher.Errors:
 			if !ok {
