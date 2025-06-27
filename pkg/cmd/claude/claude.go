@@ -3,12 +3,14 @@ package claude
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -30,8 +32,6 @@ func NewCmdClaude() *cobra.Command {
 		token           string
 		resumeSessionID string
 		output          string
-		retryCount      = 3
-		retryDelay      = 2 * time.Second
 	)
 
 	cmd := &cobra.Command{
@@ -46,7 +46,10 @@ When using --resume, Depot will first check for a local session file,
 and if not found, will attempt to download it from Depot's servers.
 
 All flags not recognized by depot are passed directly through to the claude CLI.
-This includes claude flags like -p, --model, etc.`,
+This includes claude flags like -p, --model, etc.
+
+Subcommands:
+  list-sessions    List saved Claude sessions`,
 		Example: `
   # Interactive usage - run claude and save session
   depot claude --session-id feature-branch
@@ -66,10 +69,20 @@ This includes claude flags like -p, --model, etc.`,
   cat code.py | depot claude -p "review this code" --session-id code-review
   
   # The --org flag is only required if you're a member of multiple organizations
-  depot claude --org different-org-id --session-id team-session -p "create API endpoint"`,
+  depot claude --org different-org-id --session-id team-session -p "create API endpoint"
+  
+  # List saved sessions
+  depot claude list-sessions
+  depot claude list-sessions --output json`,
 		Args:               cobra.ArbitraryArgs,
 		DisableFlagParsing: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) > 0 && args[0] == "list-sessions" {
+				cmd.DisableFlagParsing = false
+				subCmd := NewCmdClaudeListSessions()
+				subCmd.SetArgs(args[1:])
+				return subCmd.ExecuteContext(cmd.Context())
+			}
 			ctx := cmd.Context()
 
 			claudeArgs := []string{}
@@ -143,110 +156,19 @@ This includes claude flags like -p, --model, etc.`,
 				return claudeCmd.Run()
 			}
 
-			token, err := helpers.ResolveToken(ctx, token)
-			if err != nil {
-				return err
-			}
-			if token == "" {
-				return fmt.Errorf("missing API token, please run `depot login`")
-			}
-
-			if orgID == "" {
-				orgID = os.Getenv("DEPOT_ORG_ID")
-			}
-
-			client := api.NewClaudeClient()
-
-			// early auth check to prevent starting Claude if saving or resuming will fail
-			if err := verifyAuthentication(ctx, client, token, orgID); err != nil {
-				return err
+			opts := &ClaudeSessionOptions{
+				SessionID:       sessionID,
+				OrgID:           orgID,
+				Token:           token,
+				ResumeSessionID: resumeSessionID,
+				Output:          output,
+				ClaudeArgs:      claudeArgs,
+				Stdin:           os.Stdin,
+				Stdout:          os.Stdout,
+				Stderr:          os.Stderr,
 			}
 
-			claudePath, err := exec.LookPath("claude")
-			if err != nil {
-				return fmt.Errorf("claude CLI not found in PATH: %w", err)
-			}
-
-			homeDir, err := os.UserHomeDir()
-			if err != nil {
-				return fmt.Errorf("failed to get home directory: %w", err)
-			}
-			sessionDir := filepath.Join(homeDir, ".claude", "projects")
-
-			cwd, err := os.Getwd()
-			if err != nil {
-				return fmt.Errorf("failed to get working directory: %w", err)
-			}
-
-			var claudeSessionID string
-			if resumeSessionID != "" {
-				if sessionID == "" {
-					sessionID = resumeSessionID
-				}
-
-				claudeSessionID, err := resumeSession(ctx, client, token, resumeSessionID, sessionDir, cwd, orgID, retryCount, retryDelay)
-				if err != nil {
-					return fmt.Errorf("session '%s' not found remotely: %w", resumeSessionID, err)
-				}
-				switch output {
-				case "json":
-					fmt.Fprintf(os.Stdout, `{"action":"opened","session_id":"%s"}`+"\n", resumeSessionID)
-				case "csv":
-					fmt.Fprintf(os.Stdout, "action,session_id\nopened,%s\n", resumeSessionID)
-				default:
-					fmt.Fprintf(os.Stdout, "Opened Claude session from Depot with ID: %s\n", resumeSessionID)
-				}
-				resumeSessionID = sessionID
-				claudeArgs = append(claudeArgs, "--resume", claudeSessionID)
-			}
-
-			claudeCtx, claudeCtxCancel := context.WithCancel(ctx)
-			defer claudeCtxCancel()
-
-			claudeCmd := exec.CommandContext(claudeCtx, claudePath, claudeArgs...)
-			claudeCmd.Stdin = os.Stdin
-			claudeCmd.Stdout = os.Stdout
-			claudeCmd.Stderr = os.Stderr
-			claudeCmd.Env = os.Environ()
-
-			if err := claudeCmd.Start(); err != nil {
-				return fmt.Errorf("failed to start claude: %w", err)
-			}
-
-			projectDir := filepath.Join(sessionDir, convertPathToProjectName(cwd))
-			go func() {
-				if err := continuouslySaveSessionFile(claudeCtx, projectDir, client, token, sessionID, orgID); err != nil {
-					fmt.Fprintf(os.Stderr, "\nFailed to continuously save session file: %s", err)
-				}
-			}()
-
-			claudeErr := claudeCmd.Wait()
-			claudeCtxCancel()
-
-			sessionFileName, findErr := findLatestSessionFile(sessionDir, cwd)
-			if findErr != nil {
-				return fmt.Errorf("failed to find session file: %w", findErr)
-			}
-
-			if sessionID == "" {
-				sessionID = filepath.Base(strings.TrimSuffix(sessionFileName, ".jsonl"))
-			}
-
-			saveErr := saveSession(ctx, client, token, sessionID, sessionFileName, retryCount, retryDelay, orgID)
-			if saveErr != nil {
-				return fmt.Errorf("failed to save session: %w", saveErr)
-			}
-
-			switch output {
-			case "json":
-				fmt.Fprintf(os.Stdout, `{"action":"saved","session_id":"%s"}`+"\n", sessionID)
-			case "csv":
-				fmt.Fprintf(os.Stdout, "action,session_id\nsaved,%s\n", sessionID)
-			default:
-				fmt.Fprintf(os.Stdout, "Claude session saved to Depot with ID: %s\n", sessionID)
-			}
-
-			return claudeErr
+			return RunClaudeSession(ctx, opts)
 		},
 	}
 
@@ -315,6 +237,8 @@ func saveSession(ctx context.Context, client agentv1connect.ClaudeServiceClient,
 		return fmt.Errorf("failed to read session file: %w", err)
 	}
 
+	summary := extractSummaryFromSession(data)
+
 	var lastErr error
 	for i := range retryCount {
 		if i > 0 {
@@ -324,12 +248,14 @@ func saveSession(ctx context.Context, client agentv1connect.ClaudeServiceClient,
 		claudeSessionID := filepath.Base(strings.TrimSuffix(sessionFilePath, ".jsonl"))
 
 		req := &agentv1.UploadClaudeSessionRequest{
-			SessionData:    data,
-			SessionId:      sessionID,
-			OrganizationId: new(string),
-			// TODO(billy)
+			SessionData:     data,
+			SessionId:       sessionID,
+			OrganizationId:  new(string),
 			Summary:         new(string),
 			ClaudeSessionId: claudeSessionID,
+		}
+		if summary != "" {
+			req.Summary = &summary
 		}
 		if orgID != "" {
 			req.OrganizationId = &orgID
@@ -458,6 +384,167 @@ func continuouslySaveSessionFile(ctx context.Context, projectDir string, client 
 
 		}
 	}
+}
+
+type ClaudeSessionOptions struct {
+	SessionID       string
+	OrgID           string
+	Token           string
+	ResumeSessionID string
+	Output          string
+	ClaudeArgs      []string
+	Stdin           io.Reader
+	Stdout          io.Writer
+	Stderr          io.Writer
+}
+
+func RunClaudeSession(ctx context.Context, opts *ClaudeSessionOptions) error {
+	retryCount := 3
+	retryDelay := 2 * time.Second
+
+	if opts.Stdin == nil {
+		opts.Stdin = os.Stdin
+	}
+	if opts.Stdout == nil {
+		opts.Stdout = os.Stdout
+	}
+	if opts.Stderr == nil {
+		opts.Stderr = os.Stderr
+	}
+
+	token, err := helpers.ResolveToken(ctx, opts.Token)
+	if err != nil {
+		return err
+	}
+	if token == "" {
+		return fmt.Errorf("missing API token, please run `depot login`")
+	}
+
+	if opts.OrgID == "" {
+		opts.OrgID = os.Getenv("DEPOT_ORG_ID")
+	}
+
+	client := api.NewClaudeClient()
+
+	// early auth check to prevent starting Claude if saving or resuming will fail
+	if err := verifyAuthentication(ctx, client, token, opts.OrgID); err != nil {
+		return err
+	}
+
+	claudePath, err := exec.LookPath("claude")
+	if err != nil {
+		return fmt.Errorf("claude CLI not found in PATH: %w", err)
+	}
+
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("failed to get home directory: %w", err)
+	}
+	sessionDir := filepath.Join(homeDir, ".claude", "projects")
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("failed to get working directory: %w", err)
+	}
+
+	claudeArgs := slices.Clone(opts.ClaudeArgs)
+	sessionID := opts.SessionID
+	resumeSessionID := opts.ResumeSessionID
+
+	if resumeSessionID != "" {
+		if sessionID == "" {
+			sessionID = resumeSessionID
+		}
+
+		claudeSessionID, err := resumeSession(ctx, client, token, resumeSessionID, sessionDir, cwd, opts.OrgID, retryCount, retryDelay)
+		if err != nil {
+			return fmt.Errorf("session '%s' not found remotely: %w", resumeSessionID, err)
+		}
+
+		switch opts.Output {
+		case "json":
+			fmt.Fprintf(opts.Stdout, `{"action":"opened","session_id":"%s"}`+"\n", resumeSessionID)
+		case "csv":
+			fmt.Fprintf(opts.Stdout, "action,session_id\nopened,%s\n", resumeSessionID)
+		default:
+			fmt.Fprintf(opts.Stdout, "Opened Claude session from Depot with ID: %s\n", resumeSessionID)
+		}
+		claudeArgs = append(claudeArgs, "--resume", claudeSessionID)
+	}
+
+	claudeCtx, claudeCtxCancel := context.WithCancel(ctx)
+	defer claudeCtxCancel()
+
+	claudeCmd := exec.CommandContext(claudeCtx, claudePath, claudeArgs...)
+	claudeCmd.Stdin = opts.Stdin
+	claudeCmd.Stdout = opts.Stdout
+	claudeCmd.Stderr = opts.Stderr
+	claudeCmd.Env = os.Environ()
+
+	if err := claudeCmd.Start(); err != nil {
+		return fmt.Errorf("failed to start claude: %w", err)
+	}
+
+	projectDir := filepath.Join(sessionDir, convertPathToProjectName(cwd))
+	go func() {
+		if err := continuouslySaveSessionFile(claudeCtx, projectDir, client, token, sessionID, opts.OrgID); err != nil {
+			fmt.Fprintf(opts.Stderr, "\nFailed to continuously save session file: %s", err)
+		}
+	}()
+
+	claudeErr := claudeCmd.Wait()
+	claudeCtxCancel()
+
+	sessionFileName, findErr := findLatestSessionFile(sessionDir, cwd)
+	if findErr != nil {
+		return fmt.Errorf("failed to find session file: %w", findErr)
+	}
+
+	if sessionID == "" {
+		sessionID = filepath.Base(strings.TrimSuffix(sessionFileName, ".jsonl"))
+	}
+
+	saveErr := saveSession(ctx, client, token, sessionID, sessionFileName, retryCount, retryDelay, opts.OrgID)
+	if saveErr != nil {
+		return fmt.Errorf("failed to save session: %w", saveErr)
+	}
+
+	switch opts.Output {
+	case "json":
+		fmt.Fprintf(opts.Stdout, `{"action":"saved","session_id":"%s"}`+"\n", sessionID)
+	case "csv":
+		fmt.Fprintf(opts.Stdout, "action,session_id\nsaved,%s\n", sessionID)
+	default:
+		fmt.Fprintf(opts.Stdout, "Claude session saved to Depot with ID: %s\n", sessionID)
+	}
+
+	return claudeErr
+}
+
+// extractSummaryFromSession extracts the most recent summary from session data
+func extractSummaryFromSession(data []byte) string {
+	lines := bytes.Split(data, []byte{'\n'})
+
+	// Reverse iterate to find the most recent summary
+	for i := len(lines) - 1; i >= 0; i-- {
+		line := bytes.TrimSpace(lines[i])
+		if len(line) == 0 {
+			continue
+		}
+
+		var parsed map[string]any
+		if err := json.Unmarshal(line, &parsed); err != nil {
+			continue
+		}
+
+		if parsed["type"] == "summary" {
+			if summary, ok := parsed["summary"].(string); ok {
+				return summary
+			}
+		}
+	}
+
+	return ""
 }
 
 // verifyAuthentication performs an early auth check by calling the list-sessions API
