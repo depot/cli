@@ -29,7 +29,7 @@ graph TD
         A[User runs 'depot claude args'] --> B(NewCmdClaude Entry Point);
         B --> C{Parse CLI Arguments};
         C --> D[Verify Auth with Depot API];
-        D -->         E{Is '--resume' flag used?};;
+        D -->         E{Is '--resume' flag used?};
 
         E -- Yes --> F(resumeSession);
         F --> G[API Call: DownloadClaudeSession];
