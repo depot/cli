@@ -11,25 +11,26 @@ service ClaudeService {
 }
 
 message UploadClaudeSessionRequest {
-  string tag = 1;
+  string session_id = 1;
   bytes session_data = 2;
-  string session_id = 3;
-  optional string organization_id = 4;
+  optional string organization_id = 3;
+  optional string summary = 4;
+  string claude_session_id = 5;
 }
 
 message UploadClaudeSessionResponse {
-  string session_id = 1;
-  bool success = 2;
+  string session_url = 1;
 }
 
 message DownloadClaudeSessionRequest {
-  string tag = 1;
+  string session_id = 1;
   optional string organization_id = 2;
 }
 
 message DownloadClaudeSessionResponse {
-  string session_id = 1;
-  bytes session_data = 2;
+  bytes session_data = 1;
+  optional string summary = 2;
+  string claude_session_id = 3;
 }
 
 message ListClaudeSessionsRequest {
@@ -42,7 +43,7 @@ message ListClaudeSessionsResponse {
 
 message ClaudeSession {
   string session_id = 1;
-  string tag = 2;
-  google.protobuf.Timestamp updated_at = 3;
-  google.protobuf.Timestamp last_accessed_at = 4;
+  google.protobuf.Timestamp updated_at = 2;
+  google.protobuf.Timestamp created_at = 3;
+  optional string summary = 4;
 }
