@@ -15,69 +15,7 @@ The core logic is as follows:
 5.  **Continuous Saving**: A background goroutine uses a file watcher (`fsnotify`) to monitor the session file for changes. Whenever the file is written to, the updated session is immediately uploaded to Depot. This enables live viewing of the session.
 6.  **Final Save**: Once the `claude` subprocess exits, a final save operation ensures the complete session is uploaded to Depot.
 
-### Workflow Diagram
 
-The following diagram illustrates the execution flow of the `depot claude` command, including the main process and the background task for continuous saving.
-
-```mermaid
-graph TD
-    subgraph "Main Process"
-        A[User runs &#96;depot claude [args]&#96;] --> B(NewCmdClaude Entry Point);
-        B --> C{Parse CLI Arguments};
-        C --> D[Verify Auth with Depot API];
-        D --> E{Is &#96;--resume&#96; flag used?};
-
-        E -- Yes --> F(resumeSession);
-        F --> G[API Call: DownloadClaudeSession];
-        G --> H[Save session file locally];
-        H --> I[Start &#96;claude --resume&#96; subprocess];
-
-        E -- No --> J[Start &#96;claude&#96; subprocess];
-
-        subgraph "Claude Execution"
-            I --> K;
-            J --> K;
-            K(Claude process runs...);
-        end
-
-        subgraph "Final Save on Exit"
-            L[Wait for Claude process to exit] --> M[Find session file path];
-            M --> N(saveSession - Final);
-            N --> O[API Call: UploadClaudeSession];
-            O --> P[Done];
-        end
-
-        K --> L;
-    end
-
-    subgraph "Background Goroutine (Continuous Save)"
-        direction LR
-        Q(continuouslySaveSessionFile);
-        R{Watch session directory for changes};
-        S{Session file created or changed?};
-        T(saveSession - Continuous);
-        U[API Call: UploadClaudeSession];
-
-        Q --> R;
-        R --> S;
-        S -- Yes --> T;
-        T --> U;
-        U --> R;
-        S -- No --> R;
-    end
-
-    %% Link main process to background process
-    I ==> Q;
-    J ==> Q;
-
-    %% Styling
-    style F fill:#cde4ff,stroke:#333,stroke-width:2px
-    style N fill:#cde4ff,stroke:#333,stroke-width:2px
-    style T fill:#d4edda,stroke:#333,stroke-width:2px
-    style G fill:#f8d7da,stroke:#333,stroke-width:2px
-    style O fill:#f8d7da,stroke:#333,stroke-width:2px
-    style U fill:#f8d7da,stroke:#333,stroke-width:2px
-```
 
 ## Key Functions
 
