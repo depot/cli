@@ -212,7 +212,6 @@ This includes claude flags like -p, --model, etc.`,
 				default:
 					fmt.Fprintf(os.Stdout, "Opened Claude session from Depot with ID: %s\n", resumeSessionID)
 				}
-				resumeSessionID = sessionID
 				claudeArgs = append(claudeArgs, "--resume", claudeSessionID)
 			}
 
