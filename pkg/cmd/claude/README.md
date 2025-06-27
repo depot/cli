@@ -26,17 +26,17 @@ The following diagram illustrates the execution flow of the `depot claude` comma
 ```mermaid
 graph TD
     subgraph "Main Process"
-        A[User runs `depot claude args`] --> B(NewCmdClaude Entry Point);
+        A[User runs 'depot claude args'] --> B(NewCmdClaude Entry Point);
         B --> C{Parse CLI Arguments};
         C --> D[Verify Auth with Depot API];
-        D --> E{Is `--resume` flag used?};
+        D -->         E{Is '--resume' flag used?};;
 
         E -- Yes --> F(resumeSession);
         F --> G[API Call: DownloadClaudeSession];
         G --> H[Save session file locally];
-        H --> I[Start `claude --resume` subprocess];
+        H --> I[Start 'claude --resume' subprocess];
 
-        E -- No --> J[Start `claude` subprocess];
+        E -- No --> J[Start 'claude' subprocess];
 
         subgraph "Claude Execution"
             I --> K;
@@ -74,13 +74,13 @@ graph TD
     I ==> Q;
     J ==> Q;
 
-    %% Styling
-    style F fill:#cde4ff,stroke:#333,stroke-width:2px
-    style N fill:#cde4ff,stroke:#333,stroke-width:2px
-    style T fill:#d4edda,stroke:#333,stroke-width:2px
-    style G fill:#f8d7da,stroke:#333,stroke-width:2px
-    style O fill:#f8d7da,stroke:#333,stroke-width:2px
-    style U fill:#f8d7da,stroke:#333,stroke-width:2px
+    %% Styling - removed background fills for better readability
+    style F stroke:#333,stroke-width:2px
+    style N stroke:#333,stroke-width:2px
+    style T stroke:#333,stroke-width:2px
+    style G stroke:#333,stroke-width:2px
+    style O stroke:#333,stroke-width:2px
+    style U stroke:#333,stroke-width:2px
 ```
 
 ## Key Functions
