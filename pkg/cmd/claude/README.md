@@ -22,17 +22,17 @@ The following diagram illustrates the execution flow of the `depot claude` comma
 ```mermaid
 graph TD
     subgraph "Main Process"
-        A[User runs `depot claude [args]`] --> B(NewCmdClaude Entry Point);
+        A[User runs &#96;depot claude [args]&#96;] --> B(NewCmdClaude Entry Point);
         B --> C{Parse CLI Arguments};
         C --> D[Verify Auth with Depot API];
-        D --> E{Is `--resume` flag used?};
+        D --> E{Is &#96;--resume&#96; flag used?};
 
         E -- Yes --> F(resumeSession);
         F --> G[API Call: DownloadClaudeSession];
         G --> H[Save session file locally];
-        H --> I[Start `claude --resume` subprocess];
+        H --> I[Start &#96;claude --resume&#96; subprocess];
 
-        E -- No --> J[Start `claude` subprocess];
+        E -- No --> J[Start &#96;claude&#96; subprocess];
 
         subgraph "Claude Execution"
             I --> K;
