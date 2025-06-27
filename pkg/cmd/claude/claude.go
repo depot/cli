@@ -3,7 +3,6 @@ package claude
 import (
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -180,25 +179,24 @@ This includes claude flags like -p, --model, etc.`,
 			}
 
 			if resumeSessionID != "" {
-				projectDir := filepath.Join(sessionDir, convertPathToProjectName(cwd))
-				localSessionFile := filepath.Join(projectDir, fmt.Sprintf("%s.jsonl", resumeSessionID))
-
-				if _, err := os.Stat(localSessionFile); errors.Is(err, os.ErrNotExist) {
-					sessionID, err := resumeSession(ctx, client, token, resumeSessionID, sessionDir, cwd, orgID, retryCount, retryDelay)
-					if err != nil {
-						return fmt.Errorf("session '%s' not found locally or remotely: %w", resumeSessionID, err)
-					}
-
-					switch output {
-					case "json":
-						fmt.Fprintf(os.Stdout, `{"action":"opened","session_id":"%s"}`+"\n", resumeSessionID)
-					case "csv":
-						fmt.Fprintf(os.Stdout, "action,session_id\nopened,%s\n", resumeSessionID)
-					default:
-						fmt.Fprintf(os.Stdout, "Opened Claude session from Depot with ID: %s\n", resumeSessionID)
-					}
-					resumeSessionID = sessionID
+				if customSessionID == "" {
+					customSessionID = resumeSessionID
 				}
+
+				sessionID, err := resumeSession(ctx, client, token, resumeSessionID, sessionDir, cwd, orgID, retryCount, retryDelay)
+				if err != nil {
+					return fmt.Errorf("session '%s' not found remotely: %w", resumeSessionID, err)
+				}
+
+				switch output {
+				case "json":
+					fmt.Fprintf(os.Stdout, `{"action":"opened","session_id":"%s"}`+"\n", resumeSessionID)
+				case "csv":
+					fmt.Fprintf(os.Stdout, "action,session_id\nopened,%s\n", resumeSessionID)
+				default:
+					fmt.Fprintf(os.Stdout, "Opened Claude session from Depot with ID: %s\n", resumeSessionID)
+				}
+				resumeSessionID = sessionID
 				claudeArgs = append(claudeArgs, "--resume", resumeSessionID)
 			}
 
