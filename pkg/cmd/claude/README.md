@@ -17,6 +17,72 @@ The core logic is as follows:
 
 
 
+### Workflow Diagram
+
+The following diagram illustrates the execution flow of the `depot claude` command, including the main process and the background task for continuous saving.
+
+**Note:** This Mermaid diagram might not render directly on GitHub due to limitations in their renderer. If the diagram does not display correctly, you can view it using a local Markdown viewer with Mermaid support (e.g., VS Code with the Mermaid extension) or an online Mermaid live editor (e.g., [Mermaid Live Editor](https://mermaid.live/)).
+
+```mermaid
+graph TD
+    subgraph "Main Process"
+        A[User runs `depot claude [args]`] --> B(NewCmdClaude Entry Point);
+        B --> C{Parse CLI Arguments};
+        C --> D[Verify Auth with Depot API];
+        D --> E{Is `--resume` flag used?};
+
+        E -- Yes --> F(resumeSession);
+        F --> G[API Call: DownloadClaudeSession];
+        G --> H[Save session file locally];
+        H --> I[Start `claude --resume` subprocess];
+
+        E -- No --> J[Start `claude` subprocess];
+
+        subgraph "Claude Execution"
+            I --> K;
+            J --> K;
+            K(Claude process runs...);
+        end
+
+        subgraph "Final Save on Exit"
+            L[Wait for Claude process to exit] --> M[Find session file path];
+            M --> N(saveSession - Final);
+            N --> O[API Call: UploadClaudeSession];
+            O --> P[Done];
+        end
+
+        K --> L;
+    end
+
+    subgraph "Background Goroutine (Continuous Save)"
+        direction LR
+        Q(continuouslySaveSessionFile);
+        R{Watch session directory for changes};
+        S{Session file created or changed?};
+        T(saveSession - Continuous);
+        U[API Call: UploadClaudeSession];
+
+        Q --> R;
+        R --> S;
+        S -- Yes --> T;
+        T --> U;
+        U --> R;
+        S -- No --> R;
+    end
+
+    %% Link main process to background process
+    I ==> Q;
+    J ==> Q;
+
+    %% Styling
+    style F fill:#cde4ff,stroke:#333,stroke-width:2px
+    style N fill:#cde4ff,stroke:#333,stroke-width:2px
+    style T fill:#d4edda,stroke:#333,stroke-width:2px
+    style G fill:#f8d7da,stroke:#333,stroke-width:2px
+    style O fill:#f8d7da,stroke:#333,stroke-width:2px
+    style U fill:#f8d7da,stroke:#333,stroke-width:2px
+```
+
 ## Key Functions
 
 -   `NewCmdClaude()`: Initializes the cobra command, defines flags, and contains the main run loop.
