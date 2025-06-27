@@ -26,7 +26,7 @@ The following diagram illustrates the execution flow of the `depot claude` comma
 ```mermaid
 graph TD
     subgraph "Main Process"
-        A[User runs `depot claude [args]`] --> B(NewCmdClaude Entry Point);
+        A[User runs `depot claude args`] --> B(NewCmdClaude Entry Point);
         B --> C{Parse CLI Arguments};
         C --> D[Verify Auth with Depot API];
         D --> E{Is `--resume` flag used?};
