@@ -35,6 +35,14 @@ func NewProjectsClient() cliv1beta1connect.ProjectsServiceClient {
 	return cliv1beta1connect.NewProjectsServiceClient(http.DefaultClient, baseURL, WithUserAgent())
 }
 
+func NewOrganizationClient() cliv1beta1connect.OrganizationServiceClient {
+	baseURL := os.Getenv("DEPOT_API_URL")
+	if baseURL == "" {
+		baseURL = "https://api.depot.dev"
+	}
+	return cliv1beta1connect.NewOrganizationServiceClient(http.DefaultClient, baseURL, WithUserAgent())
+}
+
 func NewSDKProjectsClient() corev1connect.ProjectServiceClient {
 	baseURL := os.Getenv("DEPOT_API_URL")
 	if baseURL == "" {
