@@ -179,6 +179,8 @@ This includes claude flags like -p, --model, etc.`,
 				return fmt.Errorf("failed to get working directory: %w", err)
 			}
 
+			sessionIDChan := make(chan sessionIDUpdate, 1)
+
 			var claudeSessionID string
 			if resumeSessionID != "" {
 				if sessionID == "" {
@@ -199,6 +201,8 @@ This includes claude flags like -p, --model, etc.`,
 				if err != nil {
 					return fmt.Errorf("session '%s' not found remotely: %w", resumeSessionID, err)
 				}
+				// Send initial session ID to channel
+				sessionIDChan <- sessionIDUpdate{id: claudeSessionID}
 
 				switch output {
 				case "json":
@@ -228,12 +232,12 @@ This includes claude flags like -p, --model, etc.`,
 			projectDir := filepath.Join(sessionDir, convertPathToProjectName(cwd))
 			go func() {
 				continuousParams := ContinuousSaveParams{
-					ProjectDir:      projectDir,
-					Client:          client,
-					Token:           token,
-					SessionID:       sessionID,
-					ClaudeSessionID: claudeSessionID,
-					OrgID:           orgID,
+					ProjectDir:    projectDir,
+					Client:        client,
+					Token:         token,
+					SessionID:     sessionID,
+					SessionIDChan: sessionIDChan,
+					OrgID:         orgID,
 				}
 				if err := continuouslySaveSessionFile(claudeCtx, continuousParams); err != nil {
 					fmt.Fprintf(os.Stderr, "\nFailed to continuously save session file: %s", err)
@@ -242,6 +246,12 @@ This includes claude flags like -p, --model, etc.`,
 
 			claudeErr := claudeCmd.Wait()
 			claudeCtxCancel()
+
+			select {
+			case update := <-sessionIDChan:
+				claudeSessionID = update.id
+			default:
+			}
 
 			var sessionFilePath string
 
@@ -449,13 +459,17 @@ func convertPathToProjectName(path string) string {
 	return nonAlphanumericRegex.ReplaceAllString(cleaned, "-")
 }
 
+type sessionIDUpdate struct {
+	id string
+}
+
 type ContinuousSaveParams struct {
-	ProjectDir      string
-	Client          agentv1connect.ClaudeServiceClient
-	Token           string
-	SessionID       string
-	ClaudeSessionID string
-	OrgID           string
+	ProjectDir    string
+	Client        agentv1connect.ClaudeServiceClient
+	Token         string
+	SessionID     string
+	SessionIDChan chan sessionIDUpdate
+	OrgID         string
 }
 
 // continuouslySaveSessionFile monitors the project directory for new or changed session files and automatically saves them
@@ -475,8 +489,13 @@ func continuouslySaveSessionFile(ctx context.Context, params ContinuousSaveParam
 	}
 
 	var sessionFilePath string
-	if params.ClaudeSessionID != "" {
-		sessionFilePath = filepath.Join(params.ProjectDir, fmt.Sprintf("%s.jsonl", params.ClaudeSessionID))
+	var claudeSessionID string
+
+	select {
+	case update := <-params.SessionIDChan:
+		claudeSessionID = update.id
+		sessionFilePath = filepath.Join(params.ProjectDir, fmt.Sprintf("%s.jsonl", claudeSessionID))
+	default:
 	}
 
 	for {
@@ -509,9 +528,12 @@ func continuouslySaveSessionFile(ctx context.Context, params ContinuousSaveParam
 				sessionID = filepath.Base(strings.TrimSuffix(sessionFilePath, ".jsonl"))
 			}
 
-			claudeSessionID := params.ClaudeSessionID
 			if claudeSessionID == "" {
 				claudeSessionID = filepath.Base(strings.TrimSuffix(sessionFilePath, ".jsonl"))
+				select {
+				case params.SessionIDChan <- sessionIDUpdate{id: claudeSessionID}:
+				default:
+				}
 			}
 
 			saveParams := SaveSessionParams{
