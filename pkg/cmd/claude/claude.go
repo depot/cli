@@ -1,5 +1,6 @@
 package claude
 
+// TODO:  write empty file if resume is emptyu to print url at start
 import (
 	"bytes"
 	"context"
@@ -458,33 +459,6 @@ type ContinuousSaveParams struct {
 
 // continuouslySaveSessionFile monitors the project directory for new or changed session files and automatically saves them
 func continuouslySaveSessionFile(ctx context.Context, params ContinuousSaveParams) error {
-	var sessionFile string
-
-	saveFile := func(filePath string) {
-		sessionID := params.SessionID
-		if sessionID == "" {
-			sessionID = filepath.Base(strings.TrimSuffix(filePath, ".jsonl"))
-		}
-
-		claudeSessionID := params.ClaudeSessionID
-		if claudeSessionID == "" {
-			claudeSessionID = filepath.Base(strings.TrimSuffix(filePath, ".jsonl"))
-		}
-
-		saveParams := SaveSessionParams{
-			Client:          params.Client,
-			Token:           params.Token,
-			SessionID:       sessionID,
-			ClaudeSessionID: claudeSessionID,
-			SessionFilePath: filePath,
-			RetryCount:      3,
-			RetryDelay:      2 * time.Second,
-			OrgID:           params.OrgID,
-		}
-		// if the continuous save fails, it doesn't matter much. this is really only for the live view of the conversation
-		_ = saveSession(ctx, saveParams)
-	}
-
 	if err := os.MkdirAll(params.ProjectDir, 0755); err != nil {
 		return fmt.Errorf("failed to create project directory: %w", err)
 	}
@@ -498,6 +472,8 @@ func continuouslySaveSessionFile(ctx context.Context, params ContinuousSaveParam
 	if err := watcher.Add(params.ProjectDir); err != nil {
 		return fmt.Errorf("failed to watch directory: %w", err)
 	}
+
+	sessionFilePath := filepath.Join(params.ProjectDir, fmt.Sprintf("%s.jsonl", params.ClaudeSessionID))
 
 	for {
 		select {
@@ -518,21 +494,32 @@ func continuouslySaveSessionFile(ctx context.Context, params ContinuousSaveParam
 				return fmt.Errorf("failed to create absolute path for file %s", event.Name)
 			}
 
-			shouldProcess := false
-			if sessionFile == "" {
-				// no session tracked yet, check if this is a .jsonl file
-				shouldProcess = strings.HasSuffix(changedFileAbsPath, ".jsonl")
-			} else {
-				// we're already tracking a session, only process if it's our file
-				shouldProcess = changedFileAbsPath == sessionFile
+			if changedFileAbsPath != sessionFilePath {
+				continue
 			}
 
-			if shouldProcess {
-				if sessionFile == "" {
-					sessionFile = changedFileAbsPath
-				}
-				saveFile(changedFileAbsPath)
+			sessionID := params.SessionID
+			if sessionID == "" {
+				sessionID = filepath.Base(strings.TrimSuffix(sessionFilePath, ".jsonl"))
 			}
+
+			claudeSessionID := params.ClaudeSessionID
+			if claudeSessionID == "" {
+				claudeSessionID = filepath.Base(strings.TrimSuffix(sessionFilePath, ".jsonl"))
+			}
+
+			saveParams := SaveSessionParams{
+				Client:          params.Client,
+				Token:           params.Token,
+				SessionID:       sessionID,
+				ClaudeSessionID: claudeSessionID,
+				SessionFilePath: sessionFilePath,
+				RetryCount:      3,
+				RetryDelay:      2 * time.Second,
+				OrgID:           params.OrgID,
+			}
+			// if the continuous save fails, it doesn't matter much. this is really only for the live view of the conversation
+			_ = saveSession(ctx, saveParams)
 
 		case err, ok := <-watcher.Errors:
 			if !ok {
