@@ -474,7 +474,10 @@ func continuouslySaveSessionFile(ctx context.Context, params ContinuousSaveParam
 		return fmt.Errorf("failed to watch directory: %w", err)
 	}
 
-	sessionFilePath := filepath.Join(params.ProjectDir, fmt.Sprintf("%s.jsonl", params.ClaudeSessionID))
+	var sessionFilePath string
+	if params.ClaudeSessionID != "" {
+		sessionFilePath = filepath.Join(params.ProjectDir, fmt.Sprintf("%s.jsonl", params.ClaudeSessionID))
+	}
 
 	for {
 		select {
@@ -495,7 +498,9 @@ func continuouslySaveSessionFile(ctx context.Context, params ContinuousSaveParam
 				return fmt.Errorf("failed to create absolute path for file %s", event.Name)
 			}
 
-			if changedFileAbsPath != sessionFilePath {
+			if sessionFilePath == "" && filepath.Ext(changedFileAbsPath) == ".jsonl" {
+				sessionFilePath = changedFileAbsPath
+			} else if changedFileAbsPath != sessionFilePath {
 				continue
 			}
 
