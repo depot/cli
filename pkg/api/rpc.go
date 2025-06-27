@@ -6,6 +6,7 @@ import (
 
 	"buf.build/gen/go/depot/api/connectrpc/go/depot/core/v1/corev1connect"
 	"connectrpc.com/connect"
+	"github.com/depot/cli/pkg/proto/depot/agent/v1/agentv1connect"
 	"github.com/depot/cli/pkg/proto/depot/cli/v1/cliv1connect"
 	"github.com/depot/cli/pkg/proto/depot/cli/v1beta1/cliv1beta1connect"
 )
@@ -48,6 +49,14 @@ func NewPushClient() cliv1connect.PushServiceClient {
 		baseURL = "https://api.depot.dev"
 	}
 	return cliv1connect.NewPushServiceClient(http.DefaultClient, baseURL, WithUserAgent())
+}
+
+func NewClaudeClient() agentv1connect.ClaudeServiceClient {
+	baseURL := os.Getenv("DEPOT_API_URL")
+	if baseURL == "" {
+		baseURL = "https://api.depot.dev"
+	}
+	return agentv1connect.NewClaudeServiceClient(http.DefaultClient, baseURL, WithUserAgent())
 }
 
 func WithAuthentication[T any](req *connect.Request[T], token string) *connect.Request[T] {

@@ -1,0 +1,49 @@
+syntax = "proto3";
+
+import "google/protobuf/timestamp.proto";
+
+package depot.agent.v1;
+
+service ClaudeService {
+  rpc UploadClaudeSession(UploadClaudeSessionRequest) returns (UploadClaudeSessionResponse);
+  rpc DownloadClaudeSession(DownloadClaudeSessionRequest) returns (DownloadClaudeSessionResponse);
+  rpc ListClaudeSessions(ListClaudeSessionsRequest) returns (ListClaudeSessionsResponse);
+}
+
+message UploadClaudeSessionRequest {
+  string session_id = 1;
+  bytes session_data = 2;
+  optional string organization_id = 3;
+  optional string summary = 4;
+  string claude_session_id = 5;
+}
+
+message UploadClaudeSessionResponse {
+  string session_url = 1;
+}
+
+message DownloadClaudeSessionRequest {
+  string session_id = 1;
+  optional string organization_id = 2;
+}
+
+message DownloadClaudeSessionResponse {
+  bytes session_data = 1;
+  optional string summary = 2;
+  string claude_session_id = 3;
+}
+
+message ListClaudeSessionsRequest {
+  optional string organization_id = 1;
+}
+
+message ListClaudeSessionsResponse {
+  repeated ClaudeSession sessions = 1;
+}
+
+message ClaudeSession {
+  string session_id = 1;
+  google.protobuf.Timestamp updated_at = 2;
+  google.protobuf.Timestamp created_at = 3;
+  optional string summary = 4;
+}
