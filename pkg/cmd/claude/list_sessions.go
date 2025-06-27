@@ -251,8 +251,8 @@ func sessionWriteJSON(sessions []*agentv1.ClaudeSession) error {
 	type sessionJSON struct {
 		SessionID string    `json:"session_id"`
 		Summary   string    `json:"summary,omitempty"`
-		UpdatedAt time.Time `json:"updated_at"`
-		CreatedAt time.Time `json:"created_at"`
+		UpdatedAt time.Time `json:"updated_at,omitempty"`
+		CreatedAt time.Time `json:"created_at,omitempty"`
 	}
 
 	var jsonSessions []sessionJSON
