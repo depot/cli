@@ -1,6 +1,5 @@
 package claude
 
-// TODO:  write empty file if resume is emptyu to print url at start
 import (
 	"bytes"
 	"context"
