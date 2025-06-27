@@ -16,6 +16,7 @@ import (
 	"github.com/depot/cli/pkg/cmd/list"
 	loginCmd "github.com/depot/cli/pkg/cmd/login"
 	logout "github.com/depot/cli/pkg/cmd/logout"
+	"github.com/depot/cli/pkg/cmd/org"
 	"github.com/depot/cli/pkg/cmd/projects"
 	"github.com/depot/cli/pkg/cmd/pull"
 	"github.com/depot/cli/pkg/cmd/pulltoken"
@@ -64,6 +65,7 @@ func NewCmdRoot(version, buildDate string) *cobra.Command {
 	cmd.AddCommand(list.NewCmdList())
 	cmd.AddCommand(loginCmd.NewCmdLogin())
 	cmd.AddCommand(logout.NewCmdLogout())
+	cmd.AddCommand(org.NewCmdOrg())
 	cmd.AddCommand(pull.NewCmdPull())
 	cmd.AddCommand(pulltoken.NewCmdPullToken())
 	cmd.AddCommand(push.NewCmdPush())
