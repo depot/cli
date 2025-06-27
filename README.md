@@ -529,6 +529,16 @@ depot version
 
 PR contributions are welcome! The CLI codebase is evolving rapidly, but we are happy to work with you on your contribution.
 
+### Building from Source
+
+To build the CLI from source, you'll need to have Go installed. You can then build the binary by running:
+
+```shell
+make bin/depot
+```
+
+This will create the `depot` executable at `bin/depot`.
+
 ## License
 
 MIT License, see `LICENSE`
