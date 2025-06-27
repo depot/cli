@@ -252,6 +252,7 @@ This includes claude flags like -p, --model, etc.`,
 				if err != nil {
 					return fmt.Errorf("failed to find session file: %w", err)
 				}
+				claudeSessionID = filepath.Base(strings.TrimSuffix(sessionFilePath, ".jsonl"))
 			}
 
 			if sessionID == "" {
