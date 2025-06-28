@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Depot - Claude Code Sessions</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background-color: #1a1a1a;
+            color: #e5e5e5;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            font-size: 14px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 30px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid #333;
+        }
+
+        .header h1 {
+            font-size: 24px;
+            font-weight: 600;
+            color: #fff;
+        }
+
+        .stats {
+            display: flex;
+            gap: 40px;
+            margin-bottom: 30px;
+        }
+
+        .stat-item {
+            text-align: center;
+        }
+
+        .stat-number {
+            font-size: 32px;
+            font-weight: 700;
+            color: #4ade80;
+            margin-bottom: 5px;
+        }
+
+        .stat-label {
+            color: #9ca3af;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .sessions-section {
+            background-color: #262626;
+            border-radius: 8px;
+            padding: 24px;
+        }
+
+        .section-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 20px;
+        }
+
+        .section-title {
+            font-size: 18px;
+            font-weight: 600;
+            color: #fff;
+        }
+
+        .session-count {
+            background-color: #4ade80;
+            color: #000;
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .sessions-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            grid-template-rows: repeat(2, 1fr);
+            gap: 20px;
+        }
+
+        .session-item {
+            background-color: #333;
+            border-radius: 6px;
+            padding: 16px;
+            border: 1px solid transparent;
+            transition: all 0.2s ease;
+            display: flex;
+            flex-direction: column;
+            min-height: 200px;
+        }
+
+        .session-item:hover {
+            border-color: #4ade80;
+            background-color: #3a3a3a;
+        }
+
+        .session-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 12px;
+        }
+
+        .session-id {
+            font-family: 'Monaco', 'Menlo', monospace;
+            font-size: 11px;
+            color: #9ca3af;
+            background-color: #1f2937;
+            padding: 3px 6px;
+            border-radius: 3px;
+        }
+
+        .session-branch {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            color: #60a5fa;
+            font-size: 13px;
+        }
+
+        .branch-icon {
+            width: 14px;
+            height: 14px;
+        }
+
+        .session-prompt {
+            color: #d1d5db;
+            line-height: 1.5;
+            margin-bottom: 12px;
+            font-size: 13px;
+            flex-grow: 1;
+        }
+
+        .session-footer {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 12px;
+        }
+
+        .session-time {
+            color: #9ca3af;
+            font-size: 12px;
+        }
+
+        .pr-links {
+            display: flex;
+            gap: 8px;
+        }
+
+        .pr-link {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            color: #a855f7;
+            text-decoration: none;
+            font-size: 12px;
+            padding: 4px 8px;
+            border-radius: 4px;
+            background-color: #1f1f1f;
+            transition: background-color 0.2s ease;
+        }
+
+        .pr-link:hover {
+            background-color: #2d2d2d;
+        }
+
+        .github-icon {
+            width: 14px;
+            height: 14px;
+            fill: currentColor;
+        }
+
+        .resume-button {
+            width: 100%;
+            background-color: #4ade80;
+            color: #000;
+            border: none;
+            padding: 8px 12px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            position: relative;
+        }
+
+        .resume-button:hover {
+            background-color: #22c55e;
+            transform: translateY(-1px);
+        }
+
+        .resume-button:active {
+            transform: translateY(0);
+        }
+
+        .resume-tooltip {
+            position: relative;
+        }
+
+        .resume-tooltip:hover::after {
+            content: attr(data-command);
+            position: absolute;
+            bottom: -35px;
+            left: 50%;
+            transform: translateX(-50%);
+            background-color: #000;
+            color: #4ade80;
+            padding: 6px 10px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-family: 'Monaco', 'Menlo', monospace;
+            white-space: nowrap;
+            z-index: 1000;
+            border: 1px solid #333;
+        }
+
+        .resume-tooltip:hover::before {
+            content: '';
+            position: absolute;
+            bottom: -8px;
+            left: 50%;
+            transform: translateX(-50%);
+            border-left: 5px solid transparent;
+            border-right: 5px solid transparent;
+            border-bottom: 5px solid #000;
+            z-index: 1001;
+        }
+
+        @media (max-width: 1200px) {
+            .sessions-grid {
+                grid-template-columns: repeat(2, 1fr);
+                grid-template-rows: repeat(3, 1fr);
+            }
+        }
+
+        @media (max-width: 768px) {
+            .sessions-grid {
+                grid-template-columns: 1fr;
+                grid-template-rows: repeat(6, 1fr);
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Claude Code Sessions</h1>
+            <div class="stats">
+                <div class="stat-item">
+                    <div class="stat-number">142</div>
+                    <div class="stat-label">Total Sessions</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-number">6</div>
+                    <div class="stat-label">Active</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-number">28</div>
+                    <div class="stat-label">PRs Created</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="sessions-section">
+            <div class="section-header">
+                <h2 class="section-title">Active Sessions</h2>
+                <span class="session-count">6</span>
+            </div>
+
+            <div class="sessions-grid">
+                <div class="session-item">
+                    <div class="session-header">
+                        <div class="session-id">cs_7x8k9m2n4p6q</div>
+                        <div class="session-branch">
+                            <svg class="branch-icon" viewBox="0 0 16 16" fill="currentColor">
+                                <path fill-rule="evenodd" d="M11.75 2.5a.75.75 0 100 1.5.75.75 0 000-1.5zm-2.25.75a2.25 2.25 0 113 2.122V6A2.5 2.5 0 0110 8.5H6a1 1 0 00-1 1v1.128a2.251 2.251 0 11-1.5 0V5.372a2.25 2.25 0 111.5 0v1.836A2.5 2.5 0 016 7h4a1 1 0 001-1v-.628A2.25 2.25 0 019.5 3.25zM4.25 12a.75.75 0 100 1.5.75.75 0 000-1.5zM3.5 3.25a.75.75 0 111.5 0 .75.75 0 01-1.5 0z"></path>
+                            </svg>
+                            feature/auth-improvements
+                        </div>
+                    </div>
+                    <div class="session-prompt">
+                        Help me refactor the authentication system to use JWT tokens instead of session cookies. I want to improve security and make the API more...
+                    </div>
+                    <div class="session-footer">
+                        <div class="session-time">2 hours ago</div>
+                        <div class="pr-links">
+                            <a href="#" class="pr-link">
+                                <svg class="github-icon" viewBox="0 0 16 16">
+                                    <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
+                                </svg>
+                                #2847
+                            </a>
+                            <a href="#" class="pr-link">
+                                <svg class="github-icon" viewBox="0 0 16 16">
+                                    <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
+                                </svg>
+                                #2849
+                            </a>
+                        </div>
+                    </div>
+                    <div class="resume-tooltip" data-command="depot claude --session cs_7x8k9m2n4p6q">
+                        <button class="resume-button" onclick="copyCommand('depot claude --session cs_7x8k9m2n4p6q')">
+                            Resume this session locally
+                        </button>
+                    </div>
+                </div>
+
+                <div class="session-item">
+                    <div class="session-header">
+                        <div class="session-id">cs_3a5b7c9d1e2f</div>
+                        <div class="session-branch">
+                            <svg class="branch-icon" viewBox="0 0 16 16" fill="currentColor">
+                                <path fill-rule="evenodd" d="M11.75 2.5a.75.75 0 100 1.5.75.75 0 000-1.5zm-2.25.75a2.25 2.25 0 113 2.122V6A2.5 2.5 0 0110 8.5H6a1 1 0 00-1 1v1.128a2.251 2.251 0 11-1.5 0V5.372a2.25 2.25 0 111.5 0v1.836A2.5 2.5 0 016 7h4a1 1 0 001-1v-.628A2.25 2.25 0 019.5 3.25zM4.25 12a.75.75 0 100 1.5.75.75 0 000-1.5zM3.5 3.25a.75.75 0 111.5 0 .75.75 0 01-1.5 0z"></path>
+                            </svg>
+                            bugfix/memory-leak-dashboard
+                        </div>
+                    </div>
+                    <div class="session-prompt">
+                        There's a memory leak in the dashboard component when users navigate between different pages. Can you help me identify where the issue is occurring and...
+                    </div>
+                    <div class="session-footer">
+                        <div class="session-time">4 hours ago</div>
+                        <div class="pr-links">
+                            <a href="#" class="pr-link">
+                                <svg class="github-icon" viewBox="0 0 16 16">
+                                    <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
+                                </svg>
+                                #2851
+                            </a>
+                        </div>
+                    </div>
+                    <div class="resume-tooltip" data-command="depot claude --session cs_3a5b7c9d1e2f">
+                        <button class="resume-button" onclick="copyCommand('depot claude --session cs_3a5b7c9d1e2f')">
+                            Resume this session locally
+                        </button>
+                    </div>
+                </div>
+
+                <div class="session-item">
+                    <div class="session-header">
+                        <div class="session-id">cs_9k4j6h8g2f1d</div>
+                        <div class="session-branch">
+                            <svg class="branch-icon" viewBox="0 0 16 16" fill="currentColor">
+                                <path fill-rule="evenodd" d="M11.75 2.5a.75.75 0 100 1.5.75.75 0 000-1.5zm-2.25.75a2.25 2.25 0 113 2.122V6A2.5 2.5 0 0110 8.5H6a1 1 0 00-1 1v1.128a2.251 2.251 0 11-1.5 0V5.372a2.25 2.25 0 111.5 0v1.836A2.5 2.5 0 016 7h4a1 1 0 001-1v-.628A2.25 2.25 0 019.5 3.25zM4.25 12a.75.75 0 100 1.5.75.75 0 000-1.5zM3.5 3.25a.75.75 0 111.5 0 .75.75 0 01-1.5 0z"></path>
+                            </svg>
+                            feature/api-rate-limiting
+                        </div>
+                    </div>
+                    <div class="session-prompt">
+                        I need to implement rate limiting for our API endpoints. Currently we're getting hammered by some clients and it's affecting performance for everyone else. Let's add...
+                    </div>
+                    <div class="session-footer">
+                        <div class="session-time">6 hours ago</div>
+                        <div class="pr-links">
+                            <a href="#" class="pr-link">
+                                <svg class="github-icon" viewBox="0 0 16 16">
+                                    <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
+                                </svg>
+                                #2854
+                            </a>
+                            <a href="#" class="pr-link">
+                                <svg class="github-icon" viewBox="0 0 16 16">
+                                    <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
+                                </svg>
+                                #2856
+                            </a>
+                        </div>
+                    </div>
+                    <div class="resume-tooltip" data-command="depot claude --session cs_9k4j6h8g2f1d">
+                        <button class="resume-button" onclick="copyCommand('depot claude --session cs_9k4j6h8g2f1d')">
+                            Resume this session locally
+                        </button>
+                    </div>
+                </div>
+
+                <div class="session-item">
+                    <div class="session-header">
+                        <div class="session-id">cs_5p8r2t4y6u1i</div>
+                        <div class="session-branch">
+                            <svg class="branch-icon" viewBox="0 0 16 16" fill="currentColor">
+                                <path fill-rule="evenodd" d="M11.75 2.5a.75.75 0 100 1.5.75.75 0 000-1.5zm-2.25.75a2.25 2.25 0 113 2.122V6A2.5 2.5 0 0110 8.5H6a1 1 0 00-1 1v1.128a2.251 2.251 0 11-1.5 0V5.372a2.25 2.25 0 111.5 0v1.836A2.5 2.5 0 016 7h4a1 1 0 001-1v-.628A2.25 2.25 0 019.5 3.25zM4.25 12a.75.75 0 100 1.5.75.75 0 000-1.5zM3.5 3.25a.75.75 0 111.5 0 .75.75 0 01-1.5 0z"></path>
+                            </svg>
+                            docs/update-deployment-guide
+                        </div>
+                    </div>
+                    <div class="session-prompt">
+                        The deployment documentation is outdated and doesn't match our current CI/CD pipeline. Can you help me update the guide to reflect the new Docker-based deployment process...
+                    </div>
+                    <div class="session-footer">
+                        <div class="session-time">1 day ago</div>
+                        <div class="pr-links">
+                            <!-- No PRs for this session -->
+                        </div>
+                    </div>
+                    <div class="resume-tooltip" data-command="depot claude --session cs_5p8r2t4y6u1i">
+                        <button class="resume-button" onclick="copyCommand('depot claude --session cs_5p8r2t4y6u1i')">
+                            Resume this session locally
+                        </button>
+                    </div>
+                </div>
+
+                <div class="session-item">
+                    <div class="session-header">
+                        <div class="session-id">cs_1w3e5r7t9y0u</div>
+                        <div class="session-branch">
+                            <svg class="branch-icon" viewBox="0 0 16 16" fill="currentColor">
+                                <path fill-rule="evenodd" d="M11.75 2.5a.75.75 0 100 1.5.75.75 0 000-1.5zm-2.25.75a2.25 2.25 0 113 2.122V6A2.5 2.5 0 0110 8.5H6a1 1 0 00-1 1v1.128a2.251 2.251 0 11-1.5 0V5.372a2.25 2.25 0 111.5 0v1.836A2.5 2.5 0 016 7h4a1 1 0 001-1v-.628A2.25 2.25 0 019.5 3.25zM4.25 12a.75.75 0 100 1.5.75.75 0 000-1.5zM3.5 3.25a.75.75 0 111.5 0 .75.75 0 01-1.5 0z"></path>
+                            </svg>
+                            feature/database-optimization
+                        </div>
+                    </div>
+                    <div class="session-prompt">
+                        Our database queries are getting slower as we scale. I need help optimizing the most frequently used queries and adding proper indexes. Let's start by analyzing...
+                    </div>
+                    <div class="session-footer">
+                        <div class="session-time">1 day ago</div>
+                        <div class="pr-links">
+                            <a href="#" class="pr-link">
+                                <svg class="github-icon" viewBox="0 0 16 16">
+                                    <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
+                                </svg>
+                                #2862
+                            </a>
+                        </div>
+                    </div>
+                    <div class="resume-tooltip" data-command="depot claude --session cs_1w3e5r7t9y0u">
+                        <button class="resume-button" onclick="copyCommand('depot claude --session cs_1w3e5r7t9y0u')">
+                            Resume this session locally
+                        </button>
+                    </div>
+                </div>
+
+                <div class="session-item">
+                    <div class="session-header">
+                        <div class="session-id">cs_8n6b4v2c9x1z</div>
+                        <div class="session-branch">
+                            <svg class="branch-icon" viewBox="0 0 16 16" fill="currentColor">
+                                <path fill-rule="evenodd" d="M11.75 2.5a.75.75 0 100 1.5.75.75 0 000-1.5zm-2.25.75a2.25 2.25 0 113 2.122V6A2.5 2.5 0 0110 8.5H6a1 1 0 00-1 1v1.128a2.251 2.251 0 11-1.5 0V5.372a2.25 2.25 0 111.5 0v1.836A2.5 2.5 0 016 7h4a1 1 0 001-1v-.628A2.25 2.25 0 019.5 3.25zM4.25 12a.75.75 0 100 1.5.75.75 0 000-1.5zM3.5 3.25a.75.75 0 111.5 0 .75.75 0 01-1.5 0z"></path>
+                            </svg>
+                            feature/websocket-improvements
+                        </div>
+                    </div>
+                    <div class="session-prompt">
+                        We need to improve our real-time features by upgrading the WebSocket implementation. The current setup is dropping connections and users are experiencing lag during live updates...
+                    </div>
+                    <div class="session-footer">
+                        <div class="session-time">2 days ago</div>
+                        <div class="pr-links">
+                            <a href="#" class="pr-link">
+                                <svg class="github-icon" viewBox="0 0 16 16">
+                                    <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
+                                </svg>
+                                #2865
+                            </a>
+                            <a href="#" class="pr-link">
+                                <svg class="github-icon" viewBox="0 0 16 16">
+                                    <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
+                                </svg>
+                                #2867
+                            </a>
+                        </div>
+                    </div>
+                    <div class="resume-tooltip" data-command="depot claude --session cs_8n6b4v2c9x1z">
+                        <button class="resume-button" onclick="copyCommand('depot claude --session cs_8n6b4v2c9x1z')">
+                            Resume this session locally
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function copyCommand(command) {
+            navigator.clipboard.writeText(command).then(function() {
+                console.log('Command copied to clipboard: ' + command);
+                // You could add a toast notification here showing the copied command
+            }, function(err) {
+                console.error('Could not copy command: ', err);
+            });
+        }
+    </script>
+</body>
+</html> 
