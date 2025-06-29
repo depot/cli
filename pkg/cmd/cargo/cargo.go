@@ -90,7 +90,7 @@ func NewCmdCargo() *cobra.Command {
 			go func() {
 				sig := <-signalCh
 				if cargoCmd.Process != nil {
-					cargoCmd.Process.Signal(sig)
+					_ = cargoCmd.Process.Signal(sig)
 				}
 			}()
 
