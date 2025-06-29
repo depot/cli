@@ -107,12 +107,8 @@ func NewCmdCargo() *cobra.Command {
 		},
 	}
 
-	return cmd
-}
+	cmd.Flags().StringVar(&orgID, "org", "", "Organization ID")
+	cmd.Flags().Lookup("org").Hidden = true
 
-func init() {
-	cargoCmd := NewCmdCargo()
-	// Add a hidden --org flag for command completion, but we parse it manually
-	cargoCmd.Flags().StringVar(&orgID, "org", "", "Organization ID")
-	cargoCmd.Flags().Lookup("org").Hidden = true
+	return cmd
 }
