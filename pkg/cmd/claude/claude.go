@@ -659,6 +659,8 @@ func handleGitCleanup(ctx context.Context, dir, sessionID, orgID string) error {
 	}
 
 	if len(out) > 0 {
+		fmt.Fprintf(os.Stderr, "Adding uncommitted changes...\n")
+		
 		// Add all changes
 		cmd = exec.CommandContext(ctx, "git", "add", "-A")
 		cmd.Dir = dir
@@ -666,6 +668,8 @@ func handleGitCleanup(ctx context.Context, dir, sessionID, orgID string) error {
 			return fmt.Errorf("failed to add changes: %w", err)
 		}
 
+		fmt.Fprintf(os.Stderr, "Generating commit message...\n")
+		
 		// Generate thoughtful commit message
 		commitMsg, err := generateCommitMessage(ctx, dir, sessionID, orgID)
 		if err != nil {
@@ -681,14 +685,19 @@ func handleGitCleanup(ctx context.Context, dir, sessionID, orgID string) error {
 			return fmt.Errorf("failed to commit changes: %w", err)
 		}
 
-		fmt.Fprintf(os.Stderr, "Committed changes to git branch\n")
+		fmt.Fprintf(os.Stderr, "✓ Committed changes to git branch %s\n", sessionID)
+	} else {
+		fmt.Fprintf(os.Stderr, "No uncommitted changes to commit\n")
 	}
 
 	// Push branch to remote
+	fmt.Fprintf(os.Stderr, "Pushing branch to upstream repository...\n")
 	cmd = exec.CommandContext(ctx, "git", "push", "-u", "origin", sessionID)
 	cmd.Dir = dir
 	if err := cmd.Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "Note: Branch not pushed to remote (no remote configured or push failed)\n")
+		fmt.Fprintf(os.Stderr, "⚠ Branch not pushed to upstream (no remote configured or push failed)\n")
+	} else {
+		fmt.Fprintf(os.Stderr, "✓ Successfully pushed branch %s to upstream\n", sessionID)
 	}
 
 	return nil
