@@ -208,6 +208,7 @@ func TestHandleGitCleanup(t *testing.T) {
 		name        string
 		setupFunc   func(t *testing.T) string
 		sessionID   string
+		orgID       string
 		expectError bool
 	}{
 		{
@@ -266,6 +267,7 @@ func TestHandleGitCleanup(t *testing.T) {
 				return tmpDir
 			},
 			sessionID:   "test-session",
+			orgID:       "test-org-123",
 			expectError: false,
 		},
 		{
@@ -319,6 +321,7 @@ func TestHandleGitCleanup(t *testing.T) {
 				return tmpDir
 			},
 			sessionID:   "test-session",
+			orgID:       "test-org-123",
 			expectError: false,
 		},
 	}
@@ -328,7 +331,7 @@ func TestHandleGitCleanup(t *testing.T) {
 			dir := tt.setupFunc(t)
 			ctx := context.Background()
 
-			err := handleGitCleanup(ctx, dir, tt.sessionID)
+			err := handleGitCleanup(ctx, dir, tt.sessionID, tt.orgID)
 
 			if tt.expectError && err == nil {
 				t.Errorf("handleGitCleanup() expected error but got none")
@@ -703,7 +706,8 @@ func TestGenerateCommitMessage(t *testing.T) {
 	// Test generating commit message
 	// Note: This test might be flaky in CI due to the dependency on depot claude
 	// In a real scenario, you might want to mock this or make it optional
-	commitMsg, err := generateCommitMessage(ctx, tmpDir, sessionID)
+	orgID := "test-org-123"
+	commitMsg, err := generateCommitMessage(ctx, tmpDir, sessionID, orgID)
 	
 	if err != nil {
 		t.Logf("Note: commit message generation failed (expected in test environment): %v", err)
@@ -797,7 +801,7 @@ func TestCreateBranchIntegration(t *testing.T) {
 	}
 
 	// Test: Handle git cleanup (will fall back to default message if depot claude fails)
-	if err := handleGitCleanup(ctx, tmpDir, sessionID); err != nil {
+	if err := handleGitCleanup(ctx, tmpDir, sessionID, "test-org"); err != nil {
 		t.Fatalf("Failed to handle git cleanup: %v", err)
 	}
 
@@ -928,7 +932,7 @@ func TestResumeBranchIntegration(t *testing.T) {
 	}
 
 	// Test: Handle git cleanup should commit the new changes
-	if err := handleGitCleanup(ctx, tmpDir, sessionID); err != nil {
+	if err := handleGitCleanup(ctx, tmpDir, sessionID, "test-org"); err != nil {
 		t.Fatalf("Failed to handle git cleanup in resumed session: %v", err)
 	}
 

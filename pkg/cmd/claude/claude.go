@@ -290,7 +290,7 @@ This includes claude flags like -p, --model, etc.`,
 
 			// Handle git cleanup before saving session
 			if isGitRepo && createdBranch {
-				if err := handleGitCleanup(ctx, cwd, sessionID); err != nil {
+				if err := handleGitCleanup(ctx, cwd, sessionID, orgID); err != nil {
 					fmt.Fprintf(os.Stderr, "Warning: failed to commit changes: %v\n", err)
 				}
 			}
@@ -646,7 +646,7 @@ func createAndCheckoutBranch(ctx context.Context, dir, branchName string) error 
 }
 
 // handleGitCleanup commits any uncommitted changes and pushes the branch
-func handleGitCleanup(ctx context.Context, dir, sessionID string) error {
+func handleGitCleanup(ctx context.Context, dir, sessionID, orgID string) error {
 	// Check for uncommitted changes
 	cmd := exec.CommandContext(ctx, "git", "status", "--porcelain")
 	cmd.Dir = dir
@@ -664,7 +664,7 @@ func handleGitCleanup(ctx context.Context, dir, sessionID string) error {
 		}
 
 		// Generate thoughtful commit message
-		commitMsg, err := generateCommitMessage(ctx, dir, sessionID)
+		commitMsg, err := generateCommitMessage(ctx, dir, sessionID, orgID)
 		if err != nil {
 			// Fallback to default message if generation fails
 			fmt.Fprintf(os.Stderr, "Warning: failed to generate commit message, using default: %v\n", err)
@@ -692,7 +692,7 @@ func handleGitCleanup(ctx context.Context, dir, sessionID string) error {
 }
 
 // generateCommitMessage generates a thoughtful commit message by invoking depot claude
-func generateCommitMessage(ctx context.Context, dir, sessionID string) (string, error) {
+func generateCommitMessage(ctx context.Context, dir, sessionID, orgID string) (string, error) {
 	// Get the diff to understand what changed
 	cmd := exec.CommandContext(ctx, "git", "diff", "--cached")
 	cmd.Dir = dir
@@ -728,7 +728,13 @@ Please provide just the commit message without any additional commentary. The me
 	tempSessionID := fmt.Sprintf("commit-msg-%s", time.Now().Format("20060102-150405"))
 
 	// Invoke depot claude to generate the commit message
-	claudeCmd := exec.CommandContext(ctx, depotPath, "claude", "--session-id", tempSessionID, "-p", prompt)
+	claudeArgs := []string{"claude", "--session-id", tempSessionID}
+	if orgID != "" {
+		claudeArgs = append(claudeArgs, "--org", orgID)
+	}
+	claudeArgs = append(claudeArgs, "-p", prompt)
+	
+	claudeCmd := exec.CommandContext(ctx, depotPath, claudeArgs...)
 	claudeCmd.Dir = dir
 	
 	// Capture both stdout and stderr
