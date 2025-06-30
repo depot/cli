@@ -661,7 +661,6 @@ func handleGitCleanup(ctx context.Context, dir, sessionID, orgID string) error {
 	if len(out) > 0 {
 		fmt.Fprintf(os.Stderr, "Adding uncommitted changes...\n")
 		
-		// Add all changes
 		cmd = exec.CommandContext(ctx, "git", "add", "-A")
 		cmd.Dir = dir
 		if err := cmd.Run(); err != nil {
