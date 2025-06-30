@@ -653,8 +653,15 @@ func handleGitCleanup(ctx context.Context, dir, sessionID string) error {
 			return fmt.Errorf("failed to add changes: %w", err)
 		}
 
+		// Generate thoughtful commit message
+		commitMsg, err := generateCommitMessage(ctx, dir, sessionID)
+		if err != nil {
+			// Fallback to default message if generation fails
+			fmt.Fprintf(os.Stderr, "Warning: failed to generate commit message, using default: %v\n", err)
+			commitMsg = fmt.Sprintf("Claude session %s changes\n\nAutomatically committed by depot claude", sessionID)
+		}
+
 		// Commit changes
-		commitMsg := fmt.Sprintf("Claude session %s changes\n\nAutomatically committed by depot claude", sessionID)
 		cmd = exec.CommandContext(ctx, "git", "commit", "-m", commitMsg)
 		cmd.Dir = dir
 		if err := cmd.Run(); err != nil {
@@ -672,6 +679,95 @@ func handleGitCleanup(ctx context.Context, dir, sessionID string) error {
 	}
 
 	return nil
+}
+
+// generateCommitMessage generates a thoughtful commit message by invoking depot claude
+func generateCommitMessage(ctx context.Context, dir, sessionID string) (string, error) {
+	// Get the diff to understand what changed
+	cmd := exec.CommandContext(ctx, "git", "diff", "--cached")
+	cmd.Dir = dir
+	diffOutput, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("failed to get git diff: %w", err)
+	}
+
+	// If diff is too large, truncate it to avoid overwhelming the prompt
+	diffStr := string(diffOutput)
+	const maxDiffSize = 8000 // Reasonable limit for commit message generation
+	if len(diffStr) > maxDiffSize {
+		diffStr = diffStr[:maxDiffSize] + "\n... (diff truncated)"
+	}
+
+	// Find depot executable
+	depotPath, err := exec.LookPath("depot")
+	if err != nil {
+		return "", fmt.Errorf("depot CLI not found in PATH: %w", err)
+	}
+
+	// Prepare the prompt for generating commit message
+	prompt := fmt.Sprintf(`Given the context of the files changed in this repo and the context you have of our sessions, write a short and thoughtful commit message for these changes.
+
+The changes are from Claude session: %s
+
+Git diff of staged changes:
+%s
+
+Please provide just the commit message without any additional commentary. The message should be concise (ideally under 50 characters for the subject line) and descriptive of what was accomplished.`, sessionID, diffStr)
+
+	// Create a temporary session ID for the commit message generation
+	tempSessionID := fmt.Sprintf("commit-msg-%s", time.Now().Format("20060102-150405"))
+
+	// Invoke depot claude to generate the commit message
+	claudeCmd := exec.CommandContext(ctx, depotPath, "claude", "--session-id", tempSessionID, "-p", prompt)
+	claudeCmd.Dir = dir
+	
+	// Capture both stdout and stderr
+	var stdout, stderr bytes.Buffer
+	claudeCmd.Stdout = &stdout
+	claudeCmd.Stderr = &stderr
+
+	if err := claudeCmd.Run(); err != nil {
+		return "", fmt.Errorf("failed to generate commit message with claude: %w (stderr: %s)", err, stderr.String())
+	}
+
+	generatedMsg := strings.TrimSpace(stdout.String())
+	if generatedMsg == "" {
+		return "", fmt.Errorf("claude generated empty commit message")
+	}
+
+	// Clean up the generated message - remove any markdown formatting or extra text
+	lines := strings.Split(generatedMsg, "\n")
+	var cleanLines []string
+	foundStart := false
+	
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		// Skip empty lines and common prefixes until we find the actual message
+		if line == "" || strings.HasPrefix(line, "```") || strings.HasPrefix(line, "Here") {
+			if foundStart {
+				break // Stop if we've found content and hit formatting
+			}
+			continue
+		}
+		foundStart = true
+		cleanLines = append(cleanLines, line)
+	}
+
+	if len(cleanLines) == 0 {
+		return "", fmt.Errorf("could not extract clean commit message from claude output")
+	}
+
+	// Take the first few lines as the commit message, add attribution
+	finalMsg := strings.Join(cleanLines, "\n")
+	if len(cleanLines) == 1 {
+		// Single line - add a blank line and attribution
+		finalMsg += "\n\n🤖 Generated with Claude via depot claude"
+	} else {
+		// Multi-line - add attribution
+		finalMsg += "\n\n🤖 Generated with Claude via depot claude"
+	}
+
+	return finalMsg, nil
 }
 
 // generateSessionID generates a random session ID
