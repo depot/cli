@@ -204,7 +204,7 @@ This includes claude flags like -p, --model, etc.`,
 				if sessionID == "" {
 					sessionID = generateSessionID()
 				}
-				
+
 				// Create and checkout new branch using session ID as branch name
 				if err := createAndCheckoutBranch(ctx, cwd, sessionID); err != nil {
 					fmt.Fprintf(os.Stderr, "Warning: failed to create git branch: %v\n", err)
@@ -660,7 +660,7 @@ func handleGitCleanup(ctx context.Context, dir, sessionID, orgID string) error {
 
 	if len(out) > 0 {
 		fmt.Fprintf(os.Stderr, "Adding uncommitted changes...\n")
-		
+
 		cmd = exec.CommandContext(ctx, "git", "add", "-A")
 		cmd.Dir = dir
 		if err := cmd.Run(); err != nil {
@@ -668,7 +668,7 @@ func handleGitCleanup(ctx context.Context, dir, sessionID, orgID string) error {
 		}
 
 		fmt.Fprintf(os.Stderr, "Generating commit message...\n")
-		
+
 		// Generate thoughtful commit message
 		commitMsg, err := generateCommitMessage(ctx, dir, sessionID, orgID)
 		if err != nil {
@@ -744,10 +744,10 @@ Please provide just the commit message without any additional commentary. The me
 		claudeArgs = append(claudeArgs, "--org", orgID)
 	}
 	claudeArgs = append(claudeArgs, "-p", prompt)
-	
+
 	claudeCmd := exec.CommandContext(ctx, depotPath, claudeArgs...)
 	claudeCmd.Dir = dir
-	
+
 	// Capture both stdout and stderr
 	var stdout, stderr bytes.Buffer
 	claudeCmd.Stdout = &stdout
@@ -766,7 +766,7 @@ Please provide just the commit message without any additional commentary. The me
 	lines := strings.Split(generatedMsg, "\n")
 	var cleanLines []string
 	foundStart := false
-	
+
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
 		// Skip empty lines and common prefixes until we find the actual message
