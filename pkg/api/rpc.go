@@ -12,54 +12,38 @@ import (
 )
 
 func NewBuildClient() cliv1connect.BuildServiceClient {
-	baseURL := os.Getenv("DEPOT_API_URL")
-	if baseURL == "" {
-		baseURL = "https://api.depot.dev"
-	}
-	return cliv1connect.NewBuildServiceClient(http.DefaultClient, baseURL, WithUserAgent())
+	return cliv1connect.NewBuildServiceClient(http.DefaultClient, getBaseURL(), WithUserAgent())
 }
 
 func NewLoginClient() cliv1beta1connect.LoginServiceClient {
-	baseURL := os.Getenv("DEPOT_API_URL")
-	if baseURL == "" {
-		baseURL = "https://api.depot.dev"
-	}
-	return cliv1beta1connect.NewLoginServiceClient(http.DefaultClient, baseURL, WithUserAgent())
+	return cliv1beta1connect.NewLoginServiceClient(http.DefaultClient, getBaseURL(), WithUserAgent())
 }
 
 func NewProjectsClient() cliv1beta1connect.ProjectsServiceClient {
-	baseURL := os.Getenv("DEPOT_API_URL")
-	if baseURL == "" {
-		baseURL = "https://api.depot.dev"
-	}
-	return cliv1beta1connect.NewProjectsServiceClient(http.DefaultClient, baseURL, WithUserAgent())
+	return cliv1beta1connect.NewProjectsServiceClient(http.DefaultClient, getBaseURL(), WithUserAgent())
 }
 
 func NewSDKProjectsClient() corev1connect.ProjectServiceClient {
-	baseURL := os.Getenv("DEPOT_API_URL")
-	if baseURL == "" {
-		baseURL = "https://api.depot.dev"
-	}
-	return corev1connect.NewProjectServiceClient(http.DefaultClient, baseURL, WithUserAgent())
+	return corev1connect.NewProjectServiceClient(http.DefaultClient, getBaseURL(), WithUserAgent())
 }
 
 func NewPushClient() cliv1connect.PushServiceClient {
-	baseURL := os.Getenv("DEPOT_API_URL")
-	if baseURL == "" {
-		baseURL = "https://api.depot.dev"
-	}
-	return cliv1connect.NewPushServiceClient(http.DefaultClient, baseURL, WithUserAgent())
+	return cliv1connect.NewPushServiceClient(http.DefaultClient, getBaseURL(), WithUserAgent())
 }
 
 func NewClaudeClient() agentv1connect.ClaudeServiceClient {
-	baseURL := os.Getenv("DEPOT_API_URL")
-	if baseURL == "" {
-		baseURL = "https://api.depot.dev"
-	}
-	return agentv1connect.NewClaudeServiceClient(http.DefaultClient, baseURL, WithUserAgent())
+	return agentv1connect.NewClaudeServiceClient(http.DefaultClient, getBaseURL(), WithUserAgent())
 }
 
 func WithAuthentication[T any](req *connect.Request[T], token string) *connect.Request[T] {
 	req.Header().Add("Authorization", "Bearer "+token)
 	return req
+}
+
+func getBaseURL() string {
+	baseURL := os.Getenv("DEPOT_API_URL")
+	if baseURL == "" {
+		baseURL = "https://api.depot.dev"
+	}
+	return baseURL
 }

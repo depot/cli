@@ -8,6 +8,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/depot/cli/pkg/config"
 	"github.com/depot/cli/pkg/helpers"
 	"github.com/spf13/cobra"
 )
@@ -42,6 +43,11 @@ func NewCmdCargo() *cobra.Command {
 			// If no org ID specified via flag, check environment variable
 			if orgID == "" {
 				orgID = os.Getenv("DEPOT_ORG_ID")
+			}
+
+			// If still no org ID, use the current organization from config
+			if orgID == "" {
+				orgID = config.GetCurrentOrganization()
 			}
 
 			// Check for sccache

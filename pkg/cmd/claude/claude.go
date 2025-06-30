@@ -14,6 +14,7 @@ import (
 
 	"connectrpc.com/connect"
 	"github.com/depot/cli/pkg/api"
+	"github.com/depot/cli/pkg/config"
 	"github.com/depot/cli/pkg/helpers"
 	agentv1 "github.com/depot/cli/pkg/proto/depot/agent/v1"
 	"github.com/depot/cli/pkg/proto/depot/agent/v1/agentv1connect"
@@ -153,6 +154,11 @@ This includes claude flags like -p, --model, etc.`,
 
 			if orgID == "" {
 				orgID = os.Getenv("DEPOT_ORG_ID")
+			}
+
+			// If still no org ID, use the current organization from config
+			if orgID == "" {
+				orgID = config.GetCurrentOrganization()
 			}
 
 			client := api.NewClaudeClient()
