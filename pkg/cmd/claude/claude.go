@@ -236,6 +236,16 @@ This includes claude flags like -p, --model, etc.`,
 				// Send initial session ID to channel
 				sessionIDChan <- sessionIDUpdate{id: claudeSessionID}
 
+				// Check if we're in a git repo and a branch exists for this session
+				if isGitRepo && branchExists(ctx, cwd, resumeSessionID) {
+					if err := checkoutBranch(ctx, cwd, resumeSessionID); err != nil {
+						fmt.Fprintf(os.Stderr, "Warning: failed to checkout git branch %s: %v\n", resumeSessionID, err)
+					} else {
+						createdBranch = true // Set this so we commit changes on exit
+						fmt.Fprintf(os.Stderr, "Checked out existing git branch: %s\n", resumeSessionID)
+					}
+				}
+
 				switch output {
 				case "json":
 					fmt.Fprintf(os.Stdout, `{"action":"opened","session_id":"%s"}`+"\n", resumeSessionID)
@@ -774,4 +784,21 @@ Please provide just the commit message without any additional commentary. The me
 func generateSessionID() string {
 	// Generate a more readable session ID with timestamp
 	return fmt.Sprintf("claude-%s", time.Now().Format("20060102-150405"))
+}
+
+// branchExists checks if a git branch exists
+func branchExists(ctx context.Context, dir, branchName string) bool {
+	cmd := exec.CommandContext(ctx, "git", "show-ref", "--verify", "--quiet", fmt.Sprintf("refs/heads/%s", branchName))
+	cmd.Dir = dir
+	err := cmd.Run()
+	return err == nil
+}
+
+func checkoutBranch(ctx context.Context, dir, branchName string) error {
+	cmd := exec.CommandContext(ctx, "git", "checkout", branchName)
+	cmd.Dir = dir
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to checkout branch: %w", err)
+	}
+	return nil
 }

@@ -340,6 +340,224 @@ func TestHandleGitCleanup(t *testing.T) {
 	}
 }
 
+func TestBranchExists(t *testing.T) {
+	tests := []struct {
+		name        string
+		setupFunc   func(t *testing.T) string
+		branchName  string
+		expected    bool
+	}{
+		{
+			name: "branch exists",
+			setupFunc: func(t *testing.T) string {
+				tmpDir := t.TempDir()
+				// Initialize git repo
+				cmd := exec.Command("git", "init")
+				cmd.Dir = tmpDir
+				if err := cmd.Run(); err != nil {
+					t.Fatalf("Failed to initialize git repo: %v", err)
+				}
+				
+				// Configure git user
+				cmd = exec.Command("git", "config", "user.email", "test@example.com")
+				cmd.Dir = tmpDir
+				if err := cmd.Run(); err != nil {
+					t.Fatalf("Failed to configure git user email: %v", err)
+				}
+				
+				cmd = exec.Command("git", "config", "user.name", "Test User")
+				cmd.Dir = tmpDir
+				if err := cmd.Run(); err != nil {
+					t.Fatalf("Failed to configure git user name: %v", err)
+				}
+				
+				// Create initial commit
+				testFile := filepath.Join(tmpDir, "test.txt")
+				if err := os.WriteFile(testFile, []byte("test"), 0644); err != nil {
+					t.Fatalf("Failed to create test file: %v", err)
+				}
+				
+				cmd = exec.Command("git", "add", "test.txt")
+				cmd.Dir = tmpDir
+				if err := cmd.Run(); err != nil {
+					t.Fatalf("Failed to add test file: %v", err)
+				}
+				
+				cmd = exec.Command("git", "commit", "-m", "Initial commit")
+				cmd.Dir = tmpDir
+				if err := cmd.Run(); err != nil {
+					t.Fatalf("Failed to create initial commit: %v", err)
+				}
+				
+				// Create a test branch
+				cmd = exec.Command("git", "checkout", "-b", "test-branch")
+				cmd.Dir = tmpDir
+				if err := cmd.Run(); err != nil {
+					t.Fatalf("Failed to create test branch: %v", err)
+				}
+				
+				return tmpDir
+			},
+			branchName: "test-branch",
+			expected:   true,
+		},
+		{
+			name: "branch does not exist",
+			setupFunc: func(t *testing.T) string {
+				tmpDir := t.TempDir()
+				// Initialize git repo
+				cmd := exec.Command("git", "init")
+				cmd.Dir = tmpDir
+				if err := cmd.Run(); err != nil {
+					t.Fatalf("Failed to initialize git repo: %v", err)
+				}
+				
+				return tmpDir
+			},
+			branchName: "nonexistent-branch",
+			expected:   false,
+		},
+		{
+			name: "not a git repository",
+			setupFunc: func(t *testing.T) string {
+				return t.TempDir()
+			},
+			branchName: "any-branch",
+			expected:   false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := tt.setupFunc(t)
+			ctx := context.Background()
+
+			result := branchExists(ctx, dir, tt.branchName)
+
+			if result != tt.expected {
+				t.Errorf("branchExists() = %v, want %v", result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestCheckoutBranch(t *testing.T) {
+	tests := []struct {
+		name        string
+		setupFunc   func(t *testing.T) string
+		branchName  string
+		expectError bool
+	}{
+		{
+			name: "checkout existing branch",
+			setupFunc: func(t *testing.T) string {
+				tmpDir := t.TempDir()
+				// Initialize git repo
+				cmd := exec.Command("git", "init")
+				cmd.Dir = tmpDir
+				if err := cmd.Run(); err != nil {
+					t.Fatalf("Failed to initialize git repo: %v", err)
+				}
+				
+				// Configure git user
+				cmd = exec.Command("git", "config", "user.email", "test@example.com")
+				cmd.Dir = tmpDir
+				if err := cmd.Run(); err != nil {
+					t.Fatalf("Failed to configure git user email: %v", err)
+				}
+				
+				cmd = exec.Command("git", "config", "user.name", "Test User")
+				cmd.Dir = tmpDir
+				if err := cmd.Run(); err != nil {
+					t.Fatalf("Failed to configure git user name: %v", err)
+				}
+				
+				// Create initial commit
+				testFile := filepath.Join(tmpDir, "test.txt")
+				if err := os.WriteFile(testFile, []byte("test"), 0644); err != nil {
+					t.Fatalf("Failed to create test file: %v", err)
+				}
+				
+				cmd = exec.Command("git", "add", "test.txt")
+				cmd.Dir = tmpDir
+				if err := cmd.Run(); err != nil {
+					t.Fatalf("Failed to add test file: %v", err)
+				}
+				
+				cmd = exec.Command("git", "commit", "-m", "Initial commit")
+				cmd.Dir = tmpDir
+				if err := cmd.Run(); err != nil {
+					t.Fatalf("Failed to create initial commit: %v", err)
+				}
+				
+				// Create a test branch
+				cmd = exec.Command("git", "checkout", "-b", "test-branch")
+				cmd.Dir = tmpDir
+				if err := cmd.Run(); err != nil {
+					t.Fatalf("Failed to create test branch: %v", err)
+				}
+				
+				// Switch back to main/master
+				cmd = exec.Command("git", "checkout", "-")
+				cmd.Dir = tmpDir
+				if err := cmd.Run(); err != nil {
+					t.Fatalf("Failed to switch back to main branch: %v", err)
+				}
+				
+				return tmpDir
+			},
+			branchName:  "test-branch",
+			expectError: false,
+		},
+		{
+			name: "checkout nonexistent branch",
+			setupFunc: func(t *testing.T) string {
+				tmpDir := t.TempDir()
+				// Initialize git repo
+				cmd := exec.Command("git", "init")
+				cmd.Dir = tmpDir
+				if err := cmd.Run(); err != nil {
+					t.Fatalf("Failed to initialize git repo: %v", err)
+				}
+				
+				return tmpDir
+			},
+			branchName:  "nonexistent-branch",
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := tt.setupFunc(t)
+			ctx := context.Background()
+
+			err := checkoutBranch(ctx, dir, tt.branchName)
+
+			if tt.expectError && err == nil {
+				t.Errorf("checkoutBranch() expected error but got none")
+			}
+			if !tt.expectError && err != nil {
+				t.Errorf("checkoutBranch() unexpected error: %v", err)
+			}
+
+			if !tt.expectError {
+				// Verify we're on the correct branch
+				cmd := exec.Command("git", "branch", "--show-current")
+				cmd.Dir = dir
+				out, err := cmd.Output()
+				if err != nil {
+					t.Fatalf("Failed to get current branch: %v", err)
+				}
+				currentBranch := strings.TrimSpace(string(out))
+				if currentBranch != tt.branchName {
+					t.Errorf("Expected current branch %s, got %s", tt.branchName, currentBranch)
+				}
+			}
+		})
+	}
+}
+
 func TestGenerateSessionID(t *testing.T) {
 	sessionID1 := generateSessionID()
 	
@@ -595,5 +813,138 @@ func TestCreateBranchIntegration(t *testing.T) {
 	// The commit message could be either generated or the fallback message
 	if !strings.Contains(commitMsg, sessionID) {
 		t.Errorf("Expected commit message to contain session ID %s, got %s", sessionID, commitMsg)
+	}
+}
+
+func TestResumeBranchIntegration(t *testing.T) {
+	// Test the full integration of resuming with existing branch
+	tmpDir := t.TempDir()
+	
+	// Setup git repo
+	cmd := exec.Command("git", "init")
+	cmd.Dir = tmpDir
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to initialize git repo: %v", err)
+	}
+	
+	// Configure git user
+	cmd = exec.Command("git", "config", "user.email", "test@example.com")
+	cmd.Dir = tmpDir
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to configure git user email: %v", err)
+	}
+	
+	cmd = exec.Command("git", "config", "user.name", "Test User")
+	cmd.Dir = tmpDir
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to configure git user name: %v", err)
+	}
+	
+	// Create initial commit
+	testFile := filepath.Join(tmpDir, "test.txt")
+	if err := os.WriteFile(testFile, []byte("initial"), 0644); err != nil {
+		t.Fatalf("Failed to create test file: %v", err)
+	}
+	
+	cmd = exec.Command("git", "add", "test.txt")
+	cmd.Dir = tmpDir
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to add test file: %v", err)
+	}
+	
+	cmd = exec.Command("git", "commit", "-m", "Initial commit")
+	cmd.Dir = tmpDir
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to create initial commit: %v", err)
+	}
+
+	ctx := context.Background()
+	sessionID := "test-session-resume"
+
+	// Test: Create a branch (simulating initial session with --create-branch)
+	if err := createAndCheckoutBranch(ctx, tmpDir, sessionID); err != nil {
+		t.Fatalf("Failed to create and checkout branch: %v", err)
+	}
+
+	// Make changes and commit (simulating work in the initial session)
+	if err := os.WriteFile(testFile, []byte("first session changes"), 0644); err != nil {
+		t.Fatalf("Failed to modify test file: %v", err)
+	}
+	
+	cmd = exec.Command("git", "add", "test.txt")
+	cmd.Dir = tmpDir
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to add changes: %v", err)
+	}
+	
+	cmd = exec.Command("git", "commit", "-m", "First session work")
+	cmd.Dir = tmpDir
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to commit changes: %v", err)
+	}
+
+	// Switch back to main branch (simulating session end)
+	cmd = exec.Command("git", "checkout", "-")
+	cmd.Dir = tmpDir
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to switch to main branch: %v", err)
+	}
+
+	// Verify we're on main/master
+	cmd = exec.Command("git", "branch", "--show-current")
+	cmd.Dir = tmpDir
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("Failed to get current branch: %v", err)
+	}
+	currentBranch := strings.TrimSpace(string(out))
+	if currentBranch == sessionID {
+		t.Errorf("Should not be on session branch after switching away")
+	}
+
+	// Test: Resume session - should checkout the existing branch
+	if branchExists(ctx, tmpDir, sessionID) {
+		if err := checkoutBranch(ctx, tmpDir, sessionID); err != nil {
+			t.Fatalf("Failed to checkout branch during resume: %v", err)
+		}
+	}
+
+	// Verify we're back on the session branch
+	cmd = exec.Command("git", "branch", "--show-current")
+	cmd.Dir = tmpDir
+	out, err = cmd.Output()
+	if err != nil {
+		t.Fatalf("Failed to get current branch: %v", err)
+	}
+	
+	currentBranch = strings.TrimSpace(string(out))
+	if currentBranch != sessionID {
+		t.Errorf("Expected to be on branch %s after resume, got %s", sessionID, currentBranch)
+	}
+
+	// Make more changes (simulating resumed session work)
+	if err := os.WriteFile(testFile, []byte("resumed session changes"), 0644); err != nil {
+		t.Fatalf("Failed to modify test file in resumed session: %v", err)
+	}
+
+	// Test: Handle git cleanup should commit the new changes
+	if err := handleGitCleanup(ctx, tmpDir, sessionID); err != nil {
+		t.Fatalf("Failed to handle git cleanup in resumed session: %v", err)
+	}
+
+	// Verify the changes were committed
+	cmd = exec.Command("git", "log", "--oneline", "-2")
+	cmd.Dir = tmpDir
+	out, err = cmd.Output()
+	if err != nil {
+		t.Fatalf("Failed to get git log: %v", err)
+	}
+	
+	gitLog := string(out)
+	if !strings.Contains(gitLog, "First session work") {
+		t.Errorf("Expected git log to contain first session commit")
+	}
+	if !strings.Contains(gitLog, "Claude session") || !strings.Contains(gitLog, sessionID) {
+		t.Errorf("Expected git log to contain resumed session commit with session ID")
 	}
 }
