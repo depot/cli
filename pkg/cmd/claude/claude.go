@@ -32,6 +32,7 @@ func NewCmdClaude() *cobra.Command {
 		output          string
 		retryCount      = 3
 		retryDelay      = 2 * time.Second
+		createdBranch   bool
 	)
 
 	cmd := &cobra.Command{
@@ -41,6 +42,11 @@ func NewCmdClaude() *cobra.Command {
 
 Sessions are stored by Depot and can be resumed by session ID.
 The session is always uploaded on exit.
+
+When starting a new session in a git repository, depot claude will:
+- Automatically create a new git branch named after the session ID
+- Commit any uncommitted changes before the session closes
+- Push the branch to the remote repository (if configured)
 
 When using --resume, Depot will first check for a local session file,
 and if not found, will attempt to download it from Depot's servers.
@@ -178,6 +184,23 @@ This includes claude flags like -p, --model, etc.`,
 				return fmt.Errorf("failed to get working directory: %w", err)
 			}
 
+			// Check if we're in a git repository
+			isGitRepo := isGitRepository(ctx, cwd)
+			if isGitRepo && resumeSessionID == "" {
+				// Generate session ID if not provided
+				if sessionID == "" {
+					sessionID = generateSessionID()
+				}
+				
+				// Create and checkout new branch using session ID as branch name
+				if err := createAndCheckoutBranch(ctx, cwd, sessionID); err != nil {
+					fmt.Fprintf(os.Stderr, "Warning: failed to create git branch: %v\n", err)
+				} else {
+					createdBranch = true
+					fmt.Fprintf(os.Stderr, "Created and checked out git branch: %s\n", sessionID)
+				}
+			}
+
 			sessionIDChan := make(chan sessionIDUpdate, 1)
 
 			var claudeSessionID string
@@ -244,6 +267,13 @@ This includes claude flags like -p, --model, etc.`,
 
 			claudeErr := claudeCmd.Wait()
 			claudeCtxCancel()
+
+			// Handle git cleanup before saving session
+			if isGitRepo && createdBranch {
+				if err := handleGitCleanup(ctx, cwd, sessionID); err != nil {
+					fmt.Fprintf(os.Stderr, "Warning: failed to commit changes: %v\n", err)
+				}
+			}
 
 			select {
 			case update := <-sessionIDChan:
@@ -573,4 +603,68 @@ func verifyAuthentication(ctx context.Context, client agentv1connect.ClaudeServi
 	}
 
 	return nil
+}
+
+// isGitRepository checks if the current directory is a git repository
+func isGitRepository(ctx context.Context, dir string) bool {
+	cmd := exec.CommandContext(ctx, "git", "rev-parse", "--git-dir")
+	cmd.Dir = dir
+	err := cmd.Run()
+	return err == nil
+}
+
+// createAndCheckoutBranch creates a new git branch and checks it out
+func createAndCheckoutBranch(ctx context.Context, dir, branchName string) error {
+	// Create branch
+	cmd := exec.CommandContext(ctx, "git", "checkout", "-b", branchName)
+	cmd.Dir = dir
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to create branch: %w", err)
+	}
+	return nil
+}
+
+// handleGitCleanup commits any uncommitted changes and pushes the branch
+func handleGitCleanup(ctx context.Context, dir, sessionID string) error {
+	// Check for uncommitted changes
+	cmd := exec.CommandContext(ctx, "git", "status", "--porcelain")
+	cmd.Dir = dir
+	out, err := cmd.Output()
+	if err != nil {
+		return fmt.Errorf("failed to check git status: %w", err)
+	}
+
+	if len(out) > 0 {
+		// Add all changes
+		cmd = exec.CommandContext(ctx, "git", "add", "-A")
+		cmd.Dir = dir
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("failed to add changes: %w", err)
+		}
+
+		// Commit changes
+		commitMsg := fmt.Sprintf("Claude session %s changes\n\nAutomatically committed by depot claude", sessionID)
+		cmd = exec.CommandContext(ctx, "git", "commit", "-m", commitMsg)
+		cmd.Dir = dir
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("failed to commit changes: %w", err)
+		}
+
+		fmt.Fprintf(os.Stderr, "Committed changes to git branch\n")
+	}
+
+	// Push branch to remote
+	cmd = exec.CommandContext(ctx, "git", "push", "-u", "origin", sessionID)
+	cmd.Dir = dir
+	if err := cmd.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "Note: Branch not pushed to remote (no remote configured or push failed)\n")
+	}
+
+	return nil
+}
+
+// generateSessionID generates a random session ID
+func generateSessionID() string {
+	// Generate a more readable session ID with timestamp
+	return fmt.Sprintf("claude-%s", time.Now().Format("20060102-150405"))
 }
