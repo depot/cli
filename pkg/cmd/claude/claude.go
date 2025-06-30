@@ -45,12 +45,15 @@ Sessions are stored by Depot and can be resumed by session ID.
 The session is always uploaded on exit.
 
 When using --create-branch in a git repository, depot claude will:
+- Check if you're in a git repository
 - Create a new git branch named after the session ID
 - Commit any uncommitted changes before the session closes
 - Push the branch to the remote repository (if configured)
 
 When using --resume, Depot will first check for a local session file,
 and if not found, will attempt to download it from Depot's servers.
+When resuming in a git repository, it checks if a git branch exists
+for that session ID.
 
 All flags not recognized by depot are passed directly through to the claude CLI.
 This includes claude flags like -p, --model, etc.`,
