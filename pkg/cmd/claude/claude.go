@@ -30,6 +30,7 @@ func NewCmdClaude() *cobra.Command {
 		token           string
 		resumeSessionID string
 		output          string
+		createBranch    bool
 		retryCount      = 3
 		retryDelay      = 2 * time.Second
 		createdBranch   bool
@@ -43,8 +44,8 @@ func NewCmdClaude() *cobra.Command {
 Sessions are stored by Depot and can be resumed by session ID.
 The session is always uploaded on exit.
 
-When starting a new session in a git repository, depot claude will:
-- Automatically create a new git branch named after the session ID
+When using --create-branch in a git repository, depot claude will:
+- Create a new git branch named after the session ID
 - Commit any uncommitted changes before the session closes
 - Push the branch to the remote repository (if configured)
 
@@ -56,6 +57,9 @@ This includes claude flags like -p, --model, etc.`,
 		Example: `
   # Interactive usage - run claude and save session
   depot claude --session-id feature-branch
+  
+  # Create a git branch for the session
+  depot claude --create-branch --session-id feature-branch -p "implement user authentication"
   
   # Non-interactive usage - claude's -p flag is passed through
   depot claude --session-id feature-branch -p "implement user authentication"
@@ -70,6 +74,9 @@ This includes claude flags like -p, --model, etc.`,
   
   # Use in a script with piped input (claude's -p flag)
   cat code.py | depot claude -p "review this code" --session-id code-review
+  
+  # Create branch and work on specific feature
+  depot claude --create-branch --session-id auth-feature -p "implement JWT authentication"
   
   # The --org flag is only required if you're a member of multiple organizations
   depot claude --org different-org-id --session-id team-session -p "create API endpoint"`,
@@ -102,7 +109,8 @@ This includes claude flags like -p, --model, etc.`,
 						output = args[i+1]
 						i++
 					}
-
+				case "--create-branch":
+					createBranch = true
 				case "--resume":
 					if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
 						resumeSessionID = args[i+1]
@@ -121,6 +129,8 @@ This includes claude flags like -p, --model, etc.`,
 						token = strings.TrimPrefix(arg, "--token=")
 					} else if strings.HasPrefix(arg, "--output=") {
 						output = strings.TrimPrefix(arg, "--output=")
+					} else if arg == "--create-branch" {
+						createBranch = true
 					} else {
 						// Pass through any other flags to claude
 						claudeArgs = append(claudeArgs, arg)
@@ -184,9 +194,9 @@ This includes claude flags like -p, --model, etc.`,
 				return fmt.Errorf("failed to get working directory: %w", err)
 			}
 
-			// Check if we're in a git repository
+			// Check if we're in a git repository and --create-branch is specified
 			isGitRepo := isGitRepository(ctx, cwd)
-			if isGitRepo && resumeSessionID == "" {
+			if isGitRepo && createBranch && resumeSessionID == "" {
 				// Generate session ID if not provided
 				if sessionID == "" {
 					sessionID = generateSessionID()
@@ -330,6 +340,7 @@ This includes claude flags like -p, --model, etc.`,
 	cmd.Flags().String("org", "", "Organization ID (required when user is a member of multiple organizations)")
 	cmd.Flags().String("token", "", "Depot API token")
 	cmd.Flags().String("output", "", "Output format (json, csv)")
+	cmd.Flags().Bool("create-branch", false, "Create a git branch for the session")
 
 	return cmd
 }
