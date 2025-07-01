@@ -1,0 +1,21 @@
+syntax = "proto3";
+
+package depot.core.v1;
+
+import "google/protobuf/timestamp.proto";
+
+service OrganizationService {
+  rpc ListOrganizations(ListOrganizationRequest) returns (ListOrganizationResponse);
+}
+
+message ListOrganizationRequest {}
+
+message ListOrganizationResponse {
+  repeated Organization organizations = 1;
+
+  message Organization {
+    string org_id = 1;
+    string name = 2;
+    google.protobuf.Timestamp created_at = 3;
+  }
+}
