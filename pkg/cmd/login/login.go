@@ -6,6 +6,7 @@ import (
 
 	"github.com/depot/cli/pkg/api"
 	"github.com/depot/cli/pkg/config"
+	"github.com/depot/cli/pkg/helpers"
 	"github.com/spf13/cobra"
 )
 
@@ -34,9 +35,19 @@ func NewCmdLogin() *cobra.Command {
 				return err
 			}
 
+			currentOrganization, err := helpers.SelectOrganization()
+			if err != nil {
+				return err
+			}
+
 			fmt.Println("Successfully authenticated!")
 
 			err = config.SetApiToken(tokenResponse.Token)
+			if err != nil {
+				return err
+			}
+
+			err = config.SetCurrentOrganization(currentOrganization.OrgId)
 			if err != nil {
 				return err
 			}
