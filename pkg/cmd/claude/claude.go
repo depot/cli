@@ -152,11 +152,7 @@ This includes claude flags like -p, --model, etc.`,
 				return fmt.Errorf("missing API token, please run `depot login`")
 			}
 
-			if orgID == "" {
-				orgID = os.Getenv("DEPOT_ORG_ID")
-			}
-
-			// If still no org ID, use the current organization from config
+			// If org ID is not set through flag, use the current organization from config
 			if orgID == "" {
 				orgID = config.GetCurrentOrganization()
 			}

@@ -1,8 +1,6 @@
 module github.com/depot/cli
 
-go 1.23.0
-
-toolchain go1.24.4
+go 1.24.4
 
 require (
 	buf.build/gen/go/depot/api/connectrpc/go v1.15.0-20240221184445-e8316610338f.1

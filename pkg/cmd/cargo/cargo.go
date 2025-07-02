@@ -40,12 +40,7 @@ func NewCmdCargo() *cobra.Command {
 				}
 			}
 
-			// If no org ID specified via flag, check environment variable
-			if orgID == "" {
-				orgID = os.Getenv("DEPOT_ORG_ID")
-			}
-
-			// If still no org ID, use the current organization from config
+			// If org ID is not set, use the current organization from config
 			if orgID == "" {
 				orgID = config.GetCurrentOrganization()
 			}

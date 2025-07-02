@@ -26,7 +26,7 @@ func GetApiToken() string {
 }
 
 func GetCurrentOrganization() string {
-	return viper.GetString("current_organization")
+	return viper.GetString("org_id")
 }
 
 func SetApiToken(token string) error {
@@ -35,7 +35,7 @@ func SetApiToken(token string) error {
 }
 
 func SetCurrentOrganization(orgId string) error {
-	viper.Set("current_organization", orgId)
+	viper.Set("org_id", orgId)
 	return viper.WriteConfig()
 }
 
