@@ -35,27 +35,32 @@ func NewCmdLogin() *cobra.Command {
 				return err
 			}
 
-			currentOrganization, err := helpers.SelectOrganization()
+			err = config.SetApiToken(tokenResponse.Token)
+			if err != nil {
+				return err
+			}
+
+			orgId, _ := cmd.Flags().GetString("org-id")
+			if orgId == "" {
+				currentOrganization, err := helpers.SelectOrganization()
+				if err != nil {
+					return err
+				}
+				orgId = currentOrganization.OrgId
+			}
+
+			err = config.SetCurrentOrganization(orgId)
 			if err != nil {
 				return err
 			}
 
 			fmt.Println("Successfully authenticated!")
 
-			err = config.SetApiToken(tokenResponse.Token)
-			if err != nil {
-				return err
-			}
-
-			err = config.SetCurrentOrganization(currentOrganization.OrgId)
-			if err != nil {
-				return err
-			}
-
 			return nil
 		},
 	}
 
+	cmd.Flags().String("org-id", "", "The organization ID to login to")
 	cmd.Flags().Bool("clear", false, "Clear any existing token before logging in")
 
 	return cmd
