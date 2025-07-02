@@ -32,6 +32,10 @@ Official CLI for [Depot](https://depot.dev) - you can use the CLI to build Docke
     - [`depot init`](#depot-init)
     - [`depot login`](#depot-login)
     - [`depot logout`](#depot-logout)
+    - [`depot org`](#depot-org)
+      - [`depot org list`](#depot-org-list)
+      - [`depot org show`](#depot-org-show)
+      - [`depot org switch`](#depot-org-switch)
     - [`depot pull`](#depot-pull)
     - [`depot push`](#depot-push)
     - [`depot pull-token`](#depot-pull-token)
@@ -174,7 +178,7 @@ services:
 | `provenance`     | Shorthand for "--set=\*.attest=type=provenance"                                                           |
 | `pull`           | Always attempt to pull all referenced images                                                              |
 | `push`           | Shorthand for "--set=\*.output=type=registry"                                                             |
-| `save`           | Saves bake targets to the Depot registry                                                        |
+| `save`           | Saves bake targets to the Depot registry                                                                  |
 | `sbom`           | Shorthand for "--set=\*.attest=type=sbom"                                                                 |
 | `set`            | Override target value (e.g., "targetpattern.key=value")                                                   |
 | `token`          | Depot API token                                                                                           |
@@ -242,7 +246,7 @@ depot build -t repo/image:tag . --push
 | `pull`            | Always attempt to pull all referenced images                                                              |
 | `push`            | Shorthand for "--output=type=registry"                                                                    |
 | `quiet`           | Suppress the build output and print image ID on success                                                   |
-| `save`           | Saves build to the Depot registry                                                                |
+| `save`            | Saves build to the Depot registry                                                                         |
 | `sbom`            | Shorthand for "--attest=type=sbom"                                                                        |
 | `secret`          | Secret to expose to the build (format: "id=mysecret[,src=/local/secret]")                                 |
 | `shm-size`        | Size of "/dev/shm"                                                                                        |
@@ -290,20 +294,19 @@ depot exec dagger run ...
 
 #### Flags for `exec`
 
-| Name          | Description                                                       |
-| ------------- | ----------------------------------------------------------------- |
-| `env-var`     | Environment variable name for the BuildKit connection (default: "BUILDKIT_HOST") |
-| `platform`    | Platform to execute the command on (linux/amd64 or linux/arm64)   |
-| `project`     | Depot project ID                                                  |
-| `progress`    | Set type of progress output ("auto", "plain", "tty")              |
-| `token`       | Depot token                                                       |
+| Name       | Description                                                                      |
+| ---------- | -------------------------------------------------------------------------------- |
+| `env-var`  | Environment variable name for the BuildKit connection (default: "BUILDKIT_HOST") |
+| `platform` | Platform to execute the command on (linux/amd64 or linux/arm64)                  |
+| `project`  | Depot project ID                                                                 |
+| `progress` | Set type of progress output ("auto", "plain", "tty")                             |
+| `token`    | Depot token                                                                      |
 
 ### `depot gocache`
 
 Configure Go tools to use Depot Cache. The Go tools will use the remote cache service to store and retrieve build artifacts.
 
 _Note: This requires Go 1.24 or later._
-
 
 Set the environment variable `GOCACHEPROG` to `depot gocache` to configure Go to use Depot Cache.
 
@@ -418,12 +421,12 @@ depot projects create --organization your-org-id --region us-west-2 --cache-stor
 
 #### Flags for `projects create`
 
-| Name                  | Description                                                  |
-| --------------------- | ------------------------------------------------------------ |
-| `organization` / `-o` | Depot organization ID                                        |
-| `region`              | Build data storage region (default: "us-east-1")             |
-| `cache-storage-policy`| Build cache to keep per architecture in GB (default: 50)     |
-| `token`               | Depot API token                                              |
+| Name                   | Description                                              |
+| ---------------------- | -------------------------------------------------------- |
+| `organization` / `-o`  | Depot organization ID                                    |
+| `region`               | Build data storage region (default: "us-east-1")         |
+| `cache-storage-policy` | Build cache to keep per architecture in GB (default: 50) |
+| `token`                | Depot API token                                          |
 
 #### `depot projects list`
 
@@ -463,6 +466,68 @@ Remove any saved login defails from your local machine.
 
 ```shell
 depot logout
+```
+
+### `depot org`
+
+Manage Depot organizations. The `org` command consists of subcommands for each operation.
+
+#### `depot org list`
+
+Display an interactive listing of organizations that you can access. The command shows organization IDs and names in a table format.
+
+To exit type `q` or `ctrl+c`
+
+**Example**
+
+```shell
+depot org list
+```
+
+**Example**
+
+The list command can output organization information to stdout with the `--output` option. It supports `json` and `csv`.
+
+Output organizations in JSON format:
+
+```shell
+depot org list --output json
+```
+
+Output organizations in CSV format:
+
+```shell
+depot org list --output csv
+```
+
+#### `depot org show`
+
+Show the current organization ID that is set in your global Depot settings.
+
+**Example**
+
+```shell
+depot org show
+```
+
+#### `depot org switch`
+
+Set the current organization in global Depot settings. You can either specify an organization ID as an argument or run the command interactively to select from available organizations.
+
+**Example**
+
+Switch to a specific organization by ID:
+
+```shell
+depot org switch your-org-id
+```
+
+**Example**
+
+Switch to an organization interactively:
+
+```shell
+depot org switch
 ```
 
 ### `depot pull`
@@ -510,10 +575,10 @@ depot pull-token --project <PROJECT_ID>
 
 #### Flags for `pull-token`
 
-| Name       | Description        |
-| ---------- | ------------------ |
-| `project`  | Depot project ID   |
-| `token`    | Depot API token    |
+| Name      | Description      |
+| --------- | ---------------- |
+| `project` | Depot project ID |
+| `token`   | Depot API token  |
 
 ### `depot version`
 
