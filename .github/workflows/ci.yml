@@ -56,8 +56,6 @@ jobs:
           version: v2.2.1
           only-new-issues: false
           skip-cache: false
-          skip-build-cache: true
-          skip-pkg-cache: true
           args: --timeout 5m
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
