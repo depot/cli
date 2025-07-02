@@ -19,7 +19,7 @@ type Organization struct {
 
 func RetrieveOrganizations() ([]*Organization, error) {
 	client := api.NewOrganizationsClient()
-	req := corev1.ListOrganizationRequest{}
+	req := corev1.ListOrganizationsRequest{}
 	resp, err := client.ListOrganizations(
 		context.Background(),
 		api.WithAuthentication(connect.NewRequest(&req), config.GetApiToken()),

@@ -5,10 +5,10 @@ package depot.core.v1;
 import "google/protobuf/timestamp.proto";
 
 service OrganizationService {
-  rpc ListOrganizations(ListOrganizationRequest) returns (ListOrganizationResponse);
+  rpc ListOrganizations(ListOrganizationsRequest) returns (ListOrganizationResponse);
 }
 
-message ListOrganizationRequest {}
+message ListOrganizationsRequest {}
 
 message ListOrganizationResponse {
   repeated Organization organizations = 1;

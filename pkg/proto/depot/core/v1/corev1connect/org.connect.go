@@ -40,7 +40,7 @@ const (
 
 // OrganizationServiceClient is a client for the depot.core.v1.OrganizationService service.
 type OrganizationServiceClient interface {
-	ListOrganizations(context.Context, *connect.Request[v1.ListOrganizationRequest]) (*connect.Response[v1.ListOrganizationResponse], error)
+	ListOrganizations(context.Context, *connect.Request[v1.ListOrganizationsRequest]) (*connect.Response[v1.ListOrganizationResponse], error)
 }
 
 // NewOrganizationServiceClient constructs a client for the depot.core.v1.OrganizationService
@@ -53,7 +53,7 @@ type OrganizationServiceClient interface {
 func NewOrganizationServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) OrganizationServiceClient {
 	baseURL = strings.TrimRight(baseURL, "/")
 	return &organizationServiceClient{
-		listOrganizations: connect.NewClient[v1.ListOrganizationRequest, v1.ListOrganizationResponse](
+		listOrganizations: connect.NewClient[v1.ListOrganizationsRequest, v1.ListOrganizationResponse](
 			httpClient,
 			baseURL+OrganizationServiceListOrganizationsProcedure,
 			opts...,
@@ -63,17 +63,17 @@ func NewOrganizationServiceClient(httpClient connect.HTTPClient, baseURL string,
 
 // organizationServiceClient implements OrganizationServiceClient.
 type organizationServiceClient struct {
-	listOrganizations *connect.Client[v1.ListOrganizationRequest, v1.ListOrganizationResponse]
+	listOrganizations *connect.Client[v1.ListOrganizationsRequest, v1.ListOrganizationResponse]
 }
 
 // ListOrganizations calls depot.core.v1.OrganizationService.ListOrganizations.
-func (c *organizationServiceClient) ListOrganizations(ctx context.Context, req *connect.Request[v1.ListOrganizationRequest]) (*connect.Response[v1.ListOrganizationResponse], error) {
+func (c *organizationServiceClient) ListOrganizations(ctx context.Context, req *connect.Request[v1.ListOrganizationsRequest]) (*connect.Response[v1.ListOrganizationResponse], error) {
 	return c.listOrganizations.CallUnary(ctx, req)
 }
 
 // OrganizationServiceHandler is an implementation of the depot.core.v1.OrganizationService service.
 type OrganizationServiceHandler interface {
-	ListOrganizations(context.Context, *connect.Request[v1.ListOrganizationRequest]) (*connect.Response[v1.ListOrganizationResponse], error)
+	ListOrganizations(context.Context, *connect.Request[v1.ListOrganizationsRequest]) (*connect.Response[v1.ListOrganizationResponse], error)
 }
 
 // NewOrganizationServiceHandler builds an HTTP handler from the service implementation. It returns
@@ -100,6 +100,6 @@ func NewOrganizationServiceHandler(svc OrganizationServiceHandler, opts ...conne
 // UnimplementedOrganizationServiceHandler returns CodeUnimplemented from all methods.
 type UnimplementedOrganizationServiceHandler struct{}
 
-func (UnimplementedOrganizationServiceHandler) ListOrganizations(context.Context, *connect.Request[v1.ListOrganizationRequest]) (*connect.Response[v1.ListOrganizationResponse], error) {
+func (UnimplementedOrganizationServiceHandler) ListOrganizations(context.Context, *connect.Request[v1.ListOrganizationsRequest]) (*connect.Response[v1.ListOrganizationResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.core.v1.OrganizationService.ListOrganizations is not implemented"))
 }
