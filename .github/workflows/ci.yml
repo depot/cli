@@ -51,9 +51,9 @@ jobs:
           assert-nothing-changed go mod tidy
           exit $STATUS
 
-      - uses: golangci/golangci-lint-action@v6
+      - uses: golangci/golangci-lint-action@v7
         with:
-          version: v1.56.2
+          version: v2.2.1
           only-new-issues: false
           skip-cache: false
           skip-build-cache: true
