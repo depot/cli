@@ -15,6 +15,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/depot/cli/pkg/api"
+	"github.com/depot/cli/pkg/config"
 	"github.com/depot/cli/pkg/helpers"
 	agentv1 "github.com/depot/cli/pkg/proto/depot/agent/v1"
 	"github.com/spf13/cobra"
@@ -38,10 +39,10 @@ In interactive mode, pressing Enter on a session will start Claude with that ses
 		Example: `
   # List sessions interactively
   depot claude list-sessions
-  
+
   # List sessions in JSON format
   depot claude list-sessions --output json
-  
+
   # List sessions in CSV format
   depot claude list-sessions --output csv`,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -124,7 +125,7 @@ In interactive mode, pressing Enter on a session will start Claude with that ses
 	}
 
 	cmd.Flags().StringVar(&token, "token", "", "Depot API token")
-	cmd.Flags().StringVar(&orgID, "org", "", "Organization ID")
+	cmd.Flags().StringVar(&orgID, "org", config.GetCurrentOrganization(), "Organization ID")
 	cmd.Flags().StringVar(&output, "output", "", "Output format (json, csv)")
 
 	return cmd
