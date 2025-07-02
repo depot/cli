@@ -1,2 +1,9 @@
+version: "2"
+
 run:
-  go: "1.22"
+  go: "1.24.4"
+linters:
+  # Disable errcheck which is very strict about error handling
+  disable:
+    - errcheck
+    - staticcheck

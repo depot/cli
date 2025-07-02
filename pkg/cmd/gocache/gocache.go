@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/depot/cli/pkg/cmd/gocache/wire"
+	"github.com/depot/cli/pkg/config"
 	"github.com/depot/cli/pkg/helpers"
 	"github.com/spf13/cobra"
 )
@@ -72,7 +73,7 @@ func NewCmdGoCache() *cobra.Command {
 	flags.SortFlags = false
 	flags.BoolVarP(&verbose, "verbose", "v", false, "Print verbose output")
 	flags.StringVar(&token, "token", "", "Depot token")
-	flags.StringVarP(&orgID, "organization", "o", os.Getenv("DEPOT_ORG_ID"), "Depot organization ID")
+	flags.StringVarP(&orgID, "organization", "o", config.GetCurrentOrganization(), "Depot organization ID")
 	flags.StringVar(&dir, "dir", defaultCacheDir(), "Directory to store cache files")
 
 	return cmd

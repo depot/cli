@@ -8,6 +8,7 @@ import (
 	corev1 "buf.build/gen/go/depot/api/protocolbuffers/go/depot/core/v1"
 	"connectrpc.com/connect"
 	"github.com/depot/cli/pkg/api"
+	"github.com/depot/cli/pkg/config"
 	"github.com/depot/cli/pkg/helpers"
 	"github.com/spf13/cobra"
 )
@@ -71,7 +72,7 @@ func NewCmdCreate() *cobra.Command {
 	flags := cmd.Flags()
 	flags.SortFlags = false
 	flags.StringVar(&token, "token", "", "Depot token")
-	flags.StringVarP(&orgID, "organization", "o", "", "Depot organization ID")
+	flags.StringVarP(&orgID, "organization", "o", config.GetCurrentOrganization(), "Depot organization ID")
 	flags.StringVar(&region, "region", "us-east-1", "Build data will be stored in the chosen region")
 	flags.Int64Var(&keepGigabytes, "cache-storage-policy", 50, "Build cache to keep per architecture in GB")
 

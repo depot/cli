@@ -16,6 +16,7 @@ import (
 
 	"connectrpc.com/connect"
 	"github.com/depot/cli/pkg/api"
+	"github.com/depot/cli/pkg/config"
 	"github.com/depot/cli/pkg/helpers"
 	agentv1 "github.com/depot/cli/pkg/proto/depot/agent/v1"
 	"github.com/depot/cli/pkg/proto/depot/agent/v1/agentv1connect"
@@ -53,24 +54,24 @@ Subcommands:
 		Example: `
   # Interactive usage - run claude and save session
   depot claude --session-id feature-branch
-  
+
   # Non-interactive usage - claude's -p flag is passed through
   depot claude --session-id feature-branch -p "implement user authentication"
-  
+
   # Mix depot flags (--session-id) with claude flags (-p, --model)
   depot claude --session-id older-claude-pr-9953 --model claude-3-opus-20240229 -p "write tests"
-  
+
   # Resume a session by ID
   depot claude --resume feature-branch -p "add error handling"
   depot claude --resume 09b15b34-2df4-48ae-9b9e-1de0aa09e43f -p "continue where we left off"
   depot claude --resume abc123def456
-  
+
   # Use in a script with piped input (claude's -p flag)
   cat code.py | depot claude -p "review this code" --session-id code-review
-  
+
   # The --org flag is only required if you're a member of multiple organizations
   depot claude --org different-org-id --session-id team-session -p "create API endpoint"
-  
+
   # List saved sessions
   depot claude list-sessions
   depot claude list-sessions --output json`,
@@ -154,6 +155,11 @@ Subcommands:
 				claudeCmd.Stdout = os.Stderr
 				claudeCmd.Stderr = os.Stderr
 				return claudeCmd.Run()
+			}
+
+			// If org ID is not set, use the current organization from config
+			if orgID == "" {
+				orgID = config.GetCurrentOrganization()
 			}
 
 			opts := &ClaudeSessionOptions{
