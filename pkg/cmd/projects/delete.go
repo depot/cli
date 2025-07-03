@@ -7,7 +7,6 @@ import (
 	"connectrpc.com/connect"
 	"github.com/charmbracelet/huh"
 	"github.com/depot/cli/pkg/api"
-	"github.com/depot/cli/pkg/config"
 	"github.com/depot/cli/pkg/helpers"
 	"github.com/spf13/cobra"
 )
@@ -15,7 +14,6 @@ import (
 func NewCmdDelete() *cobra.Command {
 	var (
 		token     string
-		orgID     string
 		projectID string
 		confirm   bool
 	)
@@ -85,7 +83,6 @@ func NewCmdDelete() *cobra.Command {
 
 	flags := cmd.Flags()
 	flags.StringVarP(&token, "token", "t", "", "Depot API token")
-	flags.StringVarP(&orgID, "organization", "o", config.GetCurrentOrganization(), "Depot organization ID")
 	flags.StringVarP(&projectID, "project-id", "p", "", "The ID of the project to delete")
 	flags.BoolVarP(&confirm, "yes", "y", false, "Confirm deletion")
 

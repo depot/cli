@@ -451,9 +451,8 @@ depot projects delete --project-id your-project-id --yes
 | Name           | Description                                    |
 | -------------- | ---------------------------------------------- |
 | `project-id`   | The ID of the project to delete                |
-| `yes`          | Confirm deletion without interactive prompt     |
+| `yes`          | Confirm deletion without interactive prompt    |
 | `token`        | Depot API token                                |
-| `organization` | Depot organization ID                          |
 
 #### `depot projects list`
 
