@@ -11,6 +11,7 @@ import (
 	"connectrpc.com/connect"
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/depot/cli/pkg/api"
 	"github.com/depot/cli/pkg/project"
@@ -124,9 +125,7 @@ func (p *SelectedProject) SaveAs(configFilePath string) error {
 }
 
 func ProjectExists(ctx context.Context, token, projectID string) (*SelectedProject, error) {
-	client := api.NewProjectsClient()
-	req := cliv1beta1.ListProjectsRequest{}
-	projects, err := client.ListProjects(ctx, api.WithAuthentication(connect.NewRequest(&req), token))
+	projects, err := RetrieveProjects(ctx, token)
 	if err != nil {
 		return nil, err
 	}
@@ -134,7 +133,7 @@ func ProjectExists(ctx context.Context, token, projectID string) (*SelectedProje
 	// In the case that the user specified a project id on the command line with `--project`,
 	// we check to see if the project exists.  If it does not, we return an error.
 	var selectedProject *cliv1beta1.ListProjectsResponse_Project
-	for _, p := range projects.Msg.Projects {
+	for _, p := range projects.Projects {
 		if p.Id == projectID {
 			selectedProject = p
 			break
@@ -142,7 +141,7 @@ func ProjectExists(ctx context.Context, token, projectID string) (*SelectedProje
 	}
 
 	if selectedProject == nil {
-		return nil, fmt.Errorf("Project with ID %s not found", projectID)
+		return nil, fmt.Errorf("project with ID %s not found", projectID)
 	}
 
 	return &SelectedProject{
@@ -153,22 +152,19 @@ func ProjectExists(ctx context.Context, token, projectID string) (*SelectedProje
 }
 
 func InitializeProject(ctx context.Context, token, projectID string) (*SelectedProject, error) {
-	client := api.NewProjectsClient()
-
-	req := cliv1beta1.ListProjectsRequest{}
-	projects, err := client.ListProjects(ctx, api.WithAuthentication(connect.NewRequest(&req), token))
+	projects, err := RetrieveProjects(ctx, token)
 	if err != nil {
 		return nil, err
 	}
 
-	if len(projects.Msg.Projects) == 0 {
-		return nil, fmt.Errorf("No projects found. Please create a project first.")
+	if len(projects.Projects) == 0 {
+		return nil, fmt.Errorf("no projects found. Please create a project first")
 	}
 
 	// If we're not in a terminal, just print the projects and exit as we need
 	// user intervention to pick a project.
 	if !IsTerminal() {
-		err := printProjectsCSV(projects.Msg.Projects)
+		err := printProjectsCSV(projects.Projects)
 		if err != nil {
 			return nil, err
 		}
@@ -176,9 +172,9 @@ func InitializeProject(ctx context.Context, token, projectID string) (*SelectedP
 	}
 
 	if projectID == "" {
-		projectID, err = chooseProjectID(projects.Msg)
+		projectID, err = chooseProjectID(projects)
 		if err != nil {
-			return nil, fmt.Errorf("No project selected; please run `depot init`")
+			return nil, fmt.Errorf("no project selected; please run `depot init`")
 		}
 	}
 
@@ -287,4 +283,48 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m model) View() string {
 	return docStyle.Render(m.list.View())
+}
+
+// SelectProject allows selecting a project using huh library
+func SelectProject(projects []*cliv1beta1.ListProjectsResponse_Project) (string, error) {
+	if len(projects) == 0 {
+		return "", fmt.Errorf("no projects found")
+	}
+
+	var options []huh.Option[string]
+	for _, p := range projects {
+		options = append(options, huh.NewOption(fmt.Sprintf("%s (%s)", p.Name, p.OrgName), p.Id))
+	}
+
+	var selectedID string
+	form := huh.NewForm(
+		huh.NewGroup(
+			huh.NewSelect[string]().
+				Title("Choose a project").
+				Options(options...).
+				Value(&selectedID),
+		),
+	)
+
+	err := form.Run()
+	if err != nil {
+		return "", fmt.Errorf("error selecting project: %w", err)
+	}
+
+	if selectedID == "" {
+		return "", fmt.Errorf("no project selected")
+	}
+
+	return selectedID, nil
+}
+
+// RetrieveProjects calls the API to get the list of projects
+func RetrieveProjects(ctx context.Context, token string) (*cliv1beta1.ListProjectsResponse, error) {
+	client := api.NewProjectsClient()
+	req := cliv1beta1.ListProjectsRequest{}
+	resp, err := client.ListProjects(ctx, api.WithAuthentication(connect.NewRequest(&req), token))
+	if err != nil {
+		return nil, fmt.Errorf("error retrieving projects: %w", err)
+	}
+	return resp.Msg, nil
 }

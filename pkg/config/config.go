@@ -17,8 +17,13 @@ func NewConfig() error {
 	viper.SetEnvPrefix("DEPOT")
 	viper.AutomaticEnv()
 
-	err = viper.ReadInConfig()
-	return fmt.Errorf("unable to read config file: %v", err)
+	if err := viper.ReadInConfig(); err != nil {
+		// It's okay if the config file doesn't exist
+		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
+			return fmt.Errorf("unable to read config file: %v", err)
+		}
+	}
+	return nil
 }
 
 func GetApiToken() string {

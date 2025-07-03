@@ -28,6 +28,7 @@ Official CLI for [Depot](https://depot.dev) - you can use the CLI to build Docke
       - [`depot list builds`](#depot-list-builds)
     - [`depot projects`](#depot-projects)
       - [`depot projects create`](#depot-projects-create)
+      - [`depot projects delete`](#depot-projects-delete)
       - [`depot projects list`](#depot-projects-list)
     - [`depot init`](#depot-init)
     - [`depot login`](#depot-login)
@@ -427,6 +428,32 @@ depot projects create --organization your-org-id --region us-west-2 --cache-stor
 | `region`               | Build data storage region (default: "us-east-1")         |
 | `cache-storage-policy` | Build cache to keep per architecture in GB (default: 50) |
 | `token`                | Depot API token                                          |
+
+#### `depot projects delete`
+
+Delete a Depot project. If no project ID is specified, the command will display an interactive list of projects to choose from.
+
+**Example**
+
+```shell
+# Delete a specific project
+depot projects delete --project-id your-project-id
+
+# Delete a project interactively
+depot projects delete
+
+# Delete a project without confirmation prompt
+depot projects delete --project-id your-project-id --yes
+```
+
+#### Flags for `projects delete`
+
+| Name           | Description                                    |
+| -------------- | ---------------------------------------------- |
+| `project-id`   | The ID of the project to delete                |
+| `yes`          | Confirm deletion without interactive prompt     |
+| `token`        | Depot API token                                |
+| `organization` | Depot organization ID                          |
 
 #### `depot projects list`
 
