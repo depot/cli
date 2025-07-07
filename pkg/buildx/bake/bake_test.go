@@ -1,14 +1,15 @@
-package bake
+package bake_test
 
 import (
 	"context"
 	"testing"
 
+	"github.com/depot/cli/pkg/buildx/bake"
 	"github.com/stretchr/testify/require"
 )
 
 func TestReadTargets(t *testing.T) {
-	fp := File{
+	fp := bake.File{
 		Name: "config.hcl",
 		Data: []byte(`
 target "webDEP" {
@@ -32,7 +33,7 @@ target "webapp" {
 `),
 	}
 
-	targets, _, err := ReadTargets(context.TODO(), []File{fp}, []string{"webDEP"}, nil, nil)
+	targets, _, err := bake.ReadTargets(context.TODO(), []bake.File{fp}, []string{"webDEP"}, nil, nil)
 	require.NoError(t, err)
 
 	require.Contains(t, targets, "webDEP")
@@ -41,7 +42,7 @@ target "webapp" {
 	require.Equal(t, true, *targets["webDEP"].NoCache)
 	require.Equal(t, "128m", *targets["webDEP"].ShmSize)
 
-	targets2, _, err := ReadTargets(context.TODO(), []File{fp}, []string{"webapp"}, nil, nil)
+	targets2, _, err := bake.ReadTargets(context.TODO(), []bake.File{fp}, []string{"webapp"}, nil, nil)
 	require.NoError(t, err)
 	require.Contains(t, targets2, "webapp")
 	require.Equal(t, "Dockerfile.webapp", *targets2["webapp"].Dockerfile)
@@ -50,7 +51,7 @@ target "webapp" {
 }
 
 func TestVariableValidation(t *testing.T) {
-	fp := File{
+	fp := bake.File{
 		Name: "docker-bake.hcl",
 		Data: []byte(`
 variable "FOO" {
@@ -71,19 +72,19 @@ target "app" {
 
 	t.Run("Valid", func(t *testing.T) {
 		t.Setenv("FOO", "bar")
-		_, _, err := ReadTargets(ctx, []File{fp}, []string{"app"}, nil, nil)
+		_, _, err := bake.ReadTargets(ctx, []bake.File{fp}, []string{"app"}, nil, nil)
 		require.NoError(t, err)
 	})
 
 	t.Run("Invalid", func(t *testing.T) {
-		_, _, err := ReadTargets(ctx, []File{fp}, []string{"app"}, nil, nil)
+		_, _, err := bake.ReadTargets(ctx, []bake.File{fp}, []string{"app"}, nil, nil)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "FOO is required.")
 	})
 }
 
 func TestVariableValidationMulti(t *testing.T) {
-	fp := File{
+	fp := bake.File{
 		Name: "docker-bake.hcl",
 		Data: []byte(`
 variable "FOO" {
@@ -108,26 +109,26 @@ target "app" {
 
 	t.Run("Valid", func(t *testing.T) {
 		t.Setenv("FOO", "barbar")
-		_, _, err := ReadTargets(ctx, []File{fp}, []string{"app"}, nil, nil)
+		_, _, err := bake.ReadTargets(ctx, []bake.File{fp}, []string{"app"}, nil, nil)
 		require.NoError(t, err)
 	})
 
 	t.Run("InvalidLength", func(t *testing.T) {
 		t.Setenv("FOO", "bar")
-		_, _, err := ReadTargets(ctx, []File{fp}, []string{"app"}, nil, nil)
+		_, _, err := bake.ReadTargets(ctx, []bake.File{fp}, []string{"app"}, nil, nil)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "FOO must be longer than 4 characters.")
 	})
 
 	t.Run("InvalidEmpty", func(t *testing.T) {
-		_, _, err := ReadTargets(ctx, []File{fp}, []string{"app"}, nil, nil)
+		_, _, err := bake.ReadTargets(ctx, []bake.File{fp}, []string{"app"}, nil, nil)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "FOO is required.")
 	})
 }
 
 func TestVariableValidationWithDeps(t *testing.T) {
-	fp := File{
+	fp := bake.File{
 		Name: "docker-bake.hcl",
 		Data: []byte(`
 variable "FOO" {}
@@ -150,20 +151,20 @@ target "app" {
 	t.Run("Valid", func(t *testing.T) {
 		t.Setenv("FOO", "foo")
 		t.Setenv("BAR", "bar")
-		_, _, err := ReadTargets(ctx, []File{fp}, []string{"app"}, nil, nil)
+		_, _, err := bake.ReadTargets(ctx, []bake.File{fp}, []string{"app"}, nil, nil)
 		require.NoError(t, err)
 	})
 
 	t.Run("Invalid", func(t *testing.T) {
 		t.Setenv("BAR", "bar")
-		_, _, err := ReadTargets(ctx, []File{fp}, []string{"app"}, nil, nil)
+		_, _, err := bake.ReadTargets(ctx, []bake.File{fp}, []string{"app"}, nil, nil)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "BAR requires FOO to be set.")
 	})
 }
 
 func TestVariableValidationNumberType(t *testing.T) {
-	fp := File{
+	fp := bake.File{
 		Name: "docker-bake.hcl",
 		Data: []byte(`
 variable "FOO" {
@@ -185,12 +186,12 @@ target "app" {
 
 	t.Run("Valid", func(t *testing.T) {
 		t.Setenv("FOO", "10")
-		_, _, err := ReadTargets(ctx, []File{fp}, []string{"app"}, nil, nil)
+		_, _, err := bake.ReadTargets(ctx, []bake.File{fp}, []string{"app"}, nil, nil)
 		require.NoError(t, err)
 	})
 
 	t.Run("Invalid", func(t *testing.T) {
-		_, _, err := ReadTargets(ctx, []File{fp}, []string{"app"}, nil, nil)
+		_, _, err := bake.ReadTargets(ctx, []bake.File{fp}, []string{"app"}, nil, nil)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "FOO must be greater than 5.")
 	})
@@ -214,7 +215,7 @@ target "default" {
 		// env FOO_JSON is the CSV override of var FOO_JSON, not a JSON override of FOO
 		t.Setenv("FOO", "[1,2]")
 		t.Setenv("FOO_JSON", "[3,4]")
-		_, err := ParseFile(dt, "docker-bake.hcl")
+		_, err := bake.ParseFile(dt, "docker-bake.hcl")
 		require.ErrorContains(t, err, "failed to convert")
 		require.ErrorContains(t, err, "from CSV")
 	})
@@ -232,7 +233,7 @@ target "default" {
 }`)
 		t.Setenv("FOO", "1,2")
 		t.Setenv("FOO_JSON", "[3,4,5]")
-		c, err := ParseFile(dt, "docker-bake.hcl")
+		c, err := bake.ParseFile(dt, "docker-bake.hcl")
 		require.NoError(t, err)
 		require.Equal(t, 1, len(c.Targets))
 		require.Equal(t, "3", *c.Targets[0].Args["foo"])
@@ -259,7 +260,7 @@ target "db" {
 `)
 
 	t.Run("default", func(t *testing.T) {
-		targets, groups, err := ReadTargets(context.TODO(), []File{{Name: "docker-bake.hcl", Data: dt}}, []string{"default"}, nil, nil)
+		targets, groups, err := bake.ReadTargets(context.TODO(), []bake.File{{Name: "docker-bake.hcl", Data: dt}}, []string{"default"}, nil, nil)
 		require.NoError(t, err)
 		require.Contains(t, groups, "default")
 		require.Len(t, targets, 2)
@@ -269,7 +270,7 @@ target "db" {
 
 	t.Run("override", func(t *testing.T) {
 		t.Setenv("TAG", "v1.0")
-		targets, _, err := ReadTargets(context.TODO(), []File{{Name: "docker-bake.hcl", Data: dt}}, []string{"app"}, nil, nil)
+		targets, _, err := bake.ReadTargets(context.TODO(), []bake.File{{Name: "docker-bake.hcl", Data: dt}}, []string{"app"}, nil, nil)
 		require.NoError(t, err)
 		require.Equal(t, []string{"myapp:v1.0"}, targets["app"].Tags)
 	})
@@ -288,7 +289,7 @@ target "app" {
 }
 `)
 
-	targets, groups, err := ReadTargets(context.TODO(), []File{{Name: "docker-bake.hcl", Data: dt}}, []string{"default"}, nil, nil)
+	targets, groups, err := bake.ReadTargets(context.TODO(), []bake.File{{Name: "docker-bake.hcl", Data: dt}}, []string{"default"}, nil, nil)
 	require.NoError(t, err)
 
 	require.Equal(t, "Default group for all targets", groups["default"].Description)
@@ -311,13 +312,13 @@ target "app" {
 `)
 
 	t.Run("valid override", func(t *testing.T) {
-		_, _, err := ReadTargets(context.TODO(), []File{{Name: "docker-bake.hcl", Data: dt}}, []string{"app"}, []string{"app.tags=myapp:v1.0"}, nil)
+		_, _, err := bake.ReadTargets(context.TODO(), []bake.File{{Name: "docker-bake.hcl", Data: dt}}, []string{"app"}, []string{"app.tags=myapp:v1.0"}, nil)
 		require.NoError(t, err)
 	})
 
 	t.Run("environment variable", func(t *testing.T) {
 		t.Setenv("TAG", "")
-		_, _, err := ReadTargets(context.TODO(), []File{{Name: "docker-bake.hcl", Data: dt}}, []string{"app"}, nil, nil)
+		_, _, err := bake.ReadTargets(context.TODO(), []bake.File{{Name: "docker-bake.hcl", Data: dt}}, []string{"app"}, nil, nil)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "TAG cannot be empty")
 	})

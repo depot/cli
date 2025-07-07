@@ -1,17 +1,18 @@
-package bake
+package bake_test
 
 import (
 	"context"
 	"os"
 	"testing"
 
+	"github.com/depot/cli/pkg/buildx/bake"
 	"github.com/stretchr/testify/require"
 )
 
 // TestVariableValidationComprehensive tests all validation features from upstream
 func TestVariableValidationComprehensive(t *testing.T) {
 	t.Run("Basic validation", func(t *testing.T) {
-		fp := File{
+		fp := bake.File{
 			Name: "docker-bake.hcl",
 			Data: []byte(`
 variable "FOO" {
@@ -27,18 +28,18 @@ target "app" {
 		}
 
 		t.Setenv("FOO", "bar")
-		_, _, err := ReadTargets(context.TODO(), []File{fp}, []string{"app"}, nil, nil)
+		_, _, err := bake.ReadTargets(context.TODO(), []bake.File{fp}, []string{"app"}, nil, nil)
 		require.NoError(t, err)
 
 		// Test validation failure
 		t.Setenv("FOO", "")
-		_, _, err = ReadTargets(context.TODO(), []File{fp}, []string{"app"}, nil, nil)
+		_, _, err = bake.ReadTargets(context.TODO(), []bake.File{fp}, []string{"app"}, nil, nil)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "FOO is required.")
 	})
 
 	t.Run("Multiple validations", func(t *testing.T) {
-		fp := File{
+		fp := bake.File{
 			Name: "docker-bake.hcl",
 			Data: []byte(`
 variable "FOO" {
@@ -59,24 +60,24 @@ target "app" {
 
 		// Valid case
 		t.Setenv("FOO", "barbar")
-		_, _, err := ReadTargets(context.TODO(), []File{fp}, []string{"app"}, nil, nil)
+		_, _, err := bake.ReadTargets(context.TODO(), []bake.File{fp}, []string{"app"}, nil, nil)
 		require.NoError(t, err)
 
 		// First validation fails
 		t.Setenv("FOO", "")
-		_, _, err = ReadTargets(context.TODO(), []File{fp}, []string{"app"}, nil, nil)
+		_, _, err = bake.ReadTargets(context.TODO(), []bake.File{fp}, []string{"app"}, nil, nil)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "FOO is required.")
 
 		// Second validation fails
 		t.Setenv("FOO", "bar")
-		_, _, err = ReadTargets(context.TODO(), []File{fp}, []string{"app"}, nil, nil)
+		_, _, err = bake.ReadTargets(context.TODO(), []bake.File{fp}, []string{"app"}, nil, nil)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "FOO must be longer than 4 characters.")
 	})
 
 	t.Run("Type constraints with validation", func(t *testing.T) {
-		fp := File{
+		fp := bake.File{
 			Name: "docker-bake.hcl",
 			Data: []byte(`
 variable "PORT" {
@@ -95,23 +96,23 @@ target "app" {
 
 		// Valid port
 		t.Setenv("PORT", "8080")
-		_, _, err := ReadTargets(context.TODO(), []File{fp}, []string{"app"}, nil, nil)
+		_, _, err := bake.ReadTargets(context.TODO(), []bake.File{fp}, []string{"app"}, nil, nil)
 		require.NoError(t, err)
 
 		// Invalid port range
 		t.Setenv("PORT", "70000")
-		_, _, err = ReadTargets(context.TODO(), []File{fp}, []string{"app"}, nil, nil)
+		_, _, err = bake.ReadTargets(context.TODO(), []bake.File{fp}, []string{"app"}, nil, nil)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "PORT must be between 1 and 65535.")
 
 		// Invalid type
 		t.Setenv("PORT", "not-a-number")
-		_, _, err = ReadTargets(context.TODO(), []File{fp}, []string{"app"}, nil, nil)
+		_, _, err = bake.ReadTargets(context.TODO(), []bake.File{fp}, []string{"app"}, nil, nil)
 		require.Error(t, err)
 	})
 
 	t.Run("List type with CSV and JSON", func(t *testing.T) {
-		fp := File{
+		fp := bake.File{
 			Name: "docker-bake.hcl",
 			Data: []byte(`
 variable "TAGS" {
@@ -130,14 +131,14 @@ target "app" {
 
 		// Valid CSV
 		t.Setenv("TAGS", "v1.0,v1.1,latest")
-		targets, _, err := ReadTargets(context.TODO(), []File{fp}, []string{"app"}, nil, nil)
+		targets, _, err := bake.ReadTargets(context.TODO(), []bake.File{fp}, []string{"app"}, nil, nil)
 		require.NoError(t, err)
 		require.Len(t, targets["app"].Tags, 3)
 		require.Equal(t, []string{"v1.0", "v1.1", "latest"}, targets["app"].Tags)
 
 		// Valid JSON override
 		t.Setenv("TAGS_JSON", `["v2.0","v2.1"]`)
-		targets, _, err = ReadTargets(context.TODO(), []File{fp}, []string{"app"}, nil, nil)
+		targets, _, err = bake.ReadTargets(context.TODO(), []bake.File{fp}, []string{"app"}, nil, nil)
 		require.NoError(t, err)
 		require.Len(t, targets["app"].Tags, 2)
 		require.Equal(t, []string{"v2.0", "v2.1"}, targets["app"].Tags)
@@ -145,13 +146,13 @@ target "app" {
 		// Clear other env vars and test invalid - too many tags
 		os.Unsetenv("TAGS_JSON")
 		t.Setenv("TAGS", "v1,v2,v3,v4")
-		_, _, err = ReadTargets(context.TODO(), []File{fp}, []string{"app"}, nil, nil)
+		_, _, err = bake.ReadTargets(context.TODO(), []bake.File{fp}, []string{"app"}, nil, nil)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "Maximum of 3 tags allowed.")
 	})
 
 	t.Run("Variable dependencies", func(t *testing.T) {
-		fp := File{
+		fp := bake.File{
 			Name: "docker-bake.hcl",
 			Data: []byte(`
 variable "FOO" {}
@@ -170,19 +171,19 @@ target "app" {
 		// Valid - both variables set
 		t.Setenv("FOO", "foo")
 		t.Setenv("BAR", "bar")
-		_, _, err := ReadTargets(context.TODO(), []File{fp}, []string{"app"}, nil, nil)
+		_, _, err := bake.ReadTargets(context.TODO(), []bake.File{fp}, []string{"app"}, nil, nil)
 		require.NoError(t, err)
 
 		// Invalid - FOO not set but BAR references it
 		os.Unsetenv("FOO")
 		t.Setenv("BAR", "bar")
-		_, _, err = ReadTargets(context.TODO(), []File{fp}, []string{"app"}, nil, nil)
+		_, _, err = bake.ReadTargets(context.TODO(), []bake.File{fp}, []string{"app"}, nil, nil)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "BAR requires FOO to be set.")
 	})
 
 	t.Run("Variable descriptions", func(t *testing.T) {
-		fp := File{
+		fp := bake.File{
 			Name: "docker-bake.hcl",
 			Data: []byte(`
 variable "APP_NAME" {
@@ -201,7 +202,7 @@ target "app" {
 `),
 		}
 
-		targets, groups, err := ReadTargets(context.TODO(), []File{fp}, []string{"default"}, nil, nil)
+		targets, groups, err := bake.ReadTargets(context.TODO(), []bake.File{fp}, []string{"default"}, nil, nil)
 		require.NoError(t, err)
 
 		// Check descriptions are preserved
@@ -216,7 +217,7 @@ target "app" {
 // TestBakeValidationIntegration tests validation in the context of full bake operations
 func TestBakeValidationIntegration(t *testing.T) {
 	// This test simulates the real-world usage that originally failed
-	fp := File{
+	fp := bake.File{
 		Name: "test-bake.hcl",
 		Data: []byte(`
 variable "app_name" {
@@ -275,7 +276,7 @@ target "app" {
 	}
 
 	t.Run("Default values work", func(t *testing.T) {
-		targets, groups, err := ReadTargets(context.TODO(), []File{fp}, []string{"app"}, nil, nil)
+		targets, groups, err := bake.ReadTargets(context.TODO(), []bake.File{fp}, []string{"app"}, nil, nil)
 		require.NoError(t, err)
 		require.Contains(t, targets, "app")
 		require.Contains(t, groups, "default")
@@ -285,14 +286,14 @@ target "app" {
 
 	t.Run("CSV list variables work", func(t *testing.T) {
 		t.Setenv("tags", "v1.0,v1.1,latest")
-		targets, _, err := ReadTargets(context.TODO(), []File{fp}, []string{"app"}, nil, nil)
+		targets, _, err := bake.ReadTargets(context.TODO(), []bake.File{fp}, []string{"app"}, nil, nil)
 		require.NoError(t, err)
 		require.Equal(t, []string{"myapp:v1.0"}, targets["app"].Tags)
 	})
 
 	t.Run("JSON list variables work", func(t *testing.T) {
 		t.Setenv("tags_JSON", `["v2.0","v2.1"]`)
-		targets, _, err := ReadTargets(context.TODO(), []File{fp}, []string{"app"}, nil, nil)
+		targets, _, err := bake.ReadTargets(context.TODO(), []bake.File{fp}, []string{"app"}, nil, nil)
 		require.NoError(t, err)
 		require.Equal(t, []string{"myapp:v2.0"}, targets["app"].Tags)
 	})
@@ -302,21 +303,21 @@ target "app" {
 
 		// Empty app name should fail
 		t.Setenv("app_name", "")
-		_, _, err := ReadTargets(context.TODO(), []File{fp}, []string{"app"}, nil, nil)
+		_, _, err := bake.ReadTargets(context.TODO(), []bake.File{fp}, []string{"app"}, nil, nil)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "App name cannot be empty.")
 
 		// Reset and test too many tags
 		os.Unsetenv("app_name")
 		t.Setenv("tags", "v1,v2,v3,v4")
-		_, _, err = ReadTargets(context.TODO(), []File{fp}, []string{"app"}, nil, nil)
+		_, _, err = bake.ReadTargets(context.TODO(), []bake.File{fp}, []string{"app"}, nil, nil)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "Maximum of 3 tags allowed.")
 
 		// Reset and test invalid port
 		os.Unsetenv("tags")
 		t.Setenv("port", "70000")
-		_, _, err = ReadTargets(context.TODO(), []File{fp}, []string{"app"}, nil, nil)
+		_, _, err = bake.ReadTargets(context.TODO(), []bake.File{fp}, []string{"app"}, nil, nil)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "Port must be between 1 and 65535.")
 	})
