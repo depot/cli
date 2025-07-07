@@ -13,9 +13,15 @@ import (
 	"github.com/depot/cli/pkg/buildx/bake/hclparser/gohcl"
 	"github.com/docker/buildx/util/userfunc"
 	"github.com/hashicorp/hcl/v2"
+	"github.com/hashicorp/hcl/v2/ext/typeexpr"
 	"github.com/pkg/errors"
+	"github.com/tonistiigi/go-csvvalue"
 	"github.com/zclconf/go-cty/cty"
+	"github.com/zclconf/go-cty/cty/convert"
+	ctyjson "github.com/zclconf/go-cty/cty/json"
 )
+
+const jsonEnvOverrideSuffix = "_JSON"
 
 type Opt struct {
 	LookupVar     func(string) (string, bool)
@@ -24,9 +30,21 @@ type Opt struct {
 }
 
 type variable struct {
-	Name    string         `json:"-" hcl:"name,label"`
-	Default *hcl.Attribute `json:"default,omitempty" hcl:"default,optional"`
-	Body    hcl.Body       `json:"-" hcl:",body"`
+	Name        string                `json:"-" hcl:"name,label"`
+	Type        hcl.Expression        `json:"type,omitempty" hcl:"type,optional"`
+	Default     *hcl.Attribute        `json:"default,omitempty" hcl:"default,optional"`
+	Description string                `json:"description,omitempty" hcl:"description,optional"`
+	Validations []*variableValidation `json:"validation,omitempty" hcl:"validation,block"`
+	Body        hcl.Body              `json:"-" hcl:",body"`
+	Remain      hcl.Body              `json:"-" hcl:",remain"`
+
+	// the type described by Type if it was specified
+	constraint *cty.Type
+}
+
+type variableValidation struct {
+	Condition    hcl.Expression `json:"condition" hcl:"condition"`
+	ErrorMessage hcl.Expression `json:"error_message" hcl:"error_message"`
 }
 
 type functionDef struct {
@@ -257,62 +275,287 @@ func (p *parser) resolveValue(ectx *hcl.EvalContext, name string) (err error) {
 		}
 	}()
 
+	// built-in vars aren't intended to be overridden and are statically typed as strings;
+	// no sense sending them through type checks or waiting to return them
+	if val, ok := p.opt.Vars[name]; ok {
+		vv := cty.StringVal(val)
+		v = &vv
+		return
+	}
+
+	var diags hcl.Diagnostics
+	varType, typeSpecified := cty.DynamicPseudoType, false
 	def, ok := p.attrs[name]
-	if _, builtin := p.opt.Vars[name]; !ok && !builtin {
+	if !ok {
 		vr, ok := p.vars[name]
 		if !ok {
 			return errors.Wrapf(errUndefined{}, "variable %q does not exist", name)
 		}
 		def = vr.Default
 		ectx = p.ectx
+		varType, diags = typeConstraint(vr.Type)
+		if diags.HasErrors() {
+			return diags
+		}
+		typeSpecified = !varType.Equals(cty.DynamicPseudoType) || hcl.ExprAsKeyword(vr.Type) == "any"
+		if typeSpecified {
+			vr.constraint = &varType
+		}
 	}
 
 	if def == nil {
-		val, ok := p.opt.Vars[name]
-		if !ok {
-			val, _ = p.opt.LookupVar(name)
+		// Lack of specified value, when untyped is considered to have an empty string value.
+		// A typed variable with no value will result in (typed) nil.
+		if _, ok, _ := p.valueHasOverride(name, false); !ok && !typeSpecified {
+			vv := cty.StringVal("")
+			v = &vv
+			return
 		}
-		vv := cty.StringVal(val)
-		v = &vv
-		return
 	}
 
-	if diags := p.loadDeps(ectx, def.Expr, nil, true); diags.HasErrors() {
-		return diags
-	}
-	vv, diags := def.Expr.Value(ectx)
-	if diags.HasErrors() {
-		return diags
+	var vv cty.Value
+	if def != nil {
+		if diags := p.loadDeps(ectx, def.Expr, nil, true); diags.HasErrors() {
+			return diags
+		}
+		vv, diags = def.Expr.Value(ectx)
+		if diags.HasErrors() {
+			return diags
+		}
+		vv, err = convert.Convert(vv, varType)
+		if err != nil {
+			return errors.Wrapf(err, "invalid type %s for variable %s default value", varType.FriendlyName(), name)
+		}
 	}
 
+	envv, hasEnv, jsonEnv := p.valueHasOverride(name, typeSpecified)
 	_, isVar := p.vars[name]
 
-	if envv, ok := p.opt.LookupVar(name); ok && isVar {
+	if hasEnv && isVar {
 		switch {
-		case vv.Type().Equals(cty.Bool):
-			b, err := strconv.ParseBool(envv)
+		case typeSpecified && jsonEnv:
+			vv, err = ctyjson.Unmarshal([]byte(envv), varType)
 			if err != nil {
-				return errors.Wrapf(err, "failed to parse %s as bool", name)
+				return errors.Wrapf(err, "failed to convert variable %s from JSON", name)
 			}
-			vv = cty.BoolVal(b)
-		case vv.Type().Equals(cty.String), vv.Type().Equals(cty.DynamicPseudoType):
+		case supportedCSVType(varType): // typing explicitly specified for selected complex types
+			vv, err = valueFromCSV(name, envv, varType)
+			if err != nil {
+				return errors.Wrapf(err, "failed to convert variable %s from CSV", name)
+			}
+		case typeSpecified && varType.IsPrimitiveType():
+			vv, err = convertPrimitive(name, envv, varType)
+			if err != nil {
+				return err
+			}
+		case typeSpecified:
+			// e.g., an 'object' not provided as JSON (which can't be expressed in the default CSV format)
+			return errors.Errorf("unsupported type %s for variable %s", varType.FriendlyName(), name)
+		case def == nil: // no default from which to infer typing
 			vv = cty.StringVal(envv)
-		case vv.Type().Equals(cty.Number):
-			n, err := strconv.ParseFloat(envv, 64)
-			if err == nil && (math.IsNaN(n) || math.IsInf(n, 0)) {
-				err = errors.Errorf("invalid number value")
-			}
+		case vv.Type().Equals(cty.DynamicPseudoType):
+			vv = cty.StringVal(envv)
+		case vv.Type().IsPrimitiveType():
+			vv, err = convertPrimitive(name, envv, vv.Type())
 			if err != nil {
-				return errors.Wrapf(err, "failed to parse %s as number", name)
+				return err
 			}
-			vv = cty.NumberVal(big.NewFloat(n))
 		default:
-			// TODO: support lists with csv values
 			return errors.Errorf("unsupported type %s for variable %s", vv.Type().FriendlyName(), name)
 		}
 	}
 	v = &vv
 	return nil
+}
+
+// typeConstraint wraps typeexpr.TypeConstraint to differentiate between errors in the
+// specification and errors due to being cty.NullVal (not provided).
+func typeConstraint(expr hcl.Expression) (cty.Type, hcl.Diagnostics) {
+	t, diag := typeexpr.TypeConstraint(expr)
+	if !diag.HasErrors() {
+		return t, diag
+	}
+	// if had errors, it could be because the expression is 'nil', i.e., unspecified
+	if v, err := expr.Value(nil); err == nil {
+		if v.IsNull() {
+			return cty.DynamicPseudoType, nil
+		}
+	}
+	// even if the evaluation resulted in error, the original (error) diagnostics are likely more useful
+	return t, diag
+}
+
+// convertPrimitive converts a single string primitive value to a given cty.Type.
+func convertPrimitive(name, value string, target cty.Type) (cty.Value, error) {
+	switch {
+	case target.Equals(cty.String):
+		return cty.StringVal(value), nil
+	case target.Equals(cty.Bool):
+		b, err := strconv.ParseBool(value)
+		if err != nil {
+			return cty.NilVal, errors.Wrapf(err, "failed to parse %s as bool", name)
+		}
+		return cty.BoolVal(b), nil
+	case target.Equals(cty.Number):
+		n, err := strconv.ParseFloat(value, 64)
+		if err == nil && (math.IsNaN(n) || math.IsInf(n, 0)) {
+			err = errors.Errorf("invalid number value")
+		}
+		if err != nil {
+			return cty.NilVal, errors.Wrapf(err, "failed to parse %s as number", name)
+		}
+		return cty.NumberVal(big.NewFloat(n)), nil
+	default:
+		return cty.NilVal, errors.Errorf("%s of type %s is not a primitive", name, target.FriendlyName())
+	}
+}
+
+// supportedCSVType reports whether the given cty.Type might be convertible from a CSV string via valueFromCSV.
+func supportedCSVType(t cty.Type) bool {
+	return t.IsListType() || t.IsSetType() || t.IsTupleType() || t.IsMapType()
+}
+
+// valueFromCSV takes CSV value and converts it to cty.Type.
+func valueFromCSV(name, value string, target cty.Type) (cty.Value, error) {
+	fields, err := csvvalue.Fields(value, nil)
+	if err != nil {
+		return cty.NilVal, errors.Wrapf(err, "failed to parse %s as CSV", value)
+	}
+
+	// used for lists and set, which require identical processing and differ only in return type
+	singleTypeConvert := func(t cty.Type) ([]cty.Value, error) {
+		var elems []cty.Value
+		for _, f := range fields {
+			v, err := convertPrimitive(name, f, t)
+			if err != nil {
+				return nil, errors.Wrapf(err, "failed to parse element of type %s", target.FriendlyName())
+			}
+			elems = append(elems, v)
+		}
+		return elems, nil
+	}
+
+	switch {
+	case target.IsListType():
+		elems, err := singleTypeConvert(target.ElementType())
+		if err != nil {
+			return cty.NilVal, err
+		}
+		return cty.ListVal(elems), nil
+	case target.IsSetType():
+		elems, err := singleTypeConvert(target.ElementType())
+		if err != nil {
+			return cty.NilVal, err
+		}
+		return cty.SetVal(elems), nil
+	case target.IsTupleType():
+		elemTypes := target.TupleElementTypes()
+		if len(fields) != len(elemTypes) {
+			return cty.NilVal, errors.Errorf("tuple %s expects %d elements, got %d", target.FriendlyName(), len(elemTypes), len(fields))
+		}
+		var elems []cty.Value
+		for i, f := range fields {
+			v, err := convertPrimitive(name, f, elemTypes[i])
+			if err != nil {
+				return cty.NilVal, errors.Wrapf(err, "failed to parse element %d of type %s", i, target.FriendlyName())
+			}
+			elems = append(elems, v)
+		}
+		return cty.TupleVal(elems), nil
+	case target.IsMapType():
+		if len(fields)%2 != 0 {
+			return cty.NilVal, errors.Errorf("map %s expects an even number of elements (key-value pairs), got %d", target.FriendlyName(), len(fields))
+		}
+		elems := make(map[string]cty.Value)
+		for i := 0; i < len(fields); i += 2 {
+			key := fields[i]
+			value, err := convertPrimitive(name, fields[i+1], target.ElementType())
+			if err != nil {
+				return cty.NilVal, errors.Wrapf(err, "failed to parse value for key %s of type %s", key, target.FriendlyName())
+			}
+			elems[key] = value
+		}
+		return cty.MapVal(elems), nil
+	default:
+		return cty.NilVal, errors.Errorf("unsupported CSV conversion for type %s", target.FriendlyName())
+	}
+}
+
+// valueHasOverride returns a possible override value if one was specified, and whether it should
+// be treated as a JSON value.
+func (p *parser) valueHasOverride(name string, favorJSON bool) (string, bool, bool) {
+	jsonEnv := false
+	envv, hasEnv := p.opt.LookupVar(name)
+	// If no plain override exists (!hasEnv) or JSON overrides are explicitly favored (favorJSON),
+	// check for a JSON-specific override with the "_JSON" suffix.
+	if !hasEnv || favorJSON {
+		jsonVarName := name + jsonEnvOverrideSuffix
+		_, builtin := p.opt.Vars[jsonVarName]
+		if _, ok := p.vars[jsonVarName]; !ok && !builtin {
+			if j, ok := p.opt.LookupVar(jsonVarName); ok {
+				envv = j
+				hasEnv, jsonEnv = true, true
+			}
+		}
+	}
+	return envv, hasEnv, jsonEnv
+}
+
+func (p *parser) validateVariables(vars map[string]*variable, ectx *hcl.EvalContext) hcl.Diagnostics {
+	var diags hcl.Diagnostics
+	for _, v := range vars {
+		for _, rule := range v.Validations {
+			resultVal, condDiags := rule.Condition.Value(ectx)
+			if condDiags.HasErrors() {
+				diags = append(diags, condDiags...)
+				continue
+			}
+
+			if resultVal.IsNull() {
+				diags = append(diags, &hcl.Diagnostic{
+					Severity:   hcl.DiagError,
+					Summary:    "Invalid condition result",
+					Detail:     "Condition expression must return either true or false, not null.",
+					Subject:    rule.Condition.Range().Ptr(),
+					Expression: rule.Condition,
+				})
+				continue
+			}
+
+			var err error
+			resultVal, err = convert.Convert(resultVal, cty.Bool)
+			if err != nil {
+				diags = append(diags, &hcl.Diagnostic{
+					Severity:   hcl.DiagError,
+					Summary:    "Invalid condition result",
+					Detail:     fmt.Sprintf("Invalid condition result value: %s", err),
+					Subject:    rule.Condition.Range().Ptr(),
+					Expression: rule.Condition,
+				})
+				continue
+			}
+
+			if !resultVal.True() {
+				message, msgDiags := rule.ErrorMessage.Value(ectx)
+				if msgDiags.HasErrors() {
+					diags = append(diags, msgDiags...)
+					continue
+				}
+				errorMessage := "This check failed, but has an invalid error message."
+				if !message.IsNull() {
+					errorMessage = message.AsString()
+				}
+				diags = append(diags, &hcl.Diagnostic{
+					Severity: hcl.DiagError,
+					Summary:  "Validation failed",
+					Detail:   errorMessage,
+					Subject:  rule.Condition.Range().Ptr(),
+				})
+			}
+		}
+	}
+
+	return diags
 }
 
 // resolveBlock force evaluates a block, storing the result in the parser. If a
@@ -546,6 +789,7 @@ func (p *parser) resolveBlockNames(block *hcl.Block) ([]string, error) {
 type Variable struct {
 	Name        string  `json:"name"`
 	Description string  `json:"description,omitempty"`
+	Type        string  `json:"type,omitempty"`
 	Value       *string `json:"value,omitempty"`
 }
 
@@ -673,7 +917,11 @@ func Parse(b hcl.Body, opt Opt, val interface{}) (*ParseMeta, hcl.Diagnostics) {
 			return nil, wrapErrorDiagnostic("Invalid value", err, &r, &r)
 		}
 		v := &Variable{
-			Name: p.vars[k].Name,
+			Name:        p.vars[k].Name,
+			Description: p.vars[k].Description,
+		}
+		if p.vars[k].Type != nil {
+			v.Type = hcl.ExprAsKeyword(p.vars[k].Type)
 		}
 		if vv := p.ectx.Variables[k]; !vv.IsNull() {
 			var s string
@@ -686,6 +934,11 @@ func Parse(b hcl.Body, opt Opt, val interface{}) (*ParseMeta, hcl.Diagnostics) {
 			v.Value = &s
 		}
 		vars = append(vars, v)
+	}
+
+	// Validate variables after resolution
+	if diags := p.validateVariables(p.vars, p.ectx); diags.HasErrors() {
+		return nil, diags
 	}
 
 	for k := range p.funcs {

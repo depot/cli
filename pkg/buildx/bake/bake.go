@@ -596,13 +596,15 @@ func (c Config) target(name string, visited map[string]*Target, overrides map[st
 }
 
 type Group struct {
-	Name    string   `json:"-" hcl:"name,label" cty:"name"`
-	Targets []string `json:"targets" hcl:"targets" cty:"targets"`
+	Name        string   `json:"-" hcl:"name,label" cty:"name"`
+	Description string   `json:"description,omitempty" hcl:"description,optional" cty:"description"`
+	Targets     []string `json:"targets" hcl:"targets" cty:"targets"`
 	// Target // TODO?
 }
 
 type Target struct {
-	Name string `json:"-" hcl:"name,label" cty:"name"`
+	Name        string `json:"-" hcl:"name,label" cty:"name"`
+	Description string `json:"description,omitempty" hcl:"description,optional" cty:"description"`
 
 	// Inherits is the only field that cannot be overridden with --set
 	Inherits []string `json:"inherits,omitempty" hcl:"inherits,optional" cty:"inherits"`
@@ -664,6 +666,9 @@ func (t *Target) normalize() {
 }
 
 func (t *Target) Merge(t2 *Target) {
+	if t2.Description != "" {
+		t.Description = t2.Description
+	}
 	if t2.Context != nil {
 		t.Context = t2.Context
 	}
