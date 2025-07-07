@@ -101,6 +101,19 @@ jobs:
         env:
           DEPOT_CLI_VERSION: v0.0.0-dev
 
+  test:
+    runs-on: depot-ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+          check-latest: true
+          cache: true
+      - run: go install gotest.tools/gotestsum@latest
+      - run: make build
+      - run: gotestsum --format github-actions ./...
+
   package:
     runs-on: ubuntu-latest
     if: github.event_name != 'pull_request'
