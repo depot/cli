@@ -17,3 +17,7 @@ clean:
 .PHONY: generate
 generate:
 	buf generate
+
+.PHONY: test
+test:
+	go test -v ./...
