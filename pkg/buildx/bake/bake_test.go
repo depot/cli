@@ -323,8 +323,3 @@ target "app" {
 		require.Contains(t, err.Error(), "TAG cannot be empty")
 	})
 }
-
-// Helper function for string pointers
-func strPtr(s string) *string {
-	return &s
-}
