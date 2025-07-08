@@ -74,7 +74,7 @@ func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator, pri
 		return err
 	}
 
-	validatedOpts, _, err := validator.Validate(ctx, nodes, printer)
+	validatedOpts, requestedTargets, err := validator.Validate(ctx, nodes, printer)
 	if err != nil {
 		return err
 	}
@@ -84,10 +84,14 @@ func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator, pri
 		return fmt.Errorf("project %s build options not found", in.project)
 	}
 
-	requestedTargets := make([]string, 0, len(buildOpts))
-	for target := range buildOpts {
-		requestedTargets = append(requestedTargets, target)
+	// Filter requestedTargets to only include targets for the current project
+	projectRequestedTargets := make([]string, 0)
+	for _, target := range requestedTargets {
+		if _, exists := buildOpts[target]; exists {
+			projectRequestedTargets = append(projectRequestedTargets, target)
+		}
 	}
+	requestedTargets = projectRequestedTargets
 
 	targetsToLoad := make([]string, 0)
 	for target, opts := range buildOpts {
@@ -97,6 +101,11 @@ func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator, pri
 				shouldLoad = false
 				break
 			}
+		}
+
+		// When using --load, only load originally requested targets, not dependencies
+		if in.exportLoad {
+			shouldLoad = shouldLoad && slices.Contains(requestedTargets, target)
 		}
 
 		if shouldLoad {
