@@ -8,6 +8,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/depot/cli/pkg/cmd/gocache"
 	"github.com/depot/cli/pkg/config"
 	"github.com/depot/cli/pkg/helpers"
 	"github.com/spf13/cobra"
@@ -52,7 +53,8 @@ func NewCmdCargo() *cobra.Command {
 			}
 
 			// Get authentication token
-			token, err := helpers.ResolveToken(ctx, "")
+			token := os.Getenv("DEPOT_CACHE_TOKEN")
+			token, err = helpers.ResolveToken(ctx, token)
 			if err != nil {
 				return fmt.Errorf("failed to resolve token: %w", err)
 			}
@@ -72,9 +74,14 @@ func NewCmdCargo() *cobra.Command {
 				}
 			}
 
+			cacheHost := os.Getenv("DEPOT_CACHE_HOST")
+			if cacheHost == "" {
+				cacheHost = gocache.DefaultCacheHost
+			}
+
 			// Now add our sccache vars
 			cargoCmd.Env = append(cargoCmd.Env, fmt.Sprintf("RUSTC_WRAPPER=%s", sccachePath))
-			cargoCmd.Env = append(cargoCmd.Env, "SCCACHE_WEBDAV_ENDPOINT=https://cache.depot.dev")
+			cargoCmd.Env = append(cargoCmd.Env, fmt.Sprintf("SCCACHE_WEBDAV_ENDPOINT=%s", cacheHost))
 
 			if orgID != "" {
 				// Use org-specific authentication
