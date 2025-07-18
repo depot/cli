@@ -2,10 +2,12 @@ package claude
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
 	"syscall"
+	"time"
 
 	"connectrpc.com/connect"
 	"github.com/depot/cli/pkg/api"
@@ -119,6 +121,129 @@ If --value is not provided, you will be prompted to enter the secret value secur
 	cmd.Flags().StringVar(&token, "token", "", "Depot API token")
 	cmd.Flags().StringVar(&value, "value", "", "Secret value (will prompt if not provided)")
 	cmd.Flags().StringVar(&description, "description", "", "Description of the secret")
+
+	return cmd
+}
+
+func NewCmdClaudeSecretsList() *cobra.Command {
+	var (
+		orgID  string
+		token  string
+		output string
+	)
+
+	cmd := &cobra.Command{
+		Use:   "list",
+		Short: "List all secrets",
+		Long:  `List all secrets available for Claude remote sessions in your organization.`,
+		Example: `  # List all secrets
+  depot claude secrets list
+  
+  # List secrets for a specific organization
+  depot claude secrets list --org my-org-id
+  
+  # List secrets in JSON format
+  depot claude secrets list --output json`,
+		Aliases: []string{"ls"},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := cmd.Context()
+
+			// If org ID is not set, use the current organization from config
+			if orgID == "" {
+				orgID = config.GetCurrentOrganization()
+			}
+
+			tokenVal, err := helpers.ResolveToken(ctx, token)
+			if err != nil {
+				return err
+			}
+			if tokenVal == "" {
+				return fmt.Errorf("missing API token, please run `depot login`")
+			}
+
+			// Create the request
+			client := api.NewClaudeClient()
+			req := &agentv1.ListSecretsRequest{}
+			if orgID != "" {
+				req.OrganizationId = &orgID
+			}
+
+			// List secrets
+			resp, err := client.ListSecrets(ctx, api.WithAuthentication(connect.NewRequest(req), tokenVal))
+			if err != nil {
+				return fmt.Errorf("failed to list secrets: %w", err)
+			}
+
+			// Format output
+			if output == "json" {
+				// JSON output
+				type secretJSON struct {
+					Name        string `json:"name"`
+					Description string `json:"description,omitempty"`
+					CreatedAt   string `json:"created_at,omitempty"`
+					UpdatedAt   string `json:"updated_at,omitempty"`
+				}
+				var secrets []secretJSON
+				for _, secret := range resp.Msg.Secrets {
+					s := secretJSON{
+						Name:        secret.SecretName,
+					}
+					if secret.Description != nil {
+						s.Description = *secret.Description
+					}
+					if secret.CreatedAt != nil {
+						s.CreatedAt = secret.CreatedAt.AsTime().Format(time.RFC3339)
+					}
+					if secret.UpdatedAt != nil {
+						s.UpdatedAt = secret.UpdatedAt.AsTime().Format(time.RFC3339)
+					}
+					secrets = append(secrets, s)
+				}
+				enc := json.NewEncoder(os.Stdout)
+				enc.SetIndent("", "  ")
+				return enc.Encode(secrets)
+			}
+
+			// Table output
+			if len(resp.Msg.Secrets) == 0 {
+				fmt.Println("No secrets found.")
+				return nil
+			}
+
+			// Print header
+			fmt.Printf("%-30s %-50s %s\n", "NAME", "DESCRIPTION", "CREATED")
+			fmt.Printf("%-30s %-50s %s\n", strings.Repeat("-", 30), strings.Repeat("-", 50), strings.Repeat("-", 20))
+
+			// Print secrets
+			for _, secret := range resp.Msg.Secrets {
+				name := secret.SecretName
+				if len(name) > 30 {
+					name = name[:27] + "..."
+				}
+
+				description := ""
+				if secret.Description != nil {
+					description = *secret.Description
+					if len(description) > 50 {
+						description = description[:47] + "..."
+					}
+				}
+
+				created := ""
+				if secret.CreatedAt != nil {
+					created = secret.CreatedAt.AsTime().Format("2006-01-02 15:04:05")
+				}
+
+				fmt.Printf("%-30s %-50s %s\n", name, description, created)
+			}
+
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVar(&orgID, "org", "", "Organization ID (required when user is a member of multiple organizations)")
+	cmd.Flags().StringVar(&token, "token", "", "Depot API token")
+	cmd.Flags().StringVar(&output, "output", "", "Output format (json)")
 
 	return cmd
 }

@@ -12,6 +12,7 @@ service ClaudeService {
   rpc StartRemoteSession(StartRemoteSessionRequest) returns (StartRemoteSessionResponse);
   rpc AddSecret(AddSecretRequest) returns (AddSecretResponse);
   rpc RemoveSecret(RemoveSecretRequest) returns (RemoveSecretResponse);
+  rpc ListSecrets(ListSecretsRequest) returns (ListSecretsResponse);
 }
 
 message UploadClaudeSessionRequest {
@@ -94,3 +95,18 @@ message RemoveSecretRequest {
 }
 
 message RemoveSecretResponse {}
+
+message ListSecretsRequest {
+  optional string organization_id = 1;
+}
+
+message ListSecretsResponse {
+  repeated SecretInfo secrets = 1;
+  
+  message SecretInfo {
+    string secret_name = 1;
+    optional string description = 2;
+    google.protobuf.Timestamp created_at = 3;
+    google.protobuf.Timestamp updated_at = 4;
+  }
+}
