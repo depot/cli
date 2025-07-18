@@ -186,7 +186,7 @@ func NewCmdClaudeSecretsList() *cobra.Command {
 				var secrets []secretJSON
 				for _, secret := range resp.Msg.Secrets {
 					s := secretJSON{
-						Name:        secret.SecretName,
+						Name: secret.SecretName,
 					}
 					if secret.Description != nil {
 						s.Description = *secret.Description
