@@ -48,6 +48,9 @@ The session is always uploaded on exit.
 When using --resume, Depot will first check for a local session file,
 and if not found, will attempt to download it from Depot's servers.
 
+When using --remote, Claude runs in a remote sandbox environment. You can specify
+a Git repository context with --remote-context to clone and work with remote code.
+
 All flags not recognized by depot are passed directly through to the claude CLI.
 This includes claude flags like -p, --model, etc.
 
@@ -68,6 +71,13 @@ Subcommands:
   depot claude --resume feature-branch -p "add error handling"
   depot claude --resume 09b15b34-2df4-48ae-9b9e-1de0aa09e43f -p "continue where we left off"
   depot claude --resume abc123def456
+
+  # Run Claude in remote environment
+  depot claude --remote --session-id remote-work -p "analyze codebase"
+
+  # Run Claude with a Git repository context
+  depot claude --remote --remote-context https://github.com/user/repo.git#main -p "explain the architecture"
+  depot claude --remote --remote-context git@github.com:user/repo.git#feature-branch
 
   # Use in a script with piped input (claude's -p flag)
   cat code.py | depot claude -p "review this code" --session-id code-review
@@ -126,7 +136,13 @@ Subcommands:
 						output = args[i+1]
 						i++
 					}
-
+				case "--remote":
+					remote = true
+				case "--remote-context":
+					if i+1 < len(args) {
+						remoteContext = args[i+1]
+						i++
+					}
 				case "--resume":
 					if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
 						resumeSessionID = args[i+1]
@@ -145,6 +161,8 @@ Subcommands:
 						token = strings.TrimPrefix(arg, "--token=")
 					} else if strings.HasPrefix(arg, "--output=") {
 						output = strings.TrimPrefix(arg, "--output=")
+					} else if strings.HasPrefix(arg, "--remote-context=") {
+						remoteContext = strings.TrimPrefix(arg, "--remote-context=")
 					} else {
 						// Pass through any other flags to claude
 						claudeArgs = append(claudeArgs, arg)
@@ -190,7 +208,22 @@ Subcommands:
 				Stderr:          os.Stderr,
 			}
 
-			return RunClaudeSession(ctx, opts)
+			if remote {
+				remoteOpts := &ClaudeRemoteOptions{
+					SessionID:       sessionID,
+					OrgID:           orgID,
+					Token:           token,
+					ClaudeArgs:      claudeArgs,
+					RemoteContext:   remoteContext,
+					ResumeSessionID: resumeSessionID,
+					Stdin:           os.Stdin,
+					Stdout:          os.Stdout,
+					Stderr:          os.Stderr,
+				}
+				return RunClaudeRemote(ctx, remoteOpts)
+			} else {
+				return RunClaudeSession(ctx, opts)
+			}
 		},
 	}
 
@@ -199,6 +232,8 @@ Subcommands:
 	cmd.Flags().String("org", "", "Organization ID (required when user is a member of multiple organizations)")
 	cmd.Flags().String("token", "", "Depot API token")
 	cmd.Flags().String("output", "", "Output format (json, csv)")
+	cmd.Flags().Bool("remote", false, "Run Claude in a remote environment")
+	cmd.Flags().String("remote-context", "", "Git repository URL for remote context (format: https://github.com/user/repo.git#branch)")
 
 	return cmd
 }
