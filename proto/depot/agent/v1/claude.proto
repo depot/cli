@@ -1,13 +1,17 @@
 syntax = "proto3";
 
-import "google/protobuf/timestamp.proto";
-
 package depot.agent.v1;
+
+import "google/protobuf/timestamp.proto";
 
 service ClaudeService {
   rpc UploadClaudeSession(UploadClaudeSessionRequest) returns (UploadClaudeSessionResponse);
   rpc DownloadClaudeSession(DownloadClaudeSessionRequest) returns (DownloadClaudeSessionResponse);
   rpc ListClaudeSessions(ListClaudeSessionsRequest) returns (ListClaudeSessionsResponse);
+
+  rpc StartRemoteSession(StartRemoteSessionRequest) returns (StartRemoteSessionResponse);
+  rpc AddSecret(AddSecretRequest) returns (AddSecretResponse);
+  rpc RemoveSecret(RemoveSecretRequest) returns (RemoveSecretResponse);
 }
 
 message UploadClaudeSessionRequest {
@@ -47,3 +51,46 @@ message ClaudeSession {
   google.protobuf.Timestamp created_at = 3;
   optional string summary = 4;
 }
+
+message StartRemoteSessionRequest {
+  optional string organization_id = 1;
+  optional string session_id = 2;
+  optional string resume_session_id = 3;
+  string argv = 4;
+  map<string, string> environment_variables = 5;
+  repeated string secret_names = 6; // List of secret names to use in the session
+
+  message Context {
+    oneof context {
+      GitContext git = 1;
+    }
+    message GitContext {
+      string secret_name = 1; // Name of the secret containing the Git credentials
+      string repository_url = 2; // URL of the Git repository
+      optional string branch = 3; // Branch to use in the session
+      optional string commit_hash = 4; // Commit hash to use in the session
+    }
+  }
+
+  Context context = 7; // Context for the remote session
+}
+
+message StartRemoteSessionResponse {
+  string session_id = 1;
+}
+
+message AddSecretRequest {
+  optional string organization_id = 1;
+  string secret_name = 2;
+  optional string secret_description = 3;
+  string secret_value = 4;
+}
+
+message AddSecretResponse {}
+
+message RemoveSecretRequest {
+  optional string organization_id = 1;
+  string secret_name = 2;
+}
+
+message RemoveSecretResponse {}

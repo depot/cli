@@ -33,6 +33,8 @@ func NewCmdClaude() *cobra.Command {
 		token           string
 		resumeSessionID string
 		output          string
+		remote          bool
+		remoteContext   string
 	)
 
 	cmd := &cobra.Command{
@@ -50,7 +52,8 @@ All flags not recognized by depot are passed directly through to the claude CLI.
 This includes claude flags like -p, --model, etc.
 
 Subcommands:
-  list-sessions    List saved Claude sessions`,
+  list-sessions    List saved Claude sessions
+  secrets          Manage secrets for remote sessions`,
 		Example: `
   # Interactive usage - run claude and save session
   depot claude --session-id feature-branch
@@ -74,15 +77,28 @@ Subcommands:
 
   # List saved sessions
   depot claude list-sessions
-  depot claude list-sessions --output json`,
+  depot claude list-sessions --output json
+
+  # Manage secrets for remote sessions
+  depot claude secrets add GITHUB_TOKEN
+  depot claude secrets list
+  depot claude secrets remove GITHUB_TOKEN`,
 		Args:               cobra.ArbitraryArgs,
 		DisableFlagParsing: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if len(args) > 0 && args[0] == "list-sessions" {
-				cmd.DisableFlagParsing = false
-				subCmd := NewCmdClaudeListSessions()
-				subCmd.SetArgs(args[1:])
-				return subCmd.ExecuteContext(cmd.Context())
+			if len(args) > 0 {
+				switch args[0] {
+				case "list-sessions":
+					cmd.DisableFlagParsing = false
+					subCmd := NewCmdClaudeListSessions()
+					subCmd.SetArgs(args[1:])
+					return subCmd.ExecuteContext(cmd.Context())
+				case "secrets":
+					cmd.DisableFlagParsing = false
+					subCmd := NewCmdClaudeSecrets()
+					subCmd.SetArgs(args[1:])
+					return subCmd.ExecuteContext(cmd.Context())
+				}
 			}
 			ctx := cmd.Context()
 
