@@ -45,6 +45,9 @@ const (
 	// ClaudeServiceStartRemoteSessionProcedure is the fully-qualified name of the ClaudeService's
 	// StartRemoteSession RPC.
 	ClaudeServiceStartRemoteSessionProcedure = "/depot.agent.v1.ClaudeService/StartRemoteSession"
+	// ClaudeServiceGetRemoteSessionProcedure is the fully-qualified name of the ClaudeService's
+	// GetRemoteSession RPC.
+	ClaudeServiceGetRemoteSessionProcedure = "/depot.agent.v1.ClaudeService/GetRemoteSession"
 	// ClaudeServiceAddSecretProcedure is the fully-qualified name of the ClaudeService's AddSecret RPC.
 	ClaudeServiceAddSecretProcedure = "/depot.agent.v1.ClaudeService/AddSecret"
 	// ClaudeServiceRemoveSecretProcedure is the fully-qualified name of the ClaudeService's
@@ -61,6 +64,7 @@ type ClaudeServiceClient interface {
 	DownloadClaudeSession(context.Context, *connect.Request[v1.DownloadClaudeSessionRequest]) (*connect.Response[v1.DownloadClaudeSessionResponse], error)
 	ListClaudeSessions(context.Context, *connect.Request[v1.ListClaudeSessionsRequest]) (*connect.Response[v1.ListClaudeSessionsResponse], error)
 	StartRemoteSession(context.Context, *connect.Request[v1.StartRemoteSessionRequest]) (*connect.Response[v1.StartRemoteSessionResponse], error)
+	GetRemoteSession(context.Context, *connect.Request[v1.GetRemoteSessionRequest]) (*connect.Response[v1.GetRemoteSessionResponse], error)
 	AddSecret(context.Context, *connect.Request[v1.AddSecretRequest]) (*connect.Response[v1.AddSecretResponse], error)
 	RemoveSecret(context.Context, *connect.Request[v1.RemoveSecretRequest]) (*connect.Response[v1.RemoveSecretResponse], error)
 	ListSecrets(context.Context, *connect.Request[v1.ListSecretsRequest]) (*connect.Response[v1.ListSecretsResponse], error)
@@ -96,6 +100,11 @@ func NewClaudeServiceClient(httpClient connect.HTTPClient, baseURL string, opts 
 			baseURL+ClaudeServiceStartRemoteSessionProcedure,
 			opts...,
 		),
+		getRemoteSession: connect.NewClient[v1.GetRemoteSessionRequest, v1.GetRemoteSessionResponse](
+			httpClient,
+			baseURL+ClaudeServiceGetRemoteSessionProcedure,
+			opts...,
+		),
 		addSecret: connect.NewClient[v1.AddSecretRequest, v1.AddSecretResponse](
 			httpClient,
 			baseURL+ClaudeServiceAddSecretProcedure,
@@ -120,6 +129,7 @@ type claudeServiceClient struct {
 	downloadClaudeSession *connect.Client[v1.DownloadClaudeSessionRequest, v1.DownloadClaudeSessionResponse]
 	listClaudeSessions    *connect.Client[v1.ListClaudeSessionsRequest, v1.ListClaudeSessionsResponse]
 	startRemoteSession    *connect.Client[v1.StartRemoteSessionRequest, v1.StartRemoteSessionResponse]
+	getRemoteSession      *connect.Client[v1.GetRemoteSessionRequest, v1.GetRemoteSessionResponse]
 	addSecret             *connect.Client[v1.AddSecretRequest, v1.AddSecretResponse]
 	removeSecret          *connect.Client[v1.RemoveSecretRequest, v1.RemoveSecretResponse]
 	listSecrets           *connect.Client[v1.ListSecretsRequest, v1.ListSecretsResponse]
@@ -145,6 +155,11 @@ func (c *claudeServiceClient) StartRemoteSession(ctx context.Context, req *conne
 	return c.startRemoteSession.CallUnary(ctx, req)
 }
 
+// GetRemoteSession calls depot.agent.v1.ClaudeService.GetRemoteSession.
+func (c *claudeServiceClient) GetRemoteSession(ctx context.Context, req *connect.Request[v1.GetRemoteSessionRequest]) (*connect.Response[v1.GetRemoteSessionResponse], error) {
+	return c.getRemoteSession.CallUnary(ctx, req)
+}
+
 // AddSecret calls depot.agent.v1.ClaudeService.AddSecret.
 func (c *claudeServiceClient) AddSecret(ctx context.Context, req *connect.Request[v1.AddSecretRequest]) (*connect.Response[v1.AddSecretResponse], error) {
 	return c.addSecret.CallUnary(ctx, req)
@@ -166,6 +181,7 @@ type ClaudeServiceHandler interface {
 	DownloadClaudeSession(context.Context, *connect.Request[v1.DownloadClaudeSessionRequest]) (*connect.Response[v1.DownloadClaudeSessionResponse], error)
 	ListClaudeSessions(context.Context, *connect.Request[v1.ListClaudeSessionsRequest]) (*connect.Response[v1.ListClaudeSessionsResponse], error)
 	StartRemoteSession(context.Context, *connect.Request[v1.StartRemoteSessionRequest]) (*connect.Response[v1.StartRemoteSessionResponse], error)
+	GetRemoteSession(context.Context, *connect.Request[v1.GetRemoteSessionRequest]) (*connect.Response[v1.GetRemoteSessionResponse], error)
 	AddSecret(context.Context, *connect.Request[v1.AddSecretRequest]) (*connect.Response[v1.AddSecretResponse], error)
 	RemoveSecret(context.Context, *connect.Request[v1.RemoveSecretRequest]) (*connect.Response[v1.RemoveSecretResponse], error)
 	ListSecrets(context.Context, *connect.Request[v1.ListSecretsRequest]) (*connect.Response[v1.ListSecretsResponse], error)
@@ -197,6 +213,11 @@ func NewClaudeServiceHandler(svc ClaudeServiceHandler, opts ...connect.HandlerOp
 		svc.StartRemoteSession,
 		opts...,
 	)
+	claudeServiceGetRemoteSessionHandler := connect.NewUnaryHandler(
+		ClaudeServiceGetRemoteSessionProcedure,
+		svc.GetRemoteSession,
+		opts...,
+	)
 	claudeServiceAddSecretHandler := connect.NewUnaryHandler(
 		ClaudeServiceAddSecretProcedure,
 		svc.AddSecret,
@@ -222,6 +243,8 @@ func NewClaudeServiceHandler(svc ClaudeServiceHandler, opts ...connect.HandlerOp
 			claudeServiceListClaudeSessionsHandler.ServeHTTP(w, r)
 		case ClaudeServiceStartRemoteSessionProcedure:
 			claudeServiceStartRemoteSessionHandler.ServeHTTP(w, r)
+		case ClaudeServiceGetRemoteSessionProcedure:
+			claudeServiceGetRemoteSessionHandler.ServeHTTP(w, r)
 		case ClaudeServiceAddSecretProcedure:
 			claudeServiceAddSecretHandler.ServeHTTP(w, r)
 		case ClaudeServiceRemoveSecretProcedure:
@@ -251,6 +274,10 @@ func (UnimplementedClaudeServiceHandler) ListClaudeSessions(context.Context, *co
 
 func (UnimplementedClaudeServiceHandler) StartRemoteSession(context.Context, *connect.Request[v1.StartRemoteSessionRequest]) (*connect.Response[v1.StartRemoteSessionResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.agent.v1.ClaudeService.StartRemoteSession is not implemented"))
+}
+
+func (UnimplementedClaudeServiceHandler) GetRemoteSession(context.Context, *connect.Request[v1.GetRemoteSessionRequest]) (*connect.Response[v1.GetRemoteSessionResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.agent.v1.ClaudeService.GetRemoteSession is not implemented"))
 }
 
 func (UnimplementedClaudeServiceHandler) AddSecret(context.Context, *connect.Request[v1.AddSecretRequest]) (*connect.Response[v1.AddSecretResponse], error) {
