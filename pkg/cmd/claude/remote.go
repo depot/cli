@@ -51,7 +51,7 @@ func RunClaudeRemote(ctx context.Context, opts *ClaudeRemoteOptions) error {
 
 	client := api.NewClaudeClient()
 	req := &agentv1.StartRemoteSessionRequest{
-		Argv:                 strings.Join(opts.ClaudeArgs, " "),
+		Argv:                 shellEscapeArgs(opts.ClaudeArgs),
 		EnvironmentVariables: map[string]string{},
 	}
 	if opts.OrgID != "" {
@@ -100,4 +100,27 @@ func parseGitURL(s string) (url, branch string) {
 		branch = "main"
 	}
 	return url, branch
+}
+// shellEscapeArgs properly escapes shell arguments to be passed via command line
+func shellEscapeArgs(args []string) string {
+	escaped := make([]string, 0, len(args))
+	for _, arg := range args {
+		escaped = append(escaped, shellEscapeArg(arg))
+	}
+	return strings.Join(escaped, " ")
+}
+
+// shellEscapeArg escapes a single shell argument
+func shellEscapeArg(s string) string {
+	if s == "" {
+		return "''"
+	}
+
+	// If the string contains no special characters, return as-is
+	if !strings.ContainsAny(s, " \t\n\r'\"\\$`!*?#&;|<>(){}[]~") {
+		return s
+	}
+
+	// Use single quotes and escape any single quotes within
+	return "'" + strings.ReplaceAll(s, "'", "'\"'\"'") + "'"
 }
