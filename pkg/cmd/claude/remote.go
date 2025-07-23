@@ -58,15 +58,22 @@ func RunClaudeRemote(ctx context.Context, opts *ClaudeRemoteOptions) error {
 		fmt.Fprintf(opts.Stderr, "%v\n", err.Error())
 	}
 
-	nonInteractiveMode := false
-	for _, arg := range opts.ClaudeArgs {
-		if arg == "-p" {
-			nonInteractiveMode = true
+	if opts.ResumeSessionID != "" {
+		getReq := &agentv1.GetRemoteSessionRequest{
+			SessionId:      opts.ResumeSessionID,
+			OrganizationId: opts.OrgID,
 		}
-	}
+		getResp, err := client.GetRemoteSession(ctx, api.WithAuthentication(connect.NewRequest(getReq), token))
+		if err == nil && getResp.Msg.CompletedAt == nil {
+			fmt.Fprintf(opts.Stdout, "Remote session %s is already running, waiting for it to complete...\n", opts.ResumeSessionID)
 
-	if !nonInteractiveMode {
-		return fmt.Errorf("remote sessions require the -p flag to run in non-interactive mode")
+			ctx, cancel := context.WithTimeout(ctx, 15*time.Minute)
+			defer cancel()
+
+			// Since we don't know exactly when it started, use zero time
+			invocationTime := time.Time{}
+			return waitAndStreamSession(ctx, client, token, opts.ResumeSessionID, opts.OrgID, invocationTime, opts.Stdout, opts.Stderr)
+		}
 	}
 
 	req := &agentv1.StartRemoteSessionRequest{

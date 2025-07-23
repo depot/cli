@@ -56,8 +56,8 @@ All flags not recognized by depot are passed directly through to the claude CLI.
 This includes claude flags like -p, --model, etc.
 
 Subcommands:
-  list-sessions    List saved Claude sessions
-  secrets          Manage secrets for remote sessions (add, list, remove)`,
+  list-sessions       List saved Claude sessions
+  secrets            Manage secrets for remote sessions (add, list, remove)`,
 		Example: `
   # Save and resume sessions
   depot claude --session-id feature-branch
@@ -74,6 +74,7 @@ Subcommands:
 
   # List saved sessions
   depot claude list-sessions
+
 
   # Manage secrets for remote sessions
   depot claude secrets add GITHUB_TOKEN
@@ -199,6 +200,10 @@ Subcommands:
 				Stdin:           os.Stdin,
 				Stdout:          os.Stdout,
 				Stderr:          os.Stderr,
+			}
+
+			if resumeSessionID != "" && sessionID == "" {
+				sessionID = resumeSessionID
 			}
 
 			if remote {
@@ -504,10 +509,6 @@ func RunClaudeSession(ctx context.Context, opts *ClaudeSessionOptions) error {
 	resumeSessionID := opts.ResumeSessionID
 
 	if resumeSessionID != "" {
-		if sessionID == "" {
-			sessionID = resumeSessionID
-		}
-
 		claudeSessionID, err := resumeSession(ctx, client, token, resumeSessionID, sessionDir, cwd, opts.OrgID, retryCount, retryDelay)
 		if err != nil {
 			return fmt.Errorf("session '%s' not found remotely: %w", resumeSessionID, err)
