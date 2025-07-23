@@ -2,16 +2,18 @@ package claude
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
-	"log"
 	"os"
 	"strings"
+	"time"
 
 	"connectrpc.com/connect"
 	"github.com/depot/cli/pkg/api"
 	"github.com/depot/cli/pkg/helpers"
 	agentv1 "github.com/depot/cli/pkg/proto/depot/agent/v1"
+	"github.com/depot/cli/pkg/proto/depot/agent/v1/agentv1connect"
 )
 
 type ClaudeRemoteOptions struct {
@@ -95,12 +97,19 @@ func RunClaudeRemote(ctx context.Context, opts *ClaudeRemoteOptions) error {
 			},
 		}
 	}
+
+	invocationTime := time.Now()
 	res, err := client.StartRemoteSession(ctx, api.WithAuthentication(connect.NewRequest(req), token))
 	if err != nil {
 		return fmt.Errorf("unable to start remote session: %w", err)
 	}
-	log.Printf("Session ID: %s", res.Msg.SessionId)
-	return nil
+
+	sessionID := res.Msg.SessionId
+
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Minute)
+	defer cancel()
+
+	return waitAndStreamSession(ctx, client, token, sessionID, opts.OrgID, invocationTime, opts.Stdout, opts.Stderr)
 }
 
 func isGitURL(s string) bool {
@@ -121,6 +130,100 @@ func parseGitURL(s string) (url, branch string) {
 	}
 	return url, branch
 }
+
+func waitAndStreamSession(ctx context.Context, client agentv1connect.ClaudeServiceClient, token, sessionID, orgID string, invocationTime time.Time, stdout, stderr io.Writer) error {
+	fmt.Fprintf(stdout, "\nWaiting for remote session %s to initialize...\n", sessionID)
+
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+
+	sessionStarted := false
+	sessionRunning := false
+
+	for {
+		select {
+		case <-ctx.Done():
+			fmt.Fprintf(stdout, "\n\nRemote session is taking longer than expected to initialize.\n")
+			fmt.Fprintf(stdout, "Session ID: %s\n", sessionID)
+			fmt.Fprintf(stdout, "The session will continue running in the background.\n")
+			return nil
+		case <-ticker.C:
+			getReq := &agentv1.GetRemoteSessionRequest{
+				SessionId:      sessionID,
+				OrganizationId: orgID,
+			}
+			getResp, err := client.GetRemoteSession(ctx, api.WithAuthentication(connect.NewRequest(getReq), token))
+			if err != nil {
+				var connectErr *connect.Error
+				if errors.As(err, &connectErr) && connectErr.Code() == connect.CodeNotFound {
+					continue // Continue waiting
+				}
+				return fmt.Errorf("failed to get remote session status: %w", err)
+			}
+
+			if getResp.Msg.StartedAt == nil {
+				continue
+			}
+			sessionStartTime := getResp.Msg.StartedAt.AsTime()
+			if !sessionStartTime.After(invocationTime) {
+				continue
+			}
+
+			if !sessionStarted {
+				sessionStarted = true
+				fmt.Fprintf(stdout, "\n✓ Remote session started!\n")
+				fmt.Fprintf(stdout, "Session ID: %s\n", sessionID)
+			}
+
+			if getResp.Msg.CompletedAt != nil {
+				exitCode := 0
+				if getResp.Msg.ExitCode != nil {
+					exitCode = int(*getResp.Msg.ExitCode)
+				}
+
+				if exitCode != 0 {
+					fmt.Fprintf(stderr, "\n✗ Remote session exited with code %d\n", exitCode)
+					fmt.Fprintf(stderr, "Session ID: %s\n", sessionID)
+					fmt.Fprintf(stderr, "View session logs: https://depot.dev/orgs/%s/claude/sessions/%s\n", orgID, sessionID)
+					if getResp.Msg.ErrorMessage != nil && *getResp.Msg.ErrorMessage != "" {
+						fmt.Fprintf(stderr, "Error: %s\n", *getResp.Msg.ErrorMessage)
+					}
+					if getResp.Msg.DurationSeconds != nil {
+						fmt.Fprintf(stderr, "Duration: %.2f seconds\n", *getResp.Msg.DurationSeconds)
+					}
+					return fmt.Errorf("remote session exited with code %d", exitCode)
+				} else {
+					fmt.Fprintf(stdout, "\n✓ Remote session exited successfully (exit code 0)\n")
+					fmt.Fprintf(stdout, "Session ID: %s\n", sessionID)
+					if getResp.Msg.DurationSeconds != nil {
+						fmt.Fprintf(stdout, "Duration: %.2f seconds\n", *getResp.Msg.DurationSeconds)
+					}
+					fmt.Fprintf(stdout, "View full session: https://depot.dev/orgs/%s/claude/sessions/%s\n", orgID, sessionID)
+					return nil
+				}
+
+			}
+
+			if !sessionRunning {
+				req := &agentv1.DownloadClaudeSessionRequest{
+					SessionId: sessionID,
+				}
+				if orgID != "" {
+					req.OrganizationId = &orgID
+				}
+
+				_, err := client.DownloadClaudeSession(ctx, api.WithAuthentication(connect.NewRequest(req), token))
+				if err == nil {
+					sessionRunning = true
+					fmt.Fprintf(stdout, "Remote session is running. Output will be saved and can be viewed at the URL above.\n")
+					fmt.Fprintf(stdout, "You can resume this session later with: depot claude --resume %s\n", sessionID)
+					fmt.Fprintf(stdout, "\nWaiting for session to complete...\n")
+				}
+			}
+		}
+	}
+}
+
 func checkRequiredClaudeSecrets(ctx context.Context, client agentv1connect.ClaudeServiceClient, token, orgID string, stderr io.Writer) error {
 	req := &agentv1.ListSecretsRequest{}
 	if orgID != "" {
