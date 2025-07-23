@@ -51,6 +51,11 @@ func RunClaudeRemote(ctx context.Context, opts *ClaudeRemoteOptions) error {
 	}
 
 	client := api.NewClaudeClient()
+
+	if err := checkRequiredClaudeSecrets(ctx, client, token, opts.OrgID, opts.Stderr); err != nil {
+		fmt.Fprintf(opts.Stderr, "%v\n", err.Error())
+	}
+
 	nonInteractiveMode := false
 	for _, arg := range opts.ClaudeArgs {
 		if arg == "-p" {
@@ -116,6 +121,47 @@ func parseGitURL(s string) (url, branch string) {
 	}
 	return url, branch
 }
+func checkRequiredClaudeSecrets(ctx context.Context, client agentv1connect.ClaudeServiceClient, token, orgID string, stderr io.Writer) error {
+	req := &agentv1.ListSecretsRequest{}
+	if orgID != "" {
+		req.OrganizationId = &orgID
+	}
+
+	resp, err := client.ListSecrets(ctx, api.WithAuthentication(connect.NewRequest(req), token))
+	if err != nil {
+		return nil
+	}
+
+	requiredSecrets := []string{"CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"}
+	hasRequiredSecret := false
+
+	for _, secret := range resp.Msg.Secrets {
+		for _, required := range requiredSecrets {
+			if secret.Name == required {
+				hasRequiredSecret = true
+				break
+			}
+		}
+		if hasRequiredSecret {
+			break
+		}
+	}
+
+	if !hasRequiredSecret {
+		return fmt.Errorf(`Claude authentication secret required.
+
+Please add one of the following secrets:
+  - ANTHROPIC_API_KEY: Your Anthropic API key
+  - ANTHROPIC_AUTH_TOKEN: Your Anthropic API key
+  - CLAUDE_CODE_OAUTH_TOKEN: Your Claude Code OAuth token
+
+To add a secret, run:
+  depot claude secrets add <secret> <your-api-key>`)
+	}
+
+	return nil
+}
+
 // shellEscapeArgs properly escapes shell arguments to be passed via command line
 func shellEscapeArgs(args []string) string {
 	escaped := make([]string, 0, len(args))
