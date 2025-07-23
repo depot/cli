@@ -77,13 +77,16 @@ func RunClaudeRemote(ctx context.Context, opts *ClaudeRemoteOptions) error {
 	}
 	if opts.RemoteContext != "" && isGitURL(opts.RemoteContext) {
 		gitURL, gitBranch := parseGitURL(opts.RemoteContext)
+		gitContext := &agentv1.StartRemoteSessionRequest_Context_GitContext{
+			RepositoryUrl: gitURL,
+			Branch:        &gitBranch,
+		}
+		if opts.GitSecret != "" {
+			gitContext.SecretName = &opts.GitSecret
+		}
 		req.Context = &agentv1.StartRemoteSessionRequest_Context{
 			Context: &agentv1.StartRemoteSessionRequest_Context_Git{
-				Git: &agentv1.StartRemoteSessionRequest_Context_GitContext{
-					SecretName:    "GITHUB_TOKEN",
-					RepositoryUrl: gitURL,
-					Branch:        &gitBranch,
-				},
+				Git: gitContext,
 			},
 		}
 	}
