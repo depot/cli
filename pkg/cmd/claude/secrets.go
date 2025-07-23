@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 	"syscall"
 	"time"
@@ -178,24 +179,21 @@ func NewCmdClaudeSecretsList() *cobra.Command {
 			if output == "json" {
 				// JSON output
 				type secretJSON struct {
-					Name        string `json:"name"`
-					Description string `json:"description,omitempty"`
-					CreatedAt   string `json:"created_at,omitempty"`
-					UpdatedAt   string `json:"updated_at,omitempty"`
+					Name         string `json:"name"`
+					Description  string `json:"description,omitempty"`
+					LastModified string `json:"last_modified,omitempty"`
 				}
 				var secrets []secretJSON
 				for _, secret := range resp.Msg.Secrets {
+					name := secret.GetName()
 					s := secretJSON{
-						Name: secret.SecretName,
+						Name: name,
 					}
 					if secret.Description != nil {
 						s.Description = *secret.Description
 					}
-					if secret.CreatedAt != nil {
-						s.CreatedAt = secret.CreatedAt.AsTime().Format(time.RFC3339)
-					}
-					if secret.UpdatedAt != nil {
-						s.UpdatedAt = secret.UpdatedAt.AsTime().Format(time.RFC3339)
+					if secret.LastModified != nil {
+						s.LastModified = secret.LastModified.AsTime().Format(time.RFC3339)
 					}
 					secrets = append(secrets, s)
 				}
@@ -210,13 +208,11 @@ func NewCmdClaudeSecretsList() *cobra.Command {
 				return nil
 			}
 
-			// Print header
 			fmt.Printf("%-30s %-50s %s\n", "NAME", "DESCRIPTION", "CREATED")
 			fmt.Printf("%-30s %-50s %s\n", strings.Repeat("-", 30), strings.Repeat("-", 50), strings.Repeat("-", 20))
 
-			// Print secrets
 			for _, secret := range resp.Msg.Secrets {
-				name := secret.SecretName
+				name := secret.Name
 				if len(name) > 30 {
 					name = name[:27] + "..."
 				}
@@ -230,8 +226,8 @@ func NewCmdClaudeSecretsList() *cobra.Command {
 				}
 
 				created := ""
-				if secret.CreatedAt != nil {
-					created = secret.CreatedAt.AsTime().Format("2006-01-02 15:04:05")
+				if secret.LastModified != nil {
+					created = secret.LastModified.AsTime().Format("2006-01-02 15:04:05")
 				}
 
 				fmt.Printf("%-30s %-50s %s\n", name, description, created)

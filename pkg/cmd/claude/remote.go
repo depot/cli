@@ -181,26 +181,25 @@ func waitAndStreamSession(ctx context.Context, client agentv1connect.ClaudeServi
 					exitCode = int(*getResp.Msg.ExitCode)
 				}
 
+				var err error
 				if exitCode != 0 {
-					fmt.Fprintf(stderr, "\n✗ Remote session exited with code %d\n", exitCode)
-					fmt.Fprintf(stderr, "Session ID: %s\n", sessionID)
-					fmt.Fprintf(stderr, "View session logs: https://depot.dev/orgs/%s/claude/sessions/%s\n", orgID, sessionID)
+					fmt.Fprintf(stdout, "\n✗ Remote session exited with code %d\n", exitCode)
+					fmt.Fprintf(stdout, "Session ID: %s\n", sessionID)
+					//fmt.Fprintf(stderr, "View session logs: https://depot.dev/orgs/%s/claude/sessions/%s\n", orgID, sessionID)
 					if getResp.Msg.ErrorMessage != nil && *getResp.Msg.ErrorMessage != "" {
-						fmt.Fprintf(stderr, "Error: %s\n", *getResp.Msg.ErrorMessage)
+						fmt.Fprintf(stdout, "Error: %s\n", *getResp.Msg.ErrorMessage)
 					}
-					if getResp.Msg.DurationSeconds != nil {
-						fmt.Fprintf(stderr, "Duration: %.2f seconds\n", *getResp.Msg.DurationSeconds)
-					}
-					return fmt.Errorf("remote session exited with code %d", exitCode)
+					err = fmt.Errorf("remote session exited with code %d", exitCode)
 				} else {
 					fmt.Fprintf(stdout, "\n✓ Remote session exited successfully (exit code 0)\n")
 					fmt.Fprintf(stdout, "Session ID: %s\n", sessionID)
-					if getResp.Msg.DurationSeconds != nil {
-						fmt.Fprintf(stdout, "Duration: %.2f seconds\n", *getResp.Msg.DurationSeconds)
-					}
-					fmt.Fprintf(stdout, "View full session: https://depot.dev/orgs/%s/claude/sessions/%s\n", orgID, sessionID)
-					return nil
+					//fmt.Fprintf(stdout, "View full session: https://depot.dev/orgs/%s/claude/sessions/%s\n", orgID, sessionID)
 				}
+
+				if getResp.Msg.DurationSeconds != nil {
+					fmt.Fprintf(stdout, "Duration: %.2f seconds\n", *getResp.Msg.DurationSeconds)
+				}
+				return err
 
 			}
 
