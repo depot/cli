@@ -35,6 +35,7 @@ func NewCmdClaude() *cobra.Command {
 		output          string
 		remote          bool
 		remoteContext   string
+		gitSecret       string
 	)
 
 	cmd := &cobra.Command{
@@ -56,38 +57,23 @@ This includes claude flags like -p, --model, etc.
 
 Subcommands:
   list-sessions    List saved Claude sessions
-  secrets          Manage secrets for remote sessions`,
+  secrets          Manage secrets for remote sessions (add, list, remove)`,
 		Example: `
-  # Interactive usage - run claude and save session
+  # Save and resume sessions
   depot claude --session-id feature-branch
-
-  # Non-interactive usage - claude's -p flag is passed through
-  depot claude --session-id feature-branch -p "implement user authentication"
-
-  # Mix depot flags (--session-id) with claude flags (-p, --model)
-  depot claude --session-id older-claude-pr-9953 --model claude-3-opus-20240229 -p "write tests"
-
-  # Resume a session by ID
-  depot claude --resume feature-branch -p "add error handling"
-  depot claude --resume 09b15b34-2df4-48ae-9b9e-1de0aa09e43f -p "continue where we left off"
-  depot claude --resume abc123def456
+  depot claude --resume feature-branch
 
   # Run Claude in remote environment
-  depot claude --remote --session-id remote-work -p "analyze codebase"
+  depot claude --remote --session-id remote-work
 
-  # Run Claude with a Git repository context
-  depot claude --remote --remote-context https://github.com/user/repo.git#main -p "explain the architecture"
-  depot claude --remote --remote-context git@github.com:user/repo.git#feature-branch
+  # Clone and work with a Git repository
+  depot claude --remote --remote-context https://github.com/user/repo.git#main
 
-  # Use in a script with piped input (claude's -p flag)
-  cat code.py | depot claude -p "review this code" --session-id code-review
-
-  # The --org flag is only required if you're a member of multiple organizations
-  depot claude --org different-org-id --session-id team-session -p "create API endpoint"
+  # Use custom Git authentication secret
+  depot claude --remote --remote-context https://github.com/private/repo.git --git-secret MY_GIT_TOKEN
 
   # List saved sessions
   depot claude list-sessions
-  depot claude list-sessions --output json
 
   # Manage secrets for remote sessions
   depot claude secrets add GITHUB_TOKEN
@@ -143,6 +129,11 @@ Subcommands:
 						remoteContext = args[i+1]
 						i++
 					}
+				case "--git-secret":
+					if i+1 < len(args) {
+						gitSecret = args[i+1]
+						i++
+					}
 				case "--resume":
 					if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
 						resumeSessionID = args[i+1]
@@ -163,6 +154,8 @@ Subcommands:
 						output = strings.TrimPrefix(arg, "--output=")
 					} else if strings.HasPrefix(arg, "--remote-context=") {
 						remoteContext = strings.TrimPrefix(arg, "--remote-context=")
+					} else if strings.HasPrefix(arg, "--git-secret=") {
+						gitSecret = strings.TrimPrefix(arg, "--git-secret=")
 					} else {
 						// Pass through any other flags to claude
 						claudeArgs = append(claudeArgs, arg)
@@ -215,6 +208,7 @@ Subcommands:
 					Token:           token,
 					ClaudeArgs:      claudeArgs,
 					RemoteContext:   remoteContext,
+					GitSecret:       gitSecret,
 					ResumeSessionID: resumeSessionID,
 					Stdin:           os.Stdin,
 					Stdout:          os.Stdout,
@@ -234,6 +228,7 @@ Subcommands:
 	cmd.Flags().String("output", "", "Output format (json, csv)")
 	cmd.Flags().Bool("remote", false, "Run Claude in a remote environment")
 	cmd.Flags().String("remote-context", "", "Git repository URL for remote context (format: https://github.com/user/repo.git#branch)")
+	cmd.Flags().String("git-secret", "", "Secret name containing Git credentials for private repositories (optional)")
 
 	return cmd
 }

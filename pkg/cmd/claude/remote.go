@@ -20,6 +20,7 @@ type ClaudeRemoteOptions struct {
 	Token           string
 	ClaudeArgs      []string
 	RemoteContext   string
+	GitSecret       string
 	ResumeSessionID string
 	Stdin           io.Reader
 	Stdout          io.Writer
@@ -50,6 +51,17 @@ func RunClaudeRemote(ctx context.Context, opts *ClaudeRemoteOptions) error {
 	}
 
 	client := api.NewClaudeClient()
+	nonInteractiveMode := false
+	for _, arg := range opts.ClaudeArgs {
+		if arg == "-p" {
+			nonInteractiveMode = true
+		}
+	}
+
+	if !nonInteractiveMode {
+		return fmt.Errorf("remote sessions require the -p flag to run in non-interactive mode")
+	}
+
 	req := &agentv1.StartRemoteSessionRequest{
 		Argv:                 shellEscapeArgs(opts.ClaudeArgs),
 		EnvironmentVariables: map[string]string{},
