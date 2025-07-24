@@ -65,9 +65,9 @@ func RunClaudeRemote(ctx context.Context, opts *ClaudeRemoteOptions) error {
 		}
 		getResp, err := client.GetRemoteSession(ctx, api.WithAuthentication(connect.NewRequest(getReq), token))
 		if err != nil {
-			fmt.Fprintf(opts.Stderr, "Warning: unable to check session status: %v\n", err)
+			fmt.Fprintf(opts.Stderr, "Warning: unable to check Claude sandbox status: %v\n", err)
 		} else if getResp.Msg.CompletedAt == nil {
-			fmt.Fprintf(opts.Stdout, "Remote session %s is already running, waiting for it to complete...\n", opts.ResumeSessionID)
+			fmt.Fprintf(opts.Stdout, "Claude sandbox %s is already running, waiting for it to complete...\n", opts.ResumeSessionID)
 
 			// Since we don't know exactly when it started, use zero time
 			invocationTime := time.Time{}
@@ -107,7 +107,7 @@ func RunClaudeRemote(ctx context.Context, opts *ClaudeRemoteOptions) error {
 	invocationTime := time.Now()
 	res, err := client.StartRemoteSession(ctx, api.WithAuthentication(connect.NewRequest(req), token))
 	if err != nil {
-		return fmt.Errorf("unable to start remote session: %w", err)
+		return fmt.Errorf("unable to start Claude sandbox: %w", err)
 	}
 
 	sessionID := res.Msg.SessionId
@@ -144,7 +144,7 @@ func waitForSession(ctx context.Context, client agentv1connect.ClaudeServiceClie
 		select {
 		case <-ctx.Done():
 			fmt.Fprintf(stdout, "\n\nStarting Claude sandbox for session id %s is taking longer than expected to initialize.\n", sessionID)
-			fmt.Fprintf(stdout, "The session will continue running in the background.\n")
+			fmt.Fprintf(stdout, "The Claude sandbox will continue running in the background.\n")
 			return nil
 		case <-ticker.C:
 			getReq := &agentv1.GetRemoteSessionRequest{
@@ -157,7 +157,7 @@ func waitForSession(ctx context.Context, client agentv1connect.ClaudeServiceClie
 				if errors.As(err, &connectErr) && connectErr.Code() == connect.CodeNotFound {
 					continue // Continue waiting
 				}
-				return fmt.Errorf("failed to get remote session status: %w", err)
+				return fmt.Errorf("failed to get Claude sandbox status: %w", err)
 			}
 
 			if getResp.Msg.StartedAt == nil {
@@ -169,7 +169,7 @@ func waitForSession(ctx context.Context, client agentv1connect.ClaudeServiceClie
 				continue
 			}
 
-			fmt.Fprintf(stdout, "\n✓ Remote session started!\n")
+			fmt.Fprintf(stdout, "\n✓ Claude sandbox started!\n")
 			fmt.Fprintf(stdout, "Session ID: %s\n", sessionID)
 			return nil
 		}
@@ -193,7 +193,7 @@ func streamSession(ctx context.Context, client agentv1connect.ClaudeServiceClien
 			}
 			getResp, err := client.GetRemoteSession(ctx, api.WithAuthentication(connect.NewRequest(getReq), token))
 			if err != nil {
-				return fmt.Errorf("failed to get remote session status: %w", err)
+				return fmt.Errorf("failed to get Claude sandbox status: %w", err)
 			}
 
 			if getResp.Msg.CompletedAt != nil {
@@ -201,14 +201,14 @@ func streamSession(ctx context.Context, client agentv1connect.ClaudeServiceClien
 
 				var err error
 				if exitCode != 0 {
-					fmt.Fprintf(stdout, "\n✗ Remote session exited with code %d\n", exitCode)
+					fmt.Fprintf(stdout, "\n✗ Claude sandbox exited with code %d\n", exitCode)
 					fmt.Fprintf(stdout, "Session ID: %s\n", sessionID)
 					if getResp.Msg.ErrorMessage != nil && *getResp.Msg.ErrorMessage != "" {
 						fmt.Fprintf(stdout, "Error: %s\n", *getResp.Msg.ErrorMessage)
 					}
-					err = fmt.Errorf("remote session exited with code %d", exitCode)
+					err = fmt.Errorf("Claude sandbox exited with code %d", exitCode)
 				} else {
-					fmt.Fprintf(stdout, "\n✓ Remote session exited successfully (exit code 0)\n")
+					fmt.Fprintf(stdout, "\n✓ Claude sandbox exited successfully (exit code 0)\n")
 					fmt.Fprintf(stdout, "Session ID: %s\n", sessionID)
 				}
 
@@ -230,9 +230,9 @@ func streamSession(ctx context.Context, client agentv1connect.ClaudeServiceClien
 				_, err := client.DownloadClaudeSession(ctx, api.WithAuthentication(connect.NewRequest(req), token))
 				if err == nil {
 					sessionRunning = true
-					fmt.Fprintf(stdout, "Remote session is running. Output will be saved and can be viewed at the URL above.\n")
-					fmt.Fprintf(stdout, "You can resume this session later with: depot claude --resume %s\n", sessionID)
-					fmt.Fprintf(stdout, "\nWaiting for session to complete...\n")
+					fmt.Fprintf(stdout, "Claude sandbox is running. Output will be saved and can be viewed at the URL above.\n")
+					fmt.Fprintf(stdout, "You can resume this Claude sandbox later with: depot claude --resume %s\n", sessionID)
+					fmt.Fprintf(stdout, "\nWaiting for Claude sandbox to complete...\n")
 				}
 			}
 		}

@@ -57,14 +57,14 @@ This includes claude flags like -p, --model, etc.
 
 Subcommands:
   list-sessions       List saved Claude sessions
-  secrets            Manage secrets for remote sessions (add, list, remove)`,
+  secrets            Manage secrets for Claude sandboxes (add, list, remove)`,
 		Example: `
   # Save and resume sessions
   depot claude --session-id feature-branch
   depot claude --resume feature-branch
 
-  # Run Claude in remote environment
-  depot claude --sandbox --session-id remote-work
+  # Run Claude in sandbox environment
+  depot claude --sandbox --session-id sandbox-work
 
   # Clone and work with a Git repository
   depot claude --sandbox --repository https://github.com/user/repo.git#main
@@ -76,7 +76,7 @@ Subcommands:
   depot claude list-sessions
 
 
-  # Manage secrets for remote sessions
+  # Manage secrets for Claude sandboxes
   depot claude secrets add GITHUB_TOKEN
   depot claude secrets list
   depot claude secrets remove GITHUB_TOKEN`,

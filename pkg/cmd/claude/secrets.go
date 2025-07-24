@@ -22,8 +22,8 @@ import (
 func NewCmdClaudeSecrets() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "secrets",
-		Short: "Manage secrets for Claude remote sessions",
-		Long: `Manage secrets that can be used in Claude remote sessions.
+		Short: "Manage secrets for Claude sandboxes",
+		Long: `Manage secrets that can be used in Claude sandboxes.
 Secrets are stored securely in AWS Secrets Manager and scoped to your organization.`,
 		Example: `  # Add a new secret
   depot claude secrets add GITHUB_TOKEN
@@ -57,7 +57,7 @@ func NewCmdClaudeSecretsAdd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "add SECRET_NAME",
 		Short: "Add a new secret",
-		Long: `Add a new secret that can be used in Claude remote sessions.
+		Long: `Add a new secret that can be used in Claude sandboxes.
 If --value is not provided, you will be prompted to enter the secret value securely.`,
 		Example: `  # Add a secret with interactive prompt
   depot claude secrets add GITHUB_TOKEN
@@ -136,7 +136,7 @@ func NewCmdClaudeSecretsList() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List all secrets",
-		Long:  `List all secrets available for Claude remote sessions in your organization.`,
+		Long:  `List all secrets available for Claude sandboxes in your organization.`,
 		Example: `  # List all secrets
   depot claude secrets list
   
