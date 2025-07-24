@@ -67,8 +67,9 @@ In interactive mode, pressing Enter on a session will start Claude with that ses
 
 			var allSessions []*agentv1.ClaudeSession
 			currentPageToken := pageToken
+			maxPages := 5
+			pagesLoaded := 0
 
-			// In interactive mode, fetch all pages; otherwise just fetch the requested page
 			for {
 				reqCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 				defer cancel()
@@ -87,9 +88,10 @@ In interactive mode, pressing Enter on a session will start Claude with that ses
 				}
 
 				allSessions = append(allSessions, resp.Msg.Sessions...)
+				pagesLoaded++
 
-				// In interactive mode, automatically fetch all pages
-				if isInteractive && resp.Msg.NextPageToken != nil && *resp.Msg.NextPageToken != "" {
+				// In interactive mode, automatically fetch all pages up to limit
+				if isInteractive && resp.Msg.NextPageToken != nil && *resp.Msg.NextPageToken != "" && pagesLoaded < maxPages {
 					currentPageToken = *resp.Msg.NextPageToken
 					continue
 				}
@@ -97,6 +99,12 @@ In interactive mode, pressing Enter on a session will start Claude with that ses
 				// For non-interactive mode, print next page token if present
 				if !isInteractive && resp.Msg.NextPageToken != nil && *resp.Msg.NextPageToken != "" {
 					fmt.Fprintf(os.Stderr, "Next page token: %s\n", *resp.Msg.NextPageToken)
+				}
+
+				// In interactive mode, warn if we hit the page limit
+				if isInteractive && pagesLoaded >= maxPages && resp.Msg.NextPageToken != nil && *resp.Msg.NextPageToken != "" {
+					fmt.Fprintf(os.Stderr, "Showing first %d pages of results. To see more, run:\n", maxPages)
+					fmt.Fprintf(os.Stderr, "  depot claude list-sessions --page-token %s\n", *resp.Msg.NextPageToken)
 				}
 
 				break
