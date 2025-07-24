@@ -71,7 +71,7 @@ In interactive mode, pressing Enter on a session will start Claude with that ses
 			pagesLoaded := 0
 
 			for {
-				reqCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+				reqCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 				defer cancel()
 
 				req := &agentv1.ListClaudeSessionsRequest{}
