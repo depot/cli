@@ -10,6 +10,8 @@ service ClaudeService {
   rpc ListClaudeSessions(ListClaudeSessionsRequest) returns (ListClaudeSessionsResponse);
   rpc StartRemoteSession(StartRemoteSessionRequest) returns (StartRemoteSessionResponse);
   rpc GetRemoteSession(GetRemoteSessionRequest) returns (GetRemoteSessionResponse);
+  rpc ListRemoteSessions(ListRemoteSessionsRequest) returns (ListRemoteSessionsResponse);
+  rpc KillRemoteSession(KillRemoteSessionRequest) returns (KillRemoteSessionResponse);
   rpc AddSecret(AddSecretRequest) returns (AddSecretResponse);
   rpc RemoveSecret(RemoveSecretRequest) returns (RemoveSecretResponse);
   rpc ListSecrets(ListSecretsRequest) returns (ListSecretsResponse);
@@ -124,3 +126,30 @@ message Secret {
   optional string description = 2;
   optional google.protobuf.Timestamp last_modified = 3;
 }
+
+message ListRemoteSessionsRequest {
+  optional string organization_id = 1;
+  optional int32 page_size = 2;
+  optional string page_token = 3;
+}
+
+message ListRemoteSessionsResponse {
+  repeated RemoteSession sessions = 1;
+  optional string next_page_token = 2;
+}
+
+message RemoteSession {
+  string session_id = 1;
+  string organization_id = 2;
+  google.protobuf.Timestamp created_at = 3;
+  optional int32 exit_code = 4;
+  optional double duration_seconds = 5;
+  optional string error_message = 6;
+}
+
+message KillRemoteSessionRequest {
+  string session_id = 1;
+  optional string organization_id = 2;
+}
+
+message KillRemoteSessionResponse {}
