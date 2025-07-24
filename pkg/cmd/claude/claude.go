@@ -33,7 +33,7 @@ func NewCmdClaude() *cobra.Command {
 		token           string
 		resumeSessionID string
 		output          string
-		remote          bool
+		sandbox         bool
 		repository      string
 		gitSecret       string
 	)
@@ -49,7 +49,7 @@ The session is always uploaded on exit.
 When using --resume, Depot will first check for a local session file,
 and if not found, will attempt to download it from Depot's servers.
 
-When using --remote, Claude runs in a remote sandbox environment. You can specify
+When using --sandbox, Claude runs in a remote sandbox environment. You can specify
 a Git repository context with --repository to clone and work with remote code.
 
 All flags not recognized by depot are passed directly through to the claude CLI.
@@ -64,13 +64,13 @@ Subcommands:
   depot claude --resume feature-branch
 
   # Run Claude in remote environment
-  depot claude --remote --session-id remote-work
+  depot claude --sandbox --session-id remote-work
 
   # Clone and work with a Git repository
-  depot claude --remote --repository https://github.com/user/repo.git#main
+  depot claude --sandbox --repository https://github.com/user/repo.git#main
 
   # Use custom Git authentication secret
-  depot claude --remote --repository https://github.com/private/repo.git --git-secret MY_GIT_TOKEN
+  depot claude --sandbox --repository https://github.com/private/repo.git --git-secret MY_GIT_TOKEN
 
   # List saved sessions
   depot claude list-sessions
@@ -123,8 +123,8 @@ Subcommands:
 						output = args[i+1]
 						i++
 					}
-				case "--remote":
-					remote = true
+				case "--sandbox":
+					sandbox = true
 				case "--repository":
 					if i+1 < len(args) {
 						repository = args[i+1]
@@ -206,7 +206,7 @@ Subcommands:
 				sessionID = resumeSessionID
 			}
 
-			if remote {
+			if sandbox {
 				remoteOpts := &ClaudeRemoteOptions{
 					SessionID:       sessionID,
 					OrgID:           orgID,
@@ -231,7 +231,7 @@ Subcommands:
 	cmd.Flags().String("org", "", "Organization ID (required when user is a member of multiple organizations)")
 	cmd.Flags().String("token", "", "Depot API token")
 	cmd.Flags().String("output", "", "Output format (json, csv)")
-	cmd.Flags().Bool("remote", false, "Run Claude in a remote environment")
+	cmd.Flags().Bool("sandbox", false, "Run Claude in a remote sandbox environment")
 	cmd.Flags().String("repository", "", "Git repository URL for remote context (format: https://github.com/user/repo.git#branch)")
 	cmd.Flags().String("git-secret", "", "Secret name containing Git credentials for private repositories (optional)")
 
