@@ -64,7 +64,9 @@ func RunClaudeRemote(ctx context.Context, opts *ClaudeRemoteOptions) error {
 			OrganizationId: opts.OrgID,
 		}
 		getResp, err := client.GetRemoteSession(ctx, api.WithAuthentication(connect.NewRequest(getReq), token))
-		if err == nil && getResp.Msg.CompletedAt == nil {
+		if err != nil {
+			fmt.Fprintf(opts.Stderr, "Warning: unable to check session status: %v\n", err)
+		} else if getResp.Msg.CompletedAt == nil {
 			fmt.Fprintf(opts.Stdout, "Remote session %s is already running, waiting for it to complete...\n", opts.ResumeSessionID)
 
 			ctx, cancel := context.WithTimeout(ctx, 15*time.Minute)
