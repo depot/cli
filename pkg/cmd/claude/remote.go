@@ -69,9 +69,6 @@ func RunClaudeRemote(ctx context.Context, opts *ClaudeRemoteOptions) error {
 		} else if getResp.Msg.CompletedAt == nil {
 			fmt.Fprintf(opts.Stdout, "Remote session %s is already running, waiting for it to complete...\n", opts.ResumeSessionID)
 
-			ctx, cancel := context.WithTimeout(ctx, 15*time.Minute)
-			defer cancel()
-
 			// Since we don't know exactly when it started, use zero time
 			invocationTime := time.Time{}
 			return waitAndStreamSession(ctx, client, token, opts.ResumeSessionID, opts.OrgID, invocationTime, opts.Stdout, opts.Stderr)
@@ -140,14 +137,11 @@ func parseGitURL(s string) (url, branch string) {
 	return url, branch
 }
 
-func waitAndStreamSession(ctx context.Context, client agentv1connect.ClaudeServiceClient, token, sessionID, orgID string, invocationTime time.Time, stdout, stderr io.Writer) error {
-	fmt.Fprintf(stdout, "\nWaiting for remote session %s to initialize...\n", sessionID)
+func waitForSession(ctx context.Context, client agentv1connect.ClaudeServiceClient, token, sessionID, orgID string, invocationTime time.Time, stdout io.Writer) error {
+	fmt.Fprintf(stdout, "\nStarting Claude sandbox for session id %s...\n", sessionID)
 
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
-
-	sessionStarted := false
-	sessionRunning := false
 
 	for {
 		select {
@@ -173,21 +167,40 @@ func waitAndStreamSession(ctx context.Context, client agentv1connect.ClaudeServi
 				continue
 			}
 			sessionStartTime := getResp.Msg.StartedAt.AsTime()
+			// Skip if this session started before our invocation
 			if !sessionStartTime.After(invocationTime) {
 				continue
 			}
 
-			if !sessionStarted {
-				sessionStarted = true
-				fmt.Fprintf(stdout, "\n✓ Remote session started!\n")
-				fmt.Fprintf(stdout, "Session ID: %s\n", sessionID)
+			fmt.Fprintf(stdout, "\n✓ Remote session started!\n")
+			fmt.Fprintf(stdout, "Session ID: %s\n", sessionID)
+			return nil
+		}
+	}
+}
+
+func streamSession(ctx context.Context, client agentv1connect.ClaudeServiceClient, token, sessionID, orgID string, stdout io.Writer) error {
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+
+	sessionRunning := false
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+			getReq := &agentv1.GetRemoteSessionRequest{
+				SessionId:      sessionID,
+				OrganizationId: orgID,
+			}
+			getResp, err := client.GetRemoteSession(ctx, api.WithAuthentication(connect.NewRequest(getReq), token))
+			if err != nil {
+				return fmt.Errorf("failed to get remote session status: %w", err)
 			}
 
 			if getResp.Msg.CompletedAt != nil {
-				exitCode := 0
-				if getResp.Msg.ExitCode != nil {
-					exitCode = int(*getResp.Msg.ExitCode)
-				}
+				exitCode := getResp.Msg.GetExitCode()
 
 				var err error
 				if exitCode != 0 {
@@ -229,7 +242,20 @@ func waitAndStreamSession(ctx context.Context, client agentv1connect.ClaudeServi
 	}
 }
 
+func waitAndStreamSession(ctx context.Context, client agentv1connect.ClaudeServiceClient, token, sessionID, orgID string, invocationTime time.Time, stdout, stderr io.Writer) error {
+	// Wait for session to start with a timeout
+	waitCtx, cancel := context.WithTimeout(ctx, 15*time.Minute)
+	defer cancel()
+
+	if err := waitForSession(waitCtx, client, token, sessionID, orgID, invocationTime, stdout); err != nil {
+		return err
+	}
+
+	return streamSession(ctx, client, token, sessionID, orgID, stdout)
+}
+
 func checkRequiredClaudeSecrets(ctx context.Context, client agentv1connect.ClaudeServiceClient, token, orgID string, stderr io.Writer) error {
+	// TODO: This check should be moved server-side as ListSecrets may only work for org owners
 	req := &agentv1.ListSecretsRequest{}
 	if orgID != "" {
 		req.OrganizationId = &orgID
