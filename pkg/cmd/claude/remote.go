@@ -21,7 +21,7 @@ type ClaudeRemoteOptions struct {
 	OrgID           string
 	Token           string
 	ClaudeArgs      []string
-	RemoteContext   string
+	Repository      string
 	GitSecret       string
 	ResumeSessionID string
 	Stdin           io.Reader
@@ -88,8 +88,8 @@ func RunClaudeRemote(ctx context.Context, opts *ClaudeRemoteOptions) error {
 	if opts.ResumeSessionID != "" {
 		req.ResumeSessionId = &opts.ResumeSessionID
 	}
-	if opts.RemoteContext != "" && isGitURL(opts.RemoteContext) {
-		gitURL, gitBranch := parseGitURL(opts.RemoteContext)
+	if opts.Repository != "" && isGitURL(opts.Repository) {
+		gitURL, gitBranch := parseGitURL(opts.Repository)
 		gitContext := &agentv1.StartRemoteSessionRequest_Context_GitContext{
 			RepositoryUrl: gitURL,
 			Branch:        &gitBranch,
