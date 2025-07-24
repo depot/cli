@@ -260,7 +260,7 @@ func checkRequiredClaudeSecrets(ctx context.Context, client agentv1connect.Claud
 
 	resp, err := client.ListSecrets(ctx, api.WithAuthentication(connect.NewRequest(req), token))
 	if err != nil {
-		return nil
+		return fmt.Errorf("failed to list secrets: %w", err)
 	}
 
 	requiredSecrets := []string{"CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"}
