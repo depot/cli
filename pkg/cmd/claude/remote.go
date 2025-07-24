@@ -112,9 +112,6 @@ func RunClaudeRemote(ctx context.Context, opts *ClaudeRemoteOptions) error {
 
 	sessionID := res.Msg.SessionId
 
-	ctx, cancel := context.WithTimeout(ctx, 15*time.Minute)
-	defer cancel()
-
 	return waitAndStreamSession(ctx, client, token, sessionID, opts.OrgID, invocationTime, opts.Stdout, opts.Stderr)
 }
 
