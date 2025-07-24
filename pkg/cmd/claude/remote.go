@@ -55,7 +55,7 @@ func RunClaudeRemote(ctx context.Context, opts *ClaudeRemoteOptions) error {
 	client := api.NewClaudeClient()
 
 	if err := checkRequiredClaudeSecrets(ctx, client, token, opts.OrgID, opts.Stderr); err != nil {
-		fmt.Fprintf(opts.Stderr, "%v\n", err)
+		fmt.Fprintf(opts.Stdout, "%v\n", err)
 	}
 
 	if opts.ResumeSessionID != "" {
@@ -67,7 +67,7 @@ func RunClaudeRemote(ctx context.Context, opts *ClaudeRemoteOptions) error {
 		if err != nil {
 			fmt.Fprintf(opts.Stderr, "Warning: unable to check Claude sandbox status: %v\n", err)
 		} else if getResp.Msg.CompletedAt == nil {
-			fmt.Fprintf(opts.Stdout, "Claude sandbox %s is already running, waiting for it to complete...\n", opts.ResumeSessionID)
+			fmt.Fprintf(opts.Stderr, "Claude sandbox %s is already running, waiting for it to complete...\n", opts.ResumeSessionID)
 
 			// Since we don't know exactly when it started, use zero time
 			invocationTime := time.Time{}

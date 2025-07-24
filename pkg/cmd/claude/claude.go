@@ -541,7 +541,7 @@ func RunClaudeSession(ctx context.Context, opts *ClaudeSessionOptions) error {
 	projectDir := filepath.Join(sessionDir, convertPathToProjectName(cwd))
 	go func() {
 		if err := continuouslySaveSessionFile(claudeCtx, projectDir, client, token, sessionID, opts.OrgID); err != nil {
-			fmt.Fprintf(opts.Stderr, "\nFailed to continuously save session file: %s", err)
+			fmt.Fprintf(opts.Stdout, "\nFailed to continuously save session file: %s", err)
 		}
 	}()
 
