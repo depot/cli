@@ -34,7 +34,7 @@ func NewCmdClaude() *cobra.Command {
 		resumeSessionID string
 		output          string
 		remote          bool
-		remoteContext   string
+		repository      string
 		gitSecret       string
 	)
 
@@ -50,7 +50,7 @@ When using --resume, Depot will first check for a local session file,
 and if not found, will attempt to download it from Depot's servers.
 
 When using --remote, Claude runs in a remote sandbox environment. You can specify
-a Git repository context with --remote-context to clone and work with remote code.
+a Git repository context with --repository to clone and work with remote code.
 
 All flags not recognized by depot are passed directly through to the claude CLI.
 This includes claude flags like -p, --model, etc.
@@ -67,10 +67,10 @@ Subcommands:
   depot claude --remote --session-id remote-work
 
   # Clone and work with a Git repository
-  depot claude --remote --remote-context https://github.com/user/repo.git#main
+  depot claude --remote --repository https://github.com/user/repo.git#main
 
   # Use custom Git authentication secret
-  depot claude --remote --remote-context https://github.com/private/repo.git --git-secret MY_GIT_TOKEN
+  depot claude --remote --repository https://github.com/private/repo.git --git-secret MY_GIT_TOKEN
 
   # List saved sessions
   depot claude list-sessions
@@ -125,9 +125,9 @@ Subcommands:
 					}
 				case "--remote":
 					remote = true
-				case "--remote-context":
+				case "--repository":
 					if i+1 < len(args) {
-						remoteContext = args[i+1]
+						repository = args[i+1]
 						i++
 					}
 				case "--git-secret":
@@ -153,8 +153,8 @@ Subcommands:
 						token = strings.TrimPrefix(arg, "--token=")
 					} else if strings.HasPrefix(arg, "--output=") {
 						output = strings.TrimPrefix(arg, "--output=")
-					} else if strings.HasPrefix(arg, "--remote-context=") {
-						remoteContext = strings.TrimPrefix(arg, "--remote-context=")
+					} else if strings.HasPrefix(arg, "--repository=") {
+						repository = strings.TrimPrefix(arg, "--repository=")
 					} else if strings.HasPrefix(arg, "--git-secret=") {
 						gitSecret = strings.TrimPrefix(arg, "--git-secret=")
 					} else {
@@ -212,7 +212,7 @@ Subcommands:
 					OrgID:           orgID,
 					Token:           token,
 					ClaudeArgs:      claudeArgs,
-					RemoteContext:   remoteContext,
+					Repository:      repository,
 					GitSecret:       gitSecret,
 					ResumeSessionID: resumeSessionID,
 					Stdin:           os.Stdin,
@@ -232,7 +232,7 @@ Subcommands:
 	cmd.Flags().String("token", "", "Depot API token")
 	cmd.Flags().String("output", "", "Output format (json, csv)")
 	cmd.Flags().Bool("remote", false, "Run Claude in a remote environment")
-	cmd.Flags().String("remote-context", "", "Git repository URL for remote context (format: https://github.com/user/repo.git#branch)")
+	cmd.Flags().String("repository", "", "Git repository URL for remote context (format: https://github.com/user/repo.git#branch)")
 	cmd.Flags().String("git-secret", "", "Secret name containing Git credentials for private repositories (optional)")
 
 	return cmd
