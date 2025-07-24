@@ -25,9 +25,10 @@ var docStyle = lipgloss.NewStyle().Margin(1, 2)
 
 func NewCmdClaudeListSessions() *cobra.Command {
 	var (
-		token  string
-		orgID  string
-		output string
+		token     string
+		orgID     string
+		output    string
+		pageToken string
 	)
 
 	cmd := &cobra.Command{
@@ -62,20 +63,54 @@ In interactive mode, pressing Enter on a session will start Claude with that ses
 
 			client := api.NewClaudeClient()
 
-			reqCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-			defer cancel()
+			isInteractive := output == "" && helpers.IsTerminal()
 
-			req := &agentv1.ListClaudeSessionsRequest{}
-			if orgID != "" {
-				req.OrganizationId = &orgID
+			var allSessions []*agentv1.ClaudeSession
+			currentPageToken := pageToken
+			maxPages := 5
+			pagesLoaded := 0
+
+			for {
+				reqCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+				defer cancel()
+
+				req := &agentv1.ListClaudeSessionsRequest{}
+				if orgID != "" {
+					req.OrganizationId = &orgID
+				}
+				if currentPageToken != "" {
+					req.PageToken = &currentPageToken
+				}
+
+				resp, err := client.ListClaudeSessions(reqCtx, api.WithAuthentication(connect.NewRequest(req), token))
+				if err != nil {
+					return fmt.Errorf("failed to list sessions: %w", err)
+				}
+
+				allSessions = append(allSessions, resp.Msg.Sessions...)
+				pagesLoaded++
+
+				// In interactive mode, automatically fetch all pages up to limit
+				if isInteractive && resp.Msg.NextPageToken != nil && *resp.Msg.NextPageToken != "" && pagesLoaded < maxPages {
+					currentPageToken = *resp.Msg.NextPageToken
+					continue
+				}
+
+				// For non-interactive mode, print next page token if present
+				if !isInteractive && resp.Msg.NextPageToken != nil && *resp.Msg.NextPageToken != "" {
+					fmt.Fprintf(os.Stderr, "Next page token: %s\n", *resp.Msg.NextPageToken)
+				}
+
+				// In interactive mode, warn if we hit the page limit
+				if isInteractive && pagesLoaded >= maxPages && resp.Msg.NextPageToken != nil && *resp.Msg.NextPageToken != "" {
+					fmt.Fprintf(os.Stderr, "Showing first %d pages of results. To see more, run:\n", maxPages)
+					fmt.Fprintf(os.Stderr, "  depot claude list-sessions --page-token %s\n", *resp.Msg.NextPageToken)
+				}
+
+				break
 			}
 
-			resp, err := client.ListClaudeSessions(reqCtx, api.WithAuthentication(connect.NewRequest(req), token))
-			if err != nil {
-				return fmt.Errorf("failed to list sessions: %w", err)
-			}
-
-			sessions := resp.Msg.Sessions
+			sessions := allSessions
 
 			sort.Slice(sessions, func(i, j int) bool {
 				if sessions[i].UpdatedAt == nil {

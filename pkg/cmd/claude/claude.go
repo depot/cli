@@ -33,6 +33,9 @@ func NewCmdClaude() *cobra.Command {
 		token           string
 		resumeSessionID string
 		output          string
+		sandbox         bool
+		repository      string
+		gitSecret       string
 	)
 
 	cmd := &cobra.Command{
@@ -46,43 +49,53 @@ The session is always uploaded on exit.
 When using --resume, Depot will first check for a local session file,
 and if not found, will attempt to download it from Depot's servers.
 
+When using --sandbox, Claude runs in a remote sandbox environment. You can specify
+a Git repository context with --repository to clone and work with remote code.
+
 All flags not recognized by depot are passed directly through to the claude CLI.
 This includes claude flags like -p, --model, etc.
 
 Subcommands:
-  list-sessions    List saved Claude sessions`,
+  list-sessions       List saved Claude sessions
+  secrets            Manage secrets for Claude sandboxes (add, list, remove)`,
 		Example: `
-  # Interactive usage - run claude and save session
+  # Save and resume sessions
   depot claude --session-id feature-branch
+  depot claude --resume feature-branch
 
-  # Non-interactive usage - claude's -p flag is passed through
-  depot claude --session-id feature-branch -p "implement user authentication"
+  # Run Claude in sandbox environment
+  depot claude --sandbox --session-id sandbox-work
 
-  # Mix depot flags (--session-id) with claude flags (-p, --model)
-  depot claude --session-id older-claude-pr-9953 --model claude-3-opus-20240229 -p "write tests"
+  # Clone and work with a Git repository
+  depot claude --sandbox --repository https://github.com/user/repo.git#main
 
-  # Resume a session by ID
-  depot claude --resume feature-branch -p "add error handling"
-  depot claude --resume 09b15b34-2df4-48ae-9b9e-1de0aa09e43f -p "continue where we left off"
-  depot claude --resume abc123def456
-
-  # Use in a script with piped input (claude's -p flag)
-  cat code.py | depot claude -p "review this code" --session-id code-review
-
-  # The --org flag is only required if you're a member of multiple organizations
-  depot claude --org different-org-id --session-id team-session -p "create API endpoint"
+  # Use custom Git authentication secret
+  depot claude --sandbox --repository https://github.com/private/repo.git --git-secret MY_GIT_TOKEN
 
   # List saved sessions
   depot claude list-sessions
-  depot claude list-sessions --output json`,
+
+
+  # Manage secrets for Claude sandboxes
+  depot claude secrets add GITHUB_TOKEN
+  depot claude secrets list
+  depot claude secrets remove GITHUB_TOKEN`,
 		Args:               cobra.ArbitraryArgs,
 		DisableFlagParsing: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if len(args) > 0 && args[0] == "list-sessions" {
-				cmd.DisableFlagParsing = false
-				subCmd := NewCmdClaudeListSessions()
-				subCmd.SetArgs(args[1:])
-				return subCmd.ExecuteContext(cmd.Context())
+			if len(args) > 0 {
+				switch args[0] {
+				case "list-sessions":
+					cmd.DisableFlagParsing = false
+					subCmd := NewCmdClaudeListSessions()
+					subCmd.SetArgs(args[1:])
+					return subCmd.ExecuteContext(cmd.Context())
+				case "secrets":
+					cmd.DisableFlagParsing = false
+					subCmd := NewCmdClaudeSecrets()
+					subCmd.SetArgs(args[1:])
+					return subCmd.ExecuteContext(cmd.Context())
+				}
 			}
 			ctx := cmd.Context()
 
@@ -110,7 +123,18 @@ Subcommands:
 						output = args[i+1]
 						i++
 					}
-
+				case "--sandbox":
+					sandbox = true
+				case "--repository":
+					if i+1 < len(args) {
+						repository = args[i+1]
+						i++
+					}
+				case "--git-secret":
+					if i+1 < len(args) {
+						gitSecret = args[i+1]
+						i++
+					}
 				case "--resume":
 					if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
 						resumeSessionID = args[i+1]
@@ -129,6 +153,10 @@ Subcommands:
 						token = strings.TrimPrefix(arg, "--token=")
 					} else if strings.HasPrefix(arg, "--output=") {
 						output = strings.TrimPrefix(arg, "--output=")
+					} else if strings.HasPrefix(arg, "--repository=") {
+						repository = strings.TrimPrefix(arg, "--repository=")
+					} else if strings.HasPrefix(arg, "--git-secret=") {
+						gitSecret = strings.TrimPrefix(arg, "--git-secret=")
 					} else {
 						// Pass through any other flags to claude
 						claudeArgs = append(claudeArgs, arg)
@@ -174,7 +202,27 @@ Subcommands:
 				Stderr:          os.Stderr,
 			}
 
-			return RunClaudeSession(ctx, opts)
+			if resumeSessionID != "" && sessionID == "" {
+				sessionID = resumeSessionID
+			}
+
+			if sandbox {
+				remoteOpts := &ClaudeRemoteOptions{
+					SessionID:       sessionID,
+					OrgID:           orgID,
+					Token:           token,
+					ClaudeArgs:      claudeArgs,
+					Repository:      repository,
+					GitSecret:       gitSecret,
+					ResumeSessionID: resumeSessionID,
+					Stdin:           os.Stdin,
+					Stdout:          os.Stdout,
+					Stderr:          os.Stderr,
+				}
+				return RunClaudeRemote(ctx, remoteOpts)
+			} else {
+				return RunClaudeSession(ctx, opts)
+			}
 		},
 	}
 
@@ -183,6 +231,9 @@ Subcommands:
 	cmd.Flags().String("org", "", "Organization ID (required when user is a member of multiple organizations)")
 	cmd.Flags().String("token", "", "Depot API token")
 	cmd.Flags().String("output", "", "Output format (json, csv)")
+	cmd.Flags().Bool("sandbox", false, "Run Claude in a remote sandbox environment")
+	cmd.Flags().String("repository", "", "Git repository URL for remote context (format: https://github.com/user/repo.git#branch)")
+	cmd.Flags().String("git-secret", "", "Secret name containing Git credentials for private repositories (optional)")
 
 	return cmd
 }
@@ -458,10 +509,6 @@ func RunClaudeSession(ctx context.Context, opts *ClaudeSessionOptions) error {
 	resumeSessionID := opts.ResumeSessionID
 
 	if resumeSessionID != "" {
-		if sessionID == "" {
-			sessionID = resumeSessionID
-		}
-
 		claudeSessionID, err := resumeSession(ctx, client, token, resumeSessionID, sessionDir, cwd, opts.OrgID, retryCount, retryDelay)
 		if err != nil {
 			return fmt.Errorf("session '%s' not found remotely: %w", resumeSessionID, err)
@@ -494,7 +541,7 @@ func RunClaudeSession(ctx context.Context, opts *ClaudeSessionOptions) error {
 	projectDir := filepath.Join(sessionDir, convertPathToProjectName(cwd))
 	go func() {
 		if err := continuouslySaveSessionFile(claudeCtx, projectDir, client, token, sessionID, opts.OrgID); err != nil {
-			fmt.Fprintf(opts.Stderr, "\nFailed to continuously save session file: %s", err)
+			fmt.Fprintf(opts.Stdout, "\nFailed to continuously save session file: %s", err)
 		}
 	}()
 
