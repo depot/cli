@@ -55,7 +55,7 @@ func RunClaudeRemote(ctx context.Context, opts *ClaudeRemoteOptions) error {
 	client := api.NewClaudeClient()
 
 	if err := checkRequiredClaudeSecrets(ctx, client, token, opts.OrgID, opts.Stderr); err != nil {
-		fmt.Fprintf(opts.Stderr, "%v\n", err.Error())
+		fmt.Fprintf(opts.Stderr, "%v\n", err)
 	}
 
 	if opts.ResumeSessionID != "" {
@@ -150,8 +150,7 @@ func waitAndStreamSession(ctx context.Context, client agentv1connect.ClaudeServi
 	for {
 		select {
 		case <-ctx.Done():
-			fmt.Fprintf(stdout, "\n\nRemote session is taking longer than expected to initialize.\n")
-			fmt.Fprintf(stdout, "Session ID: %s\n", sessionID)
+			fmt.Fprintf(stdout, "\n\nStarting Claude sandbox for session id %s is taking longer than expected to initialize.\n", sessionID)
 			fmt.Fprintf(stdout, "The session will continue running in the background.\n")
 			return nil
 		case <-ticker.C:
@@ -192,7 +191,6 @@ func waitAndStreamSession(ctx context.Context, client agentv1connect.ClaudeServi
 				if exitCode != 0 {
 					fmt.Fprintf(stdout, "\n✗ Remote session exited with code %d\n", exitCode)
 					fmt.Fprintf(stdout, "Session ID: %s\n", sessionID)
-					//fmt.Fprintf(stderr, "View session logs: https://depot.dev/orgs/%s/claude/sessions/%s\n", orgID, sessionID)
 					if getResp.Msg.ErrorMessage != nil && *getResp.Msg.ErrorMessage != "" {
 						fmt.Fprintf(stdout, "Error: %s\n", *getResp.Msg.ErrorMessage)
 					}
@@ -200,14 +198,13 @@ func waitAndStreamSession(ctx context.Context, client agentv1connect.ClaudeServi
 				} else {
 					fmt.Fprintf(stdout, "\n✓ Remote session exited successfully (exit code 0)\n")
 					fmt.Fprintf(stdout, "Session ID: %s\n", sessionID)
-					//fmt.Fprintf(stdout, "View full session: https://depot.dev/orgs/%s/claude/sessions/%s\n", orgID, sessionID)
 				}
 
 				if getResp.Msg.DurationSeconds != nil {
-					fmt.Fprintf(stdout, "Duration: %.2f seconds\n", *getResp.Msg.DurationSeconds)
+					duration := time.Duration(*getResp.Msg.DurationSeconds * float64(time.Second))
+					fmt.Fprintf(stdout, "Duration: %s\n", duration)
 				}
 				return err
-
 			}
 
 			if !sessionRunning {
