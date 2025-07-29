@@ -40,6 +40,10 @@ func ResolveToken(ctx context.Context, token string) (string, error) {
 		}
 	}
 
+	if token == "" {
+		token = resolveJITToken()
+	}
+
 	if token == "" && IsTerminal() {
 		return AuthorizeDevice(ctx)
 	}
@@ -60,4 +64,16 @@ func AuthorizeDevice(ctx context.Context) (string, error) {
 		return "", err
 	}
 	return tokenResponse.Token, nil
+}
+
+func resolveJITToken() string {
+	if token := os.Getenv("DEPOT_JIT_TOKEN"); token != "" {
+		return token
+	}
+
+	if token := os.Getenv("DEPOT_CACHE_TOKEN"); token != "" {
+		return token
+	}
+
+	return ""
 }
