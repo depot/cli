@@ -210,6 +210,14 @@ Subcommands:
 			}
 
 			if !local {
+				// Default repository to current git remote if not specified
+				if repository == "" {
+					gitRemoteCmd := exec.CommandContext(ctx, "git", "remote", "get-url", "origin")
+					if output, err := gitRemoteCmd.Output(); err == nil {
+						repository = strings.TrimSpace(string(output))
+					}
+				}
+				
 				remoteOpts := &ClaudeRemoteOptions{
 					SessionID:       sessionID,
 					OrgID:           orgID,
