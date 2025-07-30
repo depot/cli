@@ -33,7 +33,7 @@ func NewCmdClaude() *cobra.Command {
 		token           string
 		resumeSessionID string
 		output          string
-		sandbox         bool
+		local           bool
 		repository      string
 		gitSecret       string
 	)
@@ -49,8 +49,8 @@ The session is always uploaded on exit.
 When using --resume, Depot will first check for a local session file,
 and if not found, will attempt to download it from Depot's servers.
 
-When using --sandbox, Claude runs in a remote sandbox environment. You can specify
-a Git repository context with --repository to clone and work with remote code.
+By default, Claude runs in a remote sandbox environment. Use --local to run locally instead.
+When running remotely, you can specify a Git repository context with --repository to clone and work with remote code.
 
 All flags not recognized by depot are passed directly through to the claude CLI.
 This includes claude flags like -p, --model, etc.
@@ -63,14 +63,17 @@ Subcommands:
   depot claude --session-id feature-branch
   depot claude --resume feature-branch
 
-  # Run Claude in sandbox environment
-  depot claude --sandbox --session-id sandbox-work
+  # Run Claude in remote sandbox (default)
+  depot claude --session-id sandbox-work
+
+  # Run Claude locally instead of in sandbox
+  depot claude --local --session-id local-work
 
   # Clone and work with a Git repository
-  depot claude --sandbox --repository https://github.com/user/repo.git#main
+  depot claude --repository https://github.com/user/repo.git#main
 
   # Use custom Git authentication secret
-  depot claude --sandbox --repository https://github.com/private/repo.git --git-secret MY_GIT_TOKEN
+  depot claude --repository https://github.com/private/repo.git --git-secret MY_GIT_TOKEN
 
   # List saved sessions
   depot claude list-sessions
@@ -123,8 +126,8 @@ Subcommands:
 						output = args[i+1]
 						i++
 					}
-				case "--sandbox":
-					sandbox = true
+				case "--local":
+					local = true
 				case "--repository":
 					if i+1 < len(args) {
 						repository = args[i+1]
@@ -206,7 +209,7 @@ Subcommands:
 				sessionID = resumeSessionID
 			}
 
-			if sandbox {
+			if !local {
 				remoteOpts := &ClaudeRemoteOptions{
 					SessionID:       sessionID,
 					OrgID:           orgID,
@@ -231,7 +234,7 @@ Subcommands:
 	cmd.Flags().String("org", "", "Organization ID (required when user is a member of multiple organizations)")
 	cmd.Flags().String("token", "", "Depot API token")
 	cmd.Flags().String("output", "", "Output format (json, csv)")
-	cmd.Flags().Bool("sandbox", false, "Run Claude in a remote sandbox environment")
+	cmd.Flags().Bool("local", false, "Run Claude locally instead of in a remote sandbox")
 	cmd.Flags().String("repository", "", "Git repository URL for remote context (format: https://github.com/user/repo.git#branch)")
 	cmd.Flags().String("git-secret", "", "Secret name containing Git credentials for private repositories (optional)")
 
