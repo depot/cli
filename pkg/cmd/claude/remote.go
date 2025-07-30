@@ -127,7 +127,6 @@ func RunClaudeRemote(ctx context.Context, opts *ClaudeRemoteOptions) error {
 	if !opts.Wait {
 		fmt.Fprintf(opts.Stdout, "\n✓ Claude sandbox started!\n")
 		fmt.Fprintf(opts.Stdout, "Session ID: %s\n", sessionID)
-		// TODO: Print web UI URL when available
 		fmt.Fprintf(opts.Stdout, "\nTo view the Claude sandbox session, visit: https://depot.dev/orgs/%s/claude/%s\n", opts.OrgID, sessionID)
 		fmt.Fprintf(opts.Stdout, "\nTo wait for this session to complete, run:\n")
 		fmt.Fprintf(opts.Stdout, "  depot claude --wait --resume %s\n", sessionID)
