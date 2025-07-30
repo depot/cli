@@ -22,6 +22,7 @@ type ClaudeRemoteOptions struct {
 	Token           string
 	ClaudeArgs      []string
 	Repository      string
+	Branch          string
 	GitSecret       string
 	ResumeSessionID string
 	Stdin           io.Reader
@@ -86,6 +87,10 @@ func RunClaudeRemote(ctx context.Context, opts *ClaudeRemoteOptions) error {
 	}
 	if opts.Repository != "" && isGitURL(opts.Repository) {
 		gitURL, gitBranch := parseGitURL(opts.Repository)
+		// Use explicit branch if provided, otherwise use branch from URL or default
+		if opts.Branch != "" {
+			gitBranch = opts.Branch
+		}
 		gitContext := &agentv1.StartRemoteSessionRequest_Context_GitContext{
 			RepositoryUrl: gitURL,
 			Branch:        &gitBranch,

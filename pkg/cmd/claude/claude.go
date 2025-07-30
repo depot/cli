@@ -35,6 +35,7 @@ func NewCmdClaude() *cobra.Command {
 		output          string
 		local           bool
 		repository      string
+		branch          string
 		gitSecret       string
 	)
 
@@ -70,7 +71,7 @@ Subcommands:
   depot claude --local --session-id local-work
 
   # Clone and work with a Git repository
-  depot claude --repository https://github.com/user/repo.git#main
+  depot claude --repository https://github.com/user/repo.git --branch main
 
   # Use custom Git authentication secret
   depot claude --repository https://github.com/private/repo.git --git-secret MY_GIT_TOKEN
@@ -133,6 +134,11 @@ Subcommands:
 						repository = args[i+1]
 						i++
 					}
+				case "--branch":
+					if i+1 < len(args) {
+						branch = args[i+1]
+						i++
+					}
 				case "--git-secret":
 					if i+1 < len(args) {
 						gitSecret = args[i+1]
@@ -158,6 +164,8 @@ Subcommands:
 						output = strings.TrimPrefix(arg, "--output=")
 					} else if strings.HasPrefix(arg, "--repository=") {
 						repository = strings.TrimPrefix(arg, "--repository=")
+					} else if strings.HasPrefix(arg, "--branch=") {
+						branch = strings.TrimPrefix(arg, "--branch=")
 					} else if strings.HasPrefix(arg, "--git-secret=") {
 						gitSecret = strings.TrimPrefix(arg, "--git-secret=")
 					} else {
@@ -224,6 +232,7 @@ Subcommands:
 					Token:           token,
 					ClaudeArgs:      claudeArgs,
 					Repository:      repository,
+					Branch:          branch,
 					GitSecret:       gitSecret,
 					ResumeSessionID: resumeSessionID,
 					Stdin:           os.Stdin,
@@ -243,7 +252,8 @@ Subcommands:
 	cmd.Flags().String("token", "", "Depot API token")
 	cmd.Flags().String("output", "", "Output format (json, csv)")
 	cmd.Flags().Bool("local", false, "Run Claude locally instead of in a remote sandbox")
-	cmd.Flags().String("repository", "", "Git repository URL for remote context (format: https://github.com/user/repo.git#branch)")
+	cmd.Flags().String("repository", "", "Git repository URL for remote context (format: https://github.com/user/repo.git)")
+	cmd.Flags().String("branch", "", "Git branch to use (defaults to main)")
 	cmd.Flags().String("git-secret", "", "Secret name containing Git credentials for private repositories (optional)")
 
 	return cmd
