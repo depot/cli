@@ -73,7 +73,7 @@ func RunClaudeRemote(ctx context.Context, opts *ClaudeRemoteOptions) error {
 				fmt.Fprintf(opts.Stdout, "  depot claude --wait --resume %s\n", opts.ResumeSessionID)
 				return nil
 			}
-			
+
 			fmt.Fprintf(opts.Stderr, "Claude sandbox %s is already running, waiting for it to complete...\n", opts.ResumeSessionID)
 
 			// Since we don't know exactly when it started, use zero time

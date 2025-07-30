@@ -228,7 +228,7 @@ Subcommands:
 						repository = strings.TrimSpace(string(output))
 					}
 				}
-				
+
 				remoteOpts := &ClaudeRemoteOptions{
 					SessionID:       sessionID,
 					OrgID:           orgID,
