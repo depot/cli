@@ -37,6 +37,7 @@ func NewCmdClaude() *cobra.Command {
 		repository      string
 		branch          string
 		gitSecret       string
+		wait            bool
 	)
 
 	cmd := &cobra.Command{
@@ -144,6 +145,8 @@ Subcommands:
 						gitSecret = args[i+1]
 						i++
 					}
+				case "--wait":
+					wait = true
 				case "--resume":
 					if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
 						resumeSessionID = args[i+1]
@@ -235,6 +238,7 @@ Subcommands:
 					Branch:          branch,
 					GitSecret:       gitSecret,
 					ResumeSessionID: resumeSessionID,
+					Wait:            wait,
 					Stdin:           os.Stdin,
 					Stdout:          os.Stdout,
 					Stderr:          os.Stderr,
@@ -255,6 +259,7 @@ Subcommands:
 	cmd.Flags().String("repository", "", "Git repository URL for remote context (format: https://github.com/user/repo.git)")
 	cmd.Flags().String("branch", "", "Git branch to use (defaults to main)")
 	cmd.Flags().String("git-secret", "", "Secret name containing Git credentials for private repositories (optional)")
+	cmd.Flags().Bool("wait", false, "Wait for the remote Claude session to complete (by default exits after starting)")
 
 	return cmd
 }

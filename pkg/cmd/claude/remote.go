@@ -25,6 +25,7 @@ type ClaudeRemoteOptions struct {
 	Branch          string
 	GitSecret       string
 	ResumeSessionID string
+	Wait            bool
 	Stdin           io.Reader
 	Stdout          io.Writer
 	Stderr          io.Writer
@@ -64,6 +65,15 @@ func RunClaudeRemote(ctx context.Context, opts *ClaudeRemoteOptions) error {
 		if err != nil {
 			fmt.Fprintf(opts.Stderr, "Warning: unable to check Claude sandbox status: %v\n", err)
 		} else if getResp.Msg.CompletedAt == nil {
+			if !opts.Wait {
+				fmt.Fprintf(opts.Stdout, "\n✓ Claude sandbox is already running!\n")
+				fmt.Fprintf(opts.Stdout, "Session ID: %s\n", opts.ResumeSessionID)
+				fmt.Fprintf(opts.Stdout, "\nTo view the Claude sandbox session, visit: https://depot.dev/orgs/%s/claude/%s\n", opts.OrgID, opts.ResumeSessionID)
+				fmt.Fprintf(opts.Stdout, "\nTo wait for this session to complete, run:\n")
+				fmt.Fprintf(opts.Stdout, "  depot claude --wait --resume %s\n", opts.ResumeSessionID)
+				return nil
+			}
+			
 			fmt.Fprintf(opts.Stderr, "Claude sandbox %s is already running, waiting for it to complete...\n", opts.ResumeSessionID)
 
 			// Since we don't know exactly when it started, use zero time
@@ -112,6 +122,17 @@ func RunClaudeRemote(ctx context.Context, opts *ClaudeRemoteOptions) error {
 	}
 
 	sessionID := res.Msg.SessionId
+
+	// If not waiting, just print the URL and exit
+	if !opts.Wait {
+		fmt.Fprintf(opts.Stdout, "\n✓ Claude sandbox started!\n")
+		fmt.Fprintf(opts.Stdout, "Session ID: %s\n", sessionID)
+		// TODO: Print web UI URL when available
+		fmt.Fprintf(opts.Stdout, "\nTo view the Claude sandbox session, visit: https://depot.dev/orgs/%s/claude/%s\n", opts.OrgID, sessionID)
+		fmt.Fprintf(opts.Stdout, "\nTo wait for this session to complete, run:\n")
+		fmt.Fprintf(opts.Stdout, "  depot claude --wait --resume %s\n", sessionID)
+		return nil
+	}
 
 	return waitAndStreamSession(ctx, client, token, sessionID, opts.OrgID, invocationTime, opts.Stdout, opts.Stderr)
 }
@@ -177,11 +198,13 @@ func waitForSession(ctx context.Context, client agentv1connect.ClaudeServiceClie
 	}
 }
 
-func streamSession(ctx context.Context, client agentv1connect.ClaudeServiceClient, token, sessionID, orgID string, stdout io.Writer) error {
+func streamSession(ctx context.Context, client agentv1connect.ClaudeServiceClient, token, sessionID, orgID string, stdout, stderr io.Writer) error {
+	fmt.Fprintf(stdout, "Claude sandbox is running. Session ID: %s\n", sessionID)
+	fmt.Fprintf(stdout, "You can resume this Claude sandbox later with: depot claude --resume %s\n\n", sessionID)
+
+	// Poll for session status until it completes
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
-
-	sessionRunning := false
 
 	for {
 		select {
@@ -198,44 +221,17 @@ func streamSession(ctx context.Context, client agentv1connect.ClaudeServiceClien
 			}
 
 			if getResp.Msg.CompletedAt != nil {
-				exitCode := getResp.Msg.GetExitCode()
-
-				var err error
-				if exitCode != 0 {
-					fmt.Fprintf(stdout, "\n✗ Claude sandbox exited with code %d\n", exitCode)
-					fmt.Fprintf(stdout, "Session ID: %s\n", sessionID)
-					if getResp.Msg.ErrorMessage != nil && *getResp.Msg.ErrorMessage != "" {
-						fmt.Fprintf(stdout, "Error: %s\n", *getResp.Msg.ErrorMessage)
-					}
-					err = fmt.Errorf("Claude sandbox exited with code %d", exitCode)
+				if getResp.Msg.ExitCode != nil && *getResp.Msg.ExitCode != 0 {
+					fmt.Fprintf(stdout, "\n✗ Claude sandbox exited with code %d\n", *getResp.Msg.ExitCode)
+					return fmt.Errorf("Claude sandbox exited with code %d", *getResp.Msg.ExitCode)
 				} else {
 					fmt.Fprintf(stdout, "\n✓ Claude sandbox exited successfully (exit code 0)\n")
-					fmt.Fprintf(stdout, "Session ID: %s\n", sessionID)
-				}
-
-				if getResp.Msg.DurationSeconds != nil {
-					duration := time.Duration(*getResp.Msg.DurationSeconds * float64(time.Second))
-					fmt.Fprintf(stdout, "Duration: %s\n", duration)
-				}
-				return err
-			}
-
-			if !sessionRunning {
-				req := &agentv1.DownloadClaudeSessionRequest{
-					SessionId: sessionID,
-				}
-				if orgID != "" {
-					req.OrganizationId = &orgID
-				}
-
-				_, err := client.DownloadClaudeSession(ctx, api.WithAuthentication(connect.NewRequest(req), token))
-				if err == nil {
-					sessionRunning = true
-					fmt.Fprintf(stdout, "Claude sandbox is running. Output will be saved and can be viewed at the URL above.\n")
-					fmt.Fprintf(stdout, "You can resume this Claude sandbox later with: depot claude --resume %s\n", sessionID)
-					fmt.Fprintf(stdout, "\nWaiting for Claude sandbox to complete...\n")
+					return nil
 				}
 			}
+
+			// Print status update
+			fmt.Fprintf(stdout, ".")
 		}
 	}
 }
@@ -249,7 +245,7 @@ func waitAndStreamSession(ctx context.Context, client agentv1connect.ClaudeServi
 		return err
 	}
 
-	return streamSession(ctx, client, token, sessionID, orgID, stdout)
+	return streamSession(ctx, client, token, sessionID, orgID, stdout, stderr)
 }
 
 // shellEscapeArgs properly escapes shell arguments to be passed via command line
