@@ -46,7 +46,7 @@ func ResolveProjectAuth(ctx context.Context, tok string) (string, error) {
 		return AuthorizeDevice(ctx)
 	}
 
-	return token, nil
+	return "", nil
 }
 
 func AuthorizeDevice(ctx context.Context) (string, error) {
