@@ -11,8 +11,6 @@ import (
 )
 
 func ResolveProjectAuth(ctx context.Context, tok string) (string, error) {
-	var token string
-
 	if tok != "" {
 		return tok, nil
 	}
