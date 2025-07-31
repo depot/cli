@@ -53,7 +53,8 @@ func NewCmdCargo() *cobra.Command {
 			}
 
 			// Get authentication token
-			token, err := helpers.ResolveToken(ctx, "")
+			token := os.Getenv("DEPOT_CACHE_TOKEN")
+			token, err = helpers.ResolveToken(ctx, token)
 			if err != nil {
 				return fmt.Errorf("failed to resolve token: %w", err)
 			}
