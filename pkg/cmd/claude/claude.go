@@ -28,17 +28,17 @@ import (
 // Unfortunately, we need to manually parse flags to allow passing argv to Claude
 func NewCmdClaude() *cobra.Command {
 	var (
-		sessionID         string
-		orgID             string
-		token             string
-		resumeSessionID   string
-		sandboxID         string
-		output            string
-		local             bool
-		repository        *string
-		branch            string
-		gitSecret         string
-		wait              bool
+		sessionID       string
+		orgID           string
+		token           string
+		resumeSessionID string
+		sandboxID       string
+		output          string
+		local           bool
+		repository      *string
+		branch          string
+		gitSecret       string
+		wait            bool
 	)
 
 	cmd := &cobra.Command{
