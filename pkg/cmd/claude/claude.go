@@ -226,6 +226,7 @@ Subcommands:
 					gitRemoteCmd := exec.CommandContext(ctx, "git", "remote", "get-url", "origin")
 					if output, err := gitRemoteCmd.Output(); err == nil {
 						repository = strings.TrimSpace(string(output))
+						fmt.Fprintf(os.Stderr, "Using current git remote repository: %s\n", repository)
 					}
 				}
 
