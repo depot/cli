@@ -49,8 +49,7 @@ func NewCmdGoCache() *cobra.Command {
 				return err
 			}
 
-			token := os.Getenv("DEPOT_CACHE_TOKEN")
-			token, err = helpers.ResolveProjectAuth(ctx, token)
+			token, err = helpers.ResolveOrgAuth(ctx, token)
 			if err != nil {
 				return err
 			}
