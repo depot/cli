@@ -11,6 +11,10 @@ import (
 )
 
 func ResolveProjectAuth(ctx context.Context, token string) (string, error) {
+	if token != "" {
+		return token, nil
+	}
+
 	if token == "" {
 		token = os.Getenv("DEPOT_TOKEN")
 	}
