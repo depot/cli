@@ -25,15 +25,13 @@ func ResolveProjectAuth(ctx context.Context, tok string) (string, error) {
 		return token, nil
 	}
 
-	var err error
 	debug := os.Getenv("DEPOT_DEBUG_OIDC") != ""
-
 	for _, provider := range oidc.Providers {
 		if debug {
 			fmt.Printf("Trying OIDC provider %s\n", provider.Name())
 		}
 
-		token, err = provider.RetrieveToken(ctx)
+		token, err := provider.RetrieveToken(ctx)
 
 		if err != nil && debug {
 			fmt.Printf("OIDC provider %s failed: %v\n", provider.Name(), err)
