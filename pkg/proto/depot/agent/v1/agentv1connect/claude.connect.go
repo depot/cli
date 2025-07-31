@@ -42,29 +42,6 @@ const (
 	// ClaudeServiceListClaudeSessionsProcedure is the fully-qualified name of the ClaudeService's
 	// ListClaudeSessions RPC.
 	ClaudeServiceListClaudeSessionsProcedure = "/depot.agent.v1.ClaudeService/ListClaudeSessions"
-	// ClaudeServiceStartRemoteSessionProcedure is the fully-qualified name of the ClaudeService's
-	// StartRemoteSession RPC.
-	ClaudeServiceStartRemoteSessionProcedure = "/depot.agent.v1.ClaudeService/StartRemoteSession"
-	// ClaudeServiceGetRemoteSessionProcedure is the fully-qualified name of the ClaudeService's
-	// GetRemoteSession RPC.
-	ClaudeServiceGetRemoteSessionProcedure = "/depot.agent.v1.ClaudeService/GetRemoteSession"
-	// ClaudeServiceStreamRemoteSessionLogsProcedure is the fully-qualified name of the ClaudeService's
-	// StreamRemoteSessionLogs RPC.
-	ClaudeServiceStreamRemoteSessionLogsProcedure = "/depot.agent.v1.ClaudeService/StreamRemoteSessionLogs"
-	// ClaudeServiceListRemoteSessionsProcedure is the fully-qualified name of the ClaudeService's
-	// ListRemoteSessions RPC.
-	ClaudeServiceListRemoteSessionsProcedure = "/depot.agent.v1.ClaudeService/ListRemoteSessions"
-	// ClaudeServiceKillRemoteSessionProcedure is the fully-qualified name of the ClaudeService's
-	// KillRemoteSession RPC.
-	ClaudeServiceKillRemoteSessionProcedure = "/depot.agent.v1.ClaudeService/KillRemoteSession"
-	// ClaudeServiceAddSecretProcedure is the fully-qualified name of the ClaudeService's AddSecret RPC.
-	ClaudeServiceAddSecretProcedure = "/depot.agent.v1.ClaudeService/AddSecret"
-	// ClaudeServiceRemoveSecretProcedure is the fully-qualified name of the ClaudeService's
-	// RemoveSecret RPC.
-	ClaudeServiceRemoveSecretProcedure = "/depot.agent.v1.ClaudeService/RemoveSecret"
-	// ClaudeServiceListSecretsProcedure is the fully-qualified name of the ClaudeService's ListSecrets
-	// RPC.
-	ClaudeServiceListSecretsProcedure = "/depot.agent.v1.ClaudeService/ListSecrets"
 )
 
 // ClaudeServiceClient is a client for the depot.agent.v1.ClaudeService service.
@@ -72,14 +49,6 @@ type ClaudeServiceClient interface {
 	UploadClaudeSession(context.Context, *connect.Request[v1.UploadClaudeSessionRequest]) (*connect.Response[v1.UploadClaudeSessionResponse], error)
 	DownloadClaudeSession(context.Context, *connect.Request[v1.DownloadClaudeSessionRequest]) (*connect.Response[v1.DownloadClaudeSessionResponse], error)
 	ListClaudeSessions(context.Context, *connect.Request[v1.ListClaudeSessionsRequest]) (*connect.Response[v1.ListClaudeSessionsResponse], error)
-	StartRemoteSession(context.Context, *connect.Request[v1.StartRemoteSessionRequest]) (*connect.Response[v1.StartRemoteSessionResponse], error)
-	GetRemoteSession(context.Context, *connect.Request[v1.GetRemoteSessionRequest]) (*connect.Response[v1.GetRemoteSessionResponse], error)
-	StreamRemoteSessionLogs(context.Context, *connect.Request[v1.StreamRemoteSessionLogsRequest]) (*connect.ServerStreamForClient[v1.StreamRemoteSessionLogsResponse], error)
-	ListRemoteSessions(context.Context, *connect.Request[v1.ListRemoteSessionsRequest]) (*connect.Response[v1.ListRemoteSessionsResponse], error)
-	KillRemoteSession(context.Context, *connect.Request[v1.KillRemoteSessionRequest]) (*connect.Response[v1.KillRemoteSessionResponse], error)
-	AddSecret(context.Context, *connect.Request[v1.AddSecretRequest]) (*connect.Response[v1.AddSecretResponse], error)
-	RemoveSecret(context.Context, *connect.Request[v1.RemoveSecretRequest]) (*connect.Response[v1.RemoveSecretResponse], error)
-	ListSecrets(context.Context, *connect.Request[v1.ListSecretsRequest]) (*connect.Response[v1.ListSecretsResponse], error)
 }
 
 // NewClaudeServiceClient constructs a client for the depot.agent.v1.ClaudeService service. By
@@ -107,62 +76,14 @@ func NewClaudeServiceClient(httpClient connect.HTTPClient, baseURL string, opts 
 			baseURL+ClaudeServiceListClaudeSessionsProcedure,
 			opts...,
 		),
-		startRemoteSession: connect.NewClient[v1.StartRemoteSessionRequest, v1.StartRemoteSessionResponse](
-			httpClient,
-			baseURL+ClaudeServiceStartRemoteSessionProcedure,
-			opts...,
-		),
-		getRemoteSession: connect.NewClient[v1.GetRemoteSessionRequest, v1.GetRemoteSessionResponse](
-			httpClient,
-			baseURL+ClaudeServiceGetRemoteSessionProcedure,
-			opts...,
-		),
-		streamRemoteSessionLogs: connect.NewClient[v1.StreamRemoteSessionLogsRequest, v1.StreamRemoteSessionLogsResponse](
-			httpClient,
-			baseURL+ClaudeServiceStreamRemoteSessionLogsProcedure,
-			opts...,
-		),
-		listRemoteSessions: connect.NewClient[v1.ListRemoteSessionsRequest, v1.ListRemoteSessionsResponse](
-			httpClient,
-			baseURL+ClaudeServiceListRemoteSessionsProcedure,
-			opts...,
-		),
-		killRemoteSession: connect.NewClient[v1.KillRemoteSessionRequest, v1.KillRemoteSessionResponse](
-			httpClient,
-			baseURL+ClaudeServiceKillRemoteSessionProcedure,
-			opts...,
-		),
-		addSecret: connect.NewClient[v1.AddSecretRequest, v1.AddSecretResponse](
-			httpClient,
-			baseURL+ClaudeServiceAddSecretProcedure,
-			opts...,
-		),
-		removeSecret: connect.NewClient[v1.RemoveSecretRequest, v1.RemoveSecretResponse](
-			httpClient,
-			baseURL+ClaudeServiceRemoveSecretProcedure,
-			opts...,
-		),
-		listSecrets: connect.NewClient[v1.ListSecretsRequest, v1.ListSecretsResponse](
-			httpClient,
-			baseURL+ClaudeServiceListSecretsProcedure,
-			opts...,
-		),
 	}
 }
 
 // claudeServiceClient implements ClaudeServiceClient.
 type claudeServiceClient struct {
-	uploadClaudeSession     *connect.Client[v1.UploadClaudeSessionRequest, v1.UploadClaudeSessionResponse]
-	downloadClaudeSession   *connect.Client[v1.DownloadClaudeSessionRequest, v1.DownloadClaudeSessionResponse]
-	listClaudeSessions      *connect.Client[v1.ListClaudeSessionsRequest, v1.ListClaudeSessionsResponse]
-	startRemoteSession      *connect.Client[v1.StartRemoteSessionRequest, v1.StartRemoteSessionResponse]
-	getRemoteSession        *connect.Client[v1.GetRemoteSessionRequest, v1.GetRemoteSessionResponse]
-	streamRemoteSessionLogs *connect.Client[v1.StreamRemoteSessionLogsRequest, v1.StreamRemoteSessionLogsResponse]
-	listRemoteSessions      *connect.Client[v1.ListRemoteSessionsRequest, v1.ListRemoteSessionsResponse]
-	killRemoteSession       *connect.Client[v1.KillRemoteSessionRequest, v1.KillRemoteSessionResponse]
-	addSecret               *connect.Client[v1.AddSecretRequest, v1.AddSecretResponse]
-	removeSecret            *connect.Client[v1.RemoveSecretRequest, v1.RemoveSecretResponse]
-	listSecrets             *connect.Client[v1.ListSecretsRequest, v1.ListSecretsResponse]
+	uploadClaudeSession   *connect.Client[v1.UploadClaudeSessionRequest, v1.UploadClaudeSessionResponse]
+	downloadClaudeSession *connect.Client[v1.DownloadClaudeSessionRequest, v1.DownloadClaudeSessionResponse]
+	listClaudeSessions    *connect.Client[v1.ListClaudeSessionsRequest, v1.ListClaudeSessionsResponse]
 }
 
 // UploadClaudeSession calls depot.agent.v1.ClaudeService.UploadClaudeSession.
@@ -180,59 +101,11 @@ func (c *claudeServiceClient) ListClaudeSessions(ctx context.Context, req *conne
 	return c.listClaudeSessions.CallUnary(ctx, req)
 }
 
-// StartRemoteSession calls depot.agent.v1.ClaudeService.StartRemoteSession.
-func (c *claudeServiceClient) StartRemoteSession(ctx context.Context, req *connect.Request[v1.StartRemoteSessionRequest]) (*connect.Response[v1.StartRemoteSessionResponse], error) {
-	return c.startRemoteSession.CallUnary(ctx, req)
-}
-
-// GetRemoteSession calls depot.agent.v1.ClaudeService.GetRemoteSession.
-func (c *claudeServiceClient) GetRemoteSession(ctx context.Context, req *connect.Request[v1.GetRemoteSessionRequest]) (*connect.Response[v1.GetRemoteSessionResponse], error) {
-	return c.getRemoteSession.CallUnary(ctx, req)
-}
-
-// StreamRemoteSessionLogs calls depot.agent.v1.ClaudeService.StreamRemoteSessionLogs.
-func (c *claudeServiceClient) StreamRemoteSessionLogs(ctx context.Context, req *connect.Request[v1.StreamRemoteSessionLogsRequest]) (*connect.ServerStreamForClient[v1.StreamRemoteSessionLogsResponse], error) {
-	return c.streamRemoteSessionLogs.CallServerStream(ctx, req)
-}
-
-// ListRemoteSessions calls depot.agent.v1.ClaudeService.ListRemoteSessions.
-func (c *claudeServiceClient) ListRemoteSessions(ctx context.Context, req *connect.Request[v1.ListRemoteSessionsRequest]) (*connect.Response[v1.ListRemoteSessionsResponse], error) {
-	return c.listRemoteSessions.CallUnary(ctx, req)
-}
-
-// KillRemoteSession calls depot.agent.v1.ClaudeService.KillRemoteSession.
-func (c *claudeServiceClient) KillRemoteSession(ctx context.Context, req *connect.Request[v1.KillRemoteSessionRequest]) (*connect.Response[v1.KillRemoteSessionResponse], error) {
-	return c.killRemoteSession.CallUnary(ctx, req)
-}
-
-// AddSecret calls depot.agent.v1.ClaudeService.AddSecret.
-func (c *claudeServiceClient) AddSecret(ctx context.Context, req *connect.Request[v1.AddSecretRequest]) (*connect.Response[v1.AddSecretResponse], error) {
-	return c.addSecret.CallUnary(ctx, req)
-}
-
-// RemoveSecret calls depot.agent.v1.ClaudeService.RemoveSecret.
-func (c *claudeServiceClient) RemoveSecret(ctx context.Context, req *connect.Request[v1.RemoveSecretRequest]) (*connect.Response[v1.RemoveSecretResponse], error) {
-	return c.removeSecret.CallUnary(ctx, req)
-}
-
-// ListSecrets calls depot.agent.v1.ClaudeService.ListSecrets.
-func (c *claudeServiceClient) ListSecrets(ctx context.Context, req *connect.Request[v1.ListSecretsRequest]) (*connect.Response[v1.ListSecretsResponse], error) {
-	return c.listSecrets.CallUnary(ctx, req)
-}
-
 // ClaudeServiceHandler is an implementation of the depot.agent.v1.ClaudeService service.
 type ClaudeServiceHandler interface {
 	UploadClaudeSession(context.Context, *connect.Request[v1.UploadClaudeSessionRequest]) (*connect.Response[v1.UploadClaudeSessionResponse], error)
 	DownloadClaudeSession(context.Context, *connect.Request[v1.DownloadClaudeSessionRequest]) (*connect.Response[v1.DownloadClaudeSessionResponse], error)
 	ListClaudeSessions(context.Context, *connect.Request[v1.ListClaudeSessionsRequest]) (*connect.Response[v1.ListClaudeSessionsResponse], error)
-	StartRemoteSession(context.Context, *connect.Request[v1.StartRemoteSessionRequest]) (*connect.Response[v1.StartRemoteSessionResponse], error)
-	GetRemoteSession(context.Context, *connect.Request[v1.GetRemoteSessionRequest]) (*connect.Response[v1.GetRemoteSessionResponse], error)
-	StreamRemoteSessionLogs(context.Context, *connect.Request[v1.StreamRemoteSessionLogsRequest], *connect.ServerStream[v1.StreamRemoteSessionLogsResponse]) error
-	ListRemoteSessions(context.Context, *connect.Request[v1.ListRemoteSessionsRequest]) (*connect.Response[v1.ListRemoteSessionsResponse], error)
-	KillRemoteSession(context.Context, *connect.Request[v1.KillRemoteSessionRequest]) (*connect.Response[v1.KillRemoteSessionResponse], error)
-	AddSecret(context.Context, *connect.Request[v1.AddSecretRequest]) (*connect.Response[v1.AddSecretResponse], error)
-	RemoveSecret(context.Context, *connect.Request[v1.RemoveSecretRequest]) (*connect.Response[v1.RemoveSecretResponse], error)
-	ListSecrets(context.Context, *connect.Request[v1.ListSecretsRequest]) (*connect.Response[v1.ListSecretsResponse], error)
 }
 
 // NewClaudeServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -256,46 +129,6 @@ func NewClaudeServiceHandler(svc ClaudeServiceHandler, opts ...connect.HandlerOp
 		svc.ListClaudeSessions,
 		opts...,
 	)
-	claudeServiceStartRemoteSessionHandler := connect.NewUnaryHandler(
-		ClaudeServiceStartRemoteSessionProcedure,
-		svc.StartRemoteSession,
-		opts...,
-	)
-	claudeServiceGetRemoteSessionHandler := connect.NewUnaryHandler(
-		ClaudeServiceGetRemoteSessionProcedure,
-		svc.GetRemoteSession,
-		opts...,
-	)
-	claudeServiceStreamRemoteSessionLogsHandler := connect.NewServerStreamHandler(
-		ClaudeServiceStreamRemoteSessionLogsProcedure,
-		svc.StreamRemoteSessionLogs,
-		opts...,
-	)
-	claudeServiceListRemoteSessionsHandler := connect.NewUnaryHandler(
-		ClaudeServiceListRemoteSessionsProcedure,
-		svc.ListRemoteSessions,
-		opts...,
-	)
-	claudeServiceKillRemoteSessionHandler := connect.NewUnaryHandler(
-		ClaudeServiceKillRemoteSessionProcedure,
-		svc.KillRemoteSession,
-		opts...,
-	)
-	claudeServiceAddSecretHandler := connect.NewUnaryHandler(
-		ClaudeServiceAddSecretProcedure,
-		svc.AddSecret,
-		opts...,
-	)
-	claudeServiceRemoveSecretHandler := connect.NewUnaryHandler(
-		ClaudeServiceRemoveSecretProcedure,
-		svc.RemoveSecret,
-		opts...,
-	)
-	claudeServiceListSecretsHandler := connect.NewUnaryHandler(
-		ClaudeServiceListSecretsProcedure,
-		svc.ListSecrets,
-		opts...,
-	)
 	return "/depot.agent.v1.ClaudeService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case ClaudeServiceUploadClaudeSessionProcedure:
@@ -304,22 +137,6 @@ func NewClaudeServiceHandler(svc ClaudeServiceHandler, opts ...connect.HandlerOp
 			claudeServiceDownloadClaudeSessionHandler.ServeHTTP(w, r)
 		case ClaudeServiceListClaudeSessionsProcedure:
 			claudeServiceListClaudeSessionsHandler.ServeHTTP(w, r)
-		case ClaudeServiceStartRemoteSessionProcedure:
-			claudeServiceStartRemoteSessionHandler.ServeHTTP(w, r)
-		case ClaudeServiceGetRemoteSessionProcedure:
-			claudeServiceGetRemoteSessionHandler.ServeHTTP(w, r)
-		case ClaudeServiceStreamRemoteSessionLogsProcedure:
-			claudeServiceStreamRemoteSessionLogsHandler.ServeHTTP(w, r)
-		case ClaudeServiceListRemoteSessionsProcedure:
-			claudeServiceListRemoteSessionsHandler.ServeHTTP(w, r)
-		case ClaudeServiceKillRemoteSessionProcedure:
-			claudeServiceKillRemoteSessionHandler.ServeHTTP(w, r)
-		case ClaudeServiceAddSecretProcedure:
-			claudeServiceAddSecretHandler.ServeHTTP(w, r)
-		case ClaudeServiceRemoveSecretProcedure:
-			claudeServiceRemoveSecretHandler.ServeHTTP(w, r)
-		case ClaudeServiceListSecretsProcedure:
-			claudeServiceListSecretsHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -339,36 +156,4 @@ func (UnimplementedClaudeServiceHandler) DownloadClaudeSession(context.Context, 
 
 func (UnimplementedClaudeServiceHandler) ListClaudeSessions(context.Context, *connect.Request[v1.ListClaudeSessionsRequest]) (*connect.Response[v1.ListClaudeSessionsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.agent.v1.ClaudeService.ListClaudeSessions is not implemented"))
-}
-
-func (UnimplementedClaudeServiceHandler) StartRemoteSession(context.Context, *connect.Request[v1.StartRemoteSessionRequest]) (*connect.Response[v1.StartRemoteSessionResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.agent.v1.ClaudeService.StartRemoteSession is not implemented"))
-}
-
-func (UnimplementedClaudeServiceHandler) GetRemoteSession(context.Context, *connect.Request[v1.GetRemoteSessionRequest]) (*connect.Response[v1.GetRemoteSessionResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.agent.v1.ClaudeService.GetRemoteSession is not implemented"))
-}
-
-func (UnimplementedClaudeServiceHandler) StreamRemoteSessionLogs(context.Context, *connect.Request[v1.StreamRemoteSessionLogsRequest], *connect.ServerStream[v1.StreamRemoteSessionLogsResponse]) error {
-	return connect.NewError(connect.CodeUnimplemented, errors.New("depot.agent.v1.ClaudeService.StreamRemoteSessionLogs is not implemented"))
-}
-
-func (UnimplementedClaudeServiceHandler) ListRemoteSessions(context.Context, *connect.Request[v1.ListRemoteSessionsRequest]) (*connect.Response[v1.ListRemoteSessionsResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.agent.v1.ClaudeService.ListRemoteSessions is not implemented"))
-}
-
-func (UnimplementedClaudeServiceHandler) KillRemoteSession(context.Context, *connect.Request[v1.KillRemoteSessionRequest]) (*connect.Response[v1.KillRemoteSessionResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.agent.v1.ClaudeService.KillRemoteSession is not implemented"))
-}
-
-func (UnimplementedClaudeServiceHandler) AddSecret(context.Context, *connect.Request[v1.AddSecretRequest]) (*connect.Response[v1.AddSecretResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.agent.v1.ClaudeService.AddSecret is not implemented"))
-}
-
-func (UnimplementedClaudeServiceHandler) RemoveSecret(context.Context, *connect.Request[v1.RemoveSecretRequest]) (*connect.Response[v1.RemoveSecretResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.agent.v1.ClaudeService.RemoveSecret is not implemented"))
-}
-
-func (UnimplementedClaudeServiceHandler) ListSecrets(context.Context, *connect.Request[v1.ListSecretsRequest]) (*connect.Response[v1.ListSecretsResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.agent.v1.ClaudeService.ListSecrets is not implemented"))
 }

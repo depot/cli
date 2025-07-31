@@ -28,16 +28,17 @@ import (
 // Unfortunately, we need to manually parse flags to allow passing argv to Claude
 func NewCmdClaude() *cobra.Command {
 	var (
-		sessionID       string
-		orgID           string
-		token           string
-		resumeSessionID string
-		output          string
-		local           bool
-		repository      string
-		branch          string
-		gitSecret       string
-		wait            bool
+		sessionID         string
+		orgID             string
+		token             string
+		resumeSessionID   string
+		sandboxID         string
+		output            string
+		local             bool
+		repository        *string
+		branch            string
+		gitSecret         string
+		wait              bool
 	)
 
 	cmd := &cobra.Command{
@@ -132,7 +133,8 @@ Subcommands:
 					local = true
 				case "--repository":
 					if i+1 < len(args) {
-						repository = args[i+1]
+						repo := args[i+1]
+						repository = &repo
 						i++
 					}
 				case "--branch":
@@ -154,11 +156,20 @@ Subcommands:
 					} else {
 						return fmt.Errorf("--resume flag requires a session ID")
 					}
+				case "--sandbox-id":
+					if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
+						sandboxID = args[i+1]
+						i++
+					} else {
+						return fmt.Errorf("--sandbox-id flag requires a sandbox ID")
+					}
 				default:
 					if strings.HasPrefix(arg, "--session-id=") {
 						sessionID = strings.TrimPrefix(arg, "--session-id=")
 					} else if strings.HasPrefix(arg, "--resume=") {
 						resumeSessionID = strings.TrimPrefix(arg, "--resume=")
+					} else if strings.HasPrefix(arg, "--sandbox-id=") {
+						sandboxID = strings.TrimPrefix(arg, "--sandbox-id=")
 					} else if strings.HasPrefix(arg, "--org=") {
 						orgID = strings.TrimPrefix(arg, "--org=")
 					} else if strings.HasPrefix(arg, "--token=") {
@@ -166,7 +177,8 @@ Subcommands:
 					} else if strings.HasPrefix(arg, "--output=") {
 						output = strings.TrimPrefix(arg, "--output=")
 					} else if strings.HasPrefix(arg, "--repository=") {
-						repository = strings.TrimPrefix(arg, "--repository=")
+						repo := strings.TrimPrefix(arg, "--repository=")
+						repository = &repo
 					} else if strings.HasPrefix(arg, "--branch=") {
 						branch = strings.TrimPrefix(arg, "--branch=")
 					} else if strings.HasPrefix(arg, "--git-secret=") {
@@ -221,12 +233,16 @@ Subcommands:
 			}
 
 			if !local {
-				// Default repository to current git remote if not specified
-				if repository == "" {
-					gitRemoteCmd := exec.CommandContext(ctx, "git", "remote", "get-url", "origin")
-					if output, err := gitRemoteCmd.Output(); err == nil {
-						repository = strings.TrimSpace(string(output))
-						fmt.Fprintf(os.Stderr, "Using current git remote repository: %s\n", repository)
+				// Default repository to current git remote only if --repository flag was specified with empty value
+				var repoValue string
+				if repository != nil {
+					repoValue = *repository
+					if repoValue == "" {
+						gitRemoteCmd := exec.CommandContext(ctx, "git", "remote", "get-url", "origin")
+						if output, err := gitRemoteCmd.Output(); err == nil {
+							repoValue = strings.TrimSpace(string(output))
+							fmt.Fprintf(os.Stderr, "Using current git remote repository: %s\n", repoValue)
+						}
 					}
 				}
 
@@ -235,10 +251,11 @@ Subcommands:
 					OrgID:           orgID,
 					Token:           token,
 					ClaudeArgs:      claudeArgs,
-					Repository:      repository,
+					Repository:      repoValue,
 					Branch:          branch,
 					GitSecret:       gitSecret,
 					ResumeSessionID: resumeSessionID,
+					RemoteSessionID: sandboxID,
 					Wait:            wait,
 					Stdin:           os.Stdin,
 					Stdout:          os.Stdout,
@@ -518,7 +535,7 @@ func RunClaudeSession(ctx context.Context, opts *ClaudeSessionOptions) error {
 
 	claudePath, err := exec.LookPath("claude")
 	if err != nil {
-		return fmt.Errorf("claude CLI not found in PATH: %w", err)
+		return fmt.Errorf("claude CLI not found in PATH. Please install the Claude CLI first: https://claude.ai/download")
 	}
 
 	homeDir, err := os.UserHomeDir()

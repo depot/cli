@@ -96,8 +96,8 @@ If --value is not provided, you will be prompted to enter the secret value secur
 				}
 			}
 
-			client := api.NewClaudeClient()
-			req := &agentv1.AddSecretRequest{
+			client := api.NewAgentClient()
+			req := &agentv1.AddAgentSecretRequest{
 				SecretName:  secretName,
 				SecretValue: secretValue,
 			}
@@ -162,8 +162,8 @@ func NewCmdClaudeSecretsList() *cobra.Command {
 				return fmt.Errorf("missing API token, please run `depot login`")
 			}
 
-			client := api.NewClaudeClient()
-			req := &agentv1.ListSecretsRequest{}
+			client := api.NewAgentClient()
+			req := &agentv1.ListAgentSecretsRequest{}
 			if orgID != "" {
 				req.OrganizationId = &orgID
 			}
@@ -295,8 +295,8 @@ func NewCmdClaudeSecretsRemove() *cobra.Command {
 				}
 			}
 
-			client := api.NewClaudeClient()
-			req := &agentv1.RemoveSecretRequest{
+			client := api.NewAgentClient()
+			req := &agentv1.RemoveAgentSecretRequest{
 				SecretName: secretName,
 			}
 			if orgID != "" {

@@ -40,12 +40,14 @@ message StartRemoteAgentSessionRequest {
 
 message StartRemoteAgentSessionResponse {
   string session_id = 1;
+  string remote_session_id = 2;
 }
 
 message GetRemoteAgentSessionRequest {
   string session_id = 1;
   string organization_id = 2;
   optional string agent_type = 3;
+  string remote_session_id = 4;
 }
 
 message GetRemoteAgentSessionResponse {
@@ -109,17 +111,18 @@ message RemoteAgentSession {
   optional double duration_seconds = 5;
   optional string error_message = 6;
   optional string agent_type = 7;
+  string remote_session_id = 8;
 }
 
 message KillRemoteAgentSessionRequest {
-  string session_id = 1;
+  string remote_session_id = 1;
   optional string organization_id = 2;
 }
 
 message KillRemoteAgentSessionResponse {}
 
 message StreamRemoteAgentSessionLogsRequest {
-  string session_id = 1;
+  string remote_session_id = 1;
   optional string organization_id = 2;
   optional string agent_type = 3;
 }
