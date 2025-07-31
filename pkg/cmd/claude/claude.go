@@ -418,7 +418,7 @@ func RunClaudeSession(ctx context.Context, opts *ClaudeSessionOptions) error {
 		opts.Stderr = os.Stderr
 	}
 
-	token, err := helpers.ResolveToken(ctx, opts.Token)
+	token, err := helpers.ResolveProjectAuth(ctx, opts.Token)
 	if err != nil {
 		return err
 	}

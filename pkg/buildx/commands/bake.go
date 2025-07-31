@@ -275,7 +275,7 @@ func BakeCmd() *cobra.Command {
 				options.pull = nil
 			}
 
-			token, err := helpers.ResolveToken(context.Background(), options.token)
+			token, err := helpers.ResolveProjectAuth(context.Background(), options.token)
 			if err != nil {
 				return err
 			}

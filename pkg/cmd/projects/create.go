@@ -33,7 +33,7 @@ func NewCmdCreate() *cobra.Command {
 			ctx := cmd.Context()
 			projectName := args[0]
 
-			token, err := helpers.ResolveToken(ctx, token)
+			token, err := helpers.ResolveProjectAuth(ctx, token)
 			if err != nil {
 				return err
 			}

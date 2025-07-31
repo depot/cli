@@ -177,7 +177,7 @@ func uninstallDepotPlugin(dir string) error {
 
 func runConfigureBuildx(ctx context.Context, dockerCli command.Cli, project, token string) error {
 	var err error
-	token, err = helpers.ResolveToken(ctx, token)
+	token, err = helpers.ResolveProjectAuth(ctx, token)
 	if err != nil {
 		return err
 	}

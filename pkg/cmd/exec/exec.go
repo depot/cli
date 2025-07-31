@@ -33,7 +33,7 @@ func NewCmdExec() *cobra.Command {
 	run := func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()
 
-		token, err := helpers.ResolveToken(ctx, token)
+		token, err := helpers.ResolveProjectAuth(ctx, token)
 		if err != nil {
 			return err
 		}

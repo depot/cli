@@ -630,7 +630,7 @@ func BuildCmd() *cobra.Command {
 			options.contextPath = args[0]
 			cmd.Flags().VisitAll(checkWarnedFlags)
 
-			token, err := helpers.ResolveToken(context.Background(), options.token)
+			token, err := helpers.ResolveProjectAuth(context.Background(), options.token)
 			if err != nil {
 				return err
 			}

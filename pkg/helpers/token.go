@@ -10,7 +10,7 @@ import (
 	"github.com/depot/cli/pkg/oidc"
 )
 
-func ResolveToken(ctx context.Context, token string) (string, error) {
+func ResolveProjectAuth(ctx context.Context, token string) (string, error) {
 	if token == "" {
 		token = os.Getenv("DEPOT_TOKEN")
 	}
