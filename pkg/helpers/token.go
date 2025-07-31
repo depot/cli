@@ -17,8 +17,8 @@ func ResolveProjectAuth(ctx context.Context, tok string) (string, error) {
 		return tok, nil
 	}
 
-	if token == "" {
-		token = os.Getenv("DEPOT_TOKEN")
+	if token := os.Getenv("DEPOT_TOKEN"); token != "" {
+		return token, nil
 	}
 
 	if token == "" {
