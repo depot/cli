@@ -45,13 +45,13 @@ func ResolveProjectAuth(ctx context.Context, tok string) (string, error) {
 	}
 
 	if IsTerminal() {
-		return AuthorizeDevice(ctx)
+		return authorizeDevice(ctx)
 	}
 
 	return "", nil
 }
 
-func AuthorizeDevice(ctx context.Context) (string, error) {
+func authorizeDevice(ctx context.Context) (string, error) {
 	tokenResponse, err := api.AuthorizeDevice(ctx)
 	if err != nil {
 		return "", err
