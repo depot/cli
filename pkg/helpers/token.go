@@ -42,7 +42,7 @@ func ResolveProjectAuth(ctx context.Context, tok string) (string, error) {
 		}
 	}
 
-	if token == "" && IsTerminal() {
+	if IsTerminal() {
 		return AuthorizeDevice(ctx)
 	}
 
