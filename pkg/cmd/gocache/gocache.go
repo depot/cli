@@ -49,7 +49,6 @@ func NewCmdGoCache() *cobra.Command {
 				return err
 			}
 
-			token := os.Getenv("DEPOT_CACHE_TOKEN")
 			token, err = helpers.ResolveToken(ctx, token)
 			if err != nil {
 				return err
