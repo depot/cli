@@ -16,7 +16,7 @@ import (
 	"github.com/depot/cli/pkg/proto/depot/agent/v1/agentv1connect"
 )
 
-type ClaudeRemoteOptions struct {
+type AgentRemoteOptions struct {
 	SessionID       string
 	OrgID           string
 	Token           string
@@ -29,9 +29,10 @@ type ClaudeRemoteOptions struct {
 	Stdin           io.Reader
 	Stdout          io.Writer
 	Stderr          io.Writer
+	AgentType       string
 }
 
-func RunClaudeRemote(ctx context.Context, opts *ClaudeRemoteOptions) error {
+func RunAgentRemote(ctx context.Context, opts *AgentRemoteOptions) error {
 	if opts.Stdin == nil {
 		opts.Stdin = os.Stdin
 	}
@@ -54,10 +55,10 @@ func RunClaudeRemote(ctx context.Context, opts *ClaudeRemoteOptions) error {
 		opts.OrgID = os.Getenv("DEPOT_ORG_ID")
 	}
 
-	client := api.NewClaudeClient()
+	client := api.NewAgentClient()
 
 	if opts.ResumeSessionID != "" {
-		getReq := &agentv1.GetRemoteSessionRequest{
+		getReq := &agentv1.GetRemoteAgentSessionRequest{
 			SessionId:      opts.ResumeSessionID,
 			OrganizationId: opts.OrgID,
 		}
@@ -82,9 +83,10 @@ func RunClaudeRemote(ctx context.Context, opts *ClaudeRemoteOptions) error {
 		}
 	}
 
-	req := &agentv1.StartRemoteSessionRequest{
+	req := &agentv1.StartRemoteAgentSessionRequest{
 		Argv:                 shellEscapeArgs(opts.ClaudeArgs),
 		EnvironmentVariables: map[string]string{},
+		AgentType:            &opts.AgentType,
 	}
 	if opts.OrgID != "" {
 		req.OrganizationId = &opts.OrgID
@@ -101,15 +103,15 @@ func RunClaudeRemote(ctx context.Context, opts *ClaudeRemoteOptions) error {
 		if opts.Branch != "" {
 			gitBranch = opts.Branch
 		}
-		gitContext := &agentv1.StartRemoteSessionRequest_Context_GitContext{
+		gitContext := &agentv1.StartRemoteAgentSessionRequest_Context_GitContext{
 			RepositoryUrl: gitURL,
 			Branch:        &gitBranch,
 		}
 		if opts.GitSecret != "" {
 			gitContext.SecretName = &opts.GitSecret
 		}
-		req.Context = &agentv1.StartRemoteSessionRequest_Context{
-			Context: &agentv1.StartRemoteSessionRequest_Context_Git{
+		req.Context = &agentv1.StartRemoteAgentSessionRequest_Context{
+			Context: &agentv1.StartRemoteAgentSessionRequest_Context_Git{
 				Git: gitContext,
 			},
 		}
@@ -155,7 +157,7 @@ func parseGitURL(s string) (url, branch string) {
 	return url, branch
 }
 
-func waitForSession(ctx context.Context, client agentv1connect.ClaudeServiceClient, token, sessionID, orgID string, invocationTime time.Time, stdout io.Writer) error {
+func waitForSession(ctx context.Context, client agentv1connect.AgentServiceClient, token, sessionID, orgID string, invocationTime time.Time, stdout io.Writer) error {
 	fmt.Fprintf(stdout, "\nStarting Claude sandbox for session id %s...\n", sessionID)
 
 	ticker := time.NewTicker(5 * time.Second)
@@ -168,7 +170,7 @@ func waitForSession(ctx context.Context, client agentv1connect.ClaudeServiceClie
 			fmt.Fprintf(stdout, "The Claude sandbox will continue running in the background.\n")
 			return nil
 		case <-ticker.C:
-			getReq := &agentv1.GetRemoteSessionRequest{
+			getReq := &agentv1.GetRemoteAgentSessionRequest{
 				SessionId:      sessionID,
 				OrganizationId: orgID,
 			}
@@ -197,7 +199,7 @@ func waitForSession(ctx context.Context, client agentv1connect.ClaudeServiceClie
 	}
 }
 
-func streamSession(ctx context.Context, client agentv1connect.ClaudeServiceClient, token, sessionID, orgID string, stdout, stderr io.Writer) error {
+func streamSession(ctx context.Context, client agentv1connect.AgentServiceClient, token, sessionID, orgID string, stdout, stderr io.Writer) error {
 	fmt.Fprintf(stdout, "Claude sandbox is running. Session ID: %s\n", sessionID)
 	fmt.Fprintf(stdout, "You can resume this Claude sandbox later with: depot claude --resume %s\n\n", sessionID)
 
@@ -210,7 +212,7 @@ func streamSession(ctx context.Context, client agentv1connect.ClaudeServiceClien
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-ticker.C:
-			getReq := &agentv1.GetRemoteSessionRequest{
+			getReq := &agentv1.GetRemoteAgentSessionRequest{
 				SessionId:      sessionID,
 				OrganizationId: orgID,
 			}
@@ -235,7 +237,7 @@ func streamSession(ctx context.Context, client agentv1connect.ClaudeServiceClien
 	}
 }
 
-func waitAndStreamSession(ctx context.Context, client agentv1connect.ClaudeServiceClient, token, sessionID, orgID string, invocationTime time.Time, stdout, stderr io.Writer) error {
+func waitAndStreamSession(ctx context.Context, client agentv1connect.AgentServiceClient, token, sessionID, orgID string, invocationTime time.Time, stdout, stderr io.Writer) error {
 	// Wait for session to start with a timeout
 	waitCtx, cancel := context.WithTimeout(ctx, 15*time.Minute)
 	defer cancel()

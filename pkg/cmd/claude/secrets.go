@@ -162,7 +162,6 @@ func NewCmdClaudeSecretsList() *cobra.Command {
 				return fmt.Errorf("missing API token, please run `depot login`")
 			}
 
-			// Create the request
 			client := api.NewClaudeClient()
 			req := &agentv1.ListSecretsRequest{}
 			if orgID != "" {

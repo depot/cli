@@ -10,6 +10,7 @@ service ClaudeService {
   rpc ListClaudeSessions(ListClaudeSessionsRequest) returns (ListClaudeSessionsResponse);
   rpc StartRemoteSession(StartRemoteSessionRequest) returns (StartRemoteSessionResponse);
   rpc GetRemoteSession(GetRemoteSessionRequest) returns (GetRemoteSessionResponse);
+  rpc StreamRemoteSessionLogs(StreamRemoteSessionLogsRequest) returns (stream StreamRemoteSessionLogsResponse);
   rpc ListRemoteSessions(ListRemoteSessionsRequest) returns (ListRemoteSessionsResponse);
   rpc KillRemoteSession(KillRemoteSessionRequest) returns (KillRemoteSessionResponse);
   rpc AddSecret(AddSecretRequest) returns (AddSecretResponse);
@@ -95,6 +96,26 @@ message GetRemoteSessionResponse {
   optional int32 exit_code = 3;
   optional double duration_seconds = 4;
   optional string error_message = 5;
+}
+
+message StreamRemoteSessionLogsRequest {
+  string session_id = 1;
+  string organization_id = 2;
+}
+
+message StreamRemoteSessionLogsResponse {
+  LogEvent event = 1;
+
+  message LogEvent {
+    bytes data = 1;
+    google.protobuf.Timestamp timestamp = 2;
+    LogType type = 3;
+    
+    enum LogType {
+      STDOUT = 0;
+      STDERR = 1;
+    }
+  }
 }
 
 message AddSecretRequest {

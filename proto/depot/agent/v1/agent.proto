@@ -1,0 +1,140 @@
+syntax = "proto3";
+
+package depot.agent.v1;
+
+import "google/protobuf/timestamp.proto";
+
+service AgentService {
+  rpc StartRemoteSession(StartRemoteAgentSessionRequest) returns (StartRemoteAgentSessionResponse);
+  rpc GetRemoteSession(GetRemoteAgentSessionRequest) returns (GetRemoteAgentSessionResponse);
+  rpc ListRemoteSessions(ListRemoteAgentSessionsRequest) returns (ListRemoteAgentSessionsResponse);
+  rpc KillRemoteSession(KillRemoteAgentSessionRequest) returns (KillRemoteAgentSessionResponse);
+  rpc AddSecret(AddAgentSecretRequest) returns (AddAgentSecretResponse);
+  rpc RemoveSecret(RemoveAgentSecretRequest) returns (RemoveAgentSecretResponse);
+  rpc ListSecrets(ListAgentSecretsRequest) returns (ListAgentSecretsResponse);
+  rpc StreamRemoteSessionLogs(StreamRemoteAgentSessionLogsRequest) returns (stream StreamRemoteAgentSessionLogsResponse);
+}
+
+message StartRemoteAgentSessionRequest {
+  optional string organization_id = 1;
+  optional string session_id = 2;
+  optional string resume_session_id = 3;
+  string argv = 4;
+  map<string, string> environment_variables = 5;
+
+  message Context {
+    oneof context {
+      GitContext git = 1;
+    }
+    message GitContext {
+      optional string secret_name = 1; // Name of the secret containing the Git credentials (optional for public repos)
+      string repository_url = 2;
+      optional string branch = 3;
+      optional string commit_hash = 4;
+    }
+  }
+
+  Context context = 7;
+  optional string agent_type = 8;
+}
+
+message StartRemoteAgentSessionResponse {
+  string session_id = 1;
+}
+
+message GetRemoteAgentSessionRequest {
+  string session_id = 1;
+  string organization_id = 2;
+  optional string agent_type = 3;
+}
+
+message GetRemoteAgentSessionResponse {
+  optional google.protobuf.Timestamp started_at = 1;
+  optional google.protobuf.Timestamp completed_at = 2;
+  optional int32 exit_code = 3;
+  optional double duration_seconds = 4;
+  optional string error_message = 5;
+}
+
+message AddAgentSecretRequest {
+  optional string organization_id = 1;
+  string secret_name = 2;
+  optional string secret_description = 3;
+  string secret_value = 4;
+  optional string agent_type = 5;
+}
+
+message AddAgentSecretResponse {}
+
+message RemoveAgentSecretRequest {
+  optional string organization_id = 1;
+  string secret_name = 2;
+  optional string agent_type = 3;
+}
+
+message RemoveAgentSecretResponse {}
+
+message ListAgentSecretsRequest {
+  optional string organization_id = 1;
+  optional string agent_type = 2;
+}
+
+message ListAgentSecretsResponse {
+  repeated AgentSecret secrets = 1;
+}
+
+message AgentSecret {
+  string name = 1;
+  optional string description = 2;
+  optional google.protobuf.Timestamp last_modified = 3;
+}
+
+message ListRemoteAgentSessionsRequest {
+  optional string organization_id = 1;
+  optional int32 page_size = 2;
+  optional string page_token = 3;
+  optional string agent_type = 4; // Filter by agent type
+}
+
+message ListRemoteAgentSessionsResponse {
+  repeated RemoteAgentSession sessions = 1;
+  optional string next_page_token = 2;
+}
+
+message RemoteAgentSession {
+  string session_id = 1;
+  string organization_id = 2;
+  google.protobuf.Timestamp created_at = 3;
+  optional int32 exit_code = 4;
+  optional double duration_seconds = 5;
+  optional string error_message = 6;
+  optional string agent_type = 7;
+}
+
+message KillRemoteAgentSessionRequest {
+  string session_id = 1;
+  optional string organization_id = 2;
+}
+
+message KillRemoteAgentSessionResponse {}
+
+message StreamRemoteAgentSessionLogsRequest {
+  string session_id = 1;
+  optional string organization_id = 2;
+  optional string agent_type = 3;
+}
+
+message StreamRemoteAgentSessionLogsResponse {
+  LogEvent event = 1;
+
+  message LogEvent {
+    bytes data = 1;
+    google.protobuf.Timestamp timestamp = 2;
+    LogType type = 3;
+    
+    enum LogType {
+      STDOUT = 0;
+      STDERR = 1;
+    }
+  }
+}

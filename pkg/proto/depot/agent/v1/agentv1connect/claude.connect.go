@@ -48,6 +48,9 @@ const (
 	// ClaudeServiceGetRemoteSessionProcedure is the fully-qualified name of the ClaudeService's
 	// GetRemoteSession RPC.
 	ClaudeServiceGetRemoteSessionProcedure = "/depot.agent.v1.ClaudeService/GetRemoteSession"
+	// ClaudeServiceStreamRemoteSessionLogsProcedure is the fully-qualified name of the ClaudeService's
+	// StreamRemoteSessionLogs RPC.
+	ClaudeServiceStreamRemoteSessionLogsProcedure = "/depot.agent.v1.ClaudeService/StreamRemoteSessionLogs"
 	// ClaudeServiceListRemoteSessionsProcedure is the fully-qualified name of the ClaudeService's
 	// ListRemoteSessions RPC.
 	ClaudeServiceListRemoteSessionsProcedure = "/depot.agent.v1.ClaudeService/ListRemoteSessions"
@@ -71,6 +74,7 @@ type ClaudeServiceClient interface {
 	ListClaudeSessions(context.Context, *connect.Request[v1.ListClaudeSessionsRequest]) (*connect.Response[v1.ListClaudeSessionsResponse], error)
 	StartRemoteSession(context.Context, *connect.Request[v1.StartRemoteSessionRequest]) (*connect.Response[v1.StartRemoteSessionResponse], error)
 	GetRemoteSession(context.Context, *connect.Request[v1.GetRemoteSessionRequest]) (*connect.Response[v1.GetRemoteSessionResponse], error)
+	StreamRemoteSessionLogs(context.Context, *connect.Request[v1.StreamRemoteSessionLogsRequest]) (*connect.ServerStreamForClient[v1.StreamRemoteSessionLogsResponse], error)
 	ListRemoteSessions(context.Context, *connect.Request[v1.ListRemoteSessionsRequest]) (*connect.Response[v1.ListRemoteSessionsResponse], error)
 	KillRemoteSession(context.Context, *connect.Request[v1.KillRemoteSessionRequest]) (*connect.Response[v1.KillRemoteSessionResponse], error)
 	AddSecret(context.Context, *connect.Request[v1.AddSecretRequest]) (*connect.Response[v1.AddSecretResponse], error)
@@ -113,6 +117,11 @@ func NewClaudeServiceClient(httpClient connect.HTTPClient, baseURL string, opts 
 			baseURL+ClaudeServiceGetRemoteSessionProcedure,
 			opts...,
 		),
+		streamRemoteSessionLogs: connect.NewClient[v1.StreamRemoteSessionLogsRequest, v1.StreamRemoteSessionLogsResponse](
+			httpClient,
+			baseURL+ClaudeServiceStreamRemoteSessionLogsProcedure,
+			opts...,
+		),
 		listRemoteSessions: connect.NewClient[v1.ListRemoteSessionsRequest, v1.ListRemoteSessionsResponse](
 			httpClient,
 			baseURL+ClaudeServiceListRemoteSessionsProcedure,
@@ -143,16 +152,17 @@ func NewClaudeServiceClient(httpClient connect.HTTPClient, baseURL string, opts 
 
 // claudeServiceClient implements ClaudeServiceClient.
 type claudeServiceClient struct {
-	uploadClaudeSession   *connect.Client[v1.UploadClaudeSessionRequest, v1.UploadClaudeSessionResponse]
-	downloadClaudeSession *connect.Client[v1.DownloadClaudeSessionRequest, v1.DownloadClaudeSessionResponse]
-	listClaudeSessions    *connect.Client[v1.ListClaudeSessionsRequest, v1.ListClaudeSessionsResponse]
-	startRemoteSession    *connect.Client[v1.StartRemoteSessionRequest, v1.StartRemoteSessionResponse]
-	getRemoteSession      *connect.Client[v1.GetRemoteSessionRequest, v1.GetRemoteSessionResponse]
-	listRemoteSessions    *connect.Client[v1.ListRemoteSessionsRequest, v1.ListRemoteSessionsResponse]
-	killRemoteSession     *connect.Client[v1.KillRemoteSessionRequest, v1.KillRemoteSessionResponse]
-	addSecret             *connect.Client[v1.AddSecretRequest, v1.AddSecretResponse]
-	removeSecret          *connect.Client[v1.RemoveSecretRequest, v1.RemoveSecretResponse]
-	listSecrets           *connect.Client[v1.ListSecretsRequest, v1.ListSecretsResponse]
+	uploadClaudeSession     *connect.Client[v1.UploadClaudeSessionRequest, v1.UploadClaudeSessionResponse]
+	downloadClaudeSession   *connect.Client[v1.DownloadClaudeSessionRequest, v1.DownloadClaudeSessionResponse]
+	listClaudeSessions      *connect.Client[v1.ListClaudeSessionsRequest, v1.ListClaudeSessionsResponse]
+	startRemoteSession      *connect.Client[v1.StartRemoteSessionRequest, v1.StartRemoteSessionResponse]
+	getRemoteSession        *connect.Client[v1.GetRemoteSessionRequest, v1.GetRemoteSessionResponse]
+	streamRemoteSessionLogs *connect.Client[v1.StreamRemoteSessionLogsRequest, v1.StreamRemoteSessionLogsResponse]
+	listRemoteSessions      *connect.Client[v1.ListRemoteSessionsRequest, v1.ListRemoteSessionsResponse]
+	killRemoteSession       *connect.Client[v1.KillRemoteSessionRequest, v1.KillRemoteSessionResponse]
+	addSecret               *connect.Client[v1.AddSecretRequest, v1.AddSecretResponse]
+	removeSecret            *connect.Client[v1.RemoveSecretRequest, v1.RemoveSecretResponse]
+	listSecrets             *connect.Client[v1.ListSecretsRequest, v1.ListSecretsResponse]
 }
 
 // UploadClaudeSession calls depot.agent.v1.ClaudeService.UploadClaudeSession.
@@ -178,6 +188,11 @@ func (c *claudeServiceClient) StartRemoteSession(ctx context.Context, req *conne
 // GetRemoteSession calls depot.agent.v1.ClaudeService.GetRemoteSession.
 func (c *claudeServiceClient) GetRemoteSession(ctx context.Context, req *connect.Request[v1.GetRemoteSessionRequest]) (*connect.Response[v1.GetRemoteSessionResponse], error) {
 	return c.getRemoteSession.CallUnary(ctx, req)
+}
+
+// StreamRemoteSessionLogs calls depot.agent.v1.ClaudeService.StreamRemoteSessionLogs.
+func (c *claudeServiceClient) StreamRemoteSessionLogs(ctx context.Context, req *connect.Request[v1.StreamRemoteSessionLogsRequest]) (*connect.ServerStreamForClient[v1.StreamRemoteSessionLogsResponse], error) {
+	return c.streamRemoteSessionLogs.CallServerStream(ctx, req)
 }
 
 // ListRemoteSessions calls depot.agent.v1.ClaudeService.ListRemoteSessions.
@@ -212,6 +227,7 @@ type ClaudeServiceHandler interface {
 	ListClaudeSessions(context.Context, *connect.Request[v1.ListClaudeSessionsRequest]) (*connect.Response[v1.ListClaudeSessionsResponse], error)
 	StartRemoteSession(context.Context, *connect.Request[v1.StartRemoteSessionRequest]) (*connect.Response[v1.StartRemoteSessionResponse], error)
 	GetRemoteSession(context.Context, *connect.Request[v1.GetRemoteSessionRequest]) (*connect.Response[v1.GetRemoteSessionResponse], error)
+	StreamRemoteSessionLogs(context.Context, *connect.Request[v1.StreamRemoteSessionLogsRequest], *connect.ServerStream[v1.StreamRemoteSessionLogsResponse]) error
 	ListRemoteSessions(context.Context, *connect.Request[v1.ListRemoteSessionsRequest]) (*connect.Response[v1.ListRemoteSessionsResponse], error)
 	KillRemoteSession(context.Context, *connect.Request[v1.KillRemoteSessionRequest]) (*connect.Response[v1.KillRemoteSessionResponse], error)
 	AddSecret(context.Context, *connect.Request[v1.AddSecretRequest]) (*connect.Response[v1.AddSecretResponse], error)
@@ -248,6 +264,11 @@ func NewClaudeServiceHandler(svc ClaudeServiceHandler, opts ...connect.HandlerOp
 	claudeServiceGetRemoteSessionHandler := connect.NewUnaryHandler(
 		ClaudeServiceGetRemoteSessionProcedure,
 		svc.GetRemoteSession,
+		opts...,
+	)
+	claudeServiceStreamRemoteSessionLogsHandler := connect.NewServerStreamHandler(
+		ClaudeServiceStreamRemoteSessionLogsProcedure,
+		svc.StreamRemoteSessionLogs,
 		opts...,
 	)
 	claudeServiceListRemoteSessionsHandler := connect.NewUnaryHandler(
@@ -287,6 +308,8 @@ func NewClaudeServiceHandler(svc ClaudeServiceHandler, opts ...connect.HandlerOp
 			claudeServiceStartRemoteSessionHandler.ServeHTTP(w, r)
 		case ClaudeServiceGetRemoteSessionProcedure:
 			claudeServiceGetRemoteSessionHandler.ServeHTTP(w, r)
+		case ClaudeServiceStreamRemoteSessionLogsProcedure:
+			claudeServiceStreamRemoteSessionLogsHandler.ServeHTTP(w, r)
 		case ClaudeServiceListRemoteSessionsProcedure:
 			claudeServiceListRemoteSessionsHandler.ServeHTTP(w, r)
 		case ClaudeServiceKillRemoteSessionProcedure:
@@ -324,6 +347,10 @@ func (UnimplementedClaudeServiceHandler) StartRemoteSession(context.Context, *co
 
 func (UnimplementedClaudeServiceHandler) GetRemoteSession(context.Context, *connect.Request[v1.GetRemoteSessionRequest]) (*connect.Response[v1.GetRemoteSessionResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.agent.v1.ClaudeService.GetRemoteSession is not implemented"))
+}
+
+func (UnimplementedClaudeServiceHandler) StreamRemoteSessionLogs(context.Context, *connect.Request[v1.StreamRemoteSessionLogsRequest], *connect.ServerStream[v1.StreamRemoteSessionLogsResponse]) error {
+	return connect.NewError(connect.CodeUnimplemented, errors.New("depot.agent.v1.ClaudeService.StreamRemoteSessionLogs is not implemented"))
 }
 
 func (UnimplementedClaudeServiceHandler) ListRemoteSessions(context.Context, *connect.Request[v1.ListRemoteSessionsRequest]) (*connect.Response[v1.ListRemoteSessionsResponse], error) {

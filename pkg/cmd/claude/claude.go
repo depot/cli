@@ -229,7 +229,7 @@ Subcommands:
 					}
 				}
 
-				remoteOpts := &ClaudeRemoteOptions{
+				agentOpts := &AgentRemoteOptions{
 					SessionID:       sessionID,
 					OrgID:           orgID,
 					Token:           token,
@@ -242,8 +242,9 @@ Subcommands:
 					Stdin:           os.Stdin,
 					Stdout:          os.Stdout,
 					Stderr:          os.Stderr,
+					AgentType:       "claude",
 				}
-				return RunClaudeRemote(ctx, remoteOpts)
+				return RunAgentRemote(ctx, agentOpts)
 			} else {
 				return RunClaudeSession(ctx, opts)
 			}
@@ -331,10 +332,10 @@ func saveSession(ctx context.Context, client agentv1connect.ClaudeServiceClient,
 		claudeSessionID := filepath.Base(strings.TrimSuffix(sessionFilePath, ".jsonl"))
 
 		req := &agentv1.UploadClaudeSessionRequest{
-			SessionData:     data,
-			SessionId:       sessionID,
-			OrganizationId:  new(string),
-			Summary:         new(string),
+			SessionData:    data,
+			SessionId:      sessionID,
+			OrganizationId: new(string),
+			Summary:        new(string),
 			ClaudeSessionId: claudeSessionID,
 		}
 		if summary != "" {
