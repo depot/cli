@@ -49,7 +49,7 @@ func NewCmdGoCache() *cobra.Command {
 				return err
 			}
 
-			token, err = helpers.ResolveToken(ctx, token)
+			token, err = helpers.ResolveOrgAuth(ctx, token)
 			if err != nil {
 				return err
 			}

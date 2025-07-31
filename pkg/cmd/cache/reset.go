@@ -33,7 +33,7 @@ func NewCmdResetCache() *cobra.Command {
 			}
 
 			var err error
-			token, err = helpers.ResolveToken(context.Background(), token)
+			token, err = helpers.ResolveProjectAuth(context.Background(), token)
 			if err != nil {
 				return err
 			}

@@ -32,7 +32,7 @@ func NewCmdProjects(commandName, commandAlias string) *cobra.Command {
 		Aliases: []string{commandAlias},
 		Short:   "List depot projects",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			token, err := helpers.ResolveToken(context.Background(), token)
+			token, err := helpers.ResolveProjectAuth(context.Background(), token)
 			if err != nil {
 				return err
 			}

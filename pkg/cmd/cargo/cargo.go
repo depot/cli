@@ -52,8 +52,7 @@ func NewCmdCargo() *cobra.Command {
 				return fmt.Errorf("sccache not found in PATH: %w\n\nPlease install sccache: cargo install sccache", err)
 			}
 
-			// Get authentication token
-			token, err := helpers.ResolveToken(ctx, "")
+			token, err := helpers.ResolveOrgAuth(ctx, "")
 			if err != nil {
 				return fmt.Errorf("failed to resolve token: %w", err)
 			}

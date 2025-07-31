@@ -38,7 +38,7 @@ func NewCmdInit() *cobra.Command {
 				return fmt.Errorf("Project configuration %s already exists at path \"%s\", re-run with `--force` to overwrite", filepath.Base(existingFile), filepath.Dir(existingFile))
 			}
 
-			token, err = helpers.ResolveToken(context.Background(), token)
+			token, err = helpers.ResolveProjectAuth(context.Background(), token)
 			if err != nil {
 				return err
 			}

@@ -27,7 +27,7 @@ func NewCmdDelete() *cobra.Command {
 			ctx := cmd.Context()
 
 			// Resolve token first
-			token, err := helpers.ResolveToken(cmd.Context(), token)
+			token, err := helpers.ResolveProjectAuth(cmd.Context(), token)
 			if err != nil {
 				return err
 			}

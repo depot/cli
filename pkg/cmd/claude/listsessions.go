@@ -49,7 +49,7 @@ In interactive mode, pressing Enter on a session will start Claude with that ses
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
 
-			token, err := helpers.ResolveToken(ctx, token)
+			token, err := helpers.ResolveProjectAuth(ctx, token)
 			if err != nil {
 				return err
 			}
