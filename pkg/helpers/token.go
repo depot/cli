@@ -10,9 +10,11 @@ import (
 	"github.com/depot/cli/pkg/oidc"
 )
 
-func ResolveProjectAuth(ctx context.Context, token string) (string, error) {
-	if token != "" {
-		return token, nil
+func ResolveProjectAuth(ctx context.Context, tok string) (string, error) {
+	var token string
+
+	if tok != "" {
+		return tok, nil
 	}
 
 	if token == "" {
