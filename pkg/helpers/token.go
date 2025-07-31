@@ -10,6 +10,30 @@ import (
 	"github.com/depot/cli/pkg/oidc"
 )
 
+func ResolveOrgAuth(ctx context.Context, tok string) (string, error) {
+	if tok != "" {
+		return tok, nil
+	}
+
+	if token := os.Getenv("DEPOT_TOKEN"); token != "" {
+		return token, nil
+	}
+
+	if token := config.GetApiToken(); token != "" {
+		return token, nil
+	}
+
+	if token := resolveJITToken(); token != "" {
+		return token, nil
+	}
+
+	if IsTerminal() {
+		return authorizeDevice(ctx)
+	}
+
+	return "", nil
+}
+
 func ResolveProjectAuth(ctx context.Context, tok string) (string, error) {
 	if tok != "" {
 		return tok, nil
