@@ -23,21 +23,8 @@ func ResolveProjectAuth(ctx context.Context, tok string) (string, error) {
 		return token, nil
 	}
 
-	debug := os.Getenv("DEPOT_DEBUG_OIDC") != ""
-	for _, provider := range oidc.Providers {
-		if debug {
-			fmt.Printf("Trying OIDC provider %s\n", provider.Name())
-		}
-
-		token, err := provider.RetrieveToken(ctx)
-
-		if err != nil && debug {
-			fmt.Printf("OIDC provider %s failed: %v\n", provider.Name(), err)
-		}
-
-		if token != "" {
-			return token, nil
-		}
+	if token := resolveOIDCToken(ctx); token != "" {
+		return token, nil
 	}
 
 	if token := resolveJITToken(); token != "" {
@@ -64,6 +51,28 @@ func authorizeDevice(ctx context.Context) (string, error) {
 		return "", err
 	}
 	return tokenResponse.Token, nil
+}
+
+func resolveOIDCToken(ctx context.Context) string {
+	debug := os.Getenv("DEPOT_DEBUG_OIDC") != ""
+
+	for _, provider := range oidc.Providers {
+		if debug {
+			fmt.Printf("Trying OIDC provider %s\n", provider.Name())
+		}
+
+		token, err := provider.RetrieveToken(ctx)
+
+		if err != nil && debug {
+			fmt.Printf("OIDC provider %s failed: %v\n", provider.Name(), err)
+		}
+
+		if token != "" {
+			return token
+		}
+	}
+
+	return ""
 }
 
 func resolveJITToken() string {
