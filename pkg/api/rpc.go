@@ -44,6 +44,10 @@ func NewClaudeClient() agentv1connect.ClaudeServiceClient {
 	return agentv1connect.NewClaudeServiceClient(getHTTPClient(getBaseURL()), getBaseURL(), WithUserAgent())
 }
 
+func NewAgentClient() agentv1connect.AgentServiceClient {
+	return agentv1connect.NewAgentServiceClient(getHTTPClient(getBaseURL()), getBaseURL(), WithUserAgent())
+}
+
 func WithAuthentication[T any](req *connect.Request[T], token string) *connect.Request[T] {
 	req.Header().Add("Authorization", "Bearer "+token)
 	return req

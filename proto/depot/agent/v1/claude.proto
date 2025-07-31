@@ -1,8 +1,8 @@
 syntax = "proto3";
 
-import "google/protobuf/timestamp.proto";
-
 package depot.agent.v1;
+
+import "google/protobuf/timestamp.proto";
 
 service ClaudeService {
   rpc UploadClaudeSession(UploadClaudeSessionRequest) returns (UploadClaudeSessionResponse);
@@ -35,10 +35,13 @@ message DownloadClaudeSessionResponse {
 
 message ListClaudeSessionsRequest {
   optional string organization_id = 1;
+  optional int32 page_size = 2;
+  optional string page_token = 3;
 }
 
 message ListClaudeSessionsResponse {
   repeated ClaudeSession sessions = 1;
+  optional string next_page_token = 2;
 }
 
 message ClaudeSession {
