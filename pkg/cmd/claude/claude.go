@@ -333,10 +333,10 @@ func saveSession(ctx context.Context, client agentv1connect.ClaudeServiceClient,
 		claudeSessionID := filepath.Base(strings.TrimSuffix(sessionFilePath, ".jsonl"))
 
 		req := &agentv1.UploadClaudeSessionRequest{
-			SessionData:    data,
-			SessionId:      sessionID,
-			OrganizationId: new(string),
-			Summary:        new(string),
+			SessionData:     data,
+			SessionId:       sessionID,
+			OrganizationId:  new(string),
+			Summary:         new(string),
 			ClaudeSessionId: claudeSessionID,
 		}
 		if summary != "" {
