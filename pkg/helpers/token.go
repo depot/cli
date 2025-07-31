@@ -21,8 +21,8 @@ func ResolveProjectAuth(ctx context.Context, tok string) (string, error) {
 		return token, nil
 	}
 
-	if token == "" {
-		token = config.GetApiToken()
+	if token := config.GetApiToken(); token != "" {
+		return token, nil
 	}
 
 	if token == "" {
