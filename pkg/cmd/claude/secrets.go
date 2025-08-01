@@ -80,7 +80,7 @@ If --value is not provided, you will be prompted to enter the secret value secur
 				orgID = config.GetCurrentOrganization()
 			}
 
-			tokenVal, err := helpers.ResolveToken(ctx, token)
+			tokenVal, err := helpers.ResolveOrgAuth(ctx, token)
 			if err != nil {
 				return err
 			}
@@ -154,7 +154,7 @@ func NewCmdClaudeSecretsList() *cobra.Command {
 				orgID = config.GetCurrentOrganization()
 			}
 
-			tokenVal, err := helpers.ResolveToken(ctx, token)
+			tokenVal, err := helpers.ResolveOrgAuth(ctx, token)
 			if err != nil {
 				return err
 			}
@@ -273,7 +273,7 @@ func NewCmdClaudeSecretsRemove() *cobra.Command {
 				orgID = config.GetCurrentOrganization()
 			}
 
-			tokenVal, err := helpers.ResolveToken(ctx, token)
+			tokenVal, err := helpers.ResolveOrgAuth(ctx, token)
 			if err != nil {
 				return err
 			}
