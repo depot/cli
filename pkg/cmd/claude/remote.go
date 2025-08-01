@@ -44,7 +44,7 @@ func RunAgentRemote(ctx context.Context, opts *AgentRemoteOptions) error {
 		opts.Stderr = os.Stderr
 	}
 
-	token, err := helpers.ResolveToken(ctx, opts.Token)
+	token, err := helpers.ResolveOrgAuth(ctx, opts.Token)
 	if err != nil {
 		return err
 	}
