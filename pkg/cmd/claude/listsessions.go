@@ -61,11 +61,11 @@ In interactive mode, pressing Enter on a session will start Claude with that ses
 				orgID = os.Getenv("DEPOT_ORG_ID")
 			}
 
-			client := api.NewClaudeClient()
+			client := api.NewSessionClient()
 
 			isInteractive := output == "" && helpers.IsTerminal()
 
-			var allSessions []*agentv1.ClaudeSession
+			var allSessions []*agentv1.Session
 			currentPageToken := pageToken
 			maxPages := 5
 			pagesLoaded := 0
@@ -74,15 +74,15 @@ In interactive mode, pressing Enter on a session will start Claude with that ses
 				reqCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 				defer cancel()
 
-				req := &agentv1.ListClaudeSessionsRequest{}
-				if orgID != "" {
-					req.OrganizationId = &orgID
+				agentType := agentv1.AgentType_AGENT_TYPE_CLAUDE_CODE
+				req := &agentv1.ListSessionsRequest{
+					AgentType: &agentType,
 				}
 				if currentPageToken != "" {
 					req.PageToken = &currentPageToken
 				}
 
-				resp, err := client.ListClaudeSessions(reqCtx, api.WithAuthentication(connect.NewRequest(req), token))
+				resp, err := client.ListSessions(reqCtx, api.WithAuthenticationAndOrg(connect.NewRequest(req), token, orgID))
 				if err != nil {
 					return fmt.Errorf("failed to list sessions: %w", err)
 				}
@@ -166,7 +166,7 @@ In interactive mode, pressing Enter on a session will start Claude with that ses
 	return cmd
 }
 
-func chooseSession(sessions []*agentv1.ClaudeSession) (*agentv1.ClaudeSession, error) {
+func chooseSession(sessions []*agentv1.Session) (*agentv1.Session, error) {
 	if len(sessions) == 0 {
 		fmt.Println("No Claude sessions found")
 		return nil, nil
@@ -211,7 +211,7 @@ func chooseSession(sessions []*agentv1.ClaudeSession) (*agentv1.ClaudeSession, e
 }
 
 type sessionItem struct {
-	session *agentv1.ClaudeSession
+	session *agentv1.Session
 	summary string
 }
 
@@ -246,8 +246,8 @@ func (i sessionItem) FilterValue() string {
 
 type sessionListModel struct {
 	list     list.Model
-	sessions []*agentv1.ClaudeSession
-	choice   *agentv1.ClaudeSession
+	sessions []*agentv1.Session
+	choice   *agentv1.Session
 	ctrlC    bool
 }
 
@@ -283,7 +283,7 @@ func (m sessionListModel) View() string {
 	return docStyle.Render(m.list.View())
 }
 
-func sessionWriteJSON(sessions []*agentv1.ClaudeSession) error {
+func sessionWriteJSON(sessions []*agentv1.Session) error {
 	type sessionJSON struct {
 		SessionID string    `json:"session_id"`
 		Summary   string    `json:"summary,omitempty"`
@@ -313,7 +313,7 @@ func sessionWriteJSON(sessions []*agentv1.ClaudeSession) error {
 	return encoder.Encode(jsonSessions)
 }
 
-func sessionWriteCSV(sessions []*agentv1.ClaudeSession) error {
+func sessionWriteCSV(sessions []*agentv1.Session) error {
 	w := csv.NewWriter(os.Stdout)
 	if err := w.Write([]string{"SESSION_ID", "SUMMARY", "UPDATED_AT", "CREATED_AT"}); err != nil {
 		return err

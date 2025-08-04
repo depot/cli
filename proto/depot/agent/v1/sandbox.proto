@@ -1,0 +1,132 @@
+syntax = "proto3";
+
+package depot.agent.v1;
+
+import "depot/agent/v1/agent_types.proto";
+import "google/protobuf/timestamp.proto";
+
+service SandboxService {
+  rpc StartSandbox(StartSandboxRequest) returns (StartSandboxResponse);
+  rpc GetSandbox(GetSandboxRequest) returns (GetSandboxResponse);
+  rpc ListSandboxs(ListSandboxsRequest) returns (ListSandboxsResponse);
+  rpc KillSandbox(KillSandboxRequest) returns (KillSandboxResponse);
+  rpc StreamSandboxLogs(StreamSandboxLogsRequest) returns (stream StreamSandboxLogsResponse);
+
+  rpc AddSecret(AddSecretRequest) returns (AddSecretResponse);
+  rpc RemoveSecret(RemoveSecretRequest) returns (RemoveSecretResponse);
+  rpc ListSecrets(ListSecretsRequest) returns (ListSecretsResponse);
+}
+
+message StartSandboxRequest {
+  AgentType agent_type = 1;
+  optional string session_id = 2;
+  optional string resume_session_id = 3;
+  string argv = 4;
+  map<string, string> environment_variables = 5;
+  Context context = 6;
+
+  message Context {
+    oneof context {
+      GitContext git = 1;
+    }
+    message GitContext {
+      optional string secret_name = 1; // Name of the secret containing the Git credentials (optional for public repos)
+      string repository_url = 2;
+      optional string branch = 3;
+      optional string commit_hash = 4;
+    }
+  }
+}
+
+message StartSandboxResponse {
+  string sandbox_id = 1;
+  string session_id = 2;
+}
+
+message GetSandboxRequest {
+  string sandbox_id = 1;
+}
+
+message GetSandboxResponse {
+  Sandbox sandbox = 1;
+}
+
+message AddSecretRequest {
+  string secret_name = 1;
+  optional string secret_description = 2;
+  string secret_value = 3;
+  optional AgentType agent_type = 4;
+}
+
+message AddSecretResponse {}
+
+message RemoveSecretRequest {
+  string secret_name = 1;
+  optional AgentType agent_type = 2;
+}
+
+message RemoveSecretResponse {}
+
+message ListSecretsRequest {
+  optional AgentType agent_type = 1;
+}
+
+message ListSecretsResponse {
+  repeated Secret secrets = 1;
+}
+
+message Secret {
+  string name = 1;
+  optional string description = 2;
+  optional google.protobuf.Timestamp last_modified = 3;
+}
+
+message ListSandboxsRequest {
+  optional int32 page_size = 1;
+  optional string page_token = 2;
+  optional AgentType agent_type = 3; // Filter by agent type
+}
+
+message ListSandboxsResponse {
+  repeated Sandbox sandboxes = 1;
+  optional string next_page_token = 2;
+}
+
+message Sandbox {
+  string sandbox_id = 1;
+  AgentType agent_type = 2;
+  string organization_id = 3;
+  string session_id = 4;
+  google.protobuf.Timestamp created_at = 5;
+  optional google.protobuf.Timestamp started_at = 6;
+  optional google.protobuf.Timestamp completed_at = 7;
+  optional int32 exit_code = 8;
+  optional double duration_seconds = 9;
+  optional string error_message = 10;
+}
+
+message KillSandboxRequest {
+  string sandbox_id = 1;
+}
+
+message KillSandboxResponse {}
+
+message StreamSandboxLogsRequest {
+  string sandbox_id = 1;
+}
+
+message StreamSandboxLogsResponse {
+  LogEvent event = 1;
+
+  message LogEvent {
+    bytes data = 1;
+    google.protobuf.Timestamp timestamp = 2;
+    LogType type = 3;
+
+    enum LogType {
+      LOG_TYPE_UNSPECIFIED = 0;
+      LOG_TYPE_STDOUT = 1;
+      LOG_TYPE_STDERR = 2;
+    }
+  }
+}

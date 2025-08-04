@@ -48,8 +48,24 @@ func NewAgentClient() agentv1connect.AgentServiceClient {
 	return agentv1connect.NewAgentServiceClient(getHTTPClient(getBaseURL()), getBaseURL(), WithUserAgent())
 }
 
+func NewSessionClient() agentv1connect.SessionServiceClient {
+	return agentv1connect.NewSessionServiceClient(getHTTPClient(getBaseURL()), getBaseURL(), WithUserAgent())
+}
+
+func NewSandboxClient() agentv1connect.SandboxServiceClient {
+	return agentv1connect.NewSandboxServiceClient(getHTTPClient(getBaseURL()), getBaseURL(), WithUserAgent())
+}
+
 func WithAuthentication[T any](req *connect.Request[T], token string) *connect.Request[T] {
 	req.Header().Add("Authorization", "Bearer "+token)
+	return req
+}
+
+func WithAuthenticationAndOrg[T any](req *connect.Request[T], token, orgID string) *connect.Request[T] {
+	req.Header().Add("Authorization", "Bearer "+token)
+	if orgID != "" {
+		req.Header().Add("x-depot-org", orgID)
+	}
 	return req
 }
 

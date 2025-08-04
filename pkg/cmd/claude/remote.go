@@ -25,12 +25,10 @@ type AgentRemoteOptions struct {
 	Branch          string
 	GitSecret       string
 	ResumeSessionID string
-	RemoteSessionID string
 	Wait            bool
 	Stdin           io.Reader
 	Stdout          io.Writer
 	Stderr          io.Writer
-	AgentType       string
 }
 
 func RunAgentRemote(ctx context.Context, opts *AgentRemoteOptions) error {
@@ -56,64 +54,45 @@ func RunAgentRemote(ctx context.Context, opts *AgentRemoteOptions) error {
 		opts.OrgID = os.Getenv("DEPOT_ORG_ID")
 	}
 
-	client := api.NewAgentClient()
+	sandboxClient := api.NewSandboxClient()
 
-	if opts.RemoteSessionID != "" {
-		if opts.SessionID == "" {
-			return fmt.Errorf("--session-id is required when using --sandbox-id")
+	if opts.ResumeSessionID != "" {
+		// For remote sessions, we need to check if there's an existing sandbox for this session
+		agentType := agentv1.AgentType_AGENT_TYPE_CLAUDE_CODE
+		listReq := &agentv1.ListSandboxsRequest{
+			AgentType: &agentType,
 		}
-
-		// Check if the session is still running
-		getReq := &agentv1.GetRemoteAgentSessionRequest{
-			SessionId:       opts.SessionID,
-			RemoteSessionId: opts.RemoteSessionID,
-			OrganizationId:  opts.OrgID,
-		}
-		getResp, err := client.GetRemoteSession(ctx, api.WithAuthentication(connect.NewRequest(getReq), token))
+		listResp, err := sandboxClient.ListSandboxs(ctx, api.WithAuthenticationAndOrg(connect.NewRequest(listReq), token, opts.OrgID))
 		if err != nil {
-			return fmt.Errorf("unable to check remote session status: %w", err)
+			return fmt.Errorf("failed to list sandboxes: %w", err)
 		}
 
-		if getResp.Msg.CompletedAt == nil {
+		var foundSandbox *agentv1.Sandbox
+		for _, sandbox := range listResp.Msg.Sandboxes {
+			if sandbox.SessionId == opts.ResumeSessionID {
+				foundSandbox = sandbox
+				break
+			}
+		}
+
+		if foundSandbox != nil && foundSandbox.CompletedAt == nil {
 			if !opts.Wait {
-				fmt.Fprintf(opts.Stdout, "\n✓ Claude sandbox is already running!\n")
-				fmt.Fprintf(opts.Stdout, "Session ID: %s\n", opts.SessionID)
-				fmt.Fprintf(opts.Stdout, "Sandbox ID: %s\n", opts.RemoteSessionID)
+				fmt.Fprintf(opts.Stdout, "\n✓ Claude sandbox is already running for session %s!\n", opts.ResumeSessionID)
 				fmt.Fprintf(opts.Stdout, "\nTo wait for this session to complete, run:\n")
-				fmt.Fprintf(opts.Stdout, "  depot claude --wait --session-id %s --sandbox-id %s\n", opts.SessionID, opts.RemoteSessionID)
+				fmt.Fprintf(opts.Stdout, "  depot claude --wait --resume %s\n", opts.ResumeSessionID)
 				return nil
 			}
 
-			fmt.Fprintf(opts.Stderr, "Claude sandbox %s is already running, waiting for it to complete...\n", opts.RemoteSessionID)
-			fmt.Fprintf(opts.Stderr, "\nYou can view this session:\n")
-			fmt.Fprintf(opts.Stderr, "- Online: https://depot.dev/orgs/%s/claude/%s\n", opts.OrgID, opts.SessionID)
-			fmt.Fprintf(opts.Stderr, "- Locally: depot claude --local --resume %s\n", opts.SessionID)
-
-			// Since the session is already running, skip the wait phase and go directly to streaming
-			return streamSession(ctx, client, token, opts.SessionID, opts.RemoteSessionID, opts.OrgID, opts.Stdout, opts.Stderr)
-		} else {
-			fmt.Fprintf(opts.Stdout, "Sandbox %s has already completed\n", opts.RemoteSessionID)
-			if getResp.Msg.ExitCode != nil {
-				fmt.Fprintf(opts.Stdout, "Exit code: %d\n", *getResp.Msg.ExitCode)
-			}
-			fmt.Fprintf(opts.Stdout, "\nYou can view this session:\n")
-			fmt.Fprintf(opts.Stdout, "- Online: https://depot.dev/orgs/%s/claude/%s\n", opts.OrgID, opts.SessionID)
-			fmt.Fprintf(opts.Stdout, "- Locally: depot claude --local --resume %s\n", opts.SessionID)
-			return nil
+			fmt.Fprintf(opts.Stderr, "Claude sandbox for session %s is already running, waiting for it to complete...\n", opts.ResumeSessionID)
+			return streamSandboxLogs(ctx, sandboxClient, token, foundSandbox.SandboxId, foundSandbox.SessionId, foundSandbox.OrganizationId, opts.Stdout, opts.Stderr)
 		}
 	}
 
-	if opts.ResumeSessionID != "" {
-		return fmt.Errorf("resume by session ID is not supported for remote sessions. Use both --session-id and --sandbox-id to resume")
-	}
-
-	req := &agentv1.StartRemoteAgentSessionRequest{
+	agentType := agentv1.AgentType_AGENT_TYPE_CLAUDE_CODE
+	req := &agentv1.StartSandboxRequest{
 		Argv:                 shellEscapeArgs(opts.ClaudeArgs),
 		EnvironmentVariables: map[string]string{},
-		AgentType:            &opts.AgentType,
-	}
-	if opts.OrgID != "" {
-		req.OrganizationId = &opts.OrgID
+		AgentType:            agentType,
 	}
 	if opts.SessionID != "" {
 		req.SessionId = &opts.SessionID
@@ -127,41 +106,40 @@ func RunAgentRemote(ctx context.Context, opts *AgentRemoteOptions) error {
 		if opts.Branch != "" {
 			gitBranch = opts.Branch
 		}
-		gitContext := &agentv1.StartRemoteAgentSessionRequest_Context_GitContext{
+		gitContext := &agentv1.StartSandboxRequest_Context_GitContext{
 			RepositoryUrl: gitURL,
 			Branch:        &gitBranch,
 		}
 		if opts.GitSecret != "" {
 			gitContext.SecretName = &opts.GitSecret
 		}
-		req.Context = &agentv1.StartRemoteAgentSessionRequest_Context{
-			Context: &agentv1.StartRemoteAgentSessionRequest_Context_Git{
+		req.Context = &agentv1.StartSandboxRequest_Context{
+			Context: &agentv1.StartSandboxRequest_Context_Git{
 				Git: gitContext,
 			},
 		}
 	}
 
 	invocationTime := time.Now()
-	res, err := client.StartRemoteSession(ctx, api.WithAuthentication(connect.NewRequest(req), token))
+	res, err := sandboxClient.StartSandbox(ctx, api.WithAuthenticationAndOrg(connect.NewRequest(req), token, opts.OrgID))
 	if err != nil {
 		return fmt.Errorf("unable to start Claude sandbox: %w", err)
 	}
 
 	sessionID := res.Msg.SessionId
-	remoteSessionID := res.Msg.RemoteSessionId
+	sandboxID := res.Msg.SandboxId
 
 	// If not waiting, just print the URL and exit
 	if !opts.Wait {
 		fmt.Fprintf(opts.Stdout, "\n✓ Claude sandbox started!\n")
 		fmt.Fprintf(opts.Stdout, "Session ID: %s\n", sessionID)
-		fmt.Fprintf(opts.Stdout, "Sandbox ID: %s\n", remoteSessionID)
 		fmt.Fprintf(opts.Stdout, "\nTo view the Claude session, visit: https://depot.dev/orgs/%s/claude/%s\n", opts.OrgID, sessionID)
 		fmt.Fprintf(opts.Stdout, "\nTo wait for this session to complete, run:\n")
-		fmt.Fprintf(opts.Stdout, "  depot claude --wait --session-id %s --sandbox-id %s\n", sessionID, remoteSessionID)
+		fmt.Fprintf(opts.Stdout, "  depot claude --wait --session-id %s\n", sessionID)
 		return nil
 	}
 
-	return waitAndStreamSession(ctx, client, token, sessionID, remoteSessionID, opts.OrgID, invocationTime, opts.Stdout, opts.Stderr)
+	return waitAndStreamSandbox(ctx, sandboxClient, token, sessionID, sandboxID, opts.OrgID, invocationTime, opts.Stdout, opts.Stderr)
 }
 
 func isGitURL(s string) bool {
@@ -183,7 +161,7 @@ func parseGitURL(s string) (url, branch string) {
 	return url, branch
 }
 
-func waitForSession(ctx context.Context, client agentv1connect.AgentServiceClient, token, sessionID, remoteSessionID, orgID string, invocationTime time.Time, stdout io.Writer) error {
+func waitForSandbox(ctx context.Context, client agentv1connect.SandboxServiceClient, token, sessionID, sandboxID, orgID string, invocationTime time.Time, stdout io.Writer) error {
 	fmt.Fprintf(stdout, "\nStarting Claude sandbox for session id %s...\n", sessionID)
 	fmt.Fprintf(stdout, "\nYou can view this session:\n")
 	fmt.Fprintf(stdout, "- Online: https://depot.dev/orgs/%s/claude/%s\n", orgID, sessionID)
@@ -199,12 +177,10 @@ func waitForSession(ctx context.Context, client agentv1connect.AgentServiceClien
 			fmt.Fprintf(stdout, "The Claude sandbox will continue running in the background.\n")
 			return nil
 		case <-ticker.C:
-			getReq := &agentv1.GetRemoteAgentSessionRequest{
-				SessionId:       sessionID,
-				RemoteSessionId: remoteSessionID,
-				OrganizationId:  orgID,
+			getReq := &agentv1.GetSandboxRequest{
+				SandboxId: sandboxID,
 			}
-			getResp, err := client.GetRemoteSession(ctx, api.WithAuthentication(connect.NewRequest(getReq), token))
+			getResp, err := client.GetSandbox(ctx, api.WithAuthenticationAndOrg(connect.NewRequest(getReq), token, orgID))
 			if err != nil {
 				var connectErr *connect.Error
 				if errors.As(err, &connectErr) && connectErr.Code() == connect.CodeNotFound {
@@ -213,10 +189,11 @@ func waitForSession(ctx context.Context, client agentv1connect.AgentServiceClien
 				return fmt.Errorf("failed to get Claude sandbox status: %w", err)
 			}
 
-			if getResp.Msg.StartedAt == nil {
+			sandbox := getResp.Msg.Sandbox
+			if sandbox.StartedAt == nil {
 				continue
 			}
-			sessionStartTime := getResp.Msg.StartedAt.AsTime()
+			sessionStartTime := sandbox.StartedAt.AsTime()
 			// Skip if this session started before our invocation
 			if !sessionStartTime.After(invocationTime) {
 				continue
@@ -224,22 +201,20 @@ func waitForSession(ctx context.Context, client agentv1connect.AgentServiceClien
 
 			fmt.Fprintf(stdout, "\n✓ Claude sandbox started!\n")
 			fmt.Fprintf(stdout, "Session ID: %s\n", sessionID)
-			fmt.Fprintf(stdout, "Sandbox ID: %s\n", remoteSessionID)
 			return nil
 		}
 	}
 }
 
-func streamSession(ctx context.Context, client agentv1connect.AgentServiceClient, token, sessionID, remoteSessionID, orgID string, stdout, stderr io.Writer) error {
+func streamSandboxLogs(ctx context.Context, client agentv1connect.SandboxServiceClient, token, sandboxID, sessionID, orgID string, stdout, stderr io.Writer) error {
 	fmt.Fprintf(stdout, "==================== REMOTE CLAUDE SESSION ====================\n")
 
 	// Start streaming logs
-	streamReq := &agentv1.StreamRemoteAgentSessionLogsRequest{
-		RemoteSessionId: remoteSessionID,
-		OrganizationId:  &orgID,
+	streamReq := &agentv1.StreamSandboxLogsRequest{
+		SandboxId: sandboxID,
 	}
 
-	stream, err := client.StreamRemoteSessionLogs(ctx, api.WithAuthentication(connect.NewRequest(streamReq), token))
+	stream, err := client.StreamSandboxLogs(ctx, api.WithAuthenticationAndOrg(connect.NewRequest(streamReq), token, orgID))
 	if err != nil {
 		return fmt.Errorf("failed to stream Claude sandbox logs: %w", err)
 	}
@@ -251,7 +226,7 @@ func streamSession(ctx context.Context, client agentv1connect.AgentServiceClient
 		if msg.Event != nil {
 			// Write to appropriate output based on log type
 			switch msg.Event.Type {
-			case agentv1.StreamRemoteAgentSessionLogsResponse_LogEvent_STDERR:
+			case agentv1.StreamSandboxLogsResponse_LogEvent_LOG_TYPE_STDERR:
 				stderr.Write(msg.Event.Data)
 			default: // STDOUT or unspecified
 				stdout.Write(msg.Event.Data)
@@ -265,35 +240,34 @@ func streamSession(ctx context.Context, client agentv1connect.AgentServiceClient
 
 	fmt.Fprintf(stdout, "\n==================== END REMOTE CLAUDE SESSION ====================\n")
 
-	getReq := &agentv1.GetRemoteAgentSessionRequest{
-		SessionId:       sessionID,
-		RemoteSessionId: remoteSessionID,
-		OrganizationId:  orgID,
+	getReq := &agentv1.GetSandboxRequest{
+		SandboxId: sandboxID,
 	}
-	getResp, err := client.GetRemoteSession(ctx, api.WithAuthentication(connect.NewRequest(getReq), token))
+	getResp, err := client.GetSandbox(ctx, api.WithAuthentication(connect.NewRequest(getReq), token))
 	if err != nil {
 		return fmt.Errorf("failed to get final Claude sandbox status: %w", err)
 	}
 
-	if getResp.Msg.CompletedAt != nil {
-		if getResp.Msg.ExitCode != nil && *getResp.Msg.ExitCode != 0 {
-			return fmt.Errorf("Claude sandbox exited with code %d", *getResp.Msg.ExitCode)
+	sandbox := getResp.Msg.Sandbox
+	if sandbox.CompletedAt != nil {
+		if sandbox.ExitCode != nil && *sandbox.ExitCode != 0 {
+			return fmt.Errorf("Claude sandbox exited with code %d", *sandbox.ExitCode)
 		}
 	}
 
 	return nil
 }
 
-func waitAndStreamSession(ctx context.Context, client agentv1connect.AgentServiceClient, token, sessionID, remoteSessionID, orgID string, invocationTime time.Time, stdout, stderr io.Writer) error {
+func waitAndStreamSandbox(ctx context.Context, client agentv1connect.SandboxServiceClient, token, sessionID, sandboxID, orgID string, invocationTime time.Time, stdout, stderr io.Writer) error {
 	// Wait for session to start with a timeout
 	waitCtx, cancel := context.WithTimeout(ctx, 15*time.Minute)
 	defer cancel()
 
-	if err := waitForSession(waitCtx, client, token, sessionID, remoteSessionID, orgID, invocationTime, stdout); err != nil {
+	if err := waitForSandbox(waitCtx, client, token, sessionID, sandboxID, orgID, invocationTime, stdout); err != nil {
 		return err
 	}
 
-	return streamSession(ctx, client, token, sessionID, remoteSessionID, orgID, stdout, stderr)
+	return streamSandboxLogs(ctx, client, token, sandboxID, sessionID, orgID, stdout, stderr)
 }
 
 // shellEscapeArgs properly escapes shell arguments to be passed via command line
