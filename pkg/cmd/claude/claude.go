@@ -249,7 +249,7 @@ Subcommands:
 					Stdin:           os.Stdin,
 					Stdout:          os.Stdout,
 					Stderr:          os.Stderr,
-					}
+				}
 				return RunAgentRemote(ctx, agentOpts)
 			} else {
 				return RunClaudeSession(ctx, opts)
