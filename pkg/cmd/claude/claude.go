@@ -32,7 +32,6 @@ func NewCmdClaude() *cobra.Command {
 		orgID           string
 		token           string
 		resumeSessionID string
-		sandboxID       string
 		output          string
 		local           bool
 		repository      *string
@@ -105,6 +104,18 @@ Subcommands:
 			}
 			ctx := cmd.Context()
 
+			// Check if we're running inside a sandbox
+			sandboxID := os.Getenv("DEPOT_SANDBOX_ID")
+			if sandboxID != "" {
+				// Force local mode when running inside a sandbox
+				local = true
+				defer func() {
+					if err := shutdownSandbox(ctx, sandboxID); err != nil {
+						fmt.Fprintf(os.Stderr, "Warning: failed to shutdown sandbox: %v\n", err)
+					}
+				}()
+			}
+
 			claudeArgs := []string{}
 			for i := 0; i < len(args); i++ {
 				arg := args[i]
@@ -156,20 +167,11 @@ Subcommands:
 					} else {
 						return fmt.Errorf("--resume flag requires a session ID")
 					}
-				case "--sandbox-id":
-					if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
-						sandboxID = args[i+1]
-						i++
-					} else {
-						return fmt.Errorf("--sandbox-id flag requires a sandbox ID")
-					}
 				default:
 					if strings.HasPrefix(arg, "--session-id=") {
 						sessionID = strings.TrimPrefix(arg, "--session-id=")
 					} else if strings.HasPrefix(arg, "--resume=") {
 						resumeSessionID = strings.TrimPrefix(arg, "--resume=")
-					} else if strings.HasPrefix(arg, "--sandbox-id=") {
-						sandboxID = strings.TrimPrefix(arg, "--sandbox-id=")
 					} else if strings.HasPrefix(arg, "--org=") {
 						orgID = strings.TrimPrefix(arg, "--org=")
 					} else if strings.HasPrefix(arg, "--token=") {
@@ -233,6 +235,11 @@ Subcommands:
 			}
 
 			if !local {
+				// Check if we're already in a sandbox - prevent recursive remote sessions
+				if sandboxID != "" {
+					return fmt.Errorf("cannot start a remote session from within a sandbox")
+				}
+
 				// Default repository to current git remote only if --repository flag was specified with empty value
 				var repoValue string
 				if repository != nil {
@@ -255,12 +262,10 @@ Subcommands:
 					Branch:          branch,
 					GitSecret:       gitSecret,
 					ResumeSessionID: resumeSessionID,
-					RemoteSessionID: sandboxID,
 					Wait:            wait,
 					Stdin:           os.Stdin,
 					Stdout:          os.Stdout,
 					Stderr:          os.Stderr,
-					AgentType:       "claude",
 				}
 				return RunAgentRemote(ctx, agentOpts)
 			} else {
@@ -284,8 +289,8 @@ Subcommands:
 }
 
 // returns the session file UUID that claude should resume from
-func resumeSession(ctx context.Context, client agentv1connect.ClaudeServiceClient, token, sessionID, sessionDir, cwd, orgID string, retryCount int, retryDelay time.Duration) (string, error) {
-	var resp *connect.Response[agentv1.DownloadClaudeSessionResponse]
+func resumeSession(ctx context.Context, client agentv1connect.SessionServiceClient, token, sessionID, sessionDir, cwd, orgID string, retryCount int, retryDelay time.Duration) (string, error) {
+	var resp *connect.Response[agentv1.DownloadSessionResponse]
 	var lastErr error
 
 	for i := range retryCount {
@@ -293,15 +298,11 @@ func resumeSession(ctx context.Context, client agentv1connect.ClaudeServiceClien
 			time.Sleep(retryDelay)
 		}
 
-		req := &agentv1.DownloadClaudeSessionRequest{
-			SessionId:      sessionID,
-			OrganizationId: new(string),
-		}
-		if orgID != "" {
-			req.OrganizationId = &orgID
+		req := &agentv1.DownloadSessionRequest{
+			SessionId: sessionID,
 		}
 
-		resp, lastErr = client.DownloadClaudeSession(ctx, api.WithAuthentication(connect.NewRequest(req), token))
+		resp, lastErr = client.DownloadSession(ctx, api.WithAuthenticationAndOrg(connect.NewRequest(req), token, orgID))
 		if lastErr == nil {
 			break
 		}
@@ -319,7 +320,8 @@ func resumeSession(ctx context.Context, client agentv1connect.ClaudeServiceClien
 
 	reader := bytes.NewReader(resp.Msg.SessionData)
 
-	sessionFilePath := filepath.Join(projectDir, fmt.Sprintf("%s.jsonl", resp.Msg.ClaudeSessionId))
+	claudeSessionID := resp.Msg.ToolSessionId
+	sessionFilePath := filepath.Join(projectDir, fmt.Sprintf("%s.jsonl", claudeSessionID))
 	out, err := os.Create(sessionFilePath)
 	if err != nil {
 		return "", fmt.Errorf("failed to create session file: %w", err)
@@ -330,10 +332,10 @@ func resumeSession(ctx context.Context, client agentv1connect.ClaudeServiceClien
 		return "", fmt.Errorf("failed to write session file: %w", err)
 	}
 
-	return resp.Msg.ClaudeSessionId, nil
+	return claudeSessionID, nil
 }
 
-func saveSession(ctx context.Context, client agentv1connect.ClaudeServiceClient, token, sessionID, sessionFilePath string, retryCount int, retryDelay time.Duration, orgID string) error {
+func saveSession(ctx context.Context, client agentv1connect.SessionServiceClient, token, sessionID, sessionFilePath string, retryCount int, retryDelay time.Duration, orgID string) error {
 	data, err := os.ReadFile(sessionFilePath)
 	if err != nil {
 		return fmt.Errorf("failed to read session file: %w", err)
@@ -349,21 +351,18 @@ func saveSession(ctx context.Context, client agentv1connect.ClaudeServiceClient,
 
 		claudeSessionID := filepath.Base(strings.TrimSuffix(sessionFilePath, ".jsonl"))
 
-		req := &agentv1.UploadClaudeSessionRequest{
-			SessionData:     data,
-			SessionId:       sessionID,
-			OrganizationId:  new(string),
-			Summary:         new(string),
-			ClaudeSessionId: claudeSessionID,
+		req := &agentv1.UploadSessionRequest{
+			SessionData:   data,
+			SessionId:     sessionID,
+			Summary:       new(string),
+			ToolSessionId: claudeSessionID,
+			AgentType:     agentv1.AgentType_AGENT_TYPE_CLAUDE_CODE,
 		}
 		if summary != "" {
 			req.Summary = &summary
 		}
-		if orgID != "" {
-			req.OrganizationId = &orgID
-		}
 
-		_, err := client.UploadClaudeSession(ctx, api.WithAuthentication(connect.NewRequest(req), token))
+		_, err := client.UploadSession(ctx, api.WithAuthenticationAndOrg(connect.NewRequest(req), token, orgID))
 		if err != nil {
 			lastErr = err
 			continue
@@ -422,7 +421,7 @@ func convertPathToProjectName(path string) string {
 }
 
 // continuouslySaveSessionFile monitors the project directory for new or changed session files and automatically saves them
-func continuouslySaveSessionFile(ctx context.Context, projectDir string, client agentv1connect.ClaudeServiceClient, token, sessionID, orgID string) error {
+func continuouslySaveSessionFile(ctx context.Context, projectDir string, client agentv1connect.SessionServiceClient, token, sessionID, orgID string) error {
 	if err := os.MkdirAll(projectDir, 0755); err != nil {
 		return fmt.Errorf("failed to create project directory: %w", err)
 	}
@@ -526,7 +525,7 @@ func RunClaudeSession(ctx context.Context, opts *ClaudeSessionOptions) error {
 		opts.OrgID = os.Getenv("DEPOT_ORG_ID")
 	}
 
-	client := api.NewClaudeClient()
+	client := api.NewSessionClient()
 
 	// early auth check to prevent starting Claude if saving or resuming will fail
 	if err := verifyAuthentication(ctx, client, token, opts.OrgID); err != nil {
@@ -647,15 +646,28 @@ func extractSummaryFromSession(data []byte) string {
 
 // verifyAuthentication performs an early auth check by calling the list-sessions API
 // this prevents starting Claude if authentication or organization access will fail
-func verifyAuthentication(ctx context.Context, client agentv1connect.ClaudeServiceClient, token, orgID string) error {
-	req := &agentv1.ListClaudeSessionsRequest{}
-	if orgID != "" {
-		req.OrganizationId = &orgID
-	}
+func verifyAuthentication(ctx context.Context, client agentv1connect.SessionServiceClient, token, orgID string) error {
+	req := &agentv1.ListSessionsRequest{}
 
-	_, err := client.ListClaudeSessions(ctx, api.WithAuthentication(connect.NewRequest(req), token))
+	_, err := client.ListSessions(ctx, api.WithAuthenticationAndOrg(connect.NewRequest(req), token, orgID))
 	if err != nil {
 		return fmt.Errorf("authentication failed: %w", err)
+	}
+
+	return nil
+}
+
+// shutdownSandbox calls the Shutdown API to gracefully terminate and snapshot the sandbox
+func shutdownSandbox(ctx context.Context, sandboxID string) error {
+	client := api.NewSandboxClient()
+
+	req := &agentv1.ShutdownRequest{
+		SandboxId: sandboxID,
+	}
+
+	_, err := client.Shutdown(ctx, connect.NewRequest(req))
+	if err != nil {
+		return fmt.Errorf("failed to shutdown sandbox: %w", err)
 	}
 
 	return nil

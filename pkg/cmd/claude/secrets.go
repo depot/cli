@@ -96,19 +96,18 @@ If --value is not provided, you will be prompted to enter the secret value secur
 				}
 			}
 
-			client := api.NewAgentClient()
-			req := &agentv1.AddAgentSecretRequest{
+			client := api.NewSandboxClient()
+			agentType := agentv1.AgentType_AGENT_TYPE_CLAUDE_CODE
+			req := &agentv1.AddSecretRequest{
 				SecretName:  secretName,
 				SecretValue: secretValue,
-			}
-			if orgID != "" {
-				req.OrganizationId = &orgID
+				AgentType:   &agentType,
 			}
 			if description != "" {
 				req.SecretDescription = &description
 			}
 
-			_, err = client.AddSecret(ctx, api.WithAuthentication(connect.NewRequest(req), tokenVal))
+			_, err = client.AddSecret(ctx, api.WithAuthenticationAndOrg(connect.NewRequest(req), tokenVal, orgID))
 			if err != nil {
 				return fmt.Errorf("failed to add secret: %w", err)
 			}
@@ -162,14 +161,14 @@ func NewCmdClaudeSecretsList() *cobra.Command {
 				return fmt.Errorf("missing API token, please run `depot login`")
 			}
 
-			client := api.NewAgentClient()
-			req := &agentv1.ListAgentSecretsRequest{}
-			if orgID != "" {
-				req.OrganizationId = &orgID
+			client := api.NewSandboxClient()
+			agentType := agentv1.AgentType_AGENT_TYPE_CLAUDE_CODE
+			req := &agentv1.ListSecretsRequest{
+				AgentType: &agentType,
 			}
 
 			// List secrets
-			resp, err := client.ListSecrets(ctx, api.WithAuthentication(connect.NewRequest(req), tokenVal))
+			resp, err := client.ListSecrets(ctx, api.WithAuthenticationAndOrg(connect.NewRequest(req), tokenVal, orgID))
 			if err != nil {
 				return fmt.Errorf("failed to list secrets: %w", err)
 			}
@@ -295,15 +294,14 @@ func NewCmdClaudeSecretsRemove() *cobra.Command {
 				}
 			}
 
-			client := api.NewAgentClient()
-			req := &agentv1.RemoveAgentSecretRequest{
+			client := api.NewSandboxClient()
+			agentType := agentv1.AgentType_AGENT_TYPE_CLAUDE_CODE
+			req := &agentv1.RemoveSecretRequest{
 				SecretName: secretName,
-			}
-			if orgID != "" {
-				req.OrganizationId = &orgID
+				AgentType:  &agentType,
 			}
 
-			_, err = client.RemoveSecret(ctx, api.WithAuthentication(connect.NewRequest(req), tokenVal))
+			_, err = client.RemoveSecret(ctx, api.WithAuthenticationAndOrg(connect.NewRequest(req), tokenVal, orgID))
 			if err != nil {
 				return fmt.Errorf("failed to remove secret: %w", err)
 			}

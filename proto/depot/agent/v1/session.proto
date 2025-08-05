@@ -1,0 +1,53 @@
+syntax = "proto3";
+
+package depot.agent.v1;
+
+import "depot/agent/v1/agent_types.proto";
+import "google/protobuf/timestamp.proto";
+
+service SessionService {
+  rpc UploadSession(UploadSessionRequest) returns (UploadSessionResponse);
+  rpc DownloadSession(DownloadSessionRequest) returns (DownloadSessionResponse);
+  rpc ListSessions(ListSessionsRequest) returns (ListSessionsResponse);
+}
+
+message UploadSessionRequest {
+  string session_id = 1;
+  bytes session_data = 2;
+  AgentType agent_type = 3;
+  optional string summary = 4;
+  string tool_session_id = 5;
+}
+
+message UploadSessionResponse {
+  string session_url = 1;
+}
+
+message DownloadSessionRequest {
+  string session_id = 1;
+}
+
+message DownloadSessionResponse {
+  bytes session_data = 1;
+  optional string summary = 2;
+  string tool_session_id = 3;
+}
+
+message ListSessionsRequest {
+  optional int32 page_size = 1;
+  optional string page_token = 2;
+  optional AgentType agent_type = 3;
+}
+
+message ListSessionsResponse {
+  repeated Session sessions = 1;
+  optional string next_page_token = 2;
+}
+
+message Session {
+  string session_id = 1;
+  AgentType agent_type = 2;
+  google.protobuf.Timestamp updated_at = 3;
+  google.protobuf.Timestamp created_at = 4;
+  optional string summary = 5;
+}
