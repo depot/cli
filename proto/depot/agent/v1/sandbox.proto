@@ -15,6 +15,7 @@ service SandboxService {
   rpc AddSecret(AddSecretRequest) returns (AddSecretResponse);
   rpc RemoveSecret(RemoveSecretRequest) returns (RemoveSecretResponse);
   rpc ListSecrets(ListSecretsRequest) returns (ListSecretsResponse);
+  rpc Shutdown(ShutdownRequest) returns (ShutdownResponse);
 }
 
 message StartSandboxRequest {
@@ -130,3 +131,9 @@ message StreamSandboxLogsResponse {
     }
   }
 }
+
+message ShutdownRequest {
+  string sandbox_id = 1;
+}
+
+message ShutdownResponse {}

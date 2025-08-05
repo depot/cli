@@ -104,6 +104,18 @@ Subcommands:
 			}
 			ctx := cmd.Context()
 
+			// Check if we're running inside a sandbox
+			sandboxID := os.Getenv("DEPOT_SANDBOX_ID")
+			if sandboxID != "" {
+				// Force local mode when running inside a sandbox
+				local = true
+				defer func() {
+					if err := shutdownSandbox(ctx, sandboxID); err != nil {
+						fmt.Fprintf(os.Stderr, "Warning: failed to shutdown sandbox: %v\n", err)
+					}
+				}()
+			}
+
 			claudeArgs := []string{}
 			for i := 0; i < len(args); i++ {
 				arg := args[i]
@@ -223,6 +235,11 @@ Subcommands:
 			}
 
 			if !local {
+				// Check if we're already in a sandbox - prevent recursive remote sessions
+				if sandboxID != "" {
+					return fmt.Errorf("cannot start a remote session from within a sandbox")
+				}
+
 				// Default repository to current git remote only if --repository flag was specified with empty value
 				var repoValue string
 				if repository != nil {
@@ -635,6 +652,22 @@ func verifyAuthentication(ctx context.Context, client agentv1connect.SessionServ
 	_, err := client.ListSessions(ctx, api.WithAuthenticationAndOrg(connect.NewRequest(req), token, orgID))
 	if err != nil {
 		return fmt.Errorf("authentication failed: %w", err)
+	}
+
+	return nil
+}
+
+// shutdownSandbox calls the Shutdown API to gracefully terminate and snapshot the sandbox
+func shutdownSandbox(ctx context.Context, sandboxID string) error {
+	client := api.NewSandboxClient()
+
+	req := &agentv1.ShutdownRequest{
+		SandboxId: sandboxID,
+	}
+
+	_, err := client.Shutdown(ctx, connect.NewRequest(req))
+	if err != nil {
+		return fmt.Errorf("failed to shutdown sandbox: %w", err)
 	}
 
 	return nil

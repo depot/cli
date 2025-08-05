@@ -243,7 +243,7 @@ func streamSandboxLogs(ctx context.Context, client agentv1connect.SandboxService
 	getReq := &agentv1.GetSandboxRequest{
 		SandboxId: sandboxID,
 	}
-	getResp, err := client.GetSandbox(ctx, api.WithAuthentication(connect.NewRequest(getReq), token))
+	getResp, err := client.GetSandbox(ctx, api.WithAuthenticationAndOrg(connect.NewRequest(getReq), token, orgID))
 	if err != nil {
 		return fmt.Errorf("failed to get final Claude sandbox status: %w", err)
 	}

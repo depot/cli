@@ -57,6 +57,8 @@ const (
 	// SandboxServiceListSecretsProcedure is the fully-qualified name of the SandboxService's
 	// ListSecrets RPC.
 	SandboxServiceListSecretsProcedure = "/depot.agent.v1.SandboxService/ListSecrets"
+	// SandboxServiceShutdownProcedure is the fully-qualified name of the SandboxService's Shutdown RPC.
+	SandboxServiceShutdownProcedure = "/depot.agent.v1.SandboxService/Shutdown"
 )
 
 // SandboxServiceClient is a client for the depot.agent.v1.SandboxService service.
@@ -69,6 +71,8 @@ type SandboxServiceClient interface {
 	AddSecret(context.Context, *connect.Request[v1.AddSecretRequest]) (*connect.Response[v1.AddSecretResponse], error)
 	RemoveSecret(context.Context, *connect.Request[v1.RemoveSecretRequest]) (*connect.Response[v1.RemoveSecretResponse], error)
 	ListSecrets(context.Context, *connect.Request[v1.ListSecretsRequest]) (*connect.Response[v1.ListSecretsResponse], error)
+	// Shutdown is called from within the sandbox to gracefully terminate
+	Shutdown(context.Context, *connect.Request[v1.ShutdownRequest]) (*connect.Response[v1.ShutdownResponse], error)
 }
 
 // NewSandboxServiceClient constructs a client for the depot.agent.v1.SandboxService service. By
@@ -121,6 +125,11 @@ func NewSandboxServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 			baseURL+SandboxServiceListSecretsProcedure,
 			opts...,
 		),
+		shutdown: connect.NewClient[v1.ShutdownRequest, v1.ShutdownResponse](
+			httpClient,
+			baseURL+SandboxServiceShutdownProcedure,
+			opts...,
+		),
 	}
 }
 
@@ -134,6 +143,7 @@ type sandboxServiceClient struct {
 	addSecret         *connect.Client[v1.AddSecretRequest, v1.AddSecretResponse]
 	removeSecret      *connect.Client[v1.RemoveSecretRequest, v1.RemoveSecretResponse]
 	listSecrets       *connect.Client[v1.ListSecretsRequest, v1.ListSecretsResponse]
+	shutdown          *connect.Client[v1.ShutdownRequest, v1.ShutdownResponse]
 }
 
 // StartSandbox calls depot.agent.v1.SandboxService.StartSandbox.
@@ -176,6 +186,11 @@ func (c *sandboxServiceClient) ListSecrets(ctx context.Context, req *connect.Req
 	return c.listSecrets.CallUnary(ctx, req)
 }
 
+// Shutdown calls depot.agent.v1.SandboxService.Shutdown.
+func (c *sandboxServiceClient) Shutdown(ctx context.Context, req *connect.Request[v1.ShutdownRequest]) (*connect.Response[v1.ShutdownResponse], error) {
+	return c.shutdown.CallUnary(ctx, req)
+}
+
 // SandboxServiceHandler is an implementation of the depot.agent.v1.SandboxService service.
 type SandboxServiceHandler interface {
 	StartSandbox(context.Context, *connect.Request[v1.StartSandboxRequest]) (*connect.Response[v1.StartSandboxResponse], error)
@@ -186,6 +201,8 @@ type SandboxServiceHandler interface {
 	AddSecret(context.Context, *connect.Request[v1.AddSecretRequest]) (*connect.Response[v1.AddSecretResponse], error)
 	RemoveSecret(context.Context, *connect.Request[v1.RemoveSecretRequest]) (*connect.Response[v1.RemoveSecretResponse], error)
 	ListSecrets(context.Context, *connect.Request[v1.ListSecretsRequest]) (*connect.Response[v1.ListSecretsResponse], error)
+	// Shutdown is called from within the sandbox to gracefully terminate
+	Shutdown(context.Context, *connect.Request[v1.ShutdownRequest]) (*connect.Response[v1.ShutdownResponse], error)
 }
 
 // NewSandboxServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -234,6 +251,11 @@ func NewSandboxServiceHandler(svc SandboxServiceHandler, opts ...connect.Handler
 		svc.ListSecrets,
 		opts...,
 	)
+	sandboxServiceShutdownHandler := connect.NewUnaryHandler(
+		SandboxServiceShutdownProcedure,
+		svc.Shutdown,
+		opts...,
+	)
 	return "/depot.agent.v1.SandboxService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case SandboxServiceStartSandboxProcedure:
@@ -252,6 +274,8 @@ func NewSandboxServiceHandler(svc SandboxServiceHandler, opts ...connect.Handler
 			sandboxServiceRemoveSecretHandler.ServeHTTP(w, r)
 		case SandboxServiceListSecretsProcedure:
 			sandboxServiceListSecretsHandler.ServeHTTP(w, r)
+		case SandboxServiceShutdownProcedure:
+			sandboxServiceShutdownHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -291,4 +315,8 @@ func (UnimplementedSandboxServiceHandler) RemoveSecret(context.Context, *connect
 
 func (UnimplementedSandboxServiceHandler) ListSecrets(context.Context, *connect.Request[v1.ListSecretsRequest]) (*connect.Response[v1.ListSecretsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.agent.v1.SandboxService.ListSecrets is not implemented"))
+}
+
+func (UnimplementedSandboxServiceHandler) Shutdown(context.Context, *connect.Request[v1.ShutdownRequest]) (*connect.Response[v1.ShutdownResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.agent.v1.SandboxService.Shutdown is not implemented"))
 }
