@@ -338,10 +338,10 @@ func resumeSession(ctx context.Context, client agentv1connect.SessionServiceClie
 	return claudeSessionID, nil
 }
 
-func saveSession(ctx context.Context, client agentv1connect.SessionServiceClient, token, sessionID, sessionFilePath string, retryCount int, retryDelay time.Duration, orgID string) error {
+func saveSession(ctx context.Context, client agentv1connect.SessionServiceClient, token, sessionID, sessionFilePath string, retryCount int, retryDelay time.Duration, orgID string) (string, error) {
 	data, err := os.ReadFile(sessionFilePath)
 	if err != nil {
-		return fmt.Errorf("failed to read session file: %w", err)
+		return "", fmt.Errorf("failed to read session file: %w", err)
 	}
 
 	summary := extractSummaryFromSession(data)
@@ -356,25 +356,29 @@ func saveSession(ctx context.Context, client agentv1connect.SessionServiceClient
 
 		req := &agentv1.UploadSessionRequest{
 			SessionData:   data,
-			SessionId:     sessionID,
 			Summary:       new(string),
 			ToolSessionId: claudeSessionID,
 			AgentType:     agentv1.AgentType_AGENT_TYPE_CLAUDE_CODE,
+		}
+		if sessionID != "" {
+			req.SessionId = &sessionID
 		}
 		if summary != "" {
 			req.Summary = &summary
 		}
 
-		_, err := client.UploadSession(ctx, api.WithAuthenticationAndOrg(connect.NewRequest(req), token, orgID))
+		resp, err := client.UploadSession(ctx, api.WithAuthenticationAndOrg(connect.NewRequest(req), token, orgID))
 		if err != nil {
 			lastErr = err
 			continue
 		}
 
-		return nil
+		sessionID = resp.Msg.SessionId
+
+		return sessionID, nil
 	}
 
-	return fmt.Errorf("failed after %d retries: %w", retryCount, lastErr)
+	return "", fmt.Errorf("failed after %d retries: %w", retryCount, lastErr)
 }
 
 func findLatestSessionFile(sessionDir, cwd string) (string, error) {
@@ -467,16 +471,15 @@ func continuouslySaveSessionFile(ctx context.Context, projectDir string, client 
 				continue
 			}
 
-			if sessionID == "" {
-				sessionID = filepath.Base(strings.TrimSuffix(sessionFilePath, ".jsonl"))
-			}
-
 			if claudeSessionID == "" {
 				claudeSessionID = filepath.Base(strings.TrimSuffix(sessionFilePath, ".jsonl"))
 			}
 
 			// if the continuous save fails, it doesn't matter much. this is really only for the live view of the conversation
-			_ = saveSession(ctx, client, token, sessionID, sessionFilePath, 3, 2*time.Second, orgID)
+			generatedSessionID, _ := saveSession(ctx, client, token, sessionID, sessionFilePath, 3, 2*time.Second, orgID)
+			if generatedSessionID != "" {
+				sessionID = generatedSessionID
+			}
 
 		case err, ok := <-watcher.Errors:
 			if !ok {
@@ -600,13 +603,13 @@ func RunClaudeSession(ctx context.Context, opts *ClaudeSessionOptions) error {
 		return fmt.Errorf("failed to find session file: %w", findErr)
 	}
 
-	if sessionID == "" {
-		sessionID = filepath.Base(strings.TrimSuffix(sessionFileName, ".jsonl"))
-	}
-
-	saveErr := saveSession(ctx, client, token, sessionID, sessionFileName, retryCount, retryDelay, opts.OrgID)
+	generatedSessionID, saveErr := saveSession(ctx, client, token, sessionID, sessionFileName, retryCount, retryDelay, opts.OrgID)
 	if saveErr != nil {
 		return fmt.Errorf("failed to save session: %w", saveErr)
+	}
+
+	if generatedSessionID != "" {
+		sessionID = generatedSessionID
 	}
 
 	switch opts.Output {

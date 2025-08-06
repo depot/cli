@@ -134,7 +134,7 @@ message StreamRemoteAgentSessionLogsResponse {
     bytes data = 1;
     google.protobuf.Timestamp timestamp = 2;
     LogType type = 3;
-    
+
     enum LogType {
       STDOUT = 0;
       STDERR = 1;
