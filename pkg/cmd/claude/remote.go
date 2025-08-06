@@ -75,14 +75,25 @@ func RunAgentRemote(ctx context.Context, opts *AgentRemoteOptions) error {
 			}
 		}
 
-		if foundSandbox != nil && foundSandbox.CompletedAt == nil {
+		if foundSandbox == nil {
+			if opts.Wait {
+				return fmt.Errorf("session '%s' not found or already completed. To resume locally, use: depot claude --local --resume %s", opts.ResumeSessionID, opts.ResumeSessionID)
+			}
+		} else if foundSandbox.CompletedAt != nil {
+			if opts.Wait {
+				fmt.Fprintf(opts.Stdout, "Session %s has already completed.\n", opts.ResumeSessionID)
+				fmt.Fprintf(opts.Stdout, "\nTo resume the session locally, run:\n")
+				fmt.Fprintf(opts.Stdout, "  depot claude --local --resume %s\n", opts.ResumeSessionID)
+				return nil
+			}
+		} else {
+			// Sandbox is still running
 			if !opts.Wait {
 				fmt.Fprintf(opts.Stdout, "\n✓ Claude sandbox is already running for session %s!\n", opts.ResumeSessionID)
 				fmt.Fprintf(opts.Stdout, "\nTo wait for this session to complete, run:\n")
 				fmt.Fprintf(opts.Stdout, "  depot claude --wait --resume %s\n", opts.ResumeSessionID)
 				return nil
 			}
-
 			fmt.Fprintf(opts.Stderr, "Claude sandbox for session %s is already running, waiting for it to complete...\n", opts.ResumeSessionID)
 			return streamSandboxLogs(ctx, sandboxClient, token, foundSandbox.SandboxId, foundSandbox.SessionId, foundSandbox.OrganizationId, opts.Stdout, opts.Stderr)
 		}
@@ -135,7 +146,7 @@ func RunAgentRemote(ctx context.Context, opts *AgentRemoteOptions) error {
 		fmt.Fprintf(opts.Stdout, "Session ID: %s\n", sessionID)
 		fmt.Fprintf(opts.Stdout, "\nTo view the Claude session, visit: https://depot.dev/orgs/%s/claude/%s\n", opts.OrgID, sessionID)
 		fmt.Fprintf(opts.Stdout, "\nTo wait for this session to complete, run:\n")
-		fmt.Fprintf(opts.Stdout, "  depot claude --wait --session-id %s\n", sessionID)
+		fmt.Fprintf(opts.Stdout, "  depot claude --wait --resume %s\n", sessionID)
 		return nil
 	}
 

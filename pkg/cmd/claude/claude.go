@@ -68,6 +68,9 @@ Subcommands:
   # Run Claude in remote sandbox (default)
   depot claude --session-id sandbox-work
 
+  # Wait for an existing session to complete
+  depot claude --wait --resume sandbox-work
+
   # Run Claude locally instead of in sandbox
   depot claude --local --session-id local-work
 
