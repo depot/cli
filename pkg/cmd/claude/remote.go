@@ -95,7 +95,7 @@ func RunAgentRemote(ctx context.Context, opts *AgentRemoteOptions) error {
 				return nil
 			}
 			fmt.Fprintf(opts.Stderr, "Claude sandbox for session %s is already running, waiting for it to complete...\n", opts.ResumeSessionID)
-			return streamSandboxLogs(ctx, sandboxClient, token, foundSandbox.SandboxId, foundSandbox.SessionId, foundSandbox.OrganizationId, opts.Stdout, opts.Stderr)
+			return streamSandboxLogs(ctx, sandboxClient, token, foundSandbox.SandboxId, foundSandbox.OrganizationId, opts.Stdout, opts.Stderr)
 		}
 	}
 
@@ -143,10 +143,8 @@ func RunAgentRemote(ctx context.Context, opts *AgentRemoteOptions) error {
 	// If not waiting, just print the URL and exit
 	if !opts.Wait {
 		fmt.Fprintf(opts.Stdout, "\n✓ Claude sandbox started!\n")
-		fmt.Fprintf(opts.Stdout, "Session ID: %s\n", sessionID)
-		fmt.Fprintf(opts.Stdout, "\nTo view the Claude session, visit: https://depot.dev/orgs/%s/claude/%s\n", opts.OrgID, sessionID)
-		fmt.Fprintf(opts.Stdout, "\nTo wait for this session to complete, run:\n")
-		fmt.Fprintf(opts.Stdout, "  depot claude --wait --resume %s\n", sessionID)
+		fmt.Fprintf(opts.Stdout, "  Session ID: %s\n", sessionID)
+		fmt.Fprintf(opts.Stdout, "  Link: https://depot.dev/orgs/%s/claude/%s\n", opts.OrgID, sessionID)
 		return nil
 	}
 
@@ -173,12 +171,11 @@ func parseGitURL(s string) (url, branch string) {
 }
 
 func waitForSandbox(ctx context.Context, client agentv1connect.SandboxServiceClient, token, sessionID, sandboxID, orgID string, invocationTime time.Time, stdout io.Writer) error {
-	fmt.Fprintf(stdout, "\nStarting Claude sandbox for session id %s...\n", sessionID)
-	fmt.Fprintf(stdout, "\nYou can view this session:\n")
-	fmt.Fprintf(stdout, "- Online: https://depot.dev/orgs/%s/claude/%s\n", orgID, sessionID)
-	fmt.Fprintf(stdout, "- Locally: depot claude --local --resume %s\n", sessionID)
+	fmt.Fprintf(stdout, "\n✓ Claude sandbox started!\n")
+	fmt.Fprintf(stdout, "  Session ID: %s\n", sessionID)
+	fmt.Fprintf(stdout, "  Link: https://depot.dev/orgs/%s/claude/%s\n\n", orgID, sessionID)
 
-	ticker := time.NewTicker(5 * time.Second)
+	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
 
 	for {
@@ -210,16 +207,12 @@ func waitForSandbox(ctx context.Context, client agentv1connect.SandboxServiceCli
 				continue
 			}
 
-			fmt.Fprintf(stdout, "\n✓ Claude sandbox started!\n")
-			fmt.Fprintf(stdout, "Session ID: %s\n", sessionID)
 			return nil
 		}
 	}
 }
 
-func streamSandboxLogs(ctx context.Context, client agentv1connect.SandboxServiceClient, token, sandboxID, sessionID, orgID string, stdout, stderr io.Writer) error {
-	fmt.Fprintf(stdout, "==================== REMOTE CLAUDE SESSION ====================\n")
-
+func streamSandboxLogs(ctx context.Context, client agentv1connect.SandboxServiceClient, token, sandboxID, orgID string, stdout, stderr io.Writer) error {
 	// Start streaming logs
 	streamReq := &agentv1.StreamSandboxLogsRequest{
 		SandboxId: sandboxID,
@@ -249,8 +242,6 @@ func streamSandboxLogs(ctx context.Context, client agentv1connect.SandboxService
 		return fmt.Errorf("error streaming logs: %w", err)
 	}
 
-	fmt.Fprintf(stdout, "\n==================== END REMOTE CLAUDE SESSION ====================\n")
-
 	getReq := &agentv1.GetSandboxRequest{
 		SandboxId: sandboxID,
 	}
@@ -278,7 +269,7 @@ func waitAndStreamSandbox(ctx context.Context, client agentv1connect.SandboxServ
 		return err
 	}
 
-	return streamSandboxLogs(ctx, client, token, sandboxID, sessionID, orgID, stdout, stderr)
+	return streamSandboxLogs(ctx, client, token, sandboxID, orgID, stdout, stderr)
 }
 
 // shellEscapeArgs properly escapes shell arguments to be passed via command line
