@@ -80,9 +80,9 @@ func runBlogLatest(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	fmt.Printf("# %s\n\n", html.UnescapeString(item.Title))
 	fmt.Printf("Published: %s\n", pubDate.Format("January 2, 2006"))
 	fmt.Printf("Link: %s\n\n", item.Link)
+	fmt.Printf("# %s\n\n", html.UnescapeString(item.Title))
 
 	description := html.UnescapeString(item.Description)
 	description = stripHTML(description)
