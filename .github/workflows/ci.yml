@@ -102,7 +102,7 @@ jobs:
           DEPOT_CLI_VERSION: v0.0.0-dev
 
   test:
-    runs-on: depot-ubuntu-latest
+    runs-on: depot-ubuntu-latest-16
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
