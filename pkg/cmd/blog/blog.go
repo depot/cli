@@ -37,7 +37,7 @@ func NewCmdBlog() *cobra.Command {
 			_ = cmd.Usage()
 		},
 	}
-	
+
 	cmd.AddCommand(NewCmdBlogLatest())
 	return cmd
 }
