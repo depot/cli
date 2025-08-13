@@ -580,6 +580,17 @@ func validateBuildOptions(in *buildOptions) (map[string]build.Options, error) {
 		}
 	}
 
+	// When using --save without explicit exports, create an image export
+	// so that annotations can be applied to it
+	if in.save && len(outputs) == 0 {
+		outputs = []client.ExportEntry{{
+			Type: "image",
+			Attrs: map[string]string{
+				"depot.export.image.version": "2",
+			},
+		}}
+	}
+
 	opts.Exports = outputs
 
 	// parse and apply annotations to exports
