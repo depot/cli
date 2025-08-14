@@ -6,6 +6,7 @@ import (
 	"github.com/spf13/cobra"
 
 	bakeCmd "github.com/depot/cli/pkg/cmd/bake"
+	"github.com/depot/cli/pkg/cmd/blog"
 	buildCmd "github.com/depot/cli/pkg/cmd/build"
 	cacheCmd "github.com/depot/cli/pkg/cmd/cache"
 	cargoCmd "github.com/depot/cli/pkg/cmd/cargo"
@@ -59,6 +60,7 @@ func NewCmdRoot(version, buildDate string) *cobra.Command {
 
 	// Child commands
 	cmd.AddCommand(bakeCmd.NewCmdBake())
+	cmd.AddCommand(blog.NewCmdBlog())
 	cmd.AddCommand(buildCmd.NewCmdBuild())
 	cmd.AddCommand(cacheCmd.NewCmdCache())
 	cmd.AddCommand(cargoCmd.NewCmdCargo())

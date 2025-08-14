@@ -20,6 +20,7 @@ import (
 
 	"github.com/containerd/console"
 	depotbuild "github.com/depot/cli/pkg/build"
+	depotbuildflags "github.com/depot/cli/pkg/buildx/bake/buildflags"
 	depotbuildxbuild "github.com/depot/cli/pkg/buildx/build"
 	"github.com/depot/cli/pkg/buildx/builder"
 	"github.com/depot/cli/pkg/ci"
@@ -70,6 +71,7 @@ type buildOptions struct {
 	printFunc      string
 
 	allow         []string
+	annotations   []string
 	attests       []string
 	buildArgs     []string
 	cacheFrom     []string
@@ -578,7 +580,35 @@ func validateBuildOptions(in *buildOptions) (map[string]build.Options, error) {
 		}
 	}
 
+	// When using --save without explicit exports, create an image export
+	// so that annotations can be applied to it
+	if in.save && len(outputs) == 0 {
+		outputs = []client.ExportEntry{{
+			Type: "image",
+			Attrs: map[string]string{
+				"depot.export.image.version": "2",
+			},
+		}}
+	}
+
 	opts.Exports = outputs
+
+	// parse and apply annotations to exports
+	if len(in.annotations) > 0 {
+		annotations, err := depotbuildflags.ParseAnnotations(in.annotations)
+		if err != nil {
+			return nil, errors.Wrap(err, "parse annotations")
+		}
+
+		for i := range opts.Exports {
+			if opts.Exports[i].Attrs == nil {
+				opts.Exports[i].Attrs = make(map[string]string)
+			}
+			for k, v := range annotations {
+				opts.Exports[i].Attrs[k.String()] = v
+			}
+		}
+	}
 
 	inAttests := append([]string{}, in.attests...)
 	if in.provenance != "" {
@@ -728,6 +758,8 @@ func BuildCmd() *cobra.Command {
 	_ = flags.SetAnnotation("add-host", annotation.ExternalURL, []string{"https://docs.docker.com/engine/reference/commandline/build/#add-host"})
 
 	flags.StringSliceVar(&options.allow, "allow", []string{}, `Allow extra privileged entitlement (e.g., "network.host", "security.insecure")`)
+
+	flags.StringArrayVarP(&options.annotations, "annotation", "", []string{}, "Add annotation to the image")
 
 	flags.StringArrayVar(&options.buildArgs, "build-arg", []string{}, "Set build-time variables")
 
