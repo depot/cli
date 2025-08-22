@@ -337,12 +337,6 @@ func BakeCmd() *cobra.Command {
 				if err != nil {
 					return err
 				}
-				var buildErr error
-				defer func() {
-					build.Finish(buildErr)
-					PrintBuildURL(build.BuildURL, options.progress)
-				}()
-
 				options.builderOptions = []builder.Option{builder.WithDepotOptions(buildPlatform, build)}
 
 				buildProject := build.BuildProject()
@@ -374,6 +368,12 @@ func BakeCmd() *cobra.Command {
 
 				func(c command.Cli, o BakeOptions, v BakeValidator, p *progresshelper.SharedPrinter) {
 					eg.Go(func() error {
+						var buildErr error
+						defer func() {
+							o.build.Finish(buildErr)
+							PrintBuildURL(o.buildURL, o.progress)
+						}()
+
 						buildErr = retryRetryableErrors(ctx, func() error {
 							return RunBake(c, o, v, p)
 						})
