@@ -368,18 +368,15 @@ func BakeCmd() *cobra.Command {
 
 				func(c command.Cli, o BakeOptions, v BakeValidator, p *progresshelper.SharedPrinter) {
 					eg.Go(func() error {
-						var buildErr error
-						defer func() {
-							o.build.Finish(buildErr)
-							PrintBuildURL(o.buildURL, o.progress)
-						}()
-
-						buildErr = retryRetryableErrors(ctx, func() error {
+						buildErr := retryRetryableErrors(ctx, func() error {
 							return RunBake(c, o, v, p)
 						})
 						if buildErr != nil {
 							_ = p.Wait()
 						}
+
+						o.build.Finish(buildErr)
+						PrintBuildURL(o.buildURL, o.progress)
 
 						return rewriteFriendlyErrors(buildErr)
 					})
