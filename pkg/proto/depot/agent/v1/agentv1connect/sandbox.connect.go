@@ -71,7 +71,6 @@ type SandboxServiceClient interface {
 	AddSecret(context.Context, *connect.Request[v1.AddSecretRequest]) (*connect.Response[v1.AddSecretResponse], error)
 	RemoveSecret(context.Context, *connect.Request[v1.RemoveSecretRequest]) (*connect.Response[v1.RemoveSecretResponse], error)
 	ListSecrets(context.Context, *connect.Request[v1.ListSecretsRequest]) (*connect.Response[v1.ListSecretsResponse], error)
-	// Shutdown is called from within the sandbox to gracefully terminate
 	Shutdown(context.Context, *connect.Request[v1.ShutdownRequest]) (*connect.Response[v1.ShutdownResponse], error)
 }
 
@@ -201,7 +200,6 @@ type SandboxServiceHandler interface {
 	AddSecret(context.Context, *connect.Request[v1.AddSecretRequest]) (*connect.Response[v1.AddSecretResponse], error)
 	RemoveSecret(context.Context, *connect.Request[v1.RemoveSecretRequest]) (*connect.Response[v1.RemoveSecretResponse], error)
 	ListSecrets(context.Context, *connect.Request[v1.ListSecretsRequest]) (*connect.Response[v1.ListSecretsResponse], error)
-	// Shutdown is called from within the sandbox to gracefully terminate
 	Shutdown(context.Context, *connect.Request[v1.ShutdownRequest]) (*connect.Response[v1.ShutdownResponse], error)
 }
 
