@@ -44,6 +44,7 @@ type File struct {
 type Override struct {
 	Value    string
 	ArrValue []string
+	Append   bool
 }
 
 func defaultFilenames() []string {
@@ -439,9 +440,12 @@ func (c Config) newOverrides(v []string) (map[string]map[string]Override, error)
 	m := map[string]map[string]Override{}
 	for _, v := range v {
 		parts := strings.SplitN(v, "=", 2)
-		keys := strings.SplitN(parts[0], ".", 3)
+
+		skey := strings.TrimSuffix(parts[0], "+")
+		appendTo := strings.HasSuffix(parts[0], "+")
+		keys := strings.SplitN(skey, ".", 3)
 		if len(keys) < 2 {
-			return nil, errors.Errorf("invalid override key %s, expected target.name", parts[0])
+			return nil, errors.Errorf("invalid override key %s, expected target.name", skey)
 		}
 
 		pattern := keys[0]
@@ -454,8 +458,7 @@ func (c Config) newOverrides(v []string) (map[string]map[string]Override, error)
 			return nil, err
 		}
 
-		kk := strings.SplitN(parts[0], ".", 2)
-
+		okey := strings.Join(keys[1:], ".")
 		for _, name := range names {
 			t, ok := m[name]
 			if !ok {
@@ -463,12 +466,15 @@ func (c Config) newOverrides(v []string) (map[string]map[string]Override, error)
 				m[name] = t
 			}
 
-			o := t[kk[1]]
+			override := t[okey]
 
+			// IMPORTANT: if you add more fields here, do not forget to update
+			// docs/reference/buildx_bake.md (--set) and https://docs.docker.com/build/bake/overrides/
 			switch keys[1] {
 			case "output", "cache-to", "cache-from", "tags", "platform", "secrets", "ssh", "attest":
 				if len(parts) == 2 {
-					o.ArrValue = append(o.ArrValue, parts[1])
+					override.Append = appendTo
+					override.ArrValue = append(override.ArrValue, parts[1])
 				}
 			case "args":
 				if len(keys) != 3 {
@@ -479,7 +485,7 @@ func (c Config) newOverrides(v []string) (map[string]map[string]Override, error)
 					if !ok {
 						continue
 					}
-					o.Value = v
+					override.Value = v
 				}
 				fallthrough
 			case "contexts":
@@ -489,11 +495,11 @@ func (c Config) newOverrides(v []string) (map[string]map[string]Override, error)
 				fallthrough
 			default:
 				if len(parts) == 2 {
-					o.Value = parts[1]
+					override.Value = parts[1]
 				}
 			}
 
-			t[kk[1]] = o
+			t[okey] = override
 		}
 	}
 	return m, nil
@@ -784,19 +790,31 @@ func (t *Target) AddOverrides(overrides map[string]Override) error {
 			}
 			t.Labels[keys[1]] = &value
 		case "tags":
-			t.Tags = o.ArrValue
+			if o.Append {
+				t.Tags = append(t.Tags, o.ArrValue...)
+			} else {
+				t.Tags = o.ArrValue
+			}
 		case "cache-from":
 			cacheFrom, err := buildflags.ParseCacheEntry(o.ArrValue)
 			if err != nil {
 				return err
 			}
-			t.CacheFrom = cacheFrom
+			if o.Append {
+				t.CacheFrom = t.CacheFrom.Merge(cacheFrom)
+			} else {
+				t.CacheFrom = cacheFrom
+			}
 		case "cache-to":
 			cacheTo, err := buildflags.ParseCacheEntry(o.ArrValue)
 			if err != nil {
 				return err
 			}
-			t.CacheTo = cacheTo
+			if o.Append {
+				t.CacheTo = t.CacheTo.Merge(cacheTo)
+			} else {
+				t.CacheTo = cacheTo
+			}
 		case "target":
 			t.Target = &value
 		case "secrets":
@@ -804,21 +822,37 @@ func (t *Target) AddOverrides(overrides map[string]Override) error {
 			if err != nil {
 				return errors.Wrap(err, "invalid value for secrets")
 			}
-			t.Secrets = secrets
+			if o.Append {
+				t.Secrets = t.Secrets.Merge(secrets)
+			} else {
+				t.Secrets = secrets
+			}
 		case "ssh":
 			ssh, err := parseArrValue[buildflags.SSH](o.ArrValue)
 			if err != nil {
 				return errors.Wrap(err, "invalid value for ssh")
 			}
-			t.SSH = ssh
+			if o.Append {
+				t.SSH = t.SSH.Merge(ssh)
+			} else {
+				t.SSH = ssh
+			}
 		case "platform":
-			t.Platforms = o.ArrValue
+			if o.Append {
+				t.Platforms = append(t.Platforms, o.ArrValue...)
+			} else {
+				t.Platforms = o.ArrValue
+			}
 		case "output":
 			outputs, err := parseArrValue[buildflags.ExportEntry](o.ArrValue)
 			if err != nil {
 				return errors.Wrap(err, "invalid value for outputs")
 			}
-			t.Outputs = outputs
+			if o.Append {
+				t.Outputs = t.Outputs.Merge(outputs)
+			} else {
+				t.Outputs = outputs
+			}
 		case "attest":
 			attest, err := parseArrValue[buildflags.Attest](o.ArrValue)
 			if err != nil {
