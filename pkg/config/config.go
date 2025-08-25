@@ -49,6 +49,11 @@ func ClearApiToken() error {
 	return viper.WriteConfig()
 }
 
+func ClearCurrentOrganization() error {
+	viper.Set("org_id", "")
+	return viper.WriteConfig()
+}
+
 func StateFile() (string, error) {
 	return xdg.ConfigFile("depot/state.yaml")
 }

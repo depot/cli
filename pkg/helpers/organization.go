@@ -45,6 +45,14 @@ func SelectOrganization() (*Organization, error) {
 		return nil, err
 	}
 
+	if len(organizations) == 0 {
+		return nil, nil
+	}
+
+	if len(organizations) == 1 {
+		return organizations[0], nil
+	}
+
 	huhOptions := make([]huh.Option[*Organization], len(organizations))
 	for i, org := range organizations {
 		huhOptions[i] = huh.NewOption(fmt.Sprintf("%s (%s)", org.Name, org.OrgId), org)
