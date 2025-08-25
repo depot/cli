@@ -17,6 +17,11 @@ func NewCmdLogout() *cobra.Command {
 				return err
 			}
 
+			err = config.ClearCurrentOrganization()
+			if err != nil {
+				return err
+			}
+
 			fmt.Println("Logout successful!")
 
 			return nil
