@@ -17,10 +17,10 @@ import (
 	"connectrpc.com/connect"
 	"github.com/depot/cli/pkg/api"
 	"github.com/depot/cli/pkg/config"
+	"github.com/depot/cli/pkg/fswatch"
 	"github.com/depot/cli/pkg/helpers"
 	agentv1 "github.com/depot/cli/pkg/proto/depot/agent/v1"
 	"github.com/depot/cli/pkg/proto/depot/agent/v1/agentv1connect"
-	"github.com/fsnotify/fsnotify"
 	"github.com/spf13/cobra"
 )
 
@@ -429,14 +429,9 @@ func continuouslySaveSessionFile(ctx context.Context, projectDir string, client 
 		return fmt.Errorf("failed to create project directory: %w", err)
 	}
 
-	watcher, err := fsnotify.NewWatcher()
+	events, errors, err := fswatch.WatchContext(ctx, projectDir, 5*time.Second)
 	if err != nil {
 		return fmt.Errorf("failed to create file watcher: %w", err)
-	}
-	defer watcher.Close()
-
-	if err := watcher.Add(projectDir); err != nil {
-		return fmt.Errorf("failed to watch directory: %w", err)
 	}
 
 	var sessionFilePath string
@@ -447,12 +442,12 @@ func continuouslySaveSessionFile(ctx context.Context, projectDir string, client 
 		case <-ctx.Done():
 			return nil
 
-		case event, ok := <-watcher.Events:
+		case event, ok := <-events:
 			if !ok {
 				return nil
 			}
 
-			if event.Op&(fsnotify.Write|fsnotify.Create) == 0 {
+			if event.Op != fswatch.Create && event.Op != fswatch.Write {
 				continue
 			}
 
@@ -478,7 +473,7 @@ func continuouslySaveSessionFile(ctx context.Context, projectDir string, client 
 			// if the continuous save fails, it doesn't matter much. this is really only for the live view of the conversation
 			_ = saveSession(ctx, client, token, sessionID, sessionFilePath, 3, 2*time.Second, orgID)
 
-		case err, ok := <-watcher.Errors:
+		case err, ok := <-errors:
 			if !ok {
 				return nil
 			}
