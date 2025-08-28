@@ -39,6 +39,7 @@ func NewCmdBlog() *cobra.Command {
 	}
 
 	cmd.AddCommand(NewCmdBlogLatest())
+	cmd.AddCommand(NewCmdBlogAll())
 	return cmd
 }
 
@@ -49,6 +50,74 @@ func NewCmdBlogLatest() *cobra.Command {
 		RunE:  runBlogLatest,
 	}
 	return cmd
+}
+
+func NewCmdBlogAll() *cobra.Command {
+	var count int
+	cmd := &cobra.Command{
+		Use:   "all",
+		Short: "Get multiple blog posts from Depot's RSS feed",
+		RunE:  func(cmd *cobra.Command, args []string) error {
+			return runBlogAll(cmd, args, count)
+		},
+	}
+	cmd.Flags().IntVarP(&count, "count", "c", 5, "Number of latest posts to display")
+	return cmd
+}
+
+func runBlogAll(cmd *cobra.Command, args []string, count int) error {
+	resp, err := http.Get("https://depot.dev/rss.xml")
+	if err != nil {
+		return fmt.Errorf("failed to fetch RSS feed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	var rss RSS
+	if err := xml.NewDecoder(resp.Body).Decode(&rss); err != nil {
+		return fmt.Errorf("failed to parse RSS feed: %w", err)
+	}
+
+	if len(rss.Channel.Items) == 0 {
+		return fmt.Errorf("no blog posts found in RSS feed")
+	}
+
+	// Limit to requested count or available items, whichever is smaller
+	itemCount := count
+	if itemCount > len(rss.Channel.Items) {
+		itemCount = len(rss.Channel.Items)
+	}
+
+	fmt.Printf("Showing %d latest blog posts:\n\n", itemCount)
+
+	for i, item := range rss.Channel.Items[:itemCount] {
+		if i > 0 {
+			fmt.Printf("\n%s\n\n", strings.Repeat("-", 80))
+		}
+
+		pubDate, err := time.Parse("Mon, 02 Jan 2006 15:04:05 MST", item.PubDate)
+		if err != nil {
+			pubDate, err = time.Parse("Mon, 02 Jan 2006 15:04:05 -0700", item.PubDate)
+			if err != nil {
+				pubDate, err = time.Parse("Mon, 02 Jan 2006", item.PubDate)
+				if err != nil {
+					pubDate = time.Now()
+				}
+			}
+		}
+
+		fmt.Printf("Published: %s\n", pubDate.Format("January 2, 2006"))
+		fmt.Printf("Link: %s\n\n", item.Link)
+		fmt.Printf("# %s\n\n", html.UnescapeString(item.Title))
+
+		description := html.UnescapeString(item.Description)
+		description = stripHTML(description)
+		description = wrapText(description, 80)
+
+		fmt.Printf("%s\n\n", description)
+		fmt.Printf("Read the full post at: %s\n", item.Link)
+	}
+
+	return nil
 }
 
 func runBlogLatest(cmd *cobra.Command, args []string) error {
