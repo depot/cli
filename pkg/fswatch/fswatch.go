@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"sync"
 	"time"
 )
 
@@ -36,6 +37,7 @@ type Watcher struct {
 	fileSystem   fs.FS
 	watchDir     string
 	lastScan     map[string]time.Time // file path -> last modified time
+	wg           sync.WaitGroup
 }
 
 // New creates a new hybrid file watcher
@@ -64,6 +66,7 @@ func (w *Watcher) Errors() <-chan error { return w.errors }
 // Close stops the watcher and cleans up resources.
 func (w *Watcher) Close() error {
 	close(w.done)
+	w.wg.Wait()
 	close(w.events)
 	return nil
 }
@@ -88,6 +91,9 @@ func (w *Watcher) runPolling() {
 
 // scanDirectory scans the watch directory and detects changes
 func (w *Watcher) scanDirectory(initial bool) {
+	w.wg.Add(1)
+	defer w.wg.Done()
+
 	entries, err := fs.ReadDir(w.fileSystem, ".")
 	if err != nil {
 		w.errors <- err
@@ -187,7 +193,6 @@ func watchContext(ctx context.Context, watcher *Watcher) (<-chan Event, <-chan e
 		case <-watcher.done:
 		}
 		watcher.Close()
-	}()
 	}()
 
 	return watcher.Events(), watcher.Errors(), nil
