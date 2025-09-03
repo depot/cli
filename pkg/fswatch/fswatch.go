@@ -55,10 +55,10 @@ func New(pollInterval time.Duration, dir string) (*Watcher, error) {
 
 // Watch starts watching the directory for file changes.
 func (w *Watcher) Watch() error {
-     w.wg.Add(1)
-	go func () {
+	w.wg.Add(1)
+	go func() {
 		defer w.wg.Done()
-	    w.runPolling()
+		w.runPolling()
 	}()
 
 	return nil
@@ -95,7 +95,6 @@ func (w *Watcher) runPolling() {
 
 // scanDirectory scans the watch directory and detects changes
 func (w *Watcher) scanDirectory(initial bool) {
-
 	entries, err := fs.ReadDir(w.fileSystem, ".")
 	if err != nil {
 		w.errors <- err
