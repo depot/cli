@@ -95,8 +95,6 @@ func (w *Watcher) runPolling() {
 
 // scanDirectory scans the watch directory and detects changes
 func (w *Watcher) scanDirectory(initial bool) {
-	w.wg.Add(1)
-	defer w.wg.Done()
 
 	entries, err := fs.ReadDir(w.fileSystem, ".")
 	if err != nil {
