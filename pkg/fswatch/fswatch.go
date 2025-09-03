@@ -182,8 +182,12 @@ func watchContext(ctx context.Context, watcher *Watcher) (<-chan Event, <-chan e
 
 	// Close watcher when context is done
 	go func() {
-		<-ctx.Done()
+		select {
+		case <-ctx.Done():
+		case <-watcher.done:
+		}
 		watcher.Close()
+	}()
 	}()
 
 	return watcher.Events(), watcher.Errors(), nil
