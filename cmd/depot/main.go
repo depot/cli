@@ -134,7 +134,7 @@ func runMain() int {
 	}
 
 	newRelease := <-updateMessageChan
-	if newRelease != nil {
+	if newRelease != nil && os.Getenv("DEPOT_NO_SUMMARY_LINK") == "" {
 		isHomebrew := update.IsUnderHomebrew()
 		fmt.Fprintf(os.Stderr, "\n\n%s%s%s %s → %s\n",
 			ansi.Color("A new release of depot is available, released on ", "yellow"),

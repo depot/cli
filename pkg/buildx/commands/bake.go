@@ -597,7 +597,7 @@ func parseBakeTargets(targets []string) (bkt bakeTargets) {
 
 // printSaveHelp prints instructions to pull or push the saved targets.
 func printSaveHelp(project, buildID, progressMode string, requestedTargets, additionalTags []string) {
-	if progressMode != progress.PrinterModeQuiet {
+	if progressMode != progress.PrinterModeQuiet && os.Getenv("DEPOT_NO_SUMMARY_LINK") == "" {
 		fmt.Fprintln(os.Stderr)
 		saved := "target"
 		if len(requestedTargets) > 1 {
