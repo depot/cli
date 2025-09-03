@@ -55,7 +55,11 @@ func New(pollInterval time.Duration, dir string) (*Watcher, error) {
 
 // Watch starts watching the directory for file changes.
 func (w *Watcher) Watch() error {
-	go w.runPolling()
+     w.wg.Add(1)
+	go func () {
+		defer w.wg.Done()
+	    w.runPolling()
+	}()
 
 	return nil
 }
