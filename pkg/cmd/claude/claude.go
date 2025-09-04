@@ -247,12 +247,11 @@ Subcommands:
 				var repoValue string
 				if repository != nil {
 					repoValue = *repository
-					if repoValue == "" {
-						gitRemoteCmd := exec.CommandContext(ctx, "git", "remote", "get-url", "origin")
-						if output, err := gitRemoteCmd.Output(); err == nil {
-							repoValue = strings.TrimSpace(string(output))
-							fmt.Fprintf(os.Stderr, "Using current git remote repository: %s\n", repoValue)
-						}
+				}
+				if repoValue == "" {
+					gitRemoteCmd := exec.CommandContext(ctx, "git", "remote", "get-url", "origin")
+					if output, err := gitRemoteCmd.Output(); err == nil {
+						repoValue = strings.TrimSpace(string(output))
 					}
 				}
 
