@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package depot.agent.v1;
 
-import "depot/agent/v1/agent_types.proto";
+import "depot/agent/v1/agent.proto";
 import "google/protobuf/timestamp.proto";
 
 service SessionService {
@@ -12,7 +12,7 @@ service SessionService {
 }
 
 message UploadSessionRequest {
-  string session_id = 1;
+  optional string session_id = 1;
   bytes session_data = 2;
   AgentType agent_type = 3;
   optional string summary = 4;
@@ -21,6 +21,7 @@ message UploadSessionRequest {
 
 message UploadSessionResponse {
   string session_url = 1;
+  string session_id = 2;
 }
 
 message DownloadSessionRequest {

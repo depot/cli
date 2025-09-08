@@ -355,7 +355,7 @@ func saveSession(ctx context.Context, client agentv1connect.SessionServiceClient
 
 		req := &agentv1.UploadSessionRequest{
 			SessionData:   data,
-			SessionId:     sessionID,
+			SessionId:     &sessionID,
 			Summary:       new(string),
 			ToolSessionId: claudeSessionID,
 			AgentType:     agentv1.AgentType_AGENT_TYPE_CLAUDE_CODE,

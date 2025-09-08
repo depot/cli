@@ -44,10 +44,6 @@ func NewClaudeClient() agentv1connect.ClaudeServiceClient {
 	return agentv1connect.NewClaudeServiceClient(getHTTPClient(getBaseURL()), getBaseURL(), WithUserAgent())
 }
 
-func NewAgentClient() agentv1connect.AgentServiceClient {
-	return agentv1connect.NewAgentServiceClient(getHTTPClient(getBaseURL()), getBaseURL(), WithUserAgent())
-}
-
 func NewSessionClient() agentv1connect.SessionServiceClient {
 	return agentv1connect.NewSessionServiceClient(getHTTPClient(getBaseURL()), getBaseURL(), WithUserAgent())
 }
