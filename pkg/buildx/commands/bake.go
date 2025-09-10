@@ -139,6 +139,7 @@ func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator, pri
 			AdditionalTags:        in.additionalTags,
 			AdditionalCredentials: in.additionalCredentials,
 			AddTargetSuffix:       true,
+			RequestedTargets:      requestedTargets,
 		}
 		buildOpts = registry.WithDepotSave(buildOpts, opts)
 	}
@@ -178,9 +179,12 @@ func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator, pri
 					metadata[k] = v
 				}
 			}
-			dt[buildRes.Name] = metadata
+			// Only include targets that have metadata (i.e., were exported)
+			if len(metadata) > 0 {
+				dt[buildRes.Name] = metadata
+			}
 		}
-		err = writeMetadataFile(in.metadataFile, in.project, in.buildID, requestedTargets, dt)
+		err = writeMetadataFile(in.metadataFile, in.project, in.buildID, requestedTargets, dt, true)
 		if err != nil {
 			return err
 		}
@@ -476,7 +480,14 @@ func (t *LocalBakeValidator) Validate(ctx context.Context, _ []builder.Node, _ p
 			"BAKE_LOCAL_PLATFORM": platforms.DefaultString(),
 		}
 
-		targets, groups, err := bake.ReadTargets(ctx, files, t.bakeTargets.Targets, overrides, defaults)
+		targets, _, err := bake.ReadTargets(ctx, files, t.bakeTargets.Targets, overrides, defaults)
+		if err != nil {
+			t.err = err
+			return
+		}
+
+		// Parse config to properly resolve groups
+		c, err := bake.ParseFiles(files, defaults)
 		if err != nil {
 			t.err = err
 			return
@@ -484,12 +495,11 @@ func (t *LocalBakeValidator) Validate(ctx context.Context, _ []builder.Node, _ p
 
 		resolvedTargets := map[string]struct{}{}
 		for _, target := range t.bakeTargets.Targets {
-			if _, ok := targets[target]; ok {
-				resolvedTargets[target] = struct{}{}
-			}
-			if _, ok := groups[target]; ok {
-				for _, t := range groups[target].Targets {
-					resolvedTargets[t] = struct{}{}
+			// Use ResolveGroup to recursively resolve groups to their targets
+			ts, _ := c.ResolveGroup(target)
+			for _, tname := range ts {
+				if _, ok := targets[tname]; ok {
+					resolvedTargets[tname] = struct{}{}
 				}
 			}
 		}
@@ -539,7 +549,13 @@ func (t *RemoteBakeValidator) Validate(ctx context.Context, nodes []builder.Node
 		"BAKE_LOCAL_PLATFORM": platforms.DefaultString(),
 	}
 
-	targets, groups, err := bake.ReadTargets(ctx, files, t.bakeTargets.Targets, overrides, defaults)
+	targets, _, err := bake.ReadTargets(ctx, files, t.bakeTargets.Targets, overrides, defaults)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// Parse config to properly resolve groups
+	c, err := bake.ParseFiles(files, defaults)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -547,12 +563,11 @@ func (t *RemoteBakeValidator) Validate(ctx context.Context, nodes []builder.Node
 	requestedTargets := []string{}
 	uniqueTargets := map[string]struct{}{}
 	for _, target := range t.bakeTargets.Targets {
-		if _, ok := targets[target]; ok {
-			uniqueTargets[target] = struct{}{}
-		}
-		if _, ok := groups[target]; ok {
-			for _, t := range groups[target].Targets {
-				uniqueTargets[t] = struct{}{}
+		// Use ResolveGroup to recursively resolve groups to their targets
+		ts, _ := c.ResolveGroup(target)
+		for _, tname := range ts {
+			if _, ok := targets[tname]; ok {
+				uniqueTargets[tname] = struct{}{}
 			}
 		}
 	}
