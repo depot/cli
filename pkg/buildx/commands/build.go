@@ -306,7 +306,7 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.No
 				}
 			}
 
-			if err := writeMetadataFile(metadataFile, depotOpts.project, depotOpts.buildID, metadata); err != nil {
+			if err := writeMetadataFile(metadataFile, depotOpts.project, depotOpts.buildID, false, metadata); err != nil {
 				return nil, nil, err
 			}
 		}
@@ -1001,7 +1001,7 @@ func parsePrintFunc(str string) (*build.PrintFunc, error) {
 	return f, nil
 }
 
-func writeMetadataFile(filename, projectID, buildID string, metadata map[string]interface{}) error {
+func writeMetadataFile(filename, projectID, buildID string, isBake bool, metadata map[string]interface{}, requestedTargets ...[]string) error {
 	depotBuild := struct {
 		BuildID   string   `json:"buildID"`
 		ProjectID string   `json:"projectID"`
@@ -1009,7 +1009,15 @@ func writeMetadataFile(filename, projectID, buildID string, metadata map[string]
 	}{
 		BuildID:   buildID,
 		ProjectID: projectID,
-		Targets:   maps.Keys(metadata),
+	}
+
+	if isBake {
+		// If requestedTargets was provided, use that; otherwise use all metadata keys
+		if len(requestedTargets) > 0 && len(requestedTargets[0]) > 0 {
+			depotBuild.Targets = requestedTargets[0]
+		} else {
+			depotBuild.Targets = maps.Keys(metadata)
+		}
 	}
 
 	metadata["depot.build"] = depotBuild

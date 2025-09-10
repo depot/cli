@@ -15,6 +15,9 @@ type SaveOptions struct {
 	// AddTargetSuffix adds the target suffix to the additional tags.
 	// Useful for bake targets.
 	AddTargetSuffix bool
+	// RequestedTargets are the targets explicitly requested by the user (not dependencies).
+	// If set, only these targets will be saved/pushed.
+	RequestedTargets []string
 }
 
 // WithDepotSave adds an output type image with a push to the depot registry.
@@ -25,6 +28,10 @@ func WithDepotSave(buildOpts map[string]buildx.Options, opts SaveOptions) map[st
 	}
 
 	for target, buildOpt := range buildOpts {
+		// If RequestedTargets is set and this target is not in the list, skip it
+		if len(opts.RequestedTargets) > 0 && !slices.Contains(opts.RequestedTargets, target) {
+			continue
+		}
 		buildOpt.Session = ReplaceDockerAuth(opts.AdditionalCredentials, buildOpt.Session)
 
 		hadPush := false
