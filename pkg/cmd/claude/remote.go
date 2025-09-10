@@ -139,16 +139,17 @@ func RunAgentRemote(ctx context.Context, opts *AgentRemoteOptions) error {
 
 	sessionID := res.Msg.SessionId
 	sandboxID := res.Msg.SandboxId
+	orgID := res.Msg.OrganizationId
 
 	// If not waiting, just print the URL and exit
 	if !opts.Wait {
 		fmt.Fprintf(opts.Stdout, "\n✓ Claude sandbox started!\n")
 		fmt.Fprintf(opts.Stdout, "  Session ID: %s\n", sessionID)
-		fmt.Fprintf(opts.Stdout, "  Link: https://depot.dev/orgs/%s/claude/%s\n", opts.OrgID, sessionID)
+		fmt.Fprintf(opts.Stdout, "  Link: https://depot.dev/orgs/%s/claude/%s\n", orgID, sessionID)
 		return nil
 	}
 
-	return waitAndStreamSandbox(ctx, sandboxClient, token, sessionID, sandboxID, opts.OrgID, invocationTime, opts.Stdout, opts.Stderr)
+	return waitAndStreamSandbox(ctx, sandboxClient, token, sessionID, sandboxID, orgID, invocationTime, opts.Stdout, opts.Stderr)
 }
 
 func isGitURL(s string) bool {
