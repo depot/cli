@@ -1252,7 +1252,12 @@ func BuildWithResultHandler(ctx context.Context, nodes []builder.Node, opt map[s
 								}
 							}
 
-							dt, desc, err := itpull.Combine(ctx, srcs, nil)
+							indexAnnotations, err := extractIndexAnnotations(opt.Exports)
+							if err != nil {
+								return err
+							}
+
+							dt, desc, err := itpull.Combine(ctx, srcs, indexAnnotations)
 							if err != nil {
 								return err
 							}
@@ -1330,6 +1335,23 @@ func BuildWithResultHandler(ctx context.Context, nodes []builder.Node, opt map[s
 	}
 
 	return resp, nil
+}
+
+// extractIndexAnnotations extracts annotations for the OCI index from export attributes
+func extractIndexAnnotations(exports []client.ExportEntry) ([]string, error) {
+	var annotations []string
+	for _, exp := range exports {
+		for k, v := range exp.Attrs {
+			if key, ok := strings.CutPrefix(k, "annotation-index."); ok {
+				annotations = append(annotations, fmt.Sprintf("index:%s=%s", key, v))
+			} else if key, ok := strings.CutPrefix(k, "annotation-manifest-descriptor."); ok {
+				annotations = append(annotations, fmt.Sprintf("manifest-descriptor:%s=%s", key, v))
+			} else if key, ok := strings.CutPrefix(k, "annotation."); ok && !strings.Contains(k, "-") {
+				annotations = append(annotations, fmt.Sprintf("%s=%s", key, v))
+			}
+		}
+	}
+	return annotations, nil
 }
 
 func pushWithMoby(ctx context.Context, d driver.Driver, name string, l progress.SubLogger) error {
