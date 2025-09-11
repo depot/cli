@@ -202,24 +202,28 @@ func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator, pri
 		// Three concurrent pulls at a time to avoid overwhelming the registry.
 		eg.SetLimit(3)
 		for i := range resp {
-			func(i int, targetsToLoad []string) {
-				eg.Go(func() error {
-					depotResponses := []build.DepotBuildResponse{resp[i]}
-					var err error
-					// Only load images from requested targets to avoid pulling unnecessary images.
-					if slices.Contains(targetsToLoad, resp[i].Name) {
-						reportingPrinter := progresshelper.NewReporter(ctx2, printer, in.buildID, in.token)
-						defer reportingPrinter.Close()
-						if in.DepotOptions.loadUsingRegistry && in.DepotOptions.pullInfo != nil {
-							err = load.DepotLoadFromRegistry(ctx, dockerCli.Client(), in.DepotOptions.pullInfo.Reference, true, pullOpts, reportingPrinter)
-						} else {
-							err = load.DepotFastLoad(ctx2, dockerCli.Client(), depotResponses, pullOpts, reportingPrinter)
+			eg.Go(func() error {
+				depotResponses := []build.DepotBuildResponse{resp[i]}
+				var err error
+				// Only load images from requested targets to avoid pulling unnecessary images.
+				if slices.Contains(targetsToLoad, resp[i].Name) {
+					reportingPrinter := progresshelper.NewReporter(ctx2, printer, in.buildID, in.token)
+					defer reportingPrinter.Close()
+
+					if in.DepotOptions.loadUsingRegistry && in.DepotOptions.pullInfo != nil {
+						target := resp[i].Name
+						pullOpt, ok := pullOpts[target]
+						if ok {
+							pw := progress.WithPrefix(reportingPrinter, target, len(pullOpts) > 1)
+							err = load.PullImages(ctx, dockerCli.Client(), fmt.Sprintf("%s-%s", in.DepotOptions.pullInfo.Reference, target), pullOpt, pw)
 						}
+					} else {
+						err = load.DepotFastLoad(ctx2, dockerCli.Client(), depotResponses, pullOpts, reportingPrinter)
 					}
-					load.DeleteExportLeases(ctx2, depotResponses)
-					return err
-				})
-			}(i, targetsToLoad)
+				}
+				load.DeleteExportLeases(ctx2, depotResponses)
+				return err
+			})
 		}
 
 		err = eg.Wait()
