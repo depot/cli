@@ -51,6 +51,9 @@ func RunAgentRemote(ctx context.Context, opts *AgentRemoteOptions) error {
 	}
 
 	if opts.OrgID == "" {
+		if os.Getenv("DEPOT_ORG_ID") == "" {
+			return fmt.Errorf("organization ID is required. Set it via --org flag, DEPOT_ORG_ID environment variable, or run 'depot org switch <org-id>'")
+		}
 		opts.OrgID = os.Getenv("DEPOT_ORG_ID")
 	}
 
