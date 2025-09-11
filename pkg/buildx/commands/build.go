@@ -330,7 +330,13 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.No
 	reportingPrinter := progresshelper.NewReporter(ctx, printer, depotOpts.buildID, depotOpts.token)
 
 	if depotOpts.loadUsingRegistry && depotOpts.pullInfo != nil {
-		err = load.DepotLoadFromRegistry(ctx, dockerCli.Client(), depotOpts.pullInfo.Reference, false, pullOpts, reportingPrinter)
+		for target, pullOpt := range pullOpts {
+			pw := progress.WithPrefix(reportingPrinter, target, len(pullOpts) > 1)
+			err = load.PullImages(ctx, dockerCli.Client(), depotOpts.pullInfo.Reference, pullOpt, pw)
+			if err != nil {
+				break
+			}
+		}
 	} else {
 		err = load.DepotFastLoad(ctx, dockerCli.Client(), resp, pullOpts, reportingPrinter)
 	}
