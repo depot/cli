@@ -16,7 +16,7 @@ func NewCmdImage() *cobra.Command {
 	}
 
 	cmd.AddCommand(NewCmdList())
-	//cmd.AddCommand(NewCmdRM())
+	cmd.AddCommand(NewCmdRM())
 
 	return cmd
 }
