@@ -49,7 +49,8 @@ Images are referenced by their sha256 digest.`,
 			// Convert digests to the format ECR expects
 			var imageTags []string
 			for _, digest := range digests {
-				// Remove sha256: prefix if present and convert to sha256- format
+				// The ECR API expects image tags in the format "sha256-<digest>" rather than the standard "sha256:<digest>".
+				// This transformation ensures compatibility with the ECR API by converting the prefix.
 				digest = strings.TrimPrefix(digest, "sha256:")
 				imageTags = append(imageTags, "sha256-"+digest)
 			}
