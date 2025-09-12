@@ -33,8 +33,8 @@ func NewCmdList() *cobra.Command {
 		Short:   "List images in the registry",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cwd, _ := os.Getwd()
-			projectID := helpers.ResolveProjectID(projectID, cwd)
-			if projectID == "" {
+			resolvedProjectID := helpers.ResolveProjectID(projectID, cwd)
+			if resolvedProjectID == "" {
 				return errors.Errorf("unknown project ID (run `depot init` or use --project or $DEPOT_PROJECT_ID)")
 			}
 
@@ -58,7 +58,7 @@ func NewCmdList() *cobra.Command {
 				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 				defer cancel()
 
-				images, err := fetchAllImages(ctx, projectID, token, client)
+				images, err := fetchAllImages(ctx, resolvedProjectID, token, client)
 				if err != nil {
 					return err
 				}
@@ -108,7 +108,7 @@ func NewCmdList() *cobra.Command {
 				client:      client,
 				imagesTable: tbl,
 				columns:     columns,
-				projectID:   projectID,
+				projectID:   resolvedProjectID,
 				token:       token,
 			}
 
