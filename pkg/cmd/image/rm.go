@@ -68,7 +68,9 @@ Images are referenced by their sha256 digest.`,
 			if !force {
 				fmt.Printf("Are you sure you want to delete %d image(s)? [y/N]: ", totalImages)
 				var response string
-				fmt.Scanln(&response)
+				if _, err := fmt.Scanln(&response); err != nil {
+					return fmt.Errorf("error reading input: %w", err)
+				}
 				if response != "y" && response != "Y" {
 					fmt.Println("Operation cancelled")
 					return nil
