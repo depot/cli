@@ -139,9 +139,10 @@ func fetchAllImages(ctx context.Context, projectID, token string, client buildv1
 	var pageToken string
 
 	for {
+		pageSize := int32(100)
 		req := connect.NewRequest(&v1.ListImagesRequest{
 			ProjectId: projectID,
-			PageSize:  &[]int32{100}[0],
+			PageSize:  &pageSize,
 		})
 		if pageToken != "" {
 			req.Msg.PageToken = &pageToken
