@@ -50,9 +50,6 @@ func (w *SharedPrinter) Add() {
 
 func (w *SharedPrinter) Wait() error {
 	w.wg.Done()
-	w.wg.Wait()
-
-	w.cancel()
 
 	lastPrinter := w.numPrinters.Add(-1) == 0
 
@@ -62,6 +59,8 @@ func (w *SharedPrinter) Wait() error {
 	// Only the last printer will be the one to stop the docker printer as
 	// the docker printer closes channels.
 	if lastPrinter {
+		w.wg.Wait()
+		w.cancel()
 		_ = w.printer.Wait()
 	}
 
