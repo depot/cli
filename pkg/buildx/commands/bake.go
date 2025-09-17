@@ -422,10 +422,13 @@ func BakeCmd() *cobra.Command {
 			}
 
 			// Wait for all builds to complete
+			fmt.Fprintf(os.Stderr, "**waiting for builds to complete***\n")
 			err = eg.Wait()
 
 			// Now wait for the printer to finish and flush all output
+			fmt.Fprintf(os.Stderr, "**waiting for printer to finish***\n")
 			for range projectIDs {
+				fmt.Fprintf(os.Stderr, "**waiting for one printer Wait***\n")
 				_ = printer.Wait()
 			}
 

@@ -2,6 +2,7 @@ package progresshelper
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"sync"
 	"sync/atomic"
@@ -45,13 +46,15 @@ func NewSharedPrinter(mode string) (*SharedPrinter, error) {
 // Each call to Add() should be matched with a call to Wait().
 func (w *SharedPrinter) Add() {
 	w.wg.Add(1)
-	w.numPrinters.Add(1)
+	numPrinters := w.numPrinters.Add(1)
+	fmt.Fprintf(os.Stderr, "**add done, numPrinters=%d***\n", numPrinters)
 }
 
 func (w *SharedPrinter) Wait() error {
 	w.wg.Done()
-
+	numPrinters := w.numPrinters.Load()
 	lastPrinter := w.numPrinters.Add(-1) == 0
+	fmt.Fprintf(os.Stderr, "**wait done, numPrinters=%d***\n", numPrinters)
 
 	// The docker progress writer will only return an
 	// error if it is a context cancellation error.
@@ -59,6 +62,7 @@ func (w *SharedPrinter) Wait() error {
 	// Only the last printer will be the one to stop the docker printer as
 	// the docker printer closes channels.
 	if lastPrinter {
+		fmt.Fprintf(os.Stderr, "**last printer, stopping docker printer***\n")
 		w.wg.Wait()
 		w.cancel()
 		_ = w.printer.Wait()
