@@ -425,7 +425,9 @@ func BakeCmd() *cobra.Command {
 			err = eg.Wait()
 
 			// Now wait for the printer to finish and flush all output
-			_ = printer.Wait()
+			for range projectIDs {
+				_ = printer.Wait()
+			}
 
 			// Print save help and linter output after all project builds complete
 			for _, result := range buildResults {
