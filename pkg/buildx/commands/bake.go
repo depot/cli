@@ -44,12 +44,12 @@ type BakeOptions struct {
 	DepotOptions
 }
 
-func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator, printer *progresshelper.SharedPrinter) (err error) {
+func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator, printer *progresshelper.SharedPrinter) (linter *Linter, requestedTargets []string, err error) {
 	ctx := appcontext.Context()
 
 	ctx, end, err := tracing.TraceCurrentCommand(ctx, "bake")
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 	defer func() {
 		end(err)
@@ -64,24 +64,24 @@ func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator, pri
 		builder.WithContextPathHash(contextPathHash)}, in.builderOptions...)
 	b, err := builder.New(dockerCli, builderOpts...)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 	if err = updateLastActivity(dockerCli, b.NodeGroup); err != nil {
-		return errors.Wrapf(err, "failed to update builder last activity time")
+		return nil, nil, errors.Wrapf(err, "failed to update builder last activity time")
 	}
 	nodes, err := b.LoadNodes(ctx, false)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 
 	validatedOpts, requestedTargets, err := validator.Validate(ctx, nodes, printer)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 
 	buildOpts := validatedOpts.ProjectOpts(in.project)
 	if buildOpts == nil {
-		return fmt.Errorf("project %s build options not found", in.project)
+		return nil, nil, fmt.Errorf("project %s build options not found", in.project)
 	}
 
 	// Filter requestedTargets to only include targets for the current project
@@ -147,7 +147,7 @@ func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator, pri
 	buildxNodes := builder.ToBuildxNodes(nodes)
 	buildxNodes, err = build.FilterAvailableNodes(buildxNodes)
 	if err != nil {
-		return wrapBuildError(err, true)
+		return nil, nil, wrapBuildError(err, true)
 	}
 
 	dockerClient := dockerutil.NewClient(dockerCli)
@@ -157,16 +157,16 @@ func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator, pri
 	// "Boot" the depot nodes.
 	_, clients, err := build.ResolveDrivers(ctx, buildxNodes, buildxopts, printer)
 	if err != nil {
-		return wrapBuildError(err, true)
+		return nil, nil, wrapBuildError(err, true)
 	}
 
-	linter := NewLinter(printer, NewLintFailureMode(in.lint, in.lintFailOn), clients, buildxNodes)
+	linter = NewLinter(printer, NewLintFailureMode(in.lint, in.lintFailOn), clients, buildxNodes)
 	resp, err := build.DepotBuild(ctx, buildxNodes, buildOpts, dockerClient, dockerConfigDir, printer, linter, in.DepotOptions.build)
 	if err != nil {
 		if errors.Is(err, LintFailed) {
 			linter.Print(os.Stderr, in.progress)
 		}
-		return wrapBuildError(err, true)
+		return nil, nil, wrapBuildError(err, true)
 	}
 
 	if in.metadataFile != "" {
@@ -186,14 +186,14 @@ func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator, pri
 		}
 		err = writeMetadataFile(in.metadataFile, in.project, in.buildID, requestedTargets, dt, true)
 		if err != nil {
-			return err
+			return nil, nil, err
 		}
 	}
 
 	if in.sbomDir != "" {
 		err = sbom.Save(ctx, in.sbomDir, resp)
 		if err != nil {
-			return err
+			return nil, nil, err
 		}
 	}
 
@@ -235,17 +235,11 @@ func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator, pri
 				_, err = build.DepotBuild(ctx, buildxNodes, buildOpts, dockerClient, dockerConfigDir, printer, nil, in.DepotOptions.build)
 			}
 
-			return err
+			return nil, nil, err
 		}
 	}
 
-	_ = printer.Wait()
-
-	if in.save {
-		printSaveHelp(in.project, in.buildID, in.progress, requestedTargets, in.additionalTags)
-	}
-	linter.Print(os.Stderr, in.progress)
-	return nil
+	return linter, requestedTargets, nil
 }
 
 func BakeCmd() *cobra.Command {
@@ -325,6 +319,19 @@ func BakeCmd() *cobra.Command {
 				printer.Add()
 			}
 
+			type saveInfo struct {
+				project        string
+				buildID        string
+				additionalTags []string
+			}
+			type buildResult struct {
+				linter           *Linter
+				requestedTargets []string
+				saveInfo         *saveInfo
+			}
+			var mu sync.Mutex
+			var buildResults []buildResult
+
 			eg, ctx := errgroup.WithContext(context.Background())
 			for _, projectID := range projectIDs {
 				options.project = projectID
@@ -376,22 +383,62 @@ func BakeCmd() *cobra.Command {
 
 				func(c command.Cli, o BakeOptions, v BakeValidator, p *progresshelper.SharedPrinter) {
 					eg.Go(func() error {
+						var linter *Linter
+						var requestedTargets []string
+
 						buildErr := retryRetryableErrors(ctx, func() error {
-							return RunBake(c, o, v, p)
+							var err error
+							linter, requestedTargets, err = RunBake(c, o, v, p)
+							return err
 						})
 						if buildErr != nil {
-							_ = p.Wait()
+							buildErr = rewriteFriendlyErrors(buildErr)
 						}
 
 						o.build.Finish(buildErr)
 						PrintBuildURL(o.buildURL, o.progress)
 
-						return rewriteFriendlyErrors(buildErr)
+						// Collect results for post-processing
+						if buildErr == nil {
+							result := buildResult{
+								linter:           linter,
+								requestedTargets: requestedTargets,
+							}
+							if o.save {
+								result.saveInfo = &saveInfo{
+									project:        o.project,
+									buildID:        o.buildID,
+									additionalTags: o.additionalTags,
+								}
+							}
+							mu.Lock()
+							buildResults = append(buildResults, result)
+							mu.Unlock()
+						}
+
+						return buildErr
 					})
 				}(dockerCli, options, validator, printer)
 			}
 
-			return eg.Wait()
+			// Wait for all builds to complete
+			err = eg.Wait()
+
+			// Now wait for the printer to finish and flush all output
+			_ = printer.Wait()
+
+			// Print save help and linter output after all project builds complete
+			for _, result := range buildResults {
+				if result.saveInfo != nil {
+					printSaveHelp(result.saveInfo.project, result.saveInfo.buildID,
+						options.progress, result.requestedTargets, result.saveInfo.additionalTags)
+				}
+				if result.linter != nil {
+					result.linter.Print(os.Stderr, options.progress)
+				}
+			}
+
+			return err
 		},
 	}
 
