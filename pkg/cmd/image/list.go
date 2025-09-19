@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"sort"
-	"strings"
 	"time"
 
 	"connectrpc.com/connect"
@@ -160,14 +159,8 @@ func fetchAllImages(ctx context.Context, projectID, token string, client buildv1
 				t := img.PushedAt.AsTime()
 				pushedAt = &t
 			}
-			// The API returns tags in format: registry.depot.dev/PROJECT:TAG
-			// We want to show them as PROJECT:TAG
-			tag := img.Tag
-			if strings.HasPrefix(tag, "registry.depot.dev/") {
-				tag = strings.TrimPrefix(tag, "registry.depot.dev/")
-			}
 			allImages = append(allImages, DepotImage{
-				Tag:       tag,
+				Tag:       img.Tag,
 				Digest:    img.Digest,
 				SizeBytes: img.SizeBytes,
 				PushedAt:  pushedAt,
