@@ -112,6 +112,13 @@ jobs:
           cache: true
       - run: go install gotest.tools/gotestsum@latest
       - run: gotestsum --format github-actions ./...
+      - run: go test -json ./... > testresults.json
+      - name: Test Report
+        uses: dorny/test-reporter@v2
+        with:
+          name: Go Tests
+          path: testresults.json
+          reporter: golang-json
 
   package:
     runs-on: ubuntu-latest
