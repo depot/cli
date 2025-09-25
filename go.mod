@@ -53,7 +53,7 @@ require (
 	golang.org/x/sync v0.12.0
 	golang.org/x/term v0.29.0
 	google.golang.org/grpc v1.59.0
-	google.golang.org/protobuf v1.33.0
+	google.golang.org/protobuf v1.32.0
 	gopkg.in/yaml.v2 v2.4.0
 	gopkg.in/yaml.v3 v3.0.1
 )
