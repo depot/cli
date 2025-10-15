@@ -201,7 +201,7 @@ require (
 
 replace (
 	github.com/docker/docker => github.com/docker/docker v24.0.9+incompatible
-	github.com/moby/buildkit => github.com/depot/buildkit v0.11.6-depot.39
+	github.com/moby/buildkit => github.com/depot/buildkit v0.11.6-depot.41
 	k8s.io/api => k8s.io/api v0.22.4
 	k8s.io/apimachinery => k8s.io/apimachinery v0.22.4
 	k8s.io/client-go => k8s.io/client-go v0.22.4
