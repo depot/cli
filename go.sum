@@ -213,8 +213,8 @@ github.com/creack/pty v1.1.24/go.mod h1:08sCNb52WyoAwi2QDyzUCTgcvVFhUzewun7wtTfv
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
-github.com/depot/buildkit v0.11.6-depot.39 h1:/FyslZ+pOEf1R9NdOLhTgXTWGcHQuE99SGrNFvCwkyI=
-github.com/depot/buildkit v0.11.6-depot.39/go.mod h1:UWjGnq1o1zCJMboFIcyOmFba+R0+CF1lu5ZoGRwPtaM=
+github.com/depot/buildkit v0.11.6-depot.41 h1:8QDACTqTE5JtLtJ7f8xh1/HhOoCP90hkhj4mLLjAYJo=
+github.com/depot/buildkit v0.11.6-depot.41/go.mod h1:UWjGnq1o1zCJMboFIcyOmFba+R0+CF1lu5ZoGRwPtaM=
 github.com/distribution/reference v0.5.0 h1:/FUIFXtfc/x2gpa5/VGfiGLuOIdYa1t65IKK2OFGvA0=
 github.com/distribution/reference v0.5.0/go.mod h1:BbU0aIcezP1/5jX/8MP0YiH4SdvB5Y4f/wlDRiLyi3E=
 github.com/docker/buildx v0.10.3 h1:9bPC/SZV85ZQDAa1rk5bjodsrK8HIBFThOUpWc052t0=
