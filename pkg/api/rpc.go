@@ -10,6 +10,7 @@ import (
 	"buf.build/gen/go/depot/api/connectrpc/go/depot/core/v1/corev1connect"
 	"connectrpc.com/connect"
 	"github.com/depot/cli/pkg/proto/depot/agent/v1/agentv1connect"
+	"github.com/depot/cli/pkg/proto/depot/build/v1/buildv1connect"
 	"github.com/depot/cli/pkg/proto/depot/cli/v1/cliv1connect"
 	"github.com/depot/cli/pkg/proto/depot/cli/v1beta1/cliv1beta1connect"
 	cliCorev1connect "github.com/depot/cli/pkg/proto/depot/core/v1/corev1connect"
@@ -50,6 +51,10 @@ func NewSessionClient() agentv1connect.SessionServiceClient {
 
 func NewSandboxClient() agentv1connect.SandboxServiceClient {
 	return agentv1connect.NewSandboxServiceClient(getHTTPClient(getBaseURL()), getBaseURL(), WithUserAgent())
+}
+
+func NewRegistryClient() buildv1connect.RegistryServiceClient {
+	return buildv1connect.NewRegistryServiceClient(getHTTPClient(getBaseURL()), getBaseURL(), WithUserAgent())
 }
 
 func WithAuthentication[T any](req *connect.Request[T], token string) *connect.Request[T] {
