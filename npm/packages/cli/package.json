@@ -5,7 +5,7 @@
   "repository": "https://github.com/depot/cli",
   "license": "MIT",
   "engines": {
-    "node": ">=14"
+    "node": ">=18"
   },
   "bin": {
     "depot": "bin/depot"
