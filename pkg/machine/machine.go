@@ -12,6 +12,7 @@ import (
 	"connectrpc.com/connect"
 	"github.com/depot/cli/pkg/api"
 	"github.com/depot/cli/pkg/cleanup"
+	"github.com/depot/cli/pkg/debuglog"
 	"github.com/depot/cli/pkg/helpers"
 	cliv1 "github.com/depot/cli/pkg/proto/depot/cli/v1"
 	"github.com/depot/cli/pkg/proto/depot/cli/v1/cliv1connect"
@@ -128,7 +129,7 @@ func (m *Machine) ReportHealth() error {
 			if errors.Is(err, context.Canceled) {
 				return nil
 			}
-			fmt.Printf("error reporting health: %s", err.Error())
+			debuglog.Log("ReportHealth() error reporting health: %s", err.Error())
 			client = api.NewBuildClient()
 		}
 
