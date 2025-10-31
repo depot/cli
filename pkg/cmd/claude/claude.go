@@ -221,6 +221,10 @@ Subcommands:
 				orgID = config.GetCurrentOrganization()
 			}
 
+			if resumeSessionID != "" && sessionID == "" {
+				sessionID = resumeSessionID
+			}
+
 			opts := &ClaudeSessionOptions{
 				SessionID:       sessionID,
 				OrgID:           orgID,
@@ -231,10 +235,6 @@ Subcommands:
 				Stdin:           os.Stdin,
 				Stdout:          os.Stdout,
 				Stderr:          os.Stderr,
-			}
-
-			if resumeSessionID != "" && sessionID == "" {
-				sessionID = resumeSessionID
 			}
 
 			if !local {
