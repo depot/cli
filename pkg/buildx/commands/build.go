@@ -1096,6 +1096,10 @@ func wrapBuildError(err error, bake bool) error {
 			msg += " Named contexts are supported since Dockerfile v1.4. Use #syntax directive in Dockerfile or update to latest BuildKit."
 			return &wrapped{err, msg}
 		}
+		if st.Code() == codes.Unavailable && strings.Contains(st.Message(), "keepalive ping failed") {
+			msg := st.Message() + "\n\nFor more information, please consult https://depot.dev/docs/container-builds/troubleshooting#error-keep-alive-ping-failed-to-receive-ack-within-timeout"
+			return &wrapped{err, msg}
+		}
 	}
 	return err
 }
@@ -1172,6 +1176,9 @@ func rewriteFriendlyErrors(err error) error {
 	}
 	if strings.Contains(err.Error(), "code = Canceled desc = grpc: the client connection is closing") {
 		return errors.New("build canceled")
+	}
+	if strings.Contains(err.Error(), "keepalive ping failed") {
+		return errors.New(err.Error() + "\n\nFor more information, please consult https://depot.dev/docs/container-builds/troubleshooting#error-keep-alive-ping-failed-to-receive-ack-within-timeout")
 	}
 	return err
 }
