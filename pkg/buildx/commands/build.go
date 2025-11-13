@@ -1097,7 +1097,7 @@ func wrapBuildError(err error, bake bool) error {
 			return &wrapped{err, msg}
 		}
 		if st.Code() == codes.Unavailable && strings.Contains(st.Message(), "keepalive ping failed") {
-			msg := st.Message() + "\n\nFor more information, please consult https://depot.dev/docs/container-builds/troubleshooting#error-keep-alive-ping-failed-to-receive-ack-within-timeout"
+			msg := "Connection to BuildKit lost. This error occurs when BuildKit is shut down, often due to the runner reaching resource starvation caused by an Out of Memory (OOM) condition.\n\nFor troubleshooting steps, visit: https://depot.dev/docs/container-builds/troubleshooting#error-keep-alive-ping-failed-to-receive-ack-within-timeout"
 			return &wrapped{err, msg}
 		}
 	}
@@ -1178,7 +1178,7 @@ func rewriteFriendlyErrors(err error) error {
 		return errors.New("build canceled")
 	}
 	if strings.Contains(err.Error(), "keepalive ping failed") {
-		return errors.New(err.Error() + "\n\nFor more information, please consult https://depot.dev/docs/container-builds/troubleshooting#error-keep-alive-ping-failed-to-receive-ack-within-timeout")
+		return errors.New("Connection to BuildKit lost. This error occurs when BuildKit is shut down, often due to the runner reaching resource starvation caused by an Out of Memory (OOM) condition.\n\nFor troubleshooting steps, visit: https://depot.dev/docs/container-builds/troubleshooting#error-keep-alive-ping-failed-to-receive-ack-within-timeout")
 	}
 	return err
 }
