@@ -1173,6 +1173,8 @@ func toBuildOpt(t *Target, inp *Input) (*build.Options, error) {
 		}
 		args[k] = *v
 	}
+	// DEPOT: Always show platform prefix in bake logs
+	args["DEPOT_FORCE_PLATFORM_PREFIX"] = "true"
 
 	labels := map[string]string{}
 	for k, v := range t.Labels {

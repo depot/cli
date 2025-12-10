@@ -387,6 +387,13 @@ func toSolveOpt(ctx context.Context, node builder.Node, multiDriver bool, opt Op
 		}
 	}
 
+	// DEPOT: Force platform prefix in logs for bake builds
+	if v, ok := opt.BuildArgs["DEPOT_FORCE_PLATFORM_PREFIX"]; ok {
+		if v, _ := strconv.ParseBool(v); v {
+			so.FrontendAttrs["force-platform-prefix"] = "true"
+		}
+	}
+
 	if multiDriver {
 		// force creation of manifest list
 		so.FrontendAttrs["multi-platform"] = "true"
