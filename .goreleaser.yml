@@ -46,6 +46,12 @@ archives:
 changelog:
   skip: true
 
+blobs:
+  - provider: s3
+    region: us-east-1
+    bucket: depot-binaries
+    folder: "cli/{{ .Tag }}"
+
 brews:
   - repository:
       owner: depot
