@@ -50,7 +50,7 @@ blobs:
   - provider: s3
     region: us-east-1
     bucket: depot-binaries
-    directory: "cli/{{ .Tag }}"
+    folder: "cli/{{ .Tag }}"
 
 brews:
   - repository:
