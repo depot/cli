@@ -49,7 +49,7 @@ func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator, pri
 
 	ctx, end, err := tracing.TraceCurrentCommand(ctx, "bake")
 	if err != nil {
-		return nil, nil, wrapTracingError(err)
+		return nil, nil, wrapBuildError(err, true)
 	}
 	defer func() {
 		end(err)

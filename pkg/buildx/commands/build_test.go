@@ -6,41 +6,45 @@ import (
 	"testing"
 )
 
-func TestWrapTracingError(t *testing.T) {
+func TestWrapBuildError_SchemaConflict(t *testing.T) {
 	tests := []struct {
 		name          string
 		err           error
+		bake          bool
 		shouldWrap    bool
-		expectedMsg   string
 		expectedInMsg string
 	}{
 		{
 			name:       "nil error",
 			err:        nil,
+			bake:       false,
 			shouldWrap: false,
 		},
 		{
 			name:          "conflicting Schema URL error",
 			err:           errors.New("Error: cannot merge resource due to conflicting Schema URL"),
+			bake:          false,
 			shouldWrap:    true,
 			expectedInMsg: "DEPOT_DISABLE_OTEL=1",
 		},
 		{
 			name:          "cannot merge resource error",
 			err:           errors.New("cannot merge resource with different schema"),
+			bake:          true,
 			shouldWrap:    true,
 			expectedInMsg: "OpenTelemetry environment variables",
 		},
 		{
 			name:       "unrelated error",
 			err:        errors.New("some other error"),
+			bake:       false,
 			shouldWrap: false,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := wrapTracingError(tt.err)
+			result := wrapBuildError(tt.err, tt.bake)
 
 			if tt.err == nil {
 				if result != nil {
