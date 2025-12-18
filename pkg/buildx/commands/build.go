@@ -140,7 +140,7 @@ func runBuild(dockerCli command.Cli, validatedOpts map[string]build.Options, in 
 
 	ctx, end, err := tracing.TraceCurrentCommand(ctx, "build")
 	if err != nil {
-		return err
+		return wrapTracingError(err)
 	}
 	defer func() {
 		end(err)
@@ -1096,6 +1096,18 @@ func wrapBuildError(err error, bake bool) error {
 			msg += " Named contexts are supported since Dockerfile v1.4. Use #syntax directive in Dockerfile or update to latest BuildKit."
 			return &wrapped{err, msg}
 		}
+	}
+	return err
+}
+
+func wrapTracingError(err error) error {
+	if err == nil {
+		return nil
+	}
+	errMsg := err.Error()
+	if strings.Contains(errMsg, "conflicting Schema URL") || strings.Contains(errMsg, "cannot merge resource") {
+		msg := fmt.Sprintf("%s\n\nThis error is usually caused by conflicting OpenTelemetry environment variables.\nTo resolve this issue, try setting DEPOT_DISABLE_OTEL=1 in your environment.", errMsg)
+		return &wrapped{err, msg}
 	}
 	return err
 }
