@@ -391,7 +391,7 @@ func (d Digest) String() string {
 type Manifest struct {
 	SchemaVersion int `json:"schemaVersion"`
 
-	// MediaType specificies the type of this document data structure e.g. `application/vnd.oci.image.manifest.v1+json`
+	// MediaType specifies the type of this document data structure e.g. `application/vnd.oci.image.manifest.v1+json`
 	MediaType string `json:"mediaType,omitempty"`
 
 	// Config references a configuration object for a container, by digest.

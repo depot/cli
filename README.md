@@ -243,7 +243,7 @@ depot build -t repo/image:tag . --push
 | `platform`        | Set target platform for build                                                                             |
 | `progress`        | Set type of progress output ("auto", "plain", "tty"). Use plain to show container output (default "auto") |
 | `project`         | Depot project ID                                                                                          |
-| `provenance`      | Shortand for "--attest=type=provenance"                                                                   |
+| `provenance`      | Shorthand for "--attest=type=provenance"                                                                  |
 | `pull`            | Always attempt to pull all referenced images                                                              |
 | `push`            | Shorthand for "--output=type=registry"                                                                    |
 | `quiet`           | Suppress the build output and print image ID on success                                                   |
@@ -486,7 +486,7 @@ depot login
 
 ### `depot logout`
 
-Remove any saved login defails from your local machine.
+Remove any saved login details from your local machine.
 
 **Example**
 
