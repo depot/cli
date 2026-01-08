@@ -1,0 +1,75 @@
+# Tmate Sandbox CLI Implementation Progress
+
+## Completed Tasks
+
+### CLI Flags (Plan Items 0-3) - COMPLETED 2026-01-08
+Added SSH mode CLI flags for interactive sandbox access:
+- `--ssh`: Enable SSH mode for interactive access to sandbox
+- `--ssh-timeout`: Session timeout in minutes (max 120, default 60)
+- `--ssh-reconnect`: Reconnect to a running SSH sandbox by session ID
+- `--no-ssh-connect`: Print URLs only without auto-connecting
+
+Implementation files:
+- `pkg/cmd/claude/claude.go`: Updated with new flags, validation, and SSH mode branching
+- `pkg/cmd/claude/ssh.go`: New file with SSHOptions, RunSSHMode, execTmateSSH functions
+
+### Main SSH Flow (Plan Item 4) - COMPLETED 2026-01-08
+Implemented `RunSSHMode()` in `pkg/cmd/claude/ssh.go`:
+- Handles both new session and reconnect flows
+- Outputs session info, timeout, and connection hints
+- Supports auto-connect and URL-only modes
+
+### SSH Connection (Plan Item 7) - COMPLETED 2026-01-08
+Implemented `execTmateSSH()` function:
+- Parses tmate SSH URL format
+- Builds ssh command with appropriate options (StrictHostKeyChecking, ServerAliveInterval)
+- Attaches stdin/stdout/stderr for interactive session
+
+### User Output (Plan Items 8-10) - COMPLETED 2026-01-08
+All user output implemented in `RunSSHMode()`:
+- Prints reconnect command hint
+- Prints session ID and timeout info
+- Supports `--no-ssh-connect` mode for URL-only output
+
+### Documentation (Plan Item 11) - COMPLETED 2026-01-08
+Help text added for all SSH flags in `claude.go`.
+
+### Plan Status Update - 2026-01-08
+Updated plan file to accurately reflect completion status:
+- Marked items 1-4, 7-10 as complete (they were already implemented)
+- Added "blocked" and "blockedBy" fields to items waiting on API changes
+- Added notes explaining current state and dependencies
+
+## Remaining Tasks (All Blocked)
+
+### Proto Regeneration (Plan Item 10) - BLOCKED
+Requires external API team to update `buf.build/depot/api` with:
+- `SshConfig` message type
+- `TmateConnection` message type
+- `GetSSHConnectionRequest` / `GetSSHConnectionResponse` types
+- `GetSSHConnection` RPC method
+
+### Main SSH Flow - API Integration (Plan Items 5-6) - BLOCKED
+Once protos are updated:
+- Update `startSSHSandbox()` to pass `SshConfig` in `StartSandboxRequest`
+- Check for `TmateConnection` in `StartSandboxResponse`
+- Update `reconnectSSH()` to call `GetSSHConnection` API
+
+## Notes for Next Implementer
+
+The CLI-side implementation is complete and ready for API integration. The current code
+returns helpful error messages explaining that SSH mode is not yet available from the API.
+
+When the API team adds the SSH types:
+1. Run `buf generate` to regenerate proto definitions
+2. Uncomment the SshConfig and TmateConnection code in `startSSHSandbox()`
+3. Implement `reconnectSSH()` with the real `GetSSHConnection` API call
+4. Remove the placeholder error messages
+
+All CI checks pass:
+- `go fmt ./...` - OK
+- `go mod tidy` - OK
+- `golangci-lint run --timeout 5m` - 0 issues
+- `go test ./...` - All tests pass
+- `pnpm fmt:check` - OK
+- `pnpm type-check` - OK
