@@ -164,12 +164,13 @@ func reconnectSSH(ctx context.Context, client agentv1connect.SandboxServiceClien
 	return "", "", "", fmt.Errorf("SSH reconnect is not yet available. The API does not support GetSSHConnection. Please check for updates to the depot CLI")
 }
 
-// execTmateSSH connects to a tmate session via SSH
-func execTmateSSH(tmateSSHURL string) error {
+// parseTmateSSHURL parses a tmate SSH URL and returns the SSH arguments.
+// The URL is expected to be in the format "ssh XXX@host" where XXX is a session token.
+func parseTmateSSHURL(tmateSSHURL string) ([]string, error) {
 	// Parse "ssh XXX@host" format
 	parts := strings.Fields(tmateSSHURL)
 	if len(parts) < 2 {
-		return fmt.Errorf("invalid tmate SSH URL format: %s", tmateSSHURL)
+		return nil, fmt.Errorf("invalid tmate SSH URL format: %s", tmateSSHURL)
 	}
 
 	// Extract user@host from the URL
@@ -181,6 +182,16 @@ func execTmateSSH(tmateSSHURL string) error {
 		"-o", "UserKnownHostsFile=/dev/null",
 		"-o", "ServerAliveInterval=30",
 		userHost,
+	}
+
+	return sshArgs, nil
+}
+
+// execTmateSSH connects to a tmate session via SSH
+func execTmateSSH(tmateSSHURL string) error {
+	sshArgs, err := parseTmateSSHURL(tmateSSHURL)
+	if err != nil {
+		return err
 	}
 
 	cmd := exec.Command("ssh", sshArgs...)
