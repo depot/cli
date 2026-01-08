@@ -38,7 +38,15 @@ func NewCmdClaude() *cobra.Command {
 		branch          string
 		gitSecret       string
 		wait            bool
+		ssh             bool
+		sshTimeout      int
+		sshReconnect    string
+		sshConnect      bool
 	)
+
+	// Default values
+	sshConnect = true
+	sshTimeout = 60
 
 	cmd := &cobra.Command{
 		Use:   "claude [flags] [claude args...]",
@@ -53,6 +61,11 @@ and if not found, will attempt to download it from Depot's servers.
 
 By default, Claude runs in a remote sandbox environment. Use --local to run locally instead.
 When running remotely, you can specify a Git repository context with --repository to clone and work with remote code.
+
+SSH Mode:
+  Use --ssh to start an interactive SSH session to a sandbox environment.
+  This connects you directly to the sandbox via tmate for hands-on debugging or exploration.
+  Use --ssh-reconnect to reconnect to an existing SSH session.
 
 All flags not recognized by depot are passed directly through to the claude CLI.
 This includes claude flags like -p, --model, etc.
@@ -80,9 +93,14 @@ Subcommands:
   # Use custom Git authentication secret
   depot claude --repository https://github.com/private/repo.git --git-secret MY_GIT_TOKEN
 
+  # SSH mode - interactive access to sandbox
+  depot claude --ssh
+  depot claude --ssh --ssh-timeout 90
+  depot claude --ssh --no-ssh-connect  # Print URLs only, don't connect
+  depot claude --ssh-reconnect <session-id>
+
   # List saved sessions
   depot claude list-sessions
-
 
   # Manage secrets for Claude sandboxes
   depot claude secrets add GITHUB_TOKEN
@@ -163,6 +181,25 @@ Subcommands:
 					}
 				case "--wait":
 					wait = true
+				case "--ssh":
+					ssh = true
+				case "--ssh-timeout":
+					if i+1 < len(args) {
+						val := args[i+1]
+						i++
+						parsed, err := parseInt(val)
+						if err != nil {
+							return fmt.Errorf("invalid --ssh-timeout value: %s", val)
+						}
+						sshTimeout = parsed
+					}
+				case "--ssh-reconnect":
+					if i+1 < len(args) {
+						sshReconnect = args[i+1]
+						i++
+					}
+				case "--no-ssh-connect":
+					sshConnect = false
 				case "--resume":
 					if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
 						resumeSessionID = args[i+1]
@@ -188,6 +225,15 @@ Subcommands:
 						branch = strings.TrimPrefix(arg, "--branch=")
 					} else if strings.HasPrefix(arg, "--git-secret=") {
 						gitSecret = strings.TrimPrefix(arg, "--git-secret=")
+					} else if strings.HasPrefix(arg, "--ssh-timeout=") {
+						val := strings.TrimPrefix(arg, "--ssh-timeout=")
+						parsed, err := parseInt(val)
+						if err != nil {
+							return fmt.Errorf("invalid --ssh-timeout value: %s", val)
+						}
+						sshTimeout = parsed
+					} else if strings.HasPrefix(arg, "--ssh-reconnect=") {
+						sshReconnect = strings.TrimPrefix(arg, "--ssh-reconnect=")
 					} else {
 						// Pass through any other flags to claude
 						claudeArgs = append(claudeArgs, arg)
@@ -221,8 +267,57 @@ Subcommands:
 				orgID = config.GetCurrentOrganization()
 			}
 
+			// Validate SSH timeout (max 120 minutes)
+			if ssh && sshTimeout > 120 {
+				return fmt.Errorf("--ssh-timeout cannot exceed 120 minutes")
+			}
+
+			// SSH mode validation: cannot use --local with --ssh
+			if ssh && local {
+				return fmt.Errorf("--ssh and --local flags are mutually exclusive")
+			}
+
+			// SSH reconnect implies SSH mode
+			if sshReconnect != "" {
+				ssh = true
+			}
+
 			if resumeSessionID != "" && sessionID == "" {
 				sessionID = resumeSessionID
+			}
+
+			// Handle SSH mode
+			if ssh {
+				// Default repository to current git remote for SSH mode
+				var repoValue string
+				if repository != nil {
+					repoValue = *repository
+				}
+				if repoValue == "" {
+					gitRemoteCmd := exec.CommandContext(ctx, "git", "remote", "get-url", "origin")
+					if output, err := gitRemoteCmd.Output(); err == nil {
+						repoValue = strings.TrimSpace(string(output))
+					}
+				}
+
+				var branchValue string
+				if branch != "" {
+					branchValue = branch
+				}
+
+				sshOpts := &SSHOptions{
+					OrgID:          orgID,
+					Token:          token,
+					Repository:     repoValue,
+					Branch:         branchValue,
+					GitSecret:      gitSecret,
+					TimeoutMinutes: sshTimeout,
+					ReconnectID:    sshReconnect,
+					AutoConnect:    sshConnect,
+					Stdout:         os.Stdout,
+					Stderr:         os.Stderr,
+				}
+				return RunSSHMode(ctx, sshOpts)
 			}
 
 			opts := &ClaudeSessionOptions{
@@ -286,6 +381,10 @@ Subcommands:
 	cmd.Flags().String("branch", "", "Git branch to use (defaults to main)")
 	cmd.Flags().String("git-secret", "", "Secret name containing Git credentials for private repositories (optional)")
 	cmd.Flags().Bool("wait", false, "Wait for the remote Claude session to complete (by default exits after starting)")
+	cmd.Flags().Bool("ssh", false, "Enable SSH mode for interactive access to sandbox")
+	cmd.Flags().Int("ssh-timeout", 60, "SSH session timeout in minutes (max 120)")
+	cmd.Flags().String("ssh-reconnect", "", "Reconnect to a running SSH sandbox by session ID")
+	cmd.Flags().Bool("ssh-connect", true, "Auto-connect via SSH (use --no-ssh-connect to print URLs only)")
 
 	return cmd
 }
@@ -668,4 +767,11 @@ func shutdownSandbox(ctx context.Context, sandboxID string) error {
 	}
 
 	return nil
+}
+
+// parseInt parses a string to int, returning an error if invalid
+func parseInt(s string) (int, error) {
+	var result int
+	_, err := fmt.Sscanf(s, "%d", &result)
+	return result, err
 }
