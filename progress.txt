@@ -73,3 +73,32 @@ All CI checks pass:
 - `go test ./...` - All tests pass
 - `pnpm fmt:check` - OK
 - `pnpm type-check` - OK
+
+## Status Check - 2026-01-08
+
+Verified all remaining tasks are blocked on external API changes. The proto definitions
+in `pkg/proto/depot/agent/v1/` do not contain any SSH-related types (SshConfig, TmateConnection, etc.).
+
+Checked for availability of required proto types:
+- `SshConfig` - NOT FOUND
+- `TmateConnection` - NOT FOUND
+- `GetSSHConnection` RPC - NOT FOUND
+
+**No work can proceed until the API team updates buf.build/depot/api with SSH support.**
+
+### Unit Tests for Claude Package - COMPLETED 2026-01-08
+Added comprehensive unit tests for Claude package in `pkg/cmd/claude/claude_test.go`:
+- `TestIsGitURL`: Tests Git URL detection for various URL formats
+- `TestParseGitURL`: Tests parsing of Git URLs with branch fragments
+- `TestShellEscapeArg`: Tests shell argument escaping for special characters
+- `TestShellEscapeArgs`: Tests shell argument list escaping
+- `TestConvertPathToProjectName`: Tests path-to-project-name conversion
+- `TestExtractSummaryFromSession`: Tests session summary extraction from JSONL data
+- `TestParseInt`: Tests integer parsing utility function
+
+All 44 test cases pass, covering:
+- Edge cases (empty strings, nil values)
+- Special characters and escaping
+- Various URL formats (https, http, git@, ssh://)
+- Path normalization
+- JSON parsing with invalid/malformed data
