@@ -1,0 +1,27 @@
+# Proto plugin for the Depot CLI
+# https://depot.dev/docs/cli/reference
+
+name: Depot
+type: cli
+
+platform:
+  macos:
+    downloadFile: 'depot_{version}_darwin_{arch}.tar.gz'
+  windows:
+    downloadFile: 'depot_{version}_windows_{arch}.zip'
+  linux:
+    downloadFile: 'depot_{version}_linux_{arch}.tar.gz'
+
+install:
+  downloadUrl: 'https://github.com/depot/cli/releases/download/v{version}/{download_file}'
+  unpack: true
+  arch:
+    aarch64: arm64
+    x86_64: amd64
+  exes:
+    depot:
+      exePath: 'bin/depot'
+      primary: true
+
+resolve:
+  gitUrl: 'https://github.com/depot/cli'

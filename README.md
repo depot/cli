@@ -62,6 +62,13 @@ curl -L https://depot.dev/install-cli.sh | sh
 curl -L https://depot.dev/install-cli.sh | sh -s 2.17.0
 ```
 
+To install with the [Proto](https://moonrepo.dev/docs/proto) toolchain manager, run:
+
+```sh
+proto plugin add depot "https://raw.githubusercontent.com/depot/cli/refs/heads/main/proto.yaml
+proto install depot
+```
+
 For all other platforms, you can download the binary directly from [the latest release](https://github.com/depot/cli/releases).
 
 ## Quick Start
