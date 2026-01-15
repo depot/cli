@@ -1269,10 +1269,10 @@ func toBuildOpt(t *Target, inp *Input) (*build.Options, error) {
 	}
 
 	if t.CacheFrom != nil {
-		bo.CacheFrom = buildflags.CreateCaches(t.CacheFrom)
+		bo.CacheFrom = buildflags.CreateCaches(buildflags.FilterGHACaches(t.CacheFrom, "cache-from"))
 	}
 	if t.CacheTo != nil {
-		bo.CacheTo = buildflags.CreateCaches(t.CacheTo)
+		bo.CacheTo = buildflags.CreateCaches(buildflags.FilterGHACaches(t.CacheTo, "cache-to"))
 	}
 
 	bo.Exports, _, err = buildflags.CreateExports(t.Outputs)

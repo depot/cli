@@ -632,13 +632,13 @@ func validateBuildOptions(in *buildOptions) (map[string]build.Options, error) {
 	if err != nil {
 		return nil, err
 	}
-	opts.CacheFrom = cacheImports
+	opts.CacheFrom = depotbuildflags.FilterGHACacheEntries(cacheImports, "--cache-from")
 
 	cacheExports, err := buildflags.ParseCacheEntry(in.cacheTo)
 	if err != nil {
 		return nil, err
 	}
-	opts.CacheTo = cacheExports
+	opts.CacheTo = depotbuildflags.FilterGHACacheEntries(cacheExports, "--cache-to")
 
 	allow, err := buildflags.ParseEntitlements(in.allow)
 	if err != nil {
