@@ -18,12 +18,12 @@ jobs:
       - name: Install pnpm
         uses: pnpm/action-setup@v4.0.0
         with:
-          version: 8.x.x
+          version: 9.x.x
 
-      - name: Install Node 18
+      - name: Install Node 24
         uses: actions/setup-node@v4
         with:
-          node-version: "18"
+          node-version: "24"
           cache: pnpm
           cache-dependency-path: npm/pnpm-lock.yaml
 
@@ -79,12 +79,12 @@ jobs:
       - name: Install pnpm
         uses: pnpm/action-setup@v4.0.0
         with:
-          version: 8.x.x
+          version: 10.x.x
 
-      - name: Install Node 18
+      - name: Install Node 24
         uses: actions/setup-node@v4
         with:
-          node-version: "18"
+          node-version: "24"
           cache: pnpm
           cache-dependency-path: npm/pnpm-lock.yaml
 
