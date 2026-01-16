@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/adrg/xdg"
 	"github.com/spf13/viper"
@@ -34,24 +35,45 @@ func GetCurrentOrganization() string {
 	return viper.GetString("org_id")
 }
 
+func writeConfig() error {
+	configFile := viper.ConfigFileUsed()
+	if configFile == "" {
+		return fmt.Errorf("no config file set")
+	}
+
+	if _, err := os.Stat(configFile); os.IsNotExist(err) {
+		f, err := os.OpenFile(configFile, os.O_CREATE|os.O_WRONLY, 0600)
+		if err != nil {
+			return err
+		}
+		f.Close()
+	} else if err == nil {
+		if err := os.Chmod(configFile, 0600); err != nil {
+			return err
+		}
+	}
+
+	return viper.WriteConfig()
+}
+
 func SetApiToken(token string) error {
 	viper.Set("api_token", token)
-	return viper.WriteConfig()
+	return writeConfig()
 }
 
 func SetCurrentOrganization(orgId string) error {
 	viper.Set("org_id", orgId)
-	return viper.WriteConfig()
+	return writeConfig()
 }
 
 func ClearApiToken() error {
 	viper.Set("api_token", "")
-	return viper.WriteConfig()
+	return writeConfig()
 }
 
 func ClearCurrentOrganization() error {
 	viper.Set("org_id", "")
-	return viper.WriteConfig()
+	return writeConfig()
 }
 
 func StateFile() (string, error) {
