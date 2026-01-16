@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"buf.build/gen/go/depot/api/connectrpc/go/depot/core/v1/corev1connect"
 	"connectrpc.com/connect"
@@ -84,8 +85,23 @@ func getHTTPClient(baseURL string) *http.Client {
 			},
 		}
 	}
-	// Use default client for HTTPS connections
-	return http.DefaultClient
+
+	t, ok := http.DefaultTransport.(*http.Transport)
+	if !ok {
+		return http.DefaultClient
+	}
+
+	transport := t.Clone()
+	transport.DialContext = RacingDialer(
+		RetryDialUntilSuccess(500*time.Millisecond),
+		DefaultHTTPDialer(),
+	)
+
+	racingClient := &http.Client{
+		Transport: transport,
+	}
+
+	return racingClient
 }
 
 func getBaseURL() string {
