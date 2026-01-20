@@ -17,14 +17,26 @@ type Organization struct {
 	Name  string
 }
 
+// RetrieveOrganizations fetches organizations using the token from config file.
+// Note: This uses config.GetApiToken() directly for backward compatibility.
+// For consistent token resolution (including OIDC, JIT tokens, etc.), use
+// RetrieveOrganizationsWithToken after resolving the token via ResolveOrgAuth.
 func RetrieveOrganizations() ([]*Organization, error) {
+	return RetrieveOrganizationsWithToken(config.GetApiToken())
+}
+
+// RetrieveOrganizationsWithToken fetches organizations using the provided token.
+func RetrieveOrganizationsWithToken(token string) ([]*Organization, error) {
+	logAuthDebug("RetrieveOrganizationsWithToken called with token: %s", maskToken(token))
+
 	client := api.NewOrganizationsClient()
 	req := corev1.ListOrganizationsRequest{}
 	resp, err := client.ListOrganizations(
 		context.Background(),
-		api.WithAuthentication(connect.NewRequest(&req), config.GetApiToken()),
+		api.WithAuthentication(connect.NewRequest(&req), token),
 	)
 	if err != nil {
+		logAuthDebug("ListOrganizations failed: %v", err)
 		return nil, err
 	}
 
@@ -36,6 +48,7 @@ func RetrieveOrganizations() ([]*Organization, error) {
 		})
 	}
 
+	logAuthDebug("Retrieved %d organizations", len(organizations))
 	return organizations, nil
 }
 
