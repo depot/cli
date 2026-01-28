@@ -9,3 +9,6 @@ node_modules
 /CHANGELOG.md
 go.work
 go.work.sum
+
+ralph.sh
+plans*

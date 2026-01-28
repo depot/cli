@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/csv"
 	"encoding/json"
+	"fmt"
 	"maps"
 	"os"
 	"strconv"
@@ -264,4 +265,49 @@ func addAwsCredentials(ci *CacheOptionsEntry) {
 	if _, ok := ci.Attrs["session_token"]; !ok && credentials.SessionToken != "" {
 		ci.Attrs["session_token"] = credentials.SessionToken
 	}
+}
+
+// FilterGHACaches filters out GitHub Actions cache entries (type=gha) and prints
+// a warning message when they are detected. The GHA cache backend is redundant
+// with Depot's built-in caching and can cause "Our services aren't available
+// right now" errors.
+func FilterGHACaches(entries CacheOptions, direction string) CacheOptions {
+	var filtered CacheOptions
+	var foundGHA bool
+
+	for _, entry := range entries {
+		if entry.Type == "gha" {
+			foundGHA = true
+			continue
+		}
+		filtered = append(filtered, entry)
+	}
+
+	if foundGHA {
+		fmt.Fprintf(os.Stderr, "WARNING: Ignoring %s with type=gha: GitHub Actions cache is redundant with Depot's built-in caching\n", direction)
+	}
+
+	return filtered
+}
+
+// FilterGHACacheEntries filters out GitHub Actions cache entries (type=gha) from
+// client.CacheOptionsEntry slices and prints a warning message when they are detected.
+// This is used by the build command which uses docker/buildx types directly.
+func FilterGHACacheEntries(entries []client.CacheOptionsEntry, direction string) []client.CacheOptionsEntry {
+	var filtered []client.CacheOptionsEntry
+	var foundGHA bool
+
+	for _, entry := range entries {
+		if entry.Type == "gha" {
+			foundGHA = true
+			continue
+		}
+		filtered = append(filtered, entry)
+	}
+
+	if foundGHA {
+		fmt.Fprintf(os.Stderr, "WARNING: Ignoring %s with type=gha: GitHub Actions cache is redundant with Depot's built-in caching\n", direction)
+	}
+
+	return filtered
 }
