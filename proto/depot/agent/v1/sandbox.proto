@@ -15,9 +15,18 @@ service SandboxService {
   rpc AddSecret(AddSecretRequest) returns (AddSecretResponse);
   rpc RemoveSecret(RemoveSecretRequest) returns (RemoveSecretResponse);
   rpc ListSecrets(ListSecretsRequest) returns (ListSecretsResponse);
-  
+
   // Shutdown is called from within the sandbox to gracefully terminate
   rpc Shutdown(ShutdownRequest) returns (ShutdownResponse);
+
+  // GetSSHConnection retrieves SSH connection info for an existing sandbox
+  rpc GetSSHConnection(GetSSHConnectionRequest) returns (GetSSHConnectionResponse);
+
+  // Template management - save and reuse pre-configured sandbox filesystems
+  rpc CreateSandboxTemplate(CreateSandboxTemplateRequest) returns (CreateSandboxTemplateResponse);
+  rpc GetSandboxTemplate(GetSandboxTemplateRequest) returns (GetSandboxTemplateResponse);
+  rpc ListSandboxTemplates(ListSandboxTemplatesRequest) returns (ListSandboxTemplatesResponse);
+  rpc DeleteSandboxTemplate(DeleteSandboxTemplateRequest) returns (DeleteSandboxTemplateResponse);
 }
 
 message StartSandboxRequest {
@@ -27,6 +36,10 @@ message StartSandboxRequest {
   string argv = 4;
   map<string, string> environment_variables = 5;
   Context context = 6;
+  optional SSHConfig ssh_config = 7;
+  // Start sandbox from a saved template (pre-configured filesystem)
+  // When set, creates a fresh session with the template's filesystem state
+  optional string template_id = 8;
 
   message Context {
     oneof context {
@@ -41,10 +54,29 @@ message StartSandboxRequest {
   }
 }
 
+message SSHConfig {
+  bool enabled = 1;
+  optional int32 timeout_minutes = 2;
+}
+
+message TmateConnection {
+  string ssh_url = 1;
+  optional string web_url = 2;
+}
+
 message StartSandboxResponse {
   string sandbox_id = 1;
   string session_id = 2;
   string organization_id = 3;
+  optional TmateConnection tmate_connection = 4;
+}
+
+message GetSSHConnectionRequest {
+  string session_id = 1;
+}
+
+message GetSSHConnectionResponse {
+  TmateConnection tmate_connection = 1;
 }
 
 message GetSandboxRequest {
@@ -107,6 +139,9 @@ message Sandbox {
   optional int32 exit_code = 8;
   optional double duration_seconds = 9;
   optional string error_message = 10;
+  optional bool ssh_enabled = 11;
+  optional string tmate_ssh_url = 12;
+  optional string tmate_web_url = 13;
 }
 
 message KillSandboxRequest {
@@ -140,3 +175,67 @@ message ShutdownRequest {
 }
 
 message ShutdownResponse {}
+
+// ============================================================================
+// Sandbox Template Messages
+// ============================================================================
+
+// SandboxTemplate represents a saved filesystem state that can be used to create new sandboxes
+message SandboxTemplate {
+  string id = 1;
+  string organization_id = 2;
+  string name = 3;
+  optional string description = 4;
+
+  // Source information (from the sandbox that was used to create this template)
+  optional string source_repository = 5;
+  optional string source_branch = 6;
+  optional string source_commit_hash = 7;
+
+  // Whether this template can be used with SSH mode
+  // Only templates created from SSH-enabled sandboxes have tmate installed
+  bool ssh_compatible = 8;
+
+  google.protobuf.Timestamp created_at = 9;
+}
+
+// CreateSandboxTemplate creates a new template from a running sandbox's filesystem
+message CreateSandboxTemplateRequest {
+  // The running sandbox to snapshot
+  string sandbox_id = 1;
+  // Unique name for the template within the organization
+  string name = 2;
+  // Optional description
+  optional string description = 3;
+}
+
+message CreateSandboxTemplateResponse {
+  SandboxTemplate template = 1;
+}
+
+// GetSandboxTemplate retrieves a template by ID
+message GetSandboxTemplateRequest {
+  string template_id = 1;
+}
+
+message GetSandboxTemplateResponse {
+  SandboxTemplate template = 1;
+}
+
+// ListSandboxTemplates lists all templates for an organization
+message ListSandboxTemplatesRequest {
+  optional int32 page_size = 1;
+  optional string page_token = 2;
+}
+
+message ListSandboxTemplatesResponse {
+  repeated SandboxTemplate templates = 1;
+  optional string next_page_token = 2;
+}
+
+// DeleteSandboxTemplate soft-deletes a template
+message DeleteSandboxTemplateRequest {
+  string template_id = 1;
+}
+
+message DeleteSandboxTemplateResponse {}

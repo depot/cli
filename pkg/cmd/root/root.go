@@ -25,6 +25,7 @@ import (
 	"github.com/depot/cli/pkg/cmd/pulltoken"
 	"github.com/depot/cli/pkg/cmd/push"
 	"github.com/depot/cli/pkg/cmd/registry"
+	sandboxCmd "github.com/depot/cli/pkg/cmd/sandbox"
 	versionCmd "github.com/depot/cli/pkg/cmd/version"
 	"github.com/depot/cli/pkg/config"
 )
@@ -81,6 +82,7 @@ func NewCmdRoot(version, buildDate string) *cobra.Command {
 	cmd.AddCommand(projects.NewCmdProjects())
 	cmd.AddCommand(gocache.NewCmdGoCache())
 	cmd.AddCommand(exec.NewCmdExec())
+	cmd.AddCommand(sandboxCmd.NewCmdSandbox())
 
 	return cmd
 }

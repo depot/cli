@@ -59,6 +59,21 @@ const (
 	SandboxServiceListSecretsProcedure = "/depot.agent.v1.SandboxService/ListSecrets"
 	// SandboxServiceShutdownProcedure is the fully-qualified name of the SandboxService's Shutdown RPC.
 	SandboxServiceShutdownProcedure = "/depot.agent.v1.SandboxService/Shutdown"
+	// SandboxServiceGetSSHConnectionProcedure is the fully-qualified name of the SandboxService's
+	// GetSSHConnection RPC.
+	SandboxServiceGetSSHConnectionProcedure = "/depot.agent.v1.SandboxService/GetSSHConnection"
+	// SandboxServiceCreateSandboxTemplateProcedure is the fully-qualified name of the SandboxService's
+	// CreateSandboxTemplate RPC.
+	SandboxServiceCreateSandboxTemplateProcedure = "/depot.agent.v1.SandboxService/CreateSandboxTemplate"
+	// SandboxServiceGetSandboxTemplateProcedure is the fully-qualified name of the SandboxService's
+	// GetSandboxTemplate RPC.
+	SandboxServiceGetSandboxTemplateProcedure = "/depot.agent.v1.SandboxService/GetSandboxTemplate"
+	// SandboxServiceListSandboxTemplatesProcedure is the fully-qualified name of the SandboxService's
+	// ListSandboxTemplates RPC.
+	SandboxServiceListSandboxTemplatesProcedure = "/depot.agent.v1.SandboxService/ListSandboxTemplates"
+	// SandboxServiceDeleteSandboxTemplateProcedure is the fully-qualified name of the SandboxService's
+	// DeleteSandboxTemplate RPC.
+	SandboxServiceDeleteSandboxTemplateProcedure = "/depot.agent.v1.SandboxService/DeleteSandboxTemplate"
 )
 
 // SandboxServiceClient is a client for the depot.agent.v1.SandboxService service.
@@ -73,6 +88,13 @@ type SandboxServiceClient interface {
 	ListSecrets(context.Context, *connect.Request[v1.ListSecretsRequest]) (*connect.Response[v1.ListSecretsResponse], error)
 	// Shutdown is called from within the sandbox to gracefully terminate
 	Shutdown(context.Context, *connect.Request[v1.ShutdownRequest]) (*connect.Response[v1.ShutdownResponse], error)
+	// GetSSHConnection retrieves SSH connection info for an existing sandbox
+	GetSSHConnection(context.Context, *connect.Request[v1.GetSSHConnectionRequest]) (*connect.Response[v1.GetSSHConnectionResponse], error)
+	// Template management - save and reuse pre-configured sandbox filesystems
+	CreateSandboxTemplate(context.Context, *connect.Request[v1.CreateSandboxTemplateRequest]) (*connect.Response[v1.CreateSandboxTemplateResponse], error)
+	GetSandboxTemplate(context.Context, *connect.Request[v1.GetSandboxTemplateRequest]) (*connect.Response[v1.GetSandboxTemplateResponse], error)
+	ListSandboxTemplates(context.Context, *connect.Request[v1.ListSandboxTemplatesRequest]) (*connect.Response[v1.ListSandboxTemplatesResponse], error)
+	DeleteSandboxTemplate(context.Context, *connect.Request[v1.DeleteSandboxTemplateRequest]) (*connect.Response[v1.DeleteSandboxTemplateResponse], error)
 }
 
 // NewSandboxServiceClient constructs a client for the depot.agent.v1.SandboxService service. By
@@ -130,20 +152,50 @@ func NewSandboxServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 			baseURL+SandboxServiceShutdownProcedure,
 			opts...,
 		),
+		getSSHConnection: connect.NewClient[v1.GetSSHConnectionRequest, v1.GetSSHConnectionResponse](
+			httpClient,
+			baseURL+SandboxServiceGetSSHConnectionProcedure,
+			opts...,
+		),
+		createSandboxTemplate: connect.NewClient[v1.CreateSandboxTemplateRequest, v1.CreateSandboxTemplateResponse](
+			httpClient,
+			baseURL+SandboxServiceCreateSandboxTemplateProcedure,
+			opts...,
+		),
+		getSandboxTemplate: connect.NewClient[v1.GetSandboxTemplateRequest, v1.GetSandboxTemplateResponse](
+			httpClient,
+			baseURL+SandboxServiceGetSandboxTemplateProcedure,
+			opts...,
+		),
+		listSandboxTemplates: connect.NewClient[v1.ListSandboxTemplatesRequest, v1.ListSandboxTemplatesResponse](
+			httpClient,
+			baseURL+SandboxServiceListSandboxTemplatesProcedure,
+			opts...,
+		),
+		deleteSandboxTemplate: connect.NewClient[v1.DeleteSandboxTemplateRequest, v1.DeleteSandboxTemplateResponse](
+			httpClient,
+			baseURL+SandboxServiceDeleteSandboxTemplateProcedure,
+			opts...,
+		),
 	}
 }
 
 // sandboxServiceClient implements SandboxServiceClient.
 type sandboxServiceClient struct {
-	startSandbox      *connect.Client[v1.StartSandboxRequest, v1.StartSandboxResponse]
-	getSandbox        *connect.Client[v1.GetSandboxRequest, v1.GetSandboxResponse]
-	listSandboxs      *connect.Client[v1.ListSandboxsRequest, v1.ListSandboxsResponse]
-	killSandbox       *connect.Client[v1.KillSandboxRequest, v1.KillSandboxResponse]
-	streamSandboxLogs *connect.Client[v1.StreamSandboxLogsRequest, v1.StreamSandboxLogsResponse]
-	addSecret         *connect.Client[v1.AddSecretRequest, v1.AddSecretResponse]
-	removeSecret      *connect.Client[v1.RemoveSecretRequest, v1.RemoveSecretResponse]
-	listSecrets       *connect.Client[v1.ListSecretsRequest, v1.ListSecretsResponse]
-	shutdown          *connect.Client[v1.ShutdownRequest, v1.ShutdownResponse]
+	startSandbox          *connect.Client[v1.StartSandboxRequest, v1.StartSandboxResponse]
+	getSandbox            *connect.Client[v1.GetSandboxRequest, v1.GetSandboxResponse]
+	listSandboxs          *connect.Client[v1.ListSandboxsRequest, v1.ListSandboxsResponse]
+	killSandbox           *connect.Client[v1.KillSandboxRequest, v1.KillSandboxResponse]
+	streamSandboxLogs     *connect.Client[v1.StreamSandboxLogsRequest, v1.StreamSandboxLogsResponse]
+	addSecret             *connect.Client[v1.AddSecretRequest, v1.AddSecretResponse]
+	removeSecret          *connect.Client[v1.RemoveSecretRequest, v1.RemoveSecretResponse]
+	listSecrets           *connect.Client[v1.ListSecretsRequest, v1.ListSecretsResponse]
+	shutdown              *connect.Client[v1.ShutdownRequest, v1.ShutdownResponse]
+	getSSHConnection      *connect.Client[v1.GetSSHConnectionRequest, v1.GetSSHConnectionResponse]
+	createSandboxTemplate *connect.Client[v1.CreateSandboxTemplateRequest, v1.CreateSandboxTemplateResponse]
+	getSandboxTemplate    *connect.Client[v1.GetSandboxTemplateRequest, v1.GetSandboxTemplateResponse]
+	listSandboxTemplates  *connect.Client[v1.ListSandboxTemplatesRequest, v1.ListSandboxTemplatesResponse]
+	deleteSandboxTemplate *connect.Client[v1.DeleteSandboxTemplateRequest, v1.DeleteSandboxTemplateResponse]
 }
 
 // StartSandbox calls depot.agent.v1.SandboxService.StartSandbox.
@@ -191,6 +243,31 @@ func (c *sandboxServiceClient) Shutdown(ctx context.Context, req *connect.Reques
 	return c.shutdown.CallUnary(ctx, req)
 }
 
+// GetSSHConnection calls depot.agent.v1.SandboxService.GetSSHConnection.
+func (c *sandboxServiceClient) GetSSHConnection(ctx context.Context, req *connect.Request[v1.GetSSHConnectionRequest]) (*connect.Response[v1.GetSSHConnectionResponse], error) {
+	return c.getSSHConnection.CallUnary(ctx, req)
+}
+
+// CreateSandboxTemplate calls depot.agent.v1.SandboxService.CreateSandboxTemplate.
+func (c *sandboxServiceClient) CreateSandboxTemplate(ctx context.Context, req *connect.Request[v1.CreateSandboxTemplateRequest]) (*connect.Response[v1.CreateSandboxTemplateResponse], error) {
+	return c.createSandboxTemplate.CallUnary(ctx, req)
+}
+
+// GetSandboxTemplate calls depot.agent.v1.SandboxService.GetSandboxTemplate.
+func (c *sandboxServiceClient) GetSandboxTemplate(ctx context.Context, req *connect.Request[v1.GetSandboxTemplateRequest]) (*connect.Response[v1.GetSandboxTemplateResponse], error) {
+	return c.getSandboxTemplate.CallUnary(ctx, req)
+}
+
+// ListSandboxTemplates calls depot.agent.v1.SandboxService.ListSandboxTemplates.
+func (c *sandboxServiceClient) ListSandboxTemplates(ctx context.Context, req *connect.Request[v1.ListSandboxTemplatesRequest]) (*connect.Response[v1.ListSandboxTemplatesResponse], error) {
+	return c.listSandboxTemplates.CallUnary(ctx, req)
+}
+
+// DeleteSandboxTemplate calls depot.agent.v1.SandboxService.DeleteSandboxTemplate.
+func (c *sandboxServiceClient) DeleteSandboxTemplate(ctx context.Context, req *connect.Request[v1.DeleteSandboxTemplateRequest]) (*connect.Response[v1.DeleteSandboxTemplateResponse], error) {
+	return c.deleteSandboxTemplate.CallUnary(ctx, req)
+}
+
 // SandboxServiceHandler is an implementation of the depot.agent.v1.SandboxService service.
 type SandboxServiceHandler interface {
 	StartSandbox(context.Context, *connect.Request[v1.StartSandboxRequest]) (*connect.Response[v1.StartSandboxResponse], error)
@@ -203,6 +280,13 @@ type SandboxServiceHandler interface {
 	ListSecrets(context.Context, *connect.Request[v1.ListSecretsRequest]) (*connect.Response[v1.ListSecretsResponse], error)
 	// Shutdown is called from within the sandbox to gracefully terminate
 	Shutdown(context.Context, *connect.Request[v1.ShutdownRequest]) (*connect.Response[v1.ShutdownResponse], error)
+	// GetSSHConnection retrieves SSH connection info for an existing sandbox
+	GetSSHConnection(context.Context, *connect.Request[v1.GetSSHConnectionRequest]) (*connect.Response[v1.GetSSHConnectionResponse], error)
+	// Template management - save and reuse pre-configured sandbox filesystems
+	CreateSandboxTemplate(context.Context, *connect.Request[v1.CreateSandboxTemplateRequest]) (*connect.Response[v1.CreateSandboxTemplateResponse], error)
+	GetSandboxTemplate(context.Context, *connect.Request[v1.GetSandboxTemplateRequest]) (*connect.Response[v1.GetSandboxTemplateResponse], error)
+	ListSandboxTemplates(context.Context, *connect.Request[v1.ListSandboxTemplatesRequest]) (*connect.Response[v1.ListSandboxTemplatesResponse], error)
+	DeleteSandboxTemplate(context.Context, *connect.Request[v1.DeleteSandboxTemplateRequest]) (*connect.Response[v1.DeleteSandboxTemplateResponse], error)
 }
 
 // NewSandboxServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -256,6 +340,31 @@ func NewSandboxServiceHandler(svc SandboxServiceHandler, opts ...connect.Handler
 		svc.Shutdown,
 		opts...,
 	)
+	sandboxServiceGetSSHConnectionHandler := connect.NewUnaryHandler(
+		SandboxServiceGetSSHConnectionProcedure,
+		svc.GetSSHConnection,
+		opts...,
+	)
+	sandboxServiceCreateSandboxTemplateHandler := connect.NewUnaryHandler(
+		SandboxServiceCreateSandboxTemplateProcedure,
+		svc.CreateSandboxTemplate,
+		opts...,
+	)
+	sandboxServiceGetSandboxTemplateHandler := connect.NewUnaryHandler(
+		SandboxServiceGetSandboxTemplateProcedure,
+		svc.GetSandboxTemplate,
+		opts...,
+	)
+	sandboxServiceListSandboxTemplatesHandler := connect.NewUnaryHandler(
+		SandboxServiceListSandboxTemplatesProcedure,
+		svc.ListSandboxTemplates,
+		opts...,
+	)
+	sandboxServiceDeleteSandboxTemplateHandler := connect.NewUnaryHandler(
+		SandboxServiceDeleteSandboxTemplateProcedure,
+		svc.DeleteSandboxTemplate,
+		opts...,
+	)
 	return "/depot.agent.v1.SandboxService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case SandboxServiceStartSandboxProcedure:
@@ -276,6 +385,16 @@ func NewSandboxServiceHandler(svc SandboxServiceHandler, opts ...connect.Handler
 			sandboxServiceListSecretsHandler.ServeHTTP(w, r)
 		case SandboxServiceShutdownProcedure:
 			sandboxServiceShutdownHandler.ServeHTTP(w, r)
+		case SandboxServiceGetSSHConnectionProcedure:
+			sandboxServiceGetSSHConnectionHandler.ServeHTTP(w, r)
+		case SandboxServiceCreateSandboxTemplateProcedure:
+			sandboxServiceCreateSandboxTemplateHandler.ServeHTTP(w, r)
+		case SandboxServiceGetSandboxTemplateProcedure:
+			sandboxServiceGetSandboxTemplateHandler.ServeHTTP(w, r)
+		case SandboxServiceListSandboxTemplatesProcedure:
+			sandboxServiceListSandboxTemplatesHandler.ServeHTTP(w, r)
+		case SandboxServiceDeleteSandboxTemplateProcedure:
+			sandboxServiceDeleteSandboxTemplateHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -319,4 +438,24 @@ func (UnimplementedSandboxServiceHandler) ListSecrets(context.Context, *connect.
 
 func (UnimplementedSandboxServiceHandler) Shutdown(context.Context, *connect.Request[v1.ShutdownRequest]) (*connect.Response[v1.ShutdownResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.agent.v1.SandboxService.Shutdown is not implemented"))
+}
+
+func (UnimplementedSandboxServiceHandler) GetSSHConnection(context.Context, *connect.Request[v1.GetSSHConnectionRequest]) (*connect.Response[v1.GetSSHConnectionResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.agent.v1.SandboxService.GetSSHConnection is not implemented"))
+}
+
+func (UnimplementedSandboxServiceHandler) CreateSandboxTemplate(context.Context, *connect.Request[v1.CreateSandboxTemplateRequest]) (*connect.Response[v1.CreateSandboxTemplateResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.agent.v1.SandboxService.CreateSandboxTemplate is not implemented"))
+}
+
+func (UnimplementedSandboxServiceHandler) GetSandboxTemplate(context.Context, *connect.Request[v1.GetSandboxTemplateRequest]) (*connect.Response[v1.GetSandboxTemplateResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.agent.v1.SandboxService.GetSandboxTemplate is not implemented"))
+}
+
+func (UnimplementedSandboxServiceHandler) ListSandboxTemplates(context.Context, *connect.Request[v1.ListSandboxTemplatesRequest]) (*connect.Response[v1.ListSandboxTemplatesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.agent.v1.SandboxService.ListSandboxTemplates is not implemented"))
+}
+
+func (UnimplementedSandboxServiceHandler) DeleteSandboxTemplate(context.Context, *connect.Request[v1.DeleteSandboxTemplateRequest]) (*connect.Response[v1.DeleteSandboxTemplateResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.agent.v1.SandboxService.DeleteSandboxTemplate is not implemented"))
 }

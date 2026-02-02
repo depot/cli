@@ -2,6 +2,8 @@ package claude
 
 import (
 	"testing"
+
+	"github.com/depot/cli/pkg/ssh"
 )
 
 func TestParseTmateSSHURL(t *testing.T) {
@@ -92,32 +94,32 @@ func TestParseTmateSSHURL(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			gotArgs, err := parseTmateSSHURL(tt.input)
+			gotArgs, err := ssh.ParseTmateSSHURL(tt.input)
 
 			if tt.wantErr {
 				if err == nil {
-					t.Errorf("parseTmateSSHURL(%q) expected error, got nil", tt.input)
+					t.Errorf("ssh.ParseTmateSSHURL(%q) expected error, got nil", tt.input)
 					return
 				}
 				if tt.errSubstr != "" && !contains(err.Error(), tt.errSubstr) {
-					t.Errorf("parseTmateSSHURL(%q) error = %q, want error containing %q", tt.input, err.Error(), tt.errSubstr)
+					t.Errorf("ssh.ParseTmateSSHURL(%q) error = %q, want error containing %q", tt.input, err.Error(), tt.errSubstr)
 				}
 				return
 			}
 
 			if err != nil {
-				t.Errorf("parseTmateSSHURL(%q) unexpected error: %v", tt.input, err)
+				t.Errorf("ssh.ParseTmateSSHURL(%q) unexpected error: %v", tt.input, err)
 				return
 			}
 
 			if len(gotArgs) != len(tt.wantArgs) {
-				t.Errorf("parseTmateSSHURL(%q) returned %d args, want %d args", tt.input, len(gotArgs), len(tt.wantArgs))
+				t.Errorf("ssh.ParseTmateSSHURL(%q) returned %d args, want %d args", tt.input, len(gotArgs), len(tt.wantArgs))
 				return
 			}
 
 			for i, arg := range gotArgs {
 				if arg != tt.wantArgs[i] {
-					t.Errorf("parseTmateSSHURL(%q) args[%d] = %q, want %q", tt.input, i, arg, tt.wantArgs[i])
+					t.Errorf("ssh.ParseTmateSSHURL(%q) args[%d] = %q, want %q", tt.input, i, arg, tt.wantArgs[i])
 				}
 			}
 		})
