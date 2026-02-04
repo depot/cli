@@ -26,10 +26,10 @@ jobs:
         with:
           version: 8.x.x
 
-      - name: Install Node 18
+      - name: Install Node 24
         uses: actions/setup-node@v4
         with:
-          node-version: "18"
+          node-version: "24"
           registry-url: https://registry.npmjs.org
           cache: pnpm
           cache-dependency-path: npm/pnpm-lock.yaml
@@ -63,5 +63,3 @@ jobs:
       - name: Release npm packages
         run: pnpm publish -r --access public --no-git-checks
         working-directory: npm
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
