@@ -92,7 +92,7 @@ jobs:
         run: pnpm install --frozen-lockfile --ignore-scripts
         working-directory: npm
 
-      - uses: goreleaser/goreleaser-action@v5
+      - uses: goreleaser/goreleaser-action@v6
         with:
           version: 1.19.0
           args: build --clean --snapshot
