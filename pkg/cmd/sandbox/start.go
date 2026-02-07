@@ -46,9 +46,9 @@ func NewCmdStart() *cobra.Command {
 		Short: "Start a new sandbox",
 		Long: `Start a new Depot sandbox environment.
 
-Use --ssh to start a sandbox with SSH/tmate enabled for interactive access.
+Use --ssh to start a sandbox with SSH enabled for interactive access.
 By default, the command will automatically connect to the sandbox via SSH.
-Use --no-connect to print connection URLs without auto-connecting.
+Use --no-connect to print connection info without auto-connecting.
 
 Use --template to start from a pre-configured template with dependencies
 and tools already installed.`,
@@ -64,16 +64,16 @@ and tools already installed.`,
   # Start from a template
   depot sandbox start --ssh --template my-dev-env
 
-  # Print URLs only, don't auto-connect
+  # Print connection info only, don't auto-connect
   depot sandbox start --ssh --no-connect`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runStart(cmd.Context(), opts)
 		},
 	}
 
-	cmd.Flags().BoolVar(&opts.ssh, "ssh", false, "Enable SSH/tmate mode (required)")
+	cmd.Flags().BoolVar(&opts.ssh, "ssh", false, "Enable SSH mode (required)")
 	cmd.Flags().IntVar(&opts.timeout, "timeout", 60, "SSH session timeout in minutes (max 120)")
-	cmd.Flags().BoolVar(&opts.noConnect, "no-connect", false, "Print URLs only, don't auto-connect via SSH")
+	cmd.Flags().BoolVar(&opts.noConnect, "no-connect", false, "Print connection info only, don't auto-connect via SSH")
 	cmd.Flags().StringVar(&opts.repository, "repository", "", "Git repository URL to clone")
 	cmd.Flags().StringVar(&opts.branch, "branch", "", "Git branch to checkout")
 	cmd.Flags().StringVar(&opts.gitSecret, "git-secret", "", "Secret name for private repo credentials")
@@ -178,35 +178,35 @@ func runStart(ctx context.Context, opts *startOptions) error {
 	debug("Session ID: %s", sessionID)
 	debug("Sandbox ID: %s", sandboxID)
 
-	// Get tmate connection info - either from response or by polling
-	var sshURL, webURL string
+	// Get SSH connection info - either from response or by polling
+	var conn *ssh.SSHConnectionInfo
 
-	if res.Msg.TmateConnection != nil && res.Msg.TmateConnection.SshUrl != "" {
-		debug("TmateConnection available in StartSandbox response")
-		sshURL = res.Msg.TmateConnection.SshUrl
-		if res.Msg.TmateConnection.WebUrl != nil {
-			webURL = *res.Msg.TmateConnection.WebUrl
+	if res.Msg.SshConnection != nil && res.Msg.SshConnection.Host != "" {
+		debug("SSHConnection available in StartSandbox response")
+		conn = &ssh.SSHConnectionInfo{
+			Host:       res.Msg.SshConnection.Host,
+			Port:       res.Msg.SshConnection.Port,
+			Username:   res.Msg.SshConnection.Username,
+			PrivateKey: res.Msg.SshConnection.PrivateKey,
 		}
 	} else {
-		debug("TmateConnection not in response, polling for SSH connection...")
+		debug("SSHConnection not in response, polling for SSH connection...")
 		fmt.Fprintf(opts.stdout, "Starting sandbox %s...\n", sandboxID)
 
-		sshURL, webURL, err = waitForSSHConnection(ctx, sandboxClient, token, opts.orgID, sandboxID, opts.debug, opts.stderr)
+		conn, err = waitForSSHConnection(ctx, sandboxClient, token, opts.orgID, sessionID, sandboxID, opts.debug, opts.stderr)
 		if err != nil {
 			return err
 		}
 	}
 
-	debug("SSH URL: %s", sshURL)
-	if webURL != "" {
-		debug("Web URL: %s", webURL)
-	}
+	debug("SSH Host: %s, Port: %d", conn.Host, conn.Port)
 
 	// Print connection info
 	info := &ssh.ConnectionInfo{
 		SessionID:      sessionID,
-		SSHURL:         sshURL,
-		WebURL:         webURL,
+		Host:           conn.Host,
+		Port:           conn.Port,
+		Username:       conn.Username,
 		TimeoutMinutes: opts.timeout,
 		CommandName:    "depot sandbox",
 	}
@@ -219,9 +219,9 @@ func runStart(ctx context.Context, opts *startOptions) error {
 
 	// Auto-connect via SSH
 	debug("Auto-connecting via SSH...")
-	ssh.PrintConnecting(sshURL, sessionID, "depot sandbox", opts.stdout)
+	ssh.PrintConnecting(conn, sessionID, "depot sandbox", opts.stdout)
 	debug("Executing SSH command...")
-	return ssh.ExecSSH(sshURL)
+	return ssh.ExecSSH(conn)
 }
 
 // isGitURL checks if a string looks like a git URL
@@ -248,8 +248,9 @@ func parseGitURL(s string) (url, branch string) {
 	return s, "main"
 }
 
-// waitForSSHConnection polls until the SSH connection is available
-func waitForSSHConnection(ctx context.Context, client agentv1connect.SandboxServiceClient, token, orgID, sandboxID string, debugEnabled bool, stderr io.Writer) (sshURL, webURL string, err error) {
+// waitForSSHConnection polls until the SSH connection is available, then fetches the full
+// connection info (including the private key) via GetSSHConnection.
+func waitForSSHConnection(ctx context.Context, client agentv1connect.SandboxServiceClient, token, orgID, sessionID, sandboxID string, debugEnabled bool, stderr io.Writer) (*ssh.SSHConnectionInfo, error) {
 	debug := func(format string, args ...interface{}) {
 		if debugEnabled {
 			fmt.Fprintf(stderr, "[DEBUG] "+format+"\n", args...)
@@ -265,10 +266,10 @@ func waitForSSHConnection(ctx context.Context, client agentv1connect.SandboxServ
 	for {
 		select {
 		case <-ctx.Done():
-			return "", "", ctx.Err()
+			return nil, ctx.Err()
 
 		case <-timeout:
-			return "", "", fmt.Errorf("timed out waiting for SSH connection to become available")
+			return nil, fmt.Errorf("timed out waiting for SSH connection to become available")
 
 		case <-ticker.C:
 			debug("Polling GetSandbox for SSH connection info...")
@@ -282,23 +283,39 @@ func waitForSSHConnection(ctx context.Context, client agentv1connect.SandboxServ
 					debug("Sandbox not found yet, continuing to poll...")
 					continue
 				}
-				return "", "", fmt.Errorf("failed to get sandbox status: %w", err)
+				return nil, fmt.Errorf("failed to get sandbox status: %w", err)
 			}
 
 			sandbox := getResp.Msg.Sandbox
-			debug("Sandbox state: StartedAt=%v, SshEnabled=%v, TmateSshUrl=%v",
+			debug("Sandbox state: StartedAt=%v, SshEnabled=%v, SshHost=%v, SshPort=%v",
 				sandbox.StartedAt != nil,
 				sandbox.SshEnabled != nil && *sandbox.SshEnabled,
-				sandbox.TmateSshUrl != nil)
+				sandbox.SshHost != nil,
+				sandbox.SshPort != nil)
 
-			// Check if tmate SSH URL is available
-			if sandbox.TmateSshUrl != nil && *sandbox.TmateSshUrl != "" {
-				sshURL = *sandbox.TmateSshUrl
-				if sandbox.TmateWebUrl != nil {
-					webURL = *sandbox.TmateWebUrl
+			// Check if SSH host/port is available
+			if sandbox.SshHost != nil && *sandbox.SshHost != "" {
+				debug("SSH host available, fetching full connection info...")
+
+				// Get the private key via GetSSHConnection
+				sshReq := &agentv1.GetSSHConnectionRequest{
+					SessionId: sessionID,
 				}
+				sshResp, err := client.GetSSHConnection(ctx, api.WithAuthenticationAndOrg(connect.NewRequest(sshReq), token, orgID))
+				if err != nil {
+					return nil, fmt.Errorf("failed to get SSH connection details: %w", err)
+				}
+				if sshResp.Msg.SshConnection == nil {
+					return nil, fmt.Errorf("SSH connection info not available")
+				}
+
 				debug("SSH connection available!")
-				return sshURL, webURL, nil
+				return &ssh.SSHConnectionInfo{
+					Host:       sshResp.Msg.SshConnection.Host,
+					Port:       sshResp.Msg.SshConnection.Port,
+					Username:   sshResp.Msg.SshConnection.Username,
+					PrivateKey: sshResp.Msg.SshConnection.PrivateKey,
+				}, nil
 			}
 
 			debug("SSH connection not ready yet, continuing to poll...")

@@ -59,16 +59,18 @@ message SSHConfig {
   optional int32 timeout_minutes = 2;
 }
 
-message TmateConnection {
-  string ssh_url = 1;
-  optional string web_url = 2;
+message SSHConnection {
+  string host = 1;
+  int32 port = 2;
+  string username = 3;
+  string private_key = 4;
 }
 
 message StartSandboxResponse {
   string sandbox_id = 1;
   string session_id = 2;
   string organization_id = 3;
-  optional TmateConnection tmate_connection = 4;
+  optional SSHConnection ssh_connection = 4;
 }
 
 message GetSSHConnectionRequest {
@@ -76,7 +78,7 @@ message GetSSHConnectionRequest {
 }
 
 message GetSSHConnectionResponse {
-  TmateConnection tmate_connection = 1;
+  SSHConnection ssh_connection = 1;
 }
 
 message GetSandboxRequest {
@@ -140,8 +142,8 @@ message Sandbox {
   optional double duration_seconds = 9;
   optional string error_message = 10;
   optional bool ssh_enabled = 11;
-  optional string tmate_ssh_url = 12;
-  optional string tmate_web_url = 13;
+  optional string ssh_host = 12;
+  optional int32 ssh_port = 13;
 }
 
 message KillSandboxRequest {
@@ -193,7 +195,6 @@ message SandboxTemplate {
   optional string source_commit_hash = 7;
 
   // Whether this template can be used with SSH mode
-  // Only templates created from SSH-enabled sandboxes have tmate installed
   bool ssh_compatible = 8;
 
   google.protobuf.Timestamp created_at = 9;

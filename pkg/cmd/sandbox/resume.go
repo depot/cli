@@ -40,14 +40,14 @@ func NewCmdResume() *cobra.Command {
 
 This command restarts a sandbox that has completed, preserving its filesystem
 state and creating a new SSH session. Use this to get back into a sandbox
-shell that has timed out or been terminated.`,
+that has timed out or been terminated.`,
 		Example: `  # Resume a completed sandbox and connect via SSH
   depot sandbox resume abc123-session-id
 
   # Resume with custom timeout
   depot sandbox resume abc123-session-id --timeout 90
 
-  # Print URLs only, don't auto-connect
+  # Print connection info only, don't auto-connect
   depot sandbox resume abc123-session-id --no-connect`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -56,7 +56,7 @@ shell that has timed out or been terminated.`,
 	}
 
 	cmd.Flags().IntVar(&opts.timeout, "timeout", 60, "SSH session timeout in minutes (max 120)")
-	cmd.Flags().BoolVar(&opts.noConnect, "no-connect", false, "Print URLs only, don't auto-connect via SSH")
+	cmd.Flags().BoolVar(&opts.noConnect, "no-connect", false, "Print connection info only, don't auto-connect via SSH")
 	cmd.Flags().StringVar(&opts.token, "token", "", "Depot API token")
 	cmd.Flags().StringVar(&opts.orgID, "org", "", "Organization ID")
 	cmd.Flags().BoolVar(&opts.debug, "debug", false, "Enable debug logging")
@@ -130,34 +130,34 @@ func runResume(ctx context.Context, sessionID string, opts *resumeOptions) error
 	debug("New Session ID: %s", newSessionID)
 	debug("New Sandbox ID: %s", sandboxID)
 
-	// Get tmate connection info - either from response or by polling
-	var sshURL, webURL string
+	// Get SSH connection info - either from response or by polling
+	var conn *ssh.SSHConnectionInfo
 
-	if res.Msg.TmateConnection != nil && res.Msg.TmateConnection.SshUrl != "" {
-		debug("TmateConnection available in StartSandbox response")
-		sshURL = res.Msg.TmateConnection.SshUrl
-		if res.Msg.TmateConnection.WebUrl != nil {
-			webURL = *res.Msg.TmateConnection.WebUrl
+	if res.Msg.SshConnection != nil && res.Msg.SshConnection.Host != "" {
+		debug("SSHConnection available in StartSandbox response")
+		conn = &ssh.SSHConnectionInfo{
+			Host:       res.Msg.SshConnection.Host,
+			Port:       res.Msg.SshConnection.Port,
+			Username:   res.Msg.SshConnection.Username,
+			PrivateKey: res.Msg.SshConnection.PrivateKey,
 		}
 	} else {
-		debug("TmateConnection not in response, polling for SSH connection...")
+		debug("SSHConnection not in response, polling for SSH connection...")
 
-		sshURL, webURL, err = waitForSSHConnection(ctx, sandboxClient, token, opts.orgID, sandboxID, opts.debug, opts.stderr)
+		conn, err = waitForSSHConnection(ctx, sandboxClient, token, opts.orgID, newSessionID, sandboxID, opts.debug, opts.stderr)
 		if err != nil {
 			return err
 		}
 	}
 
-	debug("SSH URL: %s", sshURL)
-	if webURL != "" {
-		debug("Web URL: %s", webURL)
-	}
+	debug("SSH Host: %s, Port: %d", conn.Host, conn.Port)
 
 	// Print connection info
 	info := &ssh.ConnectionInfo{
 		SessionID:      newSessionID,
-		SSHURL:         sshURL,
-		WebURL:         webURL,
+		Host:           conn.Host,
+		Port:           conn.Port,
+		Username:       conn.Username,
 		TimeoutMinutes: opts.timeout,
 		CommandName:    "depot sandbox",
 	}
@@ -170,7 +170,7 @@ func runResume(ctx context.Context, sessionID string, opts *resumeOptions) error
 
 	// Auto-connect via SSH
 	debug("Auto-connecting via SSH...")
-	ssh.PrintConnecting(sshURL, newSessionID, "depot sandbox", opts.stdout)
+	ssh.PrintConnecting(conn, newSessionID, "depot sandbox", opts.stdout)
 	debug("Executing SSH command...")
-	return ssh.ExecSSH(sshURL)
+	return ssh.ExecSSH(conn)
 }

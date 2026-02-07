@@ -64,7 +64,7 @@ When running remotely, you can specify a Git repository context with --repositor
 
 SSH Mode:
   Use --ssh to start an interactive SSH session to a sandbox environment.
-  This connects you directly to the sandbox via tmate for hands-on debugging or exploration.
+  This connects you directly to the sandbox via SSH for hands-on debugging or exploration.
   Use --ssh-reconnect to reconnect to an existing SSH session.
 
 All flags not recognized by depot are passed directly through to the claude CLI.

@@ -51,17 +51,18 @@ func RunSSHMode(ctx context.Context, opts *SSHOptions) error {
 
 	sandboxClient := api.NewSandboxClient()
 
-	var tmateSSHURL, tmateWebURL, sessionID string
+	var conn *ssh.SSHConnectionInfo
+	var sessionID string
 
 	if opts.ReconnectID != "" {
 		// Reconnect flow - get existing SSH connection
-		tmateSSHURL, tmateWebURL, sessionID, err = reconnectSSH(ctx, sandboxClient, token, opts)
+		conn, sessionID, err = reconnectSSH(ctx, sandboxClient, token, opts)
 		if err != nil {
 			return err
 		}
 	} else {
 		// New session flow - start sandbox with SSH enabled
-		tmateSSHURL, tmateWebURL, sessionID, err = startSSHSandbox(ctx, sandboxClient, token, opts)
+		conn, sessionID, err = startSSHSandbox(ctx, sandboxClient, token, opts)
 		if err != nil {
 			return err
 		}
@@ -76,27 +77,20 @@ func RunSSHMode(ctx context.Context, opts *SSHOptions) error {
 	fmt.Fprintf(opts.Stdout, "\n")
 
 	if !opts.AutoConnect {
-		// Print URLs only mode
-		fmt.Fprintf(opts.Stdout, "Connect via SSH:\n  %s\n", tmateSSHURL)
-		if tmateWebURL != "" {
-			fmt.Fprintf(opts.Stdout, "\nOr via web browser:\n  %s\n", tmateWebURL)
-		}
+		// Print connection info only
+		fmt.Fprintf(opts.Stdout, "Connect via SSH:\n  ssh %s@%s -p %d\n", conn.Username, conn.Host, conn.Port)
 		fmt.Fprintf(opts.Stdout, "\nTo reconnect later:\n  depot claude --ssh-reconnect %s\n", sessionID)
 		return nil
 	}
 
 	// Auto-connect via SSH
-	fmt.Fprintf(opts.Stdout, "Connecting...\n")
-	fmt.Fprintf(opts.Stdout, "SSH URL: %s\n\n", tmateSSHURL)
+	ssh.PrintConnecting(conn, sessionID, "depot claude", opts.Stdout)
 
-	fmt.Fprintf(opts.Stdout, "Tip: Your session runs in tmate. To reconnect later, run:\n")
-	fmt.Fprintf(opts.Stdout, "  depot claude --ssh-reconnect %s\n\n", sessionID)
-
-	return execTmateSSH(tmateSSHURL)
+	return ssh.ExecSSH(conn)
 }
 
 // startSSHSandbox starts a new sandbox with SSH enabled
-func startSSHSandbox(ctx context.Context, client agentv1connect.SandboxServiceClient, token string, opts *SSHOptions) (sshURL, webURL, sessionID string, err error) {
+func startSSHSandbox(ctx context.Context, client agentv1connect.SandboxServiceClient, token string, opts *SSHOptions) (*ssh.SSHConnectionInfo, string, error) {
 	agentType := agentv1.AgentType_AGENT_TYPE_CLAUDE_CODE
 	timeoutMinutes := int32(opts.TimeoutMinutes)
 	req := &agentv1.StartSandboxRequest{
@@ -131,48 +125,46 @@ func startSSHSandbox(ctx context.Context, client agentv1connect.SandboxServiceCl
 
 	res, err := client.StartSandbox(ctx, api.WithAuthenticationAndOrg(connect.NewRequest(req), token, opts.OrgID))
 	if err != nil {
-		return "", "", "", fmt.Errorf("unable to start SSH sandbox: %w", err)
+		return nil, "", fmt.Errorf("unable to start SSH sandbox: %w", err)
 	}
 
-	sessionID = res.Msg.SessionId
+	sessionID := res.Msg.SessionId
 
-	// Check for tmate connection info in response
-	if res.Msg.TmateConnection == nil {
-		return "", "", sessionID, fmt.Errorf("SSH sandbox started but tmate connection info is not available. The sandbox may not support SSH mode yet")
+	if res.Msg.SshConnection == nil {
+		return nil, sessionID, fmt.Errorf("SSH sandbox started but connection info is not available")
 	}
 
-	sshURL = res.Msg.TmateConnection.SshUrl
-	if res.Msg.TmateConnection.WebUrl != nil {
-		webURL = *res.Msg.TmateConnection.WebUrl
+	conn := &ssh.SSHConnectionInfo{
+		Host:       res.Msg.SshConnection.Host,
+		Port:       res.Msg.SshConnection.Port,
+		Username:   res.Msg.SshConnection.Username,
+		PrivateKey: res.Msg.SshConnection.PrivateKey,
 	}
 
-	return sshURL, webURL, sessionID, nil
+	return conn, sessionID, nil
 }
 
 // reconnectSSH retrieves connection info for an existing SSH sandbox
-func reconnectSSH(ctx context.Context, client agentv1connect.SandboxServiceClient, token string, opts *SSHOptions) (sshURL, webURL, sessionID string, err error) {
+func reconnectSSH(ctx context.Context, client agentv1connect.SandboxServiceClient, token string, opts *SSHOptions) (*ssh.SSHConnectionInfo, string, error) {
 	req := &agentv1.GetSSHConnectionRequest{
 		SessionId: opts.ReconnectID,
 	}
 
 	res, err := client.GetSSHConnection(ctx, api.WithAuthenticationAndOrg(connect.NewRequest(req), token, opts.OrgID))
 	if err != nil {
-		return "", "", "", fmt.Errorf("unable to get SSH connection info: %w", err)
+		return nil, "", fmt.Errorf("unable to get SSH connection info: %w", err)
 	}
 
-	if res.Msg.TmateConnection == nil {
-		return "", "", "", fmt.Errorf("no SSH connection available for session %s", opts.ReconnectID)
+	if res.Msg.SshConnection == nil {
+		return nil, "", fmt.Errorf("no SSH connection available for session %s", opts.ReconnectID)
 	}
 
-	sshURL = res.Msg.TmateConnection.SshUrl
-	if res.Msg.TmateConnection.WebUrl != nil {
-		webURL = *res.Msg.TmateConnection.WebUrl
+	conn := &ssh.SSHConnectionInfo{
+		Host:       res.Msg.SshConnection.Host,
+		Port:       res.Msg.SshConnection.Port,
+		Username:   res.Msg.SshConnection.Username,
+		PrivateKey: res.Msg.SshConnection.PrivateKey,
 	}
 
-	return sshURL, webURL, opts.ReconnectID, nil
-}
-
-// execTmateSSH connects to a tmate session via SSH using the shared SSH package
-func execTmateSSH(tmateSSHURL string) error {
-	return ssh.ExecSSH(tmateSSHURL)
+	return conn, opts.ReconnectID, nil
 }

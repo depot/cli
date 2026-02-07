@@ -80,13 +80,13 @@ Use --output to specify a format (table, json, csv) for non-interactive output.`
 }
 
 type sandboxOutput struct {
-	SandboxID   string `json:"sandbox_id"`
-	SessionID   string `json:"session_id"`
-	Status      string `json:"status"`
-	SSHEnabled  bool   `json:"ssh_enabled"`
-	TmateSSHURL string `json:"tmate_ssh_url,omitempty"`
-	TmateWebURL string `json:"tmate_web_url,omitempty"`
-	CreatedAt   string `json:"created_at"`
+	SandboxID  string `json:"sandbox_id"`
+	SessionID  string `json:"session_id"`
+	Status     string `json:"status"`
+	SSHEnabled bool   `json:"ssh_enabled"`
+	SSHHost    string `json:"ssh_host,omitempty"`
+	SSHPort    int32  `json:"ssh_port,omitempty"`
+	CreatedAt  string `json:"created_at"`
 }
 
 func runList(ctx context.Context, opts *listOptions) error {
@@ -136,14 +136,14 @@ func runList(ctx context.Context, opts *listOptions) error {
 			SandboxID:  sb.SandboxId,
 			SessionID:  sb.SessionId,
 			Status:     status,
-			SSHEnabled: (sb.SshEnabled != nil && *sb.SshEnabled) || sb.TmateSshUrl != nil,
+			SSHEnabled: (sb.SshEnabled != nil && *sb.SshEnabled) || sb.SshHost != nil,
 			CreatedAt:  sb.CreatedAt.AsTime().Format("2006-01-02 15:04:05"),
 		}
-		if sb.TmateSshUrl != nil {
-			out.TmateSSHURL = *sb.TmateSshUrl
+		if sb.SshHost != nil {
+			out.SSHHost = *sb.SshHost
 		}
-		if sb.TmateWebUrl != nil {
-			out.TmateWebURL = *sb.TmateWebUrl
+		if sb.SshPort != nil {
+			out.SSHPort = *sb.SshPort
 		}
 		outputs = append(outputs, out)
 	}
@@ -175,7 +175,7 @@ func outputCSV(sandboxes []sandboxOutput, w io.Writer) error {
 	defer writer.Flush()
 
 	// Header
-	if err := writer.Write([]string{"sandbox_id", "session_id", "status", "ssh_enabled", "tmate_ssh_url", "tmate_web_url", "created_at"}); err != nil {
+	if err := writer.Write([]string{"sandbox_id", "session_id", "status", "ssh_enabled", "ssh_host", "ssh_port", "created_at"}); err != nil {
 		return err
 	}
 
@@ -184,13 +184,17 @@ func outputCSV(sandboxes []sandboxOutput, w io.Writer) error {
 		if sb.SSHEnabled {
 			sshEnabled = "true"
 		}
+		sshPort := ""
+		if sb.SSHPort > 0 {
+			sshPort = fmt.Sprintf("%d", sb.SSHPort)
+		}
 		if err := writer.Write([]string{
 			sb.SandboxID,
 			sb.SessionID,
 			sb.Status,
 			sshEnabled,
-			sb.TmateSSHURL,
-			sb.TmateWebURL,
+			sb.SSHHost,
+			sshPort,
 			sb.CreatedAt,
 		}); err != nil {
 			return err
@@ -252,14 +256,16 @@ type sandboxModel struct {
 	token  string
 	orgID  string
 
-	// Map of sandbox ID to SSH URL for lookup after selection
-	sshURLs map[string]string
+	// Map of sandbox ID to session ID for lookup after selection
+	sessionIDs map[string]string
 
 	// Selected sandbox info for action
 	selectedSandboxID string
 	selectedSessionID string
-	selectedSSHURL    string
 	action            sandboxAction
+
+	// Whether the selected sandbox has SSH available
+	selectedHasSSH bool
 
 	showAll bool // Toggle to show all sandboxes vs just running
 	err     error
@@ -293,12 +299,12 @@ func newSandboxModel(token, orgID string, client agentv1connect.SandboxServiceCl
 	)
 
 	return sandboxModel{
-		table:   tbl,
-		columns: columns,
-		client:  client,
-		token:   token,
-		orgID:   orgID,
-		sshURLs: make(map[string]string),
+		table:      tbl,
+		columns:    columns,
+		client:     client,
+		token:      token,
+		orgID:      orgID,
+		sessionIDs: make(map[string]string),
 	}
 }
 
@@ -331,7 +337,7 @@ func (m sandboxModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			row := m.table.SelectedRow()
 			m.selectedSandboxID = row[0]
 			m.selectedSessionID = row[1]
-			m.selectedSSHURL = m.sshURLs[row[0]] // Look up SSH URL from map
+			m.selectedHasSSH = row[3] == "yes"
 			m.action = actionConnect
 			return m, tea.Quit
 		case "k":
@@ -363,7 +369,7 @@ func (m sandboxModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case sandboxRowsMsg:
 		m.err = nil
-		m.sshURLs = msg.sshURLs
+		m.sessionIDs = msg.sessionIDs
 
 		var selectedRow table.Row
 		if len(m.table.Rows()) > 0 {
@@ -422,8 +428,8 @@ func (m sandboxModel) View() string {
 
 // Message types for BubbleTea
 type sandboxRowsMsg struct {
-	rows    []table.Row
-	sshURLs map[string]string
+	rows       []table.Row
+	sessionIDs map[string]string
 }
 type errMsg struct{ error }
 type tickMsg struct{}
@@ -440,7 +446,7 @@ func (m sandboxModel) loadSandboxes() tea.Cmd {
 		}
 
 		rows := []table.Row{}
-		sshURLs := make(map[string]string)
+		sessionIDs := make(map[string]string)
 
 		for _, sb := range res.Msg.Sandboxes {
 			// Filter based on showAll flag
@@ -457,11 +463,9 @@ func (m sandboxModel) loadSandboxes() tea.Cmd {
 			}
 
 			sshStatus := "no"
-			if (sb.SshEnabled != nil && *sb.SshEnabled) || sb.TmateSshUrl != nil {
+			if (sb.SshEnabled != nil && *sb.SshEnabled) || sb.SshHost != nil {
 				sshStatus = "yes"
-				if sb.TmateSshUrl != nil {
-					sshURLs[sb.SandboxId] = *sb.TmateSshUrl
-				}
+				sessionIDs[sb.SandboxId] = sb.SessionId
 			}
 
 			createdAt := sb.CreatedAt.AsTime().Format("2006-01-02 15:04:05")
@@ -475,7 +479,7 @@ func (m sandboxModel) loadSandboxes() tea.Cmd {
 			})
 		}
 
-		return sandboxRowsMsg{rows: rows, sshURLs: sshURLs}
+		return sandboxRowsMsg{rows: rows, sessionIDs: sessionIDs}
 	}
 }
 
@@ -501,11 +505,34 @@ func runInteractiveList(token, orgID string, client agentv1connect.SandboxServic
 	// Handle selected action
 	switch model.action {
 	case actionConnect:
-		if model.selectedSSHURL == "" {
+		if !model.selectedHasSSH {
 			return fmt.Errorf("sandbox %s does not have SSH enabled", model.selectedSandboxID)
 		}
-		ssh.PrintConnecting(model.selectedSSHURL, model.selectedSessionID, "depot sandbox", os.Stdout)
-		return ssh.ExecSSH(model.selectedSSHURL)
+
+		// Get SSH connection info via GetSSHConnection
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		req := &agentv1.GetSSHConnectionRequest{
+			SessionId: model.selectedSessionID,
+		}
+		res, err := client.GetSSHConnection(ctx, api.WithAuthenticationAndOrg(connect.NewRequest(req), token, orgID))
+		if err != nil {
+			return fmt.Errorf("unable to get SSH connection info: %w", err)
+		}
+		if res.Msg.SshConnection == nil {
+			return fmt.Errorf("no SSH connection available for session %s", model.selectedSessionID)
+		}
+
+		conn := &ssh.SSHConnectionInfo{
+			Host:       res.Msg.SshConnection.Host,
+			Port:       res.Msg.SshConnection.Port,
+			Username:   res.Msg.SshConnection.Username,
+			PrivateKey: res.Msg.SshConnection.PrivateKey,
+		}
+
+		ssh.PrintConnecting(conn, model.selectedSessionID, "depot sandbox", os.Stdout)
+		return ssh.ExecSSH(conn)
 
 	case actionKill:
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

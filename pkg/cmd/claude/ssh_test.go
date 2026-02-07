@@ -6,137 +6,126 @@ import (
 	"github.com/depot/cli/pkg/ssh"
 )
 
-func TestParseTmateSSHURL(t *testing.T) {
+func TestBuildSSHArgs(t *testing.T) {
 	tests := []struct {
-		name      string
-		input     string
-		wantArgs  []string
-		wantErr   bool
-		errSubstr string
+		name     string
+		conn     *ssh.SSHConnectionInfo
+		keyFile  string
+		command  []string
+		wantArgs []string
 	}{
 		{
-			name:  "valid tmate URL",
-			input: "ssh abc123@nyc1.tmate.io",
+			name: "interactive session (no command)",
+			conn: &ssh.SSHConnectionInfo{
+				Host:     "sandbox-123.depot.dev",
+				Port:     2222,
+				Username: "depot",
+			},
+			keyFile: "/tmp/depot-ssh-key-123",
+			command: nil,
 			wantArgs: []string{
+				"-i", "/tmp/depot-ssh-key-123",
+				"-p", "2222",
 				"-o", "StrictHostKeyChecking=no",
 				"-o", "UserKnownHostsFile=/dev/null",
 				"-o", "ServerAliveInterval=30",
-				"abc123@nyc1.tmate.io",
+				"depot@sandbox-123.depot.dev",
 			},
-			wantErr: false,
 		},
 		{
-			name:  "valid tmate URL with long session token",
-			input: "ssh xyzABC123def456@lon1.tmate.io",
+			name: "with command",
+			conn: &ssh.SSHConnectionInfo{
+				Host:     "sandbox-456.depot.dev",
+				Port:     22,
+				Username: "root",
+			},
+			keyFile: "/tmp/depot-ssh-key-456",
+			command: []string{"ls", "-la"},
 			wantArgs: []string{
+				"-i", "/tmp/depot-ssh-key-456",
+				"-p", "22",
 				"-o", "StrictHostKeyChecking=no",
 				"-o", "UserKnownHostsFile=/dev/null",
 				"-o", "ServerAliveInterval=30",
-				"xyzABC123def456@lon1.tmate.io",
+				"root@sandbox-456.depot.dev",
+				"ls -la",
 			},
-			wantErr: false,
 		},
 		{
-			name:  "valid tmate URL with port",
-			input: "ssh session@tmate.example.com",
+			name: "single word command",
+			conn: &ssh.SSHConnectionInfo{
+				Host:     "host.example.com",
+				Port:     2222,
+				Username: "depot",
+			},
+			keyFile: "/tmp/key",
+			command: []string{"whoami"},
 			wantArgs: []string{
+				"-i", "/tmp/key",
+				"-p", "2222",
 				"-o", "StrictHostKeyChecking=no",
 				"-o", "UserKnownHostsFile=/dev/null",
 				"-o", "ServerAliveInterval=30",
-				"session@tmate.example.com",
+				"depot@host.example.com",
+				"whoami",
 			},
-			wantErr: false,
 		},
 		{
-			name:      "empty string",
-			input:     "",
-			wantArgs:  nil,
-			wantErr:   true,
-			errSubstr: "invalid tmate SSH URL format",
-		},
-		{
-			name:      "only ssh command",
-			input:     "ssh",
-			wantArgs:  nil,
-			wantErr:   true,
-			errSubstr: "invalid tmate SSH URL format",
-		},
-		{
-			name:      "no ssh prefix",
-			input:     "abc123@nyc1.tmate.io",
-			wantArgs:  nil,
-			wantErr:   true,
-			errSubstr: "invalid tmate SSH URL format",
-		},
-		{
-			name:  "URL with extra whitespace",
-			input: "ssh   abc123@nyc1.tmate.io",
+			name: "empty command slice",
+			conn: &ssh.SSHConnectionInfo{
+				Host:     "host.example.com",
+				Port:     2222,
+				Username: "depot",
+			},
+			keyFile: "/tmp/key",
+			command: []string{},
 			wantArgs: []string{
+				"-i", "/tmp/key",
+				"-p", "2222",
 				"-o", "StrictHostKeyChecking=no",
 				"-o", "UserKnownHostsFile=/dev/null",
 				"-o", "ServerAliveInterval=30",
-				"abc123@nyc1.tmate.io",
+				"depot@host.example.com",
 			},
-			wantErr: false,
-		},
-		{
-			name:  "URL with trailing content (ignored)",
-			input: "ssh abc123@nyc1.tmate.io extra",
-			wantArgs: []string{
-				"-o", "StrictHostKeyChecking=no",
-				"-o", "UserKnownHostsFile=/dev/null",
-				"-o", "ServerAliveInterval=30",
-				"abc123@nyc1.tmate.io",
-			},
-			wantErr: false,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			gotArgs, err := ssh.ParseTmateSSHURL(tt.input)
-
-			if tt.wantErr {
-				if err == nil {
-					t.Errorf("ssh.ParseTmateSSHURL(%q) expected error, got nil", tt.input)
-					return
-				}
-				if tt.errSubstr != "" && !contains(err.Error(), tt.errSubstr) {
-					t.Errorf("ssh.ParseTmateSSHURL(%q) error = %q, want error containing %q", tt.input, err.Error(), tt.errSubstr)
-				}
-				return
-			}
-
-			if err != nil {
-				t.Errorf("ssh.ParseTmateSSHURL(%q) unexpected error: %v", tt.input, err)
-				return
-			}
+			gotArgs := ssh.BuildSSHArgs(tt.conn, tt.keyFile, tt.command)
 
 			if len(gotArgs) != len(tt.wantArgs) {
-				t.Errorf("ssh.ParseTmateSSHURL(%q) returned %d args, want %d args", tt.input, len(gotArgs), len(tt.wantArgs))
+				t.Errorf("BuildSSHArgs() returned %d args, want %d args\ngot:  %v\nwant: %v", len(gotArgs), len(tt.wantArgs), gotArgs, tt.wantArgs)
 				return
 			}
 
 			for i, arg := range gotArgs {
 				if arg != tt.wantArgs[i] {
-					t.Errorf("ssh.ParseTmateSSHURL(%q) args[%d] = %q, want %q", tt.input, i, arg, tt.wantArgs[i])
+					t.Errorf("BuildSSHArgs() args[%d] = %q, want %q", i, arg, tt.wantArgs[i])
 				}
 			}
 		})
 	}
 }
 
-// contains checks if substr is contained in s
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(substr) == 0 ||
-		(len(s) > 0 && len(substr) > 0 && searchSubstring(s, substr)))
-}
-
-func searchSubstring(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
+func TestSSHConnectionInfo(t *testing.T) {
+	conn := &ssh.SSHConnectionInfo{
+		Host:       "sandbox.depot.dev",
+		Port:       2222,
+		Username:   "depot",
+		PrivateKey: "dGVzdC1rZXk=", // base64("test-key")
 	}
-	return false
+
+	if conn.Host != "sandbox.depot.dev" {
+		t.Errorf("Host = %q, want %q", conn.Host, "sandbox.depot.dev")
+	}
+	if conn.Port != 2222 {
+		t.Errorf("Port = %d, want %d", conn.Port, 2222)
+	}
+	if conn.Username != "depot" {
+		t.Errorf("Username = %q, want %q", conn.Username, "depot")
+	}
+	if conn.PrivateKey != "dGVzdC1rZXk=" {
+		t.Errorf("PrivateKey = %q, want %q", conn.PrivateKey, "dGVzdC1rZXk=")
+	}
 }

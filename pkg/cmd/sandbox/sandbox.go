@@ -20,6 +20,7 @@ development, testing, and interactive SSH sessions.`,
 
 	cmd.AddCommand(NewCmdStart())
 	cmd.AddCommand(NewCmdConnect())
+	cmd.AddCommand(NewCmdExec())
 	cmd.AddCommand(NewCmdResume())
 	cmd.AddCommand(NewCmdList())
 	cmd.AddCommand(NewCmdKill())

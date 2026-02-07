@@ -79,13 +79,18 @@ func runConnect(ctx context.Context, sessionID string, opts *connectOptions) err
 		return fmt.Errorf("unable to get SSH connection info: %w", err)
 	}
 
-	if res.Msg.TmateConnection == nil {
+	if res.Msg.SshConnection == nil {
 		return fmt.Errorf("no SSH connection available for session %s", sessionID)
 	}
 
-	sshURL := res.Msg.TmateConnection.SshUrl
+	conn := &ssh.SSHConnectionInfo{
+		Host:       res.Msg.SshConnection.Host,
+		Port:       res.Msg.SshConnection.Port,
+		Username:   res.Msg.SshConnection.Username,
+		PrivateKey: res.Msg.SshConnection.PrivateKey,
+	}
 
 	// Connect via SSH
-	ssh.PrintConnecting(sshURL, sessionID, "depot sandbox", opts.stdout)
-	return ssh.ExecSSH(sshURL)
+	ssh.PrintConnecting(conn, sessionID, "depot sandbox", opts.stdout)
+	return ssh.ExecSSH(conn)
 }
