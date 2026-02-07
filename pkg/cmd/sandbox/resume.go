@@ -115,11 +115,16 @@ func runResume(ctx context.Context, sessionID string, opts *resumeOptions) error
 	debug("Request built: ResumeSessionId=%s, AgentType=%v, SSHConfig.Enabled=%v, TimeoutMinutes=%d",
 		sessionID, agentType, true, timeoutMinutes)
 
-	fmt.Fprintf(opts.stdout, "Resuming sandbox from session %s...\n", sessionID)
+	// Start spinner for the loading phase
+	spin := newSpinner("Resuming sandbox...", opts.stderr)
+	if !opts.debug {
+		spin.Start()
+	}
 
 	debug("Calling StartSandbox API with resume_session_id...")
 	res, err := sandboxClient.StartSandbox(ctx, api.WithAuthenticationAndOrg(connect.NewRequest(req), token, opts.orgID))
 	if err != nil {
+		spin.Stop()
 		debug("StartSandbox API error: %v", err)
 		return fmt.Errorf("unable to resume sandbox: %w", err)
 	}
@@ -143,13 +148,16 @@ func runResume(ctx context.Context, sessionID string, opts *resumeOptions) error
 		}
 	} else {
 		debug("SSHConnection not in response, polling for SSH connection...")
+		spin.Update("Waiting for sandbox to be ready...")
 
 		conn, err = waitForSSHConnection(ctx, sandboxClient, token, opts.orgID, newSessionID, sandboxID, opts.debug, opts.stderr)
 		if err != nil {
+			spin.Stop()
 			return err
 		}
 	}
 
+	spin.Stop()
 	debug("SSH Host: %s, Port: %d", conn.Host, conn.Port)
 
 	// Print connection info

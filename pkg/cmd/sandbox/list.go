@@ -80,13 +80,15 @@ Use --output to specify a format (table, json, csv) for non-interactive output.`
 }
 
 type sandboxOutput struct {
-	SandboxID  string `json:"sandbox_id"`
-	SessionID  string `json:"session_id"`
-	Status     string `json:"status"`
-	SSHEnabled bool   `json:"ssh_enabled"`
-	SSHHost    string `json:"ssh_host,omitempty"`
-	SSHPort    int32  `json:"ssh_port,omitempty"`
-	CreatedAt  string `json:"created_at"`
+	SandboxID    string `json:"sandbox_id"`
+	SessionID    string `json:"session_id"`
+	Status       string `json:"status"`
+	SSHEnabled   bool   `json:"ssh_enabled"`
+	SSHHost      string `json:"ssh_host,omitempty"`
+	SSHPort      int32  `json:"ssh_port,omitempty"`
+	TemplateName string `json:"template_name,omitempty"`
+	Repository   string `json:"repository,omitempty"`
+	CreatedAt    string `json:"created_at"`
 }
 
 func runList(ctx context.Context, opts *listOptions) error {
@@ -145,6 +147,12 @@ func runList(ctx context.Context, opts *listOptions) error {
 		if sb.SshPort != nil {
 			out.SSHPort = *sb.SshPort
 		}
+		if sb.TemplateName != nil {
+			out.TemplateName = *sb.TemplateName
+		}
+		if sb.Repository != nil {
+			out.Repository = *sb.Repository
+		}
 		outputs = append(outputs, out)
 	}
 
@@ -175,7 +183,7 @@ func outputCSV(sandboxes []sandboxOutput, w io.Writer) error {
 	defer writer.Flush()
 
 	// Header
-	if err := writer.Write([]string{"sandbox_id", "session_id", "status", "ssh_enabled", "ssh_host", "ssh_port", "created_at"}); err != nil {
+	if err := writer.Write([]string{"sandbox_id", "session_id", "status", "ssh_enabled", "ssh_host", "ssh_port", "template", "repository", "created_at"}); err != nil {
 		return err
 	}
 
@@ -195,6 +203,8 @@ func outputCSV(sandboxes []sandboxOutput, w io.Writer) error {
 			sshEnabled,
 			sb.SSHHost,
 			sshPort,
+			sb.TemplateName,
+			sb.Repository,
 			sb.CreatedAt,
 		}); err != nil {
 			return err
@@ -213,17 +223,27 @@ func outputTable(sandboxes []sandboxOutput, w io.Writer) error {
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
 	defer tw.Flush()
 
-	fmt.Fprintln(tw, "SANDBOX ID\tSESSION ID\tSTATUS\tSSH\tCREATED")
+	fmt.Fprintln(tw, "SANDBOX ID\tSESSION ID\tSTATUS\tSSH\tTEMPLATE\tREPOSITORY\tCREATED")
 	for _, sb := range sandboxes {
 		sshStatus := "no"
 		if sb.SSHEnabled {
 			sshStatus = "yes"
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n",
+		templateName := "-"
+		if sb.TemplateName != "" {
+			templateName = sb.TemplateName
+		}
+		repository := "-"
+		if sb.Repository != "" {
+			repository = sb.Repository
+		}
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 			sb.SandboxID,
 			sb.SessionID,
 			sb.Status,
 			sshStatus,
+			templateName,
+			repository,
 			sb.CreatedAt,
 		)
 	}
@@ -238,7 +258,7 @@ var baseStyle = lipgloss.NewStyle().
 	BorderForeground(lipgloss.Color("240"))
 
 var helpStyle = lipgloss.NewStyle().
-	Foreground(lipgloss.Color("241"))
+	Foreground(lipgloss.Color("248"))
 
 type sandboxAction int
 
@@ -256,8 +276,8 @@ type sandboxModel struct {
 	token  string
 	orgID  string
 
-	// Map of sandbox ID to session ID for lookup after selection
-	sessionIDs map[string]string
+	// Map of session ID to sandbox ID for lookup after selection
+	sandboxIDs map[string]string
 
 	// Selected sandbox info for action
 	selectedSandboxID string
@@ -267,16 +287,19 @@ type sandboxModel struct {
 	// Whether the selected sandbox has SSH available
 	selectedHasSSH bool
 
-	showAll bool // Toggle to show all sandboxes vs just running
-	err     error
+	showAll    bool // Toggle to show all sandboxes vs just running
+	statusMsg  string
+	killingSID string // sandbox ID currently being killed
+	err        error
 }
 
 func newSandboxModel(token, orgID string, client agentv1connect.SandboxServiceClient) sandboxModel {
 	columns := []table.Column{
-		{Title: "Sandbox ID", Width: 20},
-		{Title: "Session ID", Width: 36},
+		{Title: "Session ID", Width: 16},
 		{Title: "Status", Width: 10},
 		{Title: "SSH", Width: 5},
+		{Title: "Template", Width: 16},
+		{Title: "Repository", Width: 30},
 		{Title: "Created", Width: 20},
 	}
 
@@ -304,7 +327,7 @@ func newSandboxModel(token, orgID string, client agentv1connect.SandboxServiceCl
 		client:     client,
 		token:      token,
 		orgID:      orgID,
-		sessionIDs: make(map[string]string),
+		sandboxIDs: make(map[string]string),
 	}
 }
 
@@ -335,20 +358,22 @@ func (m sandboxModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			row := m.table.SelectedRow()
-			m.selectedSandboxID = row[0]
-			m.selectedSessionID = row[1]
-			m.selectedHasSSH = row[3] == "yes"
+			sessionID := row[0]
+			m.selectedSessionID = sessionID
+			m.selectedSandboxID = m.sandboxIDs[sessionID]
+			m.selectedHasSSH = row[2] == "yes"
 			m.action = actionConnect
 			return m, tea.Quit
 		case "k":
-			if len(m.table.Rows()) == 0 {
+			if len(m.table.Rows()) == 0 || m.killingSID != "" {
 				return m, nil
 			}
 			row := m.table.SelectedRow()
-			m.selectedSandboxID = row[0]
-			m.selectedSessionID = row[1]
-			m.action = actionKill
-			return m, tea.Quit
+			sessionID := row[0]
+			sandboxID := m.sandboxIDs[sessionID]
+			m.killingSID = sandboxID
+			m.statusMsg = fmt.Sprintf("Killing sandbox %s...", sessionID)
+			return m, m.killSandbox(sandboxID)
 		}
 
 	case tea.WindowSizeMsg:
@@ -369,7 +394,7 @@ func (m sandboxModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case sandboxRowsMsg:
 		m.err = nil
-		m.sessionIDs = msg.sessionIDs
+		m.sandboxIDs = msg.sandboxIDs
 
 		var selectedRow table.Row
 		if len(m.table.Rows()) > 0 {
@@ -390,11 +415,20 @@ func (m sandboxModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		return m, refreshTimer()
 
+	case killedMsg:
+		m.err = nil
+		m.killingSID = ""
+		m.statusMsg = fmt.Sprintf("Sandbox %s terminated.", msg.sandboxID)
+		return m, m.loadSandboxes()
+
 	case errMsg:
 		m.err = msg.error
+		m.killingSID = ""
+		m.statusMsg = ""
 		return m, refreshTimer()
 
 	case tickMsg:
+		m.statusMsg = ""
 		return m, m.loadSandboxes()
 	}
 
@@ -403,13 +437,14 @@ func (m sandboxModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m sandboxModel) View() string {
-	// Show current filter mode
-	filterText := "showing: running"
-	if m.showAll {
-		filterText = "showing: all"
+	header := ""
+	if m.statusMsg != "" {
+		color := "229" // yellow for in-progress
+		if m.killingSID == "" {
+			color = "78" // green for completed
+		}
+		header = lipgloss.NewStyle().Foreground(lipgloss.Color(color)).Render(m.statusMsg) + "\n"
 	}
-	header := helpStyle.Render(filterText) + "\n"
-
 	s := header + baseStyle.Render(m.table.View()) + "\n"
 	if m.err != nil {
 		s += lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Render("Error: "+m.err.Error()) + "\n"
@@ -429,10 +464,11 @@ func (m sandboxModel) View() string {
 // Message types for BubbleTea
 type sandboxRowsMsg struct {
 	rows       []table.Row
-	sessionIDs map[string]string
+	sandboxIDs map[string]string
 }
 type errMsg struct{ error }
 type tickMsg struct{}
+type killedMsg struct{ sandboxID string }
 
 func (m sandboxModel) loadSandboxes() tea.Cmd {
 	return func() tea.Msg {
@@ -446,7 +482,7 @@ func (m sandboxModel) loadSandboxes() tea.Cmd {
 		}
 
 		rows := []table.Row{}
-		sessionIDs := make(map[string]string)
+		sandboxIDs := make(map[string]string)
 
 		for _, sb := range res.Msg.Sandboxes {
 			// Filter based on showAll flag
@@ -465,21 +501,49 @@ func (m sandboxModel) loadSandboxes() tea.Cmd {
 			sshStatus := "no"
 			if (sb.SshEnabled != nil && *sb.SshEnabled) || sb.SshHost != nil {
 				sshStatus = "yes"
-				sessionIDs[sb.SandboxId] = sb.SessionId
 			}
+
+			sandboxIDs[sb.SessionId] = sb.SandboxId
 
 			createdAt := sb.CreatedAt.AsTime().Format("2006-01-02 15:04:05")
 
+			templateName := ""
+			if sb.TemplateName != nil {
+				templateName = *sb.TemplateName
+			}
+			repository := ""
+			if sb.Repository != nil {
+				repository = *sb.Repository
+			}
+
 			rows = append(rows, table.Row{
-				sb.SandboxId,
 				sb.SessionId,
 				status,
 				sshStatus,
+				templateName,
+				repository,
 				createdAt,
 			})
 		}
 
-		return sandboxRowsMsg{rows: rows, sessionIDs: sessionIDs}
+		return sandboxRowsMsg{rows: rows, sandboxIDs: sandboxIDs}
+	}
+}
+
+func (m sandboxModel) killSandbox(sandboxID string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		req := &agentv1.KillSandboxRequest{
+			SandboxId: sandboxID,
+		}
+		_, err := m.client.KillSandbox(ctx, api.WithAuthenticationAndOrg(connect.NewRequest(req), m.token, m.orgID))
+		if err != nil {
+			return errMsg{err}
+		}
+
+		return killedMsg{sandboxID: sandboxID}
 	}
 }
 
@@ -509,43 +573,41 @@ func runInteractiveList(token, orgID string, client agentv1connect.SandboxServic
 			return fmt.Errorf("sandbox %s does not have SSH enabled", model.selectedSandboxID)
 		}
 
-		// Get SSH connection info via GetSSHConnection
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
+		// Get SSH connection info via GetSSHConnection, retrying if the
+		// sandbox SSH is still being prepared.
+		var conn *ssh.SSHConnectionInfo
+		maxRetries := 5
+		for attempt := 1; attempt <= maxRetries; attempt++ {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			req := &agentv1.GetSSHConnectionRequest{
+				SessionId: model.selectedSessionID,
+			}
+			res, err := client.GetSSHConnection(ctx, api.WithAuthenticationAndOrg(connect.NewRequest(req), token, orgID))
+			cancel()
 
-		req := &agentv1.GetSSHConnectionRequest{
-			SessionId: model.selectedSessionID,
-		}
-		res, err := client.GetSSHConnection(ctx, api.WithAuthenticationAndOrg(connect.NewRequest(req), token, orgID))
-		if err != nil {
-			return fmt.Errorf("unable to get SSH connection info: %w", err)
-		}
-		if res.Msg.SshConnection == nil {
-			return fmt.Errorf("no SSH connection available for session %s", model.selectedSessionID)
-		}
+			if err == nil && res.Msg.SshConnection != nil {
+				conn = &ssh.SSHConnectionInfo{
+					Host:       res.Msg.SshConnection.Host,
+					Port:       res.Msg.SshConnection.Port,
+					Username:   res.Msg.SshConnection.Username,
+					PrivateKey: res.Msg.SshConnection.PrivateKey,
+				}
+				break
+			}
 
-		conn := &ssh.SSHConnectionInfo{
-			Host:       res.Msg.SshConnection.Host,
-			Port:       res.Msg.SshConnection.Port,
-			Username:   res.Msg.SshConnection.Username,
-			PrivateKey: res.Msg.SshConnection.PrivateKey,
+			if attempt == maxRetries {
+				if err != nil {
+					return fmt.Errorf("unable to get SSH connection info for session %s: %w", model.selectedSessionID, err)
+				}
+				return fmt.Errorf("no SSH connection available for session %s", model.selectedSessionID)
+			}
+
+			time.Sleep(2 * time.Second)
 		}
 
 		ssh.PrintConnecting(conn, model.selectedSessionID, "depot sandbox", os.Stdout)
 		return ssh.ExecSSH(conn)
 
-	case actionKill:
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-
-		req := &agentv1.KillSandboxRequest{
-			SandboxId: model.selectedSandboxID,
-		}
-		_, err := client.KillSandbox(ctx, api.WithAuthenticationAndOrg(connect.NewRequest(req), token, orgID))
-		if err != nil {
-			return fmt.Errorf("unable to kill sandbox: %w", err)
-		}
-		fmt.Printf("Sandbox %s has been terminated.\n", model.selectedSandboxID)
 	}
 
 	return nil

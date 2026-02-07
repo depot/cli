@@ -19,18 +19,19 @@ import (
 )
 
 type startOptions struct {
-	ssh            bool
-	timeout        int
-	noConnect      bool
-	repository     string
-	branch         string
-	gitSecret      string
-	template       string
-	token          string
-	orgID          string
-	debug          bool
-	stdout         io.Writer
-	stderr         io.Writer
+	ssh        bool
+	timeout    int
+	repository string
+	branch     string
+	gitSecret  string
+	template   string
+	command    string
+	noWait     bool
+	token      string
+	orgID      string
+	debug      bool
+	stdout     io.Writer
+	stderr     io.Writer
 }
 
 // NewCmdStart creates the sandbox start subcommand
@@ -46,14 +47,18 @@ func NewCmdStart() *cobra.Command {
 		Short: "Start a new sandbox",
 		Long: `Start a new Depot sandbox environment.
 
-Use --ssh to start a sandbox with SSH enabled for interactive access.
-By default, the command will automatically connect to the sandbox via SSH.
-Use --no-connect to print connection info without auto-connecting.
+By default, starts a sandbox and prints connection info.
+Use --ssh to automatically connect to the sandbox via SSH.
+
+Use --command to execute a command inside the sandbox and print its output.
 
 Use --template to start from a pre-configured template with dependencies
 and tools already installed.`,
-		Example: `  # Start SSH sandbox and connect
+		Example: `  # Start a sandbox and connect via SSH
   depot sandbox start --ssh
+
+  # Start a sandbox and print connection info
+  depot sandbox start
 
   # Start with custom timeout
   depot sandbox start --ssh --timeout 90
@@ -64,20 +69,21 @@ and tools already installed.`,
   # Start from a template
   depot sandbox start --ssh --template my-dev-env
 
-  # Print connection info only, don't auto-connect
-  depot sandbox start --ssh --no-connect`,
+  # Execute a command in a new sandbox and see the output
+  depot sandbox start --command "ls -la"`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runStart(cmd.Context(), opts)
 		},
 	}
 
-	cmd.Flags().BoolVar(&opts.ssh, "ssh", false, "Enable SSH mode (required)")
+	cmd.Flags().BoolVar(&opts.ssh, "ssh", false, "Connect to the sandbox via SSH after starting")
 	cmd.Flags().IntVar(&opts.timeout, "timeout", 60, "SSH session timeout in minutes (max 120)")
-	cmd.Flags().BoolVar(&opts.noConnect, "no-connect", false, "Print connection info only, don't auto-connect via SSH")
 	cmd.Flags().StringVar(&opts.repository, "repository", "", "Git repository URL to clone")
 	cmd.Flags().StringVar(&opts.branch, "branch", "", "Git branch to checkout")
 	cmd.Flags().StringVar(&opts.gitSecret, "git-secret", "", "Secret name for private repo credentials")
 	cmd.Flags().StringVar(&opts.template, "template", "", "Template name or ID to start from")
+	cmd.Flags().StringVar(&opts.command, "command", "", "Command to execute inside the sandbox and print its output")
+	cmd.Flags().BoolVar(&opts.noWait, "no-wait", false, "Don't wait for the command to complete (fire and forget)")
 	cmd.Flags().StringVar(&opts.token, "token", "", "Depot API token")
 	cmd.Flags().StringVar(&opts.orgID, "org", "", "Organization ID")
 	cmd.Flags().BoolVar(&opts.debug, "debug", false, "Enable debug logging")
@@ -92,12 +98,12 @@ func runStart(ctx context.Context, opts *startOptions) error {
 		}
 	}
 
-	if !opts.ssh {
-		return fmt.Errorf("--ssh flag is required to start a sandbox with SSH mode")
-	}
-
 	if opts.timeout > 120 {
 		return fmt.Errorf("--timeout cannot exceed 120 minutes")
+	}
+
+	if opts.ssh && opts.command != "" {
+		return fmt.Errorf("--ssh and --command cannot be used together")
 	}
 
 	debug("Resolving authentication token...")
@@ -136,6 +142,17 @@ func runStart(ctx context.Context, opts *startOptions) error {
 			TimeoutMinutes: &timeoutMinutes,
 		},
 	}
+
+	// Add startup command if provided
+	if opts.command != "" {
+		req.Command = &opts.command
+		if !opts.noWait {
+			waitForCommand := true
+			req.WaitForCommand = &waitForCommand
+		}
+		debug("Startup command: %q (no-wait=%v)", opts.command, opts.noWait)
+	}
+
 	debug("Request built: AgentType=%v, SSHConfig.Enabled=%v, TimeoutMinutes=%d", agentType, true, timeoutMinutes)
 
 	// Add git context if repository is explicitly provided
@@ -165,9 +182,16 @@ func runStart(ctx context.Context, opts *startOptions) error {
 		debug("Template ID: %s", opts.template)
 	}
 
+	// Start spinner for the loading phase
+	spin := newSpinner("Starting sandbox...", opts.stderr)
+	if !opts.debug {
+		spin.Start()
+	}
+
 	debug("Calling StartSandbox API...")
 	res, err := sandboxClient.StartSandbox(ctx, api.WithAuthenticationAndOrg(connect.NewRequest(req), token, opts.orgID))
 	if err != nil {
+		spin.Stop()
 		debug("StartSandbox API error: %v", err)
 		return fmt.Errorf("unable to start SSH sandbox: %w", err)
 	}
@@ -177,6 +201,27 @@ func runStart(ctx context.Context, opts *startOptions) error {
 	sandboxID := res.Msg.SandboxId
 	debug("Session ID: %s", sessionID)
 	debug("Sandbox ID: %s", sandboxID)
+
+	// Print command result if wait_for_command was set
+	if res.Msg.CommandResult != nil {
+		spin.Stop()
+		cr := res.Msg.CommandResult
+		if cr.Stdout != "" {
+			fmt.Fprint(opts.stdout, cr.Stdout)
+		}
+		if cr.Stderr != "" {
+			fmt.Fprint(opts.stderr, cr.Stderr)
+		}
+		if cr.ExitCode != 0 {
+			fmt.Fprintf(opts.stderr, "Command exited with code %d\n", cr.ExitCode)
+		}
+
+		// If not connecting via SSH, just print the session ID and exit
+		if !opts.ssh {
+			fmt.Fprintf(opts.stdout, "\nSession ID: %s\n", sessionID)
+			return nil
+		}
+	}
 
 	// Get SSH connection info - either from response or by polling
 	var conn *ssh.SSHConnectionInfo
@@ -191,28 +236,29 @@ func runStart(ctx context.Context, opts *startOptions) error {
 		}
 	} else {
 		debug("SSHConnection not in response, polling for SSH connection...")
-		fmt.Fprintf(opts.stdout, "Starting sandbox %s...\n", sandboxID)
+		spin.Update("Waiting for sandbox to be ready...")
 
 		conn, err = waitForSSHConnection(ctx, sandboxClient, token, opts.orgID, sessionID, sandboxID, opts.debug, opts.stderr)
 		if err != nil {
+			spin.Stop()
 			return err
 		}
 	}
 
+	spin.Stop()
 	debug("SSH Host: %s, Port: %d", conn.Host, conn.Port)
 
-	// Print connection info
-	info := &ssh.ConnectionInfo{
-		SessionID:      sessionID,
-		Host:           conn.Host,
-		Port:           conn.Port,
-		Username:       conn.Username,
-		TimeoutMinutes: opts.timeout,
-		CommandName:    "depot sandbox",
-	}
-
-	if opts.noConnect {
-		debug("--no-connect specified, printing connection info only")
+	// If --ssh not passed, print connection info and exit
+	if !opts.ssh {
+		debug("--ssh not specified, printing connection info only")
+		info := &ssh.ConnectionInfo{
+			SessionID:      sessionID,
+			Host:           conn.Host,
+			Port:           conn.Port,
+			Username:       conn.Username,
+			TimeoutMinutes: opts.timeout,
+			CommandName:    "depot sandbox",
+		}
 		ssh.PrintConnectionInfo(info, opts.stdout)
 		return nil
 	}

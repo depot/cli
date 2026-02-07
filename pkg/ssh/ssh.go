@@ -118,6 +118,7 @@ func BuildSSHArgs(conn *SSHConnectionInfo, keyFile string, command []string) []s
 		"-p", fmt.Sprintf("%d", conn.Port),
 		"-o", "StrictHostKeyChecking=no",
 		"-o", "UserKnownHostsFile=/dev/null",
+		"-o", "LogLevel=ERROR",
 		"-o", "ServerAliveInterval=30",
 		fmt.Sprintf("%s@%s", conn.Username, conn.Host),
 	}
@@ -146,7 +147,13 @@ func ExecSSH(conn *SSHConnectionInfo) error {
 		cmd := exec.Command("ssh", args...)
 		cmd.Stdin = os.Stdin
 		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
+
+		// Suppress SSH stderr noise (e.g. "Connection closed by ...") during retries
+		if attempt < maxRetries {
+			cmd.Stderr = io.Discard
+		} else {
+			cmd.Stderr = os.Stderr
+		}
 
 		err = cmd.Run()
 		if err == nil {
@@ -156,7 +163,6 @@ func ExecSSH(conn *SSHConnectionInfo) error {
 		// Exit code 255 means SSH connection failed (server not ready, connection refused, etc.)
 		// Any other exit code means SSH connected but the remote session ended with that code
 		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 255 && attempt < maxRetries {
-			fmt.Fprintf(os.Stderr, "SSH connection failed, retrying in 2s (%d/%d)...\n", attempt, maxRetries)
 			time.Sleep(2 * time.Second)
 			continue
 		}
@@ -221,21 +227,18 @@ type ConnectionInfo struct {
 
 // PrintConnectionInfo outputs connection details to the given writer.
 func PrintConnectionInfo(info *ConnectionInfo, stdout io.Writer) {
-	fmt.Fprintf(stdout, "\nSSH sandbox ready!\n")
+	fmt.Fprintf(stdout, "\nSandbox ready!\n")
 	fmt.Fprintf(stdout, "Session ID: %s\n", info.SessionID)
 	if info.TimeoutMinutes > 0 {
 		fmt.Fprintf(stdout, "Timeout: %d minutes\n", info.TimeoutMinutes)
 	}
-	fmt.Fprintf(stdout, "\n")
-	fmt.Fprintf(stdout, "Connect via SSH:\n  ssh %s@%s -p %d\n", info.Username, info.Host, info.Port)
 	if info.CommandName != "" {
-		fmt.Fprintf(stdout, "\nTo reconnect later:\n  %s connect %s\n", info.CommandName, info.SessionID)
+		fmt.Fprintf(stdout, "\nTo connect:\n  %s connect %s\n", info.CommandName, info.SessionID)
 	}
 }
 
 // PrintConnecting outputs a message indicating that we're connecting.
 func PrintConnecting(conn *SSHConnectionInfo, sessionID, commandName string, stdout io.Writer) {
-	fmt.Fprintf(stdout, "Connecting to %s:%d...\n\n", conn.Host, conn.Port)
 	fmt.Fprintf(stdout, "Tip: To reconnect later, run:\n")
 	fmt.Fprintf(stdout, "  %s connect %s\n\n", commandName, sessionID)
 }

@@ -41,6 +41,12 @@ message StartSandboxRequest {
   // When set, creates a fresh session with the template's filesystem state
   optional string template_id = 8;
 
+  // Optional command to execute inside the sandbox after it starts
+  optional string command = 9;
+  // If true, block until the command exits and return the result.
+  // If false (default), start the command and return immediately.
+  optional bool wait_for_command = 10;
+
   message Context {
     oneof context {
       GitContext git = 1;
@@ -66,11 +72,19 @@ message SSHConnection {
   string private_key = 4;
 }
 
+message CommandResult {
+  int32 exit_code = 1;
+  string stdout = 2;
+  string stderr = 3;
+}
+
 message StartSandboxResponse {
   string sandbox_id = 1;
   string session_id = 2;
   string organization_id = 3;
   optional SSHConnection ssh_connection = 4;
+  // Result of the command execution, only present when command and wait_for_command are set
+  optional CommandResult command_result = 5;
 }
 
 message GetSSHConnectionRequest {
@@ -144,6 +158,8 @@ message Sandbox {
   optional bool ssh_enabled = 11;
   optional string ssh_host = 12;
   optional int32 ssh_port = 13;
+  optional string template_name = 14;
+  optional string repository = 15;
 }
 
 message KillSandboxRequest {

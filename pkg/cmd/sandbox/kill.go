@@ -67,11 +67,15 @@ func runKill(ctx context.Context, sandboxID string, opts *killOptions) error {
 
 	sandboxClient := api.NewSandboxClient()
 
+	spin := newSpinner("Terminating sandbox...", opts.stderr)
+	spin.Start()
+
 	req := &agentv1.KillSandboxRequest{
 		SandboxId: sandboxID,
 	}
 
 	_, err = sandboxClient.KillSandbox(ctx, api.WithAuthenticationAndOrg(connect.NewRequest(req), token, opts.orgID))
+	spin.Stop()
 	if err != nil {
 		return fmt.Errorf("unable to kill sandbox: %w", err)
 	}
