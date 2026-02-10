@@ -62,6 +62,9 @@ const (
 	// SandboxServiceGetSSHConnectionProcedure is the fully-qualified name of the SandboxService's
 	// GetSSHConnection RPC.
 	SandboxServiceGetSSHConnectionProcedure = "/depot.agent.v1.SandboxService/GetSSHConnection"
+	// SandboxServiceExecInSandboxProcedure is the fully-qualified name of the SandboxService's
+	// ExecInSandbox RPC.
+	SandboxServiceExecInSandboxProcedure = "/depot.agent.v1.SandboxService/ExecInSandbox"
 	// SandboxServiceCreateSandboxTemplateProcedure is the fully-qualified name of the SandboxService's
 	// CreateSandboxTemplate RPC.
 	SandboxServiceCreateSandboxTemplateProcedure = "/depot.agent.v1.SandboxService/CreateSandboxTemplate"
@@ -90,6 +93,8 @@ type SandboxServiceClient interface {
 	Shutdown(context.Context, *connect.Request[v1.ShutdownRequest]) (*connect.Response[v1.ShutdownResponse], error)
 	// GetSSHConnection retrieves SSH connection info for an existing sandbox
 	GetSSHConnection(context.Context, *connect.Request[v1.GetSSHConnectionRequest]) (*connect.Response[v1.GetSSHConnectionResponse], error)
+	// ExecInSandbox executes a command in a running sandbox (no SSH required)
+	ExecInSandbox(context.Context, *connect.Request[v1.ExecInSandboxRequest]) (*connect.Response[v1.ExecInSandboxResponse], error)
 	// Template management - save and reuse pre-configured sandbox filesystems
 	CreateSandboxTemplate(context.Context, *connect.Request[v1.CreateSandboxTemplateRequest]) (*connect.Response[v1.CreateSandboxTemplateResponse], error)
 	GetSandboxTemplate(context.Context, *connect.Request[v1.GetSandboxTemplateRequest]) (*connect.Response[v1.GetSandboxTemplateResponse], error)
@@ -157,6 +162,11 @@ func NewSandboxServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 			baseURL+SandboxServiceGetSSHConnectionProcedure,
 			opts...,
 		),
+		execInSandbox: connect.NewClient[v1.ExecInSandboxRequest, v1.ExecInSandboxResponse](
+			httpClient,
+			baseURL+SandboxServiceExecInSandboxProcedure,
+			opts...,
+		),
 		createSandboxTemplate: connect.NewClient[v1.CreateSandboxTemplateRequest, v1.CreateSandboxTemplateResponse](
 			httpClient,
 			baseURL+SandboxServiceCreateSandboxTemplateProcedure,
@@ -192,6 +202,7 @@ type sandboxServiceClient struct {
 	listSecrets           *connect.Client[v1.ListSecretsRequest, v1.ListSecretsResponse]
 	shutdown              *connect.Client[v1.ShutdownRequest, v1.ShutdownResponse]
 	getSSHConnection      *connect.Client[v1.GetSSHConnectionRequest, v1.GetSSHConnectionResponse]
+	execInSandbox         *connect.Client[v1.ExecInSandboxRequest, v1.ExecInSandboxResponse]
 	createSandboxTemplate *connect.Client[v1.CreateSandboxTemplateRequest, v1.CreateSandboxTemplateResponse]
 	getSandboxTemplate    *connect.Client[v1.GetSandboxTemplateRequest, v1.GetSandboxTemplateResponse]
 	listSandboxTemplates  *connect.Client[v1.ListSandboxTemplatesRequest, v1.ListSandboxTemplatesResponse]
@@ -248,6 +259,11 @@ func (c *sandboxServiceClient) GetSSHConnection(ctx context.Context, req *connec
 	return c.getSSHConnection.CallUnary(ctx, req)
 }
 
+// ExecInSandbox calls depot.agent.v1.SandboxService.ExecInSandbox.
+func (c *sandboxServiceClient) ExecInSandbox(ctx context.Context, req *connect.Request[v1.ExecInSandboxRequest]) (*connect.Response[v1.ExecInSandboxResponse], error) {
+	return c.execInSandbox.CallUnary(ctx, req)
+}
+
 // CreateSandboxTemplate calls depot.agent.v1.SandboxService.CreateSandboxTemplate.
 func (c *sandboxServiceClient) CreateSandboxTemplate(ctx context.Context, req *connect.Request[v1.CreateSandboxTemplateRequest]) (*connect.Response[v1.CreateSandboxTemplateResponse], error) {
 	return c.createSandboxTemplate.CallUnary(ctx, req)
@@ -282,6 +298,8 @@ type SandboxServiceHandler interface {
 	Shutdown(context.Context, *connect.Request[v1.ShutdownRequest]) (*connect.Response[v1.ShutdownResponse], error)
 	// GetSSHConnection retrieves SSH connection info for an existing sandbox
 	GetSSHConnection(context.Context, *connect.Request[v1.GetSSHConnectionRequest]) (*connect.Response[v1.GetSSHConnectionResponse], error)
+	// ExecInSandbox executes a command in a running sandbox (no SSH required)
+	ExecInSandbox(context.Context, *connect.Request[v1.ExecInSandboxRequest]) (*connect.Response[v1.ExecInSandboxResponse], error)
 	// Template management - save and reuse pre-configured sandbox filesystems
 	CreateSandboxTemplate(context.Context, *connect.Request[v1.CreateSandboxTemplateRequest]) (*connect.Response[v1.CreateSandboxTemplateResponse], error)
 	GetSandboxTemplate(context.Context, *connect.Request[v1.GetSandboxTemplateRequest]) (*connect.Response[v1.GetSandboxTemplateResponse], error)
@@ -345,6 +363,11 @@ func NewSandboxServiceHandler(svc SandboxServiceHandler, opts ...connect.Handler
 		svc.GetSSHConnection,
 		opts...,
 	)
+	sandboxServiceExecInSandboxHandler := connect.NewUnaryHandler(
+		SandboxServiceExecInSandboxProcedure,
+		svc.ExecInSandbox,
+		opts...,
+	)
 	sandboxServiceCreateSandboxTemplateHandler := connect.NewUnaryHandler(
 		SandboxServiceCreateSandboxTemplateProcedure,
 		svc.CreateSandboxTemplate,
@@ -387,6 +410,8 @@ func NewSandboxServiceHandler(svc SandboxServiceHandler, opts ...connect.Handler
 			sandboxServiceShutdownHandler.ServeHTTP(w, r)
 		case SandboxServiceGetSSHConnectionProcedure:
 			sandboxServiceGetSSHConnectionHandler.ServeHTTP(w, r)
+		case SandboxServiceExecInSandboxProcedure:
+			sandboxServiceExecInSandboxHandler.ServeHTTP(w, r)
 		case SandboxServiceCreateSandboxTemplateProcedure:
 			sandboxServiceCreateSandboxTemplateHandler.ServeHTTP(w, r)
 		case SandboxServiceGetSandboxTemplateProcedure:
@@ -442,6 +467,10 @@ func (UnimplementedSandboxServiceHandler) Shutdown(context.Context, *connect.Req
 
 func (UnimplementedSandboxServiceHandler) GetSSHConnection(context.Context, *connect.Request[v1.GetSSHConnectionRequest]) (*connect.Response[v1.GetSSHConnectionResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.agent.v1.SandboxService.GetSSHConnection is not implemented"))
+}
+
+func (UnimplementedSandboxServiceHandler) ExecInSandbox(context.Context, *connect.Request[v1.ExecInSandboxRequest]) (*connect.Response[v1.ExecInSandboxResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.agent.v1.SandboxService.ExecInSandbox is not implemented"))
 }
 
 func (UnimplementedSandboxServiceHandler) CreateSandboxTemplate(context.Context, *connect.Request[v1.CreateSandboxTemplateRequest]) (*connect.Response[v1.CreateSandboxTemplateResponse], error) {

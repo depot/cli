@@ -25,6 +25,7 @@ type startOptions struct {
 	branch     string
 	gitSecret  string
 	template   string
+	image      string
 	command    string
 	noWait     bool
 	token      string
@@ -53,7 +54,10 @@ Use --ssh to automatically connect to the sandbox via SSH.
 Use --command to execute a command inside the sandbox and print its output.
 
 Use --template to start from a pre-configured template with dependencies
-and tools already installed.`,
+and tools already installed.
+
+Use --image to start a sandbox from a custom Depot Registry image.
+The --image flag is mutually exclusive with --ssh and --template.`,
 		Example: `  # Start a sandbox and connect via SSH
   depot sandbox start --ssh
 
@@ -70,7 +74,13 @@ and tools already installed.`,
   depot sandbox start --ssh --template my-dev-env
 
   # Execute a command in a new sandbox and see the output
-  depot sandbox start --command "ls -la"`,
+  depot sandbox start --command "ls -la"
+
+  # Start from a custom Depot Registry image
+  depot sandbox start --image registry.depot.dev/org/repo:tag
+
+  # Start from a custom image and run a command
+  depot sandbox start --image registry.depot.dev/org/repo:tag --command "make test"`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runStart(cmd.Context(), opts)
 		},
@@ -82,6 +92,7 @@ and tools already installed.`,
 	cmd.Flags().StringVar(&opts.branch, "branch", "", "Git branch to checkout")
 	cmd.Flags().StringVar(&opts.gitSecret, "git-secret", "", "Secret name for private repo credentials")
 	cmd.Flags().StringVar(&opts.template, "template", "", "Template name or ID to start from")
+	cmd.Flags().StringVar(&opts.image, "image", "", "Custom Depot Registry image (registry.depot.dev/...)")
 	cmd.Flags().StringVar(&opts.command, "command", "", "Command to execute inside the sandbox and print its output")
 	cmd.Flags().BoolVar(&opts.noWait, "no-wait", false, "Don't wait for the command to complete (fire and forget)")
 	cmd.Flags().StringVar(&opts.token, "token", "", "Depot API token")
@@ -104,6 +115,15 @@ func runStart(ctx context.Context, opts *startOptions) error {
 
 	if opts.ssh && opts.command != "" {
 		return fmt.Errorf("--ssh and --command cannot be used together")
+	}
+	if opts.image != "" && opts.ssh {
+		return fmt.Errorf("--image and --ssh cannot be used together")
+	}
+	if opts.image != "" && opts.template != "" {
+		return fmt.Errorf("--image and --template cannot be used together")
+	}
+	if opts.image != "" && opts.repository != "" {
+		return fmt.Errorf("--image and --repository cannot be used together")
 	}
 
 	debug("Resolving authentication token...")
@@ -131,16 +151,41 @@ func runStart(ctx context.Context, opts *startOptions) error {
 	sandboxClient := api.NewSandboxClient()
 
 	// Build the request
-	agentType := agentv1.AgentType_AGENT_TYPE_CLAUDE_CODE
+	agentType := agentv1.AgentType_AGENT_TYPE_UNSPECIFIED
 	timeoutMinutes := int32(opts.timeout)
 	req := &agentv1.StartSandboxRequest{
 		Argv:                 "",
 		EnvironmentVariables: map[string]string{},
 		AgentType:            agentType,
-		SshConfig: &agentv1.SSHConfig{
+	}
+
+	// Check template SSH compatibility before configuring SSH
+	templateSSHCompatible := true
+	if opts.template != "" {
+		req.TemplateId = &opts.template
+		debug("Template: %s, checking SSH compatibility...", opts.template)
+
+		tmpl, err := resolveTemplate(ctx, sandboxClient, token, opts.orgID, opts.template)
+		if err != nil {
+			debug("Could not resolve template SSH compatibility: %v", err)
+		} else {
+			templateSSHCompatible = tmpl.SshCompatible
+			debug("Template SSH compatible: %v", templateSSHCompatible)
+		}
+	}
+
+	// Configure SSH unless using --image or template doesn't support it
+	if opts.image != "" {
+		req.Image = &opts.image
+	} else if templateSSHCompatible {
+		req.SshConfig = &agentv1.SSHConfig{
 			Enabled:        true,
 			TimeoutMinutes: &timeoutMinutes,
-		},
+		}
+	} else {
+		req.SshConfig = &agentv1.SSHConfig{
+			Enabled: false,
+		}
 	}
 
 	// Add startup command if provided
@@ -153,7 +198,13 @@ func runStart(ctx context.Context, opts *startOptions) error {
 		debug("Startup command: %q (no-wait=%v)", opts.command, opts.noWait)
 	}
 
-	debug("Request built: AgentType=%v, SSHConfig.Enabled=%v, TimeoutMinutes=%d", agentType, true, timeoutMinutes)
+	if opts.image != "" {
+		debug("Request built: AgentType=%v, Image=%s", agentType, opts.image)
+	} else if !templateSSHCompatible {
+		debug("Request built: AgentType=%v, SSH disabled (template not SSH compatible)", agentType)
+	} else {
+		debug("Request built: AgentType=%v, SSHConfig.Enabled=%v, TimeoutMinutes=%d", agentType, true, timeoutMinutes)
+	}
 
 	// Add git context if repository is explicitly provided
 	if opts.repository != "" {
@@ -176,12 +227,6 @@ func runStart(ctx context.Context, opts *startOptions) error {
 		debug("Git context added: URL=%s, Branch=%s", gitURL, gitBranch)
 	}
 
-	// Add template if provided
-	if opts.template != "" {
-		req.TemplateId = &opts.template
-		debug("Template ID: %s", opts.template)
-	}
-
 	// Start spinner for the loading phase
 	spin := newSpinner("Starting sandbox...", opts.stderr)
 	if !opts.debug {
@@ -193,7 +238,7 @@ func runStart(ctx context.Context, opts *startOptions) error {
 	if err != nil {
 		spin.Stop()
 		debug("StartSandbox API error: %v", err)
-		return fmt.Errorf("unable to start SSH sandbox: %w", err)
+		return fmt.Errorf("unable to start sandbox: %w", err)
 	}
 	debug("StartSandbox API returned successfully")
 
@@ -216,11 +261,22 @@ func runStart(ctx context.Context, opts *startOptions) error {
 			fmt.Fprintf(opts.stderr, "Command exited with code %d\n", cr.ExitCode)
 		}
 
-		// If not connecting via SSH, just print the session ID and exit
+		// If not connecting via SSH, just print the IDs and exit
 		if !opts.ssh {
-			fmt.Fprintf(opts.stdout, "\nSession ID: %s\n", sessionID)
+			fmt.Fprintf(opts.stdout, "\nSandbox ID: %s\n", sandboxID)
+			fmt.Fprintf(opts.stdout, "Session ID: %s\n", sessionID)
 			return nil
 		}
+	}
+
+	// For sandboxes without SSH (--image or non-SSH-compatible template), just print IDs and exec hint
+	if opts.image != "" || !templateSSHCompatible {
+		spin.Stop()
+		fmt.Fprintf(opts.stdout, "\nSandbox ready!\n")
+		fmt.Fprintf(opts.stdout, "Sandbox ID: %s\n", sandboxID)
+		fmt.Fprintf(opts.stdout, "Session ID: %s\n", sessionID)
+		fmt.Fprintf(opts.stdout, "\nTo exec:\n  depot sandbox exec %s <command>\n", sandboxID)
+		return nil
 	}
 
 	// Get SSH connection info - either from response or by polling
@@ -252,6 +308,7 @@ func runStart(ctx context.Context, opts *startOptions) error {
 	if !opts.ssh {
 		debug("--ssh not specified, printing connection info only")
 		info := &ssh.ConnectionInfo{
+			SandboxID:      sandboxID,
 			SessionID:      sessionID,
 			Host:           conn.Host,
 			Port:           conn.Port,
@@ -292,6 +349,21 @@ func parseGitURL(s string) (url, branch string) {
 		}
 	}
 	return s, "main"
+}
+
+// resolveTemplate looks up a template by name or ID and returns it.
+func resolveTemplate(ctx context.Context, client agentv1connect.SandboxServiceClient, token, orgID, nameOrID string) (*agentv1.SandboxTemplate, error) {
+	req := &agentv1.ListSandboxTemplatesRequest{}
+	res, err := client.ListSandboxTemplates(ctx, api.WithAuthenticationAndOrg(connect.NewRequest(req), token, orgID))
+	if err != nil {
+		return nil, fmt.Errorf("failed to list templates: %w", err)
+	}
+	for _, tmpl := range res.Msg.Templates {
+		if tmpl.Name == nameOrID || tmpl.Id == nameOrID {
+			return tmpl, nil
+		}
+	}
+	return nil, fmt.Errorf("template %q not found", nameOrID)
 }
 
 // waitForSSHConnection polls until the SSH connection is available, then fetches the full

@@ -5,17 +5,18 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"connectrpc.com/connect"
 	"github.com/depot/cli/pkg/api"
 	"github.com/depot/cli/pkg/config"
 	"github.com/depot/cli/pkg/helpers"
 	agentv1 "github.com/depot/cli/pkg/proto/depot/agent/v1"
-	"github.com/depot/cli/pkg/ssh"
 	"github.com/spf13/cobra"
 )
 
 type execOptions struct {
+	noWait bool
 	token  string
 	orgID  string
 	stdout io.Writer
@@ -30,36 +31,36 @@ func NewCmdExec() *cobra.Command {
 	}
 
 	cmd := &cobra.Command{
-		Use:   "exec <session-id> <command> [args...]",
+		Use:   "exec <sandbox-or-session-id> <command> [args...]",
 		Short: "Execute a command in a running sandbox",
-		Long: `Execute a command in a running SSH sandbox session.
+		Long: `Execute a command in a running sandbox using the ExecInSandbox API.
 
-This command connects to an existing sandbox via SSH and executes
-the specified command non-interactively, streaming the output back
-to your terminal.`,
-		Example: `  # List files in a sandbox
-  depot sandbox exec abc123-session-id ls -la
+Accepts either a sandbox ID or session ID. If a session ID is provided,
+the command resolves it to a sandbox ID automatically.`,
+		Example: `  # List files in a sandbox by sandbox ID
+  depot sandbox exec sbx_abc123 ls -la
 
-  # Run a script in a sandbox
-  depot sandbox exec abc123-session-id ./build.sh
+  # Run a script using a session ID
+  depot sandbox exec sess_abc123 ./build.sh
 
-  # Check git status
-  depot sandbox exec abc123-session-id git status`,
+  # Fire and forget a long-running command
+  depot sandbox exec --no-wait sbx_abc123 sleep 3600`,
 		Args: cobra.MinimumNArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			sessionID := args[0]
-			command := args[1:]
-			return runExec(cmd.Context(), sessionID, command, opts)
+			id := args[0]
+			command := strings.Join(args[1:], " ")
+			return runExec(cmd.Context(), id, command, opts)
 		},
 	}
 
+	cmd.Flags().BoolVar(&opts.noWait, "no-wait", false, "Don't wait for the command to complete (fire and forget)")
 	cmd.Flags().StringVar(&opts.token, "token", "", "Depot API token")
 	cmd.Flags().StringVar(&opts.orgID, "org", "", "Organization ID")
 
 	return cmd
 }
 
-func runExec(ctx context.Context, sessionID string, command []string, opts *execOptions) error {
+func runExec(ctx context.Context, id, command string, opts *execOptions) error {
 	token, err := helpers.ResolveOrgAuth(ctx, opts.token)
 	if err != nil {
 		return err
@@ -68,7 +69,6 @@ func runExec(ctx context.Context, sessionID string, command []string, opts *exec
 		return fmt.Errorf("missing API token, please run `depot login`")
 	}
 
-	// Check environment variable first, then config file
 	if opts.orgID == "" {
 		opts.orgID = os.Getenv("DEPOT_ORG_ID")
 	}
@@ -78,36 +78,77 @@ func runExec(ctx context.Context, sessionID string, command []string, opts *exec
 
 	sandboxClient := api.NewSandboxClient()
 
-	// Get SSH connection info for existing sandbox
-	req := &agentv1.GetSSHConnectionRequest{
-		SessionId: sessionID,
-	}
+	waitForCommand := !opts.noWait
 
-	res, err := sandboxClient.GetSSHConnection(ctx, api.WithAuthenticationAndOrg(connect.NewRequest(req), token, opts.orgID))
+	// Try ExecInSandbox with the given ID as sandbox_id first
+	res, err := callExecInSandbox(ctx, sandboxClient, token, opts.orgID, id, command, waitForCommand)
 	if err != nil {
-		return fmt.Errorf("unable to get SSH connection info: %w", err)
+		// If not found, the ID might be a session ID — resolve it
+		if connect.CodeOf(err) == connect.CodeNotFound {
+			sandboxID, resolveErr := resolveSandboxID(ctx, sandboxClient, token, opts.orgID, id)
+			if resolveErr != nil {
+				return fmt.Errorf("could not find sandbox or session with ID %q: %w", id, resolveErr)
+			}
+			res, err = callExecInSandbox(ctx, sandboxClient, token, opts.orgID, sandboxID, command, waitForCommand)
+			if err != nil {
+				return fmt.Errorf("failed to execute command: %w", err)
+			}
+		} else {
+			return fmt.Errorf("failed to execute command: %w", err)
+		}
 	}
 
-	if res.Msg.SshConnection == nil {
-		return fmt.Errorf("no SSH connection available for session %s", sessionID)
+	// If no-wait, we're done
+	if opts.noWait || res.Msg.CommandResult == nil {
+		return nil
 	}
 
-	conn := &ssh.SSHConnectionInfo{
-		Host:       res.Msg.SshConnection.Host,
-		Port:       res.Msg.SshConnection.Port,
-		Username:   res.Msg.SshConnection.Username,
-		PrivateKey: res.Msg.SshConnection.PrivateKey,
+	cr := res.Msg.CommandResult
+	if cr.Stdout != "" {
+		fmt.Fprint(opts.stdout, cr.Stdout)
 	}
-
-	// Execute the command via SSH
-	exitCode, err := ssh.ExecSSHCommand(conn, command, os.Stdin, opts.stdout, opts.stderr)
-	if err != nil {
-		return fmt.Errorf("failed to execute command: %w", err)
+	if cr.Stderr != "" {
+		fmt.Fprint(opts.stderr, cr.Stderr)
 	}
-
-	if exitCode != 0 {
-		os.Exit(exitCode)
+	if cr.ExitCode != 0 {
+		os.Exit(int(cr.ExitCode))
 	}
 
 	return nil
 }
+
+func callExecInSandbox(
+	ctx context.Context,
+	client interface {
+		ExecInSandbox(context.Context, *connect.Request[agentv1.ExecInSandboxRequest]) (*connect.Response[agentv1.ExecInSandboxResponse], error)
+	},
+	token, orgID, sandboxID, command string,
+	waitForCommand bool,
+) (*connect.Response[agentv1.ExecInSandboxResponse], error) {
+	req := &agentv1.ExecInSandboxRequest{
+		SandboxId:      sandboxID,
+		Command:        command,
+		WaitForCommand: &waitForCommand,
+	}
+	return client.ExecInSandbox(ctx, api.WithAuthenticationAndOrg(connect.NewRequest(req), token, orgID))
+}
+
+// resolveSandboxID looks up a sandbox_id by iterating sandboxes and matching session_id.
+func resolveSandboxID(ctx context.Context, client interface {
+	ListSandboxs(context.Context, *connect.Request[agentv1.ListSandboxsRequest]) (*connect.Response[agentv1.ListSandboxsResponse], error)
+}, token, orgID, sessionID string) (string, error) {
+	req := &agentv1.ListSandboxsRequest{}
+	res, err := client.ListSandboxs(ctx, api.WithAuthenticationAndOrg(connect.NewRequest(req), token, orgID))
+	if err != nil {
+		return "", fmt.Errorf("failed to list sandboxes: %w", err)
+	}
+
+	for _, sb := range res.Msg.Sandboxes {
+		if sb.SessionId == sessionID {
+			return sb.SandboxId, nil
+		}
+	}
+
+	return "", fmt.Errorf("no sandbox found for session ID %q", sessionID)
+}
+

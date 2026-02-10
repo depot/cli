@@ -47,10 +47,10 @@ func NewCmdList() *cobra.Command {
 
 By default, shows an interactive table of running sandboxes where you can:
   - Use arrow keys to navigate
-  - Press Enter to connect to a sandbox via SSH
+  - Press Enter to connect to a running sandbox via SSH
+  - Press r to resume a completed sandbox
   - Press k to kill a sandbox
   - Press a to toggle showing all sandboxes (including completed)
-  - Press r to refresh the list
   - Press q or Esc to quit
 
 Use --all to show all sandboxes (including completed) in non-interactive mode.
@@ -266,6 +266,7 @@ const (
 	actionNone sandboxAction = iota
 	actionConnect
 	actionKill
+	actionResume
 )
 
 type sandboxModel struct {
@@ -286,6 +287,8 @@ type sandboxModel struct {
 
 	// Whether the selected sandbox has SSH available
 	selectedHasSSH bool
+	// Status of the selected sandbox (running, completed, pending)
+	selectedStatus string
 
 	showAll    bool // Toggle to show all sandboxes vs just running
 	statusMsg  string
@@ -349,7 +352,20 @@ func (m sandboxModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "q":
 			return m, tea.Quit
 		case "r":
-			return m, m.loadSandboxes()
+			if len(m.table.Rows()) == 0 {
+				return m, nil
+			}
+			row := m.table.SelectedRow()
+			if row[1] != "completed" {
+				return m, nil
+			}
+			sessionID := row[0]
+			m.selectedSessionID = sessionID
+			m.selectedSandboxID = m.sandboxIDs[sessionID]
+			m.selectedHasSSH = row[2] == "yes"
+			m.selectedStatus = row[1]
+			m.action = actionResume
+			return m, tea.Quit
 		case "a":
 			m.showAll = !m.showAll
 			return m, m.loadSandboxes()
@@ -359,11 +375,25 @@ func (m sandboxModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			row := m.table.SelectedRow()
 			sessionID := row[0]
+			status := row[1]
+			hasSSH := row[2] == "yes"
 			m.selectedSessionID = sessionID
 			m.selectedSandboxID = m.sandboxIDs[sessionID]
-			m.selectedHasSSH = row[2] == "yes"
-			m.action = actionConnect
-			return m, tea.Quit
+			m.selectedHasSSH = hasSSH
+			m.selectedStatus = status
+
+			switch status {
+			case "running":
+				if hasSSH {
+					m.action = actionConnect
+					return m, tea.Quit
+				}
+				m.statusMsg = fmt.Sprintf("Sandbox %s has no SSH. Use: depot sandbox exec %s <command>", sessionID, m.sandboxIDs[sessionID])
+				return m, nil
+			default:
+				// completed or pending — no action on enter
+				return m, nil
+			}
 		case "k":
 			if len(m.table.Rows()) == 0 || m.killingSID != "" {
 				return m, nil
@@ -451,12 +481,12 @@ func (m sandboxModel) View() string {
 	}
 	if len(m.table.Rows()) == 0 && m.err == nil {
 		if m.showAll {
-			s += helpStyle.Render("No sandboxes found. Press r to refresh or q to quit.") + "\n"
+			s += helpStyle.Render("No sandboxes found. Press q to quit.") + "\n"
 		} else {
-			s += helpStyle.Render("No running sandboxes found. Press a to show all, r to refresh, or q to quit.") + "\n"
+			s += helpStyle.Render("No running sandboxes found. Press a to show all or q to quit.") + "\n"
 		}
 	} else {
-		s += helpStyle.Render("↑/↓: navigate • enter: connect • k: kill • a: toggle all • r: refresh • q: quit") + "\n"
+		s += helpStyle.Render("↑/↓: navigate • enter: connect • r: resume • k: kill • a: toggle all • q: quit") + "\n"
 	}
 	return s
 }
@@ -608,6 +638,64 @@ func runInteractiveList(token, orgID string, client agentv1connect.SandboxServic
 		ssh.PrintConnecting(conn, model.selectedSessionID, "depot sandbox", os.Stdout)
 		return ssh.ExecSSH(conn)
 
+	case actionResume:
+		enableSSH := model.selectedHasSSH
+		timeoutMinutes := int32(60)
+		req := &agentv1.StartSandboxRequest{
+			ResumeSessionId:      &model.selectedSessionID,
+			Argv:                 "",
+			EnvironmentVariables: map[string]string{},
+			AgentType:            agentv1.AgentType_AGENT_TYPE_UNSPECIFIED,
+			SshConfig: &agentv1.SSHConfig{
+				Enabled:        enableSSH,
+				TimeoutMinutes: &timeoutMinutes,
+			},
+		}
+
+		spin := newSpinner("Resuming sandbox...", os.Stderr)
+		spin.Start()
+
+		ctx := context.Background()
+		res, err := client.StartSandbox(ctx, api.WithAuthenticationAndOrg(connect.NewRequest(req), token, orgID))
+		if err != nil {
+			spin.Stop()
+			return fmt.Errorf("unable to resume sandbox: %w", err)
+		}
+
+		newSessionID := res.Msg.SessionId
+		sandboxID := res.Msg.SandboxId
+
+		if !enableSSH {
+			spin.Stop()
+			fmt.Fprintf(os.Stdout, "\nSandbox resumed!\n")
+			fmt.Fprintf(os.Stdout, "Sandbox ID: %s\n", sandboxID)
+			fmt.Fprintf(os.Stdout, "Session ID: %s\n", newSessionID)
+			fmt.Fprintf(os.Stdout, "\nTo exec:\n  depot sandbox exec %s <command>\n", sandboxID)
+			return nil
+		}
+
+		// SSH-enabled resume: get connection info
+		var conn *ssh.SSHConnectionInfo
+
+		if res.Msg.SshConnection != nil && res.Msg.SshConnection.Host != "" {
+			conn = &ssh.SSHConnectionInfo{
+				Host:       res.Msg.SshConnection.Host,
+				Port:       res.Msg.SshConnection.Port,
+				Username:   res.Msg.SshConnection.Username,
+				PrivateKey: res.Msg.SshConnection.PrivateKey,
+			}
+		} else {
+			spin.Update("Waiting for sandbox to be ready...")
+			conn, err = waitForSSHConnection(ctx, client, token, orgID, newSessionID, sandboxID, false, os.Stderr)
+			if err != nil {
+				spin.Stop()
+				return err
+			}
+		}
+
+		spin.Stop()
+		ssh.PrintConnecting(conn, newSessionID, "depot sandbox", os.Stdout)
+		return ssh.ExecSSH(conn)
 	}
 
 	return nil

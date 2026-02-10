@@ -22,6 +22,9 @@ service SandboxService {
   // GetSSHConnection retrieves SSH connection info for an existing sandbox
   rpc GetSSHConnection(GetSSHConnectionRequest) returns (GetSSHConnectionResponse);
 
+  // ExecInSandbox executes a command in a running sandbox (no SSH required)
+  rpc ExecInSandbox(ExecInSandboxRequest) returns (ExecInSandboxResponse);
+
   // Template management - save and reuse pre-configured sandbox filesystems
   rpc CreateSandboxTemplate(CreateSandboxTemplateRequest) returns (CreateSandboxTemplateResponse);
   rpc GetSandboxTemplate(GetSandboxTemplateRequest) returns (GetSandboxTemplateResponse);
@@ -46,6 +49,10 @@ message StartSandboxRequest {
   // If true, block until the command exits and return the result.
   // If false (default), start the command and return immediately.
   optional bool wait_for_command = 10;
+
+  // Optional custom image from the Depot Registry (registry.depot.dev/...)
+  // Mutually exclusive with ssh_config and template_id
+  optional string image = 11;
 
   message Context {
     oneof context {
@@ -93,6 +100,19 @@ message GetSSHConnectionRequest {
 
 message GetSSHConnectionResponse {
   SSHConnection ssh_connection = 1;
+}
+
+message ExecInSandboxRequest {
+  string sandbox_id = 1;
+  string command = 2;
+  // If true, block until the command exits and return the result.
+  // If false (default), start the command and return immediately.
+  optional bool wait_for_command = 3;
+}
+
+message ExecInSandboxResponse {
+  // Result of the command execution, only present when wait_for_command is true
+  optional CommandResult command_result = 1;
 }
 
 message GetSandboxRequest {

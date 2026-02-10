@@ -217,6 +217,7 @@ func ExecSSHCommand(conn *SSHConnectionInfo, command []string, stdin io.Reader, 
 
 // ConnectionInfo contains information about an SSH connection for display purposes.
 type ConnectionInfo struct {
+	SandboxID      string
 	SessionID      string
 	Host           string
 	Port           int32
@@ -228,12 +229,18 @@ type ConnectionInfo struct {
 // PrintConnectionInfo outputs connection details to the given writer.
 func PrintConnectionInfo(info *ConnectionInfo, stdout io.Writer) {
 	fmt.Fprintf(stdout, "\nSandbox ready!\n")
+	if info.SandboxID != "" {
+		fmt.Fprintf(stdout, "Sandbox ID: %s\n", info.SandboxID)
+	}
 	fmt.Fprintf(stdout, "Session ID: %s\n", info.SessionID)
 	if info.TimeoutMinutes > 0 {
 		fmt.Fprintf(stdout, "Timeout: %d minutes\n", info.TimeoutMinutes)
 	}
 	if info.CommandName != "" {
 		fmt.Fprintf(stdout, "\nTo connect:\n  %s connect %s\n", info.CommandName, info.SessionID)
+	}
+	if info.SandboxID != "" {
+		fmt.Fprintf(stdout, "\nTo exec:\n  %s exec %s <command>\n", info.CommandName, info.SandboxID)
 	}
 }
 

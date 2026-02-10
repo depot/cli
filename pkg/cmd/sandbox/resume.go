@@ -17,6 +17,7 @@ import (
 
 type resumeOptions struct {
 	timeout   int
+	ssh       bool
 	noConnect bool
 	token     string
 	orgID     string
@@ -39,24 +40,30 @@ func NewCmdResume() *cobra.Command {
 		Long: `Resume a completed Depot sandbox environment.
 
 This command restarts a sandbox that has completed, preserving its filesystem
-state and creating a new SSH session. Use this to get back into a sandbox
-that has timed out or been terminated.`,
-		Example: `  # Resume a completed sandbox and connect via SSH
+state. Use this to get back into a sandbox that has timed out or been terminated.
+
+By default, resumes without SSH and prints sandbox/session IDs with an exec hint.
+Use --ssh to resume with SSH and auto-connect.`,
+		Example: `  # Resume a completed sandbox (prints IDs and exec hint)
   depot sandbox resume abc123-session-id
 
-  # Resume with custom timeout
-  depot sandbox resume abc123-session-id --timeout 90
+  # Resume and connect via SSH
+  depot sandbox resume abc123-session-id --ssh
 
-  # Print connection info only, don't auto-connect
-  depot sandbox resume abc123-session-id --no-connect`,
+  # Resume with SSH and custom timeout
+  depot sandbox resume abc123-session-id --ssh --timeout 90
+
+  # Resume with SSH but only print connection info
+  depot sandbox resume abc123-session-id --ssh --no-connect`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runResume(cmd.Context(), args[0], opts)
 		},
 	}
 
+	cmd.Flags().BoolVar(&opts.ssh, "ssh", false, "Resume with SSH and auto-connect")
 	cmd.Flags().IntVar(&opts.timeout, "timeout", 60, "SSH session timeout in minutes (max 120)")
-	cmd.Flags().BoolVar(&opts.noConnect, "no-connect", false, "Print connection info only, don't auto-connect via SSH")
+	cmd.Flags().BoolVar(&opts.noConnect, "no-connect", false, "Print connection info only, don't auto-connect via SSH (requires --ssh)")
 	cmd.Flags().StringVar(&opts.token, "token", "", "Depot API token")
 	cmd.Flags().StringVar(&opts.orgID, "org", "", "Organization ID")
 	cmd.Flags().BoolVar(&opts.debug, "debug", false, "Enable debug logging")
@@ -100,20 +107,21 @@ func runResume(ctx context.Context, sessionID string, opts *resumeOptions) error
 	sandboxClient := api.NewSandboxClient()
 
 	// Build the request with resume_session_id
-	agentType := agentv1.AgentType_AGENT_TYPE_CLAUDE_CODE
+	agentType := agentv1.AgentType_AGENT_TYPE_UNSPECIFIED
 	timeoutMinutes := int32(opts.timeout)
+	enableSSH := opts.ssh
 	req := &agentv1.StartSandboxRequest{
 		ResumeSessionId:      &sessionID,
 		Argv:                 "",
 		EnvironmentVariables: map[string]string{},
 		AgentType:            agentType,
 		SshConfig: &agentv1.SSHConfig{
-			Enabled:        true,
+			Enabled:        enableSSH,
 			TimeoutMinutes: &timeoutMinutes,
 		},
 	}
 	debug("Request built: ResumeSessionId=%s, AgentType=%v, SSHConfig.Enabled=%v, TimeoutMinutes=%d",
-		sessionID, agentType, true, timeoutMinutes)
+		sessionID, agentType, enableSSH, timeoutMinutes)
 
 	// Start spinner for the loading phase
 	spin := newSpinner("Resuming sandbox...", opts.stderr)
@@ -134,6 +142,16 @@ func runResume(ctx context.Context, sessionID string, opts *resumeOptions) error
 	sandboxID := res.Msg.SandboxId
 	debug("New Session ID: %s", newSessionID)
 	debug("New Sandbox ID: %s", sandboxID)
+
+	// For non-SSH sandboxes, just print IDs and exec hint
+	if !enableSSH {
+		spin.Stop()
+		fmt.Fprintf(opts.stdout, "\nSandbox resumed!\n")
+		fmt.Fprintf(opts.stdout, "Sandbox ID: %s\n", sandboxID)
+		fmt.Fprintf(opts.stdout, "Session ID: %s\n", newSessionID)
+		fmt.Fprintf(opts.stdout, "\nTo exec:\n  depot sandbox exec %s <command>\n", sandboxID)
+		return nil
+	}
 
 	// Get SSH connection info - either from response or by polling
 	var conn *ssh.SSHConnectionInfo
