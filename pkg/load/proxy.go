@@ -84,7 +84,7 @@ func RunProxyImage(ctx context.Context, dockerapi docker.APIClient, config *Prox
 		return nil, err
 	}
 
-	if err := dockerapi.ContainerStart(ctx, resp.ID, types.ContainerStartOptions{}); err != nil {
+	if err := dockerapi.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
 		return nil, err
 	}
 
@@ -153,5 +153,5 @@ func PullProxyImage(ctx context.Context, dockerapi docker.APIClient, imageName s
 
 // Forcefully stops and removes the proxy container.
 func StopProxyContainer(ctx context.Context, dockerapi docker.APIClient, containerID string) error {
-	return dockerapi.ContainerRemove(ctx, containerID, types.ContainerRemoveOptions{Force: true, RemoveVolumes: true})
+	return dockerapi.ContainerRemove(ctx, containerID, container.RemoveOptions{Force: true, RemoveVolumes: true})
 }

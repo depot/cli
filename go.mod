@@ -20,7 +20,7 @@ require (
 	github.com/containerd/log v0.1.0
 	github.com/distribution/reference v0.5.0
 	github.com/docker/buildx v0.10.3
-	github.com/docker/cli v24.0.7+incompatible
+	github.com/docker/cli v26.0.0+incompatible
 	github.com/docker/cli-docs-tool v0.5.1
 	github.com/docker/docker v24.0.7+incompatible
 	github.com/docker/go-connections v0.4.0
@@ -135,6 +135,7 @@ require (
 	github.com/mitchellh/go-wordwrap v0.0.0-20150314170334-ad45545899c7 // indirect
 	github.com/mitchellh/hashstructure/v2 v2.0.2 // indirect
 	github.com/mitchellh/mapstructure v1.5.0 // indirect
+	github.com/moby/docker-image-spec v1.3.1 // indirect
 	github.com/moby/locker v1.0.1 // indirect
 	github.com/moby/patternmatcher v0.5.0 // indirect
 	github.com/moby/sys/mountinfo v0.6.2 // indirect
@@ -200,7 +201,7 @@ require (
 )
 
 replace (
-	github.com/docker/docker => github.com/docker/docker v24.0.9+incompatible
+	github.com/docker/docker => github.com/docker/docker v26.0.0+incompatible
 	github.com/moby/buildkit => github.com/depot/buildkit v0.11.6-depot.41
 	k8s.io/api => k8s.io/api v0.22.4
 	k8s.io/apimachinery => k8s.io/apimachinery v0.22.4

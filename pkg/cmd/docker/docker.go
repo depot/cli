@@ -27,6 +27,7 @@ import (
 	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/api/types/network"
+	"github.com/docker/docker/api/types/system"
 	dockerclient "github.com/docker/docker/client"
 	specs "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/pkg/errors"
@@ -312,7 +313,7 @@ type Node struct {
 func ListDepotNodes(ctx context.Context, client dockerclient.APIClient) ([]Node, error) {
 	filters := filters.NewArgs()
 	filters.FuzzyMatch("name", "buildx_buildkit_depot_")
-	containers, err := client.ContainerList(ctx, dockertypes.ContainerListOptions{
+	containers, err := client.ContainerList(ctx, container.ListOptions{
 		All:     true,
 		Filters: filters,
 	})
@@ -337,7 +338,7 @@ func ListDepotNodes(ctx context.Context, client dockerclient.APIClient) ([]Node,
 
 func StopDepotNodes(ctx context.Context, client dockerclient.APIClient, nodes []Node) error {
 	for _, node := range nodes {
-		err := client.ContainerRemove(ctx, node.ContainerID, dockertypes.ContainerRemoveOptions{Force: true, RemoveVolumes: true})
+		err := client.ContainerRemove(ctx, node.ContainerID, container.RemoveOptions{Force: true, RemoveVolumes: true})
 		if err != nil {
 			return err
 		}
@@ -478,7 +479,7 @@ func CreateContainer(ctx context.Context, dockerCli command.Cli, projectName str
 			return nil
 		}
 
-		err := client.ContainerRemove(ctx, driverContainer.ID, dockertypes.ContainerRemoveOptions{Force: true, RemoveVolumes: true})
+		err := client.ContainerRemove(ctx, driverContainer.ID, container.RemoveOptions{Force: true, RemoveVolumes: true})
 		if err != nil {
 			return fmt.Errorf("unable to remove container: %w", err)
 		}
@@ -515,7 +516,7 @@ func CreateContainer(ctx context.Context, dockerCli command.Cli, projectName str
 			hc.CgroupParent = "/docker/buildx"
 		}
 
-		secOpts, err := dockertypes.DecodeSecurityOptions(info.SecurityOptions)
+		secOpts, err := system.DecodeSecurityOptions(info.SecurityOptions)
 		if err != nil {
 			return err
 		}
