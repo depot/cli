@@ -27,8 +27,8 @@ import (
 )
 
 func main() {
-	// Explicitly set the Docker API version to 1.52 to avoid the Docker daemon breaking change.
-	os.Setenv("DOCKER_API_VERSION", "1.52")
+	// Explicitly set the Docker API version to 1.48 to avoid the Docker daemon breaking change.
+	os.Setenv("DOCKER_API_VERSION", "1.48")
 
 	if os.Getenv("DEPOT_DISABLE_OTEL") != "" {
 		helpers.DisableOTEL()
