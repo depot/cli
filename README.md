@@ -62,6 +62,13 @@ curl -L https://depot.dev/install-cli.sh | sh
 curl -L https://depot.dev/install-cli.sh | sh -s 2.17.0
 ```
 
+To install with the [Proto](https://moonrepo.dev/docs/proto) toolchain manager, run:
+
+```sh
+proto plugin add depot "https://raw.githubusercontent.com/depot/cli/refs/heads/main/proto.yaml
+proto install depot
+```
+
 For all other platforms, you can download the binary directly from [the latest release](https://github.com/depot/cli/releases).
 
 ## Quick Start
@@ -243,7 +250,7 @@ depot build -t repo/image:tag . --push
 | `platform`        | Set target platform for build                                                                             |
 | `progress`        | Set type of progress output ("auto", "plain", "tty"). Use plain to show container output (default "auto") |
 | `project`         | Depot project ID                                                                                          |
-| `provenance`      | Shortand for "--attest=type=provenance"                                                                   |
+| `provenance`      | Shorthand for "--attest=type=provenance"                                                                  |
 | `pull`            | Always attempt to pull all referenced images                                                              |
 | `push`            | Shorthand for "--output=type=registry"                                                                    |
 | `quiet`           | Suppress the build output and print image ID on success                                                   |
@@ -486,7 +493,7 @@ depot login
 
 ### `depot logout`
 
-Remove any saved login defails from your local machine.
+Remove any saved login details from your local machine.
 
 **Example**
 

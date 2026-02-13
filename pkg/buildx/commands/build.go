@@ -140,7 +140,7 @@ func runBuild(dockerCli command.Cli, validatedOpts map[string]build.Options, in 
 
 	ctx, end, err := tracing.TraceCurrentCommand(ctx, "build")
 	if err != nil {
-		return err
+		return wrapBuildError(err, false)
 	}
 	defer func() {
 		end(err)
@@ -632,13 +632,13 @@ func validateBuildOptions(in *buildOptions) (map[string]build.Options, error) {
 	if err != nil {
 		return nil, err
 	}
-	opts.CacheFrom = cacheImports
+	opts.CacheFrom = depotbuildflags.FilterGHACacheEntries(cacheImports, "--cache-from")
 
 	cacheExports, err := buildflags.ParseCacheEntry(in.cacheTo)
 	if err != nil {
 		return nil, err
 	}
-	opts.CacheTo = cacheExports
+	opts.CacheTo = depotbuildflags.FilterGHACacheEntries(cacheExports, "--cache-to")
 
 	allow, err := buildflags.ParseEntitlements(in.allow)
 	if err != nil {
@@ -819,7 +819,7 @@ func BuildCmd() *cobra.Command {
 
 	flags.StringArrayVar(&options.attests, "attest", []string{}, `Attestation parameters (format: "type=sbom,generator=image")`)
 	flags.StringVar(&options.sbom, "sbom", "", `Shorthand for "--attest=type=sbom"`)
-	flags.StringVar(&options.provenance, "provenance", "", `Shortand for "--attest=type=provenance"`)
+	flags.StringVar(&options.provenance, "provenance", "", `Shorthand for "--attest=type=provenance"`)
 
 	if isExperimental() {
 		flags.StringVar(&options.invoke, "invoke", "", "Invoke a command after the build [experimental]")
@@ -1086,6 +1086,16 @@ func wrapBuildError(err error, bake bool) error {
 	if err == nil {
 		return nil
 	}
+
+	errMsg := err.Error()
+
+	// Check for OpenTelemetry schema conflict errors
+	if strings.Contains(errMsg, "conflicting Schema URL") || strings.Contains(errMsg, "cannot merge resource") {
+		msg := fmt.Sprintf("%s\n\nThis error is usually caused by conflicting OpenTelemetry environment variables.\nTo resolve this issue, try setting DEPOT_DISABLE_OTEL=1 in your environment.", errMsg)
+		return &wrapped{err, msg}
+	}
+
+	// Check for gRPC errors
 	st, ok := grpcerrors.AsGRPCStatus(err)
 	if ok {
 		if st.Code() == codes.Unimplemented && strings.Contains(st.Message(), "unsupported frontend capability moby.buildkit.frontend.contexts") {
