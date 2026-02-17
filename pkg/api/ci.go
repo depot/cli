@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 )
 
 var baseURLFunc = getBaseURL
@@ -62,9 +63,18 @@ func ciRequest[T any](ctx context.Context, token, orgID, path string, payload in
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		var errResp ErrorResponse
-		if err := json.Unmarshal(body, &errResp); err == nil && !errResp.OK {
+		if err := json.Unmarshal(body, &errResp); err == nil && strings.TrimSpace(errResp.Error) != "" {
 			return nil, fmt.Errorf("%s", errResp.Error)
 		}
+
+		var connectErr struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		}
+		if err := json.Unmarshal(body, &connectErr); err == nil && strings.TrimSpace(connectErr.Message) != "" {
+			return nil, fmt.Errorf("%s", connectErr.Message)
+		}
+
 		return nil, fmt.Errorf("API error: status %d", resp.StatusCode)
 	}
 

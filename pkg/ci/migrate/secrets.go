@@ -9,8 +9,8 @@ import (
 )
 
 var (
-	secretRegex   = regexp.MustCompile(`\$\{\{\s*secrets\.([A-Za-z_][A-Za-z0-9_]*)\s*[}\s|]`)
-	variableRegex = regexp.MustCompile(`\$\{\{\s*vars\.([A-Za-z_][A-Za-z0-9_]*)\s*[}\s|]`)
+	secretRegex   = regexp.MustCompile(`\$\{\{\s*secrets\.([A-Za-z_][A-Za-z0-9_]*)(?:\s|[^A-Za-z0-9_.]|$)`)
+	variableRegex = regexp.MustCompile(`\$\{\{\s*vars\.([A-Za-z_][A-Za-z0-9_]*)(?:\s|[^A-Za-z0-9_.]|$)`)
 )
 
 // DetectSecretsFromFile scans a file's raw content for ${{ secrets.X }} references.

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -299,6 +300,29 @@ func TestCIErrorHandling(t *testing.T) {
 	err := CIAddSecret(context.Background(), "test-token", "test-org", "SECRET", "value")
 	if err == nil {
 		t.Error("expected error for non-200 response")
+	}
+}
+
+func TestCIErrorHandlingConnectMessage(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{
+			"code":    "invalid_argument",
+			"message": "invalid secret value",
+		})
+	}))
+	defer server.Close()
+
+	oldBaseURLFunc := baseURLFunc
+	baseURLFunc = func() string { return server.URL }
+	defer func() { baseURLFunc = oldBaseURLFunc }()
+
+	err := CIAddSecret(context.Background(), "test-token", "test-org", "SECRET", "value")
+	if err == nil {
+		t.Fatal("expected error for non-200 response")
+	}
+	if !strings.Contains(err.Error(), "invalid secret value") {
+		t.Fatalf("expected connect message in error, got %q", err.Error())
 	}
 }
 

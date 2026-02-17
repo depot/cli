@@ -28,6 +28,17 @@ func TestDetectSecretsFromFileWithDefaultExpression(t *testing.T) {
 	assertStringSliceEqual(t, secrets, []string{"X"})
 }
 
+func TestDetectSecretsFromFileWithOperatorNoSpaces(t *testing.T) {
+	path := writeTempTextFile(t, t.TempDir(), "operator.yml", "if: ${{ secrets.DEPLOY_KEY!='' }}\n")
+
+	secrets, err := DetectSecretsFromFile(path)
+	if err != nil {
+		t.Fatalf("DetectSecretsFromFile failed: %v", err)
+	}
+
+	assertStringSliceEqual(t, secrets, []string{"DEPLOY_KEY"})
+}
+
 func TestDetectSecretsFromFileNoFalsePositive(t *testing.T) {
 	path := writeTempTextFile(t, t.TempDir(), "env.yml", "value: ${{ env.SOME_VAR }}\n")
 
@@ -50,6 +61,17 @@ func TestDetectVariablesFromFile(t *testing.T) {
 	}
 
 	assertStringSliceEqual(t, variables, []string{"MY_VAR"})
+}
+
+func TestDetectVariablesFromFileWithOperatorNoSpaces(t *testing.T) {
+	path := writeTempTextFile(t, t.TempDir(), "vars-operator.yml", "if: ${{ vars.ENV&&true }}\n")
+
+	variables, err := DetectVariablesFromFile(path)
+	if err != nil {
+		t.Fatalf("DetectVariablesFromFile failed: %v", err)
+	}
+
+	assertStringSliceEqual(t, variables, []string{"ENV"})
 }
 
 func TestDetectSecretsFromFileMultipleDeduplicated(t *testing.T) {

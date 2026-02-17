@@ -223,27 +223,50 @@ func runMigrate(ctx context.Context, opts migrateOptions) error {
 		return err
 	}
 
-	if opts.yes {
-		if len(secretAssignments) > 0 {
-			orgID, token, err := resolveMigrationAuth(ctx, opts)
-			if err != nil {
-				return err
-			}
-
-			secretNames := make([]string, 0, len(secretAssignments))
-			for name := range secretAssignments {
-				secretNames = append(secretNames, name)
-			}
-			sort.Strings(secretNames)
-
-			for _, name := range secretNames {
-				if err := api.CIAddSecret(ctx, token, orgID, name, secretAssignments[name]); err != nil {
-					return fmt.Errorf("failed to configure secret %s: %w", name, err)
-				}
-				configuredSecrets = append(configuredSecrets, name)
-			}
+	authResolved := false
+	var orgID, token string
+	resolveAuth := func() (string, string, error) {
+		if authResolved {
+			return orgID, token, nil
 		}
 
+		var err error
+		orgID, token, err = resolveMigrationAuth(ctx, opts)
+		if err != nil {
+			return "", "", err
+		}
+		authResolved = true
+		return orgID, token, nil
+	}
+
+	configureSecret := func(name, value string) error {
+		orgID, token, err := resolveAuth()
+		if err != nil {
+			return err
+		}
+
+		if err := api.CIAddSecret(ctx, token, orgID, name, value); err != nil {
+			return fmt.Errorf("failed to configure secret %s: %w", name, err)
+		}
+		configuredSecrets = append(configuredSecrets, name)
+		return nil
+	}
+
+	if len(secretAssignments) > 0 {
+		secretNames := make([]string, 0, len(secretAssignments))
+		for name := range secretAssignments {
+			secretNames = append(secretNames, name)
+		}
+		sort.Strings(secretNames)
+
+		for _, name := range secretNames {
+			if err := configureSecret(name, secretAssignments[name]); err != nil {
+				return err
+			}
+		}
+	}
+
+	if opts.yes {
 		missingSecrets := make([]string, 0)
 		for _, name := range detectedSecrets {
 			if _, ok := secretAssignments[name]; !ok {
@@ -256,12 +279,11 @@ func runMigrate(ctx context.Context, opts migrateOptions) error {
 			warnings = append(warnings, fmt.Sprintf("configure missing secrets with `depot ci secrets add <NAME> --value <VALUE>` (missing: %s)", strings.Join(missingSecrets, ", ")))
 		}
 	} else if len(detectedSecrets) > 0 {
-		orgID, token, err := resolveMigrationAuth(ctx, opts)
-		if err != nil {
-			return err
-		}
-
 		for _, name := range detectedSecrets {
+			if _, ok := secretAssignments[name]; ok {
+				continue
+			}
+
 			value, err := promptForCISecret(fmt.Sprintf("Enter value for secret '%s' (leave empty to skip): ", name))
 			if err != nil {
 				return fmt.Errorf("failed to read value for secret %s: %w", name, err)
@@ -271,10 +293,9 @@ func runMigrate(ctx context.Context, opts migrateOptions) error {
 				continue
 			}
 
-			if err := api.CIAddSecret(ctx, token, orgID, name, value); err != nil {
-				return fmt.Errorf("failed to configure secret %s: %w", name, err)
+			if err := configureSecret(name, value); err != nil {
+				return err
 			}
-			configuredSecrets = append(configuredSecrets, name)
 		}
 	}
 
