@@ -54,6 +54,9 @@ func ciRequest[T any](ctx context.Context, token, orgID, path string, payload in
 	}
 
 	var response T
+	if len(bytes.TrimSpace(body)) == 0 {
+		return &response, nil
+	}
 	if err := json.Unmarshal(body, &response); err != nil {
 		return nil, err
 	}
@@ -63,9 +66,15 @@ func ciRequest[T any](ctx context.Context, token, orgID, path string, payload in
 
 // CIAddSecret adds a single CI secret to an organization
 func CIAddSecret(ctx context.Context, token, orgID, name, value string) error {
+	return CIAddSecretWithDescription(ctx, token, orgID, name, value, "")
+}
+
+// CIAddSecretWithDescription adds a single CI secret to an organization, with an optional description.
+func CIAddSecretWithDescription(ctx context.Context, token, orgID, name, value, description string) error {
 	payload := CISecretAddRequest{
-		Name:  name,
-		Value: value,
+		Name:        name,
+		Value:       value,
+		Description: description,
 	}
 	_, err := ciRequest[interface{}](ctx, token, orgID, "depot.ci.v1.SecretService/AddSecret", payload)
 	return err

@@ -43,14 +43,8 @@ func TestAnalyzeJobsContainerIssue(t *testing.T) {
 	jobs := []migrate.JobInfo{{Name: "build", HasContainer: true}}
 	issues := AnalyzeJobs(jobs)
 
-	if len(issues) != 1 {
-		t.Fatalf("expected one issue, got %d", len(issues))
-	}
-	if issues[0].Feature != "container" {
-		t.Fatalf("expected container issue, got %q", issues[0].Feature)
-	}
-	if issues[0].Level != Unsupported {
-		t.Fatalf("expected unsupported level, got %v", issues[0].Level)
+	if len(issues) != 0 {
+		t.Fatalf("expected no issues for supported container jobs, got %d", len(issues))
 	}
 }
 
@@ -58,14 +52,8 @@ func TestAnalyzeJobsServicesIssue(t *testing.T) {
 	jobs := []migrate.JobInfo{{Name: "integration", HasServices: true}}
 	issues := AnalyzeJobs(jobs)
 
-	if len(issues) != 1 {
-		t.Fatalf("expected one issue, got %d", len(issues))
-	}
-	if issues[0].Feature != "services" {
-		t.Fatalf("expected services issue, got %q", issues[0].Feature)
-	}
-	if issues[0].Level != Unsupported {
-		t.Fatalf("expected unsupported level, got %v", issues[0].Level)
+	if len(issues) != 0 {
+		t.Fatalf("expected no issues for supported service containers, got %d", len(issues))
 	}
 }
 
@@ -80,8 +68,48 @@ func TestAnalyzeWorkflowMixedFeatures(t *testing.T) {
 	}
 
 	report := AnalyzeWorkflow(workflow)
-	if got := len(report.Issues); got != 3 {
-		t.Fatalf("expected three issues, got %d", got)
+	if got := len(report.Issues); got != 1 {
+		t.Fatalf("expected one issue, got %d", got)
+	}
+}
+
+func TestAnalyzeJobsMatrixSelfHostedUnsupported(t *testing.T) {
+	jobs := []migrate.JobInfo{
+		{
+			Name:      "test",
+			RunsOn:    "ubuntu-latest,self-hosted",
+			HasMatrix: true,
+		},
+	}
+
+	issues := AnalyzeJobs(jobs)
+	if len(issues) != 2 {
+		t.Fatalf("expected two issues (matrix+self-hosted and custom runs-on), got %d", len(issues))
+	}
+
+	var foundMatrixSelfHosted bool
+	for _, issue := range issues {
+		if issue.Feature == "strategy.matrix + self-hosted" {
+			foundMatrixSelfHosted = true
+			if issue.Level != Unsupported {
+				t.Fatalf("expected unsupported level, got %v", issue.Level)
+			}
+		}
+	}
+	if !foundMatrixSelfHosted {
+		t.Fatal("expected strategy.matrix + self-hosted issue")
+	}
+}
+
+func TestAnalyzeUnknownTriggerDoesNotWarn(t *testing.T) {
+	workflow := &migrate.WorkflowFile{
+		Path:     ".github/workflows/custom.yml",
+		Triggers: []string{"future_event"},
+	}
+
+	report := AnalyzeWorkflow(workflow)
+	if got := len(report.Issues); got != 0 {
+		t.Fatalf("expected no issues for unknown trigger, got %d", got)
 	}
 }
 

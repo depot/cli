@@ -2,8 +2,9 @@ package api
 
 // CISecretAddRequest is the request payload for adding a CI secret
 type CISecretAddRequest struct {
-	Name  string `json:"name"`
-	Value string `json:"value"`
+	Name        string `json:"name"`
+	Value       string `json:"value"`
+	Description string `json:"description,omitempty"`
 }
 
 // CISecretBatchAddRequest is the request payload for adding multiple CI secrets

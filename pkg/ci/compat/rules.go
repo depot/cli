@@ -103,6 +103,12 @@ var TriggerRules = map[string]CompatibilityRule{
 		Note:       "Wiki events are not supported.",
 		Suggestion: "Remove this trigger or use a webhook-based alternative.",
 	},
+	"image_version": {
+		Feature:    "image_version",
+		Supported:  Unsupported,
+		Note:       "Image version events are not supported.",
+		Suggestion: "Remove this trigger or use a webhook-based alternative.",
+	},
 	"issue_comment": {
 		Feature:    "issue_comment",
 		Supported:  Unsupported,
@@ -139,28 +145,28 @@ var TriggerRules = map[string]CompatibilityRule{
 		Note:       "Page build events are not supported.",
 		Suggestion: "Remove this trigger or use a webhook-based alternative.",
 	},
-	"project": {
-		Feature:    "project",
-		Supported:  Unsupported,
-		Note:       "Project events are not supported.",
-		Suggestion: "Remove this trigger or use a webhook-based alternative.",
-	},
-	"project_card": {
-		Feature:    "project_card",
-		Supported:  Unsupported,
-		Note:       "Project card events are not supported.",
-		Suggestion: "Remove this trigger or use a webhook-based alternative.",
-	},
-	"project_column": {
-		Feature:    "project_column",
-		Supported:  Unsupported,
-		Note:       "Project column events are not supported.",
-		Suggestion: "Remove this trigger or use a webhook-based alternative.",
-	},
 	"public": {
 		Feature:    "public",
 		Supported:  Unsupported,
 		Note:       "Public events are not supported.",
+		Suggestion: "Remove this trigger or use a webhook-based alternative.",
+	},
+	"pull_request_comment": {
+		Feature:    "pull_request_comment",
+		Supported:  Unsupported,
+		Note:       "Pull request comment events are not supported.",
+		Suggestion: "Remove this trigger or use a webhook-based alternative.",
+	},
+	"pull_request_review": {
+		Feature:    "pull_request_review",
+		Supported:  Unsupported,
+		Note:       "Pull request review events are not supported.",
+		Suggestion: "Remove this trigger or use a webhook-based alternative.",
+	},
+	"pull_request_review_comment": {
+		Feature:    "pull_request_review_comment",
+		Supported:  Unsupported,
+		Note:       "Pull request review comment events are not supported.",
 		Suggestion: "Remove this trigger or use a webhook-based alternative.",
 	},
 	"registry_package": {
@@ -254,9 +260,15 @@ var JobFeatureRules = map[string]CompatibilityRule{
 	},
 	"runs-on (custom labels)": {
 		Feature:    "runs-on (custom labels)",
+		Supported:  Partial,
+		Note:       "Unknown runner labels are treated as depot_ubuntu_latest.",
+		Suggestion: "Use Depot runner labels (for example depot_ubuntu_latest) for predictable behavior.",
+	},
+	"strategy.matrix + self-hosted": {
+		Feature:    "strategy.matrix + self-hosted",
 		Supported:  Unsupported,
-		Note:       "Non-Depot runner labels are not supported.",
-		Suggestion: "Use Depot-supported labels, such as depot_ubuntu_latest.",
+		Note:       "Matrix jobs with self-hosted runner labels are not yet supported.",
+		Suggestion: "Avoid self-hosted labels on matrix jobs or split the job into non-matrix workflows.",
 	},
 	"environment": {
 		Feature:    "environment",
@@ -277,16 +289,14 @@ var JobFeatureRules = map[string]CompatibilityRule{
 		Suggestion: "Avoid id-token and OIDC-dependent workflows for now.",
 	},
 	"services": {
-		Feature:    "services",
-		Supported:  Unsupported,
-		Note:       "Service containers are not supported in this compatibility profile.",
-		Suggestion: "Move service dependencies to external managed services or pre-provisioned resources.",
+		Feature:   "services",
+		Supported: Supported,
+		Note:      "Service containers are supported.",
 	},
 	"container": {
-		Feature:    "container",
-		Supported:  Unsupported,
-		Note:       "Job-level containers are not supported in this compatibility profile.",
-		Suggestion: "Run directly on supported runners or use setup actions instead of job containers.",
+		Feature:   "container",
+		Supported: Supported,
+		Note:      "Job containers are supported.",
 	},
 }
 

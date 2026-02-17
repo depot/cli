@@ -31,12 +31,8 @@ func AnalyzeTriggers(triggers []string) []CompatibilityIssue {
 	for _, trigger := range triggers {
 		rule, ok := TriggerRules[trigger]
 		if !ok {
-			issues = append(issues, CompatibilityIssue{
-				Feature:    trigger,
-				Level:      Partial,
-				Message:    fmt.Sprintf("Trigger %q is not listed in the compatibility rules.", trigger),
-				Suggestion: "Verify support in Depot CI docs and update compatibility rules if needed.",
-			})
+			// Depot CI supports all trigger events except an explicit unsupported subset.
+			// Unknown triggers are treated as supported to avoid false positives.
 			continue
 		}
 
@@ -66,6 +62,7 @@ func AnalyzeJobs(jobs []migrate.JobInfo) []CompatibilityIssue {
 
 	containerRule := JobFeatureRules["container"]
 	servicesRule := JobFeatureRules["services"]
+	matrixSelfHostedRule := JobFeatureRules["strategy.matrix + self-hosted"]
 	reusableRule := JobFeatureRules["uses"]
 	runsOnRule := JobFeatureRules["runs-on (custom labels)"]
 
@@ -75,7 +72,7 @@ func AnalyzeJobs(jobs []migrate.JobInfo) []CompatibilityIssue {
 			jobLabel = "unnamed job"
 		}
 
-		if job.HasContainer {
+		if job.HasContainer && containerRule.Supported != Supported {
 			issues = append(issues, CompatibilityIssue{
 				Feature:    "container",
 				Level:      containerRule.Supported,
@@ -84,7 +81,7 @@ func AnalyzeJobs(jobs []migrate.JobInfo) []CompatibilityIssue {
 			})
 		}
 
-		if job.HasServices {
+		if job.HasServices && servicesRule.Supported != Supported {
 			issues = append(issues, CompatibilityIssue{
 				Feature:    "services",
 				Level:      servicesRule.Supported,
@@ -99,6 +96,15 @@ func AnalyzeJobs(jobs []migrate.JobInfo) []CompatibilityIssue {
 				Level:      reusableRule.Supported,
 				Message:    fmt.Sprintf("Job %q references non-local reusable workflow %q.", jobLabel, job.UsesReusable),
 				Suggestion: "Use reusable workflows from the same repository path, such as ./.github/workflows/build.yml.",
+			})
+		}
+
+		if job.HasMatrix && hasSelfHostedRunsOn(job.RunsOn) {
+			issues = append(issues, CompatibilityIssue{
+				Feature:    "strategy.matrix + self-hosted",
+				Level:      matrixSelfHostedRule.Supported,
+				Message:    fmt.Sprintf("Job %q combines matrix and self-hosted runs-on labels: %s", jobLabel, matrixSelfHostedRule.Note),
+				Suggestion: matrixSelfHostedRule.Suggestion,
 			})
 		}
 
@@ -174,15 +180,47 @@ func isLocalReusableWorkflow(uses string) bool {
 }
 
 func hasCustomRunsOn(runsOn string) bool {
+	labels := parseRunsOnLabels(runsOn)
+	for _, label := range labels {
+		if label == "ubuntu-latest" || label == "depot_ubuntu_latest" {
+			continue
+		}
+		if strings.HasPrefix(label, "depot_") {
+			continue
+		}
+		if strings.Contains(label, "${{") {
+			continue
+		}
+		return true
+	}
+
+	return false
+}
+
+func hasSelfHostedRunsOn(runsOn string) bool {
+	labels := parseRunsOnLabels(runsOn)
+	for _, label := range labels {
+		if label == "self-hosted" {
+			return true
+		}
+	}
+	return false
+}
+
+func parseRunsOnLabels(runsOn string) []string {
 	trimmed := strings.TrimSpace(runsOn)
 	if trimmed == "" {
-		return false
+		return nil
 	}
 
-	normalized := strings.ToLower(trimmed)
-	if normalized == "depot_ubuntu_latest" || normalized == "ubuntu-latest" {
-		return false
+	parts := strings.Split(trimmed, ",")
+	labels := make([]string, 0, len(parts))
+	for _, part := range parts {
+		label := strings.ToLower(strings.TrimSpace(part))
+		if label != "" {
+			labels = append(labels, label)
+		}
 	}
 
-	return true
+	return labels
 }

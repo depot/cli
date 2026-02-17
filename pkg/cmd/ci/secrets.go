@@ -92,7 +92,7 @@ If --value is not provided, you will be prompted to enter the secret value secur
 				}
 			}
 
-			err = api.CIAddSecret(ctx, tokenVal, orgID, secretName, secretValue)
+			err = api.CIAddSecretWithDescription(ctx, tokenVal, orgID, secretName, secretValue, description)
 			if err != nil {
 				return fmt.Errorf("failed to add secret: %w", err)
 			}

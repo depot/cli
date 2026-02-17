@@ -58,6 +58,32 @@ func TestCIAddSecret(t *testing.T) {
 	}
 }
 
+func TestCIAddSecretWithDescription(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req CISecretAddRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatalf("failed to decode request: %v", err)
+		}
+
+		if req.Description != "secret description" {
+			t.Errorf("expected description to be set, got %q", req.Description)
+		}
+
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]interface{}{})
+	}))
+	defer server.Close()
+
+	oldBaseURLFunc := baseURLFunc
+	baseURLFunc = func() string { return server.URL }
+	defer func() { baseURLFunc = oldBaseURLFunc }()
+
+	err := CIAddSecretWithDescription(context.Background(), "test-token", "test-org", "MY_SECRET", "secret-value", "secret description")
+	if err != nil {
+		t.Fatalf("CIAddSecretWithDescription failed: %v", err)
+	}
+}
+
 func TestCIListSecrets(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "POST" {

@@ -86,15 +86,16 @@ func runMigrate(ctx context.Context, opts migrateOptions) error {
 		return fmt.Errorf(".github/workflows exists but is not a directory")
 	}
 
-	workflows, err := migrate.ParseWorkflowDir(workflowsDir)
+	workflows, parseWarnings, err := parseWorkflowDirWithWarnings(workflowsDir)
 	if err != nil {
 		return fmt.Errorf("failed to parse workflow files: %w", err)
 	}
 	if len(workflows) == 0 {
-		return fmt.Errorf("no workflow files found in .github/workflows")
+		return fmt.Errorf("no valid workflow files found in .github/workflows")
 	}
 
 	selectedWorkflows := workflows
+	warnings := append([]string{}, parseWarnings...)
 
 	fmt.Fprintf(out, "Found %d workflow(s) in .github/workflows\n", len(workflows))
 	for _, workflow := range workflows {
@@ -126,7 +127,10 @@ func runMigrate(ctx context.Context, opts migrateOptions) error {
 			huhOptions = append(huhOptions, huh.NewOption(label, workflow.Path))
 		}
 
-		var selected []string
+		selected := make([]string, 0, len(workflows))
+		for _, workflow := range workflows {
+			selected = append(selected, workflow.Path)
+		}
 		form := huh.NewForm(
 			huh.NewGroup(
 				huh.NewMultiSelect[string]().
@@ -169,10 +173,8 @@ func runMigrate(ctx context.Context, opts migrateOptions) error {
 			return fmt.Errorf(".depot exists but is not a directory")
 		}
 
-		if opts.overwrite {
+		if opts.overwrite || opts.yes {
 			copyMode = migrate.CopyModeOverwrite
-		} else if opts.yes {
-			return fmt.Errorf(".depot directory already exists; rerun with --overwrite to continue")
 		} else {
 			confirmOverwrite := false
 			err := huh.NewConfirm().
@@ -198,10 +200,16 @@ func runMigrate(ctx context.Context, opts migrateOptions) error {
 		return fmt.Errorf("failed to inspect .depot directory: %w", err)
 	}
 
-	copyResult, err := migrate.CopyGitHubToDepot(workDir, []string{"workflows", "actions"}, copyMode)
+	copyResult, err := migrate.CopyGitHubToDepot(workDir, []string{"actions"}, copyMode)
 	if err != nil {
 		return fmt.Errorf("failed to copy GitHub CI files: %w", err)
 	}
+	copiedWorkflowFiles, err := copySelectedWorkflowFiles(workDir, workflowsDir, selectedWorkflows)
+	if err != nil {
+		return fmt.Errorf("failed to copy selected workflow files: %w", err)
+	}
+	copyResult.FilesCopied = append(copyResult.FilesCopied, copiedWorkflowFiles...)
+	warnings = append(warnings, copyResult.Warnings...)
 
 	detectedSecrets, err := detectSecretsFromWorkflows(selectedWorkflows)
 	if err != nil {
@@ -209,7 +217,6 @@ func runMigrate(ctx context.Context, opts migrateOptions) error {
 	}
 
 	configuredSecrets := make([]string, 0)
-	warnings := append([]string{}, copyResult.Warnings...)
 
 	secretAssignments, err := parseSecretAssignments(opts.secrets)
 	if err != nil {
@@ -237,10 +244,16 @@ func runMigrate(ctx context.Context, opts migrateOptions) error {
 			}
 		}
 
+		missingSecrets := make([]string, 0)
 		for _, name := range detectedSecrets {
 			if _, ok := secretAssignments[name]; !ok {
+				missingSecrets = append(missingSecrets, name)
 				warnings = append(warnings, fmt.Sprintf("detected secret %s is not configured", name))
 			}
+		}
+		if len(missingSecrets) > 0 {
+			sort.Strings(missingSecrets)
+			warnings = append(warnings, fmt.Sprintf("configure missing secrets with `depot ci secrets add <NAME> --value <VALUE>` (missing: %s)", strings.Join(missingSecrets, ", ")))
 		}
 	} else if len(detectedSecrets) > 0 {
 		orgID, token, err := resolveMigrationAuth(ctx, opts)
@@ -317,6 +330,94 @@ func parseSecretAssignments(secretFlags []string) (map[string]string, error) {
 	}
 
 	return assignments, nil
+}
+
+func parseWorkflowDirWithWarnings(workflowsDir string) ([]*migrate.WorkflowFile, []string, error) {
+	workflows := make([]*migrate.WorkflowFile, 0)
+	warnings := make([]string, 0)
+
+	err := filepath.WalkDir(workflowsDir, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+
+		ext := strings.ToLower(filepath.Ext(path))
+		if ext != ".yml" && ext != ".yaml" {
+			return nil
+		}
+
+		workflow, parseErr := migrate.ParseWorkflowFile(path)
+		if parseErr != nil {
+			warnings = append(warnings, fmt.Sprintf("skipped invalid workflow %s: %v", path, parseErr))
+			return nil
+		}
+
+		workflows = append(workflows, workflow)
+		return nil
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+
+	sort.Slice(workflows, func(i, j int) bool {
+		return workflows[i].Path < workflows[j].Path
+	})
+
+	return workflows, warnings, nil
+}
+
+func copySelectedWorkflowFiles(workDir, workflowsDir string, selectedWorkflows []*migrate.WorkflowFile) ([]string, error) {
+	if len(selectedWorkflows) == 0 {
+		return nil, nil
+	}
+
+	depotWorkflowsDir := filepath.Join(workDir, ".depot", "workflows")
+	copied := make([]string, 0, len(selectedWorkflows))
+
+	for _, workflow := range selectedWorkflows {
+		relPath, err := filepath.Rel(workflowsDir, workflow.Path)
+		if err != nil {
+			return nil, fmt.Errorf("failed to resolve relative path for %s: %w", workflow.Path, err)
+		}
+		if relPath == ".." || strings.HasPrefix(relPath, ".."+string(os.PathSeparator)) {
+			return nil, fmt.Errorf("workflow path %s is outside %s", workflow.Path, workflowsDir)
+		}
+
+		destPath := filepath.Join(depotWorkflowsDir, relPath)
+		if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
+			return nil, fmt.Errorf("failed to create destination directory for %s: %w", destPath, err)
+		}
+
+		if err := copyWorkflowFile(workflow.Path, destPath); err != nil {
+			return nil, err
+		}
+		copied = append(copied, destPath)
+	}
+
+	return copied, nil
+}
+
+func copyWorkflowFile(srcPath, destPath string) error {
+	srcFile, err := os.Open(srcPath)
+	if err != nil {
+		return fmt.Errorf("failed to open source workflow %s: %w", srcPath, err)
+	}
+	defer srcFile.Close()
+
+	destFile, err := os.OpenFile(destPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+	if err != nil {
+		return fmt.Errorf("failed to create destination workflow %s: %w", destPath, err)
+	}
+	defer destFile.Close()
+
+	if _, err := io.Copy(destFile, srcFile); err != nil {
+		return fmt.Errorf("failed to copy workflow %s to %s: %w", srcPath, destPath, err)
+	}
+
+	return nil
 }
 
 func detectSecretsFromWorkflows(workflows []*migrate.WorkflowFile) ([]string, error) {
