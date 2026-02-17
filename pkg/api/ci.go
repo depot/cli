@@ -30,15 +30,30 @@ func ciRequest[T any](ctx context.Context, token, orgID, path string, payload in
 	}
 
 	req.Header.Add("Content-Type", "application/json")
-	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", token))
-	req.Header.Add("x-depot-org", orgID)
+	if token != "" {
+		req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", token))
+	}
+	if orgID != "" {
+		req.Header.Add("x-depot-org", orgID)
+	}
 	req.Header.Add("User-Agent", Agent())
+	req.Header.Add("Depot-User-Agent", Agent())
 
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
+
+	infoMessage := resp.Header.Get("X-Depot-Info-Message")
+	if infoMessage != "" {
+		fmt.Println(infoStyle.Render(infoMessage))
+	}
+
+	warnMessage := resp.Header.Get("X-Depot-Warn-Message")
+	if warnMessage != "" {
+		fmt.Println(warnStyle.Render(warnMessage))
+	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {

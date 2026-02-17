@@ -3,6 +3,7 @@ package migrate
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -124,7 +125,7 @@ func TestCopyMissingGitHub(t *testing.T) {
 		}
 	}
 	// Check that ".github" is mentioned in error
-	if errMsg := err.Error(); !contains(errMsg, ".github") {
+	if errMsg := err.Error(); !strings.Contains(errMsg, ".github") {
 		t.Errorf("error message should mention '.github', got: %s", errMsg)
 	}
 }
@@ -247,7 +248,7 @@ func TestCopySkipSymlinks(t *testing.T) {
 	// Verify warning mentions symlink
 	hasSymlinkWarning := false
 	for _, w := range result.Warnings {
-		if contains(w, "symlink") {
+		if strings.Contains(w, "symlink") {
 			hasSymlinkWarning = true
 			break
 		}
@@ -323,7 +324,7 @@ func TestCopyMissingSubDir(t *testing.T) {
 
 	hasActionsWarning := false
 	for _, w := range result.Warnings {
-		if contains(w, "actions") {
+		if strings.Contains(w, "actions") {
 			hasActionsWarning = true
 			break
 		}
@@ -336,14 +337,4 @@ func TestCopyMissingSubDir(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(tmpDir, ".depot", "workflows", "ci.yml")); err != nil {
 		t.Errorf("workflows/ci.yml not found: %v", err)
 	}
-}
-
-// Helper function to check if string contains substring
-func contains(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
 }
