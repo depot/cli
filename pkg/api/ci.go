@@ -35,25 +35,32 @@ func CIAddSecretWithDescription(ctx context.Context, token, orgID, name, value, 
 	return err
 }
 
+// CISecret contains metadata about a CI secret
+type CISecret struct {
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	CreatedAt   string `json:"createdAt,omitempty"`
+}
+
 // CIListSecrets lists all CI secrets for an organization
-func CIListSecrets(ctx context.Context, token, orgID string) ([]CISecretMeta, error) {
+func CIListSecrets(ctx context.Context, token, orgID string) ([]CISecret, error) {
 	client := newCISecretServiceClient()
 	resp, err := client.ListSecrets(ctx, WithAuthenticationAndOrg(connect.NewRequest(&civ1.ListSecretsRequest{}), token, orgID))
 	if err != nil {
 		return nil, err
 	}
-	secrets := make([]CISecretMeta, 0, len(resp.Msg.Secrets))
+	secrets := make([]CISecret, 0, len(resp.Msg.Secrets))
 	for _, s := range resp.Msg.Secrets {
-		meta := CISecretMeta{
+		cs := CISecret{
 			Name: s.Name,
 		}
 		if s.Description != nil {
-			meta.Description = *s.Description
+			cs.Description = *s.Description
 		}
 		if s.LastModified != nil {
-			meta.CreatedAt = s.LastModified.AsTime().Format(time.RFC3339)
+			cs.CreatedAt = s.LastModified.AsTime().Format(time.RFC3339)
 		}
-		secrets = append(secrets, meta)
+		secrets = append(secrets, cs)
 	}
 	return secrets, nil
 }
@@ -80,25 +87,32 @@ func CIAddVariable(ctx context.Context, token, orgID, name, value string) error 
 	return err
 }
 
+// CIVariable contains metadata about a CI variable
+type CIVariable struct {
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	CreatedAt   string `json:"createdAt,omitempty"`
+}
+
 // CIListVariables lists all CI variables for an organization
-func CIListVariables(ctx context.Context, token, orgID string) ([]CIVariableMeta, error) {
+func CIListVariables(ctx context.Context, token, orgID string) ([]CIVariable, error) {
 	client := newCIVariableServiceClient()
 	resp, err := client.ListVariables(ctx, WithAuthenticationAndOrg(connect.NewRequest(&civ1.ListVariablesRequest{}), token, orgID))
 	if err != nil {
 		return nil, err
 	}
-	variables := make([]CIVariableMeta, 0, len(resp.Msg.Variables))
+	variables := make([]CIVariable, 0, len(resp.Msg.Variables))
 	for _, v := range resp.Msg.Variables {
-		meta := CIVariableMeta{
+		cv := CIVariable{
 			Name: v.Name,
 		}
 		if v.Description != nil {
-			meta.Description = *v.Description
+			cv.Description = *v.Description
 		}
 		if v.LastModified != nil {
-			meta.CreatedAt = v.LastModified.AsTime().Format(time.RFC3339)
+			cv.CreatedAt = v.LastModified.AsTime().Format(time.RFC3339)
 		}
-		variables = append(variables, meta)
+		variables = append(variables, cv)
 	}
 	return variables, nil
 }
