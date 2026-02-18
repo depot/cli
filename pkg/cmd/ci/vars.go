@@ -18,6 +18,15 @@ func NewCmdVars() *cobra.Command {
 		Use:   "vars",
 		Short: "Manage CI variables",
 		Long:  "Manage variables for Depot CI workflows.",
+		Example: `  # Add a new variable
+  depot ci vars add GITHUB_REPO
+  depot ci vars add MY_SERVICE_NAME --value "my_service"
+
+  # List all variables
+  depot ci vars list
+
+  # Remove a variable
+  depot ci vars remove GITHUB_REPO`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return cmd.Help()
 		},
