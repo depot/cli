@@ -11,6 +11,21 @@ import (
 
 var baseURLFunc = getBaseURL
 
+func newCIServiceClient() civ1connect.CIServiceClient {
+	baseURL := baseURLFunc()
+	return civ1connect.NewCIServiceClient(getHTTPClient(baseURL), baseURL, WithUserAgent())
+}
+
+// CIGetRunStatus returns the current status of a CI run including its workflows, jobs, and attempts.
+func CIGetRunStatus(ctx context.Context, token, runID string) (*civ1.GetRunStatusResponse, error) {
+	client := newCIServiceClient()
+	resp, err := client.GetRunStatus(ctx, WithAuthentication(connect.NewRequest(&civ1.GetRunStatusRequest{RunId: runID}), token))
+	if err != nil {
+		return nil, err
+	}
+	return resp.Msg, nil
+}
+
 func newCISecretServiceClient() civ1connect.SecretServiceClient {
 	baseURL := baseURLFunc()
 	return civ1connect.NewSecretServiceClient(getHTTPClient(baseURL), baseURL, WithUserAgent())
