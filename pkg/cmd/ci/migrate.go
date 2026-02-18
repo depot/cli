@@ -66,6 +66,7 @@ func runMigrate(ctx context.Context, opts migrateOptions) error {
 		if os.IsNotExist(err) {
 			return fmt.Errorf("no .github directory found in %s", workDir)
 		}
+
 		return fmt.Errorf("failed to inspect .github directory: %w", err)
 	} else if !stat.IsDir() {
 		return fmt.Errorf(".github exists but is not a directory")
@@ -88,10 +89,10 @@ func runMigrate(ctx context.Context, opts migrateOptions) error {
 		return fmt.Errorf("no valid workflow files found in .github/workflows")
 	}
 
-	selectedWorkflows := workflows
-	warnings := append([]string{}, parseWarnings...)
-
 	fmt.Printf("Found %d workflow(s) in .github/workflows\n", len(workflows))
+
+	selectedWorkflows := workflows
+	warnings := parseWarnings
 	for _, workflow := range workflows {
 		report := compat.AnalyzeWorkflow(workflow)
 		summary := compat.SummarizeReport(report)
