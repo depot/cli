@@ -134,15 +134,15 @@ func NewCmdVarsList() *cobra.Command {
 				return fmt.Errorf("failed to list CI variables: %w", err)
 			}
 
+			if len(variables) == 0 {
+				fmt.Println("No CI variables found.")
+				return nil
+			}
+
 			if output == "json" {
 				enc := json.NewEncoder(os.Stdout)
 				enc.SetIndent("", "  ")
 				return enc.Encode(variables)
-			}
-
-			if len(variables) == 0 {
-				fmt.Println("No CI variables found.")
-				return nil
 			}
 
 			fmt.Printf("%-30s %-50s %s\n", "NAME", "DESCRIPTION", "CREATED")
