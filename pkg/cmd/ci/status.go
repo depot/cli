@@ -13,8 +13,8 @@ func NewCmdStatus() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "status <run-id>",
-		Short: "Look up the status of a CI run",
-		Long:  "Look up the status of a CI run, including its workflows, jobs, and attempts.",
+		Short: "Look up the status of a CI run [beta]",
+		Long:  "Look up the status of a CI run, including its workflows, jobs, and attempts.\n\nThis command is in beta and subject to change.",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
