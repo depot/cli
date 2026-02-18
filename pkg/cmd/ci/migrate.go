@@ -39,6 +39,7 @@ func NewCmdMigrate() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			runOpts := opts
 			runOpts.dir = "."
+			runOpts.stdout = os.Stdout
 			return runMigrate(cmd.Context(), runOpts)
 		},
 	}
@@ -57,6 +58,11 @@ func runMigrate(ctx context.Context, opts migrateOptions) error {
 	workDir := opts.dir
 	if strings.TrimSpace(workDir) == "" {
 		workDir = "."
+	}
+
+	out := opts.stdout
+	if out == nil {
+		out = os.Stdout
 	}
 
 	githubDir := filepath.Join(workDir, ".github")
@@ -89,7 +95,7 @@ func runMigrate(ctx context.Context, opts migrateOptions) error {
 		return fmt.Errorf("no valid workflow files found in .github/workflows")
 	}
 
-	fmt.Printf("Found %d workflow(s) in .github/workflows\n", len(workflows))
+	fmt.Fprintf(out, "Found %d workflow(s) in .github/workflows\n", len(workflows))
 
 	selectedWorkflows := workflows
 	warnings := parseWarnings
@@ -104,7 +110,7 @@ func runMigrate(ctx context.Context, opts migrateOptions) error {
 		if compat.HasCriticalIssues(report) {
 			critical = " [critical issues]"
 		}
-		fmt.Printf("- %s (%s): %s%s\n", filepath.Base(workflow.Path), triggers, summary, critical)
+		fmt.Fprintf(out, "- %s (%s): %s%s\n", filepath.Base(workflow.Path), triggers, summary, critical)
 	}
 
 	if !opts.yes {
@@ -137,14 +143,14 @@ func runMigrate(ctx context.Context, opts migrateOptions) error {
 
 		if err := form.Run(); err != nil {
 			if errors.Is(err, huh.ErrUserAborted) {
-				fmt.Println("Migration cancelled.")
+				fmt.Fprintln(out, "Migration cancelled.")
 				return nil
 			}
 			return fmt.Errorf("failed to select workflows: %w", err)
 		}
 
 		if len(selected) == 0 {
-			fmt.Println("No workflows selected. Nothing to migrate.")
+			fmt.Fprintln(out, "No workflows selected. Nothing to migrate.")
 			return nil
 		}
 
@@ -180,13 +186,13 @@ func runMigrate(ctx context.Context, opts migrateOptions) error {
 				Run()
 			if err != nil {
 				if errors.Is(err, huh.ErrUserAborted) {
-					fmt.Println("Migration cancelled.")
+					fmt.Fprintln(out, "Migration cancelled.")
 					return nil
 				}
 				return fmt.Errorf("failed to confirm overwrite: %w", err)
 			}
 			if !confirmOverwrite {
-				fmt.Println("Migration cancelled.")
+				fmt.Fprintln(out, "Migration cancelled.")
 				return nil
 			}
 			copyMode = migrate.CopyModeOverwrite
@@ -294,35 +300,35 @@ func runMigrate(ctx context.Context, opts migrateOptions) error {
 		}
 	}
 
-	fmt.Println("")
-	fmt.Println("Migration summary:")
-	fmt.Printf("- Workflows selected: %d\n", len(selectedWorkflows))
-	fmt.Printf("- Files copied: %d\n", len(copyResult.FilesCopied))
-	fmt.Printf("- Secrets detected: %d\n", len(detectedSecrets))
-	fmt.Printf("- Secrets configured: %d\n", len(configuredSecrets))
+	fmt.Fprintln(out, "")
+	fmt.Fprintln(out, "Migration summary:")
+	fmt.Fprintf(out, "- Workflows selected: %d\n", len(selectedWorkflows))
+	fmt.Fprintf(out, "- Files copied: %d\n", len(copyResult.FilesCopied))
+	fmt.Fprintf(out, "- Secrets detected: %d\n", len(detectedSecrets))
+	fmt.Fprintf(out, "- Secrets configured: %d\n", len(configuredSecrets))
 
 	if len(copyResult.FilesCopied) > 0 {
-		fmt.Println("- Copied files:")
+		fmt.Fprintln(out, "- Copied files:")
 		for _, copiedPath := range copyResult.FilesCopied {
 			rel, relErr := filepath.Rel(workDir, copiedPath)
 			if relErr != nil {
 				rel = copiedPath
 			}
-			fmt.Printf("  - %s\n", rel)
+			fmt.Fprintf(out, "  - %s\n", rel)
 		}
 	}
 
 	if len(configuredSecrets) > 0 {
-		fmt.Println("- Configured secrets:")
+		fmt.Fprintln(out, "- Configured secrets:")
 		for _, name := range configuredSecrets {
-			fmt.Printf("  - %s\n", name)
+			fmt.Fprintf(out, "  - %s\n", name)
 		}
 	}
 
 	if len(warnings) > 0 {
-		fmt.Println("- Warnings:")
+		fmt.Fprintln(out, "- Warnings:")
 		for _, warning := range warnings {
-			fmt.Printf("  - %s\n", warning)
+			fmt.Fprintf(out, "  - %s\n", warning)
 		}
 	}
 
