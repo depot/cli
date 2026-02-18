@@ -47,8 +47,17 @@ func NewCmdVarsAdd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "add VAR_NAME",
 		Short: "Add a new CI variable",
-		Long:  "Add a new CI variable to your organization.",
-		Args:  cobra.ExactArgs(1),
+		Long: `Add a new variable that can be used in Depot CI workflows.
+If --value is not provided, you will be prompted to enter the secret value securely.`,
+		Example: `  # Add a variable with interactive prompt
+  depot ci vars add GITHUB_REPO
+
+  # Add a variable with value from command line
+  depot ci vars add MY_SERVICE_NAME --value "my_service"
+
+  # Add a variable with description
+  depot ci vars add MY_SERVICE_NAME --description "Name of the service for matrix tests"`,
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
 			varName := args[0]
