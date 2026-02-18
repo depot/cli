@@ -16,7 +16,7 @@ import (
 func NewCmdSecrets() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "secrets",
-		Short: "Manage Depot CI secrets",
+		Short: "Manage CI secrets",
 		Long:  `Manage secrets for Depot CI workflows.`,
 		Example: `  # Add a new secret
   depot ci secrets add GITHUB_TOKEN
@@ -204,7 +204,7 @@ func NewCmdSecretsRemove() *cobra.Command {
 
   # Remove a secret without confirmation prompt
   depot ci secrets remove MY_API_KEY --force`,
-		Aliases: []string{"rm", "delete", "del"},
+		Aliases: []string{"rm"},
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
@@ -235,7 +235,6 @@ func NewCmdSecretsRemove() *cobra.Command {
 				}
 				response = strings.TrimSpace(strings.ToLower(response))
 				if response != "y" && response != "yes" {
-					fmt.Println("Secret removal cancelled")
 					return nil
 				}
 			}
