@@ -1,7 +1,6 @@
 package ci
 
 import (
-	"bufio"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -227,14 +226,10 @@ func NewCmdSecretsRemove() *cobra.Command {
 			}
 
 			if !force {
-				reader := bufio.NewReader(os.Stdin)
-				fmt.Printf("Are you sure you want to remove CI secret '%s'? (y/N): ", secretName)
-				response, err := reader.ReadString('\n')
+				y, err := helpers.PromptForYN(fmt.Sprintf("Are you sure you want to remove CI secret '%s'? (y/N): ", secretName))
 				if err != nil {
 					return fmt.Errorf("failed to read confirmation: %w", err)
-				}
-				response = strings.TrimSpace(strings.ToLower(response))
-				if response != "y" && response != "yes" {
+				} else if !y {
 					return nil
 				}
 			}

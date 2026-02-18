@@ -42,3 +42,12 @@ func PromptForValue(prompt string) (string, error) {
 
 	return strings.TrimSpace(input), nil
 }
+
+func PromptForYN(prompt string) (bool, error) {
+	val, err := PromptForValue(prompt)
+	if err != nil {
+		return false, err
+	}
+
+	return val == "y" || val == "yes", nil
+}
