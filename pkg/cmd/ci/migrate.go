@@ -34,8 +34,8 @@ func NewCmdMigrate() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "migrate",
-		Short: "Migrate GitHub Actions workflows to Depot CI",
-		Long:  "Interactive wizard to migrate your GitHub Actions CI configuration to Depot CI.",
+		Short: "Migrate GitHub Actions workflows to Depot CI [beta]",
+		Long:  "Interactive wizard to migrate your GitHub Actions CI configuration to Depot CI.\n\nThis command is in beta and subject to change.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			runOpts := opts
 			runOpts.dir = "."
@@ -72,6 +72,7 @@ func runMigrate(ctx context.Context, opts migrateOptions) error {
 		if os.IsNotExist(err) {
 			return fmt.Errorf("no .github directory found in %s", workDir)
 		}
+
 		return fmt.Errorf("failed to inspect .github directory: %w", err)
 	} else if !stat.IsDir() {
 		return fmt.Errorf(".github exists but is not a directory")
@@ -94,10 +95,10 @@ func runMigrate(ctx context.Context, opts migrateOptions) error {
 		return fmt.Errorf("no valid workflow files found in .github/workflows")
 	}
 
-	selectedWorkflows := workflows
-	warnings := append([]string{}, parseWarnings...)
-
 	fmt.Fprintf(out, "Found %d workflow(s) in .github/workflows\n", len(workflows))
+
+	selectedWorkflows := workflows
+	warnings := parseWarnings
 	for _, workflow := range workflows {
 		report := compat.AnalyzeWorkflow(workflow)
 		summary := compat.SummarizeReport(report)
@@ -284,7 +285,7 @@ func runMigrate(ctx context.Context, opts migrateOptions) error {
 				continue
 			}
 
-			value, err := promptForCISecret(fmt.Sprintf("Enter value for secret '%s' (leave empty to skip): ", name))
+			value, err := helpers.PromptForSecret(fmt.Sprintf("Enter value for secret '%s' (leave empty to skip): ", name))
 			if err != nil {
 				return fmt.Errorf("failed to read value for secret %s: %w", name, err)
 			}

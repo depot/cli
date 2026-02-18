@@ -1,7 +1,6 @@
 package ci
 
 import (
-	"bufio"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -16,8 +15,17 @@ import (
 func NewCmdVars() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "vars",
-		Short: "Manage CI variables",
-		Long:  "Manage variables for Depot CI workflows.",
+		Short: "Manage CI variables [beta]",
+		Long:  "Manage variables for Depot CI workflows.\n\nThis command is in beta and subject to change.",
+		Example: `  # Add a new variable
+  depot ci vars add GITHUB_REPO
+  depot ci vars add MY_SERVICE_NAME --value "my_service"
+
+  # List all variables
+  depot ci vars list
+
+  # Remove a variable
+  depot ci vars remove GITHUB_REPO`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return cmd.Help()
 		},
@@ -38,8 +46,17 @@ func NewCmdVarsAdd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "add VAR_NAME",
 		Short: "Add a new CI variable",
-		Long:  "Add a new CI variable to your organization.",
-		Args:  cobra.ExactArgs(1),
+		Long: `Add a new variable that can be used in Depot CI workflows.
+If --value is not provided, you will be prompted to enter the secret value securely.`,
+		Example: `  # Add a variable with interactive prompt
+  depot ci vars add GITHUB_REPO
+
+  # Add a variable with value from command line
+  depot ci vars add MY_SERVICE_NAME --value "my_service"
+
+  # Add a variable with description
+  depot ci vars add MY_SERVICE_NAME --description "Name of the service for matrix tests"`,
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
 			varName := args[0]
@@ -62,13 +79,10 @@ func NewCmdVarsAdd() *cobra.Command {
 
 			varValue := value
 			if varValue == "" {
-				fmt.Print("Enter value: ")
-				reader := bufio.NewReader(os.Stdin)
-				input, err := reader.ReadString('\n')
+				varValue, err = helpers.PromptForValue(fmt.Sprintf("Enter value for variable '%s': ", varName))
 				if err != nil {
 					return fmt.Errorf("failed to read variable value: %w", err)
 				}
-				varValue = strings.TrimSpace(input)
 			}
 
 			err = api.CIAddVariable(ctx, tokenVal, orgID, varName, varValue)
@@ -119,34 +133,18 @@ func NewCmdVarsList() *cobra.Command {
 				return fmt.Errorf("failed to list CI variables: %w", err)
 			}
 
-			// Format output
 			if output == "json" {
-				// JSON output
-				type varJSON struct {
-					Name      string `json:"name"`
-					Value     string `json:"value"`
-					CreatedAt string `json:"createdAt,omitempty"`
-				}
-				var vars []varJSON
-				for _, v := range variables {
-					vars = append(vars, varJSON{
-						Name:      v.Name,
-						Value:     v.Value,
-						CreatedAt: v.CreatedAt,
-					})
-				}
 				enc := json.NewEncoder(os.Stdout)
 				enc.SetIndent("", "  ")
-				return enc.Encode(vars)
+				return enc.Encode(variables)
 			}
 
-			// Table output
 			if len(variables) == 0 {
 				fmt.Println("No CI variables found.")
 				return nil
 			}
 
-			fmt.Printf("%-30s %-50s %s\n", "NAME", "VALUE", "CREATED")
+			fmt.Printf("%-30s %-50s %s\n", "NAME", "DESCRIPTION", "CREATED")
 			fmt.Printf("%-30s %-50s %s\n", strings.Repeat("-", 30), strings.Repeat("-", 50), strings.Repeat("-", 20))
 
 			for _, v := range variables {
@@ -155,17 +153,14 @@ func NewCmdVarsList() *cobra.Command {
 					name = name[:27] + "..."
 				}
 
-				varVal := v.Value
-				if len(varVal) > 50 {
-					varVal = varVal[:47] + "..."
+				description := v.Description
+				if len(description) > 50 {
+					description = description[:47] + "..."
 				}
 
 				created := v.CreatedAt
-				if len(created) > 20 {
-					created = created[:17] + "..."
-				}
 
-				fmt.Printf("%-30s %-50s %s\n", name, varVal, created)
+				fmt.Printf("%-30s %-50s %s\n", name, description, created)
 			}
 
 			return nil
@@ -212,15 +207,11 @@ func NewCmdVarsRemove() *cobra.Command {
 			}
 
 			if !force {
-				reader := bufio.NewReader(os.Stdin)
-				fmt.Printf("Are you sure you want to remove CI variable '%s'? (y/N): ", varName)
-				response, err := reader.ReadString('\n')
+				prompt := fmt.Sprintf("Are you sure you want to remove CI variable '%s'? (y/N): ", varName)
+				y, err := helpers.PromptForYN(prompt)
 				if err != nil {
 					return fmt.Errorf("failed to read confirmation: %w", err)
-				}
-				response = strings.TrimSpace(strings.ToLower(response))
-				if response != "y" && response != "yes" {
-					fmt.Println("CI variable removal cancelled")
+				} else if !y {
 					return nil
 				}
 			}

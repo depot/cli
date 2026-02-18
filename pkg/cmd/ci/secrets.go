@@ -1,26 +1,22 @@
 package ci
 
 import (
-	"bufio"
 	"encoding/json"
 	"fmt"
 	"os"
-	"regexp"
 	"strings"
-	"syscall"
 
 	"github.com/depot/cli/pkg/api"
 	"github.com/depot/cli/pkg/config"
 	"github.com/depot/cli/pkg/helpers"
 	"github.com/spf13/cobra"
-	"golang.org/x/term"
 )
 
 func NewCmdSecrets() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "secrets",
-		Short: "Manage CI secrets",
-		Long:  `Manage secrets for Depot CI workflows.`,
+		Short: "Manage CI secrets [beta]",
+		Long:  "Manage secrets for Depot CI workflows.\n\nThis command is in beta and subject to change.",
 		Example: `  # Add a new secret
   depot ci secrets add GITHUB_TOKEN
   depot ci secrets add MY_API_KEY --value "secret-value"
@@ -86,7 +82,7 @@ If --value is not provided, you will be prompted to enter the secret value secur
 
 			secretValue := value
 			if secretValue == "" {
-				secretValue, err = promptForCISecret(fmt.Sprintf("Enter value for secret '%s': ", secretName))
+				secretValue, err = helpers.PromptForSecret(fmt.Sprintf("Enter value for secret '%s': ", secretName))
 				if err != nil {
 					return fmt.Errorf("failed to read secret value: %w", err)
 				}
@@ -207,7 +203,7 @@ func NewCmdSecretsRemove() *cobra.Command {
 
   # Remove a secret without confirmation prompt
   depot ci secrets remove MY_API_KEY --force`,
-		Aliases: []string{"rm", "delete", "del"},
+		Aliases: []string{"rm"},
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
@@ -230,15 +226,11 @@ func NewCmdSecretsRemove() *cobra.Command {
 			}
 
 			if !force {
-				reader := bufio.NewReader(os.Stdin)
-				fmt.Printf("Are you sure you want to remove CI secret '%s'? (y/N): ", secretName)
-				response, err := reader.ReadString('\n')
+				prompt := fmt.Sprintf("Are you sure you want to remove CI secret '%s'? (y/N): ", secretName)
+				y, err := helpers.PromptForYN(prompt)
 				if err != nil {
 					return fmt.Errorf("failed to read confirmation: %w", err)
-				}
-				response = strings.TrimSpace(strings.ToLower(response))
-				if response != "y" && response != "yes" {
-					fmt.Println("Secret removal cancelled")
+				} else if !y {
 					return nil
 				}
 			}
@@ -258,22 +250,4 @@ func NewCmdSecretsRemove() *cobra.Command {
 	cmd.Flags().BoolVar(&force, "force", false, "Skip confirmation prompt")
 
 	return cmd
-}
-
-func promptForCISecret(prompt string) (string, error) {
-	fmt.Print(prompt)
-
-	bytePassword, err := term.ReadPassword(int(syscall.Stdin))
-	if err != nil {
-		return "", err
-	}
-	password := stripCIANSI(string(bytePassword))
-	fmt.Println()
-
-	return password, nil
-}
-
-func stripCIANSI(s string) string {
-	ansiRegex := regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]`)
-	return ansiRegex.ReplaceAllString(s, "")
 }

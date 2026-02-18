@@ -12,6 +12,7 @@ import (
 	"connectrpc.com/connect"
 	"github.com/depot/cli/pkg/proto/depot/agent/v1/agentv1connect"
 	"github.com/depot/cli/pkg/proto/depot/build/v1/buildv1connect"
+	"github.com/depot/cli/pkg/proto/depot/ci/v1/civ1connect"
 	"github.com/depot/cli/pkg/proto/depot/cli/v1/cliv1connect"
 	"github.com/depot/cli/pkg/proto/depot/cli/v1beta1/cliv1beta1connect"
 	cliCorev1connect "github.com/depot/cli/pkg/proto/depot/core/v1/corev1connect"
@@ -56,6 +57,14 @@ func NewSandboxClient() agentv1connect.SandboxServiceClient {
 
 func NewRegistryClient() buildv1connect.RegistryServiceClient {
 	return buildv1connect.NewRegistryServiceClient(getHTTPClient(getBaseURL()), getBaseURL(), WithUserAgent())
+}
+
+func NewSecretServiceClient() civ1connect.SecretServiceClient {
+	return civ1connect.NewSecretServiceClient(getHTTPClient(getBaseURL()), getBaseURL(), WithUserAgent())
+}
+
+func NewVariableServiceClient() civ1connect.VariableServiceClient {
+	return civ1connect.NewVariableServiceClient(getHTTPClient(getBaseURL()), getBaseURL(), WithUserAgent())
 }
 
 func WithAuthentication[T any](req *connect.Request[T], token string) *connect.Request[T] {
