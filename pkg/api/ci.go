@@ -8,6 +8,11 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
+
+	"connectrpc.com/connect"
+	civ1 "github.com/depot/cli/pkg/proto/depot/ci/v1"
+	"github.com/depot/cli/pkg/proto/depot/ci/v1/civ1connect"
 )
 
 var baseURLFunc = getBaseURL
@@ -89,6 +94,11 @@ func ciRequest[T any](ctx context.Context, token, orgID, path string, payload in
 	return &response, nil
 }
 
+func newCISecretServiceClient() civ1connect.SecretServiceClient {
+	baseURL := baseURLFunc()
+	return civ1connect.NewSecretServiceClient(getHTTPClient(baseURL), baseURL, WithUserAgent())
+}
+
 // CIAddSecret adds a single CI secret to an organization
 func CIAddSecret(ctx context.Context, token, orgID, name, value string) error {
 	return CIAddSecretWithDescription(ctx, token, orgID, name, value, "")
@@ -96,33 +106,45 @@ func CIAddSecret(ctx context.Context, token, orgID, name, value string) error {
 
 // CIAddSecretWithDescription adds a single CI secret to an organization, with an optional description.
 func CIAddSecretWithDescription(ctx context.Context, token, orgID, name, value, description string) error {
-	payload := CISecretAddRequest{
-		Name:        name,
-		Value:       value,
-		Description: description,
+	client := newCISecretServiceClient()
+	req := &civ1.AddSecretRequest{
+		Name:  name,
+		Value: value,
 	}
-	_, err := ciRequest[interface{}](ctx, token, orgID, "depot.ci.v1.SecretService/AddSecret", payload)
+	if description != "" {
+		req.Description = &description
+	}
+	_, err := client.AddSecret(ctx, WithAuthenticationAndOrg(connect.NewRequest(req), token, orgID))
 	return err
 }
 
 // CIListSecrets lists all CI secrets for an organization
 func CIListSecrets(ctx context.Context, token, orgID string) ([]CISecretMeta, error) {
-	resp, err := ciRequest[CISecretListResponse](ctx, token, orgID, "depot.ci.v1.SecretService/ListSecrets", map[string]interface{}{})
+	client := newCISecretServiceClient()
+	resp, err := client.ListSecrets(ctx, WithAuthenticationAndOrg(connect.NewRequest(&civ1.ListSecretsRequest{}), token, orgID))
 	if err != nil {
 		return nil, err
 	}
-	if resp == nil {
-		return []CISecretMeta{}, nil
+	secrets := make([]CISecretMeta, 0, len(resp.Msg.Secrets))
+	for _, s := range resp.Msg.Secrets {
+		meta := CISecretMeta{
+			Name: s.Name,
+		}
+		if s.Description != nil {
+			meta.Description = *s.Description
+		}
+		if s.LastModified != nil {
+			meta.CreatedAt = s.LastModified.AsTime().Format(time.RFC3339)
+		}
+		secrets = append(secrets, meta)
 	}
-	return resp.Secrets, nil
+	return secrets, nil
 }
 
 // CIDeleteSecret deletes a CI secret from an organization
 func CIDeleteSecret(ctx context.Context, token, orgID, name string) error {
-	payload := map[string]string{
-		"name": name,
-	}
-	_, err := ciRequest[interface{}](ctx, token, orgID, "depot.ci.v1.SecretService/DeleteSecret", payload)
+	client := newCISecretServiceClient()
+	_, err := client.RemoveSecret(ctx, WithAuthenticationAndOrg(connect.NewRequest(&civ1.RemoveSecretRequest{Name: name}), token, orgID))
 	return err
 }
 

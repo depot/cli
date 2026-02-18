@@ -1,27 +1,10 @@
 package api
 
-// CISecretAddRequest is the request payload for adding a CI secret
-type CISecretAddRequest struct {
-	Name        string `json:"name"`
-	Value       string `json:"value"`
-	Description string `json:"description,omitempty"`
-}
-
-// CISecretBatchAddRequest is the request payload for adding multiple CI secrets
-type CISecretBatchAddRequest struct {
-	Secrets []CISecretAddRequest `json:"secrets"`
-}
-
 // CISecretMeta contains metadata about a CI secret
 type CISecretMeta struct {
 	Name        string `json:"name"`
 	Description string `json:"description,omitempty"`
 	CreatedAt   string `json:"createdAt,omitempty"`
-}
-
-// CISecretListResponse is the response from listing CI secrets
-type CISecretListResponse struct {
-	Secrets []CISecretMeta `json:"secrets"`
 }
 
 // CIVariableAddRequest is the request payload for adding a CI variable
