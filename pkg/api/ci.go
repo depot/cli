@@ -26,6 +26,28 @@ func CIGetRunStatus(ctx context.Context, token, runID string) (*civ1.GetRunStatu
 	return resp.Msg, nil
 }
 
+// CIGetJobAttemptLogs returns all log lines for a job attempt, paginating through all pages.
+func CIGetJobAttemptLogs(ctx context.Context, token, attemptID string) ([]*civ1.LogLine, error) {
+	client := newCIServiceClient()
+	var allLines []*civ1.LogLine
+	var pageToken string
+
+	for {
+		req := &civ1.GetJobAttemptLogsRequest{AttemptId: attemptID, PageToken: pageToken}
+		resp, err := client.GetJobAttemptLogs(ctx, WithAuthentication(connect.NewRequest(req), token))
+		if err != nil {
+			return nil, err
+		}
+		allLines = append(allLines, resp.Msg.Lines...)
+		if resp.Msg.NextPageToken == "" {
+			break
+		}
+		pageToken = resp.Msg.NextPageToken
+	}
+
+	return allLines, nil
+}
+
 func newCISecretServiceClient() civ1connect.SecretServiceClient {
 	baseURL := baseURLFunc()
 	return civ1connect.NewSecretServiceClient(getHTTPClient(baseURL), baseURL, WithUserAgent())
