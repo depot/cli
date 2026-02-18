@@ -48,6 +48,6 @@ func PromptForYN(prompt string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-
+	val = strings.ToLower(val)
 	return val == "y" || val == "yes", nil
 }
