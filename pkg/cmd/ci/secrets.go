@@ -147,15 +147,15 @@ func NewCmdSecretsList() *cobra.Command {
 				return fmt.Errorf("failed to list secrets: %w", err)
 			}
 
+			if len(secrets) == 0 {
+				fmt.Println("No secrets found.")
+				return nil
+			}
+
 			if output == "json" {
 				enc := json.NewEncoder(os.Stdout)
 				enc.SetIndent("", "  ")
 				return enc.Encode(secrets)
-			}
-
-			if len(secrets) == 0 {
-				fmt.Println("No secrets found.")
-				return nil
 			}
 
 			fmt.Printf("%-30s %-50s %s\n", "NAME", "DESCRIPTION", "CREATED")
