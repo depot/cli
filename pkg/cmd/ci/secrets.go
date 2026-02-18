@@ -5,21 +5,18 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"regexp"
 	"strings"
-	"syscall"
 
 	"github.com/depot/cli/pkg/api"
 	"github.com/depot/cli/pkg/config"
 	"github.com/depot/cli/pkg/helpers"
 	"github.com/spf13/cobra"
-	"golang.org/x/term"
 )
 
 func NewCmdSecrets() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "secrets",
-		Short: "Manage CI secrets",
+		Short: "Manage Depot CI secrets",
 		Long:  `Manage secrets for Depot CI workflows.`,
 		Example: `  # Add a new secret
   depot ci secrets add GITHUB_TOKEN
@@ -86,7 +83,7 @@ If --value is not provided, you will be prompted to enter the secret value secur
 
 			secretValue := value
 			if secretValue == "" {
-				secretValue, err = promptForCISecret(fmt.Sprintf("Enter value for secret '%s': ", secretName))
+				secretValue, err = helpers.PromptForSecret(fmt.Sprintf("Enter value for secret '%s': ", secretName))
 				if err != nil {
 					return fmt.Errorf("failed to read secret value: %w", err)
 				}
@@ -258,22 +255,4 @@ func NewCmdSecretsRemove() *cobra.Command {
 	cmd.Flags().BoolVar(&force, "force", false, "Skip confirmation prompt")
 
 	return cmd
-}
-
-func promptForCISecret(prompt string) (string, error) {
-	fmt.Print(prompt)
-
-	bytePassword, err := term.ReadPassword(int(syscall.Stdin))
-	if err != nil {
-		return "", err
-	}
-	password := stripCIANSI(string(bytePassword))
-	fmt.Println()
-
-	return password, nil
-}
-
-func stripCIANSI(s string) string {
-	ansiRegex := regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]`)
-	return ansiRegex.ReplaceAllString(s, "")
 }

@@ -284,7 +284,7 @@ func runMigrate(ctx context.Context, opts migrateOptions) error {
 				continue
 			}
 
-			value, err := promptForCISecret(fmt.Sprintf("Enter value for secret '%s' (leave empty to skip): ", name))
+			value, err := helpers.PromptForSecret(fmt.Sprintf("Enter value for secret '%s' (leave empty to skip): ", name))
 			if err != nil {
 				return fmt.Errorf("failed to read value for secret %s: %w", name, err)
 			}

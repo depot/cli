@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"regexp"
+
 	"strings"
-	"syscall"
+
 	"time"
 
 	"connectrpc.com/connect"
@@ -16,7 +16,6 @@ import (
 	"github.com/depot/cli/pkg/helpers"
 	agentv1 "github.com/depot/cli/pkg/proto/depot/agent/v1"
 	"github.com/spf13/cobra"
-	"golang.org/x/term"
 )
 
 func NewCmdClaudeSecrets() *cobra.Command {
@@ -90,7 +89,7 @@ If --value is not provided, you will be prompted to enter the secret value secur
 
 			secretValue := value
 			if secretValue == "" {
-				secretValue, err = promptForSecret(fmt.Sprintf("Enter value for secret '%s': ", secretName))
+				secretValue, err = helpers.PromptForSecret(fmt.Sprintf("Enter value for secret '%s': ", secretName))
 				if err != nil {
 					return fmt.Errorf("failed to read secret value: %w", err)
 				}
@@ -316,23 +315,4 @@ func NewCmdClaudeSecretsRemove() *cobra.Command {
 	cmd.Flags().BoolVar(&force, "force", false, "Skip confirmation prompt")
 
 	return cmd
-}
-
-func promptForSecret(prompt string) (string, error) {
-	fmt.Print(prompt)
-
-	bytePassword, err := term.ReadPassword(int(syscall.Stdin))
-	if err != nil {
-		return "", err
-	}
-	password := stripANSI(string(bytePassword))
-	fmt.Println()
-
-	return string(password), nil
-}
-
-func stripANSI(s string) string {
-	// Matches ESC followed by bracket and any sequence of characters ending in a letter
-	ansiRegex := regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]`)
-	return ansiRegex.ReplaceAllString(s, "")
 }
