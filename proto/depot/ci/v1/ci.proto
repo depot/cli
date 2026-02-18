@@ -1,0 +1,101 @@
+syntax = "proto3";
+
+package depot.ci.v1;
+
+// CIService is the customer-facing API for managing CI runs, workflows, and jobs.
+// Authenticated with organization or app tokens.
+service CIService {
+  // Run triggers a CI run that can contain one or more workflows
+  rpc Run(RunRequest) returns (RunResponse) {}
+
+  // GetRunStatus returns the current status of a run including its workflows, jobs, and attempts
+  rpc GetRunStatus(GetRunStatusRequest) returns (GetRunStatusResponse) {}
+
+  // GetJobAttemptLogs returns log lines for a job attempt
+  rpc GetJobAttemptLogs(GetJobAttemptLogsRequest) returns (GetJobAttemptLogsResponse) {}
+}
+
+message RunRequest {
+  // repo is the name of the target GitHub repo in {org}/{repo} format
+  string repo = 1;
+  // sha points to a snapshot of code, used as context for the run
+  // defaults to HEAD of default branch
+  optional string sha = 2;
+  // workflow specifies which workflow file to run (e.g., ".depot/workflows/ci.yml")
+  // mutually exclusive with workflow_content; if neither provided, runs all workflows in repo
+  optional string workflow = 3;
+  // workflow_content is a list of inline workflow YAML strings
+  // mutually exclusive with workflow; if neither provided, runs all workflows in repo
+  repeated string workflow_content = 4;
+  // job filters to a specific job within the workflow
+  // only valid when a single workflow is specified (workflow or single workflow_content)
+  optional string job = 5;
+}
+
+message RunResponse {
+  // org_id is the organization that owns this run
+  string org_id = 2;
+  // run_id is the unique identifier for the created CI run
+  string run_id = 1;
+}
+
+// GetRunStatus messages
+
+message GetRunStatusRequest {
+  string run_id = 1;
+}
+
+message GetRunStatusResponse {
+  string org_id = 1;
+  string run_id = 2;
+  string status = 3;
+  repeated WorkflowStatus workflows = 4;
+}
+
+message WorkflowStatus {
+  string workflow_id = 1;
+  string status = 2;
+  // workflow_path is the workflow file path (e.g. ".depot/workflows/ci.yml")
+  // empty for inline workflows
+  string workflow_path = 3;
+  repeated JobStatus jobs = 4;
+  // workflow name from YAML `name:` key, empty if not set
+  string name = 5;
+}
+
+message JobStatus {
+  string job_id = 1;
+  // job_key is the job identifier from the workflow (e.g. "build", "test")
+  string job_key = 2;
+  string status = 3;
+  repeated AttemptStatus attempts = 4;
+}
+
+message AttemptStatus {
+  string attempt_id = 1;
+  int32 attempt = 2;
+  string status = 3;
+}
+
+// GetJobAttemptLogs messages
+
+message GetJobAttemptLogsRequest {
+  // attempt_id identifies the job attempt whose logs to fetch
+  string attempt_id = 1;
+  // The page token indicating which page of results to return.
+  string page_token = 2;
+}
+
+message GetJobAttemptLogsResponse {
+  repeated LogLine lines = 1;
+  // Token to retrieve the next page of results; empty if no more pages.
+  string next_page_token = 2;
+}
+
+message LogLine {
+  string step_id = 1;
+  int64 timestamp_ms = 2;
+  uint32 line_number = 3;
+  uint32 stream = 4; // 0 = stdout, 1 = stderr
+  string body = 5;
+}
