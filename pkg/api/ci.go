@@ -1,13 +1,7 @@
 package api
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
-	"fmt"
-	"io"
-	"net/http"
-	"strings"
 	"time"
 
 	"connectrpc.com/connect"
@@ -16,83 +10,6 @@ import (
 )
 
 var baseURLFunc = getBaseURL
-
-func ciRequest[T any](ctx context.Context, token, orgID, path string, payload interface{}) (*T, error) {
-	var requestBody io.Reader
-
-	if payload != nil {
-		jsonBytes, err := json.Marshal(payload)
-		if err != nil {
-			return nil, err
-		}
-		requestBody = bytes.NewReader(jsonBytes)
-	}
-
-	url := baseURLFunc() + "/" + path
-	client := &http.Client{}
-	req, err := http.NewRequestWithContext(ctx, "POST", url, requestBody)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Add("Content-Type", "application/json")
-	if token != "" {
-		req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", token))
-	}
-	if orgID != "" {
-		req.Header.Add("x-depot-org", orgID)
-	}
-	req.Header.Add("User-Agent", Agent())
-	req.Header.Add("Depot-User-Agent", Agent())
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	infoMessage := resp.Header.Get("X-Depot-Info-Message")
-	if infoMessage != "" {
-		fmt.Println(infoStyle.Render(infoMessage))
-	}
-
-	warnMessage := resp.Header.Get("X-Depot-Warn-Message")
-	if warnMessage != "" {
-		fmt.Println(warnStyle.Render(warnMessage))
-	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		var errResp ErrorResponse
-		if err := json.Unmarshal(body, &errResp); err == nil && strings.TrimSpace(errResp.Error) != "" {
-			return nil, fmt.Errorf("%s", errResp.Error)
-		}
-
-		var connectErr struct {
-			Code    string `json:"code"`
-			Message string `json:"message"`
-		}
-		if err := json.Unmarshal(body, &connectErr); err == nil && strings.TrimSpace(connectErr.Message) != "" {
-			return nil, fmt.Errorf("%s", connectErr.Message)
-		}
-
-		return nil, fmt.Errorf("API error: status %d", resp.StatusCode)
-	}
-
-	var response T
-	if len(bytes.TrimSpace(body)) == 0 {
-		return &response, nil
-	}
-	if err := json.Unmarshal(body, &response); err != nil {
-		return nil, err
-	}
-
-	return &response, nil
-}
 
 func newCISecretServiceClient() civ1connect.SecretServiceClient {
 	baseURL := baseURLFunc()
@@ -148,33 +65,47 @@ func CIDeleteSecret(ctx context.Context, token, orgID, name string) error {
 	return err
 }
 
+func newCIVariableServiceClient() civ1connect.VariableServiceClient {
+	baseURL := baseURLFunc()
+	return civ1connect.NewVariableServiceClient(getHTTPClient(baseURL), baseURL, WithUserAgent())
+}
+
 // CIAddVariable adds a single CI variable to an organization
 func CIAddVariable(ctx context.Context, token, orgID, name, value string) error {
-	payload := CIVariableAddRequest{
+	client := newCIVariableServiceClient()
+	_, err := client.AddVariable(ctx, WithAuthenticationAndOrg(connect.NewRequest(&civ1.AddVariableRequest{
 		Name:  name,
 		Value: value,
-	}
-	_, err := ciRequest[interface{}](ctx, token, orgID, "depot.ci.v1.VariableService/AddVariable", payload)
+	}), token, orgID))
 	return err
 }
 
 // CIListVariables lists all CI variables for an organization
 func CIListVariables(ctx context.Context, token, orgID string) ([]CIVariableMeta, error) {
-	resp, err := ciRequest[CIVariableListResponse](ctx, token, orgID, "depot.ci.v1.VariableService/ListVariables", map[string]interface{}{})
+	client := newCIVariableServiceClient()
+	resp, err := client.ListVariables(ctx, WithAuthenticationAndOrg(connect.NewRequest(&civ1.ListVariablesRequest{}), token, orgID))
 	if err != nil {
 		return nil, err
 	}
-	if resp == nil {
-		return []CIVariableMeta{}, nil
+	variables := make([]CIVariableMeta, 0, len(resp.Msg.Variables))
+	for _, v := range resp.Msg.Variables {
+		meta := CIVariableMeta{
+			Name: v.Name,
+		}
+		if v.Description != nil {
+			meta.Description = *v.Description
+		}
+		if v.LastModified != nil {
+			meta.CreatedAt = v.LastModified.AsTime().Format(time.RFC3339)
+		}
+		variables = append(variables, meta)
 	}
-	return resp.Variables, nil
+	return variables, nil
 }
 
 // CIDeleteVariable deletes a CI variable from an organization
 func CIDeleteVariable(ctx context.Context, token, orgID, name string) error {
-	payload := map[string]string{
-		"name": name,
-	}
-	_, err := ciRequest[interface{}](ctx, token, orgID, "depot.ci.v1.VariableService/DeleteVariable", payload)
+	client := newCIVariableServiceClient()
+	_, err := client.RemoveVariable(ctx, WithAuthenticationAndOrg(connect.NewRequest(&civ1.RemoveVariableRequest{Name: name}), token, orgID))
 	return err
 }

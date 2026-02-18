@@ -119,34 +119,18 @@ func NewCmdVarsList() *cobra.Command {
 				return fmt.Errorf("failed to list CI variables: %w", err)
 			}
 
-			// Format output
 			if output == "json" {
-				// JSON output
-				type varJSON struct {
-					Name      string `json:"name"`
-					Value     string `json:"value"`
-					CreatedAt string `json:"createdAt,omitempty"`
-				}
-				var vars []varJSON
-				for _, v := range variables {
-					vars = append(vars, varJSON{
-						Name:      v.Name,
-						Value:     v.Value,
-						CreatedAt: v.CreatedAt,
-					})
-				}
 				enc := json.NewEncoder(os.Stdout)
 				enc.SetIndent("", "  ")
-				return enc.Encode(vars)
+				return enc.Encode(variables)
 			}
 
-			// Table output
 			if len(variables) == 0 {
 				fmt.Println("No CI variables found.")
 				return nil
 			}
 
-			fmt.Printf("%-30s %-50s %s\n", "NAME", "VALUE", "CREATED")
+			fmt.Printf("%-30s %-50s %s\n", "NAME", "DESCRIPTION", "CREATED")
 			fmt.Printf("%-30s %-50s %s\n", strings.Repeat("-", 30), strings.Repeat("-", 50), strings.Repeat("-", 20))
 
 			for _, v := range variables {
@@ -155,17 +139,14 @@ func NewCmdVarsList() *cobra.Command {
 					name = name[:27] + "..."
 				}
 
-				varVal := v.Value
-				if len(varVal) > 50 {
-					varVal = varVal[:47] + "..."
+				description := v.Description
+				if len(description) > 50 {
+					description = description[:47] + "..."
 				}
 
 				created := v.CreatedAt
-				if len(created) > 20 {
-					created = created[:17] + "..."
-				}
 
-				fmt.Printf("%-30s %-50s %s\n", name, varVal, created)
+				fmt.Printf("%-30s %-50s %s\n", name, description, created)
 			}
 
 			return nil

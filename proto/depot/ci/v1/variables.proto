@@ -1,0 +1,59 @@
+syntax = "proto3";
+
+package depot.ci.v1;
+
+import "google/protobuf/timestamp.proto";
+
+service VariableService {
+  rpc AddVariable(AddVariableRequest) returns (AddVariableResponse);
+  rpc RemoveVariable(RemoveVariableRequest) returns (RemoveVariableResponse);
+  rpc ListVariables(ListVariablesRequest) returns (ListVariablesResponse);
+  rpc GetAllVariables(GetAllVariablesRequest) returns (GetAllVariablesResponse);
+  rpc UpdateVariableDescription(UpdateVariableDescriptionRequest) returns (UpdateVariableDescriptionResponse);
+  rpc BatchAddVariables(BatchAddVariablesRequest) returns (BatchAddVariablesResponse);
+}
+
+message AddVariableRequest {
+  string name = 1;
+  string value = 2;
+  optional string description = 3;
+}
+
+message AddVariableResponse {}
+
+message RemoveVariableRequest {
+  string name = 1;
+}
+
+message RemoveVariableResponse {}
+
+message ListVariablesRequest {}
+
+message ListVariablesResponse {
+  repeated Variable variables = 1;
+}
+
+message Variable {
+  string name = 1;
+  optional string description = 2;
+  optional google.protobuf.Timestamp last_modified = 3;
+}
+
+message GetAllVariablesRequest {}
+
+message GetAllVariablesResponse {
+  map<string, string> variables = 1;
+}
+
+message UpdateVariableDescriptionRequest {
+  string name = 1;
+  string description = 2;
+}
+
+message UpdateVariableDescriptionResponse {}
+
+message BatchAddVariablesRequest {
+  repeated AddVariableRequest variables = 1;
+}
+
+message BatchAddVariablesResponse {}

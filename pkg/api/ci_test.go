@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -16,6 +15,8 @@ import (
 	"golang.org/x/net/http2/h2c"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
+
+// Secret service test helpers
 
 type testSecretHandler struct {
 	civ1connect.UnimplementedSecretServiceHandler
@@ -51,6 +52,45 @@ func newTestSecretServer(handler *testSecretHandler) *httptest.Server {
 	mux.Handle(path, h)
 	return httptest.NewServer(h2c.NewHandler(mux, &http2.Server{}))
 }
+
+// Variable service test helpers
+
+type testVariableHandler struct {
+	civ1connect.UnimplementedVariableServiceHandler
+	addVariableFn    func(context.Context, *connect.Request[civ1.AddVariableRequest]) (*connect.Response[civ1.AddVariableResponse], error)
+	removeVariableFn func(context.Context, *connect.Request[civ1.RemoveVariableRequest]) (*connect.Response[civ1.RemoveVariableResponse], error)
+	listVariablesFn  func(context.Context, *connect.Request[civ1.ListVariablesRequest]) (*connect.Response[civ1.ListVariablesResponse], error)
+}
+
+func (h *testVariableHandler) AddVariable(ctx context.Context, req *connect.Request[civ1.AddVariableRequest]) (*connect.Response[civ1.AddVariableResponse], error) {
+	if h.addVariableFn != nil {
+		return h.addVariableFn(ctx, req)
+	}
+	return h.UnimplementedVariableServiceHandler.AddVariable(ctx, req)
+}
+
+func (h *testVariableHandler) RemoveVariable(ctx context.Context, req *connect.Request[civ1.RemoveVariableRequest]) (*connect.Response[civ1.RemoveVariableResponse], error) {
+	if h.removeVariableFn != nil {
+		return h.removeVariableFn(ctx, req)
+	}
+	return h.UnimplementedVariableServiceHandler.RemoveVariable(ctx, req)
+}
+
+func (h *testVariableHandler) ListVariables(ctx context.Context, req *connect.Request[civ1.ListVariablesRequest]) (*connect.Response[civ1.ListVariablesResponse], error) {
+	if h.listVariablesFn != nil {
+		return h.listVariablesFn(ctx, req)
+	}
+	return h.UnimplementedVariableServiceHandler.ListVariables(ctx, req)
+}
+
+func newTestVariableServer(handler *testVariableHandler) *httptest.Server {
+	mux := http.NewServeMux()
+	path, h := civ1connect.NewVariableServiceHandler(handler)
+	mux.Handle(path, h)
+	return httptest.NewServer(h2c.NewHandler(mux, &http2.Server{}))
+}
+
+// Secret tests
 
 func TestCIAddSecret(t *testing.T) {
 	var (
@@ -243,36 +283,25 @@ func TestCIDepotOrgHeader(t *testing.T) {
 	}
 }
 
+// Variable tests
+
 func TestCIAddVariable(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != "POST" {
-			t.Errorf("expected POST, got %s", r.Method)
-		}
+	var (
+		receivedName  string
+		receivedValue string
+		receivedAuth  string
+		receivedOrg   string
+	)
 
-		if r.URL.Path != "/depot.ci.v1.VariableService/AddVariable" {
-			t.Errorf("expected path /depot.ci.v1.VariableService/AddVariable, got %s", r.URL.Path)
-		}
-
-		if r.Header.Get("Authorization") != "Bearer test-token" {
-			t.Errorf("expected Authorization header, got %s", r.Header.Get("Authorization"))
-		}
-
-		if r.Header.Get("x-depot-org") != "test-org" {
-			t.Errorf("expected x-depot-org header, got %s", r.Header.Get("x-depot-org"))
-		}
-
-		var req CIVariableAddRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			t.Fatalf("failed to decode request: %v", err)
-		}
-
-		if req.Name != "MY_VAR" || req.Value != "var-value" {
-			t.Errorf("expected name=MY_VAR value=var-value, got name=%s value=%s", req.Name, req.Value)
-		}
-
-		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]interface{}{})
-	}))
+	server := newTestVariableServer(&testVariableHandler{
+		addVariableFn: func(_ context.Context, req *connect.Request[civ1.AddVariableRequest]) (*connect.Response[civ1.AddVariableResponse], error) {
+			receivedName = req.Msg.Name
+			receivedValue = req.Msg.Value
+			receivedAuth = req.Header().Get("Authorization")
+			receivedOrg = req.Header().Get("x-depot-org")
+			return connect.NewResponse(&civ1.AddVariableResponse{}), nil
+		},
+	})
 	defer server.Close()
 
 	oldBaseURLFunc := baseURLFunc
@@ -283,28 +312,33 @@ func TestCIAddVariable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CIAddVariable failed: %v", err)
 	}
+
+	if receivedName != "MY_VAR" {
+		t.Errorf("expected name MY_VAR, got %s", receivedName)
+	}
+	if receivedValue != "var-value" {
+		t.Errorf("expected value var-value, got %s", receivedValue)
+	}
+	if receivedAuth != "Bearer test-token" {
+		t.Errorf("expected Authorization header, got %s", receivedAuth)
+	}
+	if receivedOrg != "test-org" {
+		t.Errorf("expected x-depot-org header, got %s", receivedOrg)
+	}
 }
 
 func TestCIListVariables(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != "POST" {
-			t.Errorf("expected POST, got %s", r.Method)
-		}
-
-		if r.URL.Path != "/depot.ci.v1.VariableService/ListVariables" {
-			t.Errorf("expected path /depot.ci.v1.VariableService/ListVariables, got %s", r.URL.Path)
-		}
-
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		resp := CIVariableListResponse{
-			Variables: []CIVariableMeta{
-				{Name: "VAR1", Value: "value1", CreatedAt: "2024-01-01T00:00:00Z"},
-				{Name: "VAR2", Value: "value2", CreatedAt: "2024-01-02T00:00:00Z"},
-			},
-		}
-		json.NewEncoder(w).Encode(resp)
-	}))
+	desc := "First variable"
+	server := newTestVariableServer(&testVariableHandler{
+		listVariablesFn: func(_ context.Context, _ *connect.Request[civ1.ListVariablesRequest]) (*connect.Response[civ1.ListVariablesResponse], error) {
+			return connect.NewResponse(&civ1.ListVariablesResponse{
+				Variables: []*civ1.Variable{
+					{Name: "VAR1", Description: &desc, LastModified: timestamppb.Now()},
+					{Name: "VAR2"},
+				},
+			}), nil
+		},
+	})
 	defer server.Close()
 
 	oldBaseURLFunc := baseURLFunc
@@ -323,6 +357,9 @@ func TestCIListVariables(t *testing.T) {
 	if variables[0].Name != "VAR1" {
 		t.Errorf("expected first variable name VAR1, got %s", variables[0].Name)
 	}
+	if variables[0].Description != "First variable" {
+		t.Errorf("expected first variable description, got %s", variables[0].Description)
+	}
 
 	if variables[1].Name != "VAR2" {
 		t.Errorf("expected second variable name VAR2, got %s", variables[1].Name)
@@ -330,27 +367,14 @@ func TestCIListVariables(t *testing.T) {
 }
 
 func TestCIDeleteVariable(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != "POST" {
-			t.Errorf("expected POST, got %s", r.Method)
-		}
+	var receivedName string
 
-		if r.URL.Path != "/depot.ci.v1.VariableService/DeleteVariable" {
-			t.Errorf("expected path /depot.ci.v1.VariableService/DeleteVariable, got %s", r.URL.Path)
-		}
-
-		var req map[string]string
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			t.Fatalf("failed to decode request: %v", err)
-		}
-
-		if req["name"] != "MY_VAR" {
-			t.Errorf("expected name MY_VAR, got %s", req["name"])
-		}
-
-		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]interface{}{})
-	}))
+	server := newTestVariableServer(&testVariableHandler{
+		removeVariableFn: func(_ context.Context, req *connect.Request[civ1.RemoveVariableRequest]) (*connect.Response[civ1.RemoveVariableResponse], error) {
+			receivedName = req.Msg.Name
+			return connect.NewResponse(&civ1.RemoveVariableResponse{}), nil
+		},
+	})
 	defer server.Close()
 
 	oldBaseURLFunc := baseURLFunc
@@ -360,5 +384,9 @@ func TestCIDeleteVariable(t *testing.T) {
 	err := CIDeleteVariable(context.Background(), "test-token", "test-org", "MY_VAR")
 	if err != nil {
 		t.Fatalf("CIDeleteVariable failed: %v", err)
+	}
+
+	if receivedName != "MY_VAR" {
+		t.Errorf("expected name MY_VAR, got %s", receivedName)
 	}
 }
