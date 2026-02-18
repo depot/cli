@@ -80,13 +80,10 @@ If --value is not provided, you will be prompted to enter the secret value secur
 
 			varValue := value
 			if varValue == "" {
-				fmt.Print("Enter value: ")
-				reader := bufio.NewReader(os.Stdin)
-				input, err := reader.ReadString('\n')
+				varValue, err = helpers.PromptForValue(fmt.Sprintf("Enter value for variable '%s': ", varName))
 				if err != nil {
 					return fmt.Errorf("failed to read variable value: %w", err)
 				}
-				varValue = strings.TrimSpace(input)
 			}
 
 			err = api.CIAddVariable(ctx, tokenVal, orgID, varName, varValue)
