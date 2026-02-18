@@ -15,8 +15,8 @@ import (
 func NewCmdSecrets() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "secrets",
-		Short: "Manage CI secrets",
-		Long:  `Manage secrets for Depot CI workflows.`,
+		Short: "Manage CI secrets [beta]",
+		Long:  "Manage secrets for Depot CI workflows.\n\nThis command is in beta and subject to change.",
 		Example: `  # Add a new secret
   depot ci secrets add GITHUB_TOKEN
   depot ci secrets add MY_API_KEY --value "secret-value"

@@ -9,7 +9,7 @@ import (
 func NewCmdStatus() *cobra.Command {
 	return &cobra.Command{
 		Use:   "status",
-		Short: "Show CI workflow status",
+		Short: "Show CI workflow status [beta]",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			fmt.Println("Depot CI status is not yet available. Coming soon!")
 			return nil

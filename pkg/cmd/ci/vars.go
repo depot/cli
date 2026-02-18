@@ -15,8 +15,8 @@ import (
 func NewCmdVars() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "vars",
-		Short: "Manage CI variables",
-		Long:  "Manage variables for Depot CI workflows.",
+		Short: "Manage CI variables [beta]",
+		Long:  "Manage variables for Depot CI workflows.\n\nThis command is in beta and subject to change.",
 		Example: `  # Add a new variable
   depot ci vars add GITHUB_REPO
   depot ci vars add MY_SERVICE_NAME --value "my_service"

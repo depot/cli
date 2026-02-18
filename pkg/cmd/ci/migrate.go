@@ -34,8 +34,8 @@ func NewCmdMigrate() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "migrate",
-		Short: "Migrate GitHub Actions workflows to Depot CI",
-		Long:  "Interactive wizard to migrate your GitHub Actions CI configuration to Depot CI.",
+		Short: "Migrate GitHub Actions workflows to Depot CI [beta]",
+		Long:  "Interactive wizard to migrate your GitHub Actions CI configuration to Depot CI.\n\nThis command is in beta and subject to change.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			runOpts := opts
 			runOpts.dir = "."
