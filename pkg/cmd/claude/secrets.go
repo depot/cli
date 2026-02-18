@@ -1,7 +1,6 @@
 package claude
 
 import (
-	"bufio"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -280,15 +279,11 @@ func NewCmdClaudeSecretsRemove() *cobra.Command {
 			}
 
 			if !force {
-				reader := bufio.NewReader(os.Stdin)
-				fmt.Printf("Are you sure you want to remove secret '%s'? (y/N): ", secretName)
-				response, err := reader.ReadString('\n')
+				prompt := fmt.Sprintf("Are you sure you want to remove secret '%s'? (y/N): ", secretName)
+				y, err := helpers.PromptForYN(prompt)
 				if err != nil {
 					return fmt.Errorf("failed to read confirmation: %w", err)
-				}
-				response = strings.TrimSpace(strings.ToLower(response))
-				if response != "y" && response != "yes" {
-					fmt.Println("Secret removal cancelled")
+				} else if !y {
 					return nil
 				}
 			}

@@ -226,7 +226,8 @@ func NewCmdSecretsRemove() *cobra.Command {
 			}
 
 			if !force {
-				y, err := helpers.PromptForYN(fmt.Sprintf("Are you sure you want to remove CI secret '%s'? (y/N): ", secretName))
+				prompt := fmt.Sprintf("Are you sure you want to remove CI secret '%s'? (y/N): ", secretName)
+				y, err := helpers.PromptForYN(prompt)
 				if err != nil {
 					return fmt.Errorf("failed to read confirmation: %w", err)
 				} else if !y {
