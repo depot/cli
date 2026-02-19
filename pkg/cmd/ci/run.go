@@ -135,7 +135,7 @@ This command is in beta and subject to change.`,
 				cacheKey := fmt.Sprintf("patch/%s/%s", patch.mergeBase[:12], patchHash)
 				fmt.Printf("Cache key: %s\n", cacheKey)
 
-				if err := api.UploadPatchToCache(ctx, tokenVal, cacheKey, patch.content); err != nil {
+				if err := api.UploadCacheEntry(ctx, tokenVal, cacheKey, []byte(patch.content)); err != nil {
 					return fmt.Errorf("failed to upload patch: %w", err)
 				}
 				fmt.Println("Patch uploaded to Depot Cache")
