@@ -48,6 +48,16 @@ func CIGetJobAttemptLogs(ctx context.Context, token, attemptID string) ([]*civ1.
 	return allLines, nil
 }
 
+// CIRun triggers a CI run.
+func CIRun(ctx context.Context, token string, req *civ1.RunRequest) (*civ1.RunResponse, error) {
+	client := newCIServiceClient()
+	resp, err := client.Run(ctx, WithAuthentication(connect.NewRequest(req), token))
+	if err != nil {
+		return nil, err
+	}
+	return resp.Msg, nil
+}
+
 func newCISecretServiceClient() civ1connect.SecretServiceClient {
 	baseURL := baseURLFunc()
 	return civ1connect.NewSecretServiceClient(getHTTPClient(baseURL), baseURL, WithUserAgent())

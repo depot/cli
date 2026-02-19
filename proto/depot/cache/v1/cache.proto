@@ -1,0 +1,148 @@
+syntax = "proto3";
+
+package depot.cache.v1;
+
+import "google/protobuf/timestamp.proto";
+
+service CacheService {
+  rpc CreateEntry(CreateEntryRequest) returns (CreateEntryResponse) {}
+  rpc FetchMorePresignedURLs(FetchMorePresignedURLsRequest) returns (FetchMorePresignedURLsResponse) {}
+  rpc FinalizeEntry(FinalizeEntryRequest) returns (FinalizeEntryResponse) {}
+  rpc GetDownloadURL(GetDownloadURLRequest) returns (GetDownloadURLResponse) {}
+  rpc GetDownloadURLByPrefix(GetDownloadURLByPrefixRequest) returns (GetDownloadURLByPrefixResponse) {}
+  rpc CheckEntries(CheckEntriesRequest) returns (CheckEntriesResponse) {}
+  rpc GetBundle(GetBundleRequest) returns (GetBundleResponse) {}
+  rpc DeleteEntry(DeleteEntryRequest) returns (DeleteEntryResponse) {}
+  rpc ListEntries(ListEntriesRequest) returns (ListEntriesResponse) {}
+}
+
+message CreateEntryRequest {
+  string entry_type = 1;
+  string key = 2;
+  // Optional scope for cache isolation (e.g., GHA uses "{branch}|{platform}|{version}")
+  optional string scope = 3;
+  // When true, also check for in-progress multipart uploads and fail if one exists.
+  // Default (false) only checks for existing cache entries, allowing concurrent uploads (last-write-wins).
+  bool fail_if_upload_in_progress = 4;
+  // A standard MIME type describing the format of the object data.
+  optional string content_type = 5;
+}
+message CreateEntryResponse {
+  string entry_id = 1;
+  repeated string upload_part_urls = 2;
+}
+
+message FetchMorePresignedURLsRequest {
+  string entry_id = 1;
+  int32 next_part = 2;
+  int32 count = 3;
+}
+message FetchMorePresignedURLsResponse {
+  repeated string upload_part_urls = 1;
+}
+
+message FinalizeEntryRequest {
+  string entry_id = 1;
+  int64 size_bytes = 2;
+  repeated string upload_part_etags = 3;
+
+  // TODO(luke): we treat bazel output directories slightly differently. need to include them, but don't fail if not present?
+  repeated EntryChild children = 4;
+  repeated Segment segments = 5;
+  optional string name = 6; // Optional name of the finished cache entry.
+}
+message FinalizeEntryResponse {
+  optional google.protobuf.Timestamp created_at = 1;
+  optional string id = 2;
+}
+
+message GetDownloadURLRequest {
+  string entry_type = 1;
+  string key = 2;
+}
+message GetDownloadURLResponse {
+  string url = 1;
+  int64 size_bytes = 2;
+  optional string name = 3;
+}
+
+message GetDownloadURLByPrefixRequest {
+  string entry_type = 1;
+  // Comma-separated key prefixes for fallback matching (e.g., GHA restore keys)
+  string key_prefixes = 2;
+  // Optional scope for cache isolation
+  optional string scope = 3;
+}
+
+message GetDownloadURLByPrefixResponse {
+  string url = 1;
+  int64 size_bytes = 2;
+  optional string name = 3;
+  // The actual key that matched the prefix
+  string matched_key = 4;
+}
+
+message CheckEntriesRequest {
+  string entry_type = 1;
+  repeated string keys = 2;
+}
+
+message CheckEntriesResponse {
+  repeated CheckEntryResult entries = 1;
+}
+
+message CheckEntryResult {
+  string key = 1;
+  bool found = 2;
+}
+
+message EntryChild {
+  string key = 1;
+  optional string name = 2;
+}
+
+message GetBundleRequest {
+  string entry_type = 1;
+  string subkey = 2;
+}
+
+message GetBundleResponse {
+  string url = 1;
+  string key = 2;
+  int64 size = 3;
+  repeated Segment segments = 4;
+}
+
+message Segment {
+  string subkey = 1;
+  int64 offset = 2;
+  int64 size = 3;
+}
+
+message DeleteEntryRequest {
+  string entry_type = 1;
+  string key = 2;
+}
+
+message DeleteEntryResponse {}
+
+message ListEntriesRequest {
+  string entry_type = 1;
+  string key_prefix = 2;
+  // The maximum number of results to return per page. The max is 1000; default is 100.
+  int32 page_size = 3;
+  // The page token indicating which page of results to return.
+  string page_token = 4;
+}
+
+message ListEntriesResponse {
+  repeated Entry entry_ids = 1;
+  // Token to retrieve the next page of results; empty if no more pages.
+  string next_page_token = 2;
+  message Entry {
+    string key = 1;
+    int64 size_bytes = 2;
+    optional string name = 3;
+    google.protobuf.Timestamp created_at = 4;
+  }
+}
