@@ -193,7 +193,8 @@ func NewCmdVarsRemove() *cobra.Command {
 
   # Remove variables without confirmation prompt
   depot ci vars remove GITHUB_REPO MY_SERVICE_NAME --force`,
-		Args: cobra.MinimumNArgs(1),
+		Aliases: []string{"rm"},
+		Args:    cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
 
