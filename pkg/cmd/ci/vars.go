@@ -182,17 +182,20 @@ func NewCmdVarsRemove() *cobra.Command {
 	)
 
 	cmd := &cobra.Command{
-		Use:   "remove VAR_NAME",
-		Short: "Remove a CI variable",
-		Long:  "Remove a CI variable from your organization.",
-		Args:  cobra.ExactArgs(1),
+		Use:   "remove VAR_NAME [VAR_NAME...]",
+		Short: "Remove one or more CI variables",
+		Long:  "Remove one or more CI variables from your organization.",
+		Example: `  # Remove a variable
+  depot ci vars remove GITHUB_REPO
+
+  # Remove multiple variables
+  depot ci vars remove GITHUB_REPO MY_SERVICE_NAME DEPLOY_ENV
+
+  # Remove variables without confirmation prompt
+  depot ci vars remove GITHUB_REPO MY_SERVICE_NAME --force`,
+		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
-			varName := args[0]
-
-			if varName == "" {
-				return fmt.Errorf("variable name cannot be empty")
-			}
 
 			if orgID == "" {
 				orgID = config.GetCurrentOrganization()
@@ -207,7 +210,8 @@ func NewCmdVarsRemove() *cobra.Command {
 			}
 
 			if !force {
-				prompt := fmt.Sprintf("Are you sure you want to remove CI variable '%s'? (y/N): ", varName)
+				names := strings.Join(args, ", ")
+				prompt := fmt.Sprintf("Are you sure you want to remove CI variable(s) %s? (y/N): ", names)
 				y, err := helpers.PromptForYN(prompt)
 				if err != nil {
 					return fmt.Errorf("failed to read confirmation: %w", err)
@@ -216,12 +220,14 @@ func NewCmdVarsRemove() *cobra.Command {
 				}
 			}
 
-			err = api.CIDeleteVariable(ctx, tokenVal, orgID, varName)
-			if err != nil {
-				return fmt.Errorf("failed to remove CI variable: %w", err)
+			for _, varName := range args {
+				err := api.CIDeleteVariable(ctx, tokenVal, orgID, varName)
+				if err != nil {
+					return fmt.Errorf("failed to remove CI variable '%s': %w", varName, err)
+				}
+				fmt.Printf("Successfully removed CI variable '%s'\n", varName)
 			}
 
-			fmt.Printf("Successfully removed CI variable '%s'\n", varName)
 			return nil
 		},
 	}
