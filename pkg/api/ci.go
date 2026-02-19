@@ -1,10 +1,17 @@
 package api
 
 import (
+	"bytes"
 	"context"
+	"fmt"
+	"net/http"
+	"os"
+	"strings"
 	"time"
 
 	"connectrpc.com/connect"
+	cachev1 "github.com/depot/cli/pkg/proto/depot/cache/v1"
+	"github.com/depot/cli/pkg/proto/depot/cache/v1/cachev1connect"
 	civ1 "github.com/depot/cli/pkg/proto/depot/ci/v1"
 	"github.com/depot/cli/pkg/proto/depot/ci/v1/civ1connect"
 )
@@ -46,6 +53,90 @@ func CIGetJobAttemptLogs(ctx context.Context, token, attemptID string) ([]*civ1.
 	}
 
 	return allLines, nil
+}
+
+// CIRun triggers a CI run.
+func CIRun(ctx context.Context, token string, req *civ1.RunRequest) (*civ1.RunResponse, error) {
+	client := newCIServiceClient()
+	resp, err := client.Run(ctx, WithAuthentication(connect.NewRequest(req), token))
+	if err != nil {
+		return nil, err
+	}
+	return resp.Msg, nil
+}
+
+const defaultCacheBaseURL = "https://cache.depot.dev"
+
+func getCacheBaseURL() string {
+	if u := os.Getenv("DEPOT_CACHE_HOST"); u != "" {
+		return u
+	}
+	return defaultCacheBaseURL
+}
+
+func newCacheServiceClient() cachev1connect.CacheServiceClient {
+	baseURL := getCacheBaseURL()
+	return cachev1connect.NewCacheServiceClient(getHTTPClient(baseURL), baseURL, WithUserAgent())
+}
+
+// UploadPatchToCache uploads patch content to the Depot Cache service.
+// It uses a 3-step process: CreateEntry, HTTP PUT to presigned URL, FinalizeEntry.
+// If the entry already exists (content-addressed), it returns nil.
+func UploadPatchToCache(ctx context.Context, token, key, content string) error {
+	client := newCacheServiceClient()
+
+	// Step 1: Create cache entry
+	createResp, err := client.CreateEntry(ctx, WithAuthentication(connect.NewRequest(&cachev1.CreateEntryRequest{
+		EntryType: "generic",
+		Key:       key,
+	}), token))
+	if err != nil {
+		// Content-addressed: if already exists, skip upload
+		if connect.CodeOf(err) == connect.CodeAlreadyExists {
+			return nil
+		}
+		return fmt.Errorf("failed to create cache entry: %w", err)
+	}
+
+	urls := createResp.Msg.UploadPartUrls
+	if len(urls) == 0 {
+		return fmt.Errorf("no upload URLs returned from cache service")
+	}
+
+	// Step 2: Upload content to presigned S3 URL
+	contentBytes := []byte(content)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, urls[0], bytes.NewReader(contentBytes))
+	if err != nil {
+		return fmt.Errorf("failed to create upload request: %w", err)
+	}
+	req.ContentLength = int64(len(contentBytes))
+
+	uploadResp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to upload patch: %w", err)
+	}
+	defer uploadResp.Body.Close()
+
+	if uploadResp.StatusCode != http.StatusOK {
+		return fmt.Errorf("upload failed with status %d", uploadResp.StatusCode)
+	}
+
+	etag := strings.Trim(uploadResp.Header.Get("ETag"), "\"")
+	if etag == "" {
+		return fmt.Errorf("no ETag returned from upload")
+	}
+
+	// Step 3: Finalize the entry
+	_, err = client.FinalizeEntry(ctx, WithAuthentication(connect.NewRequest(&cachev1.FinalizeEntryRequest{
+		EntryId:         createResp.Msg.EntryId,
+		SizeBytes:       int64(len(contentBytes)),
+		UploadPartEtags: []string{etag},
+	}), token))
+	if err != nil {
+		return fmt.Errorf("failed to finalize cache entry: %w", err)
+	}
+
+	return nil
 }
 
 func newCISecretServiceClient() civ1connect.SecretServiceClient {
