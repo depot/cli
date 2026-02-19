@@ -195,23 +195,21 @@ func NewCmdSecretsRemove() *cobra.Command {
 	)
 
 	cmd := &cobra.Command{
-		Use:   "remove SECRET_NAME",
-		Short: "Remove a CI secret",
-		Long:  `Remove a CI secret from your organization.`,
+		Use:   "remove SECRET_NAME [SECRET_NAME...]",
+		Short: "Remove one or more CI secrets",
+		Long:  `Remove one or more CI secrets from your organization.`,
 		Example: `  # Remove a secret
   depot ci secrets remove GITHUB_TOKEN
 
-  # Remove a secret without confirmation prompt
-  depot ci secrets remove MY_API_KEY --force`,
+  # Remove multiple secrets
+  depot ci secrets remove GITHUB_TOKEN MY_API_KEY DATABASE_URL
+
+  # Remove secrets without confirmation prompt
+  depot ci secrets remove GITHUB_TOKEN MY_API_KEY --force`,
 		Aliases: []string{"rm"},
-		Args:    cobra.ExactArgs(1),
+		Args:    cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
-			secretName := args[0]
-
-			if secretName == "" {
-				return fmt.Errorf("secret name cannot be empty")
-			}
 
 			if orgID == "" {
 				orgID = config.GetCurrentOrganization()
@@ -226,7 +224,8 @@ func NewCmdSecretsRemove() *cobra.Command {
 			}
 
 			if !force {
-				prompt := fmt.Sprintf("Are you sure you want to remove CI secret '%s'? (y/N): ", secretName)
+				names := strings.Join(args, ", ")
+				prompt := fmt.Sprintf("Are you sure you want to remove CI secret(s) %s? (y/N): ", names)
 				y, err := helpers.PromptForYN(prompt)
 				if err != nil {
 					return fmt.Errorf("failed to read confirmation: %w", err)
@@ -235,12 +234,14 @@ func NewCmdSecretsRemove() *cobra.Command {
 				}
 			}
 
-			err = api.CIDeleteSecret(ctx, tokenVal, orgID, secretName)
-			if err != nil {
-				return fmt.Errorf("failed to remove secret: %w", err)
+			for _, secretName := range args {
+				err := api.CIDeleteSecret(ctx, tokenVal, orgID, secretName)
+				if err != nil {
+					return fmt.Errorf("failed to remove secret '%s': %w", secretName, err)
+				}
+				fmt.Printf("Successfully removed CI secret '%s'\n", secretName)
 			}
 
-			fmt.Printf("Successfully removed CI secret '%s'\n", secretName)
 			return nil
 		},
 	}
