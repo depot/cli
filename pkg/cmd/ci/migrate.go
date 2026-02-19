@@ -24,6 +24,7 @@ type migrateOptions struct {
 	token     string
 	yes       bool
 	secrets   []string
+	variables []string
 	overwrite bool
 	dir       string
 	stdout    io.Writer
@@ -49,6 +50,7 @@ func NewCmdMigrate() *cobra.Command {
 	flags.StringVar(&opts.token, "token", "", "Depot API token")
 	flags.BoolVar(&opts.yes, "yes", false, "Run in non-interactive mode")
 	flags.StringArrayVar(&opts.secrets, "secret", nil, "CI secret assignment in KEY=VALUE format (repeatable)")
+	flags.StringArrayVar(&opts.variables, "var", nil, "CI variable assignment in KEY=VALUE format (repeatable)")
 	flags.BoolVar(&opts.overwrite, "overwrite", false, "Overwrite existing .depot/ directory")
 
 	return cmd
@@ -219,7 +221,7 @@ func runMigrate(ctx context.Context, opts migrateOptions) error {
 
 	configuredSecrets := make([]string, 0)
 
-	secretAssignments, err := parseSecretAssignments(opts.secrets)
+	secretAssignments, err := parseAssignments(opts.secrets, "secret")
 	if err != nil {
 		return err
 	}
@@ -300,12 +302,86 @@ func runMigrate(ctx context.Context, opts migrateOptions) error {
 		}
 	}
 
+	detectedVariables, err := detectVariablesFromWorkflows(selectedWorkflows)
+	if err != nil {
+		return fmt.Errorf("failed to detect variables: %w", err)
+	}
+
+	configuredVariables := make([]string, 0)
+
+	variableAssignments, err := parseAssignments(opts.variables, "var")
+	if err != nil {
+		return err
+	}
+
+	configureVariable := func(name, value string) error {
+		orgID, token, err := resolveAuth()
+		if err != nil {
+			return err
+		}
+
+		if err := api.CIAddVariable(ctx, token, orgID, name, value); err != nil {
+			return fmt.Errorf("failed to configure variable %s: %w", name, err)
+		}
+		configuredVariables = append(configuredVariables, name)
+		return nil
+	}
+
+	if len(variableAssignments) > 0 {
+		variableNames := make([]string, 0, len(variableAssignments))
+		for name := range variableAssignments {
+			variableNames = append(variableNames, name)
+		}
+		sort.Strings(variableNames)
+
+		for _, name := range variableNames {
+			if err := configureVariable(name, variableAssignments[name]); err != nil {
+				return err
+			}
+		}
+	}
+
+	if opts.yes {
+		missingVariables := make([]string, 0)
+		for _, name := range detectedVariables {
+			if _, ok := variableAssignments[name]; !ok {
+				missingVariables = append(missingVariables, name)
+				warnings = append(warnings, fmt.Sprintf("detected variable %s is not configured", name))
+			}
+		}
+		if len(missingVariables) > 0 {
+			sort.Strings(missingVariables)
+			warnings = append(warnings, fmt.Sprintf("configure missing variables with `depot ci vars add <NAME> --value <VALUE>` (missing: %s)", strings.Join(missingVariables, ", ")))
+		}
+	} else if len(detectedVariables) > 0 {
+		for _, name := range detectedVariables {
+			if _, ok := variableAssignments[name]; ok {
+				continue
+			}
+
+			value, err := helpers.PromptForValue(fmt.Sprintf("Enter value for variable '%s' (leave empty to skip): ", name))
+			if err != nil {
+				return fmt.Errorf("failed to read value for variable %s: %w", name, err)
+			}
+			if strings.TrimSpace(value) == "" {
+				warnings = append(warnings, fmt.Sprintf("variable %s was skipped", name))
+				continue
+			}
+
+			if err := configureVariable(name, value); err != nil {
+				return err
+			}
+		}
+	}
+
 	fmt.Fprintln(out, "")
 	fmt.Fprintln(out, "Migration summary:")
 	fmt.Fprintf(out, "- Workflows selected: %d\n", len(selectedWorkflows))
 	fmt.Fprintf(out, "- Files copied: %d\n", len(copyResult.FilesCopied))
 	fmt.Fprintf(out, "- Secrets detected: %d\n", len(detectedSecrets))
 	fmt.Fprintf(out, "- Secrets configured: %d\n", len(configuredSecrets))
+	fmt.Fprintf(out, "- Variables detected: %d\n", len(detectedVariables))
+	fmt.Fprintf(out, "- Variables configured: %d\n", len(configuredVariables))
 
 	if len(copyResult.FilesCopied) > 0 {
 		fmt.Fprintln(out, "- Copied files:")
@@ -325,6 +401,13 @@ func runMigrate(ctx context.Context, opts migrateOptions) error {
 		}
 	}
 
+	if len(configuredVariables) > 0 {
+		fmt.Fprintln(out, "- Configured variables:")
+		for _, name := range configuredVariables {
+			fmt.Fprintf(out, "  - %s\n", name)
+		}
+	}
+
 	if len(warnings) > 0 {
 		fmt.Fprintln(out, "- Warnings:")
 		for _, warning := range warnings {
@@ -335,17 +418,17 @@ func runMigrate(ctx context.Context, opts migrateOptions) error {
 	return nil
 }
 
-func parseSecretAssignments(secretFlags []string) (map[string]string, error) {
-	assignments := make(map[string]string, len(secretFlags))
-	for _, raw := range secretFlags {
+func parseAssignments(flags []string, flagName string) (map[string]string, error) {
+	assignments := make(map[string]string, len(flags))
+	for _, raw := range flags {
 		parts := strings.SplitN(raw, "=", 2)
 		if len(parts) != 2 {
-			return nil, fmt.Errorf("invalid --secret value %q, expected KEY=VALUE", raw)
+			return nil, fmt.Errorf("invalid --%s value %q, expected KEY=VALUE", flagName, raw)
 		}
 
 		name := strings.TrimSpace(parts[0])
 		if name == "" {
-			return nil, fmt.Errorf("invalid --secret value %q, secret name cannot be empty", raw)
+			return nil, fmt.Errorf("invalid --%s value %q, name cannot be empty", flagName, raw)
 		}
 
 		assignments[name] = parts[1]
@@ -466,6 +549,36 @@ func detectSecretsFromWorkflows(workflows []*migrate.WorkflowFile) ([]string, er
 	deduped := make([]string, 0, len(seen))
 	for secret := range seen {
 		deduped = append(deduped, secret)
+	}
+	sort.Strings(deduped)
+
+	return deduped, nil
+}
+
+func detectVariablesFromWorkflows(workflows []*migrate.WorkflowFile) ([]string, error) {
+	all := make([]string, 0)
+	for _, workflow := range workflows {
+		variables, err := migrate.DetectVariablesFromFile(workflow.Path)
+		if err != nil {
+			return nil, fmt.Errorf("failed to detect variables in %s: %w", workflow.Path, err)
+		}
+		all = append(all, variables...)
+	}
+
+	if len(all) == 0 {
+		return nil, nil
+	}
+
+	seen := make(map[string]struct{}, len(all))
+	for _, v := range all {
+		if v != "" {
+			seen[v] = struct{}{}
+		}
+	}
+
+	deduped := make([]string, 0, len(seen))
+	for v := range seen {
+		deduped = append(deduped, v)
 	}
 	sort.Strings(deduped)
 

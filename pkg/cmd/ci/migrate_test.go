@@ -14,7 +14,7 @@ import (
 func TestNewCmdMigrateFlags(t *testing.T) {
 	cmd := NewCmdMigrate()
 
-	flagNames := []string{"yes", "secret", "org", "token", "overwrite"}
+	flagNames := []string{"yes", "secret", "var", "org", "token", "overwrite"}
 	for _, flagName := range flagNames {
 		if cmd.Flags().Lookup(flagName) == nil {
 			t.Fatalf("expected --%s flag to exist", flagName)
@@ -66,10 +66,10 @@ func TestRunMigrateMissingGitHubDir(t *testing.T) {
 	}
 }
 
-func TestParseSecretAssignments(t *testing.T) {
-	assignments, err := parseSecretAssignments([]string{"NPM_TOKEN=abc123", "EMPTY="})
+func TestParseAssignments(t *testing.T) {
+	assignments, err := parseAssignments([]string{"NPM_TOKEN=abc123", "EMPTY="}, "secret")
 	if err != nil {
-		t.Fatalf("parseSecretAssignments returned error: %v", err)
+		t.Fatalf("parseAssignments returned error: %v", err)
 	}
 
 	if assignments["NPM_TOKEN"] != "abc123" {
@@ -77,6 +77,11 @@ func TestParseSecretAssignments(t *testing.T) {
 	}
 	if assignments["EMPTY"] != "" {
 		t.Fatalf("unexpected value for EMPTY: %q", assignments["EMPTY"])
+	}
+
+	_, err = parseAssignments([]string{"NOEQUALS"}, "var")
+	if err == nil {
+		t.Fatal("expected error for missing = sign")
 	}
 }
 
@@ -106,6 +111,35 @@ func TestRunMigrateWarnsForUnconfiguredDetectedSecrets(t *testing.T) {
 	output := stdout.String()
 	if !strings.Contains(output, "detected secret MISSING_SECRET is not configured") {
 		t.Fatalf("expected warning about unconfigured detected secret, got output: %s", output)
+	}
+}
+
+func TestRunMigrateWarnsForUnconfiguredDetectedVariables(t *testing.T) {
+	tmpDir := t.TempDir()
+	workflowsDir := filepath.Join(tmpDir, ".github", "workflows")
+	if err := os.MkdirAll(workflowsDir, 0o755); err != nil {
+		t.Fatalf("failed to create workflows dir: %v", err)
+	}
+
+	workflowPath := filepath.Join(workflowsDir, "ci.yml")
+	workflowContent := "name: CI\non: push\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo ${{ vars.MY_VAR }}\n"
+	if err := os.WriteFile(workflowPath, []byte(workflowContent), 0o644); err != nil {
+		t.Fatalf("failed to write workflow: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	err := runMigrate(context.Background(), migrateOptions{
+		yes:    true,
+		dir:    tmpDir,
+		stdout: &stdout,
+	})
+	if err != nil {
+		t.Fatalf("runMigrate returned error: %v", err)
+	}
+
+	output := stdout.String()
+	if !strings.Contains(output, "detected variable MY_VAR is not configured") {
+		t.Fatalf("expected warning about unconfigured detected variable, got output: %s", output)
 	}
 }
 
