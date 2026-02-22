@@ -546,7 +546,7 @@ func NewCmdRunList() *cobra.Command {
 	cmd.Flags().StringVar(&token, "token", "", "Depot API token")
 	cmd.Flags().StringSliceVar(&statuses, "status", nil, "Filter by status (repeatable: queued, running, finished, failed, cancelled)")
 	cmd.Flags().Int32VarP(&n, "n", "n", 0, "Number of runs to return")
-	cmd.Flags().StringVar(&output, "output", "", "Output format (json)")
+	cmd.Flags().StringVarP(&output, "output", "o", "", "Output format (json)")
 
 	return cmd
 }
