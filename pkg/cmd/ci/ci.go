@@ -15,6 +15,7 @@ func NewCmdCI() *cobra.Command {
 	cmd.AddCommand(NewCmdLogs())
 	cmd.AddCommand(NewCmdMigrate())
 	cmd.AddCommand(NewCmdRun())
+	cmd.AddCommand(NewCmdRuns())
 	cmd.AddCommand(NewCmdSecrets())
 	cmd.AddCommand(NewCmdStatus())
 	cmd.AddCommand(NewCmdVars())

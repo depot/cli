@@ -58,6 +58,49 @@ func CIRun(ctx context.Context, token string, req *civ1.RunRequest) (*civ1.RunRe
 	return resp.Msg, nil
 }
 
+// CIListRuns returns CI runs, paginating as needed to collect up to `limit` results.
+// If limit is 0, all results are returned.
+func CIListRuns(ctx context.Context, token string, statuses []civ1.CIRunStatus, limit int32) ([]*civ1.ListRunsResponseRun, error) {
+	client := newCIServiceClient()
+	var allRuns []*civ1.ListRunsResponseRun
+	var pageToken string
+
+	for {
+		pageSize := limit
+		if limit > 0 {
+			remaining := limit - int32(len(allRuns))
+			if remaining <= 0 {
+				break
+			}
+			pageSize = remaining
+		}
+
+		req := &civ1.ListRunsRequest{
+			Status:    statuses,
+			PageSize:  pageSize,
+			PageToken: pageToken,
+		}
+		resp, err := client.ListRuns(ctx, WithAuthentication(connect.NewRequest(req), token))
+		if err != nil {
+			return nil, err
+		}
+
+		allRuns = append(allRuns, resp.Msg.Runs...)
+
+		if limit > 0 && int32(len(allRuns)) >= limit {
+			allRuns = allRuns[:limit]
+			break
+		}
+
+		if resp.Msg.NextPageToken == "" {
+			break
+		}
+		pageToken = resp.Msg.NextPageToken
+	}
+
+	return allRuns, nil
+}
+
 func newCISecretServiceClient() civ1connect.SecretServiceClient {
 	baseURL := baseURLFunc()
 	return civ1connect.NewSecretServiceClient(getHTTPClient(baseURL), baseURL, WithUserAgent())

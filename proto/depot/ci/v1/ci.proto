@@ -13,6 +13,9 @@ service CIService {
 
   // GetJobAttemptLogs returns log lines for a job attempt
   rpc GetJobAttemptLogs(GetJobAttemptLogsRequest) returns (GetJobAttemptLogsResponse) {}
+
+  // ListRuns returns a paginated list of CI runs for the authenticated organization
+  rpc ListRuns(ListRunsRequest) returns (ListRunsResponse) {}
 }
 
 message RunRequest {
@@ -98,4 +101,36 @@ message LogLine {
   uint32 line_number = 3;
   uint32 stream = 4; // 0 = stdout, 1 = stderr
   string body = 5;
+}
+
+// ListRuns messages
+
+enum CIRunStatus {
+  CI_RUN_STATUS_UNSPECIFIED = 0;
+  CI_RUN_STATUS_QUEUED = 1;
+  CI_RUN_STATUS_RUNNING = 2;
+  CI_RUN_STATUS_FINISHED = 3;
+  CI_RUN_STATUS_FAILED = 4;
+  CI_RUN_STATUS_CANCELLED = 5;
+}
+
+message ListRunsRequest {
+  // status filters runs by status; defaults to [RUNNING, QUEUED] when empty
+  repeated CIRunStatus status = 1;
+  int32 page_size = 2;
+  string page_token = 3;
+}
+
+message ListRunsResponse {
+  repeated ListRunsResponseRun runs = 1;
+  string next_page_token = 2;
+}
+
+message ListRunsResponseRun {
+  string run_id = 1;
+  string repo = 2;
+  string trigger = 3;
+  string sha = 4;
+  CIRunStatus status = 5;
+  string created_at = 6;
 }
