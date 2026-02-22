@@ -468,6 +468,10 @@ func NewCmdRunList() *cobra.Command {
   depot ci run list --output json`,
 		Aliases: []string{"ls"},
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if n <= 0 {
+				return fmt.Errorf("page size (-n) must be greater than 0")
+			}
+
 			ctx := cmd.Context()
 
 			tokenVal, err := helpers.ResolveOrgAuth(ctx, token)
