@@ -12,21 +12,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func NewCmdRuns() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "runs",
-		Short: "Manage CI runs [beta]",
-		Long:  "Manage CI runs.\n\nThis command is in beta and subject to change.",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return cmd.Help()
-		},
-	}
-
-	cmd.AddCommand(NewCmdRunsList())
-
-	return cmd
-}
-
 // validStatuses are the user-facing status names accepted by --status.
 var validStatuses = []string{"queued", "running", "finished", "failed", "cancelled"}
 
@@ -66,7 +51,7 @@ func formatStatus(s civ1.CIRunStatus) string {
 	}
 }
 
-func NewCmdRunsList() *cobra.Command {
+func NewCmdRunList() *cobra.Command {
 	var (
 		token    string
 		statuses []string
@@ -79,19 +64,19 @@ func NewCmdRunsList() *cobra.Command {
 		Short: "List CI runs",
 		Long:  `List CI runs for your organization.`,
 		Example: `  # List runs (defaults to queued and running)
-  depot ci runs list
+  depot ci run list
 
   # List failed runs
-  depot ci runs list --status failed
+  depot ci run list --status failed
 
   # List finished and failed runs
-  depot ci runs list --status finished --status failed
+  depot ci run list --status finished --status failed
 
   # List the 5 most recent runs
-  depot ci runs list -n 5
+  depot ci run list -n 5
 
   # Output as JSON
-  depot ci runs list --output json`,
+  depot ci run list --output json`,
 		Aliases: []string{"ls"},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()

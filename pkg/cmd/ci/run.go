@@ -201,6 +201,8 @@ This command is in beta and subject to change.`,
 	cmd.Flags().StringSliceVar(&jobNames, "job", nil, "Job name(s) to run (repeatable; omit to run all)")
 	cmd.Flags().IntVar(&sshAfterStep, "ssh-after-step", 0, "1-based step index to insert a tmate debug step after (requires single --job)")
 
+	cmd.AddCommand(NewCmdRunList())
+
 	return cmd
 }
 
