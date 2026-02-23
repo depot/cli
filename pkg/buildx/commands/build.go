@@ -230,12 +230,13 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.No
 		opts, pullOpts = load.WithDepotImagePull(
 			opts,
 			load.DepotLoadOptions{
-				Project:      depotOpts.project,
-				BuildID:      depotOpts.buildID,
-				IsBake:       false,
-				ProgressMode: progressMode,
-				UseRegistry:  depotOpts.loadUsingRegistry,
-				PullInfo:     depotOpts.pullInfo,
+				Project:       depotOpts.project,
+				BuildID:       depotOpts.buildID,
+				IsBake:        false,
+				ProgressMode:  progressMode,
+				UseRegistry:   depotOpts.loadUsingRegistry,
+				PullInfo:      depotOpts.pullInfo,
+				BuildPlatform: depotOpts.buildPlatform,
 			},
 		)
 	}

@@ -123,12 +123,13 @@ func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator, pri
 		buildOpts, pullOpts = load.WithDepotImagePull(
 			buildOpts,
 			load.DepotLoadOptions{
-				Project:      in.DepotOptions.project,
-				BuildID:      in.DepotOptions.buildID,
-				IsBake:       true,
-				ProgressMode: in.progress,
-				UseRegistry:  in.DepotOptions.loadUsingRegistry,
-				PullInfo:     in.DepotOptions.pullInfo,
+				Project:       in.DepotOptions.project,
+				BuildID:       in.DepotOptions.buildID,
+				IsBake:        true,
+				ProgressMode:  in.progress,
+				UseRegistry:   in.DepotOptions.loadUsingRegistry,
+				PullInfo:      in.DepotOptions.pullInfo,
+				BuildPlatform: in.DepotOptions.buildPlatform,
 			},
 		)
 	}
