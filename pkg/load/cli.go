@@ -13,12 +13,13 @@ import (
 
 // DepotLoadOptions are options to load images from the depot hosted registry.
 type DepotLoadOptions struct {
-	Project      string               // Depot project name; used to tag images.
-	BuildID      string               // Depot build ID; used to tag images.
-	IsBake       bool                 // If run from bake, we add the bake target to the image tag.
-	ProgressMode string               // ProgressMode quiet will not print progress.
-	UseRegistry  bool                 // If UseRegistry, load build from registry instead of proxy
-	PullInfo     *depotbuild.PullInfo // If UseRegistry, the credentials for pulling from registry
+	Project       string               // Depot project name; used to tag images.
+	BuildID       string               // Depot build ID; used to tag images.
+	IsBake        bool                 // If run from bake, we add the bake target to the image tag.
+	ProgressMode  string               // ProgressMode quiet will not print progress.
+	UseRegistry   bool                 // If UseRegistry, load build from registry instead of proxy
+	PullInfo      *depotbuild.PullInfo // If UseRegistry, the credentials for pulling from registry
+	BuildPlatform string               // If set (e.g. "linux/amd64"), used as the pull platform when buildOpt.Platforms is empty.
 }
 
 // Options to download from the Depot hosted registry and tag the image with the user provide tag.
@@ -74,19 +75,28 @@ func WithDepotImagePull(buildOpts map[string]build.Options, loadOpts DepotLoadOp
 				Quiet:    loadOpts.ProgressMode == progress.PrinterModeQuiet,
 			}
 
+			// Specify a platform to pull when a single platform is used.
+			// This ensures Docker pulls the correct architecture manifest
+			// even when the build platform differs from the host (e.g.
+			// building amd64 on an arm64 Mac), avoiding a slow tarball
+			// fallback during fast load.
+			platforms := platformutil.Format(buildOpt.Platforms)
+			if len(platforms) == 1 {
+				platform := platforms[0]
+				pullOpt.Platform = &platform
+			} else if len(platforms) == 0 && loadOpts.BuildPlatform != "" {
+				// When --build-platform is specified but platforms is not set in the
+				// compose file, use the build platform so Docker pulls the correct
+				// architecture instead of defaulting to the host architecture.
+				pullOpt.Platform = &loadOpts.BuildPlatform
+			}
+
 			if loadOpts.UseRegistry && loadOpts.PullInfo != nil {
 				serverAddress := "registry.depot.dev"
 				pullOpt.KeepImage = true
 				pullOpt.Username = &loadOpts.PullInfo.Username
 				pullOpt.Password = &loadOpts.PullInfo.Password
 				pullOpt.ServerAddress = &serverAddress
-
-				platforms := platformutil.Format(buildOpt.Platforms)
-				// only specify a platform to pull when a single platform is used
-				if len(platforms) == 1 {
-					platform := platforms[0]
-					pullOpt.Platform = &platform
-				}
 			}
 
 			toPull[target] = pullOpt
