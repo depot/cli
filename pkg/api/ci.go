@@ -17,9 +17,9 @@ func newCIServiceClient() civ1connect.CIServiceClient {
 }
 
 // CIGetRunStatus returns the current status of a CI run including its workflows, jobs, and attempts.
-func CIGetRunStatus(ctx context.Context, token, runID string) (*civ1.GetRunStatusResponse, error) {
+func CIGetRunStatus(ctx context.Context, token, orgID, runID string) (*civ1.GetRunStatusResponse, error) {
 	client := newCIServiceClient()
-	resp, err := client.GetRunStatus(ctx, WithAuthentication(connect.NewRequest(&civ1.GetRunStatusRequest{RunId: runID}), token))
+	resp, err := client.GetRunStatus(ctx, WithAuthenticationAndOrg(connect.NewRequest(&civ1.GetRunStatusRequest{RunId: runID}), token, orgID))
 	if err != nil {
 		return nil, err
 	}
@@ -27,14 +27,14 @@ func CIGetRunStatus(ctx context.Context, token, runID string) (*civ1.GetRunStatu
 }
 
 // CIGetJobAttemptLogs returns all log lines for a job attempt, paginating through all pages.
-func CIGetJobAttemptLogs(ctx context.Context, token, attemptID string) ([]*civ1.LogLine, error) {
+func CIGetJobAttemptLogs(ctx context.Context, token, orgID, attemptID string) ([]*civ1.LogLine, error) {
 	client := newCIServiceClient()
 	var allLines []*civ1.LogLine
 	var pageToken string
 
 	for {
 		req := &civ1.GetJobAttemptLogsRequest{AttemptId: attemptID, PageToken: pageToken}
-		resp, err := client.GetJobAttemptLogs(ctx, WithAuthentication(connect.NewRequest(req), token))
+		resp, err := client.GetJobAttemptLogs(ctx, WithAuthenticationAndOrg(connect.NewRequest(req), token, orgID))
 		if err != nil {
 			return nil, err
 		}
@@ -49,9 +49,9 @@ func CIGetJobAttemptLogs(ctx context.Context, token, attemptID string) ([]*civ1.
 }
 
 // CIRun triggers a CI run.
-func CIRun(ctx context.Context, token string, req *civ1.RunRequest) (*civ1.RunResponse, error) {
+func CIRun(ctx context.Context, token, orgID string, req *civ1.RunRequest) (*civ1.RunResponse, error) {
 	client := newCIServiceClient()
-	resp, err := client.Run(ctx, WithAuthentication(connect.NewRequest(req), token))
+	resp, err := client.Run(ctx, WithAuthenticationAndOrg(connect.NewRequest(req), token, orgID))
 	if err != nil {
 		return nil, err
 	}
@@ -60,7 +60,7 @@ func CIRun(ctx context.Context, token string, req *civ1.RunRequest) (*civ1.RunRe
 
 // CIListRuns returns CI runs, paginating as needed to collect up to `limit` results.
 // If limit is 0, all results are returned.
-func CIListRuns(ctx context.Context, token string, statuses []civ1.CIRunStatus, limit int32) ([]*civ1.ListRunsResponseRun, error) {
+func CIListRuns(ctx context.Context, token, orgID string, statuses []civ1.CIRunStatus, limit int32) ([]*civ1.ListRunsResponseRun, error) {
 	client := newCIServiceClient()
 	var allRuns []*civ1.ListRunsResponseRun
 	var pageToken string
@@ -80,7 +80,7 @@ func CIListRuns(ctx context.Context, token string, statuses []civ1.CIRunStatus, 
 			PageSize:  pageSize,
 			PageToken: pageToken,
 		}
-		resp, err := client.ListRuns(ctx, WithAuthentication(connect.NewRequest(req), token))
+		resp, err := client.ListRuns(ctx, WithAuthenticationAndOrg(connect.NewRequest(req), token, orgID))
 		if err != nil {
 			return nil, err
 		}

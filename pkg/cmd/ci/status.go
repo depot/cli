@@ -4,12 +4,16 @@ import (
 	"fmt"
 
 	"github.com/depot/cli/pkg/api"
+	"github.com/depot/cli/pkg/config"
 	"github.com/depot/cli/pkg/helpers"
 	"github.com/spf13/cobra"
 )
 
 func NewCmdStatus() *cobra.Command {
-	var token string
+	var (
+		orgID string
+		token string
+	)
 
 	cmd := &cobra.Command{
 		Use:   "status <run-id>",
@@ -23,6 +27,10 @@ func NewCmdStatus() *cobra.Command {
 			ctx := cmd.Context()
 			runID := args[0]
 
+			if orgID == "" {
+				orgID = config.GetCurrentOrganization()
+			}
+
 			tokenVal, err := helpers.ResolveOrgAuth(ctx, token)
 			if err != nil {
 				return err
@@ -31,7 +39,7 @@ func NewCmdStatus() *cobra.Command {
 				return fmt.Errorf("missing API token, please run `depot login`")
 			}
 
-			resp, err := api.CIGetRunStatus(ctx, tokenVal, runID)
+			resp, err := api.CIGetRunStatus(ctx, tokenVal, orgID, runID)
 			if err != nil {
 				return fmt.Errorf("failed to get run status: %w", err)
 			}
@@ -59,6 +67,7 @@ func NewCmdStatus() *cobra.Command {
 		},
 	}
 
+	cmd.Flags().StringVar(&orgID, "org", "", "Organization ID (required when user is a member of multiple organizations)")
 	cmd.Flags().StringVar(&token, "token", "", "Depot API token")
 
 	return cmd

@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/depot/cli/pkg/api"
+	"github.com/depot/cli/pkg/config"
 	"github.com/depot/cli/pkg/helpers"
 	civ1 "github.com/depot/cli/pkg/proto/depot/ci/v1"
 	"github.com/spf13/cobra"
@@ -21,6 +22,7 @@ const cacheBaseURL = "https://cache.depot.dev"
 
 func NewCmdRun() *cobra.Command {
 	var (
+		orgID        string
 		token        string
 		workflowPath string
 		jobNames     []string
@@ -53,6 +55,10 @@ This command is in beta and subject to change.`,
 
 			if sshAfterStep > 0 && len(jobNames) != 1 {
 				return fmt.Errorf("--ssh-after-step requires exactly one --job")
+			}
+
+			if orgID == "" {
+				orgID = config.GetCurrentOrganization()
 			}
 
 			tokenVal, err := helpers.ResolveOrgAuth(ctx, token)
@@ -185,7 +191,7 @@ This command is in beta and subject to change.`,
 				req.Job = &job
 			}
 
-			resp, err := api.CIRun(ctx, tokenVal, req)
+			resp, err := api.CIRun(ctx, tokenVal, orgID, req)
 			if err != nil {
 				return fmt.Errorf("failed to start CI run: %w", err)
 			}
@@ -197,6 +203,7 @@ This command is in beta and subject to change.`,
 		},
 	}
 
+	cmd.Flags().StringVar(&orgID, "org", "", "Organization ID (required when user is a member of multiple organizations)")
 	cmd.Flags().StringVar(&token, "token", "", "Depot API token")
 	cmd.Flags().StringVar(&workflowPath, "workflow", "", "Path to workflow YAML file")
 	cmd.Flags().StringSliceVar(&jobNames, "job", nil, "Job name(s) to run (repeatable; omit to run all)")
@@ -442,6 +449,7 @@ func formatStatus(s civ1.CIRunStatus) string {
 
 func NewCmdRunList() *cobra.Command {
 	var (
+		orgID    string
 		token    string
 		statuses []string
 		n        int32
@@ -474,6 +482,10 @@ func NewCmdRunList() *cobra.Command {
 
 			ctx := cmd.Context()
 
+			if orgID == "" {
+				orgID = config.GetCurrentOrganization()
+			}
+
 			tokenVal, err := helpers.ResolveOrgAuth(ctx, token)
 			if err != nil {
 				return err
@@ -491,7 +503,7 @@ func NewCmdRunList() *cobra.Command {
 				protoStatuses = append(protoStatuses, ps)
 			}
 
-			runs, err := api.CIListRuns(ctx, tokenVal, protoStatuses, n)
+			runs, err := api.CIListRuns(ctx, tokenVal, orgID, protoStatuses, n)
 			if err != nil {
 				return fmt.Errorf("failed to list runs: %w", err)
 			}
@@ -547,6 +559,7 @@ func NewCmdRunList() *cobra.Command {
 		},
 	}
 
+	cmd.Flags().StringVar(&orgID, "org", "", "Organization ID (required when user is a member of multiple organizations)")
 	cmd.Flags().StringVar(&token, "token", "", "Depot API token")
 	cmd.Flags().StringSliceVar(&statuses, "status", nil, "Filter by status (repeatable: queued, running, finished, failed, cancelled)")
 	cmd.Flags().Int32VarP(&n, "n", "n", 50, "Number of runs to return")
