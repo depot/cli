@@ -14,6 +14,8 @@ import (
 	"github.com/moby/buildkit/session/auth"
 	"github.com/moby/buildkit/session/auth/authprovider"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 var (
@@ -30,11 +32,22 @@ type AuthProvider struct {
 // wraps it in an AuthProvider, and returns it.
 func ReplaceDockerAuth(credentials []build.Credential, as []session.Attachable) []session.Attachable {
 	dockerConfig := config.LoadDefaultConfigFile(os.Stderr)
+	if dockerConfig.AuthConfigs == nil {
+		dockerConfig.AuthConfigs = map[string]types.AuthConfig{}
+	}
+
 	for _, c := range credentials {
-		dockerConfig.AuthConfigs[c.Host] = types.AuthConfig{
+		authConfig := types.AuthConfig{
 			Auth:          c.Token,
 			ServerAddress: c.Host,
 		}
+		username, password, err := decodeCredentialToken(c.Token)
+		if err == nil {
+			authConfig.Username = username
+			authConfig.Password = password
+		}
+
+		dockerConfig.AuthConfigs[c.Host] = authConfig
 	}
 
 	for i, a := range as {
@@ -55,23 +68,17 @@ func (a *AuthProvider) Register(server *grpc.Server) {
 }
 
 func (a *AuthProvider) Credentials(ctx context.Context, req *auth.CredentialsRequest) (*auth.CredentialsResponse, error) {
-	for _, c := range a.credentials {
-		if c.Host == req.Host {
-			decodedAuth, err := base64.StdEncoding.DecodeString(c.Token)
-			if err != nil {
-				return nil, err
-			}
-
-			usernamePassword := strings.SplitN(string(decodedAuth), ":", 2)
-			if len(usernamePassword) != 2 {
-				return nil, fmt.Errorf("invalid auth string")
-			}
-
-			return &auth.CredentialsResponse{
-				Username: usernamePassword[0],
-				Secret:   usernamePassword[1],
-			}, nil
+	cred, ok := a.credentialForHost(req.Host)
+	if ok {
+		username, password, err := decodeCredentialToken(cred.Token)
+		if err != nil {
+			return nil, err
 		}
+
+		return &auth.CredentialsResponse{
+			Username: username,
+			Secret:   password,
+		}, nil
 	}
 
 	return a.inner.Credentials(ctx, req)
@@ -82,6 +89,13 @@ func (a *AuthProvider) FetchToken(ctx context.Context, req *auth.FetchTokenReque
 }
 
 func (a *AuthProvider) GetTokenAuthority(ctx context.Context, req *auth.GetTokenAuthorityRequest) (*auth.GetTokenAuthorityResponse, error) {
+	if _, ok := a.credentialForHost(req.Host); ok {
+		// Force BuildKit to fall back to the Credentials() flow for explicit
+		// save credentials. This avoids credential-helper lookups that can
+		// ignore in-memory auth configs.
+		return nil, status.Error(codes.Unavailable, "token authority disabled for explicit credentials")
+	}
+
 	return a.inner.GetTokenAuthority(ctx, req)
 }
 
@@ -165,4 +179,34 @@ func GetDepotAuthConfig() *types.AuthConfig {
 	}
 
 	return nil
+}
+
+func decodeCredentialToken(token string) (string, string, error) {
+	decodedAuth, err := base64.StdEncoding.DecodeString(token)
+	if err != nil {
+		return "", "", err
+	}
+
+	usernamePassword := strings.SplitN(string(decodedAuth), ":", 2)
+	if len(usernamePassword) != 2 {
+		return "", "", fmt.Errorf("invalid auth string")
+	}
+
+	return usernamePassword[0], usernamePassword[1], nil
+}
+
+func (a *AuthProvider) credentialForHost(host string) (build.Credential, bool) {
+	for i := range a.credentials {
+		if hostMatches(a.credentials[i].Host, host) {
+			return a.credentials[i], true
+		}
+	}
+	return build.Credential{}, false
+}
+
+func hostMatches(credentialHost, requestHost string) bool {
+	if credentialHost == requestHost {
+		return true
+	}
+	return strings.TrimSuffix(requestHost, ":443") == credentialHost
 }
