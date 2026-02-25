@@ -46,6 +46,7 @@ func NewCmdStatus() *cobra.Command {
 
 			fmt.Printf("Org: %s\n", resp.OrgId)
 			fmt.Printf("Run: %s (%s)\n", resp.RunId, resp.Status)
+			fmt.Printf("View in Depot: https://depot.dev/orgs/%s/workflows\n", resp.OrgId)
 
 			for _, workflow := range resp.Workflows {
 				fmt.Println()
@@ -58,7 +59,7 @@ func NewCmdStatus() *cobra.Command {
 					fmt.Printf("    Job: %s [%s] (%s)\n", job.JobId, job.JobKey, job.Status)
 
 					for _, attempt := range job.Attempts {
-						fmt.Printf("      Attempt: %s #%d (%s)\n", attempt.AttemptId, attempt.Attempt, attempt.Status)
+						fmt.Printf("      Attempt: %s #%d (%s)  →  depot ci logs %s\n", attempt.AttemptId, attempt.Attempt, attempt.Status, attempt.AttemptId)
 					}
 				}
 			}
