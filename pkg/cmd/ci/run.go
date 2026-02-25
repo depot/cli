@@ -200,7 +200,7 @@ This command is in beta and subject to change.`,
 			fmt.Printf("Run: %s\n", resp.RunId)
 			fmt.Println()
 			fmt.Printf("Check status:  depot ci status %s\n", resp.RunId)
-			fmt.Printf("View in Depot: https://depot.dev/orgs/%s/workflows\n", resp.OrgId)
+			fmt.Printf("View in Depot: https://depot.dev/orgs/%s/workflows/%s\n", resp.OrgId, resp.RunId)
 
 			return nil
 		},
