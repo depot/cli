@@ -83,11 +83,47 @@ func (a *AuthProvider) Credentials(ctx context.Context, req *auth.CredentialsReq
 }
 
 func (a *AuthProvider) FetchToken(ctx context.Context, req *auth.FetchTokenRequest) (*auth.FetchTokenResponse, error) {
-	creds := a.findCredentials(req.Host)
+	creds, err := a.findCredentials(req.Host)
+	if err != nil {
+		return nil, err
+	}
 	if creds == nil {
 		return a.inner.FetchToken(ctx, req)
 	}
 
+	if creds.Password != "" {
+		return fetchTokenWithFallback(ctx, req, creds)
+	}
+
+	// No secret, fall back to inner provider.
+	return a.inner.FetchToken(ctx, req)
+}
+
+// findCredentials looks up decoded credentials for a host from the depot credential list.
+func (a *AuthProvider) findCredentials(host string) (*types.AuthConfig, error) {
+	for _, c := range a.credentials {
+		if c.Host != host {
+			continue
+		}
+		decoded, err := base64.StdEncoding.DecodeString(c.Token)
+		if err != nil {
+			return nil, err
+		}
+		parts := strings.SplitN(string(decoded), ":", 2)
+		if len(parts) != 2 {
+			return nil, fmt.Errorf("invalid auth string")
+		}
+		return &types.AuthConfig{
+			Username: parts[0],
+			Password: parts[1],
+		}, nil
+	}
+	return nil, nil
+}
+
+// fetchTokenWithFallback attempts OAuth POST first, falling back to GET for registries
+// that don't support POST (e.g., GCR returns 404, JFrog returns 401, ACR returns 400).
+func fetchTokenWithFallback(ctx context.Context, req *auth.FetchTokenRequest, creds *types.AuthConfig) (*auth.FetchTokenResponse, error) {
 	to := authutil.TokenOptions{
 		Realm:    req.Realm,
 		Service:  req.Service,
@@ -96,50 +132,24 @@ func (a *AuthProvider) FetchToken(ctx context.Context, req *auth.FetchTokenReque
 		Secret:   creds.Password,
 	}
 
-	if to.Secret != "" {
-		// Credential information is provided, try the OAuth POST endpoint first.
-		resp, err := authutil.FetchTokenWithOAuth(ctx, http.DefaultClient, nil, "buildkit-client", to)
-		if err != nil {
-			var errStatus remoteserrors.ErrUnexpectedStatus
-			if errors.As(err, &errStatus) {
-				// Registries without support for POST may return 404 or 401.
-				if (errStatus.StatusCode == 405 && to.Username != "") || errStatus.StatusCode == 404 || errStatus.StatusCode == 401 {
-					getResp, err := authutil.FetchToken(ctx, http.DefaultClient, nil, to)
-					if err != nil {
-						return nil, err
-					}
-					return toFetchTokenResponse(getResp.Token, getResp.IssuedAt, getResp.ExpiresIn), nil
-				}
+	resp, err := authutil.FetchTokenWithOAuth(ctx, http.DefaultClient, nil, "buildkit-client", to)
+	if err != nil {
+		var errStatus remoteserrors.ErrUnexpectedStatus
+		if errors.As(err, &errStatus) {
+			// Registries without support for POST may return various error codes:
+			// - GCR: 404
+			// - JFrog Artifactory: 401
+			// - ACR: 400
+			// Fall back to GET for any unexpected status.
+			getResp, err := authutil.FetchToken(ctx, http.DefaultClient, nil, to)
+			if err != nil {
+				return nil, err
 			}
-			return nil, err
+			return toFetchTokenResponse(getResp.Token, getResp.IssuedAt, getResp.ExpiresIn), nil
 		}
-		return toFetchTokenResponse(resp.AccessToken, resp.IssuedAt, resp.ExpiresIn), nil
+		return nil, err
 	}
-
-	// No secret, fall back to inner provider.
-	return a.inner.FetchToken(ctx, req)
-}
-
-// findCredentials looks up decoded credentials for a host from the depot credential list.
-func (a *AuthProvider) findCredentials(host string) *types.AuthConfig {
-	for _, c := range a.credentials {
-		if c.Host != host {
-			continue
-		}
-		decoded, err := base64.StdEncoding.DecodeString(c.Token)
-		if err != nil {
-			continue
-		}
-		parts := strings.SplitN(string(decoded), ":", 2)
-		if len(parts) != 2 {
-			continue
-		}
-		return &types.AuthConfig{
-			Username: parts[0],
-			Password: parts[1],
-		}
-	}
-	return nil
+	return toFetchTokenResponse(resp.AccessToken, resp.IssuedAt, resp.ExpiresIn), nil
 }
 
 func toFetchTokenResponse(token string, issuedAt time.Time, expires int) *auth.FetchTokenResponse {
@@ -201,30 +211,8 @@ func (a *DepotAuthProvider) FetchToken(ctx context.Context, req *auth.FetchToken
 		return a.inner.FetchToken(ctx, req)
 	}
 
-	to := authutil.TokenOptions{
-		Realm:    req.Realm,
-		Service:  req.Service,
-		Scopes:   req.Scopes,
-		Username: creds.Username,
-		Secret:   creds.Password,
-	}
-
-	if to.Secret != "" {
-		resp, err := authutil.FetchTokenWithOAuth(ctx, http.DefaultClient, nil, "buildkit-client", to)
-		if err != nil {
-			var errStatus remoteserrors.ErrUnexpectedStatus
-			if errors.As(err, &errStatus) {
-				if (errStatus.StatusCode == 405 && to.Username != "") || errStatus.StatusCode == 404 || errStatus.StatusCode == 401 {
-					getResp, err := authutil.FetchToken(ctx, http.DefaultClient, nil, to)
-					if err != nil {
-						return nil, err
-					}
-					return toFetchTokenResponse(getResp.Token, getResp.IssuedAt, getResp.ExpiresIn), nil
-				}
-			}
-			return nil, err
-		}
-		return toFetchTokenResponse(resp.AccessToken, resp.IssuedAt, resp.ExpiresIn), nil
+	if creds.Password != "" {
+		return fetchTokenWithFallback(ctx, req, creds)
 	}
 
 	return a.inner.FetchToken(ctx, req)
