@@ -1010,7 +1010,6 @@ func BuildWithResultHandler(ctx context.Context, nodes []builder.Node, opt map[s
 
 					ch, done := progress.NewChannel(pw)
 					defer func() { <-done }()
-
 					cc := c
 					var printRes map[string][]byte
 					// DEPOT: stop recording the build steps and traces on the server.
