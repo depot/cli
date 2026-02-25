@@ -84,7 +84,7 @@ func WithDepotImagePull(buildOpts map[string]build.Options, loadOpts DepotLoadOp
 			if len(platforms) == 1 {
 				platform := platforms[0]
 				pullOpt.Platform = &platform
-			} else if len(platforms) == 0 && loadOpts.BuildPlatform != "" {
+			} else if len(platforms) == 0 && loadOpts.BuildPlatform != "" && loadOpts.BuildPlatform != "dynamic" {
 				// When --build-platform is specified but platforms is not set in the
 				// compose file, use the build platform so Docker pulls the correct
 				// architecture instead of defaulting to the host architecture.
