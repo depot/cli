@@ -47,7 +47,7 @@ jobs:
         id: tag-name
         run: echo "tag-name=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
 
-      - uses: goreleaser/goreleaser-action@v5
+      - uses: goreleaser/goreleaser-action@v6
         with:
           version: 1.19.0
           args: release --clean
