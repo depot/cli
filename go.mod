@@ -14,7 +14,7 @@ require (
 	github.com/charmbracelet/huh v0.7.0
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/cli/safeexec v1.0.0
-	github.com/compose-spec/compose-go/v2 v2.1.3
+	github.com/compose-spec/compose-go/v2 v2.4.1
 	github.com/containerd/console v1.0.4-0.20230313162750-1ae8d489ac81
 	github.com/containerd/containerd v1.6.20
 	github.com/containerd/log v0.1.0
