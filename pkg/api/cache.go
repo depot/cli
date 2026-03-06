@@ -30,14 +30,14 @@ func newCacheServiceClient() cachev1connect.CacheServiceClient {
 // UploadCacheEntry uploads content to the Depot Cache service as a generic entry.
 // It uses a 3-step process: CreateEntry, HTTP PUT to presigned URL, FinalizeEntry.
 // If the entry already exists (content-addressed), it returns nil.
-func UploadCacheEntry(ctx context.Context, token, key string, content []byte) error {
+func UploadCacheEntry(ctx context.Context, token, orgID, key string, content []byte) error {
 	client := newCacheServiceClient()
 
 	// Step 1: Create cache entry
-	createResp, err := client.CreateEntry(ctx, WithAuthentication(connect.NewRequest(&cachev1.CreateEntryRequest{
+	createResp, err := client.CreateEntry(ctx, WithAuthenticationAndOrg(connect.NewRequest(&cachev1.CreateEntryRequest{
 		EntryType: "generic",
 		Key:       key,
-	}), token))
+	}), token, orgID))
 	if err != nil {
 		// Content-addressed: if already exists, skip upload
 		if connect.CodeOf(err) == connect.CodeAlreadyExists {
@@ -74,11 +74,11 @@ func UploadCacheEntry(ctx context.Context, token, key string, content []byte) er
 	}
 
 	// Step 3: Finalize the entry
-	_, err = client.FinalizeEntry(ctx, WithAuthentication(connect.NewRequest(&cachev1.FinalizeEntryRequest{
+	_, err = client.FinalizeEntry(ctx, WithAuthenticationAndOrg(connect.NewRequest(&cachev1.FinalizeEntryRequest{
 		EntryId:         createResp.Msg.EntryId,
 		SizeBytes:       int64(len(content)),
 		UploadPartEtags: []string{etag},
-	}), token))
+	}), token, orgID))
 	if err != nil {
 		return fmt.Errorf("failed to finalize cache entry: %w", err)
 	}

@@ -3,6 +3,7 @@ dist/
 /cli
 /bin
 /depot
+/.gocache
 
 node_modules
 
