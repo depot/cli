@@ -684,7 +684,7 @@ func printSaveHelp(project, buildID, progressMode string, requestedTargets, addi
 
 		if len(additionalTags) > 1 {
 			fmt.Fprintf(os.Stderr, "\tTo pull save-tags:\n")
-			fmt.Fprintf(os.Stderr, "\t\tdocker login registry.depot.dev -u x-token -p $(depot pull-token)\n")
+			fmt.Fprintf(os.Stderr, "\t\tdocker login registry.depot.dev -u x-token -p $(depot pull-token --project %s)\n", project)
 			fmt.Fprintln(os.Stderr)
 
 			// the api will send multiple of the same tag back for each target
