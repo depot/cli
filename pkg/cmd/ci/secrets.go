@@ -44,6 +44,7 @@ func NewCmdSecretsAdd() *cobra.Command {
 		token       string
 		value       string
 		description string
+		repo        string
 	)
 
 	cmd := &cobra.Command{
@@ -58,7 +59,10 @@ If --value is not provided, you will be prompted to enter the secret value secur
   depot ci secrets add MY_API_KEY --value "secret-value"
 
   # Add a secret with description
-  depot ci secrets add DATABASE_URL --description "Production database connection string"`,
+  depot ci secrets add DATABASE_URL --description "Production database connection string"
+
+  # Add a repo-scoped secret
+  depot ci secrets add REPO_TOKEN --repo owner/repo`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
@@ -88,12 +92,17 @@ If --value is not provided, you will be prompted to enter the secret value secur
 				}
 			}
 
-			err = api.CIAddSecretWithDescription(ctx, tokenVal, orgID, secretName, secretValue, description)
+			repoTrimmed := strings.TrimSpace(repo)
+			err = api.CIAddSecretWithDescription(ctx, tokenVal, orgID, secretName, secretValue, description, repoTrimmed)
 			if err != nil {
 				return fmt.Errorf("failed to add secret: %w", err)
 			}
 
-			fmt.Printf("Successfully added CI secret '%s'\n", secretName)
+			scopeDesc := "(all repos)"
+			if repoTrimmed != "" {
+				scopeDesc = repoTrimmed
+			}
+			fmt.Printf("Successfully added CI secret '%s' to %s\n", secretName, scopeDesc)
 			return nil
 		},
 	}
@@ -102,6 +111,7 @@ If --value is not provided, you will be prompted to enter the secret value secur
 	cmd.Flags().StringVar(&token, "token", "", "Depot API token")
 	cmd.Flags().StringVar(&value, "value", "", "Secret value (will prompt if not provided)")
 	cmd.Flags().StringVar(&description, "description", "", "Description of the secret")
+	cmd.Flags().StringVar(&repo, "repo", "", "Scope to a specific repo (owner/repo); omit for all repos")
 
 	return cmd
 }
@@ -111,6 +121,7 @@ func NewCmdSecretsList() *cobra.Command {
 		orgID  string
 		token  string
 		output string
+		repo   string
 	)
 
 	cmd := &cobra.Command{
@@ -124,7 +135,10 @@ func NewCmdSecretsList() *cobra.Command {
   depot ci secrets list --org my-org-id
 
   # List secrets in JSON format
-  depot ci secrets list --output json`,
+  depot ci secrets list --output json
+
+  # List secrets for a specific repo
+  depot ci secrets list --repo owner/repo`,
 		Aliases: []string{"ls"},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
@@ -141,7 +155,7 @@ func NewCmdSecretsList() *cobra.Command {
 				return fmt.Errorf("missing API token, please run `depot login`")
 			}
 
-			secrets, err := api.CIListSecrets(ctx, tokenVal, orgID)
+			secrets, err := api.CIListSecrets(ctx, tokenVal, orgID, strings.TrimSpace(repo))
 			if err != nil {
 				return fmt.Errorf("failed to list secrets: %w", err)
 			}
@@ -157,8 +171,8 @@ func NewCmdSecretsList() *cobra.Command {
 				return nil
 			}
 
-			fmt.Printf("%-30s %-50s %s\n", "NAME", "DESCRIPTION", "CREATED")
-			fmt.Printf("%-30s %-50s %s\n", strings.Repeat("-", 30), strings.Repeat("-", 50), strings.Repeat("-", 20))
+			fmt.Printf("%-30s %-50s %-25s %s\n", "NAME", "DESCRIPTION", "REPO", "CREATED")
+			fmt.Printf("%-30s %-50s %-25s %s\n", strings.Repeat("-", 30), strings.Repeat("-", 50), strings.Repeat("-", 25), strings.Repeat("-", 20))
 
 			for _, secret := range secrets {
 				name := secret.Name
@@ -171,9 +185,17 @@ func NewCmdSecretsList() *cobra.Command {
 					description = description[:47] + "..."
 				}
 
+				repoScope := secret.Repo
+				if repoScope == "" {
+					repoScope = "(all repos)"
+				}
+				if len(repoScope) > 25 {
+					repoScope = repoScope[:22] + "..."
+				}
+
 				created := secret.CreatedAt
 
-				fmt.Printf("%-30s %-50s %s\n", name, description, created)
+				fmt.Printf("%-30s %-50s %-25s %s\n", name, description, repoScope, created)
 			}
 
 			return nil
@@ -183,6 +205,7 @@ func NewCmdSecretsList() *cobra.Command {
 	cmd.Flags().StringVar(&orgID, "org", "", "Organization ID (required when user is a member of multiple organizations)")
 	cmd.Flags().StringVar(&token, "token", "", "Depot API token")
 	cmd.Flags().StringVar(&output, "output", "", "Output format (json)")
+	cmd.Flags().StringVar(&repo, "repo", "", "Filter to secrets that apply to this repo (owner/repo); omit for all")
 
 	return cmd
 }
@@ -192,6 +215,7 @@ func NewCmdSecretsRemove() *cobra.Command {
 		orgID string
 		token string
 		force bool
+		repo  string
 	)
 
 	cmd := &cobra.Command{
@@ -205,7 +229,10 @@ func NewCmdSecretsRemove() *cobra.Command {
   depot ci secrets remove GITHUB_TOKEN MY_API_KEY DATABASE_URL
 
   # Remove secrets without confirmation prompt
-  depot ci secrets remove GITHUB_TOKEN MY_API_KEY --force`,
+  depot ci secrets remove GITHUB_TOKEN MY_API_KEY --force
+
+  # Remove a repo-scoped secret
+  depot ci secrets remove REPO_TOKEN --repo owner/repo`,
 		Aliases: []string{"rm"},
 		Args:    cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -225,7 +252,11 @@ func NewCmdSecretsRemove() *cobra.Command {
 
 			if !force {
 				names := strings.Join(args, ", ")
-				prompt := fmt.Sprintf("Are you sure you want to remove CI secret(s) %s? (y/N): ", names)
+				scopeDesc := "(all repos)"
+				if strings.TrimSpace(repo) != "" {
+					scopeDesc = strings.TrimSpace(repo)
+				}
+				prompt := fmt.Sprintf("Are you sure you want to remove CI secret(s) %s from %s? (y/N): ", names, scopeDesc)
 				y, err := helpers.PromptForYN(prompt)
 				if err != nil {
 					return fmt.Errorf("failed to read confirmation: %w", err)
@@ -234,12 +265,16 @@ func NewCmdSecretsRemove() *cobra.Command {
 				}
 			}
 
+			scopeDesc := "(all repos)"
+			if strings.TrimSpace(repo) != "" {
+				scopeDesc = strings.TrimSpace(repo)
+			}
 			for _, secretName := range args {
-				err := api.CIDeleteSecret(ctx, tokenVal, orgID, secretName)
+				err := api.CIDeleteSecret(ctx, tokenVal, orgID, secretName, strings.TrimSpace(repo))
 				if err != nil {
 					return fmt.Errorf("failed to remove secret '%s': %w", secretName, err)
 				}
-				fmt.Printf("Successfully removed CI secret '%s'\n", secretName)
+				fmt.Printf("Successfully removed CI secret '%s' from %s\n", secretName, scopeDesc)
 			}
 
 			return nil
@@ -249,6 +284,7 @@ func NewCmdSecretsRemove() *cobra.Command {
 	cmd.Flags().StringVar(&orgID, "org", "", "Organization ID (required when user is a member of multiple organizations)")
 	cmd.Flags().StringVar(&token, "token", "", "Depot API token")
 	cmd.Flags().BoolVar(&force, "force", false, "Skip confirmation prompt")
+	cmd.Flags().StringVar(&repo, "repo", "", "Remove the repo-scoped entry (owner/repo); omit for all-repos entry")
 
 	return cmd
 }

@@ -17,17 +17,25 @@ message AddVariableRequest {
   string name = 1;
   string value = 2;
   optional string description = 3;
+  // Optional. If set, scope to exactly one repo (owner/repo). Empty = all repos.
+  optional string repo = 4;
 }
 
 message AddVariableResponse {}
 
 message RemoveVariableRequest {
   string name = 1;
+  // Optional. If set, removes the repo-scoped entry. Empty = all-repos entry.
+  optional string repo = 2;
 }
 
 message RemoveVariableResponse {}
 
-message ListVariablesRequest {}
+message ListVariablesRequest {
+  // Optional. If empty: return all variables across all scopes for the org.
+  // If set to owner/repo: return entries that apply to that repo (all-repos + repo-specific).
+  optional string repo_filter = 1;
+}
 
 message ListVariablesResponse {
   repeated Variable variables = 1;
@@ -37,9 +45,16 @@ message Variable {
   string name = 1;
   optional string description = 2;
   optional google.protobuf.Timestamp last_modified = 3;
+  // Scope: empty = all repos, non-empty = exactly this owner/repo.
+  optional string repo = 4;
+  // Value included so app does not need separate GetAllVariables for list view.
+  optional string value = 5;
 }
 
-message GetAllVariablesRequest {}
+message GetAllVariablesRequest {
+  // Optional. If set, resolve variables for this repo (repo-specific first, then all-repos).
+  optional string repo = 1;
+}
 
 message GetAllVariablesResponse {
   map<string, string> variables = 1;
@@ -48,12 +63,16 @@ message GetAllVariablesResponse {
 message UpdateVariableDescriptionRequest {
   string name = 1;
   string description = 2;
+  // Optional. If set, update the repo-scoped entry. Empty = all-repos entry.
+  optional string repo = 3;
 }
 
 message UpdateVariableDescriptionResponse {}
 
 message BatchAddVariablesRequest {
   repeated AddVariableRequest variables = 1;
+  // Optional. If set, scope all variables in this batch to this repo.
+  optional string repo = 2;
 }
 
 message BatchAddVariablesResponse {}

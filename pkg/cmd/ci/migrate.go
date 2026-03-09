@@ -320,7 +320,7 @@ func runMigrate(ctx context.Context, opts migrateOptions) error {
 			return err
 		}
 
-		if err := api.CIAddVariable(ctx, token, orgID, name, value); err != nil {
+		if err := api.CIAddVariable(ctx, token, orgID, name, value, ""); err != nil {
 			return fmt.Errorf("failed to configure variable %s: %w", name, err)
 		}
 		configuredVariables = append(configuredVariables, name)

@@ -108,11 +108,12 @@ func newCISecretServiceClient() civ1connect.SecretServiceClient {
 
 // CIAddSecret adds a single CI secret to an organization
 func CIAddSecret(ctx context.Context, token, orgID, name, value string) error {
-	return CIAddSecretWithDescription(ctx, token, orgID, name, value, "")
+	return CIAddSecretWithDescription(ctx, token, orgID, name, value, "", "")
 }
 
-// CIAddSecretWithDescription adds a single CI secret to an organization, with an optional description.
-func CIAddSecretWithDescription(ctx context.Context, token, orgID, name, value, description string) error {
+// CIAddSecretWithDescription adds a single CI secret to an organization, with an optional description and repo scope.
+// If repo is non-empty (owner/repo), the secret is scoped to that repo; otherwise it applies to all repos.
+func CIAddSecretWithDescription(ctx context.Context, token, orgID, name, value, description, repo string) error {
 	client := newCISecretServiceClient()
 	req := &civ1.AddSecretRequest{
 		Name:  name,
@@ -120,6 +121,9 @@ func CIAddSecretWithDescription(ctx context.Context, token, orgID, name, value, 
 	}
 	if description != "" {
 		req.Description = &description
+	}
+	if repo != "" {
+		req.Repo = &repo
 	}
 	_, err := client.AddSecret(ctx, WithAuthenticationAndOrg(connect.NewRequest(req), token, orgID))
 	return err
@@ -130,12 +134,18 @@ type CISecret struct {
 	Name        string `json:"name"`
 	Description string `json:"description,omitempty"`
 	CreatedAt   string `json:"createdAt,omitempty"`
+	Repo        string `json:"repo,omitempty"` // owner/repo or empty for all repos
 }
 
-// CIListSecrets lists all CI secrets for an organization
-func CIListSecrets(ctx context.Context, token, orgID string) ([]CISecret, error) {
+// CIListSecrets lists all CI secrets for an organization.
+// If repoFilter is non-empty (owner/repo), returns secrets that apply to that repo (all-repos + repo-specific).
+func CIListSecrets(ctx context.Context, token, orgID, repoFilter string) ([]CISecret, error) {
 	client := newCISecretServiceClient()
-	resp, err := client.ListSecrets(ctx, WithAuthenticationAndOrg(connect.NewRequest(&civ1.ListSecretsRequest{}), token, orgID))
+	req := &civ1.ListSecretsRequest{}
+	if repoFilter != "" {
+		req.RepoFilter = &repoFilter
+	}
+	resp, err := client.ListSecrets(ctx, WithAuthenticationAndOrg(connect.NewRequest(req), token, orgID))
 	if err != nil {
 		return nil, err
 	}
@@ -150,15 +160,23 @@ func CIListSecrets(ctx context.Context, token, orgID string) ([]CISecret, error)
 		if s.LastModified != nil {
 			cs.CreatedAt = s.LastModified.AsTime().Format(time.RFC3339)
 		}
+		if s.Repo != nil && *s.Repo != "" {
+			cs.Repo = *s.Repo
+		}
 		secrets = append(secrets, cs)
 	}
 	return secrets, nil
 }
 
-// CIDeleteSecret deletes a CI secret from an organization
-func CIDeleteSecret(ctx context.Context, token, orgID, name string) error {
+// CIDeleteSecret deletes a CI secret from an organization.
+// If repo is non-empty, removes the repo-scoped entry; otherwise removes the all-repos entry.
+func CIDeleteSecret(ctx context.Context, token, orgID, name, repo string) error {
 	client := newCISecretServiceClient()
-	_, err := client.RemoveSecret(ctx, WithAuthenticationAndOrg(connect.NewRequest(&civ1.RemoveSecretRequest{Name: name}), token, orgID))
+	req := &civ1.RemoveSecretRequest{Name: name}
+	if repo != "" {
+		req.Repo = &repo
+	}
+	_, err := client.RemoveSecret(ctx, WithAuthenticationAndOrg(connect.NewRequest(req), token, orgID))
 	return err
 }
 
@@ -167,13 +185,18 @@ func newCIVariableServiceClient() civ1connect.VariableServiceClient {
 	return civ1connect.NewVariableServiceClient(getHTTPClient(baseURL), baseURL, WithUserAgent())
 }
 
-// CIAddVariable adds a single CI variable to an organization
-func CIAddVariable(ctx context.Context, token, orgID, name, value string) error {
+// CIAddVariable adds a single CI variable to an organization.
+// If repo is non-empty (owner/repo), the variable is scoped to that repo; otherwise it applies to all repos.
+func CIAddVariable(ctx context.Context, token, orgID, name, value, repo string) error {
 	client := newCIVariableServiceClient()
-	_, err := client.AddVariable(ctx, WithAuthenticationAndOrg(connect.NewRequest(&civ1.AddVariableRequest{
+	req := &civ1.AddVariableRequest{
 		Name:  name,
 		Value: value,
-	}), token, orgID))
+	}
+	if repo != "" {
+		req.Repo = &repo
+	}
+	_, err := client.AddVariable(ctx, WithAuthenticationAndOrg(connect.NewRequest(req), token, orgID))
 	return err
 }
 
@@ -182,12 +205,18 @@ type CIVariable struct {
 	Name        string `json:"name"`
 	Description string `json:"description,omitempty"`
 	CreatedAt   string `json:"createdAt,omitempty"`
+	Repo        string `json:"repo,omitempty"` // owner/repo or empty for all repos
 }
 
-// CIListVariables lists all CI variables for an organization
-func CIListVariables(ctx context.Context, token, orgID string) ([]CIVariable, error) {
+// CIListVariables lists all CI variables for an organization.
+// If repoFilter is non-empty (owner/repo), returns variables that apply to that repo (all-repos + repo-specific).
+func CIListVariables(ctx context.Context, token, orgID, repoFilter string) ([]CIVariable, error) {
 	client := newCIVariableServiceClient()
-	resp, err := client.ListVariables(ctx, WithAuthenticationAndOrg(connect.NewRequest(&civ1.ListVariablesRequest{}), token, orgID))
+	req := &civ1.ListVariablesRequest{}
+	if repoFilter != "" {
+		req.RepoFilter = &repoFilter
+	}
+	resp, err := client.ListVariables(ctx, WithAuthenticationAndOrg(connect.NewRequest(req), token, orgID))
 	if err != nil {
 		return nil, err
 	}
@@ -202,14 +231,22 @@ func CIListVariables(ctx context.Context, token, orgID string) ([]CIVariable, er
 		if v.LastModified != nil {
 			cv.CreatedAt = v.LastModified.AsTime().Format(time.RFC3339)
 		}
+		if v.Repo != nil && *v.Repo != "" {
+			cv.Repo = *v.Repo
+		}
 		variables = append(variables, cv)
 	}
 	return variables, nil
 }
 
-// CIDeleteVariable deletes a CI variable from an organization
-func CIDeleteVariable(ctx context.Context, token, orgID, name string) error {
+// CIDeleteVariable deletes a CI variable from an organization.
+// If repo is non-empty, removes the repo-scoped entry; otherwise removes the all-repos entry.
+func CIDeleteVariable(ctx context.Context, token, orgID, name, repo string) error {
 	client := newCIVariableServiceClient()
-	_, err := client.RemoveVariable(ctx, WithAuthenticationAndOrg(connect.NewRequest(&civ1.RemoveVariableRequest{Name: name}), token, orgID))
+	req := &civ1.RemoveVariableRequest{Name: name}
+	if repo != "" {
+		req.Repo = &repo
+	}
+	_, err := client.RemoveVariable(ctx, WithAuthenticationAndOrg(connect.NewRequest(req), token, orgID))
 	return err
 }

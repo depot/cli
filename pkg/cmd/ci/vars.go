@@ -41,6 +41,7 @@ func NewCmdVarsAdd() *cobra.Command {
 		orgID string
 		token string
 		value string
+		repo  string
 	)
 
 	cmd := &cobra.Command{
@@ -55,7 +56,10 @@ If --value is not provided, you will be prompted to enter the secret value secur
   depot ci vars add MY_SERVICE_NAME --value "my_service"
 
   # Add a variable with description
-  depot ci vars add MY_SERVICE_NAME --description "Name of the service for matrix tests"`,
+  depot ci vars add MY_SERVICE_NAME --description "Name of the service for matrix tests"
+
+  # Add a repo-scoped variable
+  depot ci vars add REPO_VAR --repo owner/repo`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
@@ -85,12 +89,17 @@ If --value is not provided, you will be prompted to enter the secret value secur
 				}
 			}
 
-			err = api.CIAddVariable(ctx, tokenVal, orgID, varName, varValue)
+			repoTrimmed := strings.TrimSpace(repo)
+			err = api.CIAddVariable(ctx, tokenVal, orgID, varName, varValue, repoTrimmed)
 			if err != nil {
 				return fmt.Errorf("failed to add CI variable: %w", err)
 			}
 
-			fmt.Printf("Successfully added CI variable '%s'\n", varName)
+			scopeDesc := "(all repos)"
+			if repoTrimmed != "" {
+				scopeDesc = repoTrimmed
+			}
+			fmt.Printf("Successfully added CI variable '%s' to %s\n", varName, scopeDesc)
 			return nil
 		},
 	}
@@ -98,6 +107,7 @@ If --value is not provided, you will be prompted to enter the secret value secur
 	cmd.Flags().StringVar(&orgID, "org", "", "Organization ID")
 	cmd.Flags().StringVar(&token, "token", "", "Depot API token")
 	cmd.Flags().StringVar(&value, "value", "", "Variable value (will prompt if not provided)")
+	cmd.Flags().StringVar(&repo, "repo", "", "Scope to a specific repo (owner/repo); omit for all repos")
 
 	return cmd
 }
@@ -107,6 +117,7 @@ func NewCmdVarsList() *cobra.Command {
 		orgID  string
 		token  string
 		output string
+		repo   string
 	)
 
 	cmd := &cobra.Command{
@@ -128,7 +139,7 @@ func NewCmdVarsList() *cobra.Command {
 				return fmt.Errorf("missing API token, please run `depot login`")
 			}
 
-			variables, err := api.CIListVariables(ctx, tokenVal, orgID)
+			variables, err := api.CIListVariables(ctx, tokenVal, orgID, strings.TrimSpace(repo))
 			if err != nil {
 				return fmt.Errorf("failed to list CI variables: %w", err)
 			}
@@ -144,8 +155,8 @@ func NewCmdVarsList() *cobra.Command {
 				return nil
 			}
 
-			fmt.Printf("%-30s %-50s %s\n", "NAME", "DESCRIPTION", "CREATED")
-			fmt.Printf("%-30s %-50s %s\n", strings.Repeat("-", 30), strings.Repeat("-", 50), strings.Repeat("-", 20))
+			fmt.Printf("%-30s %-50s %-25s %s\n", "NAME", "DESCRIPTION", "REPO", "CREATED")
+			fmt.Printf("%-30s %-50s %-25s %s\n", strings.Repeat("-", 30), strings.Repeat("-", 50), strings.Repeat("-", 25), strings.Repeat("-", 20))
 
 			for _, v := range variables {
 				name := v.Name
@@ -158,9 +169,17 @@ func NewCmdVarsList() *cobra.Command {
 					description = description[:47] + "..."
 				}
 
+				repoScope := v.Repo
+				if repoScope == "" {
+					repoScope = "(all repos)"
+				}
+				if len(repoScope) > 25 {
+					repoScope = repoScope[:22] + "..."
+				}
+
 				created := v.CreatedAt
 
-				fmt.Printf("%-30s %-50s %s\n", name, description, created)
+				fmt.Printf("%-30s %-50s %-25s %s\n", name, description, repoScope, created)
 			}
 
 			return nil
@@ -170,6 +189,7 @@ func NewCmdVarsList() *cobra.Command {
 	cmd.Flags().StringVar(&orgID, "org", "", "Organization ID")
 	cmd.Flags().StringVar(&token, "token", "", "Depot API token")
 	cmd.Flags().StringVar(&output, "output", "", "Output format (json)")
+	cmd.Flags().StringVar(&repo, "repo", "", "Filter to variables that apply to this repo (owner/repo); omit for all")
 
 	return cmd
 }
@@ -179,6 +199,7 @@ func NewCmdVarsRemove() *cobra.Command {
 		orgID string
 		token string
 		force bool
+		repo  string
 	)
 
 	cmd := &cobra.Command{
@@ -192,7 +213,10 @@ func NewCmdVarsRemove() *cobra.Command {
   depot ci vars remove GITHUB_REPO MY_SERVICE_NAME DEPLOY_ENV
 
   # Remove variables without confirmation prompt
-  depot ci vars remove GITHUB_REPO MY_SERVICE_NAME --force`,
+  depot ci vars remove GITHUB_REPO MY_SERVICE_NAME --force
+
+  # Remove a repo-scoped variable
+  depot ci vars remove REPO_VAR --repo owner/repo`,
 		Aliases: []string{"rm"},
 		Args:    cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -212,7 +236,11 @@ func NewCmdVarsRemove() *cobra.Command {
 
 			if !force {
 				names := strings.Join(args, ", ")
-				prompt := fmt.Sprintf("Are you sure you want to remove CI variable(s) %s? (y/N): ", names)
+				scopeDesc := "(all repos)"
+				if strings.TrimSpace(repo) != "" {
+					scopeDesc = strings.TrimSpace(repo)
+				}
+				prompt := fmt.Sprintf("Are you sure you want to remove CI variable(s) %s from %s? (y/N): ", names, scopeDesc)
 				y, err := helpers.PromptForYN(prompt)
 				if err != nil {
 					return fmt.Errorf("failed to read confirmation: %w", err)
@@ -221,12 +249,16 @@ func NewCmdVarsRemove() *cobra.Command {
 				}
 			}
 
+			scopeDesc := "(all repos)"
+			if strings.TrimSpace(repo) != "" {
+				scopeDesc = strings.TrimSpace(repo)
+			}
 			for _, varName := range args {
-				err := api.CIDeleteVariable(ctx, tokenVal, orgID, varName)
+				err := api.CIDeleteVariable(ctx, tokenVal, orgID, varName, strings.TrimSpace(repo))
 				if err != nil {
 					return fmt.Errorf("failed to remove CI variable '%s': %w", varName, err)
 				}
-				fmt.Printf("Successfully removed CI variable '%s'\n", varName)
+				fmt.Printf("Successfully removed CI variable '%s' from %s\n", varName, scopeDesc)
 			}
 
 			return nil
@@ -236,6 +268,7 @@ func NewCmdVarsRemove() *cobra.Command {
 	cmd.Flags().StringVar(&orgID, "org", "", "Organization ID")
 	cmd.Flags().StringVar(&token, "token", "", "Depot API token")
 	cmd.Flags().BoolVar(&force, "force", false, "Skip confirmation prompt")
+	cmd.Flags().StringVar(&repo, "repo", "", "Remove the repo-scoped entry (owner/repo); omit for all-repos entry")
 
 	return cmd
 }
