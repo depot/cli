@@ -194,4 +194,3 @@ func fetch(ctx context.Context, fetcher remotes.Fetcher, desc ocispecs.Descripto
 	defer func() { _ = r.Close() }()
 	return io.ReadAll(r)
 }
-
