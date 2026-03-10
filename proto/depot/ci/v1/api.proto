@@ -1,0 +1,68 @@
+syntax = "proto3";
+
+package depot.ci.v1;
+
+option go_package = "github.com/depot/api/proto/depot/ci/v1;civ1";
+
+// DepotComputeApi is a collection of public APIs to manage Compute on Depot platform.
+service DepotComputeService {
+  // OpenPtySession opens a pseudo terminal session
+  rpc OpenPtySession(stream OpenPtySessionRequest) returns (stream OpenPtySessionResponse);
+  // RemoteExec executes provided command against the respective Compute.
+  rpc RemoteExec(ExecuteCommandRequest) returns (stream ExecuteCommandResponse);
+}
+
+// WindowResize describes the pseudo terminal width and height.
+message WindowResize {
+  uint32 rows = 1;
+  uint32 cols = 2;
+}
+
+// OpenPtySessionRequest describes the building blocks of starting a pty session.
+message OpenPtySessionRequest {
+  oneof message {
+    PtySession init = 1;
+    bytes stdin = 2;
+    WindowResize window_resize = 3;
+  }
+}
+
+// PtySession represents the available pty configurations.
+message PtySession {
+  string sandbox_id = 1;
+  string session_id = 2;
+  string cwd = 3;
+  map<string, string> env = 4;
+  uint32 rows = 5;
+  uint32 cols = 6;
+}
+
+// OpenPtySessionResponse returns stdout and exit code.
+message OpenPtySessionResponse {
+  oneof message {
+    bytes stdout = 1;
+    int32 exit_code = 2;
+  }
+}
+
+// ExecuteCommandRequest executes a command within the respective compute.
+message ExecuteCommandRequest {
+  string sandbox_id = 1;
+  string session_id = 2;
+  Command command = 3;
+}
+
+// Command encapsulates a command.
+message Command {
+  repeated string command_array = 1;
+  int32 timeout_ms = 2;
+}
+
+// ExecuteCommandResponse returns the command execution results.
+message ExecuteCommandResponse {
+  oneof message {
+    string stdout = 1;
+    string stderr = 2;
+    int32 exit_code = 3;
+  }
+}
