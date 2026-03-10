@@ -75,7 +75,7 @@ func newComputeExec() *cobra.Command {
 				case *civ1.ExecuteCommandResponse_Stdout:
 					fmt.Fprint(os.Stdout, v.Stdout)
 				case *civ1.ExecuteCommandResponse_Stderr:
-					fmt.Fprint(os.Stdout, v.Stderr)
+					fmt.Fprint(os.Stderr, v.Stderr)
 				case *civ1.ExecuteCommandResponse_ExitCode:
 					if v.ExitCode != 0 {
 						os.Exit(int(v.ExitCode))

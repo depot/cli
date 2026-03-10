@@ -1,6 +1,7 @@
 package compute
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -85,6 +86,16 @@ func newComputePty() *cobra.Command {
 			}
 			defer term.Restore(fd, oldState) //nolint:errcheck
 
+			// Restore terminal on signals that would otherwise leave it raw.
+			sigCh := make(chan os.Signal, 1)
+			signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+			go func() {
+				<-sigCh
+				term.Restore(fd, oldState) //nolint:errcheck
+				os.Exit(1)
+			}()
+			defer signal.Stop(sigCh)
+
 			client := api.NewComputeClient()
 			stream := client.OpenPtySession(ctx)
 			stream.RequestHeader().Set("Authorization", "Bearer "+token)
@@ -105,27 +116,26 @@ func newComputePty() *cobra.Command {
 				return fmt.Errorf("send pty init: %w", err)
 			}
 
-			// Handle SIGWINCH for terminal resize.
-			sigwinch := make(chan os.Signal, 1)
-			signal.Notify(sigwinch, syscall.SIGWINCH)
-			defer signal.Stop(sigwinch)
+			ctx, cancel := context.WithCancel(ctx)
+			defer cancel()
+
+			sendCh := make(chan *civ1.OpenPtySessionRequest, 1)
 
 			go func() {
-				for range sigwinch {
-					w, h, err := term.GetSize(fd)
-					if err != nil {
-						continue
+				for {
+					select {
+					case msg := <-sendCh:
+						_ = stream.Send(msg)
+					case <-ctx.Done():
+						_ = stream.CloseRequest()
+						return
 					}
-					_ = stream.Send(&civ1.OpenPtySessionRequest{
-						Message: &civ1.OpenPtySessionRequest_WindowResize{
-							WindowResize: &civ1.WindowResize{
-								Rows: uint32(h),
-								Cols: uint32(w),
-							},
-						},
-					})
 				}
 			}()
+
+			// Watch for terminal resize events (no-op on Windows).
+			stopResize := watchTerminalResize(ctx, fd, sendCh)
+			defer stopResize()
 
 			// Forward stdin to the stream.
 			go func() {
@@ -133,12 +143,17 @@ func newComputePty() *cobra.Command {
 				for {
 					n, err := os.Stdin.Read(buf)
 					if n > 0 {
-						_ = stream.Send(&civ1.OpenPtySessionRequest{
-							Message: &civ1.OpenPtySessionRequest_Stdin{Stdin: buf[:n]},
-						})
+						data := make([]byte, n)
+						copy(data, buf[:n])
+						select {
+						case sendCh <- &civ1.OpenPtySessionRequest{
+							Message: &civ1.OpenPtySessionRequest_Stdin{Stdin: data},
+						}:
+						case <-ctx.Done():
+							return
+						}
 					}
 					if err != nil {
-						_ = stream.CloseRequest()
 						return
 					}
 				}
@@ -159,6 +174,7 @@ func newComputePty() *cobra.Command {
 				case *civ1.OpenPtySessionResponse_ExitCode:
 					fmt.Fprintf(os.Stderr, "\r\n[exit %d]\r\n", m.ExitCode)
 					if m.ExitCode != 0 {
+						term.Restore(fd, oldState) //nolint:errcheck
 						os.Exit(int(m.ExitCode))
 					}
 					return nil
