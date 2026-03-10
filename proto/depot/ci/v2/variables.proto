@@ -1,0 +1,110 @@
+syntax = "proto3";
+
+package depot.ci.v2;
+
+import "google/protobuf/timestamp.proto";
+
+// VariableService provides separate org-scoped and repo-scoped variable management.
+// Repo-scoped variables override org-scoped variables at runtime for CI jobs.
+service VariableService {
+  // Org-scoped variables (no repo in path)
+  rpc AddOrgVariable(AddOrgVariableRequest) returns (AddOrgVariableResponse);
+  rpc RemoveOrgVariable(RemoveOrgVariableRequest) returns (RemoveOrgVariableResponse);
+  rpc ListOrgVariables(ListOrgVariablesRequest) returns (ListOrgVariablesResponse);
+  rpc UpdateOrgVariableDescription(UpdateOrgVariableDescriptionRequest) returns (UpdateOrgVariableDescriptionResponse);
+  rpc BatchAddOrgVariables(BatchAddOrgVariablesRequest) returns (BatchAddOrgVariablesResponse);
+
+  // Repo-scoped variables (path includes hashed repo segment)
+  rpc AddRepoVariable(AddRepoVariableRequest) returns (AddRepoVariableResponse);
+  rpc RemoveRepoVariable(RemoveRepoVariableRequest) returns (RemoveRepoVariableResponse);
+  rpc ListRepoVariables(ListRepoVariablesRequest) returns (ListRepoVariablesResponse);
+  rpc UpdateRepoVariableDescription(UpdateRepoVariableDescriptionRequest) returns (UpdateRepoVariableDescriptionResponse);
+  rpc BatchAddRepoVariables(BatchAddRepoVariablesRequest) returns (BatchAddRepoVariablesResponse);
+}
+
+// Shared batch input for variable creation.
+message VariableInput {
+  string name = 1;
+  string value = 2;
+  optional string description = 3;
+}
+
+// Org-scoped messages
+message AddOrgVariableRequest {
+  string name = 1;
+  string value = 2;
+  optional string description = 3;
+}
+
+message AddOrgVariableResponse {}
+
+message RemoveOrgVariableRequest {
+  string name = 1;
+}
+
+message RemoveOrgVariableResponse {}
+
+message ListOrgVariablesRequest {}
+
+message ListOrgVariablesResponse {
+  repeated Variable variables = 1;
+}
+
+message Variable {
+  string name = 1;
+  optional string description = 2;
+  optional google.protobuf.Timestamp last_modified = 3;
+}
+
+message UpdateOrgVariableDescriptionRequest {
+  string name = 1;
+  string description = 2;
+}
+
+message UpdateOrgVariableDescriptionResponse {}
+
+message BatchAddOrgVariablesRequest {
+  repeated VariableInput variables = 1;
+}
+
+message BatchAddOrgVariablesResponse {}
+
+// Repo-scoped messages
+message AddRepoVariableRequest {
+  string repo = 1;  // e.g. "owner/name"
+  string name = 2;
+  string value = 3;
+  optional string description = 4;
+}
+
+message AddRepoVariableResponse {}
+
+message RemoveRepoVariableRequest {
+  string repo = 1;
+  string name = 2;
+}
+
+message RemoveRepoVariableResponse {}
+
+message ListRepoVariablesRequest {
+  string repo = 1;
+}
+
+message ListRepoVariablesResponse {
+  repeated Variable variables = 1;
+}
+
+message UpdateRepoVariableDescriptionRequest {
+  string repo = 1;
+  string name = 2;
+  string description = 3;
+}
+
+message UpdateRepoVariableDescriptionResponse {}
+
+message BatchAddRepoVariablesRequest {
+  string repo = 1;
+  repeated VariableInput variables = 2;
+}
+
+message BatchAddRepoVariablesResponse {}
