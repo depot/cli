@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package depot.ci.v1;
 
-option go_package = "github.com/depot/api/proto/depot/ci/v1;civ1";
+option go_package = "github.com/depot/cli/pkg/proto/depot/ci/v1;civ1";
 
 // DepotComputeApi is a collection of public APIs to manage Compute on Depot platform.
 service DepotComputeService {

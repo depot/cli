@@ -92,7 +92,7 @@ func newComputeExec() *cobra.Command {
 
 	cmd.Flags().String("sandbox-id", "", "ID of the compute to execute the command against")
 	cmd.Flags().String("session-id", "", "The session the compute belongs to")
-	cmd.Flags().Int("timeout", 0, "The executione timeout in milliseconds")
+	cmd.Flags().Int("timeout", 0, "The execution timeout in milliseconds")
 
 	return cmd
 }
