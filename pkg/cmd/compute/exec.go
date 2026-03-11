@@ -26,6 +26,7 @@ func newComputeExec() *cobra.Command {
   # execute complex command
   depot compute exec --sandbox-id 1234567890 --session-id 1234567890 -- /bin/bash -lc 'for i in {1..10}; do echo $i; sleep 1; done'
 `,
+		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
 
@@ -80,6 +81,7 @@ func newComputeExec() *cobra.Command {
 					if v.ExitCode != 0 {
 						os.Exit(int(v.ExitCode))
 					}
+					return nil
 				}
 			}
 			if err := stream.Err(); err != nil {

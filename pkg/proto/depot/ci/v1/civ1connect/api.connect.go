@@ -39,6 +39,9 @@ const (
 	// DepotComputeServiceRemoteExecProcedure is the fully-qualified name of the DepotComputeService's
 	// RemoteExec RPC.
 	DepotComputeServiceRemoteExecProcedure = "/depot.ci.v1.DepotComputeService/RemoteExec"
+	// DepotComputeServiceExecPipeProcedure is the fully-qualified name of the DepotComputeService's
+	// ExecPipe RPC.
+	DepotComputeServiceExecPipeProcedure = "/depot.ci.v1.DepotComputeService/ExecPipe"
 )
 
 // DepotComputeServiceClient is a client for the depot.ci.v1.DepotComputeService service.
@@ -47,6 +50,8 @@ type DepotComputeServiceClient interface {
 	OpenPtySession(context.Context) *connect.BidiStreamForClient[v1.OpenPtySessionRequest, v1.OpenPtySessionResponse]
 	// RemoteExec executes provided command against the respective Compute.
 	RemoteExec(context.Context, *connect.Request[v1.ExecuteCommandRequest]) (*connect.ServerStreamForClient[v1.ExecuteCommandResponse], error)
+	// ExecPipe executes a command, then streams bytes to stdin.
+	ExecPipe(context.Context) *connect.BidiStreamForClient[v1.ExecuteCommandPipeRequest, v1.ExecuteCommandResponse]
 }
 
 // NewDepotComputeServiceClient constructs a client for the depot.ci.v1.DepotComputeService service.
@@ -69,6 +74,11 @@ func NewDepotComputeServiceClient(httpClient connect.HTTPClient, baseURL string,
 			baseURL+DepotComputeServiceRemoteExecProcedure,
 			opts...,
 		),
+		execPipe: connect.NewClient[v1.ExecuteCommandPipeRequest, v1.ExecuteCommandResponse](
+			httpClient,
+			baseURL+DepotComputeServiceExecPipeProcedure,
+			opts...,
+		),
 	}
 }
 
@@ -76,6 +86,7 @@ func NewDepotComputeServiceClient(httpClient connect.HTTPClient, baseURL string,
 type depotComputeServiceClient struct {
 	openPtySession *connect.Client[v1.OpenPtySessionRequest, v1.OpenPtySessionResponse]
 	remoteExec     *connect.Client[v1.ExecuteCommandRequest, v1.ExecuteCommandResponse]
+	execPipe       *connect.Client[v1.ExecuteCommandPipeRequest, v1.ExecuteCommandResponse]
 }
 
 // OpenPtySession calls depot.ci.v1.DepotComputeService.OpenPtySession.
@@ -88,12 +99,19 @@ func (c *depotComputeServiceClient) RemoteExec(ctx context.Context, req *connect
 	return c.remoteExec.CallServerStream(ctx, req)
 }
 
+// ExecPipe calls depot.ci.v1.DepotComputeService.ExecPipe.
+func (c *depotComputeServiceClient) ExecPipe(ctx context.Context) *connect.BidiStreamForClient[v1.ExecuteCommandPipeRequest, v1.ExecuteCommandResponse] {
+	return c.execPipe.CallBidiStream(ctx)
+}
+
 // DepotComputeServiceHandler is an implementation of the depot.ci.v1.DepotComputeService service.
 type DepotComputeServiceHandler interface {
 	// OpenPtySession opens a pseudo terminal session
 	OpenPtySession(context.Context, *connect.BidiStream[v1.OpenPtySessionRequest, v1.OpenPtySessionResponse]) error
 	// RemoteExec executes provided command against the respective Compute.
 	RemoteExec(context.Context, *connect.Request[v1.ExecuteCommandRequest], *connect.ServerStream[v1.ExecuteCommandResponse]) error
+	// ExecPipe executes a command, then streams bytes to stdin.
+	ExecPipe(context.Context, *connect.BidiStream[v1.ExecuteCommandPipeRequest, v1.ExecuteCommandResponse]) error
 }
 
 // NewDepotComputeServiceHandler builds an HTTP handler from the service implementation. It returns
@@ -112,12 +130,19 @@ func NewDepotComputeServiceHandler(svc DepotComputeServiceHandler, opts ...conne
 		svc.RemoteExec,
 		opts...,
 	)
+	depotComputeServiceExecPipeHandler := connect.NewBidiStreamHandler(
+		DepotComputeServiceExecPipeProcedure,
+		svc.ExecPipe,
+		opts...,
+	)
 	return "/depot.ci.v1.DepotComputeService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case DepotComputeServiceOpenPtySessionProcedure:
 			depotComputeServiceOpenPtySessionHandler.ServeHTTP(w, r)
 		case DepotComputeServiceRemoteExecProcedure:
 			depotComputeServiceRemoteExecHandler.ServeHTTP(w, r)
+		case DepotComputeServiceExecPipeProcedure:
+			depotComputeServiceExecPipeHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -133,4 +158,8 @@ func (UnimplementedDepotComputeServiceHandler) OpenPtySession(context.Context, *
 
 func (UnimplementedDepotComputeServiceHandler) RemoteExec(context.Context, *connect.Request[v1.ExecuteCommandRequest], *connect.ServerStream[v1.ExecuteCommandResponse]) error {
 	return connect.NewError(connect.CodeUnimplemented, errors.New("depot.ci.v1.DepotComputeService.RemoteExec is not implemented"))
+}
+
+func (UnimplementedDepotComputeServiceHandler) ExecPipe(context.Context, *connect.BidiStream[v1.ExecuteCommandPipeRequest, v1.ExecuteCommandResponse]) error {
+	return connect.NewError(connect.CodeUnimplemented, errors.New("depot.ci.v1.DepotComputeService.ExecPipe is not implemented"))
 }

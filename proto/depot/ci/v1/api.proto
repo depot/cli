@@ -10,6 +10,8 @@ service DepotComputeService {
   rpc OpenPtySession(stream OpenPtySessionRequest) returns (stream OpenPtySessionResponse);
   // RemoteExec executes provided command against the respective Compute.
   rpc RemoteExec(ExecuteCommandRequest) returns (stream ExecuteCommandResponse);
+  // ExecPipe executes a command, then streams bytes to stdin.
+  rpc ExecPipe(stream ExecuteCommandPipeRequest) returns (stream ExecuteCommandResponse);
 }
 
 // WindowResize describes the pseudo terminal width and height.
@@ -50,6 +52,14 @@ message ExecuteCommandRequest {
   string sandbox_id = 1;
   string session_id = 2;
   Command command = 3;
+}
+
+// ExecuteCommandPipeRequest executes a command, then streams bytes to stdin.
+message ExecuteCommandPipeRequest {
+  oneof message {
+    ExecuteCommandRequest init = 1;
+    bytes stdin = 2;
+  }
 }
 
 // Command encapsulates a command.
