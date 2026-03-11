@@ -58,7 +58,7 @@ func NewCmdStatus() *cobra.Command {
 					fmt.Printf("    Job: %s [%s] (%s)\n", job.JobId, job.JobKey, job.Status)
 
 					for _, attempt := range job.Attempts {
-						fmt.Printf("      Attempt: %s #%d (%s)\n", attempt.AttemptId, attempt.Attempt, attempt.Status)
+						fmt.Printf("      Attempt: %s #%d (%s)  →  depot ci logs %s  |  https://depot.dev/orgs/%s/workflows/%s\n", attempt.AttemptId, attempt.Attempt, attempt.Status, attempt.AttemptId, resp.OrgId, attempt.AttemptId)
 					}
 				}
 			}
