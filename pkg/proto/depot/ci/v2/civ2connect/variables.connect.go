@@ -63,6 +63,12 @@ const (
 	// VariableServiceBatchAddRepoVariablesProcedure is the fully-qualified name of the
 	// VariableService's BatchAddRepoVariables RPC.
 	VariableServiceBatchAddRepoVariablesProcedure = "/depot.ci.v2.VariableService/BatchAddRepoVariables"
+	// VariableServiceGetOrgVariableValuesProcedure is the fully-qualified name of the VariableService's
+	// GetOrgVariableValues RPC.
+	VariableServiceGetOrgVariableValuesProcedure = "/depot.ci.v2.VariableService/GetOrgVariableValues"
+	// VariableServiceGetRepoVariableValuesProcedure is the fully-qualified name of the
+	// VariableService's GetRepoVariableValues RPC.
+	VariableServiceGetRepoVariableValuesProcedure = "/depot.ci.v2.VariableService/GetRepoVariableValues"
 )
 
 // VariableServiceClient is a client for the depot.ci.v2.VariableService service.
@@ -79,6 +85,9 @@ type VariableServiceClient interface {
 	ListRepoVariables(context.Context, *connect.Request[v2.ListRepoVariablesRequest]) (*connect.Response[v2.ListRepoVariablesResponse], error)
 	UpdateRepoVariableDescription(context.Context, *connect.Request[v2.UpdateRepoVariableDescriptionRequest]) (*connect.Response[v2.UpdateRepoVariableDescriptionResponse], error)
 	BatchAddRepoVariables(context.Context, *connect.Request[v2.BatchAddRepoVariablesRequest]) (*connect.Response[v2.BatchAddRepoVariablesResponse], error)
+	// Return plaintext variable values (name → value map)
+	GetOrgVariableValues(context.Context, *connect.Request[v2.GetOrgVariableValuesRequest]) (*connect.Response[v2.GetOrgVariableValuesResponse], error)
+	GetRepoVariableValues(context.Context, *connect.Request[v2.GetRepoVariableValuesRequest]) (*connect.Response[v2.GetRepoVariableValuesResponse], error)
 }
 
 // NewVariableServiceClient constructs a client for the depot.ci.v2.VariableService service. By
@@ -141,6 +150,16 @@ func NewVariableServiceClient(httpClient connect.HTTPClient, baseURL string, opt
 			baseURL+VariableServiceBatchAddRepoVariablesProcedure,
 			opts...,
 		),
+		getOrgVariableValues: connect.NewClient[v2.GetOrgVariableValuesRequest, v2.GetOrgVariableValuesResponse](
+			httpClient,
+			baseURL+VariableServiceGetOrgVariableValuesProcedure,
+			opts...,
+		),
+		getRepoVariableValues: connect.NewClient[v2.GetRepoVariableValuesRequest, v2.GetRepoVariableValuesResponse](
+			httpClient,
+			baseURL+VariableServiceGetRepoVariableValuesProcedure,
+			opts...,
+		),
 	}
 }
 
@@ -156,6 +175,8 @@ type variableServiceClient struct {
 	listRepoVariables             *connect.Client[v2.ListRepoVariablesRequest, v2.ListRepoVariablesResponse]
 	updateRepoVariableDescription *connect.Client[v2.UpdateRepoVariableDescriptionRequest, v2.UpdateRepoVariableDescriptionResponse]
 	batchAddRepoVariables         *connect.Client[v2.BatchAddRepoVariablesRequest, v2.BatchAddRepoVariablesResponse]
+	getOrgVariableValues          *connect.Client[v2.GetOrgVariableValuesRequest, v2.GetOrgVariableValuesResponse]
+	getRepoVariableValues         *connect.Client[v2.GetRepoVariableValuesRequest, v2.GetRepoVariableValuesResponse]
 }
 
 // AddOrgVariable calls depot.ci.v2.VariableService.AddOrgVariable.
@@ -208,6 +229,16 @@ func (c *variableServiceClient) BatchAddRepoVariables(ctx context.Context, req *
 	return c.batchAddRepoVariables.CallUnary(ctx, req)
 }
 
+// GetOrgVariableValues calls depot.ci.v2.VariableService.GetOrgVariableValues.
+func (c *variableServiceClient) GetOrgVariableValues(ctx context.Context, req *connect.Request[v2.GetOrgVariableValuesRequest]) (*connect.Response[v2.GetOrgVariableValuesResponse], error) {
+	return c.getOrgVariableValues.CallUnary(ctx, req)
+}
+
+// GetRepoVariableValues calls depot.ci.v2.VariableService.GetRepoVariableValues.
+func (c *variableServiceClient) GetRepoVariableValues(ctx context.Context, req *connect.Request[v2.GetRepoVariableValuesRequest]) (*connect.Response[v2.GetRepoVariableValuesResponse], error) {
+	return c.getRepoVariableValues.CallUnary(ctx, req)
+}
+
 // VariableServiceHandler is an implementation of the depot.ci.v2.VariableService service.
 type VariableServiceHandler interface {
 	// Org-scoped variables (no repo in path)
@@ -222,6 +253,9 @@ type VariableServiceHandler interface {
 	ListRepoVariables(context.Context, *connect.Request[v2.ListRepoVariablesRequest]) (*connect.Response[v2.ListRepoVariablesResponse], error)
 	UpdateRepoVariableDescription(context.Context, *connect.Request[v2.UpdateRepoVariableDescriptionRequest]) (*connect.Response[v2.UpdateRepoVariableDescriptionResponse], error)
 	BatchAddRepoVariables(context.Context, *connect.Request[v2.BatchAddRepoVariablesRequest]) (*connect.Response[v2.BatchAddRepoVariablesResponse], error)
+	// Return plaintext variable values (name → value map)
+	GetOrgVariableValues(context.Context, *connect.Request[v2.GetOrgVariableValuesRequest]) (*connect.Response[v2.GetOrgVariableValuesResponse], error)
+	GetRepoVariableValues(context.Context, *connect.Request[v2.GetRepoVariableValuesRequest]) (*connect.Response[v2.GetRepoVariableValuesResponse], error)
 }
 
 // NewVariableServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -280,6 +314,16 @@ func NewVariableServiceHandler(svc VariableServiceHandler, opts ...connect.Handl
 		svc.BatchAddRepoVariables,
 		opts...,
 	)
+	variableServiceGetOrgVariableValuesHandler := connect.NewUnaryHandler(
+		VariableServiceGetOrgVariableValuesProcedure,
+		svc.GetOrgVariableValues,
+		opts...,
+	)
+	variableServiceGetRepoVariableValuesHandler := connect.NewUnaryHandler(
+		VariableServiceGetRepoVariableValuesProcedure,
+		svc.GetRepoVariableValues,
+		opts...,
+	)
 	return "/depot.ci.v2.VariableService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case VariableServiceAddOrgVariableProcedure:
@@ -302,6 +346,10 @@ func NewVariableServiceHandler(svc VariableServiceHandler, opts ...connect.Handl
 			variableServiceUpdateRepoVariableDescriptionHandler.ServeHTTP(w, r)
 		case VariableServiceBatchAddRepoVariablesProcedure:
 			variableServiceBatchAddRepoVariablesHandler.ServeHTTP(w, r)
+		case VariableServiceGetOrgVariableValuesProcedure:
+			variableServiceGetOrgVariableValuesHandler.ServeHTTP(w, r)
+		case VariableServiceGetRepoVariableValuesProcedure:
+			variableServiceGetRepoVariableValuesHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -349,4 +397,12 @@ func (UnimplementedVariableServiceHandler) UpdateRepoVariableDescription(context
 
 func (UnimplementedVariableServiceHandler) BatchAddRepoVariables(context.Context, *connect.Request[v2.BatchAddRepoVariablesRequest]) (*connect.Response[v2.BatchAddRepoVariablesResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.ci.v2.VariableService.BatchAddRepoVariables is not implemented"))
+}
+
+func (UnimplementedVariableServiceHandler) GetOrgVariableValues(context.Context, *connect.Request[v2.GetOrgVariableValuesRequest]) (*connect.Response[v2.GetOrgVariableValuesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.ci.v2.VariableService.GetOrgVariableValues is not implemented"))
+}
+
+func (UnimplementedVariableServiceHandler) GetRepoVariableValues(context.Context, *connect.Request[v2.GetRepoVariableValuesRequest]) (*connect.Response[v2.GetRepoVariableValuesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.ci.v2.VariableService.GetRepoVariableValues is not implemented"))
 }

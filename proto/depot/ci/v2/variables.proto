@@ -20,6 +20,10 @@ service VariableService {
   rpc ListRepoVariables(ListRepoVariablesRequest) returns (ListRepoVariablesResponse);
   rpc UpdateRepoVariableDescription(UpdateRepoVariableDescriptionRequest) returns (UpdateRepoVariableDescriptionResponse);
   rpc BatchAddRepoVariables(BatchAddRepoVariablesRequest) returns (BatchAddRepoVariablesResponse);
+
+  // Return plaintext variable values (name → value map)
+  rpc GetOrgVariableValues(GetOrgVariableValuesRequest) returns (GetOrgVariableValuesResponse);
+  rpc GetRepoVariableValues(GetRepoVariableValuesRequest) returns (GetRepoVariableValuesResponse);
 }
 
 // Shared batch input for variable creation.
@@ -108,3 +112,18 @@ message BatchAddRepoVariablesRequest {
 }
 
 message BatchAddRepoVariablesResponse {}
+
+// Variable values
+message GetOrgVariableValuesRequest {}
+
+message GetOrgVariableValuesResponse {
+  map<string, string> variables = 1;
+}
+
+message GetRepoVariableValuesRequest {
+  string repo = 1;
+}
+
+message GetRepoVariableValuesResponse {
+  map<string, string> variables = 1;
+}
