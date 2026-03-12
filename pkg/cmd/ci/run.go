@@ -518,7 +518,11 @@ func NewCmdRunList() *cobra.Command {
 			}
 
 			if len(runs) == 0 {
-				fmt.Println("No runs found.")
+				if len(statuses) == 0 {
+					fmt.Println("No queued or active runs found. Use --status to view other runs.")
+				} else {
+					fmt.Println("No matching runs found.")
+				}
 				return nil
 			}
 
