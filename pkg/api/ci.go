@@ -103,11 +103,6 @@ func CIListRuns(ctx context.Context, token, orgID string, statuses []civ1.CIRunS
 	return allRuns, nil
 }
 
-func newCISecretServiceClient() civ1connect.SecretServiceClient {
-	baseURL := baseURLFunc()
-	return civ1connect.NewSecretServiceClient(getHTTPClient(baseURL), baseURL, WithUserAgent())
-}
-
 func newCISecretServiceV2Client() civ2connect.SecretServiceClient {
 	baseURL := baseURLFunc()
 	return civ2connect.NewSecretServiceClient(getHTTPClient(baseURL), baseURL, WithUserAgent())
@@ -193,11 +188,6 @@ func CIDeleteSecret(ctx context.Context, token, orgID, name, repo string) error 
 	}
 	_, err := client.RemoveOrgSecret(ctx, WithAuthenticationAndOrg(connect.NewRequest(&civ2.RemoveOrgSecretRequest{Name: name}), token, orgID))
 	return err
-}
-
-func newCIVariableServiceClient() civ1connect.VariableServiceClient {
-	baseURL := baseURLFunc()
-	return civ1connect.NewVariableServiceClient(getHTTPClient(baseURL), baseURL, WithUserAgent())
 }
 
 func newCIVariableServiceV2Client() civ2connect.VariableServiceClient {
