@@ -46,6 +46,12 @@ func NewCmdLogin() *cobra.Command {
 				if err != nil {
 					return err
 				}
+				if currentOrganization == nil {
+					fmt.Println("Successfully authenticated!")
+					fmt.Println("")
+					fmt.Println("No organizations found. You can create one at https://depot.dev")
+					return nil
+				}
 				orgId = currentOrganization.OrgId
 			}
 
