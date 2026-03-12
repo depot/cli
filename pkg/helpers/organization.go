@@ -46,7 +46,7 @@ func SelectOrganization() (*Organization, error) {
 	}
 
 	if len(organizations) == 0 {
-		return nil, nil
+		return nil, fmt.Errorf("no organizations found")
 	}
 
 	if len(organizations) == 1 {
