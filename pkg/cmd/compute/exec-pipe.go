@@ -1,6 +1,7 @@
 package compute
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -53,6 +54,9 @@ func newComputeExecPipe() *cobra.Command {
 			timeout, err := cmd.Flags().GetInt("timeout")
 			cobra.CheckErr(err)
 
+			ctx, cancel := context.WithCancel(ctx)
+			defer cancel()
+
 			client := api.NewComputeClient()
 			stream := client.ExecPipe(ctx)
 			stream.RequestHeader().Set("Authorization", "Bearer "+token)
@@ -77,6 +81,11 @@ func newComputeExecPipe() *cobra.Command {
 			go func() {
 				buf := make([]byte, 4096) //nolint:mnd
 				for {
+					select {
+					case <-ctx.Done():
+						return
+					default:
+					}
 					n, err := os.Stdin.Read(buf)
 					if n > 0 {
 						data := make([]byte, n)
