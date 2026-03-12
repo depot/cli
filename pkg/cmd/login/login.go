@@ -2,6 +2,7 @@ package login
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/depot/cli/pkg/api"
@@ -43,6 +44,12 @@ func NewCmdLogin() *cobra.Command {
 			orgId, _ := cmd.Flags().GetString("org-id")
 			if orgId == "" {
 				currentOrganization, err := helpers.SelectOrganization()
+				if errors.Is(err, helpers.ErrNoOrganizations) {
+					fmt.Println("Successfully authenticated!")
+					fmt.Println("")
+					fmt.Println("No organizations found. You can create one at https://depot.dev")
+					return nil
+				}
 				if err != nil {
 					return err
 				}
