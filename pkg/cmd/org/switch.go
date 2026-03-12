@@ -23,9 +23,6 @@ func NewCmdSwitch() *cobra.Command {
 				if err != nil {
 					return err
 				}
-				if org == nil {
-					return fmt.Errorf("no organizations found")
-				}
 				orgId = org.OrgId
 			}
 
