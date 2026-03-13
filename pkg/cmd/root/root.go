@@ -12,7 +12,6 @@ import (
 	cargoCmd "github.com/depot/cli/pkg/cmd/cargo"
 	ciCmd "github.com/depot/cli/pkg/cmd/ci"
 	claudeCmd "github.com/depot/cli/pkg/cmd/claude"
-	computeCmd "github.com/depot/cli/pkg/cmd/compute"
 	dockerCmd "github.com/depot/cli/pkg/cmd/docker"
 	"github.com/depot/cli/pkg/cmd/exec"
 	"github.com/depot/cli/pkg/cmd/gocache"
@@ -27,6 +26,7 @@ import (
 	"github.com/depot/cli/pkg/cmd/pulltoken"
 	"github.com/depot/cli/pkg/cmd/push"
 	"github.com/depot/cli/pkg/cmd/registry"
+	sandboxCmd "github.com/depot/cli/pkg/cmd/sandbox"
 	versionCmd "github.com/depot/cli/pkg/cmd/version"
 	"github.com/depot/cli/pkg/config"
 )
@@ -84,7 +84,7 @@ func NewCmdRoot(version, buildDate string) *cobra.Command {
 	cmd.AddCommand(gocache.NewCmdGoCache())
 	cmd.AddCommand(exec.NewCmdExec())
 	cmd.AddCommand(ciCmd.NewCmdCI())
-	cmd.AddCommand(computeCmd.NewCmdCompute())
+	cmd.AddCommand(sandboxCmd.NewCmdSandbox())
 
 	return cmd
 }

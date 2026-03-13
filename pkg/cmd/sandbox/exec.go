@@ -1,4 +1,4 @@
-package compute
+package sandbox
 
 import (
 	"fmt"
@@ -11,20 +11,20 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func newComputeExec() *cobra.Command {
+func newSandboxExec() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "exec [flags]",
 		Short: "Execute a command within the compute",
 		Long:  "Execute a command within the compute",
 		Example: `
   # execute command within the compute
-  depot compute exec --sandbox-id 1234567890 --session-id 1234567890 -- /bin/bash -lc whoami
+  depot sandbox exec --sandbox-id 1234567890 --session-id 1234567890 -- /bin/bash -lc whoami
 
   # execute command with timeout (30 seconds)
-  depot compute exec --sandbox-id 1234567890 --session-id 1234567890 --timeout 30000 -- /bin/bash -lc whoami
+  depot sandbox exec --sandbox-id 1234567890 --session-id 1234567890 --timeout 30000 -- /bin/bash -lc whoami
 
   # execute complex command
-  depot compute exec --sandbox-id 1234567890 --session-id 1234567890 -- /bin/bash -lc 'for i in {1..10}; do echo $i; sleep 1; done'
+  depot sandbox exec --sandbox-id 1234567890 --session-id 1234567890 -- /bin/bash -lc 'for i in {1..10}; do echo $i; sleep 1; done'
 `,
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
