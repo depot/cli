@@ -1,4 +1,4 @@
-package compute
+package sandbox
 
 import (
 	"context"
@@ -13,17 +13,17 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func newComputeExecPipe() *cobra.Command {
+func newSandboxExecPipe() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "exec-pipe [flags]",
 		Short: "Execute a command within the compute, then stream bytes to stdin",
 		Long:  "Execute a command within the compute, then stream bytes to stdin",
 		Example: `
   # Pipe text into a file in the compute
-  echo "Hello Depot" | depot compute exec-pipe --sandbox-id 1234567890 --session-id 1234567890 -- /bin/bash -lc "tee /tmp/hello.txt"
+  echo "Hello Depot" | depot sandbox exec-pipe --sandbox-id 1234567890 --session-id 1234567890 -- /bin/bash -lc "tee /tmp/hello.txt"
 
   # Pipe a tarball into the compute
-  tar czf - ./src | depot compute exec-pipe --sandbox-id 1234567890 --session-id 1234567890 -- /bin/bash -lc "tar xzf - -C /workspace"
+  tar czf - ./src | depot sandbox exec-pipe --sandbox-id 1234567890 --session-id 1234567890 -- /bin/bash -lc "tar xzf - -C /workspace"
 `,
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {

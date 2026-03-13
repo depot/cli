@@ -1,6 +1,6 @@
 //go:build !windows
 
-package compute
+package sandbox
 
 import (
 	"context"

@@ -1,4 +1,4 @@
-package compute
+package sandbox
 
 import (
 	"context"
@@ -17,20 +17,20 @@ import (
 	"golang.org/x/term"
 )
 
-func newComputePty() *cobra.Command {
+func newSandboxPty() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "pty [flags]",
 		Short: "Open a pseudo-terminal within the compute",
 		Long:  "Open a pseudo-terminal within the compute",
 		Example: `
   # open a pseudo-terminal within the compute
-  depot compute pty --sandbox-id 1234567890 --session-id 1234567890
+  depot sandbox pty --sandbox-id 1234567890 --session-id 1234567890
 
   # set terminal workdir
-  depot compute pty --sandbox-id 1234567890 --session-id 1234567890 --cwd /tmp
+  depot sandbox pty --sandbox-id 1234567890 --session-id 1234567890 --cwd /tmp
 
   # set terminal environment variables
-  depot compute pty --sandbox-id 1234567890 --session-id 1234567890 --env FOO=BAR --env BAR=FOO
+  depot sandbox pty --sandbox-id 1234567890 --session-id 1234567890 --env FOO=BAR --env BAR=FOO
 `,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()

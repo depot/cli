@@ -1,12 +1,12 @@
-package compute
+package sandbox
 
 import (
 	"github.com/spf13/cobra"
 )
 
-func NewCmdCompute() *cobra.Command {
+func NewCmdSandbox() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "compute [flags] [compute args...]",
+		Use:   "sandbox [flags] [compute args...]",
 		Short: "Manage Depot compute",
 		Long: `Compute is the building block of Depot CI. 
 
@@ -20,9 +20,9 @@ Subcommands:
 
 	cmd.PersistentFlags().String("token", "", "Depot API token")
 
-	cmd.AddCommand(newComputeExec())
-	cmd.AddCommand(newComputePty())
-	cmd.AddCommand(newComputeExecPipe())
+	cmd.AddCommand(newSandboxExec())
+	cmd.AddCommand(newSandboxPty())
+	cmd.AddCommand(newSandboxExecPipe())
 
 	return cmd
 }
