@@ -14,7 +14,7 @@ import (
 func TestNewCmdMigrateFlags(t *testing.T) {
 	cmd := NewCmdMigrate()
 
-	flagNames := []string{"yes", "secret", "var", "org", "token", "overwrite"}
+	flagNames := []string{"yes", "secret", "var", "org", "token", "repo", "overwrite"}
 	for _, flagName := range flagNames {
 		if cmd.Flags().Lookup(flagName) == nil {
 			t.Fatalf("expected --%s flag to exist", flagName)
@@ -248,6 +248,101 @@ func TestCopySelectedWorkflowFilesCopiesOnlySelected(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(tmpDir, ".depot", "workflows", "unselected.yml")); !os.IsNotExist(err) {
 		t.Fatalf("expected unselected workflow to not be copied, got err=%v", err)
+	}
+}
+
+func TestParseGitHubRepo(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{"ssh", "git@github.com:depot/cli.git", "depot/cli"},
+		{"ssh no .git", "git@github.com:depot/cli", "depot/cli"},
+		{"https", "https://github.com/depot/cli.git", "depot/cli"},
+		{"https no .git", "https://github.com/depot/cli", "depot/cli"},
+		{"ssh with port", "git@github.com:org/repo-name.git", "org/repo-name"},
+		{"empty", "", ""},
+		{"no path", "git@github.com:", ""},
+		{"too many segments", "git@github.com:a/b/c.git", ""},
+		{"just host", "https://github.com", ""},
+		{"only owner", "https://github.com/depot", ""},
+		{"ssh empty owner", "git@github.com:/repo.git", ""},
+		{"ssh empty repo", "git@github.com:owner/.git", ""},
+		{"ssh empty both", "git@github.com:/.git", ""},
+		{"https empty repo", "https://github.com/owner/", ""},
+		{"https trailing slash", "https://github.com/owner/repo/", "owner/repo"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := parseGitHubRepo(tt.input)
+			if result != tt.expected {
+				t.Errorf("parseGitHubRepo(%q) = %q, want %q", tt.input, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestRunMigrateShowsRepoScope(t *testing.T) {
+	tmpDir := t.TempDir()
+	workflowsDir := filepath.Join(tmpDir, ".github", "workflows")
+	if err := os.MkdirAll(workflowsDir, 0o755); err != nil {
+		t.Fatalf("failed to create workflows dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(workflowsDir, "ci.yml"), []byte("name: CI\non: push\njobs:\n  build:\n    runs-on: ubuntu-latest\n"), 0o644); err != nil {
+		t.Fatalf("failed to write workflow: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	err := runMigrate(context.Background(), migrateOptions{
+		yes:    true,
+		repo:   "depot/example",
+		dir:    tmpDir,
+		stdout: &stdout,
+	})
+	if err != nil {
+		t.Fatalf("runMigrate returned error: %v", err)
+	}
+
+	output := stdout.String()
+	if !strings.Contains(output, "scoped to repo depot/example") {
+		t.Fatalf("expected repo scope message, got output: %s", output)
+	}
+	if !strings.Contains(output, "Secret/variable scope: repo (depot/example)") {
+		t.Fatalf("expected scope in summary, got output: %s", output)
+	}
+}
+
+func TestRunMigrateOrgScopeFallback(t *testing.T) {
+	tmpDir := t.TempDir()
+	workflowsDir := filepath.Join(tmpDir, ".github", "workflows")
+	if err := os.MkdirAll(workflowsDir, 0o755); err != nil {
+		t.Fatalf("failed to create workflows dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(workflowsDir, "ci.yml"), []byte("name: CI\non: push\njobs:\n  build:\n    runs-on: ubuntu-latest\n"), 0o644); err != nil {
+		t.Fatalf("failed to write workflow: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	err := runMigrate(context.Background(), migrateOptions{
+		yes:    true,
+		dir:    tmpDir,
+		stdout: &stdout,
+	})
+	if err != nil {
+		t.Fatalf("runMigrate returned error: %v", err)
+	}
+
+	output := stdout.String()
+	if !strings.Contains(output, "org-scoped") {
+		t.Fatalf("expected org-scope fallback message, got output: %s", output)
+	}
+	if !strings.Contains(output, "--repo owner/name") {
+		t.Fatalf("expected --repo hint in fallback message, got output: %s", output)
+	}
+	if !strings.Contains(output, "Secret/variable scope: org") {
+		t.Fatalf("expected org scope in summary, got output: %s", output)
 	}
 }
 
