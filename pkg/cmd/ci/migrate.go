@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -22,6 +24,7 @@ import (
 type migrateOptions struct {
 	orgID     string
 	token     string
+	repo      string
 	yes       bool
 	secrets   []string
 	variables []string
@@ -51,6 +54,7 @@ func NewCmdMigrate() *cobra.Command {
 	flags.BoolVar(&opts.yes, "yes", false, "Run in non-interactive mode")
 	flags.StringArrayVar(&opts.secrets, "secret", nil, "CI secret assignment in KEY=VALUE format (repeatable)")
 	flags.StringArrayVar(&opts.variables, "var", nil, "CI variable assignment in KEY=VALUE format (repeatable)")
+	flags.StringVar(&opts.repo, "repo", "", "Scope secrets and variables to a specific repository (e.g. owner/repo); auto-detected from git remote if not provided")
 	flags.BoolVar(&opts.overwrite, "overwrite", false, "Overwrite existing .depot/ directory")
 
 	return cmd
@@ -98,6 +102,16 @@ func runMigrate(ctx context.Context, opts migrateOptions) error {
 	}
 
 	fmt.Fprintf(out, "Found %d workflow(s) in .github/workflows\n", len(workflows))
+
+	repo := opts.repo
+	if repo == "" {
+		repo = detectRepoFromGitRemote(workDir)
+	}
+	if repo != "" {
+		fmt.Fprintf(out, "Secrets and variables will be scoped to repo %s\n", repo)
+	} else {
+		fmt.Fprintln(out, "Could not detect repository from git remote; secrets and variables will be org-scoped (use --repo owner/name to override)")
+	}
 
 	selectedWorkflows := workflows
 	warnings := parseWarnings
@@ -248,7 +262,7 @@ func runMigrate(ctx context.Context, opts migrateOptions) error {
 			return err
 		}
 
-		if err := api.CIAddSecret(ctx, token, orgID, name, value); err != nil {
+		if err := api.CIAddSecretWithDescription(ctx, token, orgID, name, value, "", repo); err != nil {
 			return fmt.Errorf("failed to configure secret %s: %w", name, err)
 		}
 		configuredSecrets = append(configuredSecrets, name)
@@ -279,7 +293,11 @@ func runMigrate(ctx context.Context, opts migrateOptions) error {
 		}
 		if len(missingSecrets) > 0 {
 			sort.Strings(missingSecrets)
-			warnings = append(warnings, fmt.Sprintf("configure missing secrets with `depot ci secrets add <NAME> --value <VALUE>` (missing: %s)", strings.Join(missingSecrets, ", ")))
+			hint := "depot ci secrets add <NAME> --value <VALUE>"
+			if repo != "" {
+				hint = fmt.Sprintf("depot ci secrets add <NAME> --repo %s --value <VALUE>", repo)
+			}
+			warnings = append(warnings, fmt.Sprintf("configure missing secrets with `%s` (missing: %s)", hint, strings.Join(missingSecrets, ", ")))
 		}
 	} else if len(detectedSecrets) > 0 {
 		for _, name := range detectedSecrets {
@@ -320,7 +338,7 @@ func runMigrate(ctx context.Context, opts migrateOptions) error {
 			return err
 		}
 
-		if err := api.CIAddVariable(ctx, token, orgID, name, value, ""); err != nil {
+		if err := api.CIAddVariable(ctx, token, orgID, name, value, repo); err != nil {
 			return fmt.Errorf("failed to configure variable %s: %w", name, err)
 		}
 		configuredVariables = append(configuredVariables, name)
@@ -351,7 +369,11 @@ func runMigrate(ctx context.Context, opts migrateOptions) error {
 		}
 		if len(missingVariables) > 0 {
 			sort.Strings(missingVariables)
-			warnings = append(warnings, fmt.Sprintf("configure missing variables with `depot ci vars add <NAME> --value <VALUE>` (missing: %s)", strings.Join(missingVariables, ", ")))
+			hint := "depot ci vars add <NAME> --value <VALUE>"
+			if repo != "" {
+				hint = fmt.Sprintf("depot ci vars add <NAME> --repo %s --value <VALUE>", repo)
+			}
+			warnings = append(warnings, fmt.Sprintf("configure missing variables with `%s` (missing: %s)", hint, strings.Join(missingVariables, ", ")))
 		}
 	} else if len(detectedVariables) > 0 {
 		for _, name := range detectedVariables {
@@ -378,6 +400,11 @@ func runMigrate(ctx context.Context, opts migrateOptions) error {
 	fmt.Fprintln(out, "Migration summary:")
 	fmt.Fprintf(out, "- Workflows selected: %d\n", len(selectedWorkflows))
 	fmt.Fprintf(out, "- Files copied: %d\n", len(copyResult.FilesCopied))
+	if repo != "" {
+		fmt.Fprintf(out, "- Secret/variable scope: repo (%s)\n", repo)
+	} else {
+		fmt.Fprintln(out, "- Secret/variable scope: org")
+	}
 	fmt.Fprintf(out, "- Secrets detected: %d\n", len(detectedSecrets))
 	fmt.Fprintf(out, "- Secrets configured: %d\n", len(configuredSecrets))
 	fmt.Fprintf(out, "- Variables detected: %d\n", len(detectedVariables))
@@ -583,6 +610,47 @@ func detectVariablesFromWorkflows(workflows []*migrate.WorkflowFile) ([]string, 
 	sort.Strings(deduped)
 
 	return deduped, nil
+}
+
+// detectRepoFromGitRemote attempts to extract owner/repo from the origin remote URL.
+func detectRepoFromGitRemote(dir string) string {
+	cmd := exec.Command("git", "-C", dir, "remote", "get-url", "origin")
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	return parseGitHubRepo(strings.TrimSpace(string(out)))
+}
+
+func parseGitHubRepo(remoteURL string) string {
+	// SSH: git@github.com:owner/repo.git
+	if strings.HasPrefix(remoteURL, "git@") {
+		idx := strings.Index(remoteURL, ":")
+		if idx < 0 {
+			return ""
+		}
+		path := remoteURL[idx+1:]
+		path = strings.TrimSuffix(path, ".git")
+		parts := strings.SplitN(path, "/", 3)
+		if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+			return ""
+		}
+		return parts[0] + "/" + parts[1]
+	}
+
+	// HTTPS: https://github.com/owner/repo.git
+	u, err := url.Parse(remoteURL)
+	if err != nil {
+		return ""
+	}
+	path := strings.TrimPrefix(u.Path, "/")
+	path = strings.TrimSuffix(path, ".git")
+	path = strings.TrimRight(path, "/")
+	parts := strings.SplitN(path, "/", 3)
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		return ""
+	}
+	return parts[0] + "/" + parts[1]
 }
 
 func resolveMigrationAuth(ctx context.Context, opts migrateOptions) (string, string, error) {
