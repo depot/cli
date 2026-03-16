@@ -67,6 +67,10 @@ func NewVariableServiceClient() civ1connect.VariableServiceClient {
 	return civ1connect.NewVariableServiceClient(getHTTPClient(getBaseURL()), getBaseURL(), WithUserAgent())
 }
 
+func NewComputeClient() civ1connect.DepotComputeServiceClient {
+	return civ1connect.NewDepotComputeServiceClient(getHTTPClient(getBaseURL()), getBaseURL(), WithUserAgent(), connect.WithGRPC())
+}
+
 func WithAuthentication[T any](req *connect.Request[T], token string) *connect.Request[T] {
 	req.Header().Add("Authorization", "Bearer "+token)
 	return req

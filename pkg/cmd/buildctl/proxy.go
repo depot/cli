@@ -996,6 +996,21 @@ type HealthProxy struct {
 	state func() *ProxyState
 }
 
+func (p *HealthProxy) List(ctx context.Context, in *health.HealthListRequest) (*health.HealthListResponse, error) {
+	md, ok := metadata.FromIncomingContext(ctx)
+	if ok {
+		ctx = metadata.NewOutgoingContext(ctx, md)
+	}
+
+	state := p.state()
+	if state.Err != nil {
+		return nil, state.Err
+	}
+
+	client := health.NewHealthClient(state.Conn)
+	return client.List(ctx, in)
+}
+
 func (p *HealthProxy) Check(ctx context.Context, in *health.HealthCheckRequest) (*health.HealthCheckResponse, error) {
 	md, ok := metadata.FromIncomingContext(ctx)
 	if ok {

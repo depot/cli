@@ -11,7 +11,6 @@ import (
 	"sync"
 
 	"connectrpc.com/connect"
-	"github.com/containerd/containerd/errdefs"
 	"github.com/containerd/containerd/images"
 	"github.com/containerd/containerd/reference"
 	"github.com/containerd/containerd/remotes"
@@ -83,7 +82,11 @@ func GetImageDescriptors(ctx context.Context, token, buildID, target string, log
 		ref = ref + "-" + target
 	}
 
-	authorizer := &Authorizer{Username: username, Password: password}
+	authorizer := docker.NewDockerAuthorizer(
+		docker.WithAuthCreds(func(host string) (string, string, error) {
+			return username, password, nil
+		}),
+	)
 	hosts := docker.ConfigureDefaultRegistries(docker.WithAuthorizer(authorizer))
 
 	headers := http.Header{}
@@ -190,18 +193,4 @@ func fetch(ctx context.Context, fetcher remotes.Fetcher, desc ocispecs.Descripto
 	}
 	defer func() { _ = r.Close() }()
 	return io.ReadAll(r)
-}
-
-// Authorizer is a static authorizer used to authenticate with the Depot registry.
-type Authorizer struct {
-	Username string
-	Password string
-}
-
-func (a *Authorizer) Authorize(ctx context.Context, req *http.Request) error {
-	req.SetBasicAuth(a.Username, a.Password)
-	return nil
-}
-func (a *Authorizer) AddResponses(ctx context.Context, responses []*http.Response) error {
-	return errdefs.ErrNotImplemented
 }
