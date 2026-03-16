@@ -7,6 +7,8 @@ import (
 	"connectrpc.com/connect"
 	civ1 "github.com/depot/cli/pkg/proto/depot/ci/v1"
 	"github.com/depot/cli/pkg/proto/depot/ci/v1/civ1connect"
+	civ2 "github.com/depot/cli/pkg/proto/depot/ci/v2"
+	"github.com/depot/cli/pkg/proto/depot/ci/v2/civ2connect"
 )
 
 var baseURLFunc = getBaseURL
@@ -101,115 +103,163 @@ func CIListRuns(ctx context.Context, token, orgID string, statuses []civ1.CIRunS
 	return allRuns, nil
 }
 
-func newCISecretServiceClient() civ1connect.SecretServiceClient {
+func newCISecretServiceV2Client() civ2connect.SecretServiceClient {
 	baseURL := baseURLFunc()
-	return civ1connect.NewSecretServiceClient(getHTTPClient(baseURL), baseURL, WithUserAgent())
+	return civ2connect.NewSecretServiceClient(getHTTPClient(baseURL), baseURL, WithUserAgent())
 }
 
-// CIAddSecret adds a single CI secret to an organization
+// CIAddSecret adds a single CI secret to an organization (org-wide).
 func CIAddSecret(ctx context.Context, token, orgID, name, value string) error {
-	return CIAddSecretWithDescription(ctx, token, orgID, name, value, "")
+	return CIAddSecretWithDescription(ctx, token, orgID, name, value, "", "")
 }
 
-// CIAddSecretWithDescription adds a single CI secret to an organization, with an optional description.
-func CIAddSecretWithDescription(ctx context.Context, token, orgID, name, value, description string) error {
-	client := newCISecretServiceClient()
-	req := &civ1.AddSecretRequest{
-		Name:  name,
-		Value: value,
+// CIAddSecretWithDescription adds a CI secret, optionally scoped to a repo.
+func CIAddSecretWithDescription(ctx context.Context, token, orgID, name, value, description, repo string) error {
+	client := newCISecretServiceV2Client()
+	if repo != "" {
+		req := &civ2.AddRepoSecretRequest{Repo: repo, Name: name, Value: value}
+		if description != "" {
+			req.Description = &description
+		}
+		_, err := client.AddRepoSecret(ctx, WithAuthenticationAndOrg(connect.NewRequest(req), token, orgID))
+		return err
 	}
+	req := &civ2.AddOrgSecretRequest{Name: name, Value: value}
 	if description != "" {
 		req.Description = &description
 	}
-	_, err := client.AddSecret(ctx, WithAuthenticationAndOrg(connect.NewRequest(req), token, orgID))
+	_, err := client.AddOrgSecret(ctx, WithAuthenticationAndOrg(connect.NewRequest(req), token, orgID))
 	return err
 }
 
-// CISecret contains metadata about a CI secret
+// CISecret contains metadata about a CI secret.
 type CISecret struct {
 	Name        string `json:"name"`
 	Description string `json:"description,omitempty"`
 	CreatedAt   string `json:"createdAt,omitempty"`
+	Scope       string `json:"scope"`
 }
 
-// CIListSecrets lists all CI secrets for an organization
-func CIListSecrets(ctx context.Context, token, orgID string) ([]CISecret, error) {
-	client := newCISecretServiceClient()
-	resp, err := client.ListSecrets(ctx, WithAuthenticationAndOrg(connect.NewRequest(&civ1.ListSecretsRequest{}), token, orgID))
+func secretFromProto(s *civ2.Secret, scope string) CISecret {
+	cs := CISecret{Name: s.Name, Scope: scope}
+	if s.Description != nil {
+		cs.Description = *s.Description
+	}
+	if s.LastModified != nil {
+		cs.CreatedAt = s.LastModified.AsTime().Format(time.RFC3339)
+	}
+	return cs
+}
+
+// CIListSecrets lists CI secrets. When repo is non-empty it returns both
+// org-wide and repo-specific secrets so the caller can see effective state.
+func CIListSecrets(ctx context.Context, token, orgID, repo string) ([]CISecret, error) {
+	client := newCISecretServiceV2Client()
+
+	orgResp, err := client.ListOrgSecrets(ctx, WithAuthenticationAndOrg(connect.NewRequest(&civ2.ListOrgSecretsRequest{}), token, orgID))
 	if err != nil {
 		return nil, err
 	}
-	secrets := make([]CISecret, 0, len(resp.Msg.Secrets))
-	for _, s := range resp.Msg.Secrets {
-		cs := CISecret{
-			Name: s.Name,
-		}
-		if s.Description != nil {
-			cs.Description = *s.Description
-		}
-		if s.LastModified != nil {
-			cs.CreatedAt = s.LastModified.AsTime().Format(time.RFC3339)
-		}
-		secrets = append(secrets, cs)
+
+	secrets := make([]CISecret, 0, len(orgResp.Msg.Secrets))
+	for _, s := range orgResp.Msg.Secrets {
+		secrets = append(secrets, secretFromProto(s, "org"))
 	}
+
+	if repo != "" {
+		repoResp, err := client.ListRepoSecrets(ctx, WithAuthenticationAndOrg(connect.NewRequest(&civ2.ListRepoSecretsRequest{Repo: repo}), token, orgID))
+		if err != nil {
+			return nil, err
+		}
+		for _, s := range repoResp.Msg.Secrets {
+			secrets = append(secrets, secretFromProto(s, repo))
+		}
+	}
+
 	return secrets, nil
 }
 
-// CIDeleteSecret deletes a CI secret from an organization
-func CIDeleteSecret(ctx context.Context, token, orgID, name string) error {
-	client := newCISecretServiceClient()
-	_, err := client.RemoveSecret(ctx, WithAuthenticationAndOrg(connect.NewRequest(&civ1.RemoveSecretRequest{Name: name}), token, orgID))
+// CIDeleteSecret deletes a CI secret, optionally scoped to a repo.
+func CIDeleteSecret(ctx context.Context, token, orgID, name, repo string) error {
+	client := newCISecretServiceV2Client()
+	if repo != "" {
+		_, err := client.RemoveRepoSecret(ctx, WithAuthenticationAndOrg(connect.NewRequest(&civ2.RemoveRepoSecretRequest{Repo: repo, Name: name}), token, orgID))
+		return err
+	}
+	_, err := client.RemoveOrgSecret(ctx, WithAuthenticationAndOrg(connect.NewRequest(&civ2.RemoveOrgSecretRequest{Name: name}), token, orgID))
 	return err
 }
 
-func newCIVariableServiceClient() civ1connect.VariableServiceClient {
+func newCIVariableServiceV2Client() civ2connect.VariableServiceClient {
 	baseURL := baseURLFunc()
-	return civ1connect.NewVariableServiceClient(getHTTPClient(baseURL), baseURL, WithUserAgent())
+	return civ2connect.NewVariableServiceClient(getHTTPClient(baseURL), baseURL, WithUserAgent())
 }
 
-// CIAddVariable adds a single CI variable to an organization
-func CIAddVariable(ctx context.Context, token, orgID, name, value string) error {
-	client := newCIVariableServiceClient()
-	_, err := client.AddVariable(ctx, WithAuthenticationAndOrg(connect.NewRequest(&civ1.AddVariableRequest{
-		Name:  name,
-		Value: value,
-	}), token, orgID))
+// CIAddVariable adds a CI variable, optionally scoped to a repo.
+func CIAddVariable(ctx context.Context, token, orgID, name, value, repo string) error {
+	client := newCIVariableServiceV2Client()
+	if repo != "" {
+		_, err := client.AddRepoVariable(ctx, WithAuthenticationAndOrg(connect.NewRequest(&civ2.AddRepoVariableRequest{Repo: repo, Name: name, Value: value}), token, orgID))
+		return err
+	}
+	_, err := client.AddOrgVariable(ctx, WithAuthenticationAndOrg(connect.NewRequest(&civ2.AddOrgVariableRequest{Name: name, Value: value}), token, orgID))
 	return err
 }
 
-// CIVariable contains metadata about a CI variable
+// CIVariable contains metadata about a CI variable.
 type CIVariable struct {
 	Name        string `json:"name"`
 	Description string `json:"description,omitempty"`
 	CreatedAt   string `json:"createdAt,omitempty"`
+	Scope       string `json:"scope"`
 }
 
-// CIListVariables lists all CI variables for an organization
-func CIListVariables(ctx context.Context, token, orgID string) ([]CIVariable, error) {
-	client := newCIVariableServiceClient()
-	resp, err := client.ListVariables(ctx, WithAuthenticationAndOrg(connect.NewRequest(&civ1.ListVariablesRequest{}), token, orgID))
+func variableFromProto(v *civ2.Variable, scope string) CIVariable {
+	cv := CIVariable{Name: v.Name, Scope: scope}
+	if v.Description != nil {
+		cv.Description = *v.Description
+	}
+	if v.LastModified != nil {
+		cv.CreatedAt = v.LastModified.AsTime().Format(time.RFC3339)
+	}
+	return cv
+}
+
+// CIListVariables lists CI variables. When repo is non-empty it returns both
+// org-wide and repo-specific variables.
+func CIListVariables(ctx context.Context, token, orgID, repo string) ([]CIVariable, error) {
+	client := newCIVariableServiceV2Client()
+
+	orgResp, err := client.ListOrgVariables(ctx, WithAuthenticationAndOrg(connect.NewRequest(&civ2.ListOrgVariablesRequest{}), token, orgID))
 	if err != nil {
 		return nil, err
 	}
-	variables := make([]CIVariable, 0, len(resp.Msg.Variables))
-	for _, v := range resp.Msg.Variables {
-		cv := CIVariable{
-			Name: v.Name,
-		}
-		if v.Description != nil {
-			cv.Description = *v.Description
-		}
-		if v.LastModified != nil {
-			cv.CreatedAt = v.LastModified.AsTime().Format(time.RFC3339)
-		}
-		variables = append(variables, cv)
+
+	variables := make([]CIVariable, 0, len(orgResp.Msg.Variables))
+	for _, v := range orgResp.Msg.Variables {
+		variables = append(variables, variableFromProto(v, "org"))
 	}
+
+	if repo != "" {
+		repoResp, err := client.ListRepoVariables(ctx, WithAuthenticationAndOrg(connect.NewRequest(&civ2.ListRepoVariablesRequest{Repo: repo}), token, orgID))
+		if err != nil {
+			return nil, err
+		}
+		for _, v := range repoResp.Msg.Variables {
+			variables = append(variables, variableFromProto(v, repo))
+		}
+	}
+
 	return variables, nil
 }
 
-// CIDeleteVariable deletes a CI variable from an organization
-func CIDeleteVariable(ctx context.Context, token, orgID, name string) error {
-	client := newCIVariableServiceClient()
-	_, err := client.RemoveVariable(ctx, WithAuthenticationAndOrg(connect.NewRequest(&civ1.RemoveVariableRequest{Name: name}), token, orgID))
+// CIDeleteVariable deletes a CI variable, optionally scoped to a repo.
+func CIDeleteVariable(ctx context.Context, token, orgID, name, repo string) error {
+	client := newCIVariableServiceV2Client()
+	if repo != "" {
+		_, err := client.RemoveRepoVariable(ctx, WithAuthenticationAndOrg(connect.NewRequest(&civ2.RemoveRepoVariableRequest{Repo: repo, Name: name}), token, orgID))
+		return err
+	}
+	_, err := client.RemoveOrgVariable(ctx, WithAuthenticationAndOrg(connect.NewRequest(&civ2.RemoveOrgVariableRequest{Name: name}), token, orgID))
 	return err
 }
