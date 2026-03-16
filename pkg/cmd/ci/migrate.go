@@ -645,8 +645,9 @@ func parseGitHubRepo(remoteURL string) string {
 	}
 	path := strings.TrimPrefix(u.Path, "/")
 	path = strings.TrimSuffix(path, ".git")
+	path = strings.TrimRight(path, "/")
 	parts := strings.SplitN(path, "/", 3)
-	if len(parts) < 2 || parts[0] == "" || parts[1] == "" {
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
 		return ""
 	}
 	return parts[0] + "/" + parts[1]
