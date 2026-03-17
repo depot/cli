@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/depot/cli/pkg/api"
@@ -118,6 +119,11 @@ func waitForSandbox(ctx context.Context, token, orgID, runID, jobKey string) (sa
 		}
 
 		targetJob, err := findJob(resp, jobKey)
+		if err == nil && jobKey == "" {
+			// Latch the auto-selected job key so subsequent polls don't
+			// fail if more jobs appear while we wait for the sandbox.
+			jobKey = targetJob.JobKey
+		}
 		if err != nil {
 			// If no jobs exist yet or the target job hasn't appeared, keep polling
 			// — but only if the run itself is still active.
@@ -212,7 +218,7 @@ func findJob(resp *civ1.GetRunStatusResponse, jobKey string) (*civ1.JobStatus, e
 	for i, j := range allJobs {
 		keys[i] = fmt.Sprintf("  %s (%s)", j.JobKey, j.Status)
 	}
-	return nil, fmt.Errorf("run has multiple jobs, specify one with --job:\n%s", joinLines(keys))
+	return nil, fmt.Errorf("run has multiple jobs, specify one with --job:\n%s", strings.Join(keys, "\n"))
 }
 
 func latestAttempt(job *civ1.JobStatus) *civ1.AttemptStatus {
@@ -226,17 +232,6 @@ func latestAttempt(job *civ1.JobStatus) *civ1.AttemptStatus {
 		}
 	}
 	return latest
-}
-
-func joinLines(lines []string) string {
-	result := ""
-	for i, l := range lines {
-		if i > 0 {
-			result += "\n"
-		}
-		result += l
-	}
-	return result
 }
 
 func printSSHInfo(sandboxID, sessionID, output string) error {
