@@ -70,7 +70,7 @@ This command is in beta and subject to change.`,
 				return err
 			}
 
-			if info {
+			if info || !helpers.IsTerminal() {
 				return printSSHInfo(sandboxID, sessionID, output)
 			}
 
