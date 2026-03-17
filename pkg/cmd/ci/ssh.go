@@ -97,8 +97,15 @@ func waitForSandbox(ctx context.Context, token, orgID, runID, jobKey string) (sa
 	const pollInterval = 2 * time.Second
 	const timeout = 5 * time.Minute
 
+	const (
+		stateInit = iota
+		stateWaitingForJob
+		stateWaitingForStart
+		stateWaitingForSandbox
+	)
+
 	deadline := time.Now().Add(timeout)
-	first := true
+	currentState := stateInit
 
 	for {
 		if time.Now().After(deadline) {
@@ -114,9 +121,9 @@ func waitForSandbox(ctx context.Context, token, orgID, runID, jobKey string) (sa
 		if err != nil {
 			// If no jobs exist yet or the target job hasn't appeared, keep polling.
 			if isRetryableJobError(err) {
-				if first {
+				if currentState != stateWaitingForJob {
 					fmt.Fprintf(os.Stderr, "Waiting for job to be created...\n")
-					first = false
+					currentState = stateWaitingForJob
 				}
 				select {
 				case <-ctx.Done():
@@ -130,9 +137,9 @@ func waitForSandbox(ctx context.Context, token, orgID, runID, jobKey string) (sa
 
 		attempt := latestAttempt(targetJob)
 		if attempt == nil {
-			if first {
+			if currentState != stateWaitingForStart {
 				fmt.Fprintf(os.Stderr, "Waiting for job %q to start...\n", targetJob.JobKey)
-				first = false
+				currentState = stateWaitingForStart
 			}
 		} else {
 			switch attempt.Status {
@@ -145,9 +152,9 @@ func waitForSandbox(ctx context.Context, token, orgID, runID, jobKey string) (sa
 					fmt.Fprintf(os.Stderr, "Connecting to sandbox %s...\n", sid)
 					return sid, ssid, nil
 				}
-				if first {
+				if currentState != stateWaitingForSandbox {
 					fmt.Fprintf(os.Stderr, "Waiting for sandbox to be provisioned...\n")
-					first = false
+					currentState = stateWaitingForSandbox
 				}
 			}
 		}

@@ -62,10 +62,10 @@ func NewCmdStatus() *cobra.Command {
 						if sid := attempt.GetSandboxId(); sid != "" {
 							line += fmt.Sprintf("  sandbox: %s", sid)
 						}
-						line += fmt.Sprintf("  →  depot ci logs %s  |  https://depot.dev/orgs/%s/workflows/%s", attempt.AttemptId, resp.OrgId, attempt.AttemptId)
-						if attempt.GetSandboxId() != "" {
-							line += fmt.Sprintf("  |  depot ci ssh %s --job %s", resp.RunId, job.JobKey)
-						}
+					line += fmt.Sprintf("  →  depot ci logs %s  |  https://depot.dev/orgs/%s/workflows/%s", attempt.AttemptId, resp.OrgId, attempt.AttemptId)
+					if attempt.GetSandboxId() != "" && attempt.Status != "finished" && attempt.Status != "failed" && attempt.Status != "cancelled" {
+						line += fmt.Sprintf("  |  depot ci ssh %s --job %s", resp.RunId, job.JobKey)
+					}
 						fmt.Println(line)
 					}
 				}
