@@ -13,8 +13,8 @@ import (
 	"github.com/depot/cli/pkg/api"
 	"github.com/depot/cli/pkg/config"
 	"github.com/depot/cli/pkg/helpers"
-	"github.com/depot/cli/pkg/pty"
 	civ1 "github.com/depot/cli/pkg/proto/depot/ci/v1"
+	"github.com/depot/cli/pkg/pty"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 )
