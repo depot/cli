@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/depot/cli/pkg/api"
@@ -139,6 +140,12 @@ func waitForSandbox(ctx context.Context, token, orgID, runID, jobKey string) (sa
 			return "", "", err
 		}
 
+		// Capture the job key after first successful auto-selection so that
+		// subsequent iterations don't fail if additional jobs appear.
+		if jobKey == "" {
+			jobKey = targetJob.JobKey
+		}
+
 		attempt := latestAttempt(targetJob)
 		if attempt == nil {
 			if currentState != stateWaitingForStart {
@@ -212,7 +219,7 @@ func findJob(resp *civ1.GetRunStatusResponse, jobKey string) (*civ1.JobStatus, e
 	for i, j := range allJobs {
 		keys[i] = fmt.Sprintf("  %s (%s)", j.JobKey, j.Status)
 	}
-	return nil, fmt.Errorf("run has multiple jobs, specify one with --job:\n%s", joinLines(keys))
+	return nil, fmt.Errorf("run has multiple jobs, specify one with --job:\n%s", strings.Join(keys, "\n"))
 }
 
 func latestAttempt(job *civ1.JobStatus) *civ1.AttemptStatus {
@@ -226,17 +233,6 @@ func latestAttempt(job *civ1.JobStatus) *civ1.AttemptStatus {
 		}
 	}
 	return latest
-}
-
-func joinLines(lines []string) string {
-	result := ""
-	for i, l := range lines {
-		if i > 0 {
-			result += "\n"
-		}
-		result += l
-	}
-	return result
 }
 
 func printSSHInfo(sandboxID, sessionID, output string) error {
