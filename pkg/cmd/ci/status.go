@@ -58,15 +58,19 @@ func NewCmdStatus() *cobra.Command {
 					fmt.Printf("    Job: %s [%s] (%s)\n", job.JobId, job.JobKey, job.Status)
 
 					for _, attempt := range job.Attempts {
-						line := fmt.Sprintf("      Attempt: %s #%d (%s)", attempt.AttemptId, attempt.Attempt, attempt.Status)
-						if sid := attempt.GetSandboxId(); sid != "" {
+						sid := attempt.GetSandboxId()
+						isRunning := attempt.Status != "finished" && attempt.Status != "failed" && attempt.Status != "cancelled"
+
+						line := fmt.Sprintf("      Attempt #%d (%s)", attempt.Attempt, attempt.Status)
+						if sid != "" {
 							line += fmt.Sprintf("  sandbox: %s", sid)
 						}
-						line += fmt.Sprintf("  \xe2\x86\x92  depot ci logs %s  |  https://depot.dev/orgs/%s/workflows/%s", attempt.AttemptId, resp.OrgId, attempt.AttemptId)
-						if attempt.GetSandboxId() != "" && attempt.Status != "finished" && attempt.Status != "failed" && attempt.Status != "cancelled" {
-							line += fmt.Sprintf("  |  depot ci ssh %s --job %s", resp.RunId, job.JobKey)
-						}
 						fmt.Println(line)
+						fmt.Printf("        Logs: depot ci logs %s\n", attempt.AttemptId)
+						fmt.Printf("        View: https://depot.dev/orgs/%s/workflows/%s\n", resp.OrgId, attempt.AttemptId)
+						if sid != "" && isRunning {
+							fmt.Printf("        SSH:  depot ci ssh %s --job %s\n", resp.RunId, job.JobKey)
+						}
 					}
 				}
 			}
