@@ -119,8 +119,12 @@ func waitForSandbox(ctx context.Context, token, orgID, runID, jobKey string) (sa
 
 		targetJob, err := findJob(resp, jobKey)
 		if err != nil {
-			// If no jobs exist yet or the target job hasn't appeared, keep polling.
+			// If no jobs exist yet or the target job hasn't appeared, keep polling
+			// — but only if the run itself is still active.
 			if isRetryableJobError(err) {
+				if resp.Status == "finished" || resp.Status == "failed" || resp.Status == "cancelled" {
+					return "", "", fmt.Errorf("%s (run status: %s)", err, resp.Status)
+				}
 				if currentState != stateWaitingForJob {
 					fmt.Fprintf(os.Stderr, "Waiting for job to be created...\n")
 					currentState = stateWaitingForJob
