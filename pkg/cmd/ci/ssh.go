@@ -27,25 +27,26 @@ func NewCmdSSH() *cobra.Command {
 	)
 
 	cmd := &cobra.Command{
-		Use:   "ssh <run-id>",
+		Use:   "ssh <run-id | job-id>",
 		Short: "Connect to a running CI job via interactive terminal [beta]",
 		Long: `Open an interactive terminal session to the sandbox running a CI job.
 
+Accepts either a run ID (with optional --job flag) or a job ID directly.
 If the job hasn't started yet, the command will wait for the sandbox to be provisioned.
 Use --info to print SSH connection details instead of connecting interactively.
 
 This command is in beta and subject to change.`,
-		Example: `  # Connect to a running job
+		Example: `  # Connect directly using a job ID
+  depot ci ssh <job-id>
+
+  # Connect to a specific job in a run
   depot ci ssh <run-id> --job build
 
   # Auto-select job when there's only one
   depot ci ssh <run-id>
 
   # Print SSH connection details (for agents/automation)
-  depot ci ssh <run-id> --job build --info
-
-  # Print SSH details as JSON
-  depot ci ssh <run-id> --job build --info --output json`,
+  depot ci ssh <run-id> --info --output json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 0 {
 				return cmd.Help()
@@ -66,7 +67,7 @@ This command is in beta and subject to change.`,
 				return fmt.Errorf("missing API token, please run `depot login`")
 			}
 
-			sandboxID, sessionID, err := waitForSandbox(ctx, tokenVal, orgID, runID, job)
+			sandboxID, sessionID, err := waitForSandbox(ctx, tokenVal, orgID, runID, job, runID)
 			if err != nil {
 				return err
 			}
@@ -94,7 +95,9 @@ This command is in beta and subject to change.`,
 
 // waitForSandbox polls the CI run status until a sandbox_id is available for the
 // target job, or returns an error if the job has finished or doesn't exist.
-func waitForSandbox(ctx context.Context, token, orgID, runID, jobKey string) (sandboxID, sessionID string, err error) {
+// originalID is the raw ID the user passed — it may be a run ID or a job ID.
+// When jobKey is empty, we also try matching jobs by ID using originalID.
+func waitForSandbox(ctx context.Context, token, orgID, runID, jobKey, originalID string) (sandboxID, sessionID string, err error) {
 	const pollInterval = 2 * time.Second
 	const timeout = 5 * time.Minute
 
@@ -118,7 +121,7 @@ func waitForSandbox(ctx context.Context, token, orgID, runID, jobKey string) (sa
 			return "", "", fmt.Errorf("failed to get run status: %w", err)
 		}
 
-		targetJob, err := findJob(resp, jobKey)
+		targetJob, err := findJob(resp, jobKey, originalID)
 		if err == nil && jobKey == "" {
 			// Latch the auto-selected job key so subsequent polls don't
 			// fail if more jobs appear while we wait for the sandbox.
@@ -188,9 +191,9 @@ func isRetryableJobError(err error) bool {
 }
 
 // findJob locates the target job in the run status response.
-// If jobKey is empty and there's exactly one job, it returns that job.
-// If there are multiple jobs and no jobKey, it returns an error listing them.
-func findJob(resp *civ1.GetRunStatusResponse, jobKey string) (*civ1.JobStatus, error) {
+// It tries matching by job key (--job flag), then by job ID (originalID),
+// then auto-selects if there's exactly one job.
+func findJob(resp *civ1.GetRunStatusResponse, jobKey, originalID string) (*civ1.JobStatus, error) {
 	var allJobs []*civ1.JobStatus
 	for _, wf := range resp.Workflows {
 		allJobs = append(allJobs, wf.Jobs...)
@@ -200,6 +203,7 @@ func findJob(resp *civ1.GetRunStatusResponse, jobKey string) (*civ1.JobStatus, e
 		return nil, &retryableJobError{msg: fmt.Sprintf("run %s has no jobs yet", resp.RunId)}
 	}
 
+	// Match by job key (--job flag).
 	if jobKey != "" {
 		for _, j := range allJobs {
 			if j.JobKey == jobKey {
@@ -210,6 +214,16 @@ func findJob(resp *civ1.GetRunStatusResponse, jobKey string) (*civ1.JobStatus, e
 		return nil, &retryableJobError{msg: fmt.Sprintf("job %q not found yet", jobKey)}
 	}
 
+	// Match by job ID (user passed a job ID as the positional arg).
+	if originalID != "" {
+		for _, j := range allJobs {
+			if j.JobId == originalID {
+				return j, nil
+			}
+		}
+	}
+
+	// Auto-select if there's only one job.
 	if len(allJobs) == 1 {
 		return allJobs[0], nil
 	}

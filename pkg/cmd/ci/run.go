@@ -215,7 +215,7 @@ This command is in beta and subject to change.`,
 
 			if ssh {
 				fmt.Printf("Waiting for job to start and connecting via SSH...\n")
-				sandboxID, sessionID, err := waitForSandbox(ctx, tokenVal, orgID, resp.RunId, jobNames[0])
+				sandboxID, sessionID, err := waitForSandbox(ctx, tokenVal, orgID, resp.RunId, jobNames[0], "")
 				if err != nil {
 					return err
 				}
