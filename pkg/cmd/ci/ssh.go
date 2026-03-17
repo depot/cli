@@ -121,6 +121,24 @@ func waitForSandbox(ctx context.Context, token, orgID, runID, jobKey string) (sa
 		if err != nil {
 			// If no jobs exist yet or the target job hasn't appeared, keep polling.
 			if isRetryableJobError(err) {
+				// If the run is in a terminal state, the job will never appear.
+				switch resp.Status {
+				case "finished", "failed", "cancelled":
+					// Return a helpful error listing available jobs.
+					var allJobs []*civ1.JobStatus
+					for _, wf := range resp.Workflows {
+						allJobs = append(allJobs, wf.Jobs...)
+					}
+					if len(allJobs) > 0 && jobKey != "" {
+						keys := make([]string, len(allJobs))
+						for i, j := range allJobs {
+							keys[i] = fmt.Sprintf("  %s (%s)", j.JobKey, j.Status)
+						}
+						return "", "", fmt.Errorf("job %q not found, run is %s. Available jobs:\n%s", jobKey, resp.Status, joinLines(keys))
+					}
+					return "", "", fmt.Errorf("run is %s with no matching job", resp.Status)
+				}
+
 				if currentState != stateWaitingForJob {
 					fmt.Fprintf(os.Stderr, "Waiting for job to be created...\n")
 					currentState = stateWaitingForJob
