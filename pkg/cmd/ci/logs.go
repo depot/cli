@@ -107,6 +107,37 @@ type jobCandidate struct {
 	workflowName string
 }
 
+// jobKeyShort returns the short form of a job key (after the first colon),
+// or the full key if there's no colon.
+func jobKeyShort(key string) string {
+	if i := strings.IndexByte(key, ':'); i >= 0 {
+		return key[i+1:]
+	}
+	return key
+}
+
+// jobDisplayNames computes a display name for each candidate. Uses the short
+// name (after colon) when it's unique across all candidates, falls back to the
+// full job key when there's a collision.
+func jobDisplayNames(candidates []jobCandidate) map[string]string {
+	// Count how many candidates share each short name.
+	shortCounts := map[string]int{}
+	for _, c := range candidates {
+		shortCounts[jobKeyShort(c.job.JobKey)]++
+	}
+
+	names := make(map[string]string, len(candidates))
+	for _, c := range candidates {
+		short := jobKeyShort(c.job.JobKey)
+		if shortCounts[short] > 1 {
+			names[c.job.JobKey] = c.job.JobKey
+		} else {
+			names[c.job.JobKey] = short
+		}
+	}
+	return names
+}
+
 // resolveAttempt finds the target attempt from a run status response.
 // It selects a job (by --job flag, by job ID match, or auto-select), then
 // picks the latest attempt and prints informational messages about what was chosen.
@@ -131,9 +162,9 @@ func resolveAttempt(resp *civ1.GetRunStatusResponse, originalID, jobKey, workflo
 	var info []string
 	if jobKey == "" {
 		if workflowPath != "" {
-			info = append(info, fmt.Sprintf("job %q from %s", targetJob.JobKey, workflowPath))
+			info = append(info, fmt.Sprintf("job %q from %s", jobKeyShort(targetJob.JobKey), workflowPath))
 		} else {
-			info = append(info, fmt.Sprintf("job %q", targetJob.JobKey))
+			info = append(info, fmt.Sprintf("job %q", jobKeyShort(targetJob.JobKey)))
 		}
 	}
 
@@ -178,19 +209,28 @@ func findLogsJob(resp *civ1.GetRunStatusResponse, originalID, jobKey, workflowFi
 		return nil, "", fmt.Errorf("run %s has no jobs", resp.RunId)
 	}
 
-	// Match by job key (--job flag).
+	// Match by job key (--job flag): exact match on full key or short name.
 	if jobKey != "" {
-		var matches []jobCandidate
+		var exact, short []jobCandidate
 		for _, c := range candidates {
 			if c.job.JobKey == jobKey {
-				matches = append(matches, c)
+				exact = append(exact, c)
+			} else if jobKeyShort(c.job.JobKey) == jobKey {
+				short = append(short, c)
 			}
 		}
+
+		matches := exact
+		if len(matches) == 0 {
+			matches = short
+		}
+
+		displayNames := jobDisplayNames(candidates)
 		switch len(matches) {
 		case 0:
 			keys := make([]string, len(candidates))
 			for i, c := range candidates {
-				keys[i] = c.job.JobKey
+				keys[i] = displayNames[c.job.JobKey]
 			}
 			return nil, "", fmt.Errorf("job %q not found (available: %s)", jobKey, strings.Join(keys, ", "))
 		case 1:
@@ -217,7 +257,26 @@ func findLogsJob(resp *civ1.GetRunStatusResponse, originalID, jobKey, workflowFi
 		return candidates[0].job, candidates[0].workflowPath, nil
 	}
 
-	return nil, "", fmt.Errorf("run has multiple jobs, specify one with --job:\n%s", formatJobList(resp, workflowFilter))
+	// Interactive fuzzy picker when terminal is available.
+	if helpers.IsTerminal() {
+		displayNames := jobDisplayNames(candidates)
+		items := make([]PickJobItem, len(candidates))
+		for i, c := range candidates {
+			items[i] = PickJobItem{
+				Name:     displayNames[c.job.JobKey],
+				Status:   c.job.Status,
+				Workflow: c.workflowPath,
+				Index:    i,
+			}
+		}
+		idx, err := PickJob(items)
+		if err != nil {
+			return nil, "", err
+		}
+		return candidates[idx].job, candidates[idx].workflowPath, nil
+	}
+
+	return nil, "", fmt.Errorf("run has multiple jobs, specify one with --job:\n%s", formatJobList(candidates))
 }
 
 // workflowPathMatches checks if a workflow path matches the filter.
@@ -234,25 +293,35 @@ func workflowPathMatches(path, filter string) bool {
 }
 
 // formatJobList returns a string listing jobs grouped by workflow for error messages.
-func formatJobList(resp *civ1.GetRunStatusResponse, workflowFilter string) string {
+// Uses short job names when unambiguous, full names when there are conflicts.
+func formatJobList(candidates []jobCandidate) string {
+	displayNames := jobDisplayNames(candidates)
+
+	// Group by workflow path.
+	type workflowGroup struct {
+		label string
+		jobs  []jobCandidate
+	}
+	var groups []workflowGroup
+	groupIdx := map[string]int{}
+	for _, c := range candidates {
+		label := c.workflowPath
+		if label == "" {
+			label = c.workflowName
+		}
+		if idx, ok := groupIdx[label]; ok {
+			groups[idx].jobs = append(groups[idx].jobs, c)
+		} else {
+			groupIdx[label] = len(groups)
+			groups = append(groups, workflowGroup{label: label, jobs: []jobCandidate{c}})
+		}
+	}
+
 	var b strings.Builder
-	for _, wf := range resp.Workflows {
-		if workflowFilter != "" && !workflowPathMatches(wf.WorkflowPath, workflowFilter) {
-			continue
-		}
-		if len(wf.Jobs) == 0 {
-			continue
-		}
-		label := wf.WorkflowPath
-		if label == "" {
-			label = wf.Name
-		}
-		if label == "" {
-			label = wf.WorkflowId
-		}
-		fmt.Fprintf(&b, "\n  %s\n", label)
-		for _, j := range wf.Jobs {
-			fmt.Fprintf(&b, "    %s (%s)\n", j.JobKey, j.Status)
+	for _, g := range groups {
+		fmt.Fprintf(&b, "\n  %s\n", g.label)
+		for _, c := range g.jobs {
+			fmt.Fprintf(&b, "    %s (%s)\n", displayNames[c.job.JobKey], c.job.Status)
 		}
 	}
 	return b.String()

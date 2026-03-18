@@ -221,6 +221,106 @@ func TestResolveAttempt_NoAttempts(t *testing.T) {
 	}
 }
 
+func TestFindLogsJob_SuffixMatch(t *testing.T) {
+	resp := &civ1.GetRunStatusResponse{
+		RunId: "run-1",
+		Workflows: []*civ1.WorkflowStatus{
+			{
+				WorkflowPath: ".depot/workflows/ci.yml",
+				Jobs: []*civ1.JobStatus{
+					{JobId: "job-1", JobKey: "ci.yml:build", Status: "finished"},
+					{JobId: "job-2", JobKey: "ci.yml:test", Status: "running"},
+				},
+			},
+		},
+	}
+
+	job, _, err := findLogsJob(resp, "run-1", "test", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if job.JobId != "job-2" {
+		t.Fatalf("expected job ID %q, got %q", "job-2", job.JobId)
+	}
+}
+
+func TestFindLogsJob_SuffixMatchAmbiguous(t *testing.T) {
+	resp := &civ1.GetRunStatusResponse{
+		RunId: "run-1",
+		Workflows: []*civ1.WorkflowStatus{
+			{
+				WorkflowPath: ".depot/workflows/ci.yml",
+				Jobs: []*civ1.JobStatus{
+					{JobId: "job-1", JobKey: "ci.yml:build", Status: "finished"},
+				},
+			},
+			{
+				WorkflowPath: ".depot/workflows/release.yml",
+				Jobs: []*civ1.JobStatus{
+					{JobId: "job-2", JobKey: "release.yml:build", Status: "queued"},
+				},
+			},
+		},
+	}
+
+	_, _, err := findLogsJob(resp, "run-1", "build", "")
+	if err == nil {
+		t.Fatal("expected error for ambiguous suffix match across workflows")
+	}
+}
+
+func TestJobDisplayNames_UniqueShortNames(t *testing.T) {
+	candidates := []jobCandidate{
+		{job: &civ1.JobStatus{JobKey: "ci.yml:build"}},
+		{job: &civ1.JobStatus{JobKey: "ci.yml:test"}},
+	}
+	names := jobDisplayNames(candidates)
+	if names["ci.yml:build"] != "build" {
+		t.Fatalf("expected %q, got %q", "build", names["ci.yml:build"])
+	}
+	if names["ci.yml:test"] != "test" {
+		t.Fatalf("expected %q, got %q", "test", names["ci.yml:test"])
+	}
+}
+
+func TestJobDisplayNames_ConflictingShortNames(t *testing.T) {
+	candidates := []jobCandidate{
+		{job: &civ1.JobStatus{JobKey: "ci.yml:build"}},
+		{job: &civ1.JobStatus{JobKey: "release.yml:build"}},
+		{job: &civ1.JobStatus{JobKey: "ci.yml:test"}},
+	}
+	names := jobDisplayNames(candidates)
+	// "build" conflicts, so both should use full key.
+	if names["ci.yml:build"] != "ci.yml:build" {
+		t.Fatalf("expected %q, got %q", "ci.yml:build", names["ci.yml:build"])
+	}
+	if names["release.yml:build"] != "release.yml:build" {
+		t.Fatalf("expected %q, got %q", "release.yml:build", names["release.yml:build"])
+	}
+	// "test" is unique, so short name.
+	if names["ci.yml:test"] != "test" {
+		t.Fatalf("expected %q, got %q", "test", names["ci.yml:test"])
+	}
+}
+
+func TestJobDisplayNames_NoColon(t *testing.T) {
+	candidates := []jobCandidate{
+		{job: &civ1.JobStatus{JobKey: "build"}},
+		{job: &civ1.JobStatus{JobKey: "test"}},
+	}
+	names := jobDisplayNames(candidates)
+	if names["build"] != "build" {
+		t.Fatalf("expected %q, got %q", "build", names["build"])
+	}
+}
+
+func TestJobKeyShort_MultipleColons(t *testing.T) {
+	got := jobKeyShort("ci.yml:foo:bar")
+	if got != "foo:bar" {
+		t.Fatalf("expected %q, got %q", "foo:bar", got)
+	}
+}
+
 func TestWorkflowPathMatches(t *testing.T) {
 	tests := []struct {
 		path   string
