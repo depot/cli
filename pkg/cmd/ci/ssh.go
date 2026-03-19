@@ -203,10 +203,16 @@ func findJob(resp *civ1.GetRunStatusResponse, jobKey, originalID string) (*civ1.
 		return nil, &retryableJobError{msg: fmt.Sprintf("run %s has no jobs yet", resp.RunId)}
 	}
 
-	// Match by job key (--job flag).
+	// Match by job key (--job flag): exact match or short name (after colon).
+	// Job keys from inline workflows look like "_inline_0.yaml:e2e" — the
+	// user passes just "e2e", so match on the suffix after the colon too.
 	if jobKey != "" {
 		for _, j := range allJobs {
-			if j.JobKey == jobKey {
+			short := j.JobKey
+			if i := strings.IndexByte(short, ':'); i >= 0 {
+				short = short[i+1:]
+			}
+			if j.JobKey == jobKey || short == jobKey {
 				return j, nil
 			}
 		}
@@ -262,8 +268,12 @@ func printSSHInfo(sandboxID, sessionID, output string) error {
 
 	fmt.Printf("Host:     api.depot.dev\n")
 	fmt.Printf("User:     %s\n", sandboxID)
-	fmt.Printf("Password: Use your Depot API token ($DEPOT_TOKEN)\n")
+	fmt.Printf("Password: Your Depot API token ($DEPOT_TOKEN)\n")
 	fmt.Println()
-	fmt.Printf("Connect:  ssh %s@api.depot.dev\n", sandboxID)
+	fmt.Printf("Connect interactively:\n")
+	fmt.Printf("  depot ci ssh %s\n", sandboxID)
+	fmt.Println()
+	fmt.Printf("Or via SSH directly:\n")
+	fmt.Printf("  ssh %s@api.depot.dev\n", sandboxID)
 	return nil
 }
