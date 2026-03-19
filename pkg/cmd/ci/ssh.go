@@ -123,9 +123,10 @@ func waitForSandbox(ctx context.Context, token, orgID, runID, jobKey, originalID
 		}
 
 		targetJob, err := findJob(resp, jobKey, originalID)
-		if err == nil && jobKey == "" {
-			// Latch the auto-selected job key so subsequent polls don't
-			// fail if more jobs appear while we wait for the sandbox.
+		if err == nil {
+			// Latch the resolved job key so subsequent polls use exact matching.
+			// Handles both auto-selection (jobKey was empty) and suffix-matched
+			// inline workflow keys (e.g. "lint_typecheck" → "_inline_0.yaml:lint_typecheck").
 			jobKey = targetJob.JobKey
 		}
 		if err != nil {
