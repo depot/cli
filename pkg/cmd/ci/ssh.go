@@ -73,7 +73,7 @@ This command is in beta and subject to change.`,
 			}
 
 			if info || !helpers.IsTerminal() {
-				return printSSHInfo(sandboxID, sessionID, output)
+				return printSSHInfo(runID, sandboxID, sessionID, output)
 			}
 
 			return pty.Run(ctx, pty.SessionOptions{
@@ -276,12 +276,13 @@ func workflowErrorMessage(resp *civ1.GetRunStatusResponse) string {
 	return ""
 }
 
-func printSSHInfo(sandboxID, sessionID, output string) error {
+func printSSHInfo(runID, sandboxID, sessionID, output string) error {
 	if output == "json" {
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
 		return enc.Encode(map[string]string{
 			"host":        "api.depot.dev",
+			"run_id":      runID,
 			"sandbox_id":  sandboxID,
 			"session_id":  sessionID,
 			"ssh_command": fmt.Sprintf("ssh %s@api.depot.dev", sandboxID),
@@ -293,7 +294,7 @@ func printSSHInfo(sandboxID, sessionID, output string) error {
 	fmt.Printf("Password: Your Depot API token ($DEPOT_TOKEN)\n")
 	fmt.Println()
 	fmt.Printf("Connect interactively:\n")
-	fmt.Printf("  depot ci ssh %s\n", sandboxID)
+	fmt.Printf("  depot ci ssh %s\n", runID)
 	fmt.Println()
 	fmt.Printf("Or via SSH directly:\n")
 	fmt.Printf("  ssh %s@api.depot.dev\n", sandboxID)

@@ -240,9 +240,8 @@ This command is in beta and subject to change.`,
 				if sshAfterStep > 0 {
 					fmt.Fprintf(os.Stderr, "Run 'touch /tmp/depot-continue' to resume the workflow. (Your session will not end.)\n")
 				}
-				fmt.Fprintf(os.Stderr, "Connecting to sandbox %s...\n", sandboxID)
 				if !helpers.IsTerminal() {
-					return printSSHInfo(sandboxID, sessionID, "")
+					return printSSHInfo(resp.RunId, sandboxID, sessionID, "")
 				}
 				return pty.Run(ctx, pty.SessionOptions{
 					Token:     tokenVal,
@@ -513,14 +512,8 @@ func formatStatus(s civ1.CIRunStatus) string {
 // appears. This is used to detect when the injected debug step is running.
 func waitForLogMarker(ctx context.Context, token, orgID, runID, jobKey, marker string) error {
 	const pollInterval = 3 * time.Second
-	const timeout = 10 * time.Minute
-
-	deadline := time.Now().Add(timeout)
 
 	for {
-		if time.Now().After(deadline) {
-			return fmt.Errorf("timed out waiting for log marker (waited %s)", timeout)
-		}
 
 		// Resolve the latest attempt ID for the job.
 		resp, err := api.CIGetRunStatus(ctx, token, orgID, runID)
@@ -552,6 +545,12 @@ func waitForLogMarker(ctx context.Context, token, orgID, runID, jobKey, marker s
 			case <-time.After(pollInterval):
 			}
 			continue
+		}
+
+		// Early exit if the job has already completed — the marker will never appear.
+		switch attempt.Status {
+		case "finished", "failed", "cancelled":
+			return fmt.Errorf("job completed before debug step was reached (status: %s)", attempt.Status)
 		}
 
 		lines, err := api.CIGetJobAttemptLogs(ctx, token, orgID, attempt.AttemptId)
