@@ -89,10 +89,18 @@ func (m pickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.list.SetSize(msg.Width, msg.Height)
 		return m, nil
 	case tea.KeyMsg:
-		switch msg.String() {
-		case "enter":
-			return m, tea.Quit
-		case "esc", "ctrl+c":
+		// Only intercept keys when not actively filtering — otherwise
+		// enter/esc need to reach the inner list to confirm/cancel the filter.
+		if m.list.FilterState() != list.Filtering {
+			switch msg.String() {
+			case "enter":
+				return m, tea.Quit
+			case "esc", "ctrl+c":
+				m.cancelled = true
+				return m, tea.Quit
+			}
+		} else if msg.String() == "ctrl+c" {
+			// ctrl+c always quits, even mid-filter.
 			m.cancelled = true
 			return m, tea.Quit
 		}
