@@ -81,9 +81,17 @@ This command is in beta and subject to change.`,
 			}
 
 			// Fall back to treating the ID as an attempt ID directly.
+			// Don't fall back if --job or --workflow were specified — those
+			// only make sense for run-level resolution.
+			if job != "" || workflow != "" {
+				return fmt.Errorf("failed to look up run: %w", runErr)
+			}
+
 			lines, err := api.CIGetJobAttemptLogs(ctx, tokenVal, orgID, id)
 			if err != nil {
-				return fmt.Errorf("could not resolve %q as a run, job, or attempt ID", id)
+				// Both paths failed — show both errors so the user can
+				// distinguish "bad ID" from "auth/network failure".
+				return fmt.Errorf("could not resolve %q as a run, job, or attempt ID:\n  as run: %v\n  as attempt: %v", id, runErr, err)
 			}
 
 			for _, line := range lines {
