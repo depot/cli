@@ -221,12 +221,17 @@ This command is in beta and subject to change.`,
 				}
 				return pty.Run(ctx, pty.SessionOptions{
 					Token:     tokenVal,
+					OrgID:     orgID,
 					SandboxID: sandboxID,
 					SessionID: sessionID,
 				})
 			}
 
-			fmt.Printf("Check status:  depot ci status %s\n", resp.RunId)
+			orgFlag := ""
+			if cmd.Flags().Changed("org") {
+				orgFlag = " --org " + orgID
+			}
+			fmt.Printf("Check status:  depot ci status %s%s\n", resp.RunId, orgFlag)
 			fmt.Printf("View in Depot: https://depot.dev/orgs/%s/workflows/%s\n", resp.OrgId, resp.RunId)
 
 			return nil

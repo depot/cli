@@ -78,6 +78,7 @@ This command is in beta and subject to change.`,
 
 			return pty.Run(ctx, pty.SessionOptions{
 				Token:     tokenVal,
+				OrgID:     orgID,
 				SandboxID: sandboxID,
 				SessionID: sessionID,
 			})
@@ -122,9 +123,10 @@ func waitForSandbox(ctx context.Context, token, orgID, runID, jobKey, originalID
 		}
 
 		targetJob, err := findJob(resp, jobKey, originalID)
-		if err == nil && jobKey == "" {
-			// Latch the auto-selected job key so subsequent polls don't
-			// fail if more jobs appear while we wait for the sandbox.
+		if err == nil {
+			// Latch the resolved job key so subsequent polls use exact matching.
+			// Handles both auto-selection (jobKey was empty) and suffix-matched
+			// inline workflow keys (e.g. "lint_typecheck" → "_inline_0.yaml:lint_typecheck").
 			jobKey = targetJob.JobKey
 		}
 		if err != nil {
@@ -132,6 +134,9 @@ func waitForSandbox(ctx context.Context, token, orgID, runID, jobKey, originalID
 			// — but only if the run itself is still active.
 			if isRetryableJobError(err) {
 				if resp.Status == "finished" || resp.Status == "failed" || resp.Status == "cancelled" {
+					if errMsg := workflowErrorMessage(resp); errMsg != "" {
+						return "", "", fmt.Errorf("%s (run status: %s)\n\n  %s", err, resp.Status, errMsg)
+					}
 					return "", "", fmt.Errorf("%s (run status: %s)", err, resp.Status)
 				}
 				if currentState != stateWaitingForJob {
@@ -210,6 +215,13 @@ func findJob(resp *civ1.GetRunStatusResponse, jobKey, originalID string) (*civ1.
 				return j, nil
 			}
 		}
+		// Inline workflows get prefixed keys (e.g. "_inline_0.yaml:lint_typecheck"),
+		// so fall back to a suffix match when the user passes just the job name.
+		for _, j := range allJobs {
+			if strings.HasSuffix(j.JobKey, ":"+jobKey) {
+				return j, nil
+			}
+		}
 		// Job might not exist yet if workflows are still being expanded.
 		return nil, &retryableJobError{msg: fmt.Sprintf("job %q not found yet", jobKey)}
 	}
@@ -246,6 +258,16 @@ func latestAttempt(job *civ1.JobStatus) *civ1.AttemptStatus {
 		}
 	}
 	return latest
+}
+
+// workflowErrorMessage returns the first non-empty error message from the run's workflows.
+func workflowErrorMessage(resp *civ1.GetRunStatusResponse) string {
+	for _, wf := range resp.Workflows {
+		if wf.ErrorMessage != "" {
+			return wf.ErrorMessage
+		}
+	}
+	return ""
 }
 
 func printSSHInfo(sandboxID, sessionID, output string) error {
