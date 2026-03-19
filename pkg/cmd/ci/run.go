@@ -1,6 +1,7 @@
 package ci
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/depot/cli/pkg/api"
 	"github.com/depot/cli/pkg/config"
@@ -49,7 +51,7 @@ This command is in beta and subject to change.`,
   # Run a job and connect to its terminal via SSH
   depot ci run --workflow .depot/workflows/ci.yml --job build --ssh
 
-  # Debug with tmate after a specific step
+  # Debug with SSH after a specific step (pauses workflow until you continue)
   depot ci run --workflow .depot/workflows/ci.yml --job build --ssh-after-step 3`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if workflowPath == "" {
@@ -166,10 +168,10 @@ This command is in beta and subject to change.`,
 				}
 			}
 
-			// Insert tmate debug step if requested
+			// Insert debug pause step if requested
 			if sshAfterStep > 0 {
 				jobName := jobNames[0]
-				if err := injectTmateStep(jobs, jobName, sshAfterStep, patch != nil); err != nil {
+				if err := injectDebugStep(jobs, jobName, sshAfterStep, patch != nil); err != nil {
 					return err
 				}
 			}
@@ -184,7 +186,7 @@ This command is in beta and subject to change.`,
 				fmt.Printf("Checking out commit: %s\n", patch.mergeBase)
 			}
 			if sshAfterStep > 0 {
-				fmt.Printf("Inserting tmate step after step %d\n", sshAfterStep)
+				fmt.Printf("Inserting debug step after step %d\n", sshAfterStep)
 			}
 			fmt.Println()
 
@@ -213,11 +215,34 @@ This command is in beta and subject to change.`,
 			fmt.Printf("Run: %s\n", resp.RunId)
 			fmt.Println()
 
-			if ssh {
-				fmt.Printf("Waiting for job to start and connecting via SSH...\n")
+			if sshAfterStep > 0 || ssh {
+				if sshAfterStep > 0 {
+					fmt.Printf("Waiting for debug step to activate...\n")
+				} else {
+					fmt.Printf("Waiting for job to start...\n")
+				}
 				sandboxID, sessionID, err := waitForSandbox(ctx, tokenVal, orgID, resp.RunId, jobNames[0], "")
 				if err != nil {
 					return err
+				}
+
+				// When --ssh-after-step is used, wait for the debug step to
+				// actually be running before connecting, so the user lands in
+				// the sandbox after step N has completed.
+				if sshAfterStep > 0 {
+					fmt.Fprintf(os.Stderr, "Waiting for step %d to complete...\n", sshAfterStep)
+					if err := waitForLogMarker(ctx, tokenVal, orgID, resp.RunId, jobNames[0], "::depot-ssh-ready::"); err != nil {
+						fmt.Fprintf(os.Stderr, "Warning: could not confirm debug step is active: %v\n", err)
+						fmt.Fprintf(os.Stderr, "Connecting anyway...\n")
+					}
+				}
+
+				if sshAfterStep > 0 {
+					fmt.Fprintf(os.Stderr, "Run 'touch /tmp/depot-continue' to resume the workflow. (Your session will not end.)\n")
+				}
+				fmt.Fprintf(os.Stderr, "Connecting to sandbox %s...\n", sandboxID)
+				if !helpers.IsTerminal() {
+					return printSSHInfo(sandboxID, sessionID, "")
 				}
 				return pty.Run(ctx, pty.SessionOptions{
 					Token:     tokenVal,
@@ -242,7 +267,7 @@ This command is in beta and subject to change.`,
 	cmd.Flags().StringVar(&token, "token", "", "Depot API token")
 	cmd.Flags().StringVar(&workflowPath, "workflow", "", "Path to workflow YAML file")
 	cmd.Flags().StringSliceVar(&jobNames, "job", nil, "Job name(s) to run (repeatable; omit to run all)")
-	cmd.Flags().IntVar(&sshAfterStep, "ssh-after-step", 0, "1-based step index to insert a tmate debug step after (requires single --job)")
+	cmd.Flags().IntVar(&sshAfterStep, "ssh-after-step", 0, "1-based step index to pause and connect via SSH after (requires single --job)")
 	cmd.Flags().BoolVar(&ssh, "ssh", false, "Start the run and connect to the job's sandbox via interactive terminal (requires single --job)")
 
 	cmd.AddCommand(NewCmdRunList())
@@ -387,7 +412,7 @@ echo "Patch applied successfully"`, cacheKey, cacheBaseURL),
 	job["steps"] = newSteps
 }
 
-func injectTmateStep(jobs map[string]interface{}, jobName string, afterStep int, patchInjected bool) error {
+func injectDebugStep(jobs map[string]interface{}, jobName string, afterStep int, patchInjected bool) error {
 	jobRaw, ok := jobs[jobName]
 	if !ok {
 		return fmt.Errorf("job %q not found", jobName)
@@ -405,11 +430,12 @@ func injectTmateStep(jobs map[string]interface{}, jobName string, afterStep int,
 		return fmt.Errorf("job %q steps is not a list", jobName)
 	}
 
-	tmateStep := map[string]interface{}{
-		"uses": "mxschmitt/action-tmate@v3",
-		"with": map[string]interface{}{
-			"limit-access-to-actor": "false",
-		},
+	debugStep := map[string]interface{}{
+		"name": "Depot SSH Debug",
+		"run": "echo '::depot-ssh-ready::'\n" +
+			"echo 'SSH session active. Run: touch /tmp/depot-continue to resume workflow.'\n" +
+			"while [ ! -f /tmp/depot-continue ]; do sleep 5; done\n" +
+			"echo 'Continuing workflow...'",
 	}
 
 	insertAt := afterStep
@@ -439,7 +465,7 @@ func injectTmateStep(jobs map[string]interface{}, jobName string, afterStep int,
 
 	newSteps := make([]interface{}, 0, len(steps)+1)
 	newSteps = append(newSteps, steps[:insertAt]...)
-	newSteps = append(newSteps, tmateStep)
+	newSteps = append(newSteps, debugStep)
 	newSteps = append(newSteps, steps[insertAt:]...)
 	job["steps"] = newSteps
 
@@ -480,6 +506,68 @@ func formatStatus(s civ1.CIRunStatus) string {
 		return "cancelled"
 	default:
 		return "unknown"
+	}
+}
+
+// waitForLogMarker polls the job attempt logs until a line containing marker
+// appears. This is used to detect when the injected debug step is running.
+func waitForLogMarker(ctx context.Context, token, orgID, runID, jobKey, marker string) error {
+	const pollInterval = 3 * time.Second
+	const timeout = 10 * time.Minute
+
+	deadline := time.Now().Add(timeout)
+
+	for {
+		if time.Now().After(deadline) {
+			return fmt.Errorf("timed out waiting for log marker (waited %s)", timeout)
+		}
+
+		// Resolve the latest attempt ID for the job.
+		resp, err := api.CIGetRunStatus(ctx, token, orgID, runID)
+		if err != nil {
+			// Transient error, keep polling.
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(pollInterval):
+			}
+			continue
+		}
+
+		targetJob, err := findJob(resp, jobKey, "")
+		if err != nil {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(pollInterval):
+			}
+			continue
+		}
+
+		attempt := latestAttempt(targetJob)
+		if attempt == nil {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(pollInterval):
+			}
+			continue
+		}
+
+		lines, err := api.CIGetJobAttemptLogs(ctx, token, orgID, attempt.AttemptId)
+		if err == nil {
+			for _, line := range lines {
+				if strings.Contains(line.Body, marker) {
+					return nil
+				}
+			}
+		}
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(pollInterval):
+		}
 	}
 }
 
