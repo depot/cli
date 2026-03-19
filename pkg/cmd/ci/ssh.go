@@ -208,23 +208,16 @@ func findJob(resp *civ1.GetRunStatusResponse, jobKey, originalID string) (*civ1.
 		return nil, &retryableJobError{msg: fmt.Sprintf("run %s has no jobs yet", resp.RunId)}
 	}
 
-	// Match by job key (--job flag): exact match or short name (after colon).
-	// Job keys from inline workflows look like "_inline_0.yaml:e2e" — the
-	// user passes just "e2e", so match on the suffix after the colon too.
+	// Match by job key (--job flag): prefer exact match, then fall back to
+	// short name (after colon) for inline workflow keys like "_inline_0.yaml:e2e".
 	if jobKey != "" {
 		for _, j := range allJobs {
-			short := j.JobKey
-			if i := strings.IndexByte(short, ':'); i >= 0 {
-				short = short[i+1:]
-			}
-			if j.JobKey == jobKey || short == jobKey {
+			if j.JobKey == jobKey {
 				return j, nil
 			}
 		}
-		// Inline workflows get prefixed keys (e.g. "_inline_0.yaml:lint_typecheck"),
-		// so fall back to a suffix match when the user passes just the job name.
 		for _, j := range allJobs {
-			if strings.HasSuffix(j.JobKey, ":"+jobKey) {
+			if i := strings.IndexByte(j.JobKey, ':'); i >= 0 && j.JobKey[i+1:] == jobKey {
 				return j, nil
 			}
 		}
