@@ -120,14 +120,21 @@ This command is in beta and subject to change.`,
 				selectedJobs = allJobNames
 			}
 
-			// Pare workflow to selected jobs if a subset was specified
+			// Pare workflow to selected jobs (plus transitive dependencies) if a subset was specified
 			if len(jobNames) > 0 {
+				needed := resolveJobDeps(jobs, jobNames)
 				paredJobs := make(map[string]interface{})
-				for _, name := range jobNames {
+				for name := range needed {
 					paredJobs[name] = jobs[name]
 				}
 				workflow["jobs"] = paredJobs
 				jobs = paredJobs
+
+				// Update selectedJobs to include deps for display
+				selectedJobs = make([]string, 0, len(needed))
+				for name := range needed {
+					selectedJobs = append(selectedJobs, name)
+				}
 			}
 
 			// Resolve repo from git remote
@@ -197,11 +204,6 @@ This command is in beta and subject to change.`,
 			req := &civ1.RunRequest{
 				Repo:            repo,
 				WorkflowContent: []string{string(yamlBytes)},
-			}
-
-			if len(jobNames) > 0 {
-				job := jobNames[0]
-				req.Job = &job
 			}
 
 			resp, err := api.CIRun(ctx, tokenVal, orgID, req)
@@ -288,6 +290,41 @@ func detectPatch(workflowDir string) *patchInfo {
 }
 
 var repoPattern = regexp.MustCompile(`[/:]([^/:]+/[^/.]+?)(?:\.git)?$`)
+
+// resolveJobDeps returns the set of job names that must be included to satisfy
+// the transitive `needs` dependencies of the requested jobs.
+func resolveJobDeps(allJobs map[string]interface{}, requested []string) map[string]struct{} {
+	needed := make(map[string]struct{})
+	var walk func(name string)
+	walk = func(name string) {
+		if _, ok := needed[name]; ok {
+			return
+		}
+		jobRaw, exists := allJobs[name]
+		if !exists {
+			return
+		}
+		needed[name] = struct{}{}
+		job, ok := jobRaw.(map[string]interface{})
+		if !ok {
+			return
+		}
+		switch deps := job["needs"].(type) {
+		case string:
+			walk(deps)
+		case []interface{}:
+			for _, d := range deps {
+				if s, ok := d.(string); ok {
+					walk(s)
+				}
+			}
+		}
+	}
+	for _, name := range requested {
+		walk(name)
+	}
+	return needed
+}
 
 func resolveRepo(dir string) (string, error) {
 	out, err := exec.Command("git", "-C", dir, "remote", "get-url", "origin").Output()
