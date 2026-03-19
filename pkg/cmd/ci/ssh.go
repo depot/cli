@@ -72,9 +72,9 @@ This command is in beta and subject to change.`,
 				return err
 			}
 
-			if info || !helpers.IsTerminal() {
-				return printSSHInfo(sandboxID, sessionID, output)
-			}
+		if info || !helpers.IsTerminal() {
+			return printSSHInfo(sandboxID, sessionID, output, runID)
+		}
 
 			return pty.Run(ctx, pty.SessionOptions{
 				Token:     tokenVal,
@@ -254,7 +254,7 @@ func latestAttempt(job *civ1.JobStatus) *civ1.AttemptStatus {
 	return latest
 }
 
-func printSSHInfo(sandboxID, sessionID, output string) error {
+func printSSHInfo(sandboxID, sessionID, output, runOrJobID string) error {
 	if output == "json" {
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
@@ -270,10 +270,14 @@ func printSSHInfo(sandboxID, sessionID, output string) error {
 	fmt.Printf("User:     %s\n", sandboxID)
 	fmt.Printf("Password: Your Depot API token ($DEPOT_TOKEN)\n")
 	fmt.Println()
-	fmt.Printf("Connect interactively:\n")
-	fmt.Printf("  depot ci ssh %s\n", sandboxID)
-	fmt.Println()
-	fmt.Printf("Or via SSH directly:\n")
+	if runOrJobID != "" {
+		fmt.Printf("Connect interactively:\n")
+		fmt.Printf("  depot ci ssh %s\n", runOrJobID)
+		fmt.Println()
+		fmt.Printf("Or via SSH directly:\n")
+	} else {
+		fmt.Printf("Connect via SSH:\n")
+	}
 	fmt.Printf("  ssh %s@api.depot.dev\n", sandboxID)
 	return nil
 }

@@ -237,13 +237,12 @@ This command is in beta and subject to change.`,
 					}
 				}
 
-				if sshAfterStep > 0 {
-					fmt.Fprintf(os.Stderr, "Run 'touch /tmp/depot-continue' to resume the workflow. (Your session will not end.)\n")
-				}
-				fmt.Fprintf(os.Stderr, "Connecting to sandbox %s...\n", sandboxID)
-				if !helpers.IsTerminal() {
-					return printSSHInfo(sandboxID, sessionID, "")
-				}
+			if sshAfterStep > 0 {
+				fmt.Fprintf(os.Stderr, "Run 'touch /tmp/depot-continue' to resume the workflow. (Your session will not end.)\n")
+			}
+			if !helpers.IsTerminal() {
+				return printSSHInfo(sandboxID, sessionID, "", "")
+			}
 				return pty.Run(ctx, pty.SessionOptions{
 					Token:     tokenVal,
 					SandboxID: sandboxID,
@@ -547,6 +546,11 @@ func waitForLogMarker(ctx context.Context, token, orgID, runID, jobKey, marker s
 			case <-time.After(pollInterval):
 			}
 			continue
+		}
+
+		switch attempt.Status {
+		case "finished", "failed", "cancelled":
+			return fmt.Errorf("job has already completed (status: %s) before marker appeared", attempt.Status)
 		}
 
 		lines, err := api.CIGetJobAttemptLogs(ctx, token, orgID, attempt.AttemptId)
