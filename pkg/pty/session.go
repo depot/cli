@@ -17,6 +17,7 @@ import (
 // SessionOptions configures an interactive PTY session.
 type SessionOptions struct {
 	Token     string
+	OrgID     string // sent as x-depot-org header for multi-org users
 	SandboxID string
 	SessionID string
 	Cwd       string
@@ -51,6 +52,9 @@ func Run(ctx context.Context, opts SessionOptions) error {
 	client := api.NewComputeClient()
 	stream := client.OpenPtySession(ctx)
 	stream.RequestHeader().Set("Authorization", "Bearer "+opts.Token)
+	if opts.OrgID != "" {
+		stream.RequestHeader().Set("x-depot-org", opts.OrgID)
+	}
 
 	if err := stream.Send(&civ1.OpenPtySessionRequest{
 		Message: &civ1.OpenPtySessionRequest_Init{

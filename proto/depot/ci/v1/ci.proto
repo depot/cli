@@ -64,6 +64,8 @@ message WorkflowStatus {
   repeated JobStatus jobs = 4;
   // workflow name from YAML `name:` key, empty if not set
   string name = 5;
+  // error_message is populated when the workflow has failed (e.g. compilation or validation errors)
+  string error_message = 6;
 }
 
 message JobStatus {
