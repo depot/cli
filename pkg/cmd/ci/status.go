@@ -58,7 +58,14 @@ func NewCmdStatus() *cobra.Command {
 					fmt.Printf("    Job: %s [%s] (%s)\n", job.JobId, job.JobKey, job.Status)
 
 					for _, attempt := range job.Attempts {
-						fmt.Printf("      Attempt: %s #%d (%s)  →  depot ci logs %s  |  https://depot.dev/orgs/%s/workflows/%s\n", attempt.AttemptId, attempt.Attempt, attempt.Status, attempt.AttemptId, resp.OrgId, attempt.AttemptId)
+						isRunning := attempt.Status != "finished" && attempt.Status != "failed" && attempt.Status != "cancelled"
+
+						fmt.Printf("      Attempt #%d (%s)\n", attempt.Attempt, attempt.Status)
+						fmt.Printf("        Logs: depot ci logs %s\n", attempt.AttemptId)
+						fmt.Printf("        View: https://depot.dev/orgs/%s/workflows/%s\n", resp.OrgId, attempt.AttemptId)
+						if attempt.GetSandboxId() != "" && isRunning {
+							fmt.Printf("        SSH:  depot ci ssh %s --job %s\n", resp.RunId, job.JobKey)
+						}
 					}
 				}
 			}

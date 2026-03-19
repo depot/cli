@@ -14,6 +14,7 @@ import (
 	"github.com/depot/cli/pkg/config"
 	"github.com/depot/cli/pkg/helpers"
 	civ1 "github.com/depot/cli/pkg/proto/depot/ci/v1"
+	"github.com/depot/cli/pkg/pty"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 )
@@ -27,6 +28,7 @@ func NewCmdRun() *cobra.Command {
 		workflowPath string
 		jobNames     []string
 		sshAfterStep int
+		ssh          bool
 	)
 
 	cmd := &cobra.Command{
@@ -44,7 +46,10 @@ This command is in beta and subject to change.`,
   # Run specific jobs
   depot ci run --workflow .depot/workflows/ci.yml --job build --job test
 
-  # Debug with SSH after a specific step
+  # Run a job and connect to its terminal via SSH
+  depot ci run --workflow .depot/workflows/ci.yml --job build --ssh
+
+  # Debug with tmate after a specific step
   depot ci run --workflow .depot/workflows/ci.yml --job build --ssh-after-step 3`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if workflowPath == "" {
@@ -55,6 +60,14 @@ This command is in beta and subject to change.`,
 
 			if sshAfterStep > 0 && len(jobNames) != 1 {
 				return fmt.Errorf("--ssh-after-step requires exactly one --job")
+			}
+
+			if ssh && len(jobNames) != 1 {
+				return fmt.Errorf("--ssh requires exactly one --job")
+			}
+
+			if ssh && sshAfterStep > 0 {
+				return fmt.Errorf("--ssh and --ssh-after-step are mutually exclusive")
 			}
 
 			if orgID == "" {
@@ -199,6 +212,20 @@ This command is in beta and subject to change.`,
 			fmt.Printf("Org: %s\n", resp.OrgId)
 			fmt.Printf("Run: %s\n", resp.RunId)
 			fmt.Println()
+
+			if ssh {
+				fmt.Printf("Waiting for job to start and connecting via SSH...\n")
+				sandboxID, sessionID, err := waitForSandbox(ctx, tokenVal, orgID, resp.RunId, jobNames[0], "")
+				if err != nil {
+					return err
+				}
+				return pty.Run(ctx, pty.SessionOptions{
+					Token:     tokenVal,
+					SandboxID: sandboxID,
+					SessionID: sessionID,
+				})
+			}
+
 			fmt.Printf("Check status:  depot ci status %s\n", resp.RunId)
 			fmt.Printf("View in Depot: https://depot.dev/orgs/%s/workflows/%s\n", resp.OrgId, resp.RunId)
 
@@ -211,6 +238,7 @@ This command is in beta and subject to change.`,
 	cmd.Flags().StringVar(&workflowPath, "workflow", "", "Path to workflow YAML file")
 	cmd.Flags().StringSliceVar(&jobNames, "job", nil, "Job name(s) to run (repeatable; omit to run all)")
 	cmd.Flags().IntVar(&sshAfterStep, "ssh-after-step", 0, "1-based step index to insert a tmate debug step after (requires single --job)")
+	cmd.Flags().BoolVar(&ssh, "ssh", false, "Start the run and connect to the job's sandbox via interactive terminal (requires single --job)")
 
 	cmd.AddCommand(NewCmdRunList())
 

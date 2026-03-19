@@ -1,4 +1,4 @@
-package sandbox
+package pty
 
 import (
 	"context"

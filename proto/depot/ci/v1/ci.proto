@@ -78,6 +78,10 @@ message AttemptStatus {
   string attempt_id = 1;
   int32 attempt = 2;
   string status = 3;
+  // sandbox_id is populated when the attempt is running on a sandbox.
+  string sandbox_id = 4;
+  // session_id is populated alongside sandbox_id.
+  string session_id = 5;
 }
 
 // GetJobAttemptLogs messages
