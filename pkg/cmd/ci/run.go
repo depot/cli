@@ -512,8 +512,14 @@ func formatStatus(s civ1.CIRunStatus) string {
 // appears. This is used to detect when the injected debug step is running.
 func waitForLogMarker(ctx context.Context, token, orgID, runID, jobKey, marker string) error {
 	const pollInterval = 3 * time.Second
+	const timeout = 5 * time.Minute
+
+	deadline := time.Now().Add(timeout)
 
 	for {
+		if time.Now().After(deadline) {
+			return fmt.Errorf("timed out waiting for debug step marker (waited %s)", timeout)
+		}
 
 		// Resolve the latest attempt ID for the job.
 		resp, err := api.CIGetRunStatus(ctx, token, orgID, runID)
