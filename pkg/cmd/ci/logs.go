@@ -88,6 +88,20 @@ This command is in beta and subject to change.`,
 				return printLogs(ctx, tokenVal, orgID, attemptID)
 			}
 
+			// If --job or --workflow flags are NOT specified, try attempt ID
+			// early (single API call) before the expensive workflow search.
+			var attemptErr error
+			if job == "" && workflow == "" {
+				lines, err := api.CIGetJobAttemptLogs(ctx, tokenVal, orgID, id)
+				if err == nil {
+					for _, line := range lines {
+						fmt.Println(line.Body)
+					}
+					return nil
+				}
+				attemptErr = err
+			}
+
 			// Try resolving as a workflow ID by searching recent runs.
 			resp, wfPath, wfErr := resolveWorkflow(ctx, tokenVal, orgID, id)
 			if wfErr == nil {
@@ -104,24 +118,13 @@ This command is in beta and subject to change.`,
 				return printLogs(ctx, tokenVal, orgID, attemptID)
 			}
 
-			// Fall back to treating the ID as an attempt ID directly.
-			// Don't fall back if --job or --workflow were specified — those
-			// only make sense for run-level resolution.
+			// All paths failed — show errors so the user can
+			// distinguish "bad ID" from "auth/network failure".
 			if job != "" || workflow != "" {
 				return fmt.Errorf("failed to look up run: %w\n  as workflow: %v", runErr, wfErr)
 			}
 
-			lines, err := api.CIGetJobAttemptLogs(ctx, tokenVal, orgID, id)
-			if err != nil {
-				// All paths failed — show errors so the user can
-				// distinguish "bad ID" from "auth/network failure".
-				return fmt.Errorf("could not resolve %q as a run, job, workflow, or attempt ID:\n  as run: %v\n  as workflow: %v\n  as attempt: %v", id, runErr, wfErr, err)
-			}
-
-			for _, line := range lines {
-				fmt.Println(line.Body)
-			}
-			return nil
+			return fmt.Errorf("could not resolve %q as a run, job, workflow, or attempt ID:\n  as run: %v\n  as workflow: %v\n  as attempt: %v", id, runErr, wfErr, attemptErr)
 		},
 	}
 
