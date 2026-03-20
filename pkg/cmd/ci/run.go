@@ -155,19 +155,19 @@ This command is in beta and subject to change.`,
 			patch := detectPatch(workflowDir)
 
 			if patch != nil {
-				fmt.Printf("Default branch: %s\n", patch.defaultBranch)
-				fmt.Printf("Merge base: %s\n", patch.mergeBase)
-				fmt.Printf("Patch size: %d bytes\n", len(patch.content))
+				fmt.Fprintf(os.Stderr, "Default branch: %s\n", patch.defaultBranch)
+				fmt.Fprintf(os.Stderr, "Merge base: %s\n", patch.mergeBase)
+				fmt.Fprintf(os.Stderr, "Patch size: %d bytes\n", len(patch.content))
 
 				hash := sha256.Sum256([]byte(patch.content))
 				patchHash := fmt.Sprintf("%x", hash)[:16]
 				cacheKey := fmt.Sprintf("patch/%s/%s", patch.mergeBase[:12], patchHash)
-				fmt.Printf("Cache key: %s\n", cacheKey)
+				fmt.Fprintf(os.Stderr, "Cache key: %s\n", cacheKey)
 
 				if err := api.UploadCacheEntry(ctx, tokenVal, orgID, cacheKey, []byte(patch.content)); err != nil {
 					return fmt.Errorf("failed to upload patch: %w", err)
 				}
-				fmt.Println("Patch uploaded to Depot Cache")
+				fmt.Fprintln(os.Stderr, "Patch uploaded to Depot Cache")
 
 				// Inject patch step into each selected job that has actions/checkout
 				for _, jobName := range selectedJobs {
@@ -183,19 +183,19 @@ This command is in beta and subject to change.`,
 				}
 			}
 
-			fmt.Printf("Repo: %s\n", repo)
+			fmt.Fprintf(os.Stderr, "Repo: %s\n", repo)
 			if len(jobNames) > 0 {
-				fmt.Printf("Jobs: %s\n", strings.Join(selectedJobs, ", "))
+				fmt.Fprintf(os.Stderr, "Jobs: %s\n", strings.Join(selectedJobs, ", "))
 			} else {
-				fmt.Printf("Jobs: (all) %s\n", strings.Join(selectedJobs, ", "))
+				fmt.Fprintf(os.Stderr, "Jobs: (all) %s\n", strings.Join(selectedJobs, ", "))
 			}
 			if patch != nil {
-				fmt.Printf("Checking out commit: %s\n", patch.mergeBase)
+				fmt.Fprintf(os.Stderr, "Checking out commit: %s\n", patch.mergeBase)
 			}
 			if sshAfterStep > 0 {
-				fmt.Printf("Inserting tmate step after step %d\n", sshAfterStep)
+				fmt.Fprintf(os.Stderr, "Inserting tmate step after step %d\n", sshAfterStep)
 			}
-			fmt.Println()
+			fmt.Fprintln(os.Stderr)
 
 			// Serialize workflow back to YAML
 			yamlBytes, err := yaml.Marshal(workflow)
@@ -213,12 +213,12 @@ This command is in beta and subject to change.`,
 				return fmt.Errorf("failed to start CI run: %w", err)
 			}
 
-			fmt.Printf("Org: %s\n", resp.OrgId)
-			fmt.Printf("Run: %s\n", resp.RunId)
-			fmt.Println()
+			fmt.Fprintf(os.Stderr, "Org: %s\n", resp.OrgId)
+			fmt.Fprintf(os.Stderr, "Run: %s\n", resp.RunId)
+			fmt.Fprintln(os.Stderr)
 
 			if ssh {
-				fmt.Printf("Waiting for job to start and connecting via SSH...\n")
+				fmt.Fprintf(os.Stderr, "Waiting for job to start and connecting via SSH...\n")
 				sandboxID, sessionID, err := waitForSandbox(ctx, tokenVal, orgID, resp.RunId, jobNames[0], "")
 				if err != nil {
 					return err
@@ -388,7 +388,7 @@ func injectPatchStep(jobs map[string]interface{}, jobName, mergeBase, cacheKey s
 	}
 
 	if checkoutIndex == -1 {
-		fmt.Printf("Job %q: no actions/checkout step, skipping patch injection\n", jobName)
+		fmt.Fprintf(os.Stderr, "Job %q: no actions/checkout step, skipping patch injection\n", jobName)
 		return
 	}
 
