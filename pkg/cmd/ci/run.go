@@ -505,7 +505,7 @@ func waitForTmateSSH(ctx context.Context, token, orgID, runID, jobKey string) (s
 	const pollInterval = 3 * time.Second
 	const timeout = 10 * time.Minute
 
-	tmatePattern := regexp.MustCompile(`ssh\s+(\S+@\S+)`)
+	tmatePattern := regexp.MustCompile(`SSH: ssh (\S+@\S+\.tmate\.io)`)
 	deadline := time.Now().Add(timeout)
 
 	const (
