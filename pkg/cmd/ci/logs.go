@@ -75,6 +75,9 @@ This command is in beta and subject to change.`,
 					for _, wf := range resp.Workflows {
 						if wf.WorkflowId == id {
 							wfFilter = wf.WorkflowPath
+							if wfFilter == "" {
+								wfFilter = wf.WorkflowId
+							}
 							break
 						}
 					}
@@ -220,7 +223,7 @@ func resolveAttempt(resp *civ1.GetRunStatusResponse, originalID, jobKey, workflo
 func findLogsJob(resp *civ1.GetRunStatusResponse, originalID, jobKey, workflowFilter string) (*civ1.JobStatus, string, error) {
 	var candidates []jobCandidate
 	for _, wf := range resp.Workflows {
-		if workflowFilter != "" && !workflowPathMatches(wf.WorkflowPath, workflowFilter) {
+		if workflowFilter != "" && wf.WorkflowId != workflowFilter && !workflowPathMatches(wf.WorkflowPath, workflowFilter) {
 			continue
 		}
 		for _, j := range wf.Jobs {
@@ -392,7 +395,11 @@ func resolveWorkflow(ctx context.Context, token, orgID, workflowID string) (*civ
 		}
 		for _, wf := range resp.Workflows {
 			if wf.WorkflowId == workflowID {
-				return resp, wf.WorkflowPath, nil
+				path := wf.WorkflowPath
+				if path == "" {
+					path = wf.WorkflowId
+				}
+				return resp, path, nil
 			}
 		}
 	}
