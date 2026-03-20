@@ -78,7 +78,8 @@ variable applies to all repositories in the organization.`,
 				orgID = config.GetCurrentOrganization()
 			}
 
-			tokenVal, err := helpers.ResolveOrgAuth(ctx, token)
+			// Allow migration of GH Vars to Depot CI via GH OIDC
+			tokenVal, err := helpers.ResolveProjectAuth(ctx, token)
 			if err != nil {
 				return err
 			}
