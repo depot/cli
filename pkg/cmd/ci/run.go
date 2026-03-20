@@ -1,6 +1,7 @@
 package ci
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/depot/cli/pkg/api"
 	"github.com/depot/cli/pkg/config"
@@ -227,6 +229,20 @@ This command is in beta and subject to change.`,
 					SandboxID: sandboxID,
 					SessionID: sessionID,
 				})
+			}
+
+			if sshAfterStep > 0 {
+				fmt.Fprintf(os.Stderr, "Waiting for tmate session to start...\n")
+				sshTarget, err := waitForTmateSSH(ctx, tokenVal, orgID, resp.RunId, jobNames[0])
+				if err != nil {
+					return err
+				}
+				if !helpers.IsTerminal() {
+					fmt.Printf("ssh %s\n", sshTarget)
+					return nil
+				}
+				fmt.Fprintf(os.Stderr, "Connecting: ssh %s\n", sshTarget)
+				return execSSH(sshTarget)
 			}
 
 			orgFlag := ""
@@ -481,6 +497,104 @@ func injectTmateStep(jobs map[string]interface{}, jobName string, afterStep int,
 	job["steps"] = newSteps
 
 	return nil
+}
+
+// waitForTmateSSH polls the job's logs until the tmate SSH connection string
+// appears, then returns the SSH target (e.g. "user@nyc1.tmate.io").
+func waitForTmateSSH(ctx context.Context, token, orgID, runID, jobKey string) (string, error) {
+	const pollInterval = 3 * time.Second
+	const timeout = 10 * time.Minute
+
+	tmatePattern := regexp.MustCompile(`ssh\s+(\S+@\S+)`)
+	deadline := time.Now().Add(timeout)
+
+	const (
+		stateInit = iota
+		stateWaitingForJob
+		stateWaitingForStart
+		stateWaitingForLogs
+	)
+	currentState := stateInit
+
+	for {
+		if time.Now().After(deadline) {
+			return "", fmt.Errorf("timed out waiting for tmate session (waited %s)", timeout)
+		}
+
+		resp, err := api.CIGetRunStatus(ctx, token, orgID, runID)
+		if err != nil {
+			return "", fmt.Errorf("failed to get run status: %w", err)
+		}
+
+		targetJob, err := findJob(resp, jobKey, "")
+		if err != nil {
+			if isRetryableJobError(err) {
+				if resp.Status == "finished" || resp.Status == "failed" || resp.Status == "cancelled" {
+					return "", fmt.Errorf("%s (run status: %s)", err, resp.Status)
+				}
+				if currentState != stateWaitingForJob {
+					fmt.Fprintf(os.Stderr, "Waiting for job to be created...\n")
+					currentState = stateWaitingForJob
+				}
+				select {
+				case <-ctx.Done():
+					return "", ctx.Err()
+				case <-time.After(pollInterval):
+				}
+				continue
+			}
+			return "", err
+		}
+
+		// Latch the resolved job key so subsequent polls use exact matching.
+		jobKey = targetJob.JobKey
+
+		attempt := latestAttempt(targetJob)
+		if attempt == nil {
+			if currentState != stateWaitingForStart {
+				fmt.Fprintf(os.Stderr, "Waiting for job %q to start...\n", targetJob.JobKey)
+				currentState = stateWaitingForStart
+			}
+		} else {
+			switch attempt.Status {
+			case "finished", "failed", "cancelled":
+				return "", fmt.Errorf("job %q completed before tmate session started (status: %s)", targetJob.JobKey, attempt.Status)
+			default:
+				lines, err := api.CIGetJobAttemptLogs(ctx, token, orgID, attempt.AttemptId)
+				if err == nil {
+					for _, line := range lines {
+						if matches := tmatePattern.FindStringSubmatch(line.Body); matches != nil {
+							return matches[1], nil
+						}
+					}
+				}
+				if currentState != stateWaitingForLogs {
+					fmt.Fprintf(os.Stderr, "Waiting for tmate session in logs...\n")
+					currentState = stateWaitingForLogs
+				}
+			}
+		}
+
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		case <-time.After(pollInterval):
+		}
+	}
+}
+
+// execSSH runs an interactive SSH session to the given target (user@host).
+func execSSH(target string) error {
+	cmd := exec.Command("ssh",
+		"-t",
+		"-o", "StrictHostKeyChecking=no",
+		"-o", "UserKnownHostsFile=/dev/null",
+		target,
+	)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
 }
 
 // validStatuses are the user-facing status names accepted by --status.
