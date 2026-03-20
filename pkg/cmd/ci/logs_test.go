@@ -19,7 +19,7 @@ func TestFindLogsJob_AutoSelectSingleJob(t *testing.T) {
 		},
 	}
 
-	job, path, err := findLogsJob(resp, "run-1", "", "")
+	job, path, err := findLogsJob(resp, "run-1", "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -45,7 +45,7 @@ func TestFindLogsJob_MultipleJobsRequiresFlag(t *testing.T) {
 		},
 	}
 
-	_, _, err := findLogsJob(resp, "run-1", "", "")
+	_, _, err := findLogsJob(resp, "run-1", "", "", "")
 	if err == nil {
 		t.Fatal("expected error for multiple jobs without --job flag")
 	}
@@ -65,7 +65,7 @@ func TestFindLogsJob_MatchByJobKey(t *testing.T) {
 		},
 	}
 
-	job, _, err := findLogsJob(resp, "run-1", "test", "")
+	job, _, err := findLogsJob(resp, "run-1", "test", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,7 +88,7 @@ func TestFindLogsJob_MatchByJobID(t *testing.T) {
 		},
 	}
 
-	job, _, err := findLogsJob(resp, "job-2", "", "")
+	job, _, err := findLogsJob(resp, "job-2", "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,7 +116,7 @@ func TestFindLogsJob_DuplicateJobKeyRequiresWorkflow(t *testing.T) {
 		},
 	}
 
-	_, _, err := findLogsJob(resp, "run-1", "build", "")
+	_, _, err := findLogsJob(resp, "run-1", "build", "", "")
 	if err == nil {
 		t.Fatal("expected error for duplicate job key without --workflow")
 	}
@@ -141,7 +141,7 @@ func TestFindLogsJob_DuplicateJobKeyWithWorkflowFilter(t *testing.T) {
 		},
 	}
 
-	job, path, err := findLogsJob(resp, "run-1", "build", "ci.yml")
+	job, path, err := findLogsJob(resp, "run-1", "build", "ci.yml", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -166,7 +166,7 @@ func TestFindLogsJob_WorkflowFilterNoMatch(t *testing.T) {
 		},
 	}
 
-	_, _, err := findLogsJob(resp, "run-1", "", "release.yml")
+	_, _, err := findLogsJob(resp, "run-1", "", "release.yml", "")
 	if err == nil {
 		t.Fatal("expected error for non-matching workflow filter")
 	}
@@ -193,7 +193,7 @@ func TestResolveAttempt_LatestAttempt(t *testing.T) {
 		},
 	}
 
-	attemptID, err := resolveAttempt(resp, "run-1", "build", "")
+	attemptID, err := resolveAttempt(resp, "run-1", "build", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -215,7 +215,7 @@ func TestResolveAttempt_NoAttempts(t *testing.T) {
 		},
 	}
 
-	_, err := resolveAttempt(resp, "run-1", "", "")
+	_, err := resolveAttempt(resp, "run-1", "", "", "")
 	if err == nil {
 		t.Fatal("expected error for job with no attempts")
 	}
@@ -235,7 +235,7 @@ func TestFindLogsJob_SuffixMatch(t *testing.T) {
 		},
 	}
 
-	job, _, err := findLogsJob(resp, "run-1", "test", "")
+	job, _, err := findLogsJob(resp, "run-1", "test", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -263,7 +263,7 @@ func TestFindLogsJob_SuffixMatchAmbiguous(t *testing.T) {
 		},
 	}
 
-	_, _, err := findLogsJob(resp, "run-1", "build", "")
+	_, _, err := findLogsJob(resp, "run-1", "build", "", "")
 	if err == nil {
 		t.Fatal("expected error for ambiguous suffix match across workflows")
 	}
@@ -345,7 +345,7 @@ func TestFindLogsJob_WorkflowIDAutoFilter(t *testing.T) {
 	}
 
 	// Filtering by the first workflow's path should only see its jobs.
-	job, path, err := findLogsJob(resp, "wf-1", "", ".depot/workflows/ci.yml")
+	job, path, err := findLogsJob(resp, "wf-1", "", ".depot/workflows/ci.yml", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -393,12 +393,48 @@ func TestResolveAttempt_WorkflowIDAutoFilter(t *testing.T) {
 	}
 
 	// Passing workflow path as the filter should auto-select the single job in that workflow.
-	attemptID, err := resolveAttempt(resp, "wf-1", "", ".depot/workflows/ci.yml")
+	attemptID, err := resolveAttempt(resp, "wf-1", "", ".depot/workflows/ci.yml", "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if attemptID != "att-1" {
 		t.Fatalf("expected attempt ID %q, got %q", "att-1", attemptID)
+	}
+}
+
+func TestFindLogsJob_InlineWorkflowIDFilter(t *testing.T) {
+	// Test that inline workflows (with empty paths) can be filtered by workflow ID.
+	resp := &civ1.GetRunStatusResponse{
+		RunId: "run-1",
+		Workflows: []*civ1.WorkflowStatus{
+			{
+				WorkflowId:   "wf-1",
+				WorkflowPath: "", // Inline workflow has empty path
+				Name:         "inline-workflow",
+				Jobs: []*civ1.JobStatus{
+					{JobId: "job-1", JobKey: "build", Status: "finished"},
+				},
+			},
+			{
+				WorkflowId:   "wf-2",
+				WorkflowPath: ".depot/workflows/release.yml",
+				Jobs: []*civ1.JobStatus{
+					{JobId: "job-2", JobKey: "deploy", Status: "running"},
+				},
+			},
+		},
+	}
+
+	// Filter by workflow ID should only see the inline workflow's jobs.
+	job, path, err := findLogsJob(resp, "wf-1", "", "", "wf-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if job.JobId != "job-1" {
+		t.Fatalf("expected job ID %q, got %q", "job-1", job.JobId)
+	}
+	if path != "" {
+		t.Fatalf("expected empty workflow path for inline workflow, got %q", path)
 	}
 }
 

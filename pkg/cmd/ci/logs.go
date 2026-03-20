@@ -71,16 +71,18 @@ This command is in beta and subject to change.`,
 				// If the positional arg matches a workflow ID in the response,
 				// auto-filter to that workflow's jobs.
 				wfFilter := workflow
+				wfIDFilter := ""
 				if wfFilter == "" {
 					for _, wf := range resp.Workflows {
 						if wf.WorkflowId == id {
 							wfFilter = wf.WorkflowPath
+							wfIDFilter = id // Use workflow ID for inline workflows with empty path
 							break
 						}
 					}
 				}
 
-				attemptID, err := resolveAttempt(resp, id, job, wfFilter)
+				attemptID, err := resolveAttempt(resp, id, job, wfFilter, wfIDFilter)
 				if err != nil {
 					return err
 				}
@@ -107,11 +109,13 @@ This command is in beta and subject to change.`,
 			resp, wfPath, wfErr := resolveWorkflow(ctx, tokenVal, orgID, id)
 			if wfErr == nil {
 				wfFilter := workflow
+				wfIDFilter := ""
 				if wfFilter == "" {
 					wfFilter = wfPath
+					wfIDFilter = id // Use workflow ID for inline workflows with empty path
 				}
 
-				attemptID, err := resolveAttempt(resp, id, job, wfFilter)
+				attemptID, err := resolveAttempt(resp, id, job, wfFilter, wfIDFilter)
 				if err != nil {
 					return err
 				}
@@ -171,8 +175,8 @@ func jobDisplayNames(candidates []jobCandidate) map[string]string {
 // resolveAttempt finds the target attempt from a run status response.
 // It selects a job (by --job flag, by job ID match, or auto-select), then
 // picks the latest attempt and prints informational messages about what was chosen.
-func resolveAttempt(resp *civ1.GetRunStatusResponse, originalID, jobKey, workflowFilter string) (string, error) {
-	targetJob, workflowPath, err := findLogsJob(resp, originalID, jobKey, workflowFilter)
+func resolveAttempt(resp *civ1.GetRunStatusResponse, originalID, jobKey, workflowFilter, workflowIDFilter string) (string, error) {
+	targetJob, workflowPath, err := findLogsJob(resp, originalID, jobKey, workflowFilter, workflowIDFilter)
 	if err != nil {
 		return "", err
 	}
@@ -217,10 +221,14 @@ func resolveAttempt(resp *civ1.GetRunStatusResponse, originalID, jobKey, workflo
 
 // findLogsJob locates the target job in the run status response.
 // Returns the job and the workflow path it belongs to.
-func findLogsJob(resp *civ1.GetRunStatusResponse, originalID, jobKey, workflowFilter string) (*civ1.JobStatus, string, error) {
+func findLogsJob(resp *civ1.GetRunStatusResponse, originalID, jobKey, workflowFilter, workflowIDFilter string) (*civ1.JobStatus, string, error) {
 	var candidates []jobCandidate
 	for _, wf := range resp.Workflows {
 		if workflowFilter != "" && !workflowPathMatches(wf.WorkflowPath, workflowFilter) {
+			continue
+		}
+		// Filter by workflow ID for inline workflows (which have empty paths)
+		if workflowIDFilter != "" && wf.WorkflowId != workflowIDFilter {
 			continue
 		}
 		for _, j := range wf.Jobs {
