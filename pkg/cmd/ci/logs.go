@@ -1,6 +1,7 @@
 package ci
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
@@ -21,13 +22,13 @@ func NewCmdLogs() *cobra.Command {
 	)
 
 	cmd := &cobra.Command{
-		Use:   "logs <run-id | job-id | attempt-id>",
+		Use:   "logs <run-id | job-id | attempt-id | workflow-id>",
 		Short: "Fetch logs for a CI job [beta]",
 		Long: `Fetch and display log output for a CI job.
 
-Accepts a run ID, job ID, or attempt ID. When given a run or job ID, the
-command resolves to the latest attempt automatically. Use --job and --workflow
-to disambiguate when a run has multiple jobs.
+Accepts a run ID, job ID, attempt ID, or workflow ID. When given a run, job,
+or workflow ID, the command resolves to the latest attempt automatically.
+Use --job and --workflow to disambiguate when a run has multiple jobs.
 
 This command is in beta and subject to change.`,
 		Example: `  # Logs for a specific attempt
@@ -35,6 +36,9 @@ This command is in beta and subject to change.`,
 
   # Logs for a run (auto-selects job if only one)
   depot ci logs <run-id>
+
+  # Logs for a workflow (auto-selects from the workflow's jobs)
+  depot ci logs <workflow-id>
 
   # Logs for a specific job in a run
   depot ci logs <run-id> --job test
@@ -64,40 +68,61 @@ This command is in beta and subject to change.`,
 			// First, try resolving as a run ID (or job ID — the API accepts both).
 			resp, runErr := api.CIGetRunStatus(ctx, tokenVal, orgID, id)
 			if runErr == nil {
-				attemptID, err := resolveAttempt(resp, id, job, workflow)
+				// If the positional arg matches a workflow ID in the response,
+				// auto-filter to that workflow's jobs.
+				wfFilter := workflow
+				if wfFilter == "" {
+					for _, wf := range resp.Workflows {
+						if wf.WorkflowId == id {
+							wfFilter = wf.WorkflowPath
+							if wfFilter == "" {
+								wfFilter = wf.WorkflowId
+							}
+							break
+						}
+					}
+				}
+
+				attemptID, err := resolveAttempt(resp, id, job, wfFilter)
 				if err != nil {
 					return err
 				}
 
-				lines, err := api.CIGetJobAttemptLogs(ctx, tokenVal, orgID, attemptID)
-				if err != nil {
-					return fmt.Errorf("failed to get logs: %w", err)
-				}
-
-				for _, line := range lines {
-					fmt.Println(line.Body)
-				}
-				return nil
+				return printLogs(ctx, tokenVal, orgID, attemptID)
 			}
 
 			// Fall back to treating the ID as an attempt ID directly.
 			// Don't fall back if --job or --workflow were specified — those
 			// only make sense for run-level resolution.
-			if job != "" || workflow != "" {
-				return fmt.Errorf("failed to look up run: %w", runErr)
+			if job == "" && workflow == "" {
+				lines, attemptErr := api.CIGetJobAttemptLogs(ctx, tokenVal, orgID, id)
+				if attemptErr == nil {
+					for _, line := range lines {
+						fmt.Println(line.Body)
+					}
+					return nil
+				}
+				runErr = fmt.Errorf("%v\n  as attempt: %v", runErr, attemptErr)
 			}
 
-			lines, err := api.CIGetJobAttemptLogs(ctx, tokenVal, orgID, id)
-			if err != nil {
-				// Both paths failed — show both errors so the user can
-				// distinguish "bad ID" from "auth/network failure".
-				return fmt.Errorf("could not resolve %q as a run, job, or attempt ID:\n  as run: %v\n  as attempt: %v", id, runErr, err)
+			// Try resolving as a workflow ID by searching recent runs.
+			// This is the slowest path (lists runs then checks each), so try it last.
+			resp, wfPath, wfErr := resolveWorkflow(ctx, tokenVal, orgID, id)
+			if wfErr == nil {
+				wfFilter := workflow
+				if wfFilter == "" {
+					wfFilter = wfPath
+				}
+
+				attemptID, err := resolveAttempt(resp, id, job, wfFilter)
+				if err != nil {
+					return err
+				}
+
+				return printLogs(ctx, tokenVal, orgID, attemptID)
 			}
 
-			for _, line := range lines {
-				fmt.Println(line.Body)
-			}
-			return nil
+			return fmt.Errorf("could not resolve %q as a run, job, workflow, or attempt ID:\n  as run: %v\n  as workflow: %v", id, runErr, wfErr)
 		},
 	}
 
@@ -198,7 +223,7 @@ func resolveAttempt(resp *civ1.GetRunStatusResponse, originalID, jobKey, workflo
 func findLogsJob(resp *civ1.GetRunStatusResponse, originalID, jobKey, workflowFilter string) (*civ1.JobStatus, string, error) {
 	var candidates []jobCandidate
 	for _, wf := range resp.Workflows {
-		if workflowFilter != "" && !workflowPathMatches(wf.WorkflowPath, workflowFilter) {
+		if workflowFilter != "" && wf.WorkflowId != workflowFilter && !workflowPathMatches(wf.WorkflowPath, workflowFilter) {
 			continue
 		}
 		for _, j := range wf.Jobs {
@@ -333,4 +358,51 @@ func formatJobList(candidates []jobCandidate) string {
 		}
 	}
 	return b.String()
+}
+
+// printLogs fetches and prints all log lines for the given attempt.
+func printLogs(ctx context.Context, token, orgID, attemptID string) error {
+	lines, err := api.CIGetJobAttemptLogs(ctx, token, orgID, attemptID)
+	if err != nil {
+		return fmt.Errorf("failed to get logs: %w", err)
+	}
+	for _, line := range lines {
+		fmt.Println(line.Body)
+	}
+	return nil
+}
+
+// resolveWorkflow searches recent runs for a workflow matching the given ID.
+// Returns the run status, the matching workflow path, and any error.
+func resolveWorkflow(ctx context.Context, token, orgID, workflowID string) (*civ1.GetRunStatusResponse, string, error) {
+	allStatuses := []civ1.CIRunStatus{
+		civ1.CIRunStatus_CI_RUN_STATUS_QUEUED,
+		civ1.CIRunStatus_CI_RUN_STATUS_RUNNING,
+		civ1.CIRunStatus_CI_RUN_STATUS_FINISHED,
+		civ1.CIRunStatus_CI_RUN_STATUS_FAILED,
+		civ1.CIRunStatus_CI_RUN_STATUS_CANCELLED,
+	}
+
+	runs, err := api.CIListRuns(ctx, token, orgID, allStatuses, 50)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to list runs: %w", err)
+	}
+
+	for _, run := range runs {
+		resp, err := api.CIGetRunStatus(ctx, token, orgID, run.RunId)
+		if err != nil {
+			continue
+		}
+		for _, wf := range resp.Workflows {
+			if wf.WorkflowId == workflowID {
+				path := wf.WorkflowPath
+				if path == "" {
+					path = wf.WorkflowId
+				}
+				return resp, path, nil
+			}
+		}
+	}
+
+	return nil, "", fmt.Errorf("workflow %q not found in recent runs", workflowID)
 }
