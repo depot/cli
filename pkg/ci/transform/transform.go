@@ -427,22 +427,35 @@ func summarizeChanges(changes []ChangeRecord) []string {
 		}
 	}
 
-	// Emit condensed runs-on lines
+	// Check if all runs-on changes are standard GitHub → Depot mappings
+	allStandard := true
 	for _, key := range runsOnOrder {
-		count := runsOnCounts[key]
-		if count == 1 {
-			// Find the original detail for the single occurrence
-			for _, c := range changes {
-				if c.Type == ChangeRunsOn {
-					from, to := parseRunsOnDetail(c.Detail)
-					if from == key.from && to == key.to {
-						lines = append(lines, c.Detail)
-						break
+		if _, ok := migrate.GitHubToDepotRunner[strings.ToLower(key.from)]; !ok {
+			allStandard = false
+			break
+		}
+	}
+
+	if allStandard && len(runsOnOrder) > 0 {
+		// All changes are standard mappings — single summary line
+		lines = append(lines, "Changed GitHub runs-on labels to their Depot equivalents")
+	} else {
+		// Mix of standard and nonstandard — show per-mapping details
+		for _, key := range runsOnOrder {
+			count := runsOnCounts[key]
+			if count == 1 {
+				for _, c := range changes {
+					if c.Type == ChangeRunsOn {
+						from, to := parseRunsOnDetail(c.Detail)
+						if from == key.from && to == key.to {
+							lines = append(lines, c.Detail)
+							break
+						}
 					}
 				}
+			} else {
+				lines = append(lines, fmt.Sprintf("Changed runs-on from %q to %q throughout", key.from, key.to))
 			}
-		} else {
-			lines = append(lines, fmt.Sprintf("Changed runs-on from %q to %q throughout", key.from, key.to))
 		}
 	}
 

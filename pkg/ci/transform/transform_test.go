@@ -450,9 +450,9 @@ jobs:
 	}
 
 	content := string(result.Content)
-	// Should condense to a single "throughout" line
-	if !strings.Contains(content, "throughout") {
-		t.Errorf("expected condensed 'throughout' in header, got:\n%s", content)
+	// Should condense to a single generalized line
+	if !strings.Contains(content, "Changed GitHub runs-on labels to their Depot equivalents") {
+		t.Errorf("expected generalized runs-on summary in header, got:\n%s", content)
 	}
 	// Should NOT list individual jobs
 	if strings.Contains(content, "in job") {
@@ -468,7 +468,7 @@ func TestBuildHeaderComment_NoChanges(t *testing.T) {
 	}
 }
 
-func TestBuildHeaderComment_WithChanges(t *testing.T) {
+func TestBuildHeaderComment_WithStandardChanges(t *testing.T) {
 	wf := &migrate.WorkflowFile{Path: ".github/workflows/ci.yml"}
 	changes := []ChangeRecord{
 		{Type: ChangeRunsOn, JobName: "build", Detail: "Changed runs-on from \"ubuntu-latest\" to \"depot-ubuntu-latest\" in job \"build\""},
@@ -477,7 +477,18 @@ func TestBuildHeaderComment_WithChanges(t *testing.T) {
 	if !strings.Contains(header, "Changes made:") {
 		t.Errorf("expected 'Changes made:' in header, got: %s", header)
 	}
-	if !strings.Contains(header, "ubuntu-latest") {
-		t.Errorf("expected change detail in header, got: %s", header)
+	if !strings.Contains(header, "Changed GitHub runs-on labels to their Depot equivalents") {
+		t.Errorf("expected generalized summary in header, got: %s", header)
+	}
+}
+
+func TestBuildHeaderComment_WithNonstandardChanges(t *testing.T) {
+	wf := &migrate.WorkflowFile{Path: ".github/workflows/ci.yml"}
+	changes := []ChangeRecord{
+		{Type: ChangeRunsOn, JobName: "build", Detail: "Changed runs-on from \"blacksmith-4vcpu\" to \"depot-ubuntu-latest\" in job \"build\""},
+	}
+	header := buildHeaderComment(wf, changes)
+	if !strings.Contains(header, "blacksmith-4vcpu") {
+		t.Errorf("expected nonstandard label detail in header, got: %s", header)
 	}
 }
