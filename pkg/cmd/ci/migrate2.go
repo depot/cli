@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/huh"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/depot/cli/pkg/ci/compat"
 	"github.com/depot/cli/pkg/ci/migrate"
 	"github.com/depot/cli/pkg/ci/transform"
@@ -95,11 +96,14 @@ func runMigrate2(opts migrate2Options) error {
 			return fmt.Errorf("interactive mode requires a terminal; rerun with --yes")
 		}
 
+		greenStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#30a46c"))
+		redStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#e5484d"))
+
 		huhOptions := make([]huh.Option[string], 0, len(workflows))
 		for _, workflow := range workflows {
 			triggerLabel := "none"
 			if len(workflow.Triggers) > 0 {
-				triggerLabel = strings.Join(workflow.Triggers, ", ")
+				triggerLabel = colorizeTriggers(workflow.Triggers, greenStyle, redStyle)
 			}
 			label := fmt.Sprintf("%s - %s", filepath.Base(workflow.Path), triggerLabel)
 			huhOptions = append(huhOptions, huh.NewOption(label, workflow.Path))
@@ -276,4 +280,18 @@ func runMigrate2(opts migrate2Options) error {
 	}
 
 	return nil
+}
+
+// colorizeTriggers renders each trigger name in green (supported) or red (unsupported).
+func colorizeTriggers(triggers []string, green, red lipgloss.Style) string {
+	parts := make([]string, len(triggers))
+	for i, trigger := range triggers {
+		rule, ok := compat.TriggerRules[trigger]
+		if ok && rule.Supported == compat.Unsupported {
+			parts[i] = red.Render(trigger)
+		} else {
+			parts[i] = green.Render(trigger)
+		}
+	}
+	return strings.Join(parts, ", ")
 }
