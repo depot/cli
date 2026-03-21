@@ -87,7 +87,7 @@ func runMigrate2(opts migrate2Options) error {
 		return fmt.Errorf("no valid workflow files found in .github/workflows")
 	}
 
-	fmt.Fprintf(out, "Found %d workflow(s) in .github/workflows\n\n", len(workflows))
+	fmt.Fprintf(out, "\nFound %d workflow(s) in .github/workflows\n\n", len(workflows))
 
 	// Workflow selection
 	selectedWorkflows := workflows
@@ -305,7 +305,7 @@ func runMigrate2(opts migrate2Options) error {
 	fmt.Fprintln(out, "  3. Commit and merge into your default branch")
 
 	if len(detectedSecrets) > 0 || len(detectedVariables) > 0 {
-		fmt.Fprintf(out, "  4. %d secret(s) and %d variable(s) detected. Your workflows won't run without them. Navigate to https://depot.dev/orgs/%s/workflows/settings to import them from GitHub.\n", len(detectedSecrets), len(detectedVariables), orgSlug)
+		fmt.Fprintf(out, "  4. %d secret(s) and %d variable(s) detected. Your workflows won't run without them. Navigate to https://depot.dev/orgs/%s/workflows/settings/migrate-secrets to import them from GitHub.\n", len(detectedSecrets), len(detectedVariables), orgSlug)
 	}
 
 	return nil
