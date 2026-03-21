@@ -97,7 +97,7 @@ func runMigrate2(opts migrate2Options) error {
 		}
 
 		greenStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#30a46c"))
-		redStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#e5484d"))
+		dimStyle := lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#9B9B9B", Dark: "#5C5C5C"})
 
 		// Split workflows into supported (has at least one supported trigger) and unsupported-only
 		var supportedWorkflows, unsupportedWorkflows []*migrate.WorkflowFile
@@ -116,7 +116,7 @@ func runMigrate2(opts migrate2Options) error {
 		if len(supportedWorkflows) > 0 {
 			opts := make([]huh.Option[string], 0, len(supportedWorkflows))
 			for _, wf := range supportedWorkflows {
-				label := fmt.Sprintf("%s - %s", filepath.Base(wf.Path), colorizeTriggers(wf.Triggers, greenStyle, redStyle))
+				label := fmt.Sprintf("%s - %s", filepath.Base(wf.Path), colorizeTriggers(wf.Triggers, greenStyle, dimStyle))
 				opts = append(opts, huh.NewOption(label, wf.Path))
 			}
 			selectedSupported = make([]string, 0, len(supportedWorkflows))
@@ -136,7 +136,7 @@ func runMigrate2(opts migrate2Options) error {
 		if len(unsupportedWorkflows) > 0 {
 			opts := make([]huh.Option[string], 0, len(unsupportedWorkflows))
 			for _, wf := range unsupportedWorkflows {
-				label := fmt.Sprintf("%s - %s", filepath.Base(wf.Path), colorizeTriggers(wf.Triggers, greenStyle, redStyle))
+				label := fmt.Sprintf("%s - %s", filepath.Base(wf.Path), colorizeTriggers(wf.Triggers, greenStyle, dimStyle))
 				opts = append(opts, huh.NewOption(label, wf.Path))
 			}
 			groups = append(groups, huh.NewGroup(
@@ -322,12 +322,12 @@ func hasAnySupportedTrigger(triggers []string) bool {
 }
 
 // colorizeTriggers renders each trigger name in green (supported) or red (unsupported).
-func colorizeTriggers(triggers []string, green, red lipgloss.Style) string {
+func colorizeTriggers(triggers []string, green, dim lipgloss.Style) string {
 	parts := make([]string, len(triggers))
 	for i, trigger := range triggers {
 		rule, ok := compat.TriggerRules[trigger]
 		if ok && rule.Supported == compat.Unsupported {
-			parts[i] = red.Render(trigger)
+			parts[i] = dim.Render(trigger)
 		} else {
 			parts[i] = green.Render(trigger)
 		}
