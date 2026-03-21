@@ -414,6 +414,52 @@ jobs:
 	}
 }
 
+func TestTransformWorkflow_CondensedHeader(t *testing.T) {
+	raw := []byte(`name: CI
+on: push
+jobs:
+  lint:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+`)
+
+	wf := &migrate.WorkflowFile{
+		Path:     ".github/workflows/ci.yml",
+		Name:     "CI",
+		Triggers: []string{"push"},
+		Jobs: []migrate.JobInfo{
+			{Name: "lint", RunsOn: "ubuntu-24.04"},
+			{Name: "build", RunsOn: "ubuntu-24.04"},
+			{Name: "test", RunsOn: "ubuntu-24.04"},
+		},
+	}
+	report := compat.AnalyzeWorkflow(wf)
+
+	result, err := TransformWorkflow(raw, wf, report)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	content := string(result.Content)
+	// Should condense to a single "throughout" line
+	if !strings.Contains(content, "throughout") {
+		t.Errorf("expected condensed 'throughout' in header, got:\n%s", content)
+	}
+	// Should NOT list individual jobs
+	if strings.Contains(content, "in job") {
+		t.Errorf("expected no per-job lines in header, got:\n%s", content)
+	}
+}
+
 func TestBuildHeaderComment_NoChanges(t *testing.T) {
 	wf := &migrate.WorkflowFile{Path: ".github/workflows/ci.yml"}
 	header := buildHeaderComment(wf, nil)

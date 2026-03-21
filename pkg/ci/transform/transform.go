@@ -395,13 +395,88 @@ func buildHeaderComment(wf *migrate.WorkflowFile, changes []ChangeRecord) string
 		b.WriteString("# No changes were necessary.\n")
 	} else {
 		b.WriteString("# Changes made:\n")
-		for _, c := range changes {
-			b.WriteString(fmt.Sprintf("# - %s\n", c.Detail))
+		for _, line := range summarizeChanges(changes) {
+			b.WriteString(fmt.Sprintf("# - %s\n", line))
 		}
 	}
 	b.WriteString("\n")
 
 	return b.String()
+}
+
+// summarizeChanges condenses repeated changes into concise descriptions.
+// e.g. multiple jobs with the same runs-on mapping become a single "throughout" line.
+func summarizeChanges(changes []ChangeRecord) []string {
+	// Group runs-on changes by (oldLabel, newLabel)
+	type runsOnKey struct{ from, to string }
+	runsOnCounts := make(map[runsOnKey]int)
+	var runsOnOrder []runsOnKey
+
+	var lines []string
+	for _, c := range changes {
+		if c.Type == ChangeRunsOn {
+			// Extract from/to from Detail: `Changed runs-on from "X" to "Y" in job "Z"`
+			from, to := parseRunsOnDetail(c.Detail)
+			key := runsOnKey{from, to}
+			if runsOnCounts[key] == 0 {
+				runsOnOrder = append(runsOnOrder, key)
+			}
+			runsOnCounts[key]++
+		} else {
+			lines = append(lines, c.Detail)
+		}
+	}
+
+	// Emit condensed runs-on lines
+	for _, key := range runsOnOrder {
+		count := runsOnCounts[key]
+		if count == 1 {
+			// Find the original detail for the single occurrence
+			for _, c := range changes {
+				if c.Type == ChangeRunsOn {
+					from, to := parseRunsOnDetail(c.Detail)
+					if from == key.from && to == key.to {
+						lines = append(lines, c.Detail)
+						break
+					}
+				}
+			}
+		} else {
+			lines = append(lines, fmt.Sprintf("Changed runs-on from %q to %q throughout", key.from, key.to))
+		}
+	}
+
+	return lines
+}
+
+// parseRunsOnDetail extracts the from/to labels from a runs-on change detail string.
+func parseRunsOnDetail(detail string) (from, to string) {
+	// Format: `Changed runs-on from "X" to "Y" in job "Z"`
+	const fromPrefix = "Changed runs-on from \""
+	idx := strings.Index(detail, fromPrefix)
+	if idx < 0 {
+		return "", ""
+	}
+	rest := detail[idx+len(fromPrefix):]
+	endFrom := strings.Index(rest, "\"")
+	if endFrom < 0 {
+		return "", ""
+	}
+	from = rest[:endFrom]
+	rest = rest[endFrom+1:]
+
+	const toPrefix = " to \""
+	idx = strings.Index(rest, toPrefix)
+	if idx < 0 {
+		return from, ""
+	}
+	rest = rest[idx+len(toPrefix):]
+	endTo := strings.Index(rest, "\"")
+	if endTo < 0 {
+		return from, ""
+	}
+	to = rest[:endTo]
+	return from, to
 }
 
 // findMappingKey finds a key-value pair in a mapping node by key name.
