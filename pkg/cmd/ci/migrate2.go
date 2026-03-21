@@ -295,9 +295,9 @@ func runMigrate2(opts migrate2Options) error {
 
 	fmt.Fprintln(out, "")
 	fmt.Fprintln(out, "Next steps:")
-	fmt.Fprintln(out, "  1. Review the migrated workflows in .depot/workflows/")
-	fmt.Fprintln(out, "  2. Commit and merge into your default branch")
-	fmt.Fprintln(out, "  3. Install the Depot Code Access app: https://github.com/apps/depot-code-access")
+	fmt.Fprintln(out, "  1. Install the Depot Code Access app: https://github.com/apps/depot-code-access")
+	fmt.Fprintln(out, "  2. Review the migrated workflows in .depot/workflows/")
+	fmt.Fprintln(out, "  3. Commit and merge into your default branch")
 
 	if len(detectedSecrets) > 0 || len(detectedVariables) > 0 {
 		settingsURL := "your Depot CI settings"
