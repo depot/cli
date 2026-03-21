@@ -309,7 +309,8 @@ func runMigrate2(opts migrate2Options) error {
 
 	if len(detectedSecrets) > 0 || len(detectedVariables) > 0 {
 		fmt.Fprintf(out, "  4. %d secret(s) and %d variable(s) detected. Your workflows won't run without them.\n", len(detectedSecrets), len(detectedVariables))
-		fmt.Fprintf(out, "     Navigate to https://depot.dev/orgs/%s/workflows/settings/migrate-secrets to import them from GitHub.\n\n", orgSlug)
+		fmt.Fprintf(out, "     Navigate to https://depot.dev/orgs/%s/workflows/settings/migrate-secrets to automatically import them from GitHub.\n", orgSlug)
+		fmt.Fprintf(out, "     Alternatively, use `depot ci secrets` and `depot ci vars` to add them manually.\n\n")
 	}
 
 	return nil
