@@ -308,7 +308,6 @@ func runMigrate2(opts migrate2Options) error {
 	fmt.Fprintln(out, "  3. Commit and merge into your default branch")
 
 	if len(detectedSecrets) > 0 || len(detectedVariables) > 0 {
-		fmt.Fprintln(out, "")
 		fmt.Fprintf(out, "  4. %d secret(s) and %d variable(s) detected. Your workflows won't run without them.\n", len(detectedSecrets), len(detectedVariables))
 		fmt.Fprintf(out, "     Navigate to https://depot.dev/orgs/%s/workflows/settings/migrate-secrets to import them from GitHub.\n", orgSlug)
 	}
