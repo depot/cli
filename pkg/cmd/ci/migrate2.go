@@ -99,28 +99,55 @@ func runMigrate2(opts migrate2Options) error {
 		greenStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#30a46c"))
 		redStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#e5484d"))
 
-		huhOptions := make([]huh.Option[string], 0, len(workflows))
+		// Split workflows into supported (has at least one supported trigger) and unsupported-only
+		var supportedWorkflows, unsupportedWorkflows []*migrate.WorkflowFile
 		for _, workflow := range workflows {
-			triggerLabel := "none"
-			if len(workflow.Triggers) > 0 {
-				triggerLabel = colorizeTriggers(workflow.Triggers, greenStyle, redStyle)
+			if hasAnySupportedTrigger(workflow.Triggers) {
+				supportedWorkflows = append(supportedWorkflows, workflow)
+			} else {
+				unsupportedWorkflows = append(unsupportedWorkflows, workflow)
 			}
-			label := fmt.Sprintf("%s - %s", filepath.Base(workflow.Path), triggerLabel)
-			huhOptions = append(huhOptions, huh.NewOption(label, workflow.Path))
 		}
 
-		selected := make([]string, 0, len(workflows))
-		for _, workflow := range workflows {
-			selected = append(selected, workflow.Path)
-		}
-		form := huh.NewForm(
-			huh.NewGroup(
+		var groups []*huh.Group
+
+		// Supported triggers group
+		var selectedSupported []string
+		if len(supportedWorkflows) > 0 {
+			opts := make([]huh.Option[string], 0, len(supportedWorkflows))
+			for _, wf := range supportedWorkflows {
+				label := fmt.Sprintf("%s - %s", filepath.Base(wf.Path), colorizeTriggers(wf.Triggers, greenStyle, redStyle))
+				opts = append(opts, huh.NewOption(label, wf.Path))
+			}
+			selectedSupported = make([]string, 0, len(supportedWorkflows))
+			for _, wf := range supportedWorkflows {
+				selectedSupported = append(selectedSupported, wf.Path)
+			}
+			groups = append(groups, huh.NewGroup(
 				huh.NewMultiSelect[string]().
-					Title("Select workflows to migrate").
-					Options(huhOptions...).
-					Value(&selected),
-			),
-		)
+					Title("These workflows have supported triggers. Which should we migrate?").
+					Options(opts...).
+					Value(&selectedSupported),
+			))
+		}
+
+		// Unsupported-only triggers group
+		var selectedUnsupported []string
+		if len(unsupportedWorkflows) > 0 {
+			opts := make([]huh.Option[string], 0, len(unsupportedWorkflows))
+			for _, wf := range unsupportedWorkflows {
+				label := fmt.Sprintf("%s - %s", filepath.Base(wf.Path), colorizeTriggers(wf.Triggers, greenStyle, redStyle))
+				opts = append(opts, huh.NewOption(label, wf.Path))
+			}
+			groups = append(groups, huh.NewGroup(
+				huh.NewMultiSelect[string]().
+					Title("These workflows have unsupported triggers. Migrate anyway?").
+					Options(opts...).
+					Value(&selectedUnsupported),
+			))
+		}
+
+		form := huh.NewForm(groups...)
 
 		if err := form.Run(); err != nil {
 			if errors.Is(err, huh.ErrUserAborted) {
@@ -130,6 +157,7 @@ func runMigrate2(opts migrate2Options) error {
 			return fmt.Errorf("failed to select workflows: %w", err)
 		}
 
+		selected := append(selectedSupported, selectedUnsupported...)
 		if len(selected) == 0 {
 			fmt.Fprintln(out, "No workflows selected. Nothing to migrate.")
 			return nil
@@ -280,6 +308,17 @@ func runMigrate2(opts migrate2Options) error {
 	}
 
 	return nil
+}
+
+// hasAnySupportedTrigger returns true if at least one trigger is not explicitly unsupported.
+func hasAnySupportedTrigger(triggers []string) bool {
+	for _, trigger := range triggers {
+		rule, ok := compat.TriggerRules[trigger]
+		if !ok || rule.Supported != compat.Unsupported {
+			return true
+		}
+	}
+	return len(triggers) == 0 // no triggers = treat as supported
 }
 
 // colorizeTriggers renders each trigger name in green (supported) or red (unsupported).
