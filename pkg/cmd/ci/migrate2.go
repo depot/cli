@@ -280,7 +280,7 @@ func runMigrate2(opts migrate2Options) error {
 
 	criticalCount := 0
 	for _, r := range results {
-		status := "no issues"
+		status := "migrated as is"
 		if r.hasCritical {
 			criticalCount++
 			disabledCount := 0
