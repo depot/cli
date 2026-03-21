@@ -273,7 +273,10 @@ func runMigrate2(opts migrate2Options) error {
 	}
 
 	// Print summary
-	fmt.Fprintf(out, "Migrated %d workflow(s) to .depot/workflows/\n\n", len(results))
+	bold := lipgloss.NewStyle().Bold(true)
+
+	fmt.Fprintln(out, "")
+	fmt.Fprintf(out, "%s %d workflow(s) to .depot/workflows/\n\n", bold.Render("Migrated"), len(results))
 
 	criticalCount := 0
 	for _, r := range results {
@@ -293,19 +296,21 @@ func runMigrate2(opts migrate2Options) error {
 		fmt.Fprintf(out, "  %s — %s\n", r.filename, status)
 	}
 
-	fmt.Fprintln(out, "")
 	orgSlug := "_"
 	if orgID := config.GetCurrentOrganization(); orgID != "" {
 		orgSlug = orgID
 	}
 
-	fmt.Fprintln(out, "Next steps:")
+	fmt.Fprintln(out, "")
+	fmt.Fprintf(out, "%s\n\n", bold.Render("Next steps:"))
 	fmt.Fprintf(out, "  1. Install the Depot Code Access app via https://depot.dev/orgs/%s/workflows\n", orgSlug)
 	fmt.Fprintln(out, "  2. Review the migrated workflows in .depot/workflows/")
 	fmt.Fprintln(out, "  3. Commit and merge into your default branch")
 
 	if len(detectedSecrets) > 0 || len(detectedVariables) > 0 {
-		fmt.Fprintf(out, "  4. %d secret(s) and %d variable(s) detected. Your workflows won't run without them. Navigate to https://depot.dev/orgs/%s/workflows/settings/migrate-secrets to import them from GitHub.\n", len(detectedSecrets), len(detectedVariables), orgSlug)
+		fmt.Fprintln(out, "")
+		fmt.Fprintf(out, "  4. %d secret(s) and %d variable(s) detected. Your workflows won't run without them.\n", len(detectedSecrets), len(detectedVariables))
+		fmt.Fprintf(out, "     Navigate to https://depot.dev/orgs/%s/workflows/settings/migrate-secrets to import them from GitHub.\n", orgSlug)
 	}
 
 	return nil
