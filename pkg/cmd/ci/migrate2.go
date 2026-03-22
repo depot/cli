@@ -54,8 +54,81 @@ func NewCmdMigrate2() *cobra.Command {
 
 	cmd.AddCommand(newCmdPreflight(&opts))
 	cmd.AddCommand(newCmdCopyWorkflows(&opts))
+	cmd.AddCommand(newCmdImportSecretsAndVars(&opts))
 
 	return cmd
+}
+
+func newCmdImportSecretsAndVars(parentOpts *migrate2Options) *cobra.Command {
+	return &cobra.Command{
+		Use:   "import-secrets-and-vars",
+		Short: "Import GitHub Actions secrets and variables into Depot CI",
+		Long:  "Creates a one-shot GitHub Actions workflow that reads secrets and variables from the source repo and imports them into Depot CI via the depot CLI.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			opts := *parentOpts
+			opts.dir = "."
+			opts.stdout = os.Stdout
+			return importSecretsAndVars(cmd.Context(), opts)
+		},
+	}
+}
+
+func importSecretsAndVars(ctx context.Context, opts migrate2Options) error {
+	workDir := opts.dir
+	if strings.TrimSpace(workDir) == "" {
+		workDir = "."
+	}
+
+	out := opts.stdout
+	if out == nil {
+		out = os.Stdout
+	}
+
+	bold := lipgloss.NewStyle().Bold(true)
+
+	// Resolve auth
+	token, err := helpers.ResolveOrgAuth(ctx, opts.token)
+	if err != nil {
+		return fmt.Errorf("authentication failed: %w", err)
+	}
+	if token == "" {
+		return fmt.Errorf("missing API token — run `depot login` or pass --token")
+	}
+
+	orgID := opts.orgID
+	if orgID == "" {
+		orgID = config.GetCurrentOrganization()
+	}
+	if orgID == "" {
+		return fmt.Errorf("missing organization ID — pass --org or run `depot org switch`")
+	}
+
+	// Detect repo
+	repo := detectRepoFromGitRemote(workDir)
+	if repo == "" {
+		return fmt.Errorf("could not detect GitHub repository from git remote — is this a GitHub repo with an origin remote?")
+	}
+
+	fmt.Fprintf(out, "Importing secrets and variables for %s\n\n", bold.Render(repo))
+
+	client := api.NewMigrationClient()
+	resp, err := client.ImportSecretsAndVars(ctx, api.WithAuthenticationAndOrg(
+		connect.NewRequest(&civ1.ImportSecretsAndVarsRequest{Repo: repo}),
+		token, orgID,
+	))
+	if err != nil {
+		return fmt.Errorf("failed to import secrets and variables: %w", err)
+	}
+
+	result := resp.Msg.GetResult()
+	switch r := result.(type) {
+	case *civ1.ImportSecretsAndVarsResponse_RunResult:
+		fmt.Fprintf(out, "Migration workflow created. View it at:\n  %s\n\n", r.RunResult.GetWorkflowUrl())
+	default:
+		fmt.Fprintln(out, "No secrets or variables found to import.")
+	}
+
+	return nil
 }
 
 func newCmdCopyWorkflows(parentOpts *migrate2Options) *cobra.Command {
