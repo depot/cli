@@ -1,6 +1,7 @@
 package ci
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -8,17 +9,22 @@ import (
 	"path/filepath"
 	"strings"
 
+	"connectrpc.com/connect"
 	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/depot/cli/pkg/api"
 	"github.com/depot/cli/pkg/ci/compat"
 	"github.com/depot/cli/pkg/ci/migrate"
 	"github.com/depot/cli/pkg/ci/transform"
 	"github.com/depot/cli/pkg/config"
 	"github.com/depot/cli/pkg/helpers"
+	civ1 "github.com/depot/cli/pkg/proto/depot/ci/v1"
 	"github.com/spf13/cobra"
 )
 
 type migrate2Options struct {
+	token     string
+	orgID     string
 	yes       bool
 	overwrite bool
 	dir       string
@@ -36,18 +42,20 @@ func NewCmdMigrate2() *cobra.Command {
 			runOpts := opts
 			runOpts.dir = "."
 			runOpts.stdout = os.Stdout
-			return runMigrate2(runOpts)
+			return runMigrate2(cmd.Context(), runOpts)
 		},
 	}
 
 	flags := cmd.Flags()
+	flags.StringVar(&opts.token, "token", "", "Depot API token")
+	flags.StringVar(&opts.orgID, "org", "", "Depot organization ID")
 	flags.BoolVar(&opts.yes, "yes", false, "Run in non-interactive mode")
 	flags.BoolVar(&opts.overwrite, "overwrite", false, "Overwrite existing .depot/ directory")
 
 	return cmd
 }
 
-func runMigrate2(opts migrate2Options) error {
+func runMigrate2(ctx context.Context, opts migrate2Options) error {
 	workDir := opts.dir
 	if strings.TrimSpace(workDir) == "" {
 		workDir = "."
@@ -57,6 +65,88 @@ func runMigrate2(opts migrate2Options) error {
 	if out == nil {
 		out = os.Stdout
 	}
+
+	bold := lipgloss.NewStyle().Bold(true)
+
+	// -------------------------------------------------------------------------
+	// Step 1: Ensure authentication
+	// -------------------------------------------------------------------------
+
+	token, err := helpers.ResolveOrgAuth(ctx, opts.token)
+	if err != nil {
+		return fmt.Errorf("authentication failed: %w", err)
+	}
+	if token == "" {
+		return fmt.Errorf("missing API token — run `depot login` or pass --token")
+	}
+
+	orgID := opts.orgID
+	if orgID == "" {
+		orgID = config.GetCurrentOrganization()
+	}
+	if orgID == "" {
+		return fmt.Errorf("missing organization ID — pass --org or run `depot org switch`")
+	}
+
+	// -------------------------------------------------------------------------
+	// Step 2: Detect repo from git remote
+	// -------------------------------------------------------------------------
+
+	repo := detectRepoFromGitRemote(workDir)
+	if repo == "" {
+		return fmt.Errorf("could not detect GitHub repository from git remote — is this a GitHub repo with an origin remote?")
+	}
+
+	repoOwner := strings.SplitN(repo, "/", 2)[0]
+	fmt.Fprintf(out, "Detected repository: %s\n\n", bold.Render(repo))
+
+	// -------------------------------------------------------------------------
+	// Step 3: Check Depot Code Access installation
+	// -------------------------------------------------------------------------
+
+	client := api.NewMigrationClient()
+	resp, err := client.GetInstallation(ctx, api.WithAuthenticationAndOrg(
+		connect.NewRequest(&civ1.GetInstallationRequest{Repo: repo}),
+		token, orgID,
+	))
+	if err != nil {
+		return fmt.Errorf("failed to check installation status: %w", err)
+	}
+
+	installations := resp.Msg.GetInstallations()
+
+	// Find the installation for this repo's owner
+	var matched *civ1.Installation
+	for _, inst := range installations {
+		if strings.EqualFold(inst.GetGithubOrg(), repoOwner) {
+			matched = inst
+			break
+		}
+	}
+
+	if matched == nil {
+		fmt.Fprintf(out, "The Depot Code Access app is not installed for %s.\n\n", bold.Render(repoOwner))
+		fmt.Fprintf(out, "Install it at: https://depot.dev/orgs/%s/workflows\n", orgID)
+		return nil
+	}
+
+	if !matched.GetRepoAccessible() {
+		fmt.Fprintf(out, "The Depot Code Access app is installed for %s but does not have access to %s.\n\n", bold.Render(repoOwner), bold.Render(repo))
+		fmt.Fprintf(out, "Grant access at: https://github.com/organizations/%s/settings/installations/%s\n", repoOwner, matched.GetInstallationId())
+		return nil
+	}
+
+	if matched.GetRequiresNewPerms() {
+		fmt.Fprintf(out, "The Depot Code Access app needs updated permissions for %s.\n\n", bold.Render(repoOwner))
+		fmt.Fprintf(out, "Accept the permissions update at: https://github.com/organizations/%s/settings/installations/%s\n", repoOwner, matched.GetInstallationId())
+		return nil
+	}
+
+	fmt.Fprintf(out, "Depot Code Access app is installed and configured for %s\n\n", bold.Render(repo))
+
+	// -------------------------------------------------------------------------
+	// Step 4: Migrate workflows
+	// -------------------------------------------------------------------------
 
 	githubDir := filepath.Join(workDir, ".github")
 	workflowsDir := filepath.Join(githubDir, "workflows")
@@ -87,7 +177,7 @@ func runMigrate2(opts migrate2Options) error {
 		return fmt.Errorf("no valid workflow files found in .github/workflows")
 	}
 
-	fmt.Fprintf(out, "\nFound %d workflow(s) in .github/workflows\n\n", len(workflows))
+	fmt.Fprintf(out, "Found %d workflow(s) in .github/workflows\n\n", len(workflows))
 
 	// Workflow selection
 	selectedWorkflows := workflows
@@ -261,28 +351,16 @@ func runMigrate2(opts migrate2Options) error {
 		})
 	}
 
-	// Detect secrets and variables
-	detectedSecrets, err := detectSecretsFromWorkflows(selectedWorkflows)
-	if err != nil {
-		return fmt.Errorf("failed to detect secrets: %w", err)
-	}
-
-	detectedVariables, err := detectVariablesFromWorkflows(selectedWorkflows)
-	if err != nil {
-		return fmt.Errorf("failed to detect variables: %w", err)
-	}
-
-	// Print summary
-	bold := lipgloss.NewStyle().Bold(true)
+	// -------------------------------------------------------------------------
+	// Step 5: Print summary and next steps
+	// -------------------------------------------------------------------------
 
 	fmt.Fprintln(out, "")
 	fmt.Fprintf(out, "%s %d workflow(s) to .depot/workflows/\n\n", bold.Render("Migrated"), len(results))
 
-	criticalCount := 0
 	for _, r := range results {
 		status := "migrated as is"
 		if r.hasCritical {
-			criticalCount++
 			disabledCount := 0
 			for _, c := range r.result.Changes {
 				if c.Type == transform.ChangeJobDisabled {
@@ -296,22 +374,27 @@ func runMigrate2(opts migrate2Options) error {
 		fmt.Fprintf(out, "  %s — %s\n", r.filename, status)
 	}
 
-	orgSlug := "_"
-	if orgID := config.GetCurrentOrganization(); orgID != "" {
-		orgSlug = orgID
+	// Detect secrets and variables
+	detectedSecrets, err := detectSecretsFromWorkflows(selectedWorkflows)
+	if err != nil {
+		return fmt.Errorf("failed to detect secrets: %w", err)
+	}
+
+	detectedVariables, err := detectVariablesFromWorkflows(selectedWorkflows)
+	if err != nil {
+		return fmt.Errorf("failed to detect variables: %w", err)
 	}
 
 	fmt.Fprintln(out, "")
 	fmt.Fprintf(out, "%s\n\n", bold.Render("Next steps:"))
-	fmt.Fprintf(out, "  1. Install the Depot Code Access app via https://depot.dev/orgs/%s/workflows\n", orgSlug)
-	fmt.Fprintln(out, "  2. Review the migrated workflows in .depot/workflows/")
-	fmt.Fprintln(out, "  3. Commit and merge into your default branch")
+	fmt.Fprintln(out, "  1. Review the migrated workflows in .depot/workflows/")
+	fmt.Fprintln(out, "  2. Commit and merge into your default branch")
 
 	if len(detectedSecrets) > 0 || len(detectedVariables) > 0 {
-		fmt.Fprintf(out, "  4. %d secret(s) and %d variable(s) detected. Your workflows won't run without them.\n", len(detectedSecrets), len(detectedVariables))
-		fmt.Fprintf(out, "     Navigate to https://depot.dev/orgs/%s/workflows/settings/migrate-secrets to automatically import them from GitHub.\n", orgSlug)
-		fmt.Fprintf(out, "     Alternatively, use `depot ci secrets` and `depot ci vars` to add them manually.\n\n")
+		fmt.Fprintf(out, "  3. %d secret(s) and %d variable(s) detected — run `depot ci import-secrets` to automatically import them from GitHub\n", len(detectedSecrets), len(detectedVariables))
 	}
+
+	fmt.Fprintln(out, "")
 
 	return nil
 }
