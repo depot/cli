@@ -16,7 +16,7 @@ func TestRunMigrate2_NoGitHub(t *testing.T) {
 		dir:    dir,
 		stdout: &buf,
 	}
-	err := runMigrate2(opts)
+	err := copyWorkflows(opts)
 	if err == nil {
 		t.Fatal("expected error for missing .github directory")
 	}
@@ -34,7 +34,7 @@ func TestRunMigrate2_NoWorkflows(t *testing.T) {
 		dir:    dir,
 		stdout: &buf,
 	}
-	err := runMigrate2(opts)
+	err := copyWorkflows(opts)
 	if err == nil {
 		t.Fatal("expected error for no workflow files")
 	}
@@ -66,7 +66,7 @@ jobs:
 		stdout: &buf,
 	}
 
-	err := runMigrate2(opts)
+	err := copyWorkflows(opts)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -131,7 +131,7 @@ jobs:
 		stdout: &buf,
 	}
 
-	err := runMigrate2(opts)
+	err := copyWorkflows(opts)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -177,7 +177,7 @@ jobs:
 		stdout: &buf,
 	}
 
-	err := runMigrate2(opts)
+	err := copyWorkflows(opts)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -220,7 +220,7 @@ jobs:
 		stdout: &buf,
 	}
 
-	err := runMigrate2(opts)
+	err := copyWorkflows(opts)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -266,7 +266,7 @@ jobs:
 		stdout:    &buf,
 	}
 
-	err := runMigrate2(opts)
+	err := copyWorkflows(opts)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -308,7 +308,7 @@ jobs:
 		stdout: &buf,
 	}
 
-	err := runMigrate2(opts)
+	err := copyWorkflows(opts)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

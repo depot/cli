@@ -86,21 +86,9 @@ func importSecretsAndVars(ctx context.Context, opts migrate2Options) error {
 
 	bold := lipgloss.NewStyle().Bold(true)
 
-	// Resolve auth
-	token, err := helpers.ResolveOrgAuth(ctx, opts.token)
+	token, orgID, err := resolveAuth(ctx, opts)
 	if err != nil {
-		return fmt.Errorf("authentication failed: %w", err)
-	}
-	if token == "" {
-		return fmt.Errorf("missing API token — run `depot login` or pass --token")
-	}
-
-	orgID := opts.orgID
-	if orgID == "" {
-		orgID = config.GetCurrentOrganization()
-	}
-	if orgID == "" {
-		return fmt.Errorf("missing organization ID — pass --org or run `depot org switch`")
+		return err
 	}
 
 	// Detect repo
@@ -160,6 +148,33 @@ func newCmdPreflight(parentOpts *migrate2Options) *cobra.Command {
 	}
 }
 
+// resolveAuth returns a token and orgID for MigrationService calls.
+// Org tokens (prefixed "depot_org_") carry their org context already, so
+// orgID is left empty. Any other token requires an explicit org ID.
+func resolveAuth(ctx context.Context, opts migrate2Options) (token, orgID string, err error) {
+	token, err = helpers.ResolveOrgAuth(ctx, opts.token)
+	if err != nil {
+		return "", "", fmt.Errorf("authentication failed: %w", err)
+	}
+	if token == "" {
+		return "", "", fmt.Errorf("missing API token — run `depot login`, set DEPOT_TOKEN, or pass --token")
+	}
+
+	if strings.HasPrefix(token, "depot_org_") {
+		return token, "", nil
+	}
+
+	orgID = opts.orgID
+	if orgID == "" {
+		orgID = config.GetCurrentOrganization()
+	}
+	if orgID == "" {
+		return "", "", fmt.Errorf("missing organization ID — pass --org or run `depot org switch`")
+	}
+
+	return token, orgID, nil
+}
+
 // preflightResult is returned by preflight on success.
 type preflightResult struct {
 	token string
@@ -184,21 +199,9 @@ func preflight(ctx context.Context, opts migrate2Options) (*preflightResult, err
 
 	bold := lipgloss.NewStyle().Bold(true)
 
-	// Ensure authentication
-	token, err := helpers.ResolveOrgAuth(ctx, opts.token)
+	token, orgID, err := resolveAuth(ctx, opts)
 	if err != nil {
-		return nil, fmt.Errorf("authentication failed: %w", err)
-	}
-	if token == "" {
-		return nil, fmt.Errorf("missing API token — run `depot login` or pass --token")
-	}
-
-	orgID := opts.orgID
-	if orgID == "" {
-		orgID = config.GetCurrentOrganization()
-	}
-	if orgID == "" {
-		return nil, fmt.Errorf("missing organization ID — pass --org or run `depot org switch`")
+		return nil, err
 	}
 
 	// Detect repo from git remote
