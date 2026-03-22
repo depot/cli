@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -211,7 +212,7 @@ func preflight(ctx context.Context, opts migrate2Options) (*preflightResult, err
 	}
 
 	repoOwner := strings.SplitN(repo, "/", 2)[0]
-	fmt.Fprintf(out, "Detected repository: %s\n\n", bold.Render(repo))
+	fmt.Fprintf(out, "Detected repository: %s\n", bold.Render(repo))
 
 	// Check Depot Code Access installation
 	client := api.NewMigrationClient()
@@ -235,8 +236,13 @@ func preflight(ctx context.Context, opts migrate2Options) (*preflightResult, err
 	}
 
 	if matched == nil {
+		slug := orgID
+		if slug == "" {
+			slug = "_"
+		}
+
 		fmt.Fprintf(out, "The Depot Code Access app is not installed for %s.\n\n", bold.Render(repoOwner))
-		fmt.Fprintf(out, "Install it at: https://depot.dev/orgs/%s/workflows\n", orgID)
+		fmt.Fprintf(out, "Install it at: https://depot.dev/orgs/%s/workflows\n", slug)
 		return nil, nil
 	}
 
@@ -518,18 +524,36 @@ func copyWorkflows(opts migrate2Options) error {
 		return fmt.Errorf("failed to detect variables: %w", err)
 	}
 
+	defaultBranch := detectDefaultBranch(workDir)
+
 	fmt.Fprintln(out, "")
 	fmt.Fprintf(out, "%s\n\n", bold.Render("Next steps:"))
-	fmt.Fprintln(out, "  1. Review the migrated workflows in .depot/workflows/")
-	fmt.Fprintln(out, "  2. Commit and merge into your default branch")
+	if defaultBranch != "" {
+		fmt.Fprintf(out, "  1. Activate these workflows by pushing and merging them into %s\n", bold.Render(defaultBranch))
+	} else {
+		fmt.Fprintln(out, "  1. Activate these workflows by pushing and merging them into your default branch")
+	}
 
 	if len(detectedSecrets) > 0 || len(detectedVariables) > 0 {
-		fmt.Fprintf(out, "  3. %d secret(s) and %d variable(s) detected — run `depot ci import-secrets` to automatically import them from GitHub\n", len(detectedSecrets), len(detectedVariables))
+		fmt.Fprintf(out, "  2. Your workflows contain %d secret(s) and %d variable(s) which need to be imported from GitHub:\n", len(detectedSecrets), len(detectedVariables))
+		fmt.Fprintln(out, "     - Import them automatically with `depot ci migrate2 import-secrets-and-vars`")
+		fmt.Fprintln(out, "     - Or import them manually with `depot ci secrets add` and `depot ci vars add`")
 	}
 
 	fmt.Fprintln(out, "")
 
 	return nil
+}
+
+// detectDefaultBranch returns the default branch name (e.g. "main") or empty string.
+func detectDefaultBranch(dir string) string {
+	out, err := exec.Command("git", "-C", dir, "symbolic-ref", "refs/remotes/origin/HEAD").Output()
+	if err != nil {
+		return ""
+	}
+	branch := strings.TrimSpace(string(out))
+	branch = strings.TrimPrefix(branch, "refs/remotes/origin/")
+	return branch
 }
 
 // hasAnySupportedTrigger returns true if at least one trigger is not explicitly unsupported.
