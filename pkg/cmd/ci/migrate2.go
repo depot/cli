@@ -99,16 +99,14 @@ func importSecretsAndVars(ctx context.Context, opts migrate2Options) error {
 		return fmt.Errorf("could not detect GitHub repository from git remote — is this a GitHub repo with an origin remote?")
 	}
 
-	fmt.Fprintln(out, "")
-	fmt.Fprintf(out, "This will push a GitHub Actions workflow to %s on a temporary branch.\n", bold.Render(repo))
-	fmt.Fprintln(out, "The workflow runs immediately, reads your existing secrets and variables,")
-	fmt.Fprintln(out, "and imports them into Depot CI. The branch is safe to delete afterwards.")
-	fmt.Fprintln(out, "")
-
 	client := api.NewMigrationClient()
 
-	// Ask if they want a preview first (unless --yes)
 	if !opts.yes && helpers.IsTerminal() {
+		fmt.Fprintln(out, "")
+		fmt.Fprintf(out, "This will push a GitHub Actions workflow to %s on a temporary branch.\n", bold.Render(repo))
+		fmt.Fprintln(out, "The workflow runs immediately, reads your existing secrets and variables,")
+		fmt.Fprintln(out, "and imports them into Depot CI. The branch is safe to delete afterwards.")
+		fmt.Fprintln(out, "")
 		preview := true
 		if err := huh.NewForm(huh.NewGroup(
 			huh.NewConfirm().
