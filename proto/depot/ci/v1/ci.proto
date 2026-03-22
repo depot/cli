@@ -59,9 +59,10 @@ message RunResult {
 
 message Installation {
   string installation_id = 1;
-  string github_org = 2;
-  bool requires_new_perms = 3;
-  bool repo_accessible = 4;
+  string settings_url = 2;
+  string owner = 3;
+  bool requires_new_perms = 4;
+  bool repo_accessible = 5;
 }
 
 message RunRequest {

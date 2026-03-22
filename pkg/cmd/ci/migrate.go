@@ -298,7 +298,7 @@ func preflight(ctx context.Context, opts migrateOptions) (*preflightResult, erro
 	// Find the installation for this repo's owner
 	var matched *civ1.Installation
 	for _, inst := range installations {
-		if strings.EqualFold(inst.GetGithubOrg(), repoOwner) {
+		if strings.EqualFold(inst.GetOwner(), repoOwner) {
 			matched = inst
 			break
 		}
@@ -318,13 +318,13 @@ func preflight(ctx context.Context, opts migrateOptions) (*preflightResult, erro
 
 	if !matched.GetRepoAccessible() {
 		fmt.Fprintf(out, "The Depot Code Access app is installed for %s but does not have access to %s.\n\n", bold.Render(repoOwner), bold.Render(repo))
-		fmt.Fprintf(out, "Grant access at: https://github.com/organizations/%s/settings/installations/%s\n", repoOwner, matched.GetInstallationId())
+		fmt.Fprintf(out, "Grant access at: %s\n", matched.GetSettingsUrl())
 		return nil, nil
 	}
 
 	if matched.GetRequiresNewPerms() {
 		fmt.Fprintf(out, "The Depot Code Access app needs updated permissions for %s.\n\n", bold.Render(repoOwner))
-		fmt.Fprintf(out, "Accept the permissions update at: https://github.com/organizations/%s/settings/installations/%s\n", repoOwner, matched.GetInstallationId())
+		fmt.Fprintf(out, "Accept the permissions update at: %s\n", matched.GetSettingsUrl())
 		return nil, nil
 	}
 
