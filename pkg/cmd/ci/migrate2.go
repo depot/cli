@@ -98,6 +98,7 @@ func importSecretsAndVars(ctx context.Context, opts migrate2Options) error {
 		return fmt.Errorf("could not detect GitHub repository from git remote — is this a GitHub repo with an origin remote?")
 	}
 
+	fmt.Fprintln(out, "")
 	fmt.Fprintf(out, "This will create a one-shot GitHub Actions workflow in %s that\n", bold.Render(repo))
 	fmt.Fprintln(out, "reads your existing secrets and variables and imports them into Depot CI.")
 	fmt.Fprintln(out, "The workflow runs once on a temporary branch and is safe to delete afterwards.")
