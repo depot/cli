@@ -99,9 +99,9 @@ func importSecretsAndVars(ctx context.Context, opts migrate2Options) error {
 	}
 
 	fmt.Fprintln(out, "")
-	fmt.Fprintf(out, "This will create a one-shot GitHub Actions workflow in %s that\n", bold.Render(repo))
-	fmt.Fprintln(out, "reads your existing secrets and variables and imports them into Depot CI.")
-	fmt.Fprintln(out, "The workflow runs once on a temporary branch and is safe to delete afterwards.")
+	fmt.Fprintf(out, "This will push a GitHub Actions workflow to %s on a temporary branch.\n", bold.Render(repo))
+	fmt.Fprintln(out, "The workflow runs immediately, reads your existing secrets and variables,")
+	fmt.Fprintln(out, "and imports them into Depot CI. The branch is safe to delete afterwards.")
 	fmt.Fprintln(out, "")
 
 	client := api.NewMigrationClient()
