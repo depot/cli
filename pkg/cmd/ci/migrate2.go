@@ -47,11 +47,11 @@ func NewCmdMigrate2() *cobra.Command {
 		},
 	}
 
-	flags := cmd.Flags()
-	flags.StringVar(&opts.token, "token", "", "Depot API token")
-	flags.StringVar(&opts.orgID, "org", "", "Depot organization ID")
-	flags.BoolVar(&opts.yes, "yes", false, "Run in non-interactive mode")
-	flags.BoolVar(&opts.overwrite, "overwrite", false, "Overwrite existing .depot/ directory")
+	pf := cmd.PersistentFlags()
+	pf.StringVar(&opts.token, "token", "", "Depot API token")
+	pf.StringVar(&opts.orgID, "org", "", "Depot organization ID")
+	pf.BoolVarP(&opts.yes, "yes", "y", false, "Run in non-interactive mode")
+	pf.BoolVar(&opts.overwrite, "overwrite", false, "Overwrite existing .depot/ directory")
 
 	cmd.AddCommand(newCmdPreflight(&opts))
 	cmd.AddCommand(newCmdCopyWorkflows(&opts))
