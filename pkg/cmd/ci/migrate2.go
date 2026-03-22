@@ -108,20 +108,19 @@ func importSecretsAndVars(ctx context.Context, opts migrate2Options) error {
 	// Ask if they want a preview first (unless --yes)
 	if !opts.yes && helpers.IsTerminal() {
 		preview := false
-		if err := huh.NewConfirm().
-			Title("Preview the workflow before creating it?\n").
-			Affirmative("Yes, show me").
-			Negative("No, go ahead").
-			Value(&preview).
-			Run(); err != nil {
+		if err := huh.NewForm(huh.NewGroup(
+			huh.NewConfirm().
+				Title("Preview the workflow before creating it?").
+				Affirmative("Yes, show me").
+				Negative("No, go ahead").
+				Value(&preview),
+		)).Run(); err != nil {
 			if errors.Is(err, huh.ErrUserAborted) {
 				fmt.Fprintln(out, "Cancelled.")
 				return nil
 			}
 			return fmt.Errorf("failed to confirm: %w", err)
 		}
-
-		fmt.Fprintln(out, "")
 
 		if preview {
 			dryResp, err := client.ImportSecretsAndVars(ctx, api.WithAuthenticationAndOrg(
@@ -145,19 +144,19 @@ func importSecretsAndVars(ctx context.Context, opts migrate2Options) error {
 			}
 
 			confirm := false
-			if err := huh.NewConfirm().
-				Title("Create this workflow?\n").
-				Affirmative("Yes").
-				Negative("No").
-				Value(&confirm).
-				Run(); err != nil {
+			if err := huh.NewForm(huh.NewGroup(
+				huh.NewConfirm().
+					Title("Create this workflow?").
+					Affirmative("Yes").
+					Negative("No").
+					Value(&confirm),
+			)).Run(); err != nil {
 				if errors.Is(err, huh.ErrUserAborted) {
 					fmt.Fprintln(out, "Cancelled.")
 					return nil
 				}
 				return fmt.Errorf("failed to confirm: %w", err)
 			}
-			fmt.Fprintln(out, "")
 
 			if !confirm {
 				fmt.Fprintln(out, "Cancelled.")
