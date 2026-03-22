@@ -388,8 +388,6 @@ func copyWorkflows(opts migrate2Options) error {
 		return fmt.Errorf("no valid workflow files found in .github/workflows")
 	}
 
-	fmt.Fprintf(out, "Found %d workflow(s) in .github/workflows\n\n", len(workflows))
-
 	// Workflow selection
 	selectedWorkflows := workflows
 	if !opts.yes {
