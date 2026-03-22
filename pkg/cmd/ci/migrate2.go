@@ -280,6 +280,7 @@ func preflight(ctx context.Context, opts migrate2Options) (*preflightResult, err
 	}
 
 	repoOwner := strings.SplitN(repo, "/", 2)[0]
+	fmt.Fprintf(out, "\n")
 	fmt.Fprintf(out, "Detected repository: %s\n", bold.Render(repo))
 
 	// Check Depot Code Access installation
@@ -562,8 +563,13 @@ func copyWorkflows(opts migrate2Options) error {
 	}
 
 	// Print summary
+	skipped := len(workflows) - len(selectedWorkflows)
 	fmt.Fprintln(out, "")
-	fmt.Fprintf(out, "%s %d workflow(s) to .depot/workflows/\n\n", bold.Render("Migrated"), len(results))
+	if skipped > 0 {
+		fmt.Fprintf(out, "%s %d workflow(s) to .depot/workflows/ (%d skipped)\n\n", bold.Render("Migrated"), len(results), skipped)
+	} else {
+		fmt.Fprintf(out, "%s %d workflow(s) to .depot/workflows/\n\n", bold.Render("Migrated"), len(results))
+	}
 
 	for _, r := range results {
 		status := "migrated as is"
