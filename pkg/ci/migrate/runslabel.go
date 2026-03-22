@@ -6,7 +6,7 @@ import "strings"
 type LabelClass int
 
 const (
-	LabelDepotNative    LabelClass = iota // depot-* or depot_* prefixed labels
+	LabelDepotNative    LabelClass = iota // depot-* prefixed labels
 	LabelStandardGitHub                   // Standard GitHub-hosted runner labels
 	LabelExpression                       // Dynamic expression labels containing ${{
 	LabelNonstandard                      // Unknown/third-party labels
@@ -31,7 +31,7 @@ func ClassifyLabel(label string) LabelClass {
 		return LabelExpression
 	}
 
-	if strings.HasPrefix(lower, "depot-") || strings.HasPrefix(lower, "depot_") {
+	if strings.HasPrefix(lower, "depot-") {
 		return LabelDepotNative
 	}
 

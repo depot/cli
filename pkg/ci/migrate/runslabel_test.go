@@ -10,8 +10,6 @@ func TestClassifyLabel(t *testing.T) {
 		// Depot native
 		{"depot-ubuntu-latest", LabelDepotNative},
 		{"depot-ubuntu-22.04", LabelDepotNative},
-		{"depot_ubuntu_latest", LabelDepotNative},
-		{"depot_ubuntu_22.04", LabelDepotNative},
 		{"Depot-Ubuntu-Latest", LabelDepotNative},
 
 		// Standard GitHub
@@ -54,8 +52,6 @@ func TestMapLabel(t *testing.T) {
 	}{
 		// Depot native — no change
 		{"depot-ubuntu-latest", "depot-ubuntu-latest", false, false},
-		{"depot_ubuntu_latest", "depot_ubuntu_latest", false, false},
-
 		// Standard GitHub — mapped
 		{"ubuntu-latest", "depot-ubuntu-latest", true, true},
 		{"ubuntu-22.04", "depot-ubuntu-22.04", true, true},
