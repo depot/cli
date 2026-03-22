@@ -108,7 +108,7 @@ func importSecretsAndVars(ctx context.Context, opts migrate2Options) error {
 
 	// Ask if they want a preview first (unless --yes)
 	if !opts.yes && helpers.IsTerminal() {
-		preview := false
+		preview := true
 		if err := huh.NewForm(huh.NewGroup(
 			huh.NewConfirm().
 				Title("Preview the workflow before creating it?").
