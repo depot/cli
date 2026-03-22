@@ -98,9 +98,70 @@ func importSecretsAndVars(ctx context.Context, opts migrate2Options) error {
 		return fmt.Errorf("could not detect GitHub repository from git remote — is this a GitHub repo with an origin remote?")
 	}
 
-	fmt.Fprintf(out, "Importing secrets and variables for %s\n\n", bold.Render(repo))
+	fmt.Fprintf(out, "This will create a one-shot GitHub Actions workflow in %s that\n", bold.Render(repo))
+	fmt.Fprintln(out, "reads your existing secrets and variables and imports them into Depot CI.")
+	fmt.Fprintln(out, "The workflow runs once on a temporary branch and is safe to delete afterwards.")
+	fmt.Fprintln(out, "")
 
 	client := api.NewMigrationClient()
+
+	// Ask if they want a preview first (unless --yes)
+	if !opts.yes && helpers.IsTerminal() {
+		preview := false
+		if err := huh.NewConfirm().
+			Title("Preview the workflow before creating it?").
+			Affirmative("Yes, show me").
+			Negative("No, go ahead").
+			Value(&preview).
+			Run(); err != nil {
+			if errors.Is(err, huh.ErrUserAborted) {
+				fmt.Fprintln(out, "Cancelled.")
+				return nil
+			}
+			return fmt.Errorf("failed to confirm: %w", err)
+		}
+
+		if preview {
+			dryResp, err := client.ImportSecretsAndVars(ctx, api.WithAuthenticationAndOrg(
+				connect.NewRequest(&civ1.ImportSecretsAndVarsRequest{Repo: repo, DryRun: true}),
+				token, orgID,
+			))
+			if err != nil {
+				return fmt.Errorf("failed to preview: %w", err)
+			}
+
+			dryResult := dryResp.Msg.GetResult()
+			switch r := dryResult.(type) {
+			case *civ1.ImportSecretsAndVarsResponse_DryRunResult:
+				fmt.Fprintln(out, "")
+				fmt.Fprintf(out, "Branch: %s\n", bold.Render(r.DryRunResult.GetBranchName()))
+				fmt.Fprintf(out, "File:   .github/workflows/%s\n\n", bold.Render(r.DryRunResult.GetWorkflowName()))
+				fmt.Fprintln(out, r.DryRunResult.GetWorkflowContent())
+			default:
+				fmt.Fprintln(out, "No secrets or variables found to import.")
+				return nil
+			}
+
+			confirm := false
+			if err := huh.NewConfirm().
+				Title("Create this workflow?").
+				Affirmative("Yes").
+				Negative("No").
+				Value(&confirm).
+				Run(); err != nil {
+				if errors.Is(err, huh.ErrUserAborted) {
+					fmt.Fprintln(out, "Cancelled.")
+					return nil
+				}
+				return fmt.Errorf("failed to confirm: %w", err)
+			}
+			if !confirm {
+				fmt.Fprintln(out, "Cancelled.")
+				return nil
+			}
+		}
+	}
+
 	resp, err := client.ImportSecretsAndVars(ctx, api.WithAuthenticationAndOrg(
 		connect.NewRequest(&civ1.ImportSecretsAndVarsRequest{Repo: repo}),
 		token, orgID,
@@ -112,7 +173,7 @@ func importSecretsAndVars(ctx context.Context, opts migrate2Options) error {
 	result := resp.Msg.GetResult()
 	switch r := result.(type) {
 	case *civ1.ImportSecretsAndVarsResponse_RunResult:
-		fmt.Fprintf(out, "Migration workflow created. View it at:\n  %s\n\n", r.RunResult.GetWorkflowUrl())
+		fmt.Fprintf(out, "\nMigration workflow created. View it at:\n  %s\n\n", r.RunResult.GetWorkflowUrl())
 	default:
 		fmt.Fprintln(out, "No secrets or variables found to import.")
 	}
