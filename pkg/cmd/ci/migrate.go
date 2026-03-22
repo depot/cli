@@ -311,7 +311,8 @@ func preflight(ctx context.Context, opts migrateOptions) (*preflightResult, erro
 		}
 
 		fmt.Fprintf(out, "The Depot Code Access app is not installed for %s.\n\n", bold.Render(repoOwner))
-		fmt.Fprintf(out, "Install it at: https://depot.dev/orgs/%s/workflows\n", slug)
+		fmt.Fprintf(out, "Install it at: https://depot.dev/orgs/%s/github-actions/installation/create?codeAccess=true\n", slug)
+
 		return nil, nil
 	}
 
@@ -606,7 +607,7 @@ func copyWorkflows(opts migrateOptions) error {
 	}
 
 	if len(detectedSecrets) > 0 || len(detectedVariables) > 0 {
-		fmt.Fprintf(out, "  2. Your workflows contain %d secret(s) and %d variable(s) which need to be imported from GitHub:\n", len(detectedSecrets), len(detectedVariables))
+		fmt.Fprintf(out, "  2. Your workflows depend on %d secret(s) and %d variable(s) which need to be imported from GitHub:\n", len(detectedSecrets), len(detectedVariables))
 		fmt.Fprintln(out, "     - Import them automatically with `depot ci migrate2 import-secrets-and-vars`")
 		fmt.Fprintln(out, "     - Or import them manually with `depot ci secrets add` and `depot ci vars add`")
 	}
