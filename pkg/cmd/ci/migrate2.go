@@ -51,7 +51,8 @@ func NewCmdMigrate2() *cobra.Command {
 	pf.StringVar(&opts.token, "token", "", "Depot API token")
 	pf.StringVar(&opts.orgID, "org", "", "Depot organization ID")
 	pf.BoolVarP(&opts.yes, "yes", "y", false, "Run in non-interactive mode")
-	pf.BoolVar(&opts.overwrite, "overwrite", false, "Overwrite existing .depot/ directory")
+
+	cmd.Flags().BoolVar(&opts.overwrite, "overwrite", false, "Overwrite existing .depot/ directory")
 
 	cmd.AddCommand(newCmdPreflight(&opts))
 	cmd.AddCommand(newCmdCopyWorkflows(&opts))
@@ -186,7 +187,7 @@ func importSecretsAndVars(ctx context.Context, opts migrate2Options) error {
 }
 
 func newCmdCopyWorkflows(parentOpts *migrate2Options) *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "copy-workflows",
 		Short: "Copy and transform GitHub Actions workflows to .depot/workflows/",
 		Long:  "Copies .github/workflows/ into .depot/workflows/, applying Depot CI transformations and compatibility fixes.",
@@ -197,6 +198,10 @@ func newCmdCopyWorkflows(parentOpts *migrate2Options) *cobra.Command {
 			return copyWorkflows(opts)
 		},
 	}
+
+	cmd.Flags().BoolVar(&parentOpts.overwrite, "overwrite", false, "Overwrite existing .depot/ directory")
+
+	return cmd
 }
 
 func newCmdPreflight(parentOpts *migrate2Options) *cobra.Command {
