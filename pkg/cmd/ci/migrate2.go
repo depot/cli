@@ -52,38 +52,38 @@ func NewCmdMigrate2() *cobra.Command {
 	flags.BoolVar(&opts.yes, "yes", false, "Run in non-interactive mode")
 	flags.BoolVar(&opts.overwrite, "overwrite", false, "Overwrite existing .depot/ directory")
 
-	cmd.AddCommand(newCmdValidateInstallation(&opts))
+	cmd.AddCommand(newCmdPreflight(&opts))
 
 	return cmd
 }
 
-func newCmdValidateInstallation(parentOpts *migrate2Options) *cobra.Command {
+func newCmdPreflight(parentOpts *migrate2Options) *cobra.Command {
 	return &cobra.Command{
-		Use:   "validate-installation",
+		Use:   "preflight",
 		Short: "Check that the Depot Code Access app is installed and configured",
 		Long:  "Validates authentication, detects the repository from the git remote, and checks that the Depot Code Access GitHub App is installed with the correct permissions and repository access.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			opts := *parentOpts
 			opts.dir = "."
 			opts.stdout = os.Stdout
-			_, err := validateInstallation(cmd.Context(), opts)
+			_, err := preflight(cmd.Context(), opts)
 			return err
 		},
 	}
 }
 
-// installationResult is returned by validateInstallation on success.
-type installationResult struct {
+// preflightResult is returned by preflight on success.
+type preflightResult struct {
 	token string
 	orgID string
 	repo  string
 }
 
-// validateInstallation ensures auth, detects the repo, and checks that the
+// preflight ensures auth, detects the repo, and checks that the
 // Depot Code Access app is installed with the right permissions and access.
 // Returns nil result (and nil error) when the check fails with a user-facing
 // message that has already been printed.
-func validateInstallation(ctx context.Context, opts migrate2Options) (*installationResult, error) {
+func preflight(ctx context.Context, opts migrate2Options) (*preflightResult, error) {
 	workDir := opts.dir
 	if strings.TrimSpace(workDir) == "" {
 		workDir = "."
@@ -163,7 +163,7 @@ func validateInstallation(ctx context.Context, opts migrate2Options) (*installat
 
 	fmt.Fprintf(out, "Depot Code Access app is installed and configured for %s\n\n", bold.Render(repo))
 
-	return &installationResult{token: token, orgID: orgID, repo: repo}, nil
+	return &preflightResult{token: token, orgID: orgID, repo: repo}, nil
 }
 
 func runMigrate2(ctx context.Context, opts migrate2Options) error {
@@ -179,7 +179,7 @@ func runMigrate2(ctx context.Context, opts migrate2Options) error {
 
 	bold := lipgloss.NewStyle().Bold(true)
 
-	result, err := validateInstallation(ctx, opts)
+	result, err := preflight(ctx, opts)
 	if err != nil {
 		return err
 	}
