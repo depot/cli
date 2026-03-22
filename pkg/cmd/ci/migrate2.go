@@ -547,13 +547,23 @@ func copyWorkflows(opts migrate2Options) error {
 
 // detectDefaultBranch returns the default branch name (e.g. "main") or empty string.
 func detectDefaultBranch(dir string) string {
-	out, err := exec.Command("git", "-C", dir, "symbolic-ref", "refs/remotes/origin/HEAD").Output()
-	if err != nil {
-		return ""
+	// Try symbolic-ref first (works when origin/HEAD is set)
+	if out, err := exec.Command("git", "-C", dir, "symbolic-ref", "refs/remotes/origin/HEAD").Output(); err == nil {
+		branch := strings.TrimSpace(string(out))
+		branch = strings.TrimPrefix(branch, "refs/remotes/origin/")
+		if branch != "" {
+			return branch
+		}
 	}
-	branch := strings.TrimSpace(string(out))
-	branch = strings.TrimPrefix(branch, "refs/remotes/origin/")
-	return branch
+
+	// Fall back to checking for common default branch names
+	for _, name := range []string{"main", "master"} {
+		if err := exec.Command("git", "-C", dir, "rev-parse", "--verify", "refs/remotes/origin/"+name).Run(); err == nil {
+			return name
+		}
+	}
+
+	return ""
 }
 
 // hasAnySupportedTrigger returns true if at least one trigger is not explicitly unsupported.
