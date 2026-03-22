@@ -607,7 +607,7 @@ func copyWorkflows(opts migrateOptions) error {
 
 	if len(detectedSecrets) > 0 || len(detectedVariables) > 0 {
 		fmt.Fprintf(out, "  2. Your workflows contain %d secret(s) and %d variable(s) which need to be imported from GitHub:\n", len(detectedSecrets), len(detectedVariables))
-		fmt.Fprintln(out, "     - Import them automatically with `depot ci migrate2 import-secrets-and-vars`")
+		fmt.Fprintln(out, "     - Import them automatically with `depot ci migrate import-secrets-and-vars`")
 		fmt.Fprintln(out, "     - Or import them manually with `depot ci secrets add` and `depot ci vars add`")
 	}
 
