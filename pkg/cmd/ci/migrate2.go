@@ -109,7 +109,7 @@ func importSecretsAndVars(ctx context.Context, opts migrate2Options) error {
 	if !opts.yes && helpers.IsTerminal() {
 		preview := false
 		if err := huh.NewConfirm().
-			Title("Preview the workflow before creating it?").
+			Title("Preview the workflow before creating it?\n").
 			Affirmative("Yes, show me").
 			Negative("No, go ahead").
 			Value(&preview).
@@ -146,7 +146,7 @@ func importSecretsAndVars(ctx context.Context, opts migrate2Options) error {
 
 			confirm := false
 			if err := huh.NewConfirm().
-				Title("Create this workflow?").
+				Title("Create this workflow?\n").
 				Affirmative("Yes").
 				Negative("No").
 				Value(&confirm).
