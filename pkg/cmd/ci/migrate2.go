@@ -52,10 +52,38 @@ func NewCmdMigrate2() *cobra.Command {
 	flags.BoolVar(&opts.yes, "yes", false, "Run in non-interactive mode")
 	flags.BoolVar(&opts.overwrite, "overwrite", false, "Overwrite existing .depot/ directory")
 
+	cmd.AddCommand(newCmdValidateInstallation(&opts))
+
 	return cmd
 }
 
-func runMigrate2(ctx context.Context, opts migrate2Options) error {
+func newCmdValidateInstallation(parentOpts *migrate2Options) *cobra.Command {
+	return &cobra.Command{
+		Use:   "validate-installation",
+		Short: "Check that the Depot Code Access app is installed and configured",
+		Long:  "Validates authentication, detects the repository from the git remote, and checks that the Depot Code Access GitHub App is installed with the correct permissions and repository access.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			opts := *parentOpts
+			opts.dir = "."
+			opts.stdout = os.Stdout
+			_, err := validateInstallation(cmd.Context(), opts)
+			return err
+		},
+	}
+}
+
+// installationResult is returned by validateInstallation on success.
+type installationResult struct {
+	token string
+	orgID string
+	repo  string
+}
+
+// validateInstallation ensures auth, detects the repo, and checks that the
+// Depot Code Access app is installed with the right permissions and access.
+// Returns nil result (and nil error) when the check fails with a user-facing
+// message that has already been printed.
+func validateInstallation(ctx context.Context, opts migrate2Options) (*installationResult, error) {
 	workDir := opts.dir
 	if strings.TrimSpace(workDir) == "" {
 		workDir = "."
@@ -68,16 +96,13 @@ func runMigrate2(ctx context.Context, opts migrate2Options) error {
 
 	bold := lipgloss.NewStyle().Bold(true)
 
-	// -------------------------------------------------------------------------
-	// Step 1: Ensure authentication
-	// -------------------------------------------------------------------------
-
+	// Ensure authentication
 	token, err := helpers.ResolveOrgAuth(ctx, opts.token)
 	if err != nil {
-		return fmt.Errorf("authentication failed: %w", err)
+		return nil, fmt.Errorf("authentication failed: %w", err)
 	}
 	if token == "" {
-		return fmt.Errorf("missing API token — run `depot login` or pass --token")
+		return nil, fmt.Errorf("missing API token — run `depot login` or pass --token")
 	}
 
 	orgID := opts.orgID
@@ -85,32 +110,26 @@ func runMigrate2(ctx context.Context, opts migrate2Options) error {
 		orgID = config.GetCurrentOrganization()
 	}
 	if orgID == "" {
-		return fmt.Errorf("missing organization ID — pass --org or run `depot org switch`")
+		return nil, fmt.Errorf("missing organization ID — pass --org or run `depot org switch`")
 	}
 
-	// -------------------------------------------------------------------------
-	// Step 2: Detect repo from git remote
-	// -------------------------------------------------------------------------
-
+	// Detect repo from git remote
 	repo := detectRepoFromGitRemote(workDir)
 	if repo == "" {
-		return fmt.Errorf("could not detect GitHub repository from git remote — is this a GitHub repo with an origin remote?")
+		return nil, fmt.Errorf("could not detect GitHub repository from git remote — is this a GitHub repo with an origin remote?")
 	}
 
 	repoOwner := strings.SplitN(repo, "/", 2)[0]
 	fmt.Fprintf(out, "Detected repository: %s\n\n", bold.Render(repo))
 
-	// -------------------------------------------------------------------------
-	// Step 3: Check Depot Code Access installation
-	// -------------------------------------------------------------------------
-
+	// Check Depot Code Access installation
 	client := api.NewMigrationClient()
 	resp, err := client.GetInstallation(ctx, api.WithAuthenticationAndOrg(
 		connect.NewRequest(&civ1.GetInstallationRequest{Repo: repo}),
 		token, orgID,
 	))
 	if err != nil {
-		return fmt.Errorf("failed to check installation status: %w", err)
+		return nil, fmt.Errorf("failed to check installation status: %w", err)
 	}
 
 	installations := resp.Msg.GetInstallations()
@@ -127,22 +146,48 @@ func runMigrate2(ctx context.Context, opts migrate2Options) error {
 	if matched == nil {
 		fmt.Fprintf(out, "The Depot Code Access app is not installed for %s.\n\n", bold.Render(repoOwner))
 		fmt.Fprintf(out, "Install it at: https://depot.dev/orgs/%s/workflows\n", orgID)
-		return nil
+		return nil, nil
 	}
 
 	if !matched.GetRepoAccessible() {
 		fmt.Fprintf(out, "The Depot Code Access app is installed for %s but does not have access to %s.\n\n", bold.Render(repoOwner), bold.Render(repo))
 		fmt.Fprintf(out, "Grant access at: https://github.com/organizations/%s/settings/installations/%s\n", repoOwner, matched.GetInstallationId())
-		return nil
+		return nil, nil
 	}
 
 	if matched.GetRequiresNewPerms() {
 		fmt.Fprintf(out, "The Depot Code Access app needs updated permissions for %s.\n\n", bold.Render(repoOwner))
 		fmt.Fprintf(out, "Accept the permissions update at: https://github.com/organizations/%s/settings/installations/%s\n", repoOwner, matched.GetInstallationId())
-		return nil
+		return nil, nil
 	}
 
 	fmt.Fprintf(out, "Depot Code Access app is installed and configured for %s\n\n", bold.Render(repo))
+
+	return &installationResult{token: token, orgID: orgID, repo: repo}, nil
+}
+
+func runMigrate2(ctx context.Context, opts migrate2Options) error {
+	workDir := opts.dir
+	if strings.TrimSpace(workDir) == "" {
+		workDir = "."
+	}
+
+	out := opts.stdout
+	if out == nil {
+		out = os.Stdout
+	}
+
+	bold := lipgloss.NewStyle().Bold(true)
+
+	result, err := validateInstallation(ctx, opts)
+	if err != nil {
+		return err
+	}
+	if result == nil {
+		return nil
+	}
+
+	_ = result // auth info available for future use
 
 	// -------------------------------------------------------------------------
 	// Step 4: Migrate workflows
