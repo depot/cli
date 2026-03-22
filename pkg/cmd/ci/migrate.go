@@ -5,29 +5,28 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sort"
 	"strings"
 
+	"connectrpc.com/connect"
 	"github.com/charmbracelet/huh"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/depot/cli/pkg/api"
 	"github.com/depot/cli/pkg/ci/compat"
 	"github.com/depot/cli/pkg/ci/migrate"
+	"github.com/depot/cli/pkg/ci/transform"
 	"github.com/depot/cli/pkg/config"
 	"github.com/depot/cli/pkg/helpers"
+	civ1 "github.com/depot/cli/pkg/proto/depot/ci/v1"
 	"github.com/spf13/cobra"
 )
 
 type migrateOptions struct {
-	orgID     string
 	token     string
-	repo      string
+	orgID     string
 	yes       bool
-	secrets   []string
-	variables []string
 	overwrite bool
 	dir       string
 	stdout    io.Writer
@@ -39,7 +38,7 @@ func NewCmdMigrate() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "migrate",
 		Short: "Migrate GitHub Actions workflows to Depot CI [beta]",
-		Long:  "Interactive wizard to migrate your GitHub Actions CI configuration to Depot CI.\n\nThis command is in beta and subject to change.",
+		Long:  "Optimistically migrates GitHub Actions workflows into .depot/workflows/ with inline corrections and comments.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			runOpts := opts
 			runOpts.dir = "."
@@ -48,19 +47,35 @@ func NewCmdMigrate() *cobra.Command {
 		},
 	}
 
-	flags := cmd.Flags()
-	flags.StringVar(&opts.orgID, "org", "", "Organization ID (required when user is a member of multiple organizations)")
-	flags.StringVar(&opts.token, "token", "", "Depot API token")
-	flags.BoolVar(&opts.yes, "yes", false, "Run in non-interactive mode")
-	flags.StringArrayVar(&opts.secrets, "secret", nil, "CI secret assignment in KEY=VALUE format (repeatable)")
-	flags.StringArrayVar(&opts.variables, "var", nil, "CI variable assignment in KEY=VALUE format (repeatable)")
-	flags.StringVar(&opts.repo, "repo", "", "Scope secrets and variables to a specific repository (e.g. owner/repo); auto-detected from git remote if not provided")
-	flags.BoolVar(&opts.overwrite, "overwrite", false, "Overwrite existing .depot/ directory")
+	pf := cmd.PersistentFlags()
+	pf.StringVar(&opts.token, "token", "", "Depot API token")
+	pf.StringVar(&opts.orgID, "org", "", "Depot organization ID")
+	pf.BoolVarP(&opts.yes, "yes", "y", false, "Run in non-interactive mode")
+
+	cmd.Flags().BoolVar(&opts.overwrite, "overwrite", false, "Overwrite existing .depot/ directory")
+
+	cmd.AddCommand(newCmdPreflight(&opts))
+	cmd.AddCommand(newCmdCopyWorkflows(&opts))
+	cmd.AddCommand(newCmdImportSecretsAndVars(&opts))
 
 	return cmd
 }
 
-func runMigrate(ctx context.Context, opts migrateOptions) error {
+func newCmdImportSecretsAndVars(parentOpts *migrateOptions) *cobra.Command {
+	return &cobra.Command{
+		Use:   "import-secrets-and-vars",
+		Short: "Import GitHub Actions secrets and variables into Depot CI",
+		Long:  "Creates a one-shot GitHub Actions workflow that reads secrets and variables from the source repo and imports them into Depot CI via the depot CLI.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			opts := *parentOpts
+			opts.dir = "."
+			opts.stdout = os.Stdout
+			return importSecretsAndVars(cmd.Context(), opts)
+		},
+	}
+}
+
+func importSecretsAndVars(ctx context.Context, opts migrateOptions) error {
 	workDir := opts.dir
 	if strings.TrimSpace(workDir) == "" {
 		workDir = "."
@@ -71,6 +86,279 @@ func runMigrate(ctx context.Context, opts migrateOptions) error {
 		out = os.Stdout
 	}
 
+	bold := lipgloss.NewStyle().Bold(true)
+
+	token, orgID, err := resolveAuth(ctx, opts)
+	if err != nil {
+		return err
+	}
+
+	// Detect repo
+	repo := detectRepoFromGitRemote(workDir)
+	if repo == "" {
+		return fmt.Errorf("could not detect GitHub repository from git remote — is this a GitHub repo with an origin remote?")
+	}
+
+	client := api.NewMigrationClient()
+
+	if !opts.yes && helpers.IsTerminal() {
+		fmt.Fprintln(out, "")
+		fmt.Fprintf(out, "This will push a GitHub Actions workflow to %s on a temporary branch.\n", bold.Render(repo))
+		fmt.Fprintln(out, "The workflow runs immediately, reads your existing secrets and variables,")
+		fmt.Fprintln(out, "and imports them into Depot CI. The branch is safe to delete afterwards.")
+		fmt.Fprintln(out, "")
+		preview := true
+		if err := huh.NewForm(huh.NewGroup(
+			huh.NewConfirm().
+				Title("Preview the workflow before creating it?").
+				Affirmative("Yes, show me").
+				Negative("No, go ahead").
+				Value(&preview),
+		)).Run(); err != nil {
+			if errors.Is(err, huh.ErrUserAborted) {
+				fmt.Fprintln(out, "Cancelled.")
+				return nil
+			}
+			return fmt.Errorf("failed to confirm: %w", err)
+		}
+
+		if preview {
+			dryResp, err := client.ImportSecretsAndVars(ctx, api.WithAuthenticationAndOrg(
+				connect.NewRequest(&civ1.ImportSecretsAndVarsRequest{Repo: repo, DryRun: true}),
+				token, orgID,
+			))
+			if err != nil {
+				return fmt.Errorf("failed to preview: %w", err)
+			}
+
+			dryResult := dryResp.Msg.GetResult()
+			switch r := dryResult.(type) {
+			case *civ1.ImportSecretsAndVarsResponse_DryRunResult:
+				fmt.Fprintln(out, "")
+				fmt.Fprintf(out, "Branch: %s\n", bold.Render(r.DryRunResult.GetBranchName()))
+				fmt.Fprintf(out, "File:   .github/workflows/%s\n\n", bold.Render(r.DryRunResult.GetWorkflowName()))
+				fmt.Fprintln(out, r.DryRunResult.GetWorkflowContent())
+			default:
+				fmt.Fprintln(out, "No secrets or variables found to import.")
+				return nil
+			}
+
+			confirm := false
+			if err := huh.NewForm(huh.NewGroup(
+				huh.NewConfirm().
+					Title("Create this workflow?").
+					Affirmative("Yes").
+					Negative("No").
+					Value(&confirm),
+			)).Run(); err != nil {
+				if errors.Is(err, huh.ErrUserAborted) {
+					fmt.Fprintln(out, "Cancelled.")
+					return nil
+				}
+				return fmt.Errorf("failed to confirm: %w", err)
+			}
+
+			if !confirm {
+				fmt.Fprintln(out, "Cancelled.")
+				return nil
+			}
+		}
+	}
+
+	resp, err := client.ImportSecretsAndVars(ctx, api.WithAuthenticationAndOrg(
+		connect.NewRequest(&civ1.ImportSecretsAndVarsRequest{Repo: repo}),
+		token, orgID,
+	))
+	if err != nil {
+		return fmt.Errorf("failed to import secrets and variables: %w", err)
+	}
+
+	result := resp.Msg.GetResult()
+	switch r := result.(type) {
+	case *civ1.ImportSecretsAndVarsResponse_RunResult:
+		fmt.Fprintf(out, "\nMigration workflow created. View it at:\n  %s\n\n", r.RunResult.GetWorkflowUrl())
+	default:
+		fmt.Fprintln(out, "No secrets or variables found to import.")
+	}
+
+	return nil
+}
+
+func newCmdCopyWorkflows(parentOpts *migrateOptions) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "copy-workflows",
+		Short: "Copy and transform GitHub Actions workflows to .depot/workflows/",
+		Long:  "Copies .github/workflows/ into .depot/workflows/, applying Depot CI transformations and compatibility fixes.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			opts := *parentOpts
+			opts.dir = "."
+			opts.stdout = os.Stdout
+			return copyWorkflows(opts)
+		},
+	}
+
+	cmd.Flags().BoolVar(&parentOpts.overwrite, "overwrite", false, "Overwrite existing .depot/ directory")
+
+	return cmd
+}
+
+func newCmdPreflight(parentOpts *migrateOptions) *cobra.Command {
+	return &cobra.Command{
+		Use:   "preflight",
+		Short: "Check that the Depot Code Access app is installed and configured",
+		Long:  "Validates authentication, detects the repository from the git remote, and checks that the Depot Code Access GitHub App is installed with the correct permissions and repository access.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			opts := *parentOpts
+			opts.dir = "."
+			opts.stdout = os.Stdout
+			_, err := preflight(cmd.Context(), opts)
+			return err
+		},
+	}
+}
+
+// resolveAuth returns a token and orgID for MigrationService calls.
+// Org tokens (prefixed "depot_org_") carry their org context already, so
+// orgID is left empty. Any other token requires an explicit org ID.
+func resolveAuth(ctx context.Context, opts migrateOptions) (token, orgID string, err error) {
+	token, err = helpers.ResolveOrgAuth(ctx, opts.token)
+	if err != nil {
+		return "", "", fmt.Errorf("authentication failed: %w", err)
+	}
+	if token == "" {
+		return "", "", fmt.Errorf("missing API token — run `depot login`, set DEPOT_TOKEN, or pass --token")
+	}
+
+	if strings.HasPrefix(token, "depot_org_") {
+		return token, "", nil
+	}
+
+	orgID = opts.orgID
+	if orgID == "" {
+		orgID = config.GetCurrentOrganization()
+	}
+	if orgID == "" {
+		return "", "", fmt.Errorf("missing organization ID — pass --org or run `depot org switch`")
+	}
+
+	return token, orgID, nil
+}
+
+// preflightResult is returned by preflight on success.
+type preflightResult struct {
+	token string
+	orgID string
+	repo  string
+}
+
+// preflight ensures auth, detects the repo, and checks that the
+// Depot Code Access app is installed with the right permissions and access.
+// Returns nil result (and nil error) when the check fails with a user-facing
+// message that has already been printed.
+func preflight(ctx context.Context, opts migrateOptions) (*preflightResult, error) {
+	workDir := opts.dir
+	if strings.TrimSpace(workDir) == "" {
+		workDir = "."
+	}
+
+	out := opts.stdout
+	if out == nil {
+		out = os.Stdout
+	}
+
+	bold := lipgloss.NewStyle().Bold(true)
+
+	token, orgID, err := resolveAuth(ctx, opts)
+	if err != nil {
+		return nil, err
+	}
+
+	// Detect repo from git remote
+	repo := detectRepoFromGitRemote(workDir)
+	if repo == "" {
+		return nil, fmt.Errorf("could not detect GitHub repository from git remote — is this a GitHub repo with an origin remote?")
+	}
+
+	repoOwner := strings.SplitN(repo, "/", 2)[0]
+	fmt.Fprintf(out, "\n")
+	fmt.Fprintf(out, "Detected repository: %s\n", bold.Render(repo))
+
+	// Check Depot Code Access installation
+	client := api.NewMigrationClient()
+	resp, err := client.GetInstallation(ctx, api.WithAuthenticationAndOrg(
+		connect.NewRequest(&civ1.GetInstallationRequest{Repo: repo}),
+		token, orgID,
+	))
+	if err != nil {
+		return nil, fmt.Errorf("failed to check installation status: %w", err)
+	}
+
+	installations := resp.Msg.GetInstallations()
+
+	// Find the installation for this repo's owner
+	var matched *civ1.Installation
+	for _, inst := range installations {
+		if strings.EqualFold(inst.GetGithubOrg(), repoOwner) {
+			matched = inst
+			break
+		}
+	}
+
+	if matched == nil {
+		slug := orgID
+		if slug == "" {
+			slug = "_"
+		}
+
+		fmt.Fprintf(out, "The Depot Code Access app is not installed for %s.\n\n", bold.Render(repoOwner))
+		fmt.Fprintf(out, "Install it at: https://depot.dev/orgs/%s/workflows\n", slug)
+		return nil, nil
+	}
+
+	if !matched.GetRepoAccessible() {
+		fmt.Fprintf(out, "The Depot Code Access app is installed for %s but does not have access to %s.\n\n", bold.Render(repoOwner), bold.Render(repo))
+		fmt.Fprintf(out, "Grant access at: https://github.com/organizations/%s/settings/installations/%s\n", repoOwner, matched.GetInstallationId())
+		return nil, nil
+	}
+
+	if matched.GetRequiresNewPerms() {
+		fmt.Fprintf(out, "The Depot Code Access app needs updated permissions for %s.\n\n", bold.Render(repoOwner))
+		fmt.Fprintf(out, "Accept the permissions update at: https://github.com/organizations/%s/settings/installations/%s\n", repoOwner, matched.GetInstallationId())
+		return nil, nil
+	}
+
+	fmt.Fprintf(out, "Depot Code Access app is installed and configured for %s\n\n", bold.Render(repo))
+
+	return &preflightResult{token: token, orgID: orgID, repo: repo}, nil
+}
+
+func runMigrate(ctx context.Context, opts migrateOptions) error {
+	result, err := preflight(ctx, opts)
+	if err != nil {
+		return err
+	}
+	if result == nil {
+		return nil
+	}
+
+	_ = result // auth info available for future use
+
+	return copyWorkflows(opts)
+}
+
+func copyWorkflows(opts migrateOptions) error {
+	workDir := opts.dir
+	if strings.TrimSpace(workDir) == "" {
+		workDir = "."
+	}
+
+	out := opts.stdout
+	if out == nil {
+		out = os.Stdout
+	}
+
+	bold := lipgloss.NewStyle().Bold(true)
+
 	githubDir := filepath.Join(workDir, ".github")
 	workflowsDir := filepath.Join(githubDir, "workflows")
 
@@ -78,7 +366,6 @@ func runMigrate(ctx context.Context, opts migrateOptions) error {
 		if os.IsNotExist(err) {
 			return fmt.Errorf("no .github directory found in %s", workDir)
 		}
-
 		return fmt.Errorf("failed to inspect .github directory: %w", err)
 	} else if !stat.IsDir() {
 		return fmt.Errorf(".github exists but is not a directory")
@@ -93,7 +380,7 @@ func runMigrate(ctx context.Context, opts migrateOptions) error {
 		return fmt.Errorf(".github/workflows exists but is not a directory")
 	}
 
-	workflows, parseWarnings, err := parseWorkflowDirWithWarnings(workflowsDir)
+	workflows, _, err := parseWorkflowDirWithWarnings(workflowsDir)
 	if err != nil {
 		return fmt.Errorf("failed to parse workflow files: %w", err)
 	}
@@ -101,61 +388,65 @@ func runMigrate(ctx context.Context, opts migrateOptions) error {
 		return fmt.Errorf("no valid workflow files found in .github/workflows")
 	}
 
-	fmt.Fprintf(out, "Found %d workflow(s) in .github/workflows\n", len(workflows))
-
-	repo := opts.repo
-	if repo == "" {
-		repo = detectRepoFromGitRemote(workDir)
-	}
-	if repo != "" {
-		fmt.Fprintf(out, "Secrets and variables will be scoped to repo %s\n", repo)
-	} else {
-		fmt.Fprintln(out, "Could not detect repository from git remote; secrets and variables will be org-scoped (use --repo owner/name to override)")
-	}
-
+	// Workflow selection
 	selectedWorkflows := workflows
-	warnings := parseWarnings
-	for _, workflow := range workflows {
-		report := compat.AnalyzeWorkflow(workflow)
-		summary := compat.SummarizeReport(report)
-		triggers := "none"
-		if len(workflow.Triggers) > 0 {
-			triggers = strings.Join(workflow.Triggers, ", ")
-		}
-		critical := ""
-		if compat.HasCriticalIssues(report) {
-			critical = " [critical issues]"
-		}
-		fmt.Fprintf(out, "- %s (%s): %s%s\n", filepath.Base(workflow.Path), triggers, summary, critical)
-	}
-
 	if !opts.yes {
 		if !helpers.IsTerminal() {
 			return fmt.Errorf("interactive mode requires a terminal; rerun with --yes")
 		}
 
-		huhOptions := make([]huh.Option[string], 0, len(workflows))
+		greenStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#30a46c"))
+		dimStyle := lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#9B9B9B", Dark: "#5C5C5C"})
+
+		// Split workflows into supported (has at least one supported trigger) and unsupported-only
+		var supportedWorkflows, unsupportedWorkflows []*migrate.WorkflowFile
 		for _, workflow := range workflows {
-			triggerLabel := "none"
-			if len(workflow.Triggers) > 0 {
-				triggerLabel = strings.Join(workflow.Triggers, ", ")
+			if hasAnySupportedTrigger(workflow.Triggers) {
+				supportedWorkflows = append(supportedWorkflows, workflow)
+			} else {
+				unsupportedWorkflows = append(unsupportedWorkflows, workflow)
 			}
-			label := fmt.Sprintf("%s - %s", filepath.Base(workflow.Path), triggerLabel)
-			huhOptions = append(huhOptions, huh.NewOption(label, workflow.Path))
 		}
 
-		selected := make([]string, 0, len(workflows))
-		for _, workflow := range workflows {
-			selected = append(selected, workflow.Path)
-		}
-		form := huh.NewForm(
-			huh.NewGroup(
+		var groups []*huh.Group
+
+		// Supported triggers group
+		var selectedSupported []string
+		if len(supportedWorkflows) > 0 {
+			opts := make([]huh.Option[string], 0, len(supportedWorkflows))
+			for _, wf := range supportedWorkflows {
+				label := fmt.Sprintf("%s - %s", filepath.Base(wf.Path), colorizeTriggers(wf.Triggers, greenStyle, dimStyle))
+				opts = append(opts, huh.NewOption(label, wf.Path))
+			}
+			selectedSupported = make([]string, 0, len(supportedWorkflows))
+			for _, wf := range supportedWorkflows {
+				selectedSupported = append(selectedSupported, wf.Path)
+			}
+			groups = append(groups, huh.NewGroup(
 				huh.NewMultiSelect[string]().
-					Title("Select workflows to migrate").
-					Options(huhOptions...).
-					Value(&selected),
-			),
-		)
+					Title("These workflows have supported triggers. Which should we migrate?").
+					Options(opts...).
+					Value(&selectedSupported),
+			))
+		}
+
+		// Unsupported-only triggers group
+		var selectedUnsupported []string
+		if len(unsupportedWorkflows) > 0 {
+			opts := make([]huh.Option[string], 0, len(unsupportedWorkflows))
+			for _, wf := range unsupportedWorkflows {
+				label := fmt.Sprintf("%s - %s", filepath.Base(wf.Path), colorizeTriggers(wf.Triggers, greenStyle, dimStyle))
+				opts = append(opts, huh.NewOption(label, wf.Path))
+			}
+			groups = append(groups, huh.NewGroup(
+				huh.NewMultiSelect[string]().
+					Title("These workflows have unsupported triggers. Migrate anyway?").
+					Options(opts...).
+					Value(&selectedUnsupported),
+			))
+		}
+
+		form := huh.NewForm(groups...)
 
 		if err := form.Run(); err != nil {
 			if errors.Is(err, huh.ErrUserAborted) {
@@ -165,6 +456,7 @@ func runMigrate(ctx context.Context, opts migrateOptions) error {
 			return fmt.Errorf("failed to select workflows: %w", err)
 		}
 
+		selected := append(selectedSupported, selectedUnsupported...)
 		if len(selected) == 0 {
 			fmt.Fprintln(out, "No workflows selected. Nothing to migrate.")
 			return nil
@@ -183,13 +475,13 @@ func runMigrate(ctx context.Context, opts migrateOptions) error {
 		}
 	}
 
+	// Handle .depot/ overwrite
 	copyMode := migrate.CopyModeError
 	depotDir := filepath.Join(workDir, ".depot")
 	if depotInfo, err := os.Stat(depotDir); err == nil {
 		if !depotInfo.IsDir() {
 			return fmt.Errorf(".depot exists but is not a directory")
 		}
-
 		if opts.overwrite || opts.yes {
 			copyMode = migrate.CopyModeOverwrite
 		} else {
@@ -217,107 +509,85 @@ func runMigrate(ctx context.Context, opts migrateOptions) error {
 		return fmt.Errorf("failed to inspect .depot directory: %w", err)
 	}
 
-	copyResult, err := migrate.CopyGitHubToDepot(workDir, []string{"actions"}, copyMode)
-	if err != nil {
+	// Copy .github/actions/ to .depot/actions/
+	if _, err := migrate.CopyGitHubToDepot(workDir, []string{"actions"}, copyMode); err != nil {
 		return fmt.Errorf("failed to copy GitHub CI files: %w", err)
 	}
-	copiedWorkflowFiles, err := copySelectedWorkflowFiles(workDir, workflowsDir, selectedWorkflows)
-	if err != nil {
-		return fmt.Errorf("failed to copy selected workflow files: %w", err)
-	}
-	copyResult.FilesCopied = append(copyResult.FilesCopied, copiedWorkflowFiles...)
-	warnings = append(warnings, copyResult.Warnings...)
 
+	// Transform and write each workflow
+	depotWorkflowsDir := filepath.Join(depotDir, "workflows")
+	if err := os.MkdirAll(depotWorkflowsDir, 0755); err != nil {
+		return fmt.Errorf("failed to create .depot/workflows: %w", err)
+	}
+
+	type workflowResult struct {
+		filename    string
+		result      *transform.TransformResult
+		hasCritical bool
+	}
+	var results []workflowResult
+
+	for _, wf := range selectedWorkflows {
+		raw, err := os.ReadFile(wf.Path)
+		if err != nil {
+			return fmt.Errorf("failed to read %s: %w", wf.Path, err)
+		}
+
+		report := compat.AnalyzeWorkflow(wf)
+		result, err := transform.TransformWorkflow(raw, wf, report)
+		if err != nil {
+			return fmt.Errorf("failed to transform %s: %w", filepath.Base(wf.Path), err)
+		}
+
+		relPath, err := filepath.Rel(workflowsDir, wf.Path)
+		if err != nil {
+			return fmt.Errorf("failed to resolve relative path for %s: %w", wf.Path, err)
+		}
+
+		destPath := filepath.Join(depotWorkflowsDir, relPath)
+		if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
+			return fmt.Errorf("failed to create directory for %s: %w", destPath, err)
+		}
+
+		if err := os.WriteFile(destPath, result.Content, 0644); err != nil {
+			return fmt.Errorf("failed to write %s: %w", destPath, err)
+		}
+
+		results = append(results, workflowResult{
+			filename:    filepath.Base(wf.Path),
+			result:      result,
+			hasCritical: result.HasCritical,
+		})
+	}
+
+	// Print summary
+	skipped := len(workflows) - len(selectedWorkflows)
+	if skipped > 0 {
+		fmt.Fprintf(out, "%s %d workflow(s) to .depot/workflows/ (%d skipped)\n\n", bold.Render("Migrated"), len(results), skipped)
+	} else {
+		fmt.Fprintf(out, "%s %d workflow(s) to .depot/workflows/\n\n", bold.Render("Migrated"), len(results))
+	}
+
+	for _, r := range results {
+		status := "migrated as is"
+		if r.hasCritical {
+			disabledCount := 0
+			for _, c := range r.result.Changes {
+				if c.Type == transform.ChangeJobDisabled {
+					disabledCount++
+				}
+			}
+			status = fmt.Sprintf("%d job(s) disabled (needs review)", disabledCount)
+		} else if len(r.result.Changes) > 0 {
+			status = fmt.Sprintf("%d change(s) applied", len(r.result.Changes))
+		}
+		fmt.Fprintf(out, "  %s — %s\n", r.filename, status)
+	}
+
+	// Detect secrets and variables
 	detectedSecrets, err := detectSecretsFromWorkflows(selectedWorkflows)
 	if err != nil {
 		return fmt.Errorf("failed to detect secrets: %w", err)
-	}
-
-	configuredSecrets := make([]string, 0)
-
-	secretAssignments, err := parseAssignments(opts.secrets, "secret")
-	if err != nil {
-		return err
-	}
-
-	authResolved := false
-	var orgID, token string
-	resolveAuth := func() (string, string, error) {
-		if authResolved {
-			return orgID, token, nil
-		}
-
-		var err error
-		orgID, token, err = resolveMigrationAuth(ctx, opts)
-		if err != nil {
-			return "", "", err
-		}
-		authResolved = true
-		return orgID, token, nil
-	}
-
-	configureSecret := func(name, value string) error {
-		orgID, token, err := resolveAuth()
-		if err != nil {
-			return err
-		}
-
-		if err := api.CIAddSecretWithDescription(ctx, token, orgID, name, value, "", repo); err != nil {
-			return fmt.Errorf("failed to configure secret %s: %w", name, err)
-		}
-		configuredSecrets = append(configuredSecrets, name)
-		return nil
-	}
-
-	if len(secretAssignments) > 0 {
-		secretNames := make([]string, 0, len(secretAssignments))
-		for name := range secretAssignments {
-			secretNames = append(secretNames, name)
-		}
-		sort.Strings(secretNames)
-
-		for _, name := range secretNames {
-			if err := configureSecret(name, secretAssignments[name]); err != nil {
-				return err
-			}
-		}
-	}
-
-	if opts.yes {
-		missingSecrets := make([]string, 0)
-		for _, name := range detectedSecrets {
-			if _, ok := secretAssignments[name]; !ok {
-				missingSecrets = append(missingSecrets, name)
-				warnings = append(warnings, fmt.Sprintf("detected secret %s is not configured", name))
-			}
-		}
-		if len(missingSecrets) > 0 {
-			sort.Strings(missingSecrets)
-			hint := "depot ci secrets add <NAME> --value <VALUE>"
-			if repo != "" {
-				hint = fmt.Sprintf("depot ci secrets add <NAME> --repo %s --value <VALUE>", repo)
-			}
-			warnings = append(warnings, fmt.Sprintf("configure missing secrets with `%s` (missing: %s)", hint, strings.Join(missingSecrets, ", ")))
-		}
-	} else if len(detectedSecrets) > 0 {
-		for _, name := range detectedSecrets {
-			if _, ok := secretAssignments[name]; ok {
-				continue
-			}
-
-			value, err := helpers.PromptForSecret(fmt.Sprintf("Enter value for secret '%s' (leave empty to skip): ", name))
-			if err != nil {
-				return fmt.Errorf("failed to read value for secret %s: %w", name, err)
-			}
-			if strings.TrimSpace(value) == "" {
-				warnings = append(warnings, fmt.Sprintf("secret %s was skipped", name))
-				continue
-			}
-
-			if err := configureSecret(name, value); err != nil {
-				return err
-			}
-		}
 	}
 
 	detectedVariables, err := detectVariablesFromWorkflows(selectedWorkflows)
@@ -325,350 +595,69 @@ func runMigrate(ctx context.Context, opts migrateOptions) error {
 		return fmt.Errorf("failed to detect variables: %w", err)
 	}
 
-	configuredVariables := make([]string, 0)
+	defaultBranch := detectDefaultBranch(workDir)
 
-	variableAssignments, err := parseAssignments(opts.variables, "var")
-	if err != nil {
-		return err
+	fmt.Fprintln(out, "")
+	fmt.Fprintf(out, "%s\n\n", bold.Render("Next steps:"))
+	if defaultBranch != "" {
+		fmt.Fprintf(out, "  1. Activate these workflows by pushing and merging them into %s\n", bold.Render(defaultBranch))
+	} else {
+		fmt.Fprintln(out, "  1. Activate these workflows by pushing and merging them into your default branch")
 	}
 
-	configureVariable := func(name, value string) error {
-		orgID, token, err := resolveAuth()
-		if err != nil {
-			return err
-		}
-
-		if err := api.CIAddVariable(ctx, token, orgID, name, value, repo); err != nil {
-			return fmt.Errorf("failed to configure variable %s: %w", name, err)
-		}
-		configuredVariables = append(configuredVariables, name)
-		return nil
-	}
-
-	if len(variableAssignments) > 0 {
-		variableNames := make([]string, 0, len(variableAssignments))
-		for name := range variableAssignments {
-			variableNames = append(variableNames, name)
-		}
-		sort.Strings(variableNames)
-
-		for _, name := range variableNames {
-			if err := configureVariable(name, variableAssignments[name]); err != nil {
-				return err
-			}
-		}
-	}
-
-	if opts.yes {
-		missingVariables := make([]string, 0)
-		for _, name := range detectedVariables {
-			if _, ok := variableAssignments[name]; !ok {
-				missingVariables = append(missingVariables, name)
-				warnings = append(warnings, fmt.Sprintf("detected variable %s is not configured", name))
-			}
-		}
-		if len(missingVariables) > 0 {
-			sort.Strings(missingVariables)
-			hint := "depot ci vars add <NAME> --value <VALUE>"
-			if repo != "" {
-				hint = fmt.Sprintf("depot ci vars add <NAME> --repo %s --value <VALUE>", repo)
-			}
-			warnings = append(warnings, fmt.Sprintf("configure missing variables with `%s` (missing: %s)", hint, strings.Join(missingVariables, ", ")))
-		}
-	} else if len(detectedVariables) > 0 {
-		for _, name := range detectedVariables {
-			if _, ok := variableAssignments[name]; ok {
-				continue
-			}
-
-			value, err := helpers.PromptForValue(fmt.Sprintf("Enter value for variable '%s' (leave empty to skip): ", name))
-			if err != nil {
-				return fmt.Errorf("failed to read value for variable %s: %w", name, err)
-			}
-			if strings.TrimSpace(value) == "" {
-				warnings = append(warnings, fmt.Sprintf("variable %s was skipped", name))
-				continue
-			}
-
-			if err := configureVariable(name, value); err != nil {
-				return err
-			}
-		}
+	if len(detectedSecrets) > 0 || len(detectedVariables) > 0 {
+		fmt.Fprintf(out, "  2. Your workflows contain %d secret(s) and %d variable(s) which need to be imported from GitHub:\n", len(detectedSecrets), len(detectedVariables))
+		fmt.Fprintln(out, "     - Import them automatically with `depot ci migrate2 import-secrets-and-vars`")
+		fmt.Fprintln(out, "     - Or import them manually with `depot ci secrets add` and `depot ci vars add`")
 	}
 
 	fmt.Fprintln(out, "")
-	fmt.Fprintln(out, "Migration summary:")
-	fmt.Fprintf(out, "- Workflows selected: %d\n", len(selectedWorkflows))
-	fmt.Fprintf(out, "- Files copied: %d\n", len(copyResult.FilesCopied))
-	if repo != "" {
-		fmt.Fprintf(out, "- Secret/variable scope: repo (%s)\n", repo)
-	} else {
-		fmt.Fprintln(out, "- Secret/variable scope: org")
-	}
-	fmt.Fprintf(out, "- Secrets detected: %d\n", len(detectedSecrets))
-	fmt.Fprintf(out, "- Secrets configured: %d\n", len(configuredSecrets))
-	fmt.Fprintf(out, "- Variables detected: %d\n", len(detectedVariables))
-	fmt.Fprintf(out, "- Variables configured: %d\n", len(configuredVariables))
-
-	if len(copyResult.FilesCopied) > 0 {
-		fmt.Fprintln(out, "- Copied files:")
-		for _, copiedPath := range copyResult.FilesCopied {
-			rel, relErr := filepath.Rel(workDir, copiedPath)
-			if relErr != nil {
-				rel = copiedPath
-			}
-			fmt.Fprintf(out, "  - %s\n", rel)
-		}
-	}
-
-	if len(configuredSecrets) > 0 {
-		fmt.Fprintln(out, "- Configured secrets:")
-		for _, name := range configuredSecrets {
-			fmt.Fprintf(out, "  - %s\n", name)
-		}
-	}
-
-	if len(configuredVariables) > 0 {
-		fmt.Fprintln(out, "- Configured variables:")
-		for _, name := range configuredVariables {
-			fmt.Fprintf(out, "  - %s\n", name)
-		}
-	}
-
-	if len(warnings) > 0 {
-		fmt.Fprintln(out, "- Warnings:")
-		for _, warning := range warnings {
-			fmt.Fprintf(out, "  - %s\n", warning)
-		}
-	}
 
 	return nil
 }
 
-func parseAssignments(flags []string, flagName string) (map[string]string, error) {
-	assignments := make(map[string]string, len(flags))
-	for _, raw := range flags {
-		parts := strings.SplitN(raw, "=", 2)
-		if len(parts) != 2 {
-			return nil, fmt.Errorf("invalid --%s value %q, expected KEY=VALUE", flagName, raw)
+// detectDefaultBranch returns the default branch name (e.g. "main") or empty string.
+func detectDefaultBranch(dir string) string {
+	// Try symbolic-ref first (works when origin/HEAD is set)
+	if out, err := exec.Command("git", "-C", dir, "symbolic-ref", "refs/remotes/origin/HEAD").Output(); err == nil {
+		branch := strings.TrimSpace(string(out))
+		branch = strings.TrimPrefix(branch, "refs/remotes/origin/")
+		if branch != "" {
+			return branch
 		}
-
-		name := strings.TrimSpace(parts[0])
-		if name == "" {
-			return nil, fmt.Errorf("invalid --%s value %q, name cannot be empty", flagName, raw)
-		}
-
-		assignments[name] = parts[1]
 	}
 
-	return assignments, nil
+	// Fall back to checking for common default branch names
+	for _, name := range []string{"main", "master"} {
+		if err := exec.Command("git", "-C", dir, "rev-parse", "--verify", "refs/remotes/origin/"+name).Run(); err == nil {
+			return name
+		}
+	}
+
+	return ""
 }
 
-func parseWorkflowDirWithWarnings(workflowsDir string) ([]*migrate.WorkflowFile, []string, error) {
-	workflows := make([]*migrate.WorkflowFile, 0)
-	warnings := make([]string, 0)
-
-	err := filepath.WalkDir(workflowsDir, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return err
+// hasAnySupportedTrigger returns true if at least one trigger is not explicitly unsupported.
+func hasAnySupportedTrigger(triggers []string) bool {
+	for _, trigger := range triggers {
+		rule, ok := compat.TriggerRules[trigger]
+		if !ok || rule.Supported != compat.Unsupported {
+			return true
 		}
-		if d.IsDir() {
-			return nil
-		}
-
-		ext := strings.ToLower(filepath.Ext(path))
-		if ext != ".yml" && ext != ".yaml" {
-			return nil
-		}
-
-		workflow, parseErr := migrate.ParseWorkflowFile(path)
-		if parseErr != nil {
-			warnings = append(warnings, fmt.Sprintf("skipped invalid workflow %s: %v", path, parseErr))
-			return nil
-		}
-
-		workflows = append(workflows, workflow)
-		return nil
-	})
-	if err != nil {
-		return nil, nil, err
 	}
-
-	sort.Slice(workflows, func(i, j int) bool {
-		return workflows[i].Path < workflows[j].Path
-	})
-
-	return workflows, warnings, nil
+	return len(triggers) == 0 // no triggers = treat as supported
 }
 
-func copySelectedWorkflowFiles(workDir, workflowsDir string, selectedWorkflows []*migrate.WorkflowFile) ([]string, error) {
-	if len(selectedWorkflows) == 0 {
-		return nil, nil
-	}
-
-	depotWorkflowsDir := filepath.Join(workDir, ".depot", "workflows")
-	copied := make([]string, 0, len(selectedWorkflows))
-
-	for _, workflow := range selectedWorkflows {
-		relPath, err := filepath.Rel(workflowsDir, workflow.Path)
-		if err != nil {
-			return nil, fmt.Errorf("failed to resolve relative path for %s: %w", workflow.Path, err)
-		}
-		if relPath == ".." || strings.HasPrefix(relPath, ".."+string(os.PathSeparator)) {
-			return nil, fmt.Errorf("workflow path %s is outside %s", workflow.Path, workflowsDir)
-		}
-
-		destPath := filepath.Join(depotWorkflowsDir, relPath)
-		if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
-			return nil, fmt.Errorf("failed to create destination directory for %s: %w", destPath, err)
-		}
-
-		if err := copyWorkflowFile(workflow.Path, destPath); err != nil {
-			return nil, err
-		}
-		copied = append(copied, destPath)
-	}
-
-	return copied, nil
-}
-
-func copyWorkflowFile(srcPath, destPath string) error {
-	srcFile, err := os.Open(srcPath)
-	if err != nil {
-		return fmt.Errorf("failed to open source workflow %s: %w", srcPath, err)
-	}
-	defer srcFile.Close()
-
-	destFile, err := os.OpenFile(destPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
-	if err != nil {
-		return fmt.Errorf("failed to create destination workflow %s: %w", destPath, err)
-	}
-	defer destFile.Close()
-
-	if _, err := io.Copy(destFile, srcFile); err != nil {
-		return fmt.Errorf("failed to copy workflow %s to %s: %w", srcPath, destPath, err)
-	}
-
-	return nil
-}
-
-func detectSecretsFromWorkflows(workflows []*migrate.WorkflowFile) ([]string, error) {
-	all := make([]string, 0)
-	for _, workflow := range workflows {
-		secrets, err := migrate.DetectSecretsFromFile(workflow.Path)
-		if err != nil {
-			return nil, fmt.Errorf("failed to detect secrets in %s: %w", workflow.Path, err)
-		}
-		all = append(all, secrets...)
-	}
-
-	if len(all) == 0 {
-		return nil, nil
-	}
-
-	seen := make(map[string]struct{}, len(all))
-	for _, secret := range all {
-		if secret != "" {
-			seen[secret] = struct{}{}
+// colorizeTriggers renders each trigger name in green (supported) or red (unsupported).
+func colorizeTriggers(triggers []string, green, dim lipgloss.Style) string {
+	parts := make([]string, len(triggers))
+	for i, trigger := range triggers {
+		rule, ok := compat.TriggerRules[trigger]
+		if ok && rule.Supported == compat.Unsupported {
+			parts[i] = dim.Render(trigger)
+		} else {
+			parts[i] = green.Render(trigger)
 		}
 	}
-
-	deduped := make([]string, 0, len(seen))
-	for secret := range seen {
-		deduped = append(deduped, secret)
-	}
-	sort.Strings(deduped)
-
-	return deduped, nil
-}
-
-func detectVariablesFromWorkflows(workflows []*migrate.WorkflowFile) ([]string, error) {
-	all := make([]string, 0)
-	for _, workflow := range workflows {
-		variables, err := migrate.DetectVariablesFromFile(workflow.Path)
-		if err != nil {
-			return nil, fmt.Errorf("failed to detect variables in %s: %w", workflow.Path, err)
-		}
-		all = append(all, variables...)
-	}
-
-	if len(all) == 0 {
-		return nil, nil
-	}
-
-	seen := make(map[string]struct{}, len(all))
-	for _, v := range all {
-		if v != "" {
-			seen[v] = struct{}{}
-		}
-	}
-
-	deduped := make([]string, 0, len(seen))
-	for v := range seen {
-		deduped = append(deduped, v)
-	}
-	sort.Strings(deduped)
-
-	return deduped, nil
-}
-
-// detectRepoFromGitRemote attempts to extract owner/repo from the origin remote URL.
-func detectRepoFromGitRemote(dir string) string {
-	cmd := exec.Command("git", "-C", dir, "remote", "get-url", "origin")
-	out, err := cmd.Output()
-	if err != nil {
-		return ""
-	}
-	return parseGitHubRepo(strings.TrimSpace(string(out)))
-}
-
-func parseGitHubRepo(remoteURL string) string {
-	// SSH: git@github.com:owner/repo.git
-	if strings.HasPrefix(remoteURL, "git@") {
-		idx := strings.Index(remoteURL, ":")
-		if idx < 0 {
-			return ""
-		}
-		path := remoteURL[idx+1:]
-		path = strings.TrimSuffix(path, ".git")
-		parts := strings.SplitN(path, "/", 3)
-		if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
-			return ""
-		}
-		return parts[0] + "/" + parts[1]
-	}
-
-	// HTTPS: https://github.com/owner/repo.git
-	u, err := url.Parse(remoteURL)
-	if err != nil {
-		return ""
-	}
-	path := strings.TrimPrefix(u.Path, "/")
-	path = strings.TrimSuffix(path, ".git")
-	path = strings.TrimRight(path, "/")
-	parts := strings.SplitN(path, "/", 3)
-	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
-		return ""
-	}
-	return parts[0] + "/" + parts[1]
-}
-
-func resolveMigrationAuth(ctx context.Context, opts migrateOptions) (string, string, error) {
-	orgID := opts.orgID
-	if orgID == "" {
-		orgID = config.GetCurrentOrganization()
-	}
-	if orgID == "" {
-		return "", "", fmt.Errorf("missing organization ID; pass --org or run `depot org switch`")
-	}
-
-	token, err := helpers.ResolveOrgAuth(ctx, opts.token)
-	if err != nil {
-		return "", "", err
-	}
-	if token == "" {
-		return "", "", fmt.Errorf("missing API token, please run `depot login` or pass --token")
-	}
-
-	return orgID, token, nil
+	return strings.Join(parts, ", ")
 }
