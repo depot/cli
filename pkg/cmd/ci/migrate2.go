@@ -121,6 +121,8 @@ func importSecretsAndVars(ctx context.Context, opts migrate2Options) error {
 			return fmt.Errorf("failed to confirm: %w", err)
 		}
 
+		fmt.Fprintln(out, "")
+
 		if preview {
 			dryResp, err := client.ImportSecretsAndVars(ctx, api.WithAuthenticationAndOrg(
 				connect.NewRequest(&civ1.ImportSecretsAndVarsRequest{Repo: repo, DryRun: true}),
@@ -155,6 +157,8 @@ func importSecretsAndVars(ctx context.Context, opts migrate2Options) error {
 				}
 				return fmt.Errorf("failed to confirm: %w", err)
 			}
+			fmt.Fprintln(out, "")
+
 			if !confirm {
 				fmt.Fprintln(out, "Cancelled.")
 				return nil
