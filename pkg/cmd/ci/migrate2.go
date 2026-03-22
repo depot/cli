@@ -53,8 +53,23 @@ func NewCmdMigrate2() *cobra.Command {
 	flags.BoolVar(&opts.overwrite, "overwrite", false, "Overwrite existing .depot/ directory")
 
 	cmd.AddCommand(newCmdPreflight(&opts))
+	cmd.AddCommand(newCmdCopyWorkflows(&opts))
 
 	return cmd
+}
+
+func newCmdCopyWorkflows(parentOpts *migrate2Options) *cobra.Command {
+	return &cobra.Command{
+		Use:   "copy-workflows",
+		Short: "Copy and transform GitHub Actions workflows to .depot/workflows/",
+		Long:  "Copies .github/workflows/ into .depot/workflows/, applying Depot CI transformations and compatibility fixes.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			opts := *parentOpts
+			opts.dir = "."
+			opts.stdout = os.Stdout
+			return copyWorkflows(opts)
+		},
+	}
 }
 
 func newCmdPreflight(parentOpts *migrate2Options) *cobra.Command {
@@ -167,6 +182,20 @@ func preflight(ctx context.Context, opts migrate2Options) (*preflightResult, err
 }
 
 func runMigrate2(ctx context.Context, opts migrate2Options) error {
+	result, err := preflight(ctx, opts)
+	if err != nil {
+		return err
+	}
+	if result == nil {
+		return nil
+	}
+
+	_ = result // auth info available for future use
+
+	return copyWorkflows(opts)
+}
+
+func copyWorkflows(opts migrate2Options) error {
 	workDir := opts.dir
 	if strings.TrimSpace(workDir) == "" {
 		workDir = "."
@@ -178,20 +207,6 @@ func runMigrate2(ctx context.Context, opts migrate2Options) error {
 	}
 
 	bold := lipgloss.NewStyle().Bold(true)
-
-	result, err := preflight(ctx, opts)
-	if err != nil {
-		return err
-	}
-	if result == nil {
-		return nil
-	}
-
-	_ = result // auth info available for future use
-
-	// -------------------------------------------------------------------------
-	// Step 4: Migrate workflows
-	// -------------------------------------------------------------------------
 
 	githubDir := filepath.Join(workDir, ".github")
 	workflowsDir := filepath.Join(githubDir, "workflows")
@@ -396,10 +411,7 @@ func runMigrate2(ctx context.Context, opts migrate2Options) error {
 		})
 	}
 
-	// -------------------------------------------------------------------------
-	// Step 5: Print summary and next steps
-	// -------------------------------------------------------------------------
-
+	// Print summary
 	fmt.Fprintln(out, "")
 	fmt.Fprintf(out, "%s %d workflow(s) to .depot/workflows/\n\n", bold.Render("Migrated"), len(results))
 
