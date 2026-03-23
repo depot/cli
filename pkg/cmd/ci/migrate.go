@@ -55,27 +55,27 @@ func NewCmdMigrate() *cobra.Command {
 	cmd.Flags().BoolVar(&opts.overwrite, "overwrite", false, "Overwrite existing .depot/ directory")
 
 	cmd.AddCommand(newCmdPreflight(&opts))
-	cmd.AddCommand(newCmdCopyWorkflows(&opts))
-	cmd.AddCommand(newCmdImportSecretsAndVars(&opts))
+	cmd.AddCommand(newCmdWorkflows(&opts))
+	cmd.AddCommand(newCmdSecretsAndVars(&opts))
 
 	return cmd
 }
 
-func newCmdImportSecretsAndVars(parentOpts *migrateOptions) *cobra.Command {
+func newCmdSecretsAndVars(parentOpts *migrateOptions) *cobra.Command {
 	return &cobra.Command{
-		Use:   "import-secrets-and-vars",
+		Use:   "secrets-and-vars",
 		Short: "Import GitHub Actions secrets and variables into Depot CI",
 		Long:  "Creates a one-shot GitHub Actions workflow that reads secrets and variables from the source repo and imports them into Depot CI via the depot CLI.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			opts := *parentOpts
 			opts.dir = "."
 			opts.stdout = os.Stdout
-			return importSecretsAndVars(cmd.Context(), opts)
+			return secretsAndVars(cmd.Context(), opts)
 		},
 	}
 }
 
-func importSecretsAndVars(ctx context.Context, opts migrateOptions) error {
+func secretsAndVars(ctx context.Context, opts migrateOptions) error {
 	workDir := opts.dir
 	if strings.TrimSpace(workDir) == "" {
 		workDir = "."
@@ -188,16 +188,16 @@ func importSecretsAndVars(ctx context.Context, opts migrateOptions) error {
 	return nil
 }
 
-func newCmdCopyWorkflows(parentOpts *migrateOptions) *cobra.Command {
+func newCmdWorkflows(parentOpts *migrateOptions) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "copy-workflows",
-		Short: "Copy and transform GitHub Actions workflows to .depot/workflows/",
+		Use:   "workflows",
+		Short: "Migrate and transform GitHub Actions workflows to .depot/workflows/",
 		Long:  "Copies .github/workflows/ into .depot/workflows/, applying Depot CI transformations and compatibility fixes.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			opts := *parentOpts
 			opts.dir = "."
 			opts.stdout = os.Stdout
-			return copyWorkflows(opts)
+			return workflows(opts)
 		},
 	}
 
@@ -348,10 +348,10 @@ func runMigrate(ctx context.Context, opts migrateOptions) error {
 
 	_ = result // auth info available for future use
 
-	return copyWorkflows(opts)
+	return workflows(opts)
 }
 
-func copyWorkflows(opts migrateOptions) error {
+func workflows(opts migrateOptions) error {
 	workDir := opts.dir
 	if strings.TrimSpace(workDir) == "" {
 		workDir = "."
@@ -612,7 +612,7 @@ func copyWorkflows(opts migrateOptions) error {
 
 	if len(detectedSecrets) > 0 || len(detectedVariables) > 0 {
 		fmt.Fprintf(out, "  2. Your workflows depend on %d secret(s) and %d variable(s) which need to be imported from GitHub:\n", len(detectedSecrets), len(detectedVariables))
-		fmt.Fprintln(out, "     - Import them automatically with `depot ci migrate import-secrets-and-vars`")
+		fmt.Fprintln(out, "     - Import them automatically with `depot ci migrate secrets-and-vars`")
 		fmt.Fprintln(out, "     - Or import them manually with `depot ci secrets add` and `depot ci vars add`")
 	}
 
