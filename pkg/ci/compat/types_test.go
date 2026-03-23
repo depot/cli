@@ -32,6 +32,7 @@ func TestCompatibilityRuleJSONRoundTrip(t *testing.T) {
 func TestCompatibilityIssueJSONRoundTrip(t *testing.T) {
 	issue := CompatibilityIssue{
 		File:       ".github/workflows/test.yml",
+		JobName:    "build",
 		Feature:    "reusable-workflows",
 		Level:      Partial,
 		Message:    "Reusable workflows have limited support",
@@ -49,7 +50,7 @@ func TestCompatibilityIssueJSONRoundTrip(t *testing.T) {
 	}
 
 	if decoded.File != issue.File || decoded.Feature != issue.Feature ||
-		decoded.Level != issue.Level || decoded.Message != issue.Message ||
+		decoded.JobName != issue.JobName || decoded.Level != issue.Level || decoded.Message != issue.Message ||
 		decoded.Suggestion != issue.Suggestion {
 		t.Errorf("Round-trip failed: got %+v, want %+v", decoded, issue)
 	}

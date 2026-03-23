@@ -323,6 +323,54 @@ jobs:
 	}
 }
 
+func TestTransformWorkflow_DisableJobUsesStructuredJobName(t *testing.T) {
+	raw := []byte(`name: CI
+on: push
+jobs:
+  test:
+    runs-on: depot-ubuntu-latest
+    steps:
+      - run: echo test
+  test-integration:
+    runs-on: depot-ubuntu-latest
+    steps:
+      - run: echo integration
+`)
+
+	wf := &migrate.WorkflowFile{
+		Path:     ".github/workflows/ci.yml",
+		Name:     "CI",
+		Triggers: []string{"push"},
+		Jobs: []migrate.JobInfo{
+			{Name: "test", RunsOn: "depot-ubuntu-latest"},
+			{Name: "test-integration", RunsOn: "depot-ubuntu-latest"},
+		},
+	}
+	report := &compat.CompatibilityReport{
+		File: wf.Path,
+		Issues: []compat.CompatibilityIssue{
+			{
+				JobName: "test-integration",
+				Level:   compat.Unsupported,
+				Message: `Job "test-integration" depends on Job "test".`,
+			},
+		},
+	}
+
+	result, err := TransformWorkflow(raw, wf, report)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	content := string(result.Content)
+	if !strings.Contains(content, "#   test-integration:") {
+		t.Errorf("expected test-integration to be disabled, got:\n%s", content)
+	}
+	if strings.Contains(content, "#   test:") {
+		t.Errorf("expected test job to remain enabled, got:\n%s", content)
+	}
+}
+
 func TestTransformWorkflow_CombinedChanges(t *testing.T) {
 	raw := []byte(`name: CI
 on:

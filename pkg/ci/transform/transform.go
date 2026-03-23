@@ -205,23 +205,31 @@ type disabledJobInfo struct {
 
 // findDisabledJobs identifies jobs with uncorrectable (Unsupported) issues.
 func findDisabledJobs(wf *migrate.WorkflowFile, report *compat.CompatibilityReport) map[string]disabledJobInfo {
-	if report == nil {
+	if wf == nil || report == nil {
 		return nil
+	}
+
+	jobNames := make(map[string]struct{}, len(wf.Jobs))
+	for _, job := range wf.Jobs {
+		if job.Name == "" {
+			continue
+		}
+		jobNames[job.Name] = struct{}{}
 	}
 
 	disabled := make(map[string]disabledJobInfo)
 	for _, issue := range report.Issues {
-		if issue.Level != compat.Unsupported {
+		if issue.Level != compat.Unsupported || issue.JobName == "" {
 			continue
 		}
-		// Match issue to a job by checking if the message references a job name
-		for _, job := range wf.Jobs {
-			if strings.Contains(issue.Message, fmt.Sprintf("Job %q", job.Name)) {
-				if _, exists := disabled[job.Name]; !exists {
-					disabled[job.Name] = disabledJobInfo{
-						Reason: issue.Message,
-					}
-				}
+
+		if _, ok := jobNames[issue.JobName]; !ok {
+			continue
+		}
+
+		if _, exists := disabled[issue.JobName]; !exists {
+			disabled[issue.JobName] = disabledJobInfo{
+				Reason: issue.Message,
 			}
 		}
 	}

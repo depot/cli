@@ -74,6 +74,7 @@ func AnalyzeJobs(jobs []migrate.JobInfo) []CompatibilityIssue {
 
 		if job.HasContainer && containerRule.Supported != Supported {
 			issues = append(issues, CompatibilityIssue{
+				JobName:    job.Name,
 				Feature:    "container",
 				Level:      containerRule.Supported,
 				Message:    fmt.Sprintf("Job %q uses a container: %s", jobLabel, containerRule.Note),
@@ -83,6 +84,7 @@ func AnalyzeJobs(jobs []migrate.JobInfo) []CompatibilityIssue {
 
 		if job.HasServices && servicesRule.Supported != Supported {
 			issues = append(issues, CompatibilityIssue{
+				JobName:    job.Name,
 				Feature:    "services",
 				Level:      servicesRule.Supported,
 				Message:    fmt.Sprintf("Job %q uses services: %s", jobLabel, servicesRule.Note),
@@ -92,6 +94,7 @@ func AnalyzeJobs(jobs []migrate.JobInfo) []CompatibilityIssue {
 
 		if job.UsesReusable != "" && !isLocalReusableWorkflow(job.UsesReusable) {
 			issues = append(issues, CompatibilityIssue{
+				JobName:    job.Name,
 				Feature:    "uses",
 				Level:      reusableRule.Supported,
 				Message:    fmt.Sprintf("Job %q references non-local reusable workflow %q.", jobLabel, job.UsesReusable),
@@ -101,6 +104,7 @@ func AnalyzeJobs(jobs []migrate.JobInfo) []CompatibilityIssue {
 
 		if job.HasMatrix && hasSelfHostedRunsOn(job.RunsOn) {
 			issues = append(issues, CompatibilityIssue{
+				JobName:    job.Name,
 				Feature:    "strategy.matrix + self-hosted",
 				Level:      matrixSelfHostedRule.Supported,
 				Message:    fmt.Sprintf("Job %q combines matrix and self-hosted runs-on labels: %s", jobLabel, matrixSelfHostedRule.Note),
@@ -110,6 +114,7 @@ func AnalyzeJobs(jobs []migrate.JobInfo) []CompatibilityIssue {
 
 		if hasCustomRunsOn(job.RunsOn) {
 			issues = append(issues, CompatibilityIssue{
+				JobName:    job.Name,
 				Feature:    "runs-on (custom labels)",
 				Level:      runsOnRule.Supported,
 				Message:    fmt.Sprintf("Job %q uses runs-on %q: %s", jobLabel, job.RunsOn, runsOnRule.Note),

@@ -21,6 +21,7 @@ type CompatibilityRule struct {
 // CompatibilityIssue represents a single compatibility issue found in a file
 type CompatibilityIssue struct {
 	File       string       `json:"file"`
+	JobName    string       `json:"jobName,omitempty"`
 	Feature    string       `json:"feature"`
 	Level      SupportLevel `json:"level"`
 	Message    string       `json:"message"`

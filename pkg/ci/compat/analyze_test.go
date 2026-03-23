@@ -89,6 +89,9 @@ func TestAnalyzeJobsMatrixSelfHostedUnsupported(t *testing.T) {
 
 	var foundMatrixSelfHosted bool
 	for _, issue := range issues {
+		if issue.JobName != "test" {
+			t.Fatalf("expected issue JobName to be test, got %q", issue.JobName)
+		}
 		if issue.Feature == "strategy.matrix + self-hosted" {
 			foundMatrixSelfHosted = true
 			if issue.Level != Unsupported {

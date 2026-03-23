@@ -32,6 +32,8 @@ type migrateOptions struct {
 	stdout    io.Writer
 }
 
+var errPreflightChecksFailed = errors.New("preflight checks failed; see output above")
+
 func NewCmdMigrate() *cobra.Command {
 	var opts migrateOptions
 
@@ -211,8 +213,14 @@ func newCmdPreflight(parentOpts *migrateOptions) *cobra.Command {
 			opts := *parentOpts
 			opts.dir = "."
 			opts.stdout = os.Stdout
-			_, err := preflight(cmd.Context(), opts)
-			return err
+			result, err := preflight(cmd.Context(), opts)
+			if err != nil {
+				return err
+			}
+			if result == nil {
+				return errPreflightChecksFailed
+			}
+			return nil
 		},
 	}
 }
@@ -339,7 +347,7 @@ func runMigrate(ctx context.Context, opts migrateOptions) error {
 		return err
 	}
 	if result == nil {
-		return nil
+		return errPreflightChecksFailed
 	}
 
 	_ = result // auth info available for future use
