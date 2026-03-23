@@ -385,16 +385,16 @@ func workflows(opts migrateOptions) error {
 		return fmt.Errorf(".github/workflows exists but is not a directory")
 	}
 
-	workflows, _, err := parseWorkflowDirWithWarnings(workflowsDir)
+	workflowFiles, _, err := parseWorkflowDirWithWarnings(workflowsDir)
 	if err != nil {
 		return fmt.Errorf("failed to parse workflow files: %w", err)
 	}
-	if len(workflows) == 0 {
+	if len(workflowFiles) == 0 {
 		return fmt.Errorf("no valid workflow files found in .github/workflows")
 	}
 
 	// Workflow selection
-	selectedWorkflows := workflows
+	selectedWorkflows := workflowFiles
 	if !opts.yes {
 		if !helpers.IsTerminal() {
 			return fmt.Errorf("interactive mode requires a terminal; rerun with --yes")
@@ -405,7 +405,7 @@ func workflows(opts migrateOptions) error {
 
 		// Split workflows into supported (has at least one supported trigger) and unsupported-only
 		var supportedWorkflows, unsupportedWorkflows []*migrate.WorkflowFile
-		for _, workflow := range workflows {
+		for _, workflow := range workflowFiles {
 			if hasAnySupportedTrigger(workflow.Triggers) {
 				supportedWorkflows = append(supportedWorkflows, workflow)
 			} else {
@@ -473,7 +473,7 @@ func workflows(opts migrateOptions) error {
 		}
 
 		selectedWorkflows = make([]*migrate.WorkflowFile, 0, len(selected))
-		for _, workflow := range workflows {
+		for _, workflow := range workflowFiles {
 			if _, ok := selectedSet[workflow.Path]; ok {
 				selectedWorkflows = append(selectedWorkflows, workflow)
 			}
@@ -566,7 +566,7 @@ func workflows(opts migrateOptions) error {
 	}
 
 	// Print summary
-	skipped := len(workflows) - len(selectedWorkflows)
+	skipped := len(workflowFiles) - len(selectedWorkflows)
 	if skipped > 0 {
 		fmt.Fprintf(out, "%s %d workflow(s) to .depot/workflows/ (%d skipped)\n\n", bold.Render("Migrated"), len(results), skipped)
 	} else {
