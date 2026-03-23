@@ -18,6 +18,53 @@ service CIService {
   rpc ListRuns(ListRunsRequest) returns (ListRunsResponse) {}
 }
 
+// MigrationService is the API used by `depot ci migrate` to handhold customers during the
+// process of migrating GitHub workflow files to Depot CI
+service MigrationService {
+  rpc GetInstallation(GetInstallationRequest) returns (GetInstallationResponse) {}
+  rpc ImportSecretsAndVars(ImportSecretsAndVarsRequest) returns (ImportSecretsAndVarsResponse) {}
+}
+
+message GetInstallationRequest {
+  // repo is the name of the target GitHub repo in {org}/{repo} format
+  string repo = 1;
+}
+
+message GetInstallationResponse {
+  repeated Installation installations = 1;
+}
+
+message ImportSecretsAndVarsRequest {
+  // repo is the name of the target GitHub repo in {org}/{repo} format
+  string repo = 1;
+  // dry_run returns the planned branch, workflow name, and content without committing
+  bool dry_run = 2;
+}
+message ImportSecretsAndVarsResponse {
+  oneof result {
+    DryRunResult dry_run_result = 1;
+    RunResult run_result = 2;
+  }
+}
+
+message DryRunResult {
+  string branch_name = 1;
+  string workflow_name = 2;
+  string workflow_content = 3;
+}
+
+message RunResult {
+  string workflow_url = 1;
+}
+
+message Installation {
+  string installation_id = 1;
+  string settings_url = 2;
+  string owner = 3;
+  bool requires_new_perms = 4;
+  bool repo_accessible = 5;
+}
+
 message RunRequest {
   // repo is the name of the target GitHub repo in {org}/{repo} format
   string repo = 1;

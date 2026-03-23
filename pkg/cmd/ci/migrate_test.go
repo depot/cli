@@ -2,369 +2,327 @@ package ci
 
 import (
 	"bytes"
-	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/depot/cli/pkg/ci/migrate"
 )
 
-func TestNewCmdMigrateFlags(t *testing.T) {
-	cmd := NewCmdMigrate()
+func TestRunMigrate_NoGitHub(t *testing.T) {
+	dir := t.TempDir()
+	var buf bytes.Buffer
+	opts := migrateOptions{
+		yes:    true,
+		dir:    dir,
+		stdout: &buf,
+	}
+	err := copyWorkflows(opts)
+	if err == nil {
+		t.Fatal("expected error for missing .github directory")
+	}
+	if !strings.Contains(err.Error(), "no .github directory") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
 
-	flagNames := []string{"yes", "secret", "var", "org", "token", "repo", "overwrite"}
-	for _, flagName := range flagNames {
-		if cmd.Flags().Lookup(flagName) == nil {
-			t.Fatalf("expected --%s flag to exist", flagName)
+func TestRunMigrate_NoWorkflows(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, ".github", "workflows"), 0755)
+	var buf bytes.Buffer
+	opts := migrateOptions{
+		yes:    true,
+		dir:    dir,
+		stdout: &buf,
+	}
+	err := copyWorkflows(opts)
+	if err == nil {
+		t.Fatal("expected error for no workflow files")
+	}
+	if !strings.Contains(err.Error(), "no valid workflow files") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestRunMigrate_BasicMigration(t *testing.T) {
+	dir := t.TempDir()
+	workflowsDir := filepath.Join(dir, ".github", "workflows")
+	os.MkdirAll(workflowsDir, 0755)
+
+	workflow := `name: CI
+on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: echo "hello"
+`
+	os.WriteFile(filepath.Join(workflowsDir, "ci.yml"), []byte(workflow), 0644)
+
+	var buf bytes.Buffer
+	opts := migrateOptions{
+		yes:    true,
+		dir:    dir,
+		stdout: &buf,
+	}
+
+	err := copyWorkflows(opts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Check output file exists
+	destPath := filepath.Join(dir, ".depot", "workflows", "ci.yml")
+	content, err := os.ReadFile(destPath)
+	if err != nil {
+		t.Fatalf("expected output file at %s: %v", destPath, err)
+	}
+
+	contentStr := string(content)
+
+	// Should have header
+	if !strings.Contains(contentStr, "Depot CI Migration") {
+		t.Error("expected migration header in output")
+	}
+
+	// Should have mapped runs-on
+	if !strings.Contains(contentStr, "depot-ubuntu-latest") {
+		t.Error("expected depot-ubuntu-latest in output")
+	}
+
+	// Should have comment about original label
+	if !strings.Contains(contentStr, "was: ubuntu-latest") {
+		t.Error("expected original label comment in output")
+	}
+
+	// Summary output
+	output := buf.String()
+	if !strings.Contains(output, "Migrated 1 workflow(s)") {
+		t.Errorf("expected migration summary, got:\n%s", output)
+	}
+	if !strings.Contains(output, "Next steps:") {
+		t.Errorf("expected next steps, got:\n%s", output)
+	}
+}
+
+func TestRunMigrate_WithUnsupportedTrigger(t *testing.T) {
+	dir := t.TempDir()
+	workflowsDir := filepath.Join(dir, ".github", "workflows")
+	os.MkdirAll(workflowsDir, 0755)
+
+	workflow := `name: Release
+on:
+  push:
+    branches: [main]
+  release:
+    types: [published]
+jobs:
+  build:
+    runs-on: depot-ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+`
+	os.WriteFile(filepath.Join(workflowsDir, "release.yml"), []byte(workflow), 0644)
+
+	var buf bytes.Buffer
+	opts := migrateOptions{
+		yes:    true,
+		dir:    dir,
+		stdout: &buf,
+	}
+
+	err := copyWorkflows(opts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	destPath := filepath.Join(dir, ".depot", "workflows", "release.yml")
+	content, err := os.ReadFile(destPath)
+	if err != nil {
+		t.Fatalf("expected output file: %v", err)
+	}
+
+	contentStr := string(content)
+	if !strings.Contains(contentStr, "Removed unsupported trigger") {
+		t.Error("expected unsupported trigger comment")
+	}
+	if !strings.Contains(contentStr, "Changes made:") {
+		t.Error("expected changes header")
+	}
+}
+
+func TestRunMigrate_WithSecrets(t *testing.T) {
+	dir := t.TempDir()
+	workflowsDir := filepath.Join(dir, ".github", "workflows")
+	os.MkdirAll(workflowsDir, 0755)
+
+	workflow := `name: CI
+on: push
+jobs:
+  build:
+    runs-on: depot-ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: echo ${{ secrets.MY_SECRET }}
+    env:
+      API_KEY: ${{ secrets.API_KEY }}
+      MY_VAR: ${{ vars.MY_VAR }}
+`
+	os.WriteFile(filepath.Join(workflowsDir, "ci.yml"), []byte(workflow), 0644)
+
+	var buf bytes.Buffer
+	opts := migrateOptions{
+		yes:    true,
+		dir:    dir,
+		stdout: &buf,
+	}
+
+	err := copyWorkflows(opts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	output := buf.String()
+	if !strings.Contains(output, "secret(s)") {
+		t.Errorf("expected secrets count in summary, got:\n%s", output)
+	}
+	if !strings.Contains(output, "variable(s)") {
+		t.Errorf("expected variables count in summary, got:\n%s", output)
+	}
+}
+
+func TestRunMigrate_DisabledJob(t *testing.T) {
+	dir := t.TempDir()
+	workflowsDir := filepath.Join(dir, ".github", "workflows")
+	os.MkdirAll(workflowsDir, 0755)
+
+	workflow := `name: CI
+on: push
+jobs:
+  build:
+    runs-on: depot-ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+  deploy:
+    runs-on: [self-hosted, linux]
+    strategy:
+      matrix:
+        env: [staging, prod]
+    steps:
+      - uses: actions/checkout@v4
+`
+	os.WriteFile(filepath.Join(workflowsDir, "ci.yml"), []byte(workflow), 0644)
+
+	var buf bytes.Buffer
+	opts := migrateOptions{
+		yes:    true,
+		dir:    dir,
+		stdout: &buf,
+	}
+
+	err := copyWorkflows(opts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	destPath := filepath.Join(dir, ".depot", "workflows", "ci.yml")
+	content, err := os.ReadFile(destPath)
+	if err != nil {
+		t.Fatalf("expected output file: %v", err)
+	}
+
+	contentStr := string(content)
+	if !strings.Contains(contentStr, "# DISABLED:") {
+		t.Error("expected DISABLED comment for deploy job")
+	}
+
+	output := buf.String()
+	if !strings.Contains(output, "disabled") {
+		t.Errorf("expected disabled job in summary, got:\n%s", output)
+	}
+}
+
+func TestRunMigrate_OverwriteExisting(t *testing.T) {
+	dir := t.TempDir()
+	workflowsDir := filepath.Join(dir, ".github", "workflows")
+	os.MkdirAll(workflowsDir, 0755)
+	os.MkdirAll(filepath.Join(dir, ".depot", "workflows"), 0755)
+
+	workflow := `name: CI
+on: push
+jobs:
+  build:
+    runs-on: depot-ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+`
+	os.WriteFile(filepath.Join(workflowsDir, "ci.yml"), []byte(workflow), 0644)
+
+	var buf bytes.Buffer
+	opts := migrateOptions{
+		yes:       true,
+		overwrite: true,
+		dir:       dir,
+		stdout:    &buf,
+	}
+
+	err := copyWorkflows(opts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	destPath := filepath.Join(dir, ".depot", "workflows", "ci.yml")
+	if _, err := os.Stat(destPath); os.IsNotExist(err) {
+		t.Error("expected output file to exist after overwrite")
+	}
+}
+
+func TestRunMigrate_MultipleWorkflows(t *testing.T) {
+	dir := t.TempDir()
+	workflowsDir := filepath.Join(dir, ".github", "workflows")
+	os.MkdirAll(workflowsDir, 0755)
+
+	wf1 := `name: CI
+on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+`
+	wf2 := `name: Deploy
+on: push
+jobs:
+  deploy:
+    runs-on: depot-ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+`
+	os.WriteFile(filepath.Join(workflowsDir, "ci.yml"), []byte(wf1), 0644)
+	os.WriteFile(filepath.Join(workflowsDir, "deploy.yml"), []byte(wf2), 0644)
+
+	var buf bytes.Buffer
+	opts := migrateOptions{
+		yes:    true,
+		dir:    dir,
+		stdout: &buf,
+	}
+
+	err := copyWorkflows(opts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	output := buf.String()
+	if !strings.Contains(output, "Migrated 2 workflow(s)") {
+		t.Errorf("expected 2 workflows migrated, got:\n%s", output)
+	}
+
+	// Both output files should exist
+	for _, name := range []string{"ci.yml", "deploy.yml"} {
+		destPath := filepath.Join(dir, ".depot", "workflows", name)
+		if _, err := os.Stat(destPath); os.IsNotExist(err) {
+			t.Errorf("expected output file %s", name)
 		}
-	}
-}
-
-func TestRunMigrateYesCopiesFiles(t *testing.T) {
-	tmpDir := t.TempDir()
-	workflowsDir := filepath.Join(tmpDir, ".github", "workflows")
-	if err := os.MkdirAll(workflowsDir, 0o755); err != nil {
-		t.Fatalf("failed to create workflows dir: %v", err)
-	}
-
-	workflowPath := filepath.Join(workflowsDir, "ci.yml")
-	workflowContent := "name: CI\non: push\njobs:\n  build:\n    runs-on: ubuntu-latest\n"
-	if err := os.WriteFile(workflowPath, []byte(workflowContent), 0o644); err != nil {
-		t.Fatalf("failed to write workflow: %v", err)
-	}
-
-	var stdout bytes.Buffer
-	err := runMigrate(context.Background(), migrateOptions{
-		yes:    true,
-		dir:    tmpDir,
-		stdout: &stdout,
-	})
-	if err != nil {
-		t.Fatalf("runMigrate returned error: %v", err)
-	}
-
-	if _, err := os.Stat(filepath.Join(tmpDir, ".depot", "workflows", "ci.yml")); err != nil {
-		t.Fatalf("expected copied workflow file in .depot/workflows: %v", err)
-	}
-}
-
-func TestRunMigrateMissingGitHubDir(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	err := runMigrate(context.Background(), migrateOptions{
-		yes: true,
-		dir: tmpDir,
-	})
-	if err == nil {
-		t.Fatal("expected error when .github directory is missing")
-	}
-
-	if !strings.Contains(err.Error(), ".github") {
-		t.Fatalf("expected error to mention .github, got: %v", err)
-	}
-}
-
-func TestParseAssignments(t *testing.T) {
-	assignments, err := parseAssignments([]string{"NPM_TOKEN=abc123", "EMPTY="}, "secret")
-	if err != nil {
-		t.Fatalf("parseAssignments returned error: %v", err)
-	}
-
-	if assignments["NPM_TOKEN"] != "abc123" {
-		t.Fatalf("unexpected value for NPM_TOKEN: %q", assignments["NPM_TOKEN"])
-	}
-	if assignments["EMPTY"] != "" {
-		t.Fatalf("unexpected value for EMPTY: %q", assignments["EMPTY"])
-	}
-
-	_, err = parseAssignments([]string{"NOEQUALS"}, "var")
-	if err == nil {
-		t.Fatal("expected error for missing = sign")
-	}
-}
-
-func TestRunMigrateWarnsForUnconfiguredDetectedSecrets(t *testing.T) {
-	tmpDir := t.TempDir()
-	workflowsDir := filepath.Join(tmpDir, ".github", "workflows")
-	if err := os.MkdirAll(workflowsDir, 0o755); err != nil {
-		t.Fatalf("failed to create workflows dir: %v", err)
-	}
-
-	workflowPath := filepath.Join(workflowsDir, "ci.yml")
-	workflowContent := "name: CI\non: push\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo ${{ secrets.MISSING_SECRET }}\n"
-	if err := os.WriteFile(workflowPath, []byte(workflowContent), 0o644); err != nil {
-		t.Fatalf("failed to write workflow: %v", err)
-	}
-
-	var stdout bytes.Buffer
-	err := runMigrate(context.Background(), migrateOptions{
-		yes:    true,
-		dir:    tmpDir,
-		stdout: &stdout,
-	})
-	if err != nil {
-		t.Fatalf("runMigrate returned error: %v", err)
-	}
-
-	output := stdout.String()
-	if !strings.Contains(output, "detected secret MISSING_SECRET is not configured") {
-		t.Fatalf("expected warning about unconfigured detected secret, got output: %s", output)
-	}
-}
-
-func TestRunMigrateWarnsForUnconfiguredDetectedVariables(t *testing.T) {
-	tmpDir := t.TempDir()
-	workflowsDir := filepath.Join(tmpDir, ".github", "workflows")
-	if err := os.MkdirAll(workflowsDir, 0o755); err != nil {
-		t.Fatalf("failed to create workflows dir: %v", err)
-	}
-
-	workflowPath := filepath.Join(workflowsDir, "ci.yml")
-	workflowContent := "name: CI\non: push\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo ${{ vars.MY_VAR }}\n"
-	if err := os.WriteFile(workflowPath, []byte(workflowContent), 0o644); err != nil {
-		t.Fatalf("failed to write workflow: %v", err)
-	}
-
-	var stdout bytes.Buffer
-	err := runMigrate(context.Background(), migrateOptions{
-		yes:    true,
-		dir:    tmpDir,
-		stdout: &stdout,
-	})
-	if err != nil {
-		t.Fatalf("runMigrate returned error: %v", err)
-	}
-
-	output := stdout.String()
-	if !strings.Contains(output, "detected variable MY_VAR is not configured") {
-		t.Fatalf("expected warning about unconfigured detected variable, got output: %s", output)
-	}
-}
-
-func TestRunMigrateYesOverwritesExistingDepotWithoutOverwriteFlag(t *testing.T) {
-	tmpDir := t.TempDir()
-	workflowsDir := filepath.Join(tmpDir, ".github", "workflows")
-	if err := os.MkdirAll(workflowsDir, 0o755); err != nil {
-		t.Fatalf("failed to create workflows dir: %v", err)
-	}
-
-	workflowPath := filepath.Join(workflowsDir, "ci.yml")
-	newContent := "name: CI\non: push\njobs:\n  build:\n    runs-on: ubuntu-latest\n"
-	if err := os.WriteFile(workflowPath, []byte(newContent), 0o644); err != nil {
-		t.Fatalf("failed to write workflow: %v", err)
-	}
-
-	depotWorkflowsDir := filepath.Join(tmpDir, ".depot", "workflows")
-	if err := os.MkdirAll(depotWorkflowsDir, 0o755); err != nil {
-		t.Fatalf("failed to create .depot/workflows dir: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(depotWorkflowsDir, "ci.yml"), []byte("old"), 0o644); err != nil {
-		t.Fatalf("failed to write old workflow: %v", err)
-	}
-
-	err := runMigrate(context.Background(), migrateOptions{
-		yes: true,
-		dir: tmpDir,
-	})
-	if err != nil {
-		t.Fatalf("expected --yes mode to overwrite existing .depot, got error: %v", err)
-	}
-
-	copied, err := os.ReadFile(filepath.Join(depotWorkflowsDir, "ci.yml"))
-	if err != nil {
-		t.Fatalf("failed to read copied workflow: %v", err)
-	}
-	if string(copied) != newContent {
-		t.Fatalf("expected overwritten workflow content, got %q", string(copied))
-	}
-}
-
-func TestRunMigrateSkipsInvalidWorkflowFiles(t *testing.T) {
-	tmpDir := t.TempDir()
-	workflowsDir := filepath.Join(tmpDir, ".github", "workflows")
-	if err := os.MkdirAll(workflowsDir, 0o755); err != nil {
-		t.Fatalf("failed to create workflows dir: %v", err)
-	}
-
-	if err := os.WriteFile(filepath.Join(workflowsDir, "valid.yml"), []byte("name: Valid\non: push\njobs:\n  build:\n    runs-on: ubuntu-latest\n"), 0o644); err != nil {
-		t.Fatalf("failed to write valid workflow: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(workflowsDir, "invalid.yml"), []byte("name: Invalid\non: [push\n"), 0o644); err != nil {
-		t.Fatalf("failed to write invalid workflow: %v", err)
-	}
-
-	var stdout bytes.Buffer
-	err := runMigrate(context.Background(), migrateOptions{
-		yes:    true,
-		dir:    tmpDir,
-		stdout: &stdout,
-	})
-	if err != nil {
-		t.Fatalf("expected migrate to continue with valid files, got error: %v", err)
-	}
-
-	if _, err := os.Stat(filepath.Join(tmpDir, ".depot", "workflows", "valid.yml")); err != nil {
-		t.Fatalf("expected valid workflow to be copied: %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(tmpDir, ".depot", "workflows", "invalid.yml")); !os.IsNotExist(err) {
-		t.Fatalf("expected invalid workflow to be skipped, got err=%v", err)
-	}
-
-	if !strings.Contains(stdout.String(), "skipped invalid workflow") {
-		t.Fatalf("expected warning about skipped invalid workflow, got output: %s", stdout.String())
-	}
-}
-
-func TestCopySelectedWorkflowFilesCopiesOnlySelected(t *testing.T) {
-	tmpDir := t.TempDir()
-	workflowsDir := filepath.Join(tmpDir, ".github", "workflows")
-	if err := os.MkdirAll(workflowsDir, 0o755); err != nil {
-		t.Fatalf("failed to create workflows dir: %v", err)
-	}
-
-	selectedPath := filepath.Join(workflowsDir, "selected.yml")
-	if err := os.WriteFile(selectedPath, []byte("selected"), 0o644); err != nil {
-		t.Fatalf("failed to write selected workflow: %v", err)
-	}
-	unselectedPath := filepath.Join(workflowsDir, "unselected.yml")
-	if err := os.WriteFile(unselectedPath, []byte("unselected"), 0o644); err != nil {
-		t.Fatalf("failed to write unselected workflow: %v", err)
-	}
-
-	copied, err := copySelectedWorkflowFiles(tmpDir, workflowsDir, []*migrate.WorkflowFile{
-		{Path: selectedPath},
-	})
-	if err != nil {
-		t.Fatalf("copySelectedWorkflowFiles failed: %v", err)
-	}
-	if len(copied) != 1 {
-		t.Fatalf("expected 1 copied file, got %d", len(copied))
-	}
-
-	if _, err := os.Stat(filepath.Join(tmpDir, ".depot", "workflows", "selected.yml")); err != nil {
-		t.Fatalf("expected selected workflow to be copied: %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(tmpDir, ".depot", "workflows", "unselected.yml")); !os.IsNotExist(err) {
-		t.Fatalf("expected unselected workflow to not be copied, got err=%v", err)
-	}
-}
-
-func TestParseGitHubRepo(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    string
-		expected string
-	}{
-		{"ssh", "git@github.com:depot/cli.git", "depot/cli"},
-		{"ssh no .git", "git@github.com:depot/cli", "depot/cli"},
-		{"https", "https://github.com/depot/cli.git", "depot/cli"},
-		{"https no .git", "https://github.com/depot/cli", "depot/cli"},
-		{"ssh with port", "git@github.com:org/repo-name.git", "org/repo-name"},
-		{"empty", "", ""},
-		{"no path", "git@github.com:", ""},
-		{"too many segments", "git@github.com:a/b/c.git", ""},
-		{"just host", "https://github.com", ""},
-		{"only owner", "https://github.com/depot", ""},
-		{"ssh empty owner", "git@github.com:/repo.git", ""},
-		{"ssh empty repo", "git@github.com:owner/.git", ""},
-		{"ssh empty both", "git@github.com:/.git", ""},
-		{"https empty repo", "https://github.com/owner/", ""},
-		{"https trailing slash", "https://github.com/owner/repo/", "owner/repo"},
-		{"https too many segments", "https://github.com/a/b/c.git", ""},
-		{"https subgroup", "https://gitlab.com/group/subgroup/project.git", ""},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := parseGitHubRepo(tt.input)
-			if result != tt.expected {
-				t.Errorf("parseGitHubRepo(%q) = %q, want %q", tt.input, result, tt.expected)
-			}
-		})
-	}
-}
-
-func TestRunMigrateShowsRepoScope(t *testing.T) {
-	tmpDir := t.TempDir()
-	workflowsDir := filepath.Join(tmpDir, ".github", "workflows")
-	if err := os.MkdirAll(workflowsDir, 0o755); err != nil {
-		t.Fatalf("failed to create workflows dir: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(workflowsDir, "ci.yml"), []byte("name: CI\non: push\njobs:\n  build:\n    runs-on: ubuntu-latest\n"), 0o644); err != nil {
-		t.Fatalf("failed to write workflow: %v", err)
-	}
-
-	var stdout bytes.Buffer
-	err := runMigrate(context.Background(), migrateOptions{
-		yes:    true,
-		repo:   "depot/example",
-		dir:    tmpDir,
-		stdout: &stdout,
-	})
-	if err != nil {
-		t.Fatalf("runMigrate returned error: %v", err)
-	}
-
-	output := stdout.String()
-	if !strings.Contains(output, "scoped to repo depot/example") {
-		t.Fatalf("expected repo scope message, got output: %s", output)
-	}
-	if !strings.Contains(output, "Secret/variable scope: repo (depot/example)") {
-		t.Fatalf("expected scope in summary, got output: %s", output)
-	}
-}
-
-func TestRunMigrateOrgScopeFallback(t *testing.T) {
-	tmpDir := t.TempDir()
-	workflowsDir := filepath.Join(tmpDir, ".github", "workflows")
-	if err := os.MkdirAll(workflowsDir, 0o755); err != nil {
-		t.Fatalf("failed to create workflows dir: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(workflowsDir, "ci.yml"), []byte("name: CI\non: push\njobs:\n  build:\n    runs-on: ubuntu-latest\n"), 0o644); err != nil {
-		t.Fatalf("failed to write workflow: %v", err)
-	}
-
-	var stdout bytes.Buffer
-	err := runMigrate(context.Background(), migrateOptions{
-		yes:    true,
-		dir:    tmpDir,
-		stdout: &stdout,
-	})
-	if err != nil {
-		t.Fatalf("runMigrate returned error: %v", err)
-	}
-
-	output := stdout.String()
-	if !strings.Contains(output, "org-scoped") {
-		t.Fatalf("expected org-scope fallback message, got output: %s", output)
-	}
-	if !strings.Contains(output, "--repo owner/name") {
-		t.Fatalf("expected --repo hint in fallback message, got output: %s", output)
-	}
-	if !strings.Contains(output, "Secret/variable scope: org") {
-		t.Fatalf("expected org scope in summary, got output: %s", output)
-	}
-}
-
-func TestParseWorkflowDirWithWarningsSkipsInvalidFiles(t *testing.T) {
-	workflowsDir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(workflowsDir, "ok.yml"), []byte("name: OK\non: push\njobs:\n  build:\n    runs-on: ubuntu-latest\n"), 0o644); err != nil {
-		t.Fatalf("failed to write valid workflow: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(workflowsDir, "bad.yml"), []byte("name: Bad\non: [push\n"), 0o644); err != nil {
-		t.Fatalf("failed to write invalid workflow: %v", err)
-	}
-
-	workflows, warnings, err := parseWorkflowDirWithWarnings(workflowsDir)
-	if err != nil {
-		t.Fatalf("parseWorkflowDirWithWarnings failed: %v", err)
-	}
-	if len(workflows) != 1 {
-		t.Fatalf("expected 1 valid workflow, got %d", len(workflows))
-	}
-	if len(warnings) != 1 {
-		t.Fatalf("expected 1 warning, got %d (%v)", len(warnings), warnings)
 	}
 }

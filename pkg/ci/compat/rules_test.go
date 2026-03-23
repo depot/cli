@@ -14,6 +14,7 @@ func TestSupportedTriggersAreMarkedSupported(t *testing.T) {
 		"workflow_call",
 		"workflow_dispatch",
 		"workflow_run",
+		"merge_group",
 	}
 
 	for _, trigger := range supported {
@@ -44,7 +45,6 @@ func TestUnsupportedTriggersAreMarkedUnsupported(t *testing.T) {
 		"issue_comment",
 		"issues",
 		"label",
-		"merge_group",
 		"milestone",
 		"page_build",
 		"public",

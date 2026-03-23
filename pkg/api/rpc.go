@@ -71,6 +71,10 @@ func NewComputeClient() civ1connect.DepotComputeServiceClient {
 	return civ1connect.NewDepotComputeServiceClient(getHTTPClient(getBaseURL()), getBaseURL(), WithUserAgent(), connect.WithGRPC())
 }
 
+func NewMigrationClient() civ1connect.MigrationServiceClient {
+	return civ1connect.NewMigrationServiceClient(getHTTPClient(getBaseURL()), getBaseURL(), WithUserAgent())
+}
+
 func WithAuthentication[T any](req *connect.Request[T], token string) *connect.Request[T] {
 	req.Header().Add("Authorization", "Bearer "+token)
 	return req
