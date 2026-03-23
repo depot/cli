@@ -101,7 +101,11 @@ func importSecretsAndVars(ctx context.Context, opts migrateOptions) error {
 
 	client := api.NewMigrationClient()
 
-	if !opts.yes && helpers.IsTerminal() {
+	if !opts.yes {
+		if !helpers.IsTerminal() {
+			return fmt.Errorf("interactive mode requires a terminal; rerun with --yes")
+		}
+
 		fmt.Fprintln(out, "")
 		fmt.Fprintf(out, "This will push a GitHub Actions workflow to %s on a temporary branch.\n", bold.Render(repo))
 		fmt.Fprintln(out, "The workflow runs immediately, reads your existing secrets and variables,")
