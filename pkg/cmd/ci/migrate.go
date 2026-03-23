@@ -56,26 +56,26 @@ func NewCmdMigrate() *cobra.Command {
 
 	cmd.AddCommand(newCmdPreflight(&opts))
 	cmd.AddCommand(newCmdWorkflows(&opts))
-	cmd.AddCommand(newCmdImportSecretsAndVars(&opts))
+	cmd.AddCommand(newCmdSecretsAndVars(&opts))
 
 	return cmd
 }
 
-func newCmdImportSecretsAndVars(parentOpts *migrateOptions) *cobra.Command {
+func newCmdSecretsAndVars(parentOpts *migrateOptions) *cobra.Command {
 	return &cobra.Command{
-		Use:   "import-secrets-and-vars",
+		Use:   "secrets-and-vars",
 		Short: "Import GitHub Actions secrets and variables into Depot CI",
 		Long:  "Creates a one-shot GitHub Actions workflow that reads secrets and variables from the source repo and imports them into Depot CI via the depot CLI.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			opts := *parentOpts
 			opts.dir = "."
 			opts.stdout = os.Stdout
-			return importSecretsAndVars(cmd.Context(), opts)
+			return secretsAndVars(cmd.Context(), opts)
 		},
 	}
 }
 
-func importSecretsAndVars(ctx context.Context, opts migrateOptions) error {
+func secretsAndVars(ctx context.Context, opts migrateOptions) error {
 	workDir := opts.dir
 	if strings.TrimSpace(workDir) == "" {
 		workDir = "."
