@@ -101,7 +101,11 @@ func importSecretsAndVars(ctx context.Context, opts migrateOptions) error {
 
 	client := api.NewMigrationClient()
 
-	if !opts.yes && helpers.IsTerminal() {
+	if !opts.yes && !helpers.IsTerminal() {
+		return fmt.Errorf("interactive mode requires a terminal; rerun with --yes")
+	}
+
+	if !opts.yes {
 		fmt.Fprintln(out, "")
 		fmt.Fprintf(out, "This will push a GitHub Actions workflow to %s on a temporary branch.\n", bold.Render(repo))
 		fmt.Fprintln(out, "The workflow runs immediately, reads your existing secrets and variables,")
@@ -414,10 +418,10 @@ func copyWorkflows(opts migrateOptions) error {
 		// Supported triggers group
 		var selectedSupported []string
 		if len(supportedWorkflows) > 0 {
-			opts := make([]huh.Option[string], 0, len(supportedWorkflows))
+			selectOptions := make([]huh.Option[string], 0, len(supportedWorkflows))
 			for _, wf := range supportedWorkflows {
 				label := fmt.Sprintf("%s - %s", filepath.Base(wf.Path), colorizeTriggers(wf.Triggers, greenStyle, dimStyle))
-				opts = append(opts, huh.NewOption(label, wf.Path))
+				selectOptions = append(selectOptions, huh.NewOption(label, wf.Path))
 			}
 			selectedSupported = make([]string, 0, len(supportedWorkflows))
 			for _, wf := range supportedWorkflows {
@@ -426,7 +430,7 @@ func copyWorkflows(opts migrateOptions) error {
 			groups = append(groups, huh.NewGroup(
 				huh.NewMultiSelect[string]().
 					Title("These workflows have supported triggers. Which should we migrate?").
-					Options(opts...).
+					Options(selectOptions...).
 					Value(&selectedSupported),
 			))
 		}
@@ -434,15 +438,15 @@ func copyWorkflows(opts migrateOptions) error {
 		// Unsupported-only triggers group
 		var selectedUnsupported []string
 		if len(unsupportedWorkflows) > 0 {
-			opts := make([]huh.Option[string], 0, len(unsupportedWorkflows))
+			selectOptions := make([]huh.Option[string], 0, len(unsupportedWorkflows))
 			for _, wf := range unsupportedWorkflows {
 				label := fmt.Sprintf("%s - %s", filepath.Base(wf.Path), colorizeTriggers(wf.Triggers, greenStyle, dimStyle))
-				opts = append(opts, huh.NewOption(label, wf.Path))
+				selectOptions = append(selectOptions, huh.NewOption(label, wf.Path))
 			}
 			groups = append(groups, huh.NewGroup(
 				huh.NewMultiSelect[string]().
 					Title("These workflows have unsupported triggers. Migrate anyway?").
-					Options(opts...).
+					Options(selectOptions...).
 					Value(&selectedUnsupported),
 			))
 		}

@@ -323,6 +323,38 @@ jobs:
 	}
 }
 
+func TestCommentOutDisabledJobs_MultipleJobs_NoDoubleCommenting(t *testing.T) {
+	raw := []byte(`name: CI
+on: push
+jobs:
+  build:
+    runs-on: depot-ubuntu-latest
+    steps:
+      - run: echo build
+  deploy:
+    runs-on: depot-ubuntu-latest
+    steps:
+      - run: echo deploy
+`)
+
+	disabledJobs := map[string]disabledJobInfo{
+		"build":  {Reason: `Job "build" uses unsupported feature`},
+		"deploy": {Reason: `Job "deploy" uses unsupported feature`},
+	}
+
+	for i := 0; i < 32; i++ {
+		out, _ := commentOutDisabledJobs(raw, disabledJobs)
+		content := string(out)
+
+		if strings.Contains(content, "  #   #   deploy:") {
+			t.Fatalf("expected deploy job to be commented once, got:\n%s", content)
+		}
+		if strings.Count(content, "  #   deploy:") != 1 {
+			t.Fatalf("expected exactly one commented deploy block header, got:\n%s", content)
+		}
+	}
+}
+
 func TestTransformWorkflow_CombinedChanges(t *testing.T) {
 	raw := []byte(`name: CI
 on:

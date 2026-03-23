@@ -3,6 +3,7 @@ package transform
 import (
 	"bytes"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/depot/cli/pkg/ci/compat"
@@ -317,7 +318,27 @@ func commentOutDisabledJobs(content []byte, disabledJobs map[string]disabledJobI
 	lines := strings.Split(string(content), "\n")
 	var changes []ChangeRecord
 
-	for jobName, info := range disabledJobs {
+	jobNames := make([]string, 0, len(disabledJobs))
+	for jobName := range disabledJobs {
+		jobNames = append(jobNames, jobName)
+	}
+	sort.Slice(jobNames, func(i, j int) bool {
+		iStart := findJobBlockStart(lines, jobNames[i])
+		jStart := findJobBlockStart(lines, jobNames[j])
+		switch {
+		case iStart < 0 && jStart < 0:
+			return jobNames[i] < jobNames[j]
+		case iStart < 0:
+			return false
+		case jStart < 0:
+			return true
+		default:
+			return iStart < jStart
+		}
+	})
+
+	for _, jobName := range jobNames {
+		info := disabledJobs[jobName]
 		lines, _ = commentOutJobBlock(lines, jobName, info.Reason)
 		changes = append(changes, ChangeRecord{
 			Type:    ChangeJobDisabled,
@@ -329,18 +350,21 @@ func commentOutDisabledJobs(content []byte, disabledJobs map[string]disabledJobI
 	return []byte(strings.Join(lines, "\n")), changes
 }
 
-// commentOutJobBlock finds a job key at indent level 2 (under jobs:) and comments out
-// all lines belonging to that job.
-func commentOutJobBlock(lines []string, jobName string, reason string) ([]string, bool) {
+func findJobBlockStart(lines []string, jobName string) int {
 	jobPattern := "  " + jobName + ":"
-	startIdx := -1
 	for i, line := range lines {
 		trimmed := strings.TrimRight(line, " \t")
 		if trimmed == jobPattern || strings.HasPrefix(trimmed, jobPattern+" ") {
-			startIdx = i
-			break
+			return i
 		}
 	}
+	return -1
+}
+
+// commentOutJobBlock finds a job key at indent level 2 (under jobs:) and comments out
+// all lines belonging to that job.
+func commentOutJobBlock(lines []string, jobName string, reason string) ([]string, bool) {
+	startIdx := findJobBlockStart(lines, jobName)
 
 	if startIdx < 0 {
 		return lines, false
