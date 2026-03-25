@@ -195,6 +195,9 @@ This command is in beta and subject to change.`,
 			if sshAfterStep > 0 {
 				fmt.Printf("Inserting tmate step after step %d\n", sshAfterStep)
 			}
+			if headSHA, err := resolveHEAD(workflowDir); err == nil {
+				fmt.Printf("HEAD: %s\n", headSHA)
+			}
 			fmt.Println()
 
 			// Serialize workflow back to YAML
@@ -206,6 +209,10 @@ This command is in beta and subject to change.`,
 			req := &civ1.RunRequest{
 				Repo:            repo,
 				WorkflowContent: []string{string(yamlBytes)},
+			}
+
+			if headSHA, err := resolveHEAD(workflowDir); err == nil {
+				req.Sha = &headSHA
 			}
 
 			resp, err := api.CIRun(ctx, tokenVal, orgID, req)
@@ -266,6 +273,14 @@ This command is in beta and subject to change.`,
 	cmd.AddCommand(NewCmdRunList())
 
 	return cmd
+}
+
+func resolveHEAD(workflowDir string) (string, error) {
+	out, err := exec.Command("git", "-C", workflowDir, "rev-parse", "HEAD").Output()
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(out)), nil
 }
 
 type patchInfo struct {
