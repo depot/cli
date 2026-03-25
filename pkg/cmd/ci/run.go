@@ -183,35 +183,37 @@ This command is in beta and subject to change.`,
 				}
 			}
 
-			fmt.Printf("Repo: %s\n", repo)
-			if len(jobNames) > 0 {
-				fmt.Printf("Jobs: %s\n", strings.Join(selectedJobs, ", "))
-			} else {
-				fmt.Printf("Jobs: (all) %s\n", strings.Join(selectedJobs, ", "))
-			}
-			if patch != nil {
-				fmt.Printf("Checking out commit: %s\n", patch.mergeBase)
-			}
-			if sshAfterStep > 0 {
-				fmt.Printf("Inserting tmate step after step %d\n", sshAfterStep)
-			}
-			fmt.Println()
+		fmt.Printf("Repo: %s\n", repo)
+		if len(jobNames) > 0 {
+			fmt.Printf("Jobs: %s\n", strings.Join(selectedJobs, ", "))
+		} else {
+			fmt.Printf("Jobs: (all) %s\n", strings.Join(selectedJobs, ", "))
+		}
+		if patch != nil {
+			fmt.Printf("Checking out commit: %s\n", patch.mergeBase)
+		}
+		if sshAfterStep > 0 {
+			fmt.Printf("Inserting tmate step after step %d\n", sshAfterStep)
+		}
+		if headSHA, err := resolveHEAD(workflowDir); err == nil {
+			fmt.Printf("HEAD: %s\n", headSHA)
+		}
+		fmt.Println()
 
-			// Serialize workflow back to YAML
-			yamlBytes, err := yaml.Marshal(workflow)
-			if err != nil {
-				return fmt.Errorf("failed to serialize workflow: %w", err)
-			}
+		// Serialize workflow back to YAML
+		yamlBytes, err := yaml.Marshal(workflow)
+		if err != nil {
+			return fmt.Errorf("failed to serialize workflow: %w", err)
+		}
 
-			req := &civ1.RunRequest{
-				Repo:            repo,
-				WorkflowContent: []string{string(yamlBytes)},
-			}
+		req := &civ1.RunRequest{
+			Repo:            repo,
+			WorkflowContent: []string{string(yamlBytes)},
+		}
 
-			if headSHA, err := resolveHEAD(workflowDir); err == nil {
-				req.Sha = &headSHA
-				fmt.Printf("HEAD: %s\n", headSHA)
-			}
+		if headSHA, err := resolveHEAD(workflowDir); err == nil {
+			req.Sha = &headSHA
+		}
 
 			resp, err := api.CIRun(ctx, tokenVal, orgID, req)
 			if err != nil {
