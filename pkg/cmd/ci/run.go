@@ -38,8 +38,10 @@ func NewCmdRun() *cobra.Command {
 		Short: "Run a local CI workflow [beta]",
 		Long: `Run a local CI workflow YAML via the Depot CI API.
 
-If there are uncommitted changes relative to the default branch, they are automatically
-uploaded as a patch and applied during the workflow run.
+If there are local changes relative to the remote state of your branch, they are
+automatically uploaded as a patch and applied during the workflow run. For pushed
+branches, the patch contains only unpushed changes; for unpushed branches, the
+patch is relative to the default branch.
 
 This command is in beta and subject to change.`,
 		Example: `  # Run a workflow
@@ -319,6 +321,7 @@ func findMergeBase(workflowDir string) (baseBranch string, mergeBase string, err
 func detectPatch(workflowDir string) *patchInfo {
 	baseBranch, mergeBase, err := findMergeBase(workflowDir)
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: could not determine merge base, skipping patch: %v\n", err)
 		return nil
 	}
 
