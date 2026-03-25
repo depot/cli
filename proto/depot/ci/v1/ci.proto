@@ -80,6 +80,10 @@ message RunRequest {
   // job filters to a specific job within the workflow
   // only valid when a single workflow is specified (workflow or single workflow_content)
   optional string job = 5;
+  // ref is a git ref (branch name or fully-qualified ref like refs/tags/v1.0 or refs/pull/123/head)
+  // to run against. Bare names are normalized to refs/heads/<name>.
+  // When set, the server clones this ref instead of the default branch.
+  optional string ref = 6;
 }
 
 message RunResponse {

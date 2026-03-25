@@ -31,6 +31,8 @@ func NewCmdRun() *cobra.Command {
 		jobNames     []string
 		sshAfterStep int
 		ssh          bool
+		ref          string
+		sha          string
 	)
 
 	cmd := &cobra.Command{
@@ -41,12 +43,22 @@ func NewCmdRun() *cobra.Command {
 If there are uncommitted changes relative to the default branch, they are automatically
 uploaded as a patch and applied during the workflow run.
 
+Use --ref to run against a specific branch (e.g. a PR branch) instead of the
+default branch. Use --sha to target a specific commit. When either is specified,
+local patch detection is skipped.
+
 This command is in beta and subject to change.`,
 		Example: `  # Run a workflow
   depot ci run --workflow .depot/workflows/ci.yml
 
   # Run specific jobs
   depot ci run --workflow .depot/workflows/ci.yml --job build --job test
+
+  # Run against a specific branch (e.g. for SSH into a PR job)
+  depot ci run --workflow .depot/workflows/ci.yml --ref my-feature-branch --job build --ssh
+
+  # Run against a specific commit
+  depot ci run --workflow .depot/workflows/ci.yml --sha abcdef1234567890abcdef1234567890abcdef12
 
   # Run a job and connect to its terminal via SSH
   depot ci run --workflow .depot/workflows/ci.yml --job build --ssh
@@ -70,6 +82,14 @@ This command is in beta and subject to change.`,
 
 			if ssh && sshAfterStep > 0 {
 				return fmt.Errorf("--ssh and --ssh-after-step are mutually exclusive")
+			}
+
+			if ref != "" && sha != "" {
+				return fmt.Errorf("--ref and --sha are mutually exclusive")
+			}
+
+			if sha != "" && !isValidSHA(sha) {
+				return fmt.Errorf("--sha must be a 40-character hex string")
 			}
 
 			if orgID == "" {
@@ -151,8 +171,11 @@ This command is in beta and subject to change.`,
 				return fmt.Errorf("failed to resolve repo: %w", err)
 			}
 
-			// Detect local changes as a patch
-			patch := detectPatch(workflowDir)
+			// Detect local changes as a patch (skip when targeting a specific remote ref or commit)
+			var patch *patchInfo
+			if ref == "" && sha == "" {
+				patch = detectPatch(workflowDir)
+			}
 
 			if patch != nil {
 				fmt.Printf("Default branch: %s\n", patch.defaultBranch)
@@ -206,6 +229,12 @@ This command is in beta and subject to change.`,
 			req := &civ1.RunRequest{
 				Repo:            repo,
 				WorkflowContent: []string{string(yamlBytes)},
+			}
+			if ref != "" {
+				req.Ref = &ref
+			}
+			if sha != "" {
+				req.Sha = &sha
 			}
 
 			resp, err := api.CIRun(ctx, tokenVal, orgID, req)
@@ -262,6 +291,8 @@ This command is in beta and subject to change.`,
 	cmd.Flags().StringSliceVar(&jobNames, "job", nil, "Job name(s) to run (repeatable; omit to run all)")
 	cmd.Flags().IntVar(&sshAfterStep, "ssh-after-step", 0, "1-based step index to insert a tmate debug step after (requires single --job)")
 	cmd.Flags().BoolVar(&ssh, "ssh", false, "Start the run and connect to the job's sandbox via interactive terminal (requires single --job)")
+	cmd.Flags().StringVar(&ref, "ref", "", "Git ref (branch name or fully-qualified ref) to run against")
+	cmd.Flags().StringVar(&sha, "sha", "", "Git commit SHA (40-character hex) to run against")
 
 	cmd.AddCommand(NewCmdRunList())
 
@@ -306,6 +337,11 @@ func detectPatch(workflowDir string) *patchInfo {
 }
 
 var repoPattern = regexp.MustCompile(`[/:]([^/:]+/[^/.]+?)(?:\.git)?$`)
+var shaPattern = regexp.MustCompile(`^[0-9a-fA-F]{40}$`)
+
+func isValidSHA(s string) bool {
+	return shaPattern.MatchString(s)
+}
 
 // resolveJobDeps returns the set of job names that must be included to satisfy
 // the transitive `needs` dependencies of the requested jobs.
