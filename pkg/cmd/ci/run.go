@@ -213,7 +213,9 @@ This command is in beta and subject to change.`,
 				WorkflowContent: []string{string(yamlBytes)},
 			}
 
-			if headSHA, err := resolveHEAD(workflowDir); err == nil {
+			if patch != nil {
+				req.Sha = &patch.mergeBase
+			} else if headSHA, err := resolveHEAD(workflowDir); err == nil {
 				req.Sha = &headSHA
 			}
 
