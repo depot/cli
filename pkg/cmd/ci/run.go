@@ -208,6 +208,11 @@ This command is in beta and subject to change.`,
 				WorkflowContent: []string{string(yamlBytes)},
 			}
 
+			if headSHA, err := resolveHEAD(workflowDir); err == nil {
+				req.Sha = &headSHA
+				fmt.Printf("HEAD: %s\n", headSHA)
+			}
+
 			resp, err := api.CIRun(ctx, tokenVal, orgID, req)
 			if err != nil {
 				return fmt.Errorf("failed to start CI run: %w", err)
@@ -266,6 +271,14 @@ This command is in beta and subject to change.`,
 	cmd.AddCommand(NewCmdRunList())
 
 	return cmd
+}
+
+func resolveHEAD(workflowDir string) (string, error) {
+	out, err := exec.Command("git", "-C", workflowDir, "rev-parse", "HEAD").Output()
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(out)), nil
 }
 
 type patchInfo struct {
