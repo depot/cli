@@ -38,8 +38,10 @@ func NewCmdRun() *cobra.Command {
 		Short: "Run a local CI workflow [beta]",
 		Long: `Run a local CI workflow YAML via the Depot CI API.
 
-If there are uncommitted changes relative to the default branch, they are automatically
-uploaded as a patch and applied during the workflow run.
+If there are local changes relative to the remote state of your branch, they are
+automatically uploaded as a patch and applied during the workflow run. For pushed
+branches, the patch contains only unpushed changes; for unpushed branches, the
+patch is relative to the default branch.
 
 This command is in beta and subject to change.`,
 		Example: `  # Run a workflow
@@ -155,7 +157,7 @@ This command is in beta and subject to change.`,
 			patch := detectPatch(workflowDir)
 
 			if patch != nil {
-				fmt.Printf("Default branch: %s\n", patch.defaultBranch)
+				fmt.Printf("Base: %s\n", patch.baseBranch)
 				fmt.Printf("Merge base: %s\n", patch.mergeBase)
 				fmt.Printf("Patch size: %d bytes\n", len(patch.content))
 
@@ -284,24 +286,64 @@ func resolveHEAD(workflowDir string) (string, error) {
 }
 
 type patchInfo struct {
-	defaultBranch string
-	mergeBase     string
-	content       string
+	baseBranch string
+	mergeBase  string
+	content    string
+}
+
+// findMergeBase picks the best base commit for patch generation.
+//
+// If the current branch has been pushed (origin/<branch> exists locally),
+// we use its SHA as the merge base — the patch is just unpushed local changes.
+// Otherwise we fall back to the merge base with the default branch (origin/main).
+//
+// We use the local tracking ref (origin/<branch>), not a live fetch, because
+// the user may not have pulled — the tracking ref reflects what they last fetched,
+// which is guaranteed to exist on GitHub.
+func findMergeBase(workflowDir string) (baseBranch string, mergeBase string, err error) {
+	// Try the current branch's remote tracking ref first
+	branchOut, err := exec.Command("git", "-C", workflowDir, "rev-parse", "--abbrev-ref", "HEAD").Output()
+	if err == nil {
+		branch := strings.TrimSpace(string(branchOut))
+		if branch != "" && branch != "HEAD" { // not detached
+			remoteBranch := "origin/" + branch
+			// Verify the remote branch exists
+			_, err := exec.Command("git", "-C", workflowDir, "rev-parse", "--verify", remoteBranch).Output()
+			if err == nil {
+				// Use merge-base to find common ancestor
+				shaOut, err := exec.Command("git", "-C", workflowDir, "merge-base", "HEAD", remoteBranch).Output()
+				if err == nil {
+					sha := strings.TrimSpace(string(shaOut))
+					if sha != "" {
+						return remoteBranch, sha, nil
+					}
+				}
+			}
+		}
+	}
+
+	// Fall back to merge base with default branch
+	defaultBranchOut, err := exec.Command("git", "-C", workflowDir, "symbolic-ref", "refs/remotes/origin/HEAD").Output()
+	if err != nil {
+		return "", "", fmt.Errorf("cannot determine default branch: %w", err)
+	}
+	defaultRef := strings.TrimSpace(string(defaultBranchOut))
+	defaultBranch := strings.TrimPrefix(defaultRef, "refs/remotes/")
+
+	mergeBaseOut, err := exec.Command("git", "-C", workflowDir, "merge-base", "HEAD", defaultBranch).Output()
+	if err != nil {
+		return "", "", fmt.Errorf("cannot find merge base with %s: %w", defaultBranch, err)
+	}
+
+	return defaultBranch, strings.TrimSpace(string(mergeBaseOut)), nil
 }
 
 func detectPatch(workflowDir string) *patchInfo {
-	defaultBranchOut, err := exec.Command("git", "-C", workflowDir, "symbolic-ref", "refs/remotes/origin/HEAD").Output()
+	baseBranch, mergeBase, err := findMergeBase(workflowDir)
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: could not determine merge base, skipping patch: %v\n", err)
 		return nil
 	}
-	defaultBranch := strings.TrimSpace(string(defaultBranchOut))
-	defaultBranch = strings.TrimPrefix(defaultBranch, "refs/remotes/origin/")
-
-	mergeBaseOut, err := exec.Command("git", "-C", workflowDir, "merge-base", "HEAD", "origin/"+defaultBranch).Output()
-	if err != nil {
-		return nil
-	}
-	mergeBase := strings.TrimSpace(string(mergeBaseOut))
 
 	diffOut, err := exec.Command("git", "-C", workflowDir, "diff", "--binary", mergeBase).Output()
 	if err != nil {
@@ -314,9 +356,9 @@ func detectPatch(workflowDir string) *patchInfo {
 	}
 
 	return &patchInfo{
-		defaultBranch: defaultBranch,
-		mergeBase:     mergeBase,
-		content:       content,
+		baseBranch: baseBranch,
+		mergeBase:  mergeBase,
+		content:    content,
 	}
 }
 
