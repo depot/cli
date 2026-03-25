@@ -116,37 +116,38 @@ func TestFindMergeBase_UnpushedBranch(t *testing.T) {
 	}
 }
 
-
 func TestFindMergeBase_OnDefaultBranch(t *testing.T) {
 	bare := initBareRemote(t)
 	clone := cloneRepo(t, bare)
 
-	// Add a local commit on main branch
-	run(t, clone, "git", "commit", "--allow-empty", "-m", "local commit on main")
+	// Discover the actual default branch name (may be main or master)
+	defaultRef := run(t, clone, "git", "symbolic-ref", "refs/remotes/origin/HEAD")
+	defaultBranch := strings.TrimPrefix(defaultRef, "refs/remotes/")
+
+	// Add a local commit on the default branch
+	run(t, clone, "git", "commit", "--allow-empty", "-m", "local commit on default branch")
 
 	baseBranch, mergeBase, err := findMergeBase(clone)
 	if err != nil {
 		t.Fatalf("findMergeBase failed: %v", err)
 	}
 
-	// Should follow "pushed branch" path and return origin/main as base
-	if baseBranch != "origin/main" {
-		t.Errorf("expected baseBranch=origin/main, got %s", baseBranch)
+	if baseBranch != defaultBranch {
+		t.Errorf("expected baseBranch=%s, got %s", defaultBranch, baseBranch)
 	}
 
-	// Merge base should be origin/main SHA, not HEAD (since we added a local commit)
-	originMainSHA := run(t, clone, "git", "rev-parse", "origin/main")
-	if mergeBase != originMainSHA {
-		t.Errorf("expected mergeBase=%s (origin/main), got %s", originMainSHA, mergeBase)
+	// Merge base should be origin/<default> SHA, not HEAD (since we added a local commit)
+	originSHA := run(t, clone, "git", "rev-parse", defaultBranch)
+	if mergeBase != originSHA {
+		t.Errorf("expected mergeBase=%s (%s), got %s", originSHA, defaultBranch, mergeBase)
 	}
 
 	// Verify HEAD is different (has the local commit)
 	headSHA := run(t, clone, "git", "rev-parse", "HEAD")
-	if headSHA == originMainSHA {
-		t.Error("HEAD should differ from origin/main after local commit")
+	if headSHA == originSHA {
+		t.Error("HEAD should differ from remote default after local commit")
 	}
 }
-
 
 func TestFindMergeBase_DetachedHEAD(t *testing.T) {
 	bare := initBareRemote(t)
