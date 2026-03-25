@@ -292,11 +292,16 @@ func findMergeBase(workflowDir string) (baseBranch string, mergeBase string, err
 		branch := strings.TrimSpace(string(branchOut))
 		if branch != "" && branch != "HEAD" { // not detached
 			remoteBranch := "origin/" + branch
-			shaOut, err := exec.Command("git", "-C", workflowDir, "rev-parse", "--verify", remoteBranch).Output()
+			// Verify the remote branch exists
+			_, err := exec.Command("git", "-C", workflowDir, "rev-parse", "--verify", remoteBranch).Output()
 			if err == nil {
-				sha := strings.TrimSpace(string(shaOut))
-				if sha != "" {
-					return remoteBranch, sha, nil
+				// Use merge-base to find common ancestor
+				shaOut, err := exec.Command("git", "-C", workflowDir, "merge-base", "HEAD", remoteBranch).Output()
+				if err == nil {
+					sha := strings.TrimSpace(string(shaOut))
+					if sha != "" {
+						return remoteBranch, sha, nil
+					}
 				}
 			}
 		}
