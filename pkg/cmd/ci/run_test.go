@@ -169,3 +169,45 @@ func TestFindMergeBase_DetachedHEAD(t *testing.T) {
 
 	_ = baseBranch
 }
+
+func TestFindMergeBase_DetachedHEAD_WithPushedAncestor(t *testing.T) {
+	bare := initBareRemote(t)
+	clone := cloneRepo(t, bare)
+
+	// Create a feature branch and push it
+	run(t, clone, "git", "checkout", "-b", "feature/jj-test")
+	writeFile(t, filepath.Join(clone, "feature.txt"), "pushed work")
+	run(t, clone, "git", "add", ".")
+	run(t, clone, "git", "commit", "-m", "pushed feature commit")
+	run(t, clone, "git", "push", "-u", "origin", "feature/jj-test")
+
+	pushedSHA := run(t, clone, "git", "rev-parse", "HEAD")
+
+	// Add two local-only commits (simulating jj workflow)
+	writeFile(t, filepath.Join(clone, "local1.txt"), "local1")
+	run(t, clone, "git", "add", ".")
+	run(t, clone, "git", "commit", "-m", "local commit 1")
+
+	writeFile(t, filepath.Join(clone, "local2.txt"), "local2")
+	run(t, clone, "git", "add", ".")
+	run(t, clone, "git", "commit", "-m", "local commit 2")
+
+	// Detach HEAD (standard jj workflow)
+	headSHA := run(t, clone, "git", "rev-parse", "HEAD")
+	run(t, clone, "git", "checkout", headSHA)
+
+	baseBranch, mergeBase, err := findMergeBase(clone)
+	if err != nil {
+		t.Fatalf("findMergeBase failed: %v", err)
+	}
+
+	// Should find the pushed feature branch as the closest ancestor,
+	// NOT fall back to origin/main (which would produce a bigger patch)
+	if mergeBase != pushedSHA {
+		t.Errorf("expected mergeBase=%s (pushed feature commit), got %s", pushedSHA, mergeBase)
+	}
+
+	if baseBranch != "origin/feature/jj-test" {
+		t.Errorf("expected baseBranch=origin/feature/jj-test, got %q", baseBranch)
+	}
+}
