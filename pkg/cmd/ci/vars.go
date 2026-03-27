@@ -9,6 +9,7 @@ import (
 	"github.com/depot/cli/pkg/api"
 	"github.com/depot/cli/pkg/config"
 	"github.com/depot/cli/pkg/helpers"
+	civ2 "github.com/depot/cli/pkg/proto/depot/ci/v2"
 	"github.com/spf13/cobra"
 )
 
@@ -20,6 +21,9 @@ func NewCmdVars() *cobra.Command {
 		Example: `  # Add a new variable
   depot ci vars add GITHUB_REPO
   depot ci vars add MY_SERVICE_NAME --value "my_service"
+
+  # Add multiple variables at once
+  depot ci vars add REGION=us-east-1 ENV=prod
 
   # Add a repo-specific variable
   depot ci vars add MY_SERVICE_NAME --repo owner/repo --value "my_service"
@@ -51,28 +55,32 @@ func NewCmdVarsAdd() *cobra.Command {
 	)
 
 	cmd := &cobra.Command{
-		Use:   "add VAR_NAME",
-		Short: "Add a new CI variable",
-		Long: `Add a new variable that can be used in Depot CI workflows.
-If --value is not provided, you will be prompted to enter the variable value.
-Use --repo to scope the variable to a specific repository. Without --repo, the
-variable applies to all repositories in the organization.`,
+		Use:   "add [VAR_NAME | KEY=VALUE ...]",
+		Short: "Add one or more CI variables",
+		Long: `Add variables that can be used in Depot CI workflows.
+
+Supports three modes:
+  1. Single variable with --value flag: depot ci vars add VAR_NAME --value "val"
+  2. Single variable with interactive prompt: depot ci vars add VAR_NAME
+  3. Bulk KEY=VALUE pairs: depot ci vars add FOO=bar BAZ=qux
+
+The --value flag cannot be used with KEY=VALUE pairs.
+Use --repo to scope variables to a specific repository. Without --repo, variables
+apply to all repositories in the organization.`,
 		Example: `  # Add an org-wide variable with interactive prompt
   depot ci vars add GITHUB_REPO
 
   # Add an org-wide variable with value from command line
   depot ci vars add MY_SERVICE_NAME --value "my_service"
 
+  # Add multiple variables at once
+  depot ci vars add REGION=us-east-1 ENV=prod
+
   # Add a repo-specific variable
   depot ci vars add DEPLOY_ENV --repo owner/repo --value "production"`,
-		Args: cobra.ExactArgs(1),
+		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
-			varName := args[0]
-
-			if varName == "" {
-				return fmt.Errorf("variable name cannot be empty")
-			}
 
 			if orgID == "" {
 				orgID = config.GetCurrentOrganization()
@@ -85,6 +93,56 @@ variable applies to all repositories in the organization.`,
 			}
 			if tokenVal == "" {
 				return fmt.Errorf("missing API token, please run `depot login`")
+			}
+
+			scope := "org-wide"
+			if repo != "" {
+				scope = repo
+			}
+
+			// Detect KEY=VALUE pairs
+			hasKVPairs := false
+			for _, arg := range args {
+				if strings.Contains(arg, "=") {
+					hasKVPairs = true
+					break
+				}
+			}
+
+			if hasKVPairs {
+				// Bulk mode: all args must be KEY=VALUE
+				if value != "" {
+					return fmt.Errorf("cannot use --value with KEY=VALUE arguments")
+				}
+
+				var variables []*civ2.VariableInput
+				for _, arg := range args {
+					parts := strings.SplitN(arg, "=", 2)
+					if len(parts) != 2 || parts[0] == "" {
+						return fmt.Errorf("invalid argument %q — expected KEY=VALUE format", arg)
+					}
+					variables = append(variables, &civ2.VariableInput{Name: parts[0], Value: parts[1]})
+				}
+
+				err := api.CIBatchAddVariables(ctx, tokenVal, orgID, variables, repo)
+				if err != nil {
+					return fmt.Errorf("failed to add variables: %w", err)
+				}
+
+				for _, v := range variables {
+					fmt.Printf("Successfully added CI variable '%s' (%s)\n", v.Name, scope)
+				}
+				return nil
+			}
+
+			// Single mode: first arg is variable name
+			if len(args) > 1 {
+				return fmt.Errorf("too many arguments — did you mean to use KEY=VALUE format?")
+			}
+
+			varName := args[0]
+			if varName == "" {
+				return fmt.Errorf("variable name cannot be empty")
 			}
 
 			varValue := value
@@ -100,10 +158,6 @@ variable applies to all repositories in the organization.`,
 				return fmt.Errorf("failed to add CI variable: %w", err)
 			}
 
-			scope := "org-wide"
-			if repo != "" {
-				scope = repo
-			}
 			fmt.Printf("Successfully added CI variable '%s' (%s)\n", varName, scope)
 			return nil
 		},

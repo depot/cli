@@ -179,6 +179,17 @@ func CIListSecrets(ctx context.Context, token, orgID, repo string) ([]CISecret, 
 	return secrets, nil
 }
 
+// CIBatchAddSecrets adds multiple CI secrets in a single request, optionally scoped to a repo.
+func CIBatchAddSecrets(ctx context.Context, token, orgID string, secrets []*civ2.SecretInput, repo string) error {
+	client := newCISecretServiceV2Client()
+	if repo != "" {
+		_, err := client.BatchAddRepoSecrets(ctx, WithAuthenticationAndOrg(connect.NewRequest(&civ2.BatchAddRepoSecretsRequest{Repo: repo, Secrets: secrets}), token, orgID))
+		return err
+	}
+	_, err := client.BatchAddOrgSecrets(ctx, WithAuthenticationAndOrg(connect.NewRequest(&civ2.BatchAddOrgSecretsRequest{Secrets: secrets}), token, orgID))
+	return err
+}
+
 // CIDeleteSecret deletes a CI secret, optionally scoped to a repo.
 func CIDeleteSecret(ctx context.Context, token, orgID, name, repo string) error {
 	client := newCISecretServiceV2Client()
@@ -251,6 +262,17 @@ func CIListVariables(ctx context.Context, token, orgID, repo string) ([]CIVariab
 	}
 
 	return variables, nil
+}
+
+// CIBatchAddVariables adds multiple CI variables in a single request, optionally scoped to a repo.
+func CIBatchAddVariables(ctx context.Context, token, orgID string, variables []*civ2.VariableInput, repo string) error {
+	client := newCIVariableServiceV2Client()
+	if repo != "" {
+		_, err := client.BatchAddRepoVariables(ctx, WithAuthenticationAndOrg(connect.NewRequest(&civ2.BatchAddRepoVariablesRequest{Repo: repo, Variables: variables}), token, orgID))
+		return err
+	}
+	_, err := client.BatchAddOrgVariables(ctx, WithAuthenticationAndOrg(connect.NewRequest(&civ2.BatchAddOrgVariablesRequest{Variables: variables}), token, orgID))
+	return err
 }
 
 // CIDeleteVariable deletes a CI variable, optionally scoped to a repo.
