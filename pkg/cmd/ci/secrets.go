@@ -9,6 +9,7 @@ import (
 	"github.com/depot/cli/pkg/api"
 	"github.com/depot/cli/pkg/config"
 	"github.com/depot/cli/pkg/helpers"
+	civ2 "github.com/depot/cli/pkg/proto/depot/ci/v2"
 	"github.com/spf13/cobra"
 )
 
@@ -20,6 +21,9 @@ func NewCmdSecrets() *cobra.Command {
 		Example: `  # Add a new secret
   depot ci secrets add GITHUB_TOKEN
   depot ci secrets add MY_API_KEY --value "secret-value"
+
+  # Add multiple secrets at once
+  depot ci secrets add FOO=bar BAZ=qux
 
   # Add a repo-specific secret
   depot ci secrets add MY_API_KEY --repo owner/repo --value "secret-value"
@@ -54,31 +58,35 @@ func NewCmdSecretsAdd() *cobra.Command {
 	)
 
 	cmd := &cobra.Command{
-		Use:   "add SECRET_NAME",
-		Short: "Add a new CI secret",
-		Long: `Add a new secret that can be used in Depot CI workflows.
-If --value is not provided, you will be prompted to enter the secret value securely.
-Use --repo to scope the secret to a specific repository. Without --repo, the secret
-applies to all repositories in the organization.`,
+		Use:   "add [SECRET_NAME | KEY=VALUE ...]",
+		Short: "Add one or more CI secrets",
+		Long: `Add secrets that can be used in Depot CI workflows.
+
+Supports three modes:
+  1. Single secret with --value flag: depot ci secrets add SECRET_NAME --value "val"
+  2. Single secret with interactive prompt: depot ci secrets add SECRET_NAME
+  3. Bulk KEY=VALUE pairs: depot ci secrets add FOO=bar BAZ=qux
+
+The --value and --description flags cannot be used with KEY=VALUE pairs.
+Use --repo to scope secrets to a specific repository. Without --repo, secrets
+apply to all repositories in the organization.`,
 		Example: `  # Add an org-wide secret with interactive prompt
   depot ci secrets add GITHUB_TOKEN
 
   # Add an org-wide secret with value from command line
   depot ci secrets add MY_API_KEY --value "secret-value"
 
+  # Add multiple secrets at once
+  depot ci secrets add FOO=bar BAZ=qux
+
   # Add a repo-specific secret
   depot ci secrets add DATABASE_URL --repo owner/repo --value "prod-db-url"
 
   # Add a secret with description
   depot ci secrets add DATABASE_URL --description "Production database connection string"`,
-		Args: cobra.ExactArgs(1),
+		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
-			secretName := args[0]
-
-			if secretName == "" {
-				return fmt.Errorf("secret name cannot be empty")
-			}
 
 			if orgID == "" {
 				orgID = config.GetCurrentOrganization()
@@ -91,6 +99,59 @@ applies to all repositories in the organization.`,
 			}
 			if tokenVal == "" {
 				return fmt.Errorf("missing API token, please run `depot login`")
+			}
+
+			scope := "org-wide"
+			if repo != "" {
+				scope = repo
+			}
+
+			// Detect KEY=VALUE pairs
+			hasKVPairs := false
+			for _, arg := range args {
+				if strings.Contains(arg, "=") {
+					hasKVPairs = true
+					break
+				}
+			}
+
+			if hasKVPairs {
+				// Bulk mode: all args must be KEY=VALUE
+				if value != "" {
+					return fmt.Errorf("cannot use --value with KEY=VALUE arguments")
+				}
+				if description != "" {
+					return fmt.Errorf("cannot use --description with KEY=VALUE arguments")
+				}
+
+				var secrets []*civ2.SecretInput
+				for _, arg := range args {
+					parts := strings.SplitN(arg, "=", 2)
+					if len(parts) != 2 || parts[0] == "" {
+						return fmt.Errorf("invalid argument %q — expected KEY=VALUE format", arg)
+					}
+					secrets = append(secrets, &civ2.SecretInput{Name: parts[0], Value: parts[1]})
+				}
+
+				err := api.CIBatchAddSecrets(ctx, tokenVal, orgID, secrets, repo)
+				if err != nil {
+					return fmt.Errorf("failed to add secrets: %w", err)
+				}
+
+				for _, s := range secrets {
+					fmt.Printf("Successfully added CI secret '%s' (%s)\n", s.Name, scope)
+				}
+				return nil
+			}
+
+			// Single mode: first arg is secret name
+			if len(args) > 1 {
+				return fmt.Errorf("too many arguments — did you mean to use KEY=VALUE format?")
+			}
+
+			secretName := args[0]
+			if secretName == "" {
+				return fmt.Errorf("secret name cannot be empty")
 			}
 
 			secretValue := value
@@ -106,10 +167,6 @@ applies to all repositories in the organization.`,
 				return fmt.Errorf("failed to add secret: %w", err)
 			}
 
-			scope := "org-wide"
-			if repo != "" {
-				scope = repo
-			}
 			fmt.Printf("Successfully added CI secret '%s' (%s)\n", secretName, scope)
 			return nil
 		},
