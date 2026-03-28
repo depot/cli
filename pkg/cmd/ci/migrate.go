@@ -24,12 +24,13 @@ import (
 )
 
 type migrateOptions struct {
-	token     string
-	orgID     string
-	yes       bool
-	overwrite bool
-	dir       string
-	stdout    io.Writer
+	token      string
+	orgID      string
+	yes        bool
+	overwrite  bool
+	dir        string
+	stdout     io.Writer
+	branchName string
 }
 
 func NewCmdMigrate() *cobra.Command {
@@ -62,7 +63,7 @@ func NewCmdMigrate() *cobra.Command {
 }
 
 func newCmdSecretsAndVars(parentOpts *migrateOptions) *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "secrets-and-vars",
 		Short: "Import GitHub Actions secrets and variables into Depot CI",
 		Long:  "Creates a one-shot GitHub Actions workflow that reads secrets and variables from the source repo and imports them into Depot CI via the depot CLI.",
@@ -73,6 +74,10 @@ func newCmdSecretsAndVars(parentOpts *migrateOptions) *cobra.Command {
 			return secretsAndVars(cmd.Context(), opts)
 		},
 	}
+
+	cmd.Flags().StringVar(&parentOpts.branchName, "branch", "", "Override the branch name used for the migration workflow")
+
+	return cmd
 }
 
 func secretsAndVars(ctx context.Context, opts migrateOptions) error {
@@ -128,10 +133,14 @@ func secretsAndVars(ctx context.Context, opts migrateOptions) error {
 
 		if preview {
 			dryResp, err := client.ImportSecretsAndVars(ctx, api.WithAuthenticationAndOrg(
-				connect.NewRequest(&civ1.ImportSecretsAndVarsRequest{Repo: repo, DryRun: true}),
+				connect.NewRequest(&civ1.ImportSecretsAndVarsRequest{Repo: repo, DryRun: true, BranchName: opts.branchName}),
 				token, orgID,
 			))
 			if err != nil {
+				var connectErr *connect.Error
+				if errors.As(err, &connectErr) {
+					return fmt.Errorf("%s", connectErr.Message())
+				}
 				return fmt.Errorf("failed to preview: %w", err)
 			}
 
@@ -170,10 +179,14 @@ func secretsAndVars(ctx context.Context, opts migrateOptions) error {
 	}
 
 	resp, err := client.ImportSecretsAndVars(ctx, api.WithAuthenticationAndOrg(
-		connect.NewRequest(&civ1.ImportSecretsAndVarsRequest{Repo: repo}),
+		connect.NewRequest(&civ1.ImportSecretsAndVarsRequest{Repo: repo, BranchName: opts.branchName}),
 		token, orgID,
 	))
 	if err != nil {
+		var connectErr *connect.Error
+		if errors.As(err, &connectErr) {
+			return fmt.Errorf("%s", connectErr.Message())
+		}
 		return fmt.Errorf("failed to import secrets and variables: %w", err)
 	}
 

@@ -39,6 +39,8 @@ message ImportSecretsAndVarsRequest {
   string repo = 1;
   // dry_run returns the planned branch, workflow name, and content without committing
   bool dry_run = 2;
+  // branch_name overrides the default branch name used to create the migration workflow
+  string branch_name = 3;
 }
 message ImportSecretsAndVarsResponse {
   oneof result {
