@@ -96,7 +96,7 @@ func secretsAndVars(ctx context.Context, opts migrateOptions) error {
 	// Detect repo
 	repo := detectRepoFromGitRemote(workDir)
 	if repo == "" {
-		return fmt.Errorf("could not detect GitHub repository from git remote — is this a GitHub repo with an origin remote?")
+		return fmt.Errorf("could not detect GitHub repository from git remotes — is this a GitHub repo with a configured remote?")
 	}
 
 	client := api.NewMigrationClient()
@@ -280,7 +280,7 @@ func preflight(ctx context.Context, opts migrateOptions) (*preflightResult, erro
 	// Detect repo from git remote
 	repo := detectRepoFromGitRemote(workDir)
 	if repo == "" {
-		return nil, fmt.Errorf("could not detect GitHub repository from git remote — is this a GitHub repo with an origin remote?")
+		return nil, fmt.Errorf("could not detect GitHub repository from git remotes — is this a GitHub repo with a configured remote?")
 	}
 
 	repoOwner := strings.SplitN(repo, "/", 2)[0]
