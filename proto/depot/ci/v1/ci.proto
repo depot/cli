@@ -18,6 +18,55 @@ service CIService {
   rpc ListRuns(ListRunsRequest) returns (ListRunsResponse) {}
 }
 
+// MigrationService is the API used by `depot ci migrate` to handhold customers during the
+// process of migrating GitHub workflow files to Depot CI
+service MigrationService {
+  rpc GetInstallation(GetInstallationRequest) returns (GetInstallationResponse) {}
+  rpc ImportSecretsAndVars(ImportSecretsAndVarsRequest) returns (ImportSecretsAndVarsResponse) {}
+}
+
+message GetInstallationRequest {
+  // repo is the name of the target GitHub repo in {org}/{repo} format
+  string repo = 1;
+}
+
+message GetInstallationResponse {
+  repeated Installation installations = 1;
+}
+
+message ImportSecretsAndVarsRequest {
+  // repo is the name of the target GitHub repo in {org}/{repo} format
+  string repo = 1;
+  // dry_run returns the planned branch, workflow name, and content without committing
+  bool dry_run = 2;
+  // branch_name overrides the default branch name used to create the migration workflow
+  string branch_name = 3;
+}
+message ImportSecretsAndVarsResponse {
+  oneof result {
+    DryRunResult dry_run_result = 1;
+    RunResult run_result = 2;
+  }
+}
+
+message DryRunResult {
+  string branch_name = 1;
+  string workflow_name = 2;
+  string workflow_content = 3;
+}
+
+message RunResult {
+  string workflow_url = 1;
+}
+
+message Installation {
+  string installation_id = 1;
+  string settings_url = 2;
+  string owner = 3;
+  bool requires_new_perms = 4;
+  bool repo_accessible = 5;
+}
+
 message RunRequest {
   // repo is the name of the target GitHub repo in {org}/{repo} format
   string repo = 1;
@@ -64,6 +113,8 @@ message WorkflowStatus {
   repeated JobStatus jobs = 4;
   // workflow name from YAML `name:` key, empty if not set
   string name = 5;
+  // error_message is populated when the workflow has failed (e.g. compilation or validation errors)
+  string error_message = 6;
 }
 
 message JobStatus {
@@ -78,6 +129,10 @@ message AttemptStatus {
   string attempt_id = 1;
   int32 attempt = 2;
   string status = 3;
+  // sandbox_id is populated when the attempt is running on a sandbox.
+  string sandbox_id = 4;
+  // session_id is populated alongside sandbox_id.
+  string session_id = 5;
 }
 
 // GetJobAttemptLogs messages

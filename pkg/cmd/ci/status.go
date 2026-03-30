@@ -44,6 +44,11 @@ func NewCmdStatus() *cobra.Command {
 				return fmt.Errorf("failed to get run status: %w", err)
 			}
 
+			orgFlag := ""
+			if cmd.Flags().Changed("org") {
+				orgFlag = " --org " + orgID
+			}
+
 			fmt.Printf("Org: %s\n", resp.OrgId)
 			fmt.Printf("Run: %s (%s)\n", resp.RunId, resp.Status)
 
@@ -53,12 +58,22 @@ func NewCmdStatus() *cobra.Command {
 				if workflow.WorkflowPath != "" {
 					fmt.Printf("    Path: %s\n", workflow.WorkflowPath)
 				}
+				if workflow.ErrorMessage != "" {
+					fmt.Printf("    Error: %s\n", workflow.ErrorMessage)
+				}
 
 				for _, job := range workflow.Jobs {
 					fmt.Printf("    Job: %s [%s] (%s)\n", job.JobId, job.JobKey, job.Status)
 
 					for _, attempt := range job.Attempts {
-						fmt.Printf("      Attempt: %s #%d (%s)  →  depot ci logs %s  |  https://depot.dev/orgs/%s/workflows/%s\n", attempt.AttemptId, attempt.Attempt, attempt.Status, attempt.AttemptId, resp.OrgId, attempt.AttemptId)
+						isRunning := attempt.Status != "finished" && attempt.Status != "failed" && attempt.Status != "cancelled"
+
+						fmt.Printf("      Attempt #%d (%s)\n", attempt.Attempt, attempt.Status)
+						fmt.Printf("        Logs: depot ci logs %s%s\n", attempt.AttemptId, orgFlag)
+						fmt.Printf("        View: https://depot.dev/orgs/%s/workflows/%s\n", resp.OrgId, attempt.AttemptId)
+						if attempt.GetSandboxId() != "" && isRunning {
+							fmt.Printf("        SSH:  depot ci ssh %s --job %s%s\n", resp.RunId, job.JobKey, orgFlag)
+						}
 					}
 				}
 			}

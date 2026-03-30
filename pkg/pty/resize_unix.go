@@ -1,6 +1,6 @@
 //go:build !windows
 
-package compute
+package pty
 
 import (
 	"context"

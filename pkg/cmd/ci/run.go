@@ -1,6 +1,7 @@
 package ci
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
@@ -9,11 +10,13 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/depot/cli/pkg/api"
 	"github.com/depot/cli/pkg/config"
 	"github.com/depot/cli/pkg/helpers"
 	civ1 "github.com/depot/cli/pkg/proto/depot/ci/v1"
+	"github.com/depot/cli/pkg/pty"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 )
@@ -27,6 +30,7 @@ func NewCmdRun() *cobra.Command {
 		workflowPath string
 		jobNames     []string
 		sshAfterStep int
+		ssh          bool
 	)
 
 	cmd := &cobra.Command{
@@ -34,8 +38,10 @@ func NewCmdRun() *cobra.Command {
 		Short: "Run a local CI workflow [beta]",
 		Long: `Run a local CI workflow YAML via the Depot CI API.
 
-If there are uncommitted changes relative to the default branch, they are automatically
-uploaded as a patch and applied during the workflow run.
+If there are local changes relative to the remote state of your branch, they are
+automatically uploaded as a patch and applied during the workflow run. For pushed
+branches, the patch contains only unpushed changes; for unpushed branches, the
+patch is relative to the default branch.
 
 This command is in beta and subject to change.`,
 		Example: `  # Run a workflow
@@ -44,7 +50,10 @@ This command is in beta and subject to change.`,
   # Run specific jobs
   depot ci run --workflow .depot/workflows/ci.yml --job build --job test
 
-  # Debug with SSH after a specific step
+  # Run a job and connect to its terminal via SSH
+  depot ci run --workflow .depot/workflows/ci.yml --job build --ssh
+
+  # Debug with tmate after a specific step
   depot ci run --workflow .depot/workflows/ci.yml --job build --ssh-after-step 3`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if workflowPath == "" {
@@ -55,6 +64,14 @@ This command is in beta and subject to change.`,
 
 			if sshAfterStep > 0 && len(jobNames) != 1 {
 				return fmt.Errorf("--ssh-after-step requires exactly one --job")
+			}
+
+			if ssh && len(jobNames) != 1 {
+				return fmt.Errorf("--ssh requires exactly one --job")
+			}
+
+			if ssh && sshAfterStep > 0 {
+				return fmt.Errorf("--ssh and --ssh-after-step are mutually exclusive")
 			}
 
 			if orgID == "" {
@@ -107,14 +124,21 @@ This command is in beta and subject to change.`,
 				selectedJobs = allJobNames
 			}
 
-			// Pare workflow to selected jobs if a subset was specified
+			// Pare workflow to selected jobs (plus transitive dependencies) if a subset was specified
 			if len(jobNames) > 0 {
+				needed := resolveJobDeps(jobs, jobNames)
 				paredJobs := make(map[string]interface{})
-				for _, name := range jobNames {
+				for name := range needed {
 					paredJobs[name] = jobs[name]
 				}
 				workflow["jobs"] = paredJobs
 				jobs = paredJobs
+
+				// Update selectedJobs to include deps for display
+				selectedJobs = make([]string, 0, len(needed))
+				for name := range needed {
+					selectedJobs = append(selectedJobs, name)
+				}
 			}
 
 			// Resolve repo from git remote
@@ -133,7 +157,7 @@ This command is in beta and subject to change.`,
 			patch := detectPatch(workflowDir)
 
 			if patch != nil {
-				fmt.Printf("Default branch: %s\n", patch.defaultBranch)
+				fmt.Printf("Base: %s\n", patch.baseBranch)
 				fmt.Printf("Merge base: %s\n", patch.mergeBase)
 				fmt.Printf("Patch size: %d bytes\n", len(patch.content))
 
@@ -173,6 +197,9 @@ This command is in beta and subject to change.`,
 			if sshAfterStep > 0 {
 				fmt.Printf("Inserting tmate step after step %d\n", sshAfterStep)
 			}
+			if headSHA, err := resolveHEAD(workflowDir); err == nil {
+				fmt.Printf("HEAD: %s\n", headSHA)
+			}
 			fmt.Println()
 
 			// Serialize workflow back to YAML
@@ -186,9 +213,10 @@ This command is in beta and subject to change.`,
 				WorkflowContent: []string{string(yamlBytes)},
 			}
 
-			if len(jobNames) > 0 {
-				job := jobNames[0]
-				req.Job = &job
+			if patch != nil {
+				req.Sha = &patch.mergeBase
+			} else if headSHA, err := resolveHEAD(workflowDir); err == nil {
+				req.Sha = &headSHA
 			}
 
 			resp, err := api.CIRun(ctx, tokenVal, orgID, req)
@@ -199,7 +227,40 @@ This command is in beta and subject to change.`,
 			fmt.Printf("Org: %s\n", resp.OrgId)
 			fmt.Printf("Run: %s\n", resp.RunId)
 			fmt.Println()
-			fmt.Printf("Check status:  depot ci status %s\n", resp.RunId)
+
+			if ssh {
+				fmt.Printf("Waiting for job to start and connecting via SSH...\n")
+				sandboxID, sessionID, err := waitForSandbox(ctx, tokenVal, orgID, resp.RunId, jobNames[0], "")
+				if err != nil {
+					return err
+				}
+				return pty.Run(ctx, pty.SessionOptions{
+					Token:     tokenVal,
+					OrgID:     orgID,
+					SandboxID: sandboxID,
+					SessionID: sessionID,
+				})
+			}
+
+			if sshAfterStep > 0 {
+				fmt.Fprintf(os.Stderr, "Waiting for tmate session to start...\n")
+				sshTarget, err := waitForTmateSSH(ctx, tokenVal, orgID, resp.RunId, jobNames[0])
+				if err != nil {
+					return err
+				}
+				if !helpers.IsTerminal() {
+					fmt.Printf("ssh %s\n", sshTarget)
+					return nil
+				}
+				fmt.Fprintf(os.Stderr, "Connecting: ssh %s\n", sshTarget)
+				return execSSH(sshTarget)
+			}
+
+			orgFlag := ""
+			if cmd.Flags().Changed("org") {
+				orgFlag = " --org " + orgID
+			}
+			fmt.Printf("Check status:  depot ci status %s%s\n", resp.RunId, orgFlag)
 			fmt.Printf("View in Depot: https://depot.dev/orgs/%s/workflows/%s\n", resp.OrgId, resp.RunId)
 
 			return nil
@@ -211,31 +272,80 @@ This command is in beta and subject to change.`,
 	cmd.Flags().StringVar(&workflowPath, "workflow", "", "Path to workflow YAML file")
 	cmd.Flags().StringSliceVar(&jobNames, "job", nil, "Job name(s) to run (repeatable; omit to run all)")
 	cmd.Flags().IntVar(&sshAfterStep, "ssh-after-step", 0, "1-based step index to insert a tmate debug step after (requires single --job)")
+	cmd.Flags().BoolVar(&ssh, "ssh", false, "Start the run and connect to the job's sandbox via interactive terminal (requires single --job)")
 
 	cmd.AddCommand(NewCmdRunList())
 
 	return cmd
 }
 
+func resolveHEAD(workflowDir string) (string, error) {
+	out, err := exec.Command("git", "-C", workflowDir, "rev-parse", "HEAD").Output()
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
 type patchInfo struct {
-	defaultBranch string
-	mergeBase     string
-	content       string
+	baseBranch string
+	mergeBase  string
+	content    string
+}
+
+// findMergeBase picks the best base commit for patch generation.
+//
+// If the current branch has been pushed (origin/<branch> exists locally),
+// we use its SHA as the merge base — the patch is just unpushed local changes.
+// Otherwise we fall back to the merge base with the default branch (origin/main).
+//
+// We use the local tracking ref (origin/<branch>), not a live fetch, because
+// the user may not have pulled — the tracking ref reflects what they last fetched,
+// which is guaranteed to exist on GitHub.
+func findMergeBase(workflowDir string) (baseBranch string, mergeBase string, err error) {
+	// Try the current branch's remote tracking ref first
+	branchOut, err := exec.Command("git", "-C", workflowDir, "rev-parse", "--abbrev-ref", "HEAD").Output()
+	if err == nil {
+		branch := strings.TrimSpace(string(branchOut))
+		if branch != "" && branch != "HEAD" { // not detached
+			remoteBranch := "origin/" + branch
+			// Verify the remote branch exists
+			_, err := exec.Command("git", "-C", workflowDir, "rev-parse", "--verify", remoteBranch).Output()
+			if err == nil {
+				// Use merge-base to find common ancestor
+				shaOut, err := exec.Command("git", "-C", workflowDir, "merge-base", "HEAD", remoteBranch).Output()
+				if err == nil {
+					sha := strings.TrimSpace(string(shaOut))
+					if sha != "" {
+						return remoteBranch, sha, nil
+					}
+				}
+			}
+		}
+	}
+
+	// Fall back to merge base with default branch
+	defaultBranchOut, err := exec.Command("git", "-C", workflowDir, "symbolic-ref", "refs/remotes/origin/HEAD").Output()
+	if err != nil {
+		return "", "", fmt.Errorf("cannot determine default branch: %w", err)
+	}
+	defaultRef := strings.TrimSpace(string(defaultBranchOut))
+	defaultBranch := strings.TrimPrefix(defaultRef, "refs/remotes/")
+
+	mergeBaseOut, err := exec.Command("git", "-C", workflowDir, "merge-base", "HEAD", defaultBranch).Output()
+	if err != nil {
+		return "", "", fmt.Errorf("cannot find merge base with %s: %w", defaultBranch, err)
+	}
+
+	return defaultBranch, strings.TrimSpace(string(mergeBaseOut)), nil
 }
 
 func detectPatch(workflowDir string) *patchInfo {
-	defaultBranchOut, err := exec.Command("git", "-C", workflowDir, "symbolic-ref", "refs/remotes/origin/HEAD").Output()
+	baseBranch, mergeBase, err := findMergeBase(workflowDir)
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: could not determine merge base, skipping patch: %v\n", err)
 		return nil
 	}
-	defaultBranch := strings.TrimSpace(string(defaultBranchOut))
-	defaultBranch = strings.TrimPrefix(defaultBranch, "refs/remotes/origin/")
-
-	mergeBaseOut, err := exec.Command("git", "-C", workflowDir, "merge-base", "HEAD", "origin/"+defaultBranch).Output()
-	if err != nil {
-		return nil
-	}
-	mergeBase := strings.TrimSpace(string(mergeBaseOut))
 
 	diffOut, err := exec.Command("git", "-C", workflowDir, "diff", "--binary", mergeBase).Output()
 	if err != nil {
@@ -248,13 +358,48 @@ func detectPatch(workflowDir string) *patchInfo {
 	}
 
 	return &patchInfo{
-		defaultBranch: defaultBranch,
-		mergeBase:     mergeBase,
-		content:       content,
+		baseBranch: baseBranch,
+		mergeBase:  mergeBase,
+		content:    content,
 	}
 }
 
 var repoPattern = regexp.MustCompile(`[/:]([^/:]+/[^/.]+?)(?:\.git)?$`)
+
+// resolveJobDeps returns the set of job names that must be included to satisfy
+// the transitive `needs` dependencies of the requested jobs.
+func resolveJobDeps(allJobs map[string]interface{}, requested []string) map[string]struct{} {
+	needed := make(map[string]struct{})
+	var walk func(name string)
+	walk = func(name string) {
+		if _, ok := needed[name]; ok {
+			return
+		}
+		jobRaw, exists := allJobs[name]
+		if !exists {
+			return
+		}
+		needed[name] = struct{}{}
+		job, ok := jobRaw.(map[string]interface{})
+		if !ok {
+			return
+		}
+		switch deps := job["needs"].(type) {
+		case string:
+			walk(deps)
+		case []interface{}:
+			for _, d := range deps {
+				if s, ok := d.(string); ok {
+					walk(s)
+				}
+			}
+		}
+	}
+	for _, name := range requested {
+		walk(name)
+	}
+	return needed
+}
 
 func resolveRepo(dir string) (string, error) {
 	out, err := exec.Command("git", "-C", dir, "remote", "get-url", "origin").Output()
@@ -411,6 +556,104 @@ func injectTmateStep(jobs map[string]interface{}, jobName string, afterStep int,
 	job["steps"] = newSteps
 
 	return nil
+}
+
+// waitForTmateSSH polls the job's logs until the tmate SSH connection string
+// appears, then returns the SSH target (e.g. "user@nyc1.tmate.io").
+func waitForTmateSSH(ctx context.Context, token, orgID, runID, jobKey string) (string, error) {
+	const pollInterval = 3 * time.Second
+	const timeout = 10 * time.Minute
+
+	tmatePattern := regexp.MustCompile(`SSH: ssh (\S+@\S+\.tmate\.io)`)
+	deadline := time.Now().Add(timeout)
+
+	const (
+		stateInit = iota
+		stateWaitingForJob
+		stateWaitingForStart
+		stateWaitingForLogs
+	)
+	currentState := stateInit
+
+	for {
+		if time.Now().After(deadline) {
+			return "", fmt.Errorf("timed out waiting for tmate session (waited %s)", timeout)
+		}
+
+		resp, err := api.CIGetRunStatus(ctx, token, orgID, runID)
+		if err != nil {
+			return "", fmt.Errorf("failed to get run status: %w", err)
+		}
+
+		targetJob, err := findJob(resp, jobKey, "")
+		if err != nil {
+			if isRetryableJobError(err) {
+				if resp.Status == "finished" || resp.Status == "failed" || resp.Status == "cancelled" {
+					return "", fmt.Errorf("%s (run status: %s)", err, resp.Status)
+				}
+				if currentState != stateWaitingForJob {
+					fmt.Fprintf(os.Stderr, "Waiting for job to be created...\n")
+					currentState = stateWaitingForJob
+				}
+				select {
+				case <-ctx.Done():
+					return "", ctx.Err()
+				case <-time.After(pollInterval):
+				}
+				continue
+			}
+			return "", err
+		}
+
+		// Latch the resolved job key so subsequent polls use exact matching.
+		jobKey = targetJob.JobKey
+
+		attempt := latestAttempt(targetJob)
+		if attempt == nil {
+			if currentState != stateWaitingForStart {
+				fmt.Fprintf(os.Stderr, "Waiting for job %q to start...\n", targetJob.JobKey)
+				currentState = stateWaitingForStart
+			}
+		} else {
+			switch attempt.Status {
+			case "finished", "failed", "cancelled":
+				return "", fmt.Errorf("job %q completed before tmate session started (status: %s)", targetJob.JobKey, attempt.Status)
+			default:
+				lines, err := api.CIGetJobAttemptLogs(ctx, token, orgID, attempt.AttemptId)
+				if err == nil {
+					for _, line := range lines {
+						if matches := tmatePattern.FindStringSubmatch(line.Body); matches != nil {
+							return matches[1], nil
+						}
+					}
+				}
+				if currentState != stateWaitingForLogs {
+					fmt.Fprintf(os.Stderr, "Waiting for tmate session in logs...\n")
+					currentState = stateWaitingForLogs
+				}
+			}
+		}
+
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		case <-time.After(pollInterval):
+		}
+	}
+}
+
+// execSSH runs an interactive SSH session to the given target (user@host).
+func execSSH(target string) error {
+	cmd := exec.Command("ssh",
+		"-t",
+		"-o", "StrictHostKeyChecking=no",
+		"-o", "UserKnownHostsFile=/dev/null",
+		target,
+	)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
 }
 
 // validStatuses are the user-facing status names accepted by --status.

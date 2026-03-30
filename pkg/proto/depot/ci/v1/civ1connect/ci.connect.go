@@ -23,6 +23,8 @@ const _ = connect.IsAtLeastVersion0_1_0
 const (
 	// CIServiceName is the fully-qualified name of the CIService service.
 	CIServiceName = "depot.ci.v1.CIService"
+	// MigrationServiceName is the fully-qualified name of the MigrationService service.
+	MigrationServiceName = "depot.ci.v1.MigrationService"
 )
 
 // These constants are the fully-qualified names of the RPCs defined in this package. They're
@@ -42,6 +44,12 @@ const (
 	CIServiceGetJobAttemptLogsProcedure = "/depot.ci.v1.CIService/GetJobAttemptLogs"
 	// CIServiceListRunsProcedure is the fully-qualified name of the CIService's ListRuns RPC.
 	CIServiceListRunsProcedure = "/depot.ci.v1.CIService/ListRuns"
+	// MigrationServiceGetInstallationProcedure is the fully-qualified name of the MigrationService's
+	// GetInstallation RPC.
+	MigrationServiceGetInstallationProcedure = "/depot.ci.v1.MigrationService/GetInstallation"
+	// MigrationServiceImportSecretsAndVarsProcedure is the fully-qualified name of the
+	// MigrationService's ImportSecretsAndVars RPC.
+	MigrationServiceImportSecretsAndVarsProcedure = "/depot.ci.v1.MigrationService/ImportSecretsAndVars"
 )
 
 // CIServiceClient is a client for the depot.ci.v1.CIService service.
@@ -188,4 +196,94 @@ func (UnimplementedCIServiceHandler) GetJobAttemptLogs(context.Context, *connect
 
 func (UnimplementedCIServiceHandler) ListRuns(context.Context, *connect.Request[v1.ListRunsRequest]) (*connect.Response[v1.ListRunsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.ci.v1.CIService.ListRuns is not implemented"))
+}
+
+// MigrationServiceClient is a client for the depot.ci.v1.MigrationService service.
+type MigrationServiceClient interface {
+	GetInstallation(context.Context, *connect.Request[v1.GetInstallationRequest]) (*connect.Response[v1.GetInstallationResponse], error)
+	ImportSecretsAndVars(context.Context, *connect.Request[v1.ImportSecretsAndVarsRequest]) (*connect.Response[v1.ImportSecretsAndVarsResponse], error)
+}
+
+// NewMigrationServiceClient constructs a client for the depot.ci.v1.MigrationService service. By
+// default, it uses the Connect protocol with the binary Protobuf Codec, asks for gzipped responses,
+// and sends uncompressed requests. To use the gRPC or gRPC-Web protocols, supply the
+// connect.WithGRPC() or connect.WithGRPCWeb() options.
+//
+// The URL supplied here should be the base URL for the Connect or gRPC server (for example,
+// http://api.acme.com or https://acme.com/grpc).
+func NewMigrationServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) MigrationServiceClient {
+	baseURL = strings.TrimRight(baseURL, "/")
+	return &migrationServiceClient{
+		getInstallation: connect.NewClient[v1.GetInstallationRequest, v1.GetInstallationResponse](
+			httpClient,
+			baseURL+MigrationServiceGetInstallationProcedure,
+			opts...,
+		),
+		importSecretsAndVars: connect.NewClient[v1.ImportSecretsAndVarsRequest, v1.ImportSecretsAndVarsResponse](
+			httpClient,
+			baseURL+MigrationServiceImportSecretsAndVarsProcedure,
+			opts...,
+		),
+	}
+}
+
+// migrationServiceClient implements MigrationServiceClient.
+type migrationServiceClient struct {
+	getInstallation      *connect.Client[v1.GetInstallationRequest, v1.GetInstallationResponse]
+	importSecretsAndVars *connect.Client[v1.ImportSecretsAndVarsRequest, v1.ImportSecretsAndVarsResponse]
+}
+
+// GetInstallation calls depot.ci.v1.MigrationService.GetInstallation.
+func (c *migrationServiceClient) GetInstallation(ctx context.Context, req *connect.Request[v1.GetInstallationRequest]) (*connect.Response[v1.GetInstallationResponse], error) {
+	return c.getInstallation.CallUnary(ctx, req)
+}
+
+// ImportSecretsAndVars calls depot.ci.v1.MigrationService.ImportSecretsAndVars.
+func (c *migrationServiceClient) ImportSecretsAndVars(ctx context.Context, req *connect.Request[v1.ImportSecretsAndVarsRequest]) (*connect.Response[v1.ImportSecretsAndVarsResponse], error) {
+	return c.importSecretsAndVars.CallUnary(ctx, req)
+}
+
+// MigrationServiceHandler is an implementation of the depot.ci.v1.MigrationService service.
+type MigrationServiceHandler interface {
+	GetInstallation(context.Context, *connect.Request[v1.GetInstallationRequest]) (*connect.Response[v1.GetInstallationResponse], error)
+	ImportSecretsAndVars(context.Context, *connect.Request[v1.ImportSecretsAndVarsRequest]) (*connect.Response[v1.ImportSecretsAndVarsResponse], error)
+}
+
+// NewMigrationServiceHandler builds an HTTP handler from the service implementation. It returns the
+// path on which to mount the handler and the handler itself.
+//
+// By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
+// and JSON codecs. They also support gzip compression.
+func NewMigrationServiceHandler(svc MigrationServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
+	migrationServiceGetInstallationHandler := connect.NewUnaryHandler(
+		MigrationServiceGetInstallationProcedure,
+		svc.GetInstallation,
+		opts...,
+	)
+	migrationServiceImportSecretsAndVarsHandler := connect.NewUnaryHandler(
+		MigrationServiceImportSecretsAndVarsProcedure,
+		svc.ImportSecretsAndVars,
+		opts...,
+	)
+	return "/depot.ci.v1.MigrationService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case MigrationServiceGetInstallationProcedure:
+			migrationServiceGetInstallationHandler.ServeHTTP(w, r)
+		case MigrationServiceImportSecretsAndVarsProcedure:
+			migrationServiceImportSecretsAndVarsHandler.ServeHTTP(w, r)
+		default:
+			http.NotFound(w, r)
+		}
+	})
+}
+
+// UnimplementedMigrationServiceHandler returns CodeUnimplemented from all methods.
+type UnimplementedMigrationServiceHandler struct{}
+
+func (UnimplementedMigrationServiceHandler) GetInstallation(context.Context, *connect.Request[v1.GetInstallationRequest]) (*connect.Response[v1.GetInstallationResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.ci.v1.MigrationService.GetInstallation is not implemented"))
+}
+
+func (UnimplementedMigrationServiceHandler) ImportSecretsAndVars(context.Context, *connect.Request[v1.ImportSecretsAndVarsRequest]) (*connect.Response[v1.ImportSecretsAndVarsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.ci.v1.MigrationService.ImportSecretsAndVars is not implemented"))
 }

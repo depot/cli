@@ -128,10 +128,9 @@ var TriggerRules = map[string]CompatibilityRule{
 		Suggestion: "Remove this trigger or use a webhook-based alternative.",
 	},
 	"merge_group": {
-		Feature:    "merge_group",
-		Supported:  Unsupported,
-		Note:       "Merge group events are not supported.",
-		Suggestion: "Remove this trigger or use a webhook-based alternative.",
+		Feature:   "merge_group",
+		Supported: Supported,
+		Note:      "Merge group events are supported.",
 	},
 	"milestone": {
 		Feature:    "milestone",
@@ -277,16 +276,14 @@ var JobFeatureRules = map[string]CompatibilityRule{
 		Suggestion: "Move environment-specific logic into variables and conditional steps.",
 	},
 	"concurrency": {
-		Feature:    "concurrency",
-		Supported:  InProgress,
-		Note:       "Concurrency support is in progress.",
-		Suggestion: "Avoid relying on concurrency groups until support is complete.",
+		Feature:   "concurrency",
+		Supported: Supported,
+		Note:      "Concurrency is supported",
 	},
 	"permissions": {
-		Feature:    "permissions",
-		Supported:  Partial,
-		Note:       "Permissions are supported except OIDC-related id-token scopes.",
-		Suggestion: "Avoid id-token and OIDC-dependent workflows for now.",
+		Feature:   "permissions",
+		Supported: Supported,
+		Note:      "Permissions are supported with Depot-issued OIDC id-tokens.",
 	},
 	"services": {
 		Feature:   "services",
@@ -437,10 +434,9 @@ var ExpressionRules = map[string]CompatibilityRule{
 		Note:      "The cancelled() function is supported.",
 	},
 	"hashFiles()": {
-		Feature:    "hashFiles()",
-		Supported:  InProgress,
-		Note:       "The hashFiles() function is in progress.",
-		Suggestion: "Use deterministic cache keys without hashFiles() until support is complete.",
+		Feature:   "hashFiles()",
+		Supported: Supported,
+		Note:      "The hashFiles() function is supported.",
 	},
 	"contains()": {
 		Feature:   "contains()",
