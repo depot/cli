@@ -12,6 +12,8 @@ import (
 	corev1 "github.com/depot/cli/pkg/proto/depot/core/v1"
 )
 
+var ErrNoOrganizations = errors.New("no organizations found")
+
 type Organization struct {
 	OrgId string
 	Name  string
@@ -46,7 +48,7 @@ func SelectOrganization() (*Organization, error) {
 	}
 
 	if len(organizations) == 0 {
-		return nil, fmt.Errorf("no organizations found")
+		return nil, ErrNoOrganizations
 	}
 
 	if len(organizations) == 1 {
