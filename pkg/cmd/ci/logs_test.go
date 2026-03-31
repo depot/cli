@@ -314,6 +314,79 @@ func TestJobDisplayNames_NoColon(t *testing.T) {
 	}
 }
 
+func TestFindLogsJob_SegmentMatch_ReusableWorkflow(t *testing.T) {
+	// Reusable workflow: user passes "bazel" but key is "pr.yaml:bazel:build"
+	resp := &civ1.GetRunStatusResponse{
+		RunId: "run-1",
+		Workflows: []*civ1.WorkflowStatus{
+			{
+				WorkflowPath: ".depot/workflows/pr.yaml",
+				Jobs: []*civ1.JobStatus{
+					{JobId: "job-1", JobKey: "pr.yaml:detect_changes:build", Status: "finished"},
+					{JobId: "job-2", JobKey: "pr.yaml:bazel:build", Status: "running"},
+					{JobId: "job-3", JobKey: "pr.yaml:test_dashboard:test", Status: "queued"},
+				},
+			},
+		},
+	}
+
+	job, _, err := findLogsJob(resp, "run-1", "bazel", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if job.JobId != "job-2" {
+		t.Fatalf("expected job ID %q, got %q", "job-2", job.JobId)
+	}
+}
+
+func TestFindLogsJob_SegmentMatch_InlineWorkflow(t *testing.T) {
+	// CLI-triggered run: key is "_inline_0.yaml:bazel:build"
+	resp := &civ1.GetRunStatusResponse{
+		RunId: "run-1",
+		Workflows: []*civ1.WorkflowStatus{
+			{
+				WorkflowPath: "",
+				Jobs: []*civ1.JobStatus{
+					{JobId: "job-1", JobKey: "_inline_0.yaml:bazel:build", Status: "running"},
+				},
+			},
+		},
+	}
+
+	job, _, err := findLogsJob(resp, "run-1", "bazel", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if job.JobId != "job-1" {
+		t.Fatalf("expected job ID %q, got %q", "job-1", job.JobId)
+	}
+}
+
+func TestFindLogsJob_ShortPreferredOverSegment(t *testing.T) {
+	// Short name match should take priority over segment match
+	resp := &civ1.GetRunStatusResponse{
+		RunId: "run-1",
+		Workflows: []*civ1.WorkflowStatus{
+			{
+				WorkflowPath: ".depot/workflows/ci.yml",
+				Jobs: []*civ1.JobStatus{
+					{JobId: "job-segment", JobKey: "ci.yml:build:test", Status: "running"},
+					{JobId: "job-short", JobKey: "ci.yml:build", Status: "running"},
+				},
+			},
+		},
+	}
+
+	// "build" short-matches "ci.yml:build" and segment-matches "ci.yml:build:test"
+	job, _, err := findLogsJob(resp, "run-1", "build", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if job.JobId != "job-short" {
+		t.Fatalf("expected short match (job-short), got %q", job.JobId)
+	}
+}
+
 func TestJobKeyShort_MultipleColons(t *testing.T) {
 	got := jobKeyShort("ci.yml:foo:bar")
 	if got != "foo:bar" {

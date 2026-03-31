@@ -217,21 +217,20 @@ func findLogsJob(resp *civ1.GetRunStatusResponse, originalID, jobKey, workflowFi
 		return nil, "", fmt.Errorf("run %s has no jobs", resp.RunId)
 	}
 
-	// Match by job key (--job flag): exact match on full key or short name.
+	// Match by job key (--job flag): exact > suffix > segment, best tier wins.
 	if jobKey != "" {
-		var exact, short []jobCandidate
+		bestTier := 0
+		tierMatches := map[int][]jobCandidate{}
 		for _, c := range candidates {
-			if c.job.JobKey == jobKey {
-				exact = append(exact, c)
-			} else if jobKeyShort(c.job.JobKey) == jobKey {
-				short = append(short, c)
+			if tier := matchJobKey(c.job.JobKey, jobKey); tier > 0 {
+				tierMatches[tier] = append(tierMatches[tier], c)
+				if bestTier == 0 || tier < bestTier {
+					bestTier = tier
+				}
 			}
 		}
 
-		matches := exact
-		if len(matches) == 0 {
-			matches = short
-		}
+		matches := tierMatches[bestTier]
 
 		displayNames := jobDisplayNames(candidates)
 		switch len(matches) {
