@@ -183,7 +183,7 @@ func TestFindJob_AutoSelect(t *testing.T) {
 
 func TestFindJob_NoJobs(t *testing.T) {
 	resp := &civ1.GetRunStatusResponse{
-		RunId: "run-1",
+		RunId:     "run-1",
 		Workflows: []*civ1.WorkflowStatus{},
 	}
 
