@@ -217,21 +217,20 @@ func findLogsJob(resp *civ1.GetRunStatusResponse, originalID, jobKey, workflowFi
 		return nil, "", fmt.Errorf("run %s has no jobs", resp.RunId)
 	}
 
-	// Match by job key (--job flag): exact match on full key or short name.
+	// Match by job key (--job flag): exact > suffix > segment, best tier wins.
 	if jobKey != "" {
-		var exact, short []jobCandidate
+		bestTier := 0
+		tierMatches := map[int][]jobCandidate{}
 		for _, c := range candidates {
-			if c.job.JobKey == jobKey {
-				exact = append(exact, c)
-			} else if jobKeyShort(c.job.JobKey) == jobKey {
-				short = append(short, c)
+			if tier := matchJobKey(c.job.JobKey, jobKey); tier > 0 {
+				tierMatches[tier] = append(tierMatches[tier], c)
+				if bestTier == 0 || tier < bestTier {
+					bestTier = tier
+				}
 			}
 		}
 
-		matches := exact
-		if len(matches) == 0 {
-			matches = short
-		}
+		matches := tierMatches[bestTier]
 
 		displayNames := jobDisplayNames(candidates)
 		switch len(matches) {
@@ -244,12 +243,23 @@ func findLogsJob(resp *civ1.GetRunStatusResponse, originalID, jobKey, workflowFi
 		case 1:
 			return matches[0].job, matches[0].workflowPath, nil
 		default:
-			// Same job key in multiple workflows — need --workflow.
-			var paths []string
+			// Check if ambiguity is cross-workflow or within a single workflow.
+			uniquePaths := map[string]struct{}{}
 			for _, m := range matches {
-				paths = append(paths, m.workflowPath)
+				uniquePaths[m.workflowPath] = struct{}{}
 			}
-			return nil, "", fmt.Errorf("job %q exists in multiple workflows, specify one with --workflow: %s", jobKey, strings.Join(paths, ", "))
+			if len(uniquePaths) > 1 {
+				paths := make([]string, 0, len(uniquePaths))
+				for path := range uniquePaths {
+					paths = append(paths, path)
+				}
+				return nil, "", fmt.Errorf("job %q exists in multiple workflows, specify one with --workflow: %s", jobKey, strings.Join(paths, ", "))
+			}
+			keys := make([]string, len(matches))
+			for i, m := range matches {
+				keys[i] = displayNames[m.job.JobKey]
+			}
+			return nil, "", fmt.Errorf("job %q matches multiple jobs, use a more specific --job value: %s", jobKey, strings.Join(keys, ", "))
 		}
 	}
 

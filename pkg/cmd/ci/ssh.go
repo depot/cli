@@ -208,22 +208,31 @@ func findJob(resp *civ1.GetRunStatusResponse, jobKey, originalID string) (*civ1.
 		return nil, &retryableJobError{msg: fmt.Sprintf("run %s has no jobs yet", resp.RunId)}
 	}
 
-	// Match by job key (--job flag).
+	// Match by job key (--job flag), preferring exact > suffix > segment matches.
 	if jobKey != "" {
+		bestTier := 0
+		tierMatches := map[int][]*civ1.JobStatus{}
 		for _, j := range allJobs {
-			if j.JobKey == jobKey {
-				return j, nil
+			if tier := matchJobKey(j.JobKey, jobKey); tier > 0 {
+				tierMatches[tier] = append(tierMatches[tier], j)
+				if bestTier == 0 || tier < bestTier {
+					bestTier = tier
+				}
 			}
 		}
-		// Inline workflows get prefixed keys (e.g. "_inline_0.yaml:lint_typecheck"),
-		// so fall back to a suffix match when the user passes just the job name.
-		for _, j := range allJobs {
-			if strings.HasSuffix(j.JobKey, ":"+jobKey) {
-				return j, nil
-			}
+		matches := tierMatches[bestTier]
+		if len(matches) == 0 {
+			// Job might not exist yet if workflows are still being expanded.
+			return nil, &retryableJobError{msg: fmt.Sprintf("job %q not found yet", jobKey)}
 		}
-		// Job might not exist yet if workflows are still being expanded.
-		return nil, &retryableJobError{msg: fmt.Sprintf("job %q not found yet", jobKey)}
+		if len(matches) > 1 {
+			keys := make([]string, len(matches))
+			for i, j := range matches {
+				keys[i] = j.JobKey
+			}
+			fmt.Fprintf(os.Stderr, "Note: %q matched multiple jobs (%s), using %s\n", jobKey, strings.Join(keys, ", "), matches[0].JobKey)
+		}
+		return matches[0], nil
 	}
 
 	// Match by job ID (user passed a job ID as the positional arg).
@@ -268,6 +277,28 @@ func workflowErrorMessage(resp *civ1.GetRunStatusResponse) string {
 		}
 	}
 	return ""
+}
+
+// matchJobKey returns the match tier of userKey against the full jobKey.
+// Returns 0 for no match. Lower non-zero values are higher priority:
+//
+//	1 = exact match ("build" == "build")
+//	2 = suffix match ("_inline_0.yaml:build" ends with ":build")
+//	3 = segment match ("pr.yaml:bazel:build" contains ":bazel:" as a segment)
+func matchJobKey(jobKey, userKey string) int {
+	if jobKey == userKey {
+		return 1
+	}
+	if strings.HasSuffix(jobKey, ":"+userKey) {
+		return 2
+	}
+	// Check if userKey appears as a complete colon-delimited segment anywhere
+	// in the key. Handles reusable workflow keys like "pr.yaml:bazel:build"
+	// where "bazel" is an intermediate segment.
+	if strings.Contains(":"+jobKey+":", ":"+userKey+":") {
+		return 3
+	}
+	return 0
 }
 
 func printSSHInfo(sandboxID, sessionID, output string) error {
