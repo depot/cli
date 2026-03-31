@@ -249,9 +249,9 @@ func findLogsJob(resp *civ1.GetRunStatusResponse, originalID, jobKey, workflowFi
 				uniquePaths[m.workflowPath] = struct{}{}
 			}
 			if len(uniquePaths) > 1 {
-				var paths []string
-				for _, m := range matches {
-					paths = append(paths, m.workflowPath)
+				paths := make([]string, 0, len(uniquePaths))
+				for path := range uniquePaths {
+					paths = append(paths, path)
 				}
 				return nil, "", fmt.Errorf("job %q exists in multiple workflows, specify one with --workflow: %s", jobKey, strings.Join(paths, ", "))
 			}
