@@ -1,6 +1,7 @@
 package ci
 
 import (
+	"strings"
 	"testing"
 
 	civ1 "github.com/depot/cli/pkg/proto/depot/ci/v1"
@@ -359,6 +360,34 @@ func TestFindLogsJob_SegmentMatch_InlineWorkflow(t *testing.T) {
 	}
 	if job.JobId != "job-1" {
 		t.Fatalf("expected job ID %q, got %q", "job-1", job.JobId)
+	}
+}
+
+func TestFindLogsJob_SegmentMatch_AmbiguousSameWorkflow(t *testing.T) {
+	// Parent job expands to multiple nested jobs within the same workflow.
+	// Error should suggest a more specific --job, not --workflow.
+	resp := &civ1.GetRunStatusResponse{
+		RunId: "run-1",
+		Workflows: []*civ1.WorkflowStatus{
+			{
+				WorkflowPath: ".depot/workflows/ci.yml",
+				Jobs: []*civ1.JobStatus{
+					{JobId: "job-1", JobKey: "ci.yml:backend:build", Status: "running"},
+					{JobId: "job-2", JobKey: "ci.yml:backend:test", Status: "running"},
+				},
+			},
+		},
+	}
+
+	_, _, err := findLogsJob(resp, "run-1", "backend", "")
+	if err == nil {
+		t.Fatal("expected error for ambiguous segment match")
+	}
+	if strings.Contains(err.Error(), "--workflow") {
+		t.Fatalf("error should suggest --job, not --workflow: %v", err)
+	}
+	if !strings.Contains(err.Error(), "more specific --job") {
+		t.Fatalf("expected 'more specific --job' hint, got: %v", err)
 	}
 }
 

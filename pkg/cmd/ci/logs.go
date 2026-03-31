@@ -243,12 +243,23 @@ func findLogsJob(resp *civ1.GetRunStatusResponse, originalID, jobKey, workflowFi
 		case 1:
 			return matches[0].job, matches[0].workflowPath, nil
 		default:
-			// Same job key in multiple workflows — need --workflow.
-			var paths []string
+			// Check if ambiguity is cross-workflow or within a single workflow.
+			uniquePaths := map[string]struct{}{}
 			for _, m := range matches {
-				paths = append(paths, m.workflowPath)
+				uniquePaths[m.workflowPath] = struct{}{}
 			}
-			return nil, "", fmt.Errorf("job %q exists in multiple workflows, specify one with --workflow: %s", jobKey, strings.Join(paths, ", "))
+			if len(uniquePaths) > 1 {
+				var paths []string
+				for _, m := range matches {
+					paths = append(paths, m.workflowPath)
+				}
+				return nil, "", fmt.Errorf("job %q exists in multiple workflows, specify one with --workflow: %s", jobKey, strings.Join(paths, ", "))
+			}
+			keys := make([]string, len(matches))
+			for i, m := range matches {
+				keys[i] = displayNames[m.job.JobKey]
+			}
+			return nil, "", fmt.Errorf("job %q matches multiple jobs, use a more specific --job value: %s", jobKey, strings.Join(keys, ", "))
 		}
 	}
 
