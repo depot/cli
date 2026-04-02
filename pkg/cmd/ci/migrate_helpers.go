@@ -110,14 +110,27 @@ func detectVariablesFromWorkflows(workflows []*migrate.WorkflowFile) ([]string, 
 }
 
 // detectRepoFromGitRemote attempts to extract owner/repo from a GitHub remote URL.
-// It checks all configured remotes for a GitHub URL.
+// It checks "origin" first; if origin is a GitHub URL, it is used immediately.
+// Otherwise, it falls back to checking all remotes in the order returned by git.
 func detectRepoFromGitRemote(dir string) string {
+	// Check origin first — it's the most common convention.
+	originURL, err := exec.Command("git", "-C", dir, "remote", "get-url", "origin").Output()
+	if err == nil {
+		if repo := parseGitHubRepo(strings.TrimSpace(string(originURL))); repo != "" {
+			return repo
+		}
+	}
+
+	// Fall back to scanning all remotes.
 	cmd := exec.Command("git", "-C", dir, "remote")
 	out, err := cmd.Output()
 	if err != nil {
 		return ""
 	}
 	for _, name := range strings.Fields(string(out)) {
+		if name == "origin" {
+			continue // already checked
+		}
 		urlCmd := exec.Command("git", "-C", dir, "remote", "get-url", name)
 		urlOut, err := urlCmd.Output()
 		if err != nil {

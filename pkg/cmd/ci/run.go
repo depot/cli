@@ -31,6 +31,7 @@ func NewCmdRun() *cobra.Command {
 		jobNames     []string
 		sshAfterStep int
 		ssh          bool
+		repoFlag     string
 	)
 
 	cmd := &cobra.Command{
@@ -141,16 +142,21 @@ This command is in beta and subject to change.`,
 				}
 			}
 
-			// Resolve repo from git remote
+			// Resolve repo from git remote (or --repo flag)
 			workflowDir := filepath.Dir(workflowPath)
 			if !filepath.IsAbs(workflowDir) {
 				cwd, _ := os.Getwd()
 				workflowDir = filepath.Join(cwd, workflowDir)
 			}
 
-			repo, err := resolveRepo(workflowDir)
-			if err != nil {
-				return fmt.Errorf("failed to resolve repo: %w", err)
+			var repo string
+			if repoFlag != "" {
+				repo = repoFlag
+			} else {
+				repo = detectRepoFromGitRemote(workflowDir)
+				if repo == "" {
+					return fmt.Errorf("failed to resolve repo from git remotes; use --repo owner/repo to specify manually")
+				}
 			}
 
 			// Detect local changes as a patch
@@ -273,6 +279,7 @@ This command is in beta and subject to change.`,
 	cmd.Flags().StringSliceVar(&jobNames, "job", nil, "Job name(s) to run (repeatable; omit to run all)")
 	cmd.Flags().IntVar(&sshAfterStep, "ssh-after-step", 0, "1-based step index to insert a tmate debug step after (requires single --job)")
 	cmd.Flags().BoolVar(&ssh, "ssh", false, "Start the run and connect to the job's sandbox via interactive terminal (requires single --job)")
+	cmd.Flags().StringVar(&repoFlag, "repo", "", "GitHub repository (owner/repo) to use instead of detecting from git remotes")
 
 	cmd.AddCommand(NewCmdRunList())
 
@@ -364,8 +371,6 @@ func detectPatch(workflowDir string) *patchInfo {
 	}
 }
 
-var repoPattern = regexp.MustCompile(`[/:]([^/:]+/[^/.]+?)(?:\.git)?$`)
-
 // resolveJobDeps returns the set of job names that must be included to satisfy
 // the transitive `needs` dependencies of the requested jobs.
 func resolveJobDeps(allJobs map[string]interface{}, requested []string) map[string]struct{} {
@@ -399,20 +404,6 @@ func resolveJobDeps(allJobs map[string]interface{}, requested []string) map[stri
 		walk(name)
 	}
 	return needed
-}
-
-func resolveRepo(dir string) (string, error) {
-	out, err := exec.Command("git", "-C", dir, "remote", "get-url", "origin").Output()
-	if err != nil {
-		return "", fmt.Errorf("failed to get git remote URL: %w", err)
-	}
-	url := strings.TrimSpace(string(out))
-
-	matches := repoPattern.FindStringSubmatch(url)
-	if matches == nil {
-		return "", fmt.Errorf("could not parse repo from remote URL: %s", url)
-	}
-	return matches[1], nil
 }
 
 func injectPatchStep(jobs map[string]interface{}, jobName, mergeBase, cacheKey string) {
