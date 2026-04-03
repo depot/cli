@@ -671,6 +671,47 @@ jobs:
 	}
 }
 
+func TestTransformWorkflow_RewritesYAMLComments(t *testing.T) {
+	raw := []byte(`name: CI
+on: push
+jobs:
+  build:
+    runs-on: depot-ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Run the setup from .github/actions/setup
+      - uses: ./.github/actions/setup # local action at .github/actions/setup
+`)
+
+	wf := &migrate.WorkflowFile{
+		Path:     ".github/workflows/ci.yml",
+		Name:     "CI",
+		Triggers: []string{"push"},
+		Jobs: []migrate.JobInfo{
+			{Name: "build", RunsOn: "depot-ubuntu-latest"},
+		},
+	}
+	report := compat.AnalyzeWorkflow(wf)
+
+	result, err := TransformWorkflow(raw, wf, report, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	content := string(result.Content)
+	// Head comment should be rewritten
+	if strings.Contains(content, "# Run the setup from .github/actions/setup") {
+		t.Errorf("expected head comment .github/ path rewritten, got:\n%s", content)
+	}
+	if !strings.Contains(content, ".depot/actions/setup") {
+		t.Errorf("expected .depot/actions/setup in comments, got:\n%s", content)
+	}
+	// Line comment should be rewritten
+	if strings.Contains(content, "# local action at .github/actions/setup") {
+		t.Errorf("expected line comment .github/ path rewritten, got:\n%s", content)
+	}
+}
+
 func TestTransformWorkflow_ExpressionExpandedPaths(t *testing.T) {
 	raw := []byte(`name: CI
 on: push
@@ -1143,6 +1184,21 @@ runs:
 	cleanContent, _ := os.ReadFile(filepath.Join(cleanDir, "action.yml"))
 	if string(cleanContent) != clean {
 		t.Errorf("expected clean file unchanged, got:\n%s", cleanContent)
+	}
+
+	// Verify symlinks are skipped: create a symlink and confirm it's not followed
+	symlinkTarget := filepath.Join(actionDir, "action.yml")
+	symlinkPath := filepath.Join(cleanDir, "link.yml")
+	if err := os.Symlink(symlinkTarget, symlinkPath); err != nil {
+		t.Fatal(err)
+	}
+	// Re-run after adding symlink — count should stay at 0 since action.yml is already rewritten
+	rewritten2, err := RewriteGitHubPathsInDir(dir, nil)
+	if err != nil {
+		t.Fatalf("unexpected error on second pass: %v", err)
+	}
+	if rewritten2 != 0 {
+		t.Errorf("expected 0 files rewritten on second pass (symlink should be skipped), got %d", rewritten2)
 	}
 }
 

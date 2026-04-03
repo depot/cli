@@ -325,15 +325,30 @@ func transformRunsOnNode(node *yaml.Node, jobName string) []ChangeRecord {
 	return changes
 }
 
-// transformGitHubPaths walks all scalar nodes and rewrites local .github/ references to .depot/.
+// transformGitHubPaths walks all nodes and rewrites local .github/ references to .depot/
+// in both scalar values and YAML comments (HeadComment, LineComment, FootComment).
 // Remote references like org/repo/.github/workflows/reusable.yml@ref are left untouched.
 func transformGitHubPaths(node *yaml.Node, migratedWorkflows map[string]bool) []ChangeRecord {
 	rewrote := false
-	walkScalars(node, func(n *yaml.Node) {
-		rewritten, changed := rewriteGitHubPaths(n.Value, migratedWorkflows)
+	rewrite := func(s string) string {
+		result, changed := rewriteGitHubPaths(s, migratedWorkflows)
 		if changed {
-			n.Value = rewritten
 			rewrote = true
+		}
+		return result
+	}
+	walkNodes(node, func(n *yaml.Node) {
+		if n.Kind == yaml.ScalarNode {
+			n.Value = rewrite(n.Value)
+		}
+		if n.HeadComment != "" {
+			n.HeadComment = rewrite(n.HeadComment)
+		}
+		if n.LineComment != "" {
+			n.LineComment = rewrite(n.LineComment)
+		}
+		if n.FootComment != "" {
+			n.FootComment = rewrite(n.FootComment)
 		}
 	})
 	if !rewrote {
@@ -474,31 +489,33 @@ func isURL(s string, idx int) bool {
 	return false
 }
 
-// walkScalars recursively visits all scalar nodes in a YAML tree.
-func walkScalars(node *yaml.Node, fn func(*yaml.Node)) {
+// walkNodes recursively visits all nodes in a YAML tree.
+func walkNodes(node *yaml.Node, fn func(*yaml.Node)) {
 	if node == nil {
 		return
 	}
-	if node.Kind == yaml.ScalarNode {
-		fn(node)
-		return
-	}
+	fn(node)
 	for _, child := range node.Content {
-		walkScalars(child, fn)
+		walkNodes(child, fn)
 	}
 }
 
 // RewriteGitHubPathsInDir walks a directory and rewrites .github/ → .depot/ references
-// in all text files. Binary files are detected and skipped. Original file permissions
+// in all text files. Binary files and symlinks are skipped. Original file permissions
 // are preserved. This is used for copied action files that aren't processed through
 // the full YAML transform pipeline.
+//
+// migratedWorkflows controls workflow path filtering — pass nil to rewrite all
+// .github/workflows/ references (full migration), or a set of relative filenames
+// (e.g., {"ci.yml": true}) to only rewrite references to those specific workflows.
+// Actions (.github/actions/) are always rewritten regardless of this parameter.
 func RewriteGitHubPathsInDir(dir string, migratedWorkflows map[string]bool) (int, error) {
 	rewritten := 0
 	err := filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-		if d.IsDir() {
+		if d.IsDir() || d.Type()&os.ModeSymlink != 0 {
 			return nil
 		}
 
