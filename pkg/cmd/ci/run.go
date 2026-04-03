@@ -316,10 +316,8 @@ func findMergeBase(workflowDir string) (baseBranch string, mergeBase string, err
 		branch := strings.TrimSpace(string(branchOut))
 		if branch != "" && branch != "HEAD" { // not detached
 			remoteBranch := "origin/" + branch
-			// Verify the remote branch exists
 			_, err := exec.Command("git", "-C", workflowDir, "rev-parse", "--verify", remoteBranch).Output()
 			if err == nil {
-				// Use merge-base to find common ancestor
 				shaOut, err := exec.Command("git", "-C", workflowDir, "merge-base", "HEAD", remoteBranch).Output()
 				if err == nil {
 					sha := strings.TrimSpace(string(shaOut))
@@ -327,6 +325,11 @@ func findMergeBase(workflowDir string) (baseBranch string, mergeBase string, err
 						return remoteBranch, sha, nil
 					}
 				}
+			}
+		} else if branch == "HEAD" {
+			// Detached HEAD: find the closest remote tracking ancestor
+			if ref, sha, err := findClosestRemoteAncestor(workflowDir); err == nil {
+				return ref, sha, nil
 			}
 		}
 	}
@@ -345,6 +348,61 @@ func findMergeBase(workflowDir string) (baseBranch string, mergeBase string, err
 	}
 
 	return defaultBranch, strings.TrimSpace(string(mergeBaseOut)), nil
+}
+
+// findClosestRemoteAncestor walks remote tracking refs to find the one
+// closest to HEAD (fewest commits between it and HEAD). This produces
+// smaller patches for detached-HEAD workflows like jj.
+func findClosestRemoteAncestor(workflowDir string) (refName string, sha string, err error) {
+	refsOut, err := exec.Command("git", "-C", workflowDir,
+		"for-each-ref", "refs/remotes/origin/", "--format=%(objectname) %(refname:short)").Output()
+	if err != nil {
+		return "", "", err
+	}
+
+	bestRef := ""
+	bestSHA := ""
+	bestDist := -1
+
+	for _, line := range strings.Split(strings.TrimSpace(string(refsOut)), "\n") {
+		parts := strings.SplitN(line, " ", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		refSHA, ref := parts[0], parts[1]
+
+		// Skip origin/HEAD (symbolic ref, not a real branch)
+		if ref == "origin/HEAD" {
+			continue
+		}
+
+		// Check if this ref is an ancestor of HEAD
+		err := exec.Command("git", "-C", workflowDir, "merge-base", "--is-ancestor", refSHA, "HEAD").Run()
+		if err != nil {
+			continue
+		}
+
+		// Count commits between this ref and HEAD
+		countOut, err := exec.Command("git", "-C", workflowDir, "rev-list", "--count", refSHA+"..HEAD").Output()
+		if err != nil {
+			continue
+		}
+
+		dist := 0
+		fmt.Sscanf(strings.TrimSpace(string(countOut)), "%d", &dist)
+
+		if bestDist < 0 || dist < bestDist {
+			bestDist = dist
+			bestRef = ref
+			bestSHA = refSHA
+		}
+	}
+
+	if bestRef == "" {
+		return "", "", fmt.Errorf("no remote ancestor found")
+	}
+
+	return bestRef, bestSHA, nil
 }
 
 func detectPatch(workflowDir string) *patchInfo {
