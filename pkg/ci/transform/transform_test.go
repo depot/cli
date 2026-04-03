@@ -919,6 +919,12 @@ func TestRewriteGitHubPaths(t *testing.T) {
 			changed: false,
 		},
 		{
+			name:    "URL before shell delimiter does not block rewrite",
+			input:   "curl https://api.com/status;.github/actions/setup/run.sh",
+			want:    "curl https://api.com/status;.depot/actions/setup/run.sh",
+			changed: true,
+		},
+		{
 			name:    "subshell boundary rewritten",
 			input:   "$(.github/actions/setup/version.sh)",
 			want:    "$(.depot/actions/setup/version.sh)",

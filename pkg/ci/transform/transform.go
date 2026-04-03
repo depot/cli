@@ -463,7 +463,8 @@ func isPathChar(b byte) bool {
 func isURL(s string, idx int) bool {
 	for i := idx - 1; i >= 0; i-- {
 		c := s[i]
-		if c == ' ' || c == '\t' || c == '\n' || c == '"' || c == '\'' {
+		if c == ' ' || c == '\t' || c == '\n' || c == '"' || c == '\'' ||
+			c == ';' || c == '|' || c == '&' || c == '(' || c == ')' || c == '=' {
 			return false
 		}
 		if i >= 2 && s[i-2:i+1] == "://" {

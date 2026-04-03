@@ -532,14 +532,19 @@ func workflows(opts migrateOptions) error {
 		return fmt.Errorf("failed to copy GitHub CI files: %w", err)
 	}
 
-	// Build set of migrated workflow relative paths for selective rewriting
-	migratedWorkflows := make(map[string]bool)
-	for _, wf := range selectedWorkflows {
-		relPath, err := filepath.Rel(workflowsDir, wf.Path)
-		if err != nil {
-			return fmt.Errorf("failed to resolve relative path for %s: %w", wf.Path, err)
+	// Build set of migrated workflow relative paths for selective rewriting.
+	// When all workflows are selected, pass nil so all .github/workflows/ references
+	// (including bare directory refs) are rewritten.
+	var migratedWorkflows map[string]bool
+	if len(selectedWorkflows) < len(workflows) {
+		migratedWorkflows = make(map[string]bool, len(selectedWorkflows))
+		for _, wf := range selectedWorkflows {
+			relPath, err := filepath.Rel(workflowsDir, wf.Path)
+			if err != nil {
+				return fmt.Errorf("failed to resolve relative path for %s: %w", wf.Path, err)
+			}
+			migratedWorkflows[filepath.ToSlash(relPath)] = true
 		}
-		migratedWorkflows[filepath.ToSlash(relPath)] = true
 	}
 
 	// Rewrite .github/ references in copied action files
