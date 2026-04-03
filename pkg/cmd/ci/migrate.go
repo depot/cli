@@ -532,6 +532,29 @@ func workflows(opts migrateOptions) error {
 		return fmt.Errorf("failed to copy GitHub CI files: %w", err)
 	}
 
+	// Build set of migrated workflow relative paths for selective rewriting.
+	// When all workflows are selected, pass nil so all .github/workflows/ references
+	// (including bare directory refs) are rewritten.
+	var migratedWorkflows map[string]bool
+	if len(selectedWorkflows) < len(workflows) {
+		migratedWorkflows = make(map[string]bool, len(selectedWorkflows))
+		for _, wf := range selectedWorkflows {
+			relPath, err := filepath.Rel(workflowsDir, wf.Path)
+			if err != nil {
+				return fmt.Errorf("failed to resolve relative path for %s: %w", wf.Path, err)
+			}
+			migratedWorkflows[filepath.ToSlash(relPath)] = true
+		}
+	}
+
+	// Rewrite .github/ references in copied action files
+	depotActionsDir := filepath.Join(depotDir, "actions")
+	if info, err := os.Stat(depotActionsDir); err == nil && info.IsDir() {
+		if _, err := transform.RewriteGitHubPathsInDir(depotActionsDir, migratedWorkflows); err != nil {
+			return fmt.Errorf("failed to rewrite paths in action files: %w", err)
+		}
+	}
+
 	// Transform and write each workflow
 	depotWorkflowsDir := filepath.Join(depotDir, "workflows")
 	if err := os.MkdirAll(depotWorkflowsDir, 0755); err != nil {
@@ -552,7 +575,7 @@ func workflows(opts migrateOptions) error {
 		}
 
 		report := compat.AnalyzeWorkflow(wf)
-		result, err := transform.TransformWorkflow(raw, wf, report)
+		result, err := transform.TransformWorkflow(raw, wf, report, migratedWorkflows)
 		if err != nil {
 			return fmt.Errorf("failed to transform %s: %w", filepath.Base(wf.Path), err)
 		}

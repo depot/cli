@@ -3,12 +3,21 @@ package transform
 import (
 	"bytes"
 	"fmt"
+	"net/http"
+	"os"
+	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/depot/cli/pkg/ci/compat"
 	"github.com/depot/cli/pkg/ci/migrate"
 	"gopkg.in/yaml.v3"
 )
+
+func isBinary(data []byte) bool {
+	contentType := http.DetectContentType(data)
+	return !strings.HasPrefix(contentType, "text/")
+}
 
 // ChangeType categorizes a transformation change.
 type ChangeType int
@@ -17,6 +26,7 @@ const (
 	ChangeRunsOn         ChangeType = iota // runs-on label was remapped
 	ChangeTriggerRemoved                   // Unsupported trigger was removed
 	ChangeJobDisabled                      // Entire job was commented out
+	ChangePathRewritten                    // .github/ path was rewritten to .depot/
 )
 
 // ChangeRecord describes a single change made during transformation.
@@ -36,7 +46,10 @@ type TransformResult struct {
 // TransformWorkflow applies Depot CI migration transformations to a workflow.
 // It uses the parsed WorkflowFile for structural info and the CompatibilityReport
 // to identify issues, then transforms the raw YAML bytes.
-func TransformWorkflow(raw []byte, wf *migrate.WorkflowFile, report *compat.CompatibilityReport) (*TransformResult, error) {
+// migratedWorkflows is a set of workflow relative paths (e.g., "ci.yml") that were
+// selected for migration. When non-nil, only references to these workflows are rewritten.
+// When nil, all .github/workflows/ references are rewritten. Actions are always rewritten.
+func TransformWorkflow(raw []byte, wf *migrate.WorkflowFile, report *compat.CompatibilityReport, migratedWorkflows map[string]bool) (*TransformResult, error) {
 	var doc yaml.Node
 	if err := yaml.Unmarshal(raw, &doc); err != nil {
 		return nil, fmt.Errorf("failed to parse YAML: %w", err)
@@ -64,7 +77,11 @@ func TransformWorkflow(raw []byte, wf *migrate.WorkflowFile, report *compat.Comp
 	runsOnChanges := transformRunsOn(root, disabledJobs)
 	changes = append(changes, runsOnChanges...)
 
-	// 4. Marshal the node tree back to bytes
+	// 4. Rewrite .github/ path references to .depot/
+	pathChanges := transformGitHubPaths(root, migratedWorkflows)
+	changes = append(changes, pathChanges...)
+
+	// 5. Marshal the node tree back to bytes
 	var buf bytes.Buffer
 	enc := yaml.NewEncoder(&buf)
 	enc.SetIndent(2)
@@ -75,7 +92,7 @@ func TransformWorkflow(raw []byte, wf *migrate.WorkflowFile, report *compat.Comp
 
 	output := buf.Bytes()
 
-	// 5. Post-process: comment out disabled jobs in text
+	// 6. Post-process: comment out disabled jobs in text
 	if len(disabledJobs) > 0 {
 		var disableChanges []ChangeRecord
 		output, disableChanges = commentOutDisabledJobs(output, disabledJobs)
@@ -90,7 +107,7 @@ func TransformWorkflow(raw []byte, wf *migrate.WorkflowFile, report *compat.Comp
 		}
 	}
 
-	// 6. Prepend header comment
+	// 7. Prepend header comment
 	header := buildHeaderComment(wf, changes)
 	output = append([]byte(header), output...)
 
@@ -308,6 +325,228 @@ func transformRunsOnNode(node *yaml.Node, jobName string) []ChangeRecord {
 	return changes
 }
 
+// transformGitHubPaths walks all nodes and rewrites local .github/ references to .depot/
+// in both scalar values and YAML comments (HeadComment, LineComment, FootComment).
+// Remote references like org/repo/.github/workflows/reusable.yml@ref are left untouched.
+func transformGitHubPaths(node *yaml.Node, migratedWorkflows map[string]bool) []ChangeRecord {
+	rewrote := false
+	rewrite := func(s string) string {
+		result, changed := rewriteGitHubPaths(s, migratedWorkflows)
+		if changed {
+			rewrote = true
+		}
+		return result
+	}
+	walkNodes(node, func(n *yaml.Node) {
+		if n.Kind == yaml.ScalarNode {
+			n.Value = rewrite(n.Value)
+		}
+		if n.HeadComment != "" {
+			n.HeadComment = rewrite(n.HeadComment)
+		}
+		if n.LineComment != "" {
+			n.LineComment = rewrite(n.LineComment)
+		}
+		if n.FootComment != "" {
+			n.FootComment = rewrite(n.FootComment)
+		}
+	})
+	if !rewrote {
+		return nil
+	}
+	return []ChangeRecord{{
+		Type:   ChangePathRewritten,
+		Detail: "Rewrote .github/ path references to .depot/",
+	}}
+}
+
+var (
+	// githubPathRe matches .github/actions or .github/workflows references.
+	githubPathRe = regexp.MustCompile(`\.github/(actions|workflows)`)
+
+	// remoteRefRe matches owner/repo/.github/(actions|workflows) patterns.
+	// The char class [a-zA-Z0-9_.-] naturally excludes expression characters ($, {, }),
+	// so expression-expanded paths like "${{ workspace }}/.github/" won't match.
+	remoteRefRe = regexp.MustCompile(`[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+/\.github/(?:actions|workflows)`)
+
+	// pathTailRe captures a file path segment after a / delimiter, stopping at
+	// whitespace or shell metacharacters.
+	pathTailRe = regexp.MustCompile(`^[^\s"'();|&=]+`)
+)
+
+// rewriteGitHubPaths replaces local .github/{actions,workflows} references with
+// .depot/ equivalents in a single pass. Remote repo references (org/repo/.github/...),
+// URLs, and non-migrated .github/ files (dependabot.yml, CODEOWNERS, etc.) are preserved.
+//
+// migratedWorkflows controls workflow filtering: when non-nil, only references to
+// workflows in the set are rewritten. When nil, all workflow references are rewritten.
+// Actions are always rewritten (the entire .github/actions/ directory is copied).
+func rewriteGitHubPaths(s string, migratedWorkflows map[string]bool) (string, bool) {
+	candidates := githubPathRe.FindAllStringSubmatchIndex(s, -1)
+	if len(candidates) == 0 {
+		return s, false
+	}
+
+	remoteSpans := remoteRefRe.FindAllStringIndex(s, -1)
+
+	var b strings.Builder
+	last := 0
+	changed := false
+
+	for _, m := range candidates {
+		start, end := m[0], m[1]
+		subdir := s[m[2]:m[3]]
+
+		if !shouldRewrite(s, start, end, subdir, migratedWorkflows, remoteSpans) {
+			continue
+		}
+
+		b.WriteString(s[last:start])
+		b.WriteString(".depot/" + subdir)
+		last = end
+		changed = true
+	}
+
+	if !changed {
+		return s, false
+	}
+	b.WriteString(s[last:])
+	return b.String(), true
+}
+
+// boundaryChars are characters that can validly precede ".github/" as a path reference.
+// Prevents matching inside longer names like "myapp.github/actions".
+const boundaryChars = "/ \t\n\"'();|&="
+
+// shouldRewrite decides whether a .github/(actions|workflows) match at [start:end]
+// should be replaced with .depot/.
+func shouldRewrite(s string, start, end int, subdir string, migratedWorkflows map[string]bool, remoteSpans [][]int) bool {
+	if start > 0 && !strings.ContainsRune(boundaryChars, rune(s[start-1])) {
+		return false
+	}
+
+	// Must not continue into a longer dir name (e.g., ".github/actions-custom")
+	if end < len(s) && isPathChar(s[end]) {
+		return false
+	}
+
+	// Skip matches inside URLs. This is a procedural backward scan rather than a
+	// regex pre-pass because URL patterns overlap heavily with the paths we want to
+	// match, and a backward scan for "://" is simpler than managing overlapping spans.
+	if isURL(s, start) {
+		return false
+	}
+
+	// Skip remote repo refs (owner/repo/.github/...) detected by remoteRefRe.
+	// Deep filesystem paths (/home/.../repo/.github/) are distinguished by checking
+	// whether the match is preceded by /, which indicates a deeper path, not a remote ref.
+	for _, span := range remoteSpans {
+		if start >= span[0] && start < span[1] {
+			if span[0] == 0 || s[span[0]-1] != '/' {
+				return false
+			}
+		}
+	}
+
+	// Partial migration: for workflows, only rewrite references to selected files.
+	// Bare directory refs (e.g., "ls .github/workflows") are skipped when filtering
+	// is active since the directory still partially lives at .github/.
+	if subdir == "workflows" && migratedWorkflows != nil {
+		if end >= len(s) || s[end] != '/' {
+			return false
+		}
+		tail := pathTailRe.FindString(s[end+1:])
+		if tail == "" || !migratedWorkflows[tail] {
+			return false
+		}
+	}
+
+	return true
+}
+
+// isPathChar returns true for characters that can continue a directory name,
+// distinguishing ".github/actions/..." from ".github/actions-custom/...".
+func isPathChar(b byte) bool {
+	return (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') ||
+		(b >= '0' && b <= '9') || b == '-' || b == '_' || b == '.'
+}
+
+// isURL scans backward from idx to check if the .github/ match appears inside a
+// URL (contains "://" before the match within the same token). This is procedural
+// rather than a regex pre-pass because URL patterns overlap with the paths we're
+// rewriting, and a backward scan for "://" is simpler than managing span overlaps.
+func isURL(s string, idx int) bool {
+	for i := idx - 1; i >= 0; i-- {
+		c := s[i]
+		if c == ' ' || c == '\t' || c == '\n' || c == '"' || c == '\'' ||
+			c == ';' || c == '|' || c == '&' || c == '(' || c == ')' || c == '=' {
+			return false
+		}
+		if i >= 2 && s[i-2:i+1] == "://" {
+			return true
+		}
+	}
+	return false
+}
+
+// walkNodes recursively visits all nodes in a YAML tree.
+func walkNodes(node *yaml.Node, fn func(*yaml.Node)) {
+	if node == nil {
+		return
+	}
+	fn(node)
+	for _, child := range node.Content {
+		walkNodes(child, fn)
+	}
+}
+
+// RewriteGitHubPathsInDir walks a directory and rewrites .github/ → .depot/ references
+// in all text files. Binary files and symlinks are skipped. Original file permissions
+// are preserved. This is used for copied action files that aren't processed through
+// the full YAML transform pipeline.
+//
+// migratedWorkflows controls workflow path filtering — pass nil to rewrite all
+// .github/workflows/ references (full migration), or a set of relative filenames
+// (e.g., {"ci.yml": true}) to only rewrite references to those specific workflows.
+// Actions (.github/actions/) are always rewritten regardless of this parameter.
+func RewriteGitHubPathsInDir(dir string, migratedWorkflows map[string]bool) (int, error) {
+	rewritten := 0
+	err := filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() || d.Type()&os.ModeSymlink != 0 {
+			return nil
+		}
+
+		info, err := d.Info()
+		if err != nil {
+			return fmt.Errorf("failed to stat %s: %w", path, err)
+		}
+
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			return fmt.Errorf("failed to read %s: %w", path, err)
+		}
+
+		if isBinary(raw) {
+			return nil
+		}
+
+		result, changed := rewriteGitHubPaths(string(raw), migratedWorkflows)
+		if !changed {
+			return nil
+		}
+
+		if err := os.WriteFile(path, []byte(result), info.Mode().Perm()); err != nil {
+			return fmt.Errorf("failed to write %s: %w", path, err)
+		}
+		rewritten++
+		return nil
+	})
+	return rewritten, err
+}
+
 // commentOutDisabledJobs does a text-level pass to comment out entire job blocks.
 func commentOutDisabledJobs(content []byte, disabledJobs map[string]disabledJobInfo) ([]byte, []ChangeRecord) {
 	if len(disabledJobs) == 0 {
@@ -413,18 +652,25 @@ func summarizeChanges(changes []ChangeRecord) []string {
 	var runsOnOrder []runsOnKey
 
 	var lines []string
+	hasPathRewrite := false
 	for _, c := range changes {
-		if c.Type == ChangeRunsOn {
-			// Extract from/to from Detail: `Changed runs-on from "X" to "Y" in job "Z"`
+		switch c.Type {
+		case ChangeRunsOn:
 			from, to := parseRunsOnDetail(c.Detail)
 			key := runsOnKey{from, to}
 			if runsOnCounts[key] == 0 {
 				runsOnOrder = append(runsOnOrder, key)
 			}
 			runsOnCounts[key]++
-		} else {
+		case ChangePathRewritten:
+			hasPathRewrite = true
+		default:
 			lines = append(lines, c.Detail)
 		}
+	}
+
+	if hasPathRewrite {
+		lines = append(lines, "Rewrote .github/ path references to .depot/")
 	}
 
 	// Check if all runs-on changes are standard GitHub → Depot mappings
