@@ -1,11 +1,15 @@
 package ci
 
 import (
+	"crypto/sha256"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	civ1 "github.com/depot/cli/pkg/proto/depot/ci/v1"
 )
 
 // initBareRemote creates a bare git repo with one commit and returns its path.
@@ -168,4 +172,108 @@ func TestFindMergeBase_DetachedHEAD(t *testing.T) {
 	}
 
 	_ = baseBranch
+}
+
+func TestValidateWorkspacePatch_emptyMergeBase(t *testing.T) {
+	err := validateWorkspacePatch(&patchInfo{mergeBase: "", content: "x"})
+	if err == nil {
+		t.Fatal("expected error for empty merge base")
+	}
+	if !strings.Contains(err.Error(), "empty merge base") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestValidateWorkspacePatch_nil(t *testing.T) {
+	err := validateWorkspacePatch(nil)
+	if err == nil {
+		t.Fatal("expected error for nil patch")
+	}
+	if !strings.Contains(err.Error(), "nil patch") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestValidateWorkspacePatch_ok(t *testing.T) {
+	if err := validateWorkspacePatch(&patchInfo{mergeBase: "abc", content: "x"}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestPatchWorkspaceCacheKey_nil(t *testing.T) {
+	if got := patchWorkspaceCacheKey(nil); got != "" {
+		t.Fatalf("expected empty key for nil patch, got %q", got)
+	}
+}
+
+func TestPatchWorkspaceCacheKey_format(t *testing.T) {
+	mergeBase := "abcdef1234567890abcdef1234567890abcdef12"
+	content := "diff --git a/x b/x\n"
+	patch := &patchInfo{mergeBase: mergeBase, content: content}
+	got := patchWorkspaceCacheKey(patch)
+
+	sum := sha256.Sum256([]byte(content))
+	want := fmt.Sprintf("patch/%s/%s", mergeBase[:12], fmt.Sprintf("%x", sum)[:16])
+	if got != want {
+		t.Fatalf("patchWorkspaceCacheKey() = %q, want %q", got, want)
+	}
+}
+
+func TestPatchWorkspaceCacheKey_shortMergeBase(t *testing.T) {
+	// Avoid panicking if merge base is unexpectedly short (e.g. corrupt git output).
+	patch := &patchInfo{mergeBase: "abc", content: "x"}
+	got := patchWorkspaceCacheKey(patch)
+	sum := sha256.Sum256([]byte("x"))
+	want := fmt.Sprintf("patch/%s/%s", "abc", fmt.Sprintf("%x", sum)[:16])
+	if got != want {
+		t.Fatalf("patchWorkspaceCacheKey() = %q, want %q", got, want)
+	}
+}
+
+func TestSetRunRequestGitContext_withPatch(t *testing.T) {
+	mergeBase := "0123456789ab0123456789ab0123456789abcdef"
+	patch := &patchInfo{mergeBase: mergeBase, content: "patch-bytes\n"}
+	explicitKey := "patch/explicit/not-from-helper"
+	req := &civ1.RunRequest{Repo: "o/r"}
+	setRunRequestGitContext(req, patch, "headignored", true, explicitKey)
+
+	if req.GetSha() != mergeBase {
+		t.Fatalf("Sha = %q, want merge base %q", req.GetSha(), mergeBase)
+	}
+	if req.GetWorkspacePatchCacheKey() != explicitKey {
+		t.Fatalf("WorkspacePatchCacheKey = %q, want exact passed key %q", req.GetWorkspacePatchCacheKey(), explicitKey)
+	}
+}
+
+func TestSetRunRequestGitContext_noPatch_usesHead(t *testing.T) {
+	req := &civ1.RunRequest{Repo: "o/r"}
+	setRunRequestGitContext(req, nil, "deadbeefcafe", true, "")
+	if req.GetSha() != "deadbeefcafe" {
+		t.Fatalf("Sha = %q, want head SHA", req.GetSha())
+	}
+	if req.GetWorkspacePatchCacheKey() != "" {
+		t.Fatalf("WorkspacePatchCacheKey should be unset, got %q", req.GetWorkspacePatchCacheKey())
+	}
+}
+
+func TestSetRunRequestGitContext_noPatch_headOK_emptySHA(t *testing.T) {
+	req := &civ1.RunRequest{Repo: "o/r"}
+	setRunRequestGitContext(req, nil, "", true, "")
+	if req.GetSha() != "" {
+		t.Fatalf("Sha = %q, want empty when HEAD resolved to empty string", req.GetSha())
+	}
+	if req.GetWorkspacePatchCacheKey() != "" {
+		t.Fatalf("WorkspacePatchCacheKey should be unset, got %q", req.GetWorkspacePatchCacheKey())
+	}
+}
+
+func TestSetRunRequestGitContext_noPatch_headUnresolved(t *testing.T) {
+	req := &civ1.RunRequest{Repo: "o/r"}
+	setRunRequestGitContext(req, nil, "", false, "")
+	if req.GetSha() != "" {
+		t.Fatalf("Sha should be empty, got %q", req.GetSha())
+	}
+	if req.GetWorkspacePatchCacheKey() != "" {
+		t.Fatalf("WorkspacePatchCacheKey should be unset, got %q", req.GetWorkspacePatchCacheKey())
+	}
 }

@@ -82,6 +82,9 @@ message RunRequest {
   // job filters to a specific job within the workflow
   // only valid when a single workflow is specified (workflow or single workflow_content)
   optional string job = 5;
+  // When set, orchestrator compile fetches this generic cache key (same bytes the worker applies)
+  // and runs git apply in the compile temp repo before resolving .depot/actions and .depot/workflows.
+  optional string workspace_patch_cache_key = 6;
 }
 
 message RunResponse {
