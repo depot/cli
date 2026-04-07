@@ -162,24 +162,25 @@ This command is in beta and subject to change.`,
 			// Detect local changes as a patch
 			patch := detectPatch(workflowDir)
 
+			var workspacePatchKey string
 			if patch != nil {
+				if err := validateWorkspacePatch(patch); err != nil {
+					return err
+				}
+				workspacePatchKey = patchWorkspaceCacheKey(patch)
 				fmt.Printf("Base: %s\n", patch.baseBranch)
 				fmt.Printf("Merge base: %s\n", patch.mergeBase)
 				fmt.Printf("Patch size: %d bytes\n", len(patch.content))
+				fmt.Printf("Cache key: %s\n", workspacePatchKey)
 
-				hash := sha256.Sum256([]byte(patch.content))
-				patchHash := fmt.Sprintf("%x", hash)[:16]
-				cacheKey := fmt.Sprintf("patch/%s/%s", patch.mergeBase[:12], patchHash)
-				fmt.Printf("Cache key: %s\n", cacheKey)
-
-				if err := api.UploadCacheEntry(ctx, tokenVal, orgID, cacheKey, []byte(patch.content)); err != nil {
+				if err := api.UploadCacheEntry(ctx, tokenVal, orgID, workspacePatchKey, []byte(patch.content)); err != nil {
 					return fmt.Errorf("failed to upload patch: %w", err)
 				}
 				fmt.Println("Patch uploaded to Depot Cache")
 
 				// Inject patch step into each selected job that has actions/checkout
 				for _, jobName := range selectedJobs {
-					injectPatchStep(jobs, jobName, patch.mergeBase, cacheKey)
+					injectPatchStep(jobs, jobName, patch.mergeBase, workspacePatchKey)
 				}
 			}
 
@@ -203,7 +204,9 @@ This command is in beta and subject to change.`,
 			if sshAfterStep > 0 {
 				fmt.Printf("Inserting tmate step after step %d\n", sshAfterStep)
 			}
-			if headSHA, err := resolveHEAD(workflowDir); err == nil {
+			headSHA, headErr := resolveHEAD(workflowDir)
+			headOK := headErr == nil
+			if headOK {
 				fmt.Printf("HEAD: %s\n", headSHA)
 			}
 			fmt.Println()
@@ -218,12 +221,7 @@ This command is in beta and subject to change.`,
 				Repo:            repo,
 				WorkflowContent: []string{string(yamlBytes)},
 			}
-
-			if patch != nil {
-				req.Sha = &patch.mergeBase
-			} else if headSHA, err := resolveHEAD(workflowDir); err == nil {
-				req.Sha = &headSHA
-			}
+			setRunRequestGitContext(req, patch, headSHA, headOK, workspacePatchKey)
 
 			resp, err := api.CIRun(ctx, tokenVal, orgID, req)
 			if err != nil {
@@ -298,6 +296,50 @@ type patchInfo struct {
 	baseBranch string
 	mergeBase  string
 	content    string
+}
+
+// validateWorkspacePatch returns an error if a detected patch cannot be uploaded safely.
+// patch must be non-nil (callers invoke this only when patch != nil).
+func validateWorkspacePatch(patch *patchInfo) error {
+	if patch == nil {
+		return fmt.Errorf("internal error: validateWorkspacePatch called with nil patch")
+	}
+	if patch.mergeBase == "" {
+		return fmt.Errorf("cannot upload workspace patch: empty merge base")
+	}
+	return nil
+}
+
+// patchWorkspaceCacheKey returns the Depot generic cache key for the workspace patch
+// (same value for upload, injectPatchStep, and RunRequest.workspace_patch_cache_key).
+func patchWorkspaceCacheKey(patch *patchInfo) string {
+	if patch == nil {
+		return ""
+	}
+	prefix := patch.mergeBase
+	if len(prefix) > 12 {
+		prefix = prefix[:12]
+	}
+	sum := sha256.Sum256([]byte(patch.content))
+	patchHash := fmt.Sprintf("%x", sum)[:16]
+	return fmt.Sprintf("patch/%s/%s", prefix, patchHash)
+}
+
+// setRunRequestGitContext sets RunRequest Sha and, when a workspace patch was uploaded,
+// WorkspacePatchCacheKey. workspacePatchKey must be the exact string passed to UploadCacheEntry
+// and injectPatchStep (empty when patch == nil).
+func setRunRequestGitContext(req *civ1.RunRequest, patch *patchInfo, headSHA string, headOK bool, workspacePatchKey string) {
+	if patch != nil {
+		mb := patch.mergeBase
+		req.Sha = &mb
+		key := workspacePatchKey
+		req.WorkspacePatchCacheKey = &key
+		return
+	}
+	if headOK {
+		sha := headSHA
+		req.Sha = &sha
+	}
 }
 
 // findMergeBase picks the best base commit for patch generation.
@@ -406,7 +448,7 @@ func resolveJobDeps(allJobs map[string]interface{}, requested []string) map[stri
 	return needed
 }
 
-func injectPatchStep(jobs map[string]interface{}, jobName, mergeBase, cacheKey string) {
+func injectPatchStep(jobs map[string]interface{}, jobName, mergeBase, workspacePatchKey string) {
 	jobRaw, ok := jobs[jobName]
 	if !ok {
 		return
@@ -476,7 +518,7 @@ curl -fsSL "$PATCH_URL" -o /tmp/local.patch
 echo "Applying patch..."
 git apply --allow-empty /tmp/local.patch
 rm /tmp/local.patch
-echo "Patch applied successfully"`, cacheKey, cacheBaseURL),
+echo "Patch applied successfully"`, workspacePatchKey, cacheBaseURL),
 		"env": map[string]interface{}{
 			"DEPOT_TOKEN": "${{ secrets.DEPOT_TOKEN }}",
 		},
