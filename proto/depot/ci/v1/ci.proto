@@ -82,6 +82,9 @@ message RunRequest {
   // job filters to a specific job within the workflow
   // only valid when a single workflow is specified (workflow or single workflow_content)
   optional string job = 5;
+  // local_actions maps action basename (e.g. "setup-pnpm") to its action.yml manifest content.
+  // Used by inline workflow runs to overlay fresh local action manifests over stale sparse-clone copies.
+  map<string, string> local_actions = 7;
 }
 
 message RunResponse {

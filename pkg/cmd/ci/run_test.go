@@ -149,6 +149,130 @@ func TestFindMergeBase_OnDefaultBranch(t *testing.T) {
 	}
 }
 
+func TestReadLocalActions(t *testing.T) {
+	t.Run("reads action.yml manifests from .depot/actions", func(t *testing.T) {
+		dir := t.TempDir()
+		actionsDir := filepath.Join(dir, ".depot", "actions")
+		setupDir := filepath.Join(actionsDir, "setup-pnpm")
+		if err := os.MkdirAll(setupDir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		manifest := "name: Setup pnpm\nruns:\n  using: composite\n  steps:\n    - run: echo ok\n      shell: bash\n"
+		writeFile(t, filepath.Join(setupDir, "action.yml"), manifest)
+
+		result := readLocalActions(dir)
+		if len(result) != 1 {
+			t.Fatalf("expected 1 action, got %d", len(result))
+		}
+		if result["setup-pnpm"] != manifest {
+			t.Errorf("manifest mismatch: got %q", result["setup-pnpm"])
+		}
+	})
+
+	t.Run("prefers action.yml over action.yaml", func(t *testing.T) {
+		dir := t.TempDir()
+		actionsDir := filepath.Join(dir, ".depot", "actions")
+		setupDir := filepath.Join(actionsDir, "my-action")
+		if err := os.MkdirAll(setupDir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		ymlContent := "yml-content"
+		yamlContent := "yaml-content"
+		writeFile(t, filepath.Join(setupDir, "action.yml"), ymlContent)
+		writeFile(t, filepath.Join(setupDir, "action.yaml"), yamlContent)
+
+		result := readLocalActions(dir)
+		if result["my-action"] != ymlContent {
+			t.Errorf("expected action.yml to take precedence, got %q", result["my-action"])
+		}
+	})
+
+	t.Run("falls back to action.yaml", func(t *testing.T) {
+		dir := t.TempDir()
+		actionsDir := filepath.Join(dir, ".depot", "actions")
+		setupDir := filepath.Join(actionsDir, "my-action")
+		if err := os.MkdirAll(setupDir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		yamlContent := "yaml-fallback"
+		writeFile(t, filepath.Join(setupDir, "action.yaml"), yamlContent)
+
+		result := readLocalActions(dir)
+		if result["my-action"] != yamlContent {
+			t.Errorf("expected action.yaml fallback, got %q", result["my-action"])
+		}
+	})
+
+	t.Run("skips directories without manifests", func(t *testing.T) {
+		dir := t.TempDir()
+		actionsDir := filepath.Join(dir, ".depot", "actions")
+		emptyDir := filepath.Join(actionsDir, "no-manifest")
+		if err := os.MkdirAll(emptyDir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		withDir := filepath.Join(actionsDir, "has-manifest")
+		if err := os.MkdirAll(withDir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		writeFile(t, filepath.Join(withDir, "action.yml"), "content")
+
+		result := readLocalActions(dir)
+		if len(result) != 1 {
+			t.Fatalf("expected 1 action, got %d: %v", len(result), result)
+		}
+		if _, ok := result["no-manifest"]; ok {
+			t.Error("should not include directories without manifests")
+		}
+	})
+
+	t.Run("returns nil when .depot/actions does not exist", func(t *testing.T) {
+		dir := t.TempDir()
+		result := readLocalActions(dir)
+		if result != nil {
+			t.Errorf("expected nil, got %v", result)
+		}
+	})
+
+	t.Run("returns nil when .depot/actions is empty", func(t *testing.T) {
+		dir := t.TempDir()
+		actionsDir := filepath.Join(dir, ".depot", "actions")
+		if err := os.MkdirAll(actionsDir, 0755); err != nil {
+			t.Fatal(err)
+		}
+
+		result := readLocalActions(dir)
+		if result != nil {
+			t.Errorf("expected nil for empty directory, got %v", result)
+		}
+	})
+
+	t.Run("uses the repo root when workflow lives under .depot/workflows", func(t *testing.T) {
+		dir := t.TempDir()
+		run(t, dir, "git", "init")
+
+		workflowDir := filepath.Join(dir, ".depot", "workflows")
+		actionsDir := filepath.Join(dir, ".depot", "actions", "setup-pnpm")
+		if err := os.MkdirAll(workflowDir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(actionsDir, 0755); err != nil {
+			t.Fatal(err)
+		}
+
+		writeFile(t, filepath.Join(workflowDir, "ci.yml"), "jobs: {}\n")
+		manifest := "name: Setup pnpm\nruns:\n  using: composite\n  steps:\n    - run: echo ok\n      shell: bash\n"
+		writeFile(t, filepath.Join(actionsDir, "action.yml"), manifest)
+
+		result := readLocalActionsForWorkflow(workflowDir)
+		if len(result) != 1 {
+			t.Fatalf("expected 1 action, got %d", len(result))
+		}
+		if result["setup-pnpm"] != manifest {
+			t.Errorf("manifest mismatch: got %q", result["setup-pnpm"])
+		}
+	})
+}
+
 func TestFindMergeBase_DetachedHEAD(t *testing.T) {
 	bare := initBareRemote(t)
 	clone := cloneRepo(t, bare)

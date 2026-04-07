@@ -219,6 +219,10 @@ This command is in beta and subject to change.`,
 				WorkflowContent: []string{string(yamlBytes)},
 			}
 
+			if localActions := readLocalActionsForWorkflow(workflowDir); localActions != nil {
+				req.LocalActions = localActions
+			}
+
 			if patch != nil {
 				req.Sha = &patch.mergeBase
 			} else if headSHA, err := resolveHEAD(workflowDir); err == nil {
@@ -284,6 +288,57 @@ This command is in beta and subject to change.`,
 	cmd.AddCommand(NewCmdRunList())
 
 	return cmd
+}
+
+// readLocalActionsForWorkflow resolves the git repo root for a workflow path and
+// reads local action manifests from there. If git root detection fails, it falls
+// back to the workflow directory to preserve current best-effort behavior.
+func readLocalActionsForWorkflow(workflowDir string) map[string]string {
+	if repoRoot := resolveRepoRoot(workflowDir); repoRoot != "" {
+		return readLocalActions(repoRoot)
+	}
+	return readLocalActions(workflowDir)
+}
+
+func resolveRepoRoot(workDir string) string {
+	out, err := exec.Command("git", "-C", workDir, "rev-parse", "--show-toplevel").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// readLocalActions reads .depot/actions/*/action.yml (or action.yaml) manifests
+// from the given repo root. Returns a basename-keyed map, or nil if no actions found.
+func readLocalActions(repoRoot string) map[string]string {
+	actionsDir := filepath.Join(repoRoot, ".depot", "actions")
+	entries, err := os.ReadDir(actionsDir)
+	if err != nil {
+		return nil
+	}
+
+	var result map[string]string
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		manifestPath := filepath.Join(actionsDir, name, "action.yml")
+		content, err := os.ReadFile(manifestPath)
+		if err != nil {
+			manifestPath = filepath.Join(actionsDir, name, "action.yaml")
+			content, err = os.ReadFile(manifestPath)
+			if err != nil {
+				continue
+			}
+		}
+		if result == nil {
+			result = make(map[string]string)
+		}
+		result[name] = string(content)
+	}
+
+	return result
 }
 
 func resolveHEAD(workflowDir string) (string, error) {
