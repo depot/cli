@@ -640,16 +640,22 @@ func workflows(opts migrateOptions) error {
 
 	fmt.Fprintln(out, "")
 	fmt.Fprintf(out, "%s\n\n", bold.Render("Next steps:"))
-	if defaultBranch != "" {
-		fmt.Fprintf(out, "  1. Activate these workflows by pushing and merging them into %s\n", bold.Render(defaultBranch))
-	} else {
-		fmt.Fprintln(out, "  1. Activate these workflows by pushing and merging them into your default branch")
-	}
 
 	if len(detectedSecrets) > 0 || len(detectedVariables) > 0 {
-		fmt.Fprintf(out, "  2. Your workflows depend on %d secret(s) and %d variable(s) which need to be imported from GitHub:\n", len(detectedSecrets), len(detectedVariables))
+		fmt.Fprintf(out, "  1. Your workflows depend on %d secret(s) and %d variable(s) which need to be imported from GitHub:\n", len(detectedSecrets), len(detectedVariables))
 		fmt.Fprintln(out, "     - Import them automatically with `depot ci migrate secrets-and-vars`")
 		fmt.Fprintln(out, "     - Or import them manually with `depot ci secrets add` and `depot ci vars add`")
+		if defaultBranch != "" {
+			fmt.Fprintf(out, "  2. Activate these workflows by pushing and merging them into %s\n", bold.Render(defaultBranch))
+		} else {
+			fmt.Fprintln(out, "  2. Activate these workflows by pushing and merging them into your default branch")
+		}
+	} else {
+		if defaultBranch != "" {
+			fmt.Fprintf(out, "  Activate these workflows by pushing and merging them into %s\n", bold.Render(defaultBranch))
+		} else {
+			fmt.Fprintln(out, "  Activate these workflows by pushing and merging them into your default branch")
+		}
 	}
 
 	fmt.Fprintln(out, "")
