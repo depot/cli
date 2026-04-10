@@ -24,13 +24,15 @@ import (
 )
 
 type migrateOptions struct {
-	token      string
-	orgID      string
-	yes        bool
-	overwrite  bool
-	dir        string
-	stdout     io.Writer
-	branchName string
+	token          string
+	orgID          string
+	yes            bool
+	overwrite      bool
+	dir            string
+	stdout         io.Writer
+	branchName     string
+	includeSecrets []string
+	includeVars    []string
 }
 
 func NewCmdMigrate() *cobra.Command {
@@ -76,6 +78,8 @@ func newCmdSecretsAndVars(parentOpts *migrateOptions) *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&parentOpts.branchName, "branch", "", "Override the branch name used for the migration workflow")
+	cmd.Flags().StringSliceVar(&parentOpts.includeSecrets, "secrets", nil, "Secret name(s) to include (repeatable)")
+	cmd.Flags().StringSliceVar(&parentOpts.includeVars, "vars", nil, "Variable name(s) to include (repeatable)")
 
 	return cmd
 }
@@ -133,7 +137,7 @@ func secretsAndVars(ctx context.Context, opts migrateOptions) error {
 
 		if preview {
 			dryResp, err := client.ImportSecretsAndVars(ctx, api.WithAuthenticationAndOrg(
-				connect.NewRequest(&civ1.ImportSecretsAndVarsRequest{Repo: repo, DryRun: true, BranchName: opts.branchName}),
+				connect.NewRequest(&civ1.ImportSecretsAndVarsRequest{Repo: repo, DryRun: true, BranchName: opts.branchName, IncludeSecrets: opts.includeSecrets, IncludeVars: opts.includeVars}),
 				token, orgID,
 			))
 			if err != nil {
@@ -179,7 +183,7 @@ func secretsAndVars(ctx context.Context, opts migrateOptions) error {
 	}
 
 	resp, err := client.ImportSecretsAndVars(ctx, api.WithAuthenticationAndOrg(
-		connect.NewRequest(&civ1.ImportSecretsAndVarsRequest{Repo: repo, BranchName: opts.branchName}),
+		connect.NewRequest(&civ1.ImportSecretsAndVarsRequest{Repo: repo, BranchName: opts.branchName, IncludeSecrets: opts.includeSecrets, IncludeVars: opts.includeVars}),
 		token, orgID,
 	))
 	if err != nil {

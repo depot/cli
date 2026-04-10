@@ -41,6 +41,11 @@ message ImportSecretsAndVarsRequest {
   bool dry_run = 2;
   // branch_name overrides the default branch name used to create the migration workflow
   string branch_name = 3;
+
+  // include_secrets is a list of secret names to include in the workflow
+  repeated string include_secrets = 4;
+  // include_vars is a list of variable names to include in the workflow
+  repeated string include_vars = 5;
 }
 message ImportSecretsAndVarsResponse {
   oneof result {
