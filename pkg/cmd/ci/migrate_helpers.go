@@ -109,14 +109,38 @@ func detectVariablesFromWorkflows(workflows []*migrate.WorkflowFile) ([]string, 
 	return deduped, nil
 }
 
-// detectRepoFromGitRemote attempts to extract owner/repo from the origin remote URL.
+// detectRepoFromGitRemote attempts to extract owner/repo from a GitHub remote URL.
+// It checks "origin" first; if origin is a GitHub URL, it is used immediately.
+// Otherwise, it falls back to checking all remotes in the order returned by git.
 func detectRepoFromGitRemote(dir string) string {
-	cmd := exec.Command("git", "-C", dir, "remote", "get-url", "origin")
+	// Check origin first — it's the most common convention.
+	originURL, err := exec.Command("git", "-C", dir, "remote", "get-url", "origin").Output()
+	if err == nil {
+		if repo := parseGitHubRepo(strings.TrimSpace(string(originURL))); repo != "" {
+			return repo
+		}
+	}
+
+	// Fall back to scanning all remotes.
+	cmd := exec.Command("git", "-C", dir, "remote")
 	out, err := cmd.Output()
 	if err != nil {
 		return ""
 	}
-	return parseGitHubRepo(strings.TrimSpace(string(out)))
+	for _, name := range strings.Fields(string(out)) {
+		if name == "origin" {
+			continue // already checked
+		}
+		urlCmd := exec.Command("git", "-C", dir, "remote", "get-url", name)
+		urlOut, err := urlCmd.Output()
+		if err != nil {
+			continue
+		}
+		if repo := parseGitHubRepo(strings.TrimSpace(string(urlOut))); repo != "" {
+			return repo
+		}
+	}
+	return ""
 }
 
 func parseGitHubRepo(remoteURL string) string {
@@ -124,6 +148,10 @@ func parseGitHubRepo(remoteURL string) string {
 	if strings.HasPrefix(remoteURL, "git@") {
 		idx := strings.Index(remoteURL, ":")
 		if idx < 0 {
+			return ""
+		}
+		host := remoteURL[len("git@"):idx]
+		if host != "github.com" {
 			return ""
 		}
 		path := remoteURL[idx+1:]
@@ -138,6 +166,9 @@ func parseGitHubRepo(remoteURL string) string {
 	// HTTPS: https://github.com/owner/repo.git
 	u, err := url.Parse(remoteURL)
 	if err != nil {
+		return ""
+	}
+	if u.Host != "github.com" {
 		return ""
 	}
 	path := strings.TrimPrefix(u.Path, "/")

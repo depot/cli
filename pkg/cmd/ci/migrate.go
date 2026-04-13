@@ -24,12 +24,15 @@ import (
 )
 
 type migrateOptions struct {
-	token     string
-	orgID     string
-	yes       bool
-	overwrite bool
-	dir       string
-	stdout    io.Writer
+	token          string
+	orgID          string
+	yes            bool
+	overwrite      bool
+	dir            string
+	stdout         io.Writer
+	branchName     string
+	includeSecrets []string
+	includeVars    []string
 }
 
 func NewCmdMigrate() *cobra.Command {
@@ -62,7 +65,7 @@ func NewCmdMigrate() *cobra.Command {
 }
 
 func newCmdSecretsAndVars(parentOpts *migrateOptions) *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "secrets-and-vars",
 		Short: "Import GitHub Actions secrets and variables into Depot CI",
 		Long:  "Creates a one-shot GitHub Actions workflow that reads secrets and variables from the source repo and imports them into Depot CI via the depot CLI.",
@@ -73,6 +76,12 @@ func newCmdSecretsAndVars(parentOpts *migrateOptions) *cobra.Command {
 			return secretsAndVars(cmd.Context(), opts)
 		},
 	}
+
+	cmd.Flags().StringVar(&parentOpts.branchName, "branch", "", "Override the branch name used for the migration workflow")
+	cmd.Flags().StringSliceVar(&parentOpts.includeSecrets, "secrets", nil, "Secret name(s) to include (repeatable)")
+	cmd.Flags().StringSliceVar(&parentOpts.includeVars, "vars", nil, "Variable name(s) to include (repeatable)")
+
+	return cmd
 }
 
 func secretsAndVars(ctx context.Context, opts migrateOptions) error {
@@ -96,7 +105,7 @@ func secretsAndVars(ctx context.Context, opts migrateOptions) error {
 	// Detect repo
 	repo := detectRepoFromGitRemote(workDir)
 	if repo == "" {
-		return fmt.Errorf("could not detect GitHub repository from git remote — is this a GitHub repo with an origin remote?")
+		return fmt.Errorf("could not detect GitHub repository from git remotes — is this a GitHub repo with a configured remote?")
 	}
 
 	client := api.NewMigrationClient()
@@ -128,10 +137,14 @@ func secretsAndVars(ctx context.Context, opts migrateOptions) error {
 
 		if preview {
 			dryResp, err := client.ImportSecretsAndVars(ctx, api.WithAuthenticationAndOrg(
-				connect.NewRequest(&civ1.ImportSecretsAndVarsRequest{Repo: repo, DryRun: true}),
+				connect.NewRequest(&civ1.ImportSecretsAndVarsRequest{Repo: repo, DryRun: true, BranchName: opts.branchName, IncludeSecrets: opts.includeSecrets, IncludeVars: opts.includeVars}),
 				token, orgID,
 			))
 			if err != nil {
+				var connectErr *connect.Error
+				if errors.As(err, &connectErr) {
+					return fmt.Errorf("%s", connectErr.Message())
+				}
 				return fmt.Errorf("failed to preview: %w", err)
 			}
 
@@ -170,10 +183,14 @@ func secretsAndVars(ctx context.Context, opts migrateOptions) error {
 	}
 
 	resp, err := client.ImportSecretsAndVars(ctx, api.WithAuthenticationAndOrg(
-		connect.NewRequest(&civ1.ImportSecretsAndVarsRequest{Repo: repo}),
+		connect.NewRequest(&civ1.ImportSecretsAndVarsRequest{Repo: repo, BranchName: opts.branchName, IncludeSecrets: opts.includeSecrets, IncludeVars: opts.includeVars}),
 		token, orgID,
 	))
 	if err != nil {
+		var connectErr *connect.Error
+		if errors.As(err, &connectErr) {
+			return fmt.Errorf("%s", connectErr.Message())
+		}
 		return fmt.Errorf("failed to import secrets and variables: %w", err)
 	}
 
@@ -280,7 +297,7 @@ func preflight(ctx context.Context, opts migrateOptions) (*preflightResult, erro
 	// Detect repo from git remote
 	repo := detectRepoFromGitRemote(workDir)
 	if repo == "" {
-		return nil, fmt.Errorf("could not detect GitHub repository from git remote — is this a GitHub repo with an origin remote?")
+		return nil, fmt.Errorf("could not detect GitHub repository from git remotes — is this a GitHub repo with a configured remote?")
 	}
 
 	repoOwner := strings.SplitN(repo, "/", 2)[0]
@@ -519,6 +536,29 @@ func workflows(opts migrateOptions) error {
 		return fmt.Errorf("failed to copy GitHub CI files: %w", err)
 	}
 
+	// Build set of migrated workflow relative paths for selective rewriting.
+	// When all workflows are selected, pass nil so all .github/workflows/ references
+	// (including bare directory refs) are rewritten.
+	var migratedWorkflows map[string]bool
+	if len(selectedWorkflows) < len(workflows) {
+		migratedWorkflows = make(map[string]bool, len(selectedWorkflows))
+		for _, wf := range selectedWorkflows {
+			relPath, err := filepath.Rel(workflowsDir, wf.Path)
+			if err != nil {
+				return fmt.Errorf("failed to resolve relative path for %s: %w", wf.Path, err)
+			}
+			migratedWorkflows[filepath.ToSlash(relPath)] = true
+		}
+	}
+
+	// Rewrite .github/ references in copied action files
+	depotActionsDir := filepath.Join(depotDir, "actions")
+	if info, err := os.Stat(depotActionsDir); err == nil && info.IsDir() {
+		if _, err := transform.RewriteGitHubPathsInDir(depotActionsDir, migratedWorkflows); err != nil {
+			return fmt.Errorf("failed to rewrite paths in action files: %w", err)
+		}
+	}
+
 	// Transform and write each workflow
 	depotWorkflowsDir := filepath.Join(depotDir, "workflows")
 	if err := os.MkdirAll(depotWorkflowsDir, 0755); err != nil {
@@ -539,7 +579,7 @@ func workflows(opts migrateOptions) error {
 		}
 
 		report := compat.AnalyzeWorkflow(wf)
-		result, err := transform.TransformWorkflow(raw, wf, report)
+		result, err := transform.TransformWorkflow(raw, wf, report, migratedWorkflows)
 		if err != nil {
 			return fmt.Errorf("failed to transform %s: %w", filepath.Base(wf.Path), err)
 		}
@@ -604,16 +644,22 @@ func workflows(opts migrateOptions) error {
 
 	fmt.Fprintln(out, "")
 	fmt.Fprintf(out, "%s\n\n", bold.Render("Next steps:"))
-	if defaultBranch != "" {
-		fmt.Fprintf(out, "  1. Activate these workflows by pushing and merging them into %s\n", bold.Render(defaultBranch))
-	} else {
-		fmt.Fprintln(out, "  1. Activate these workflows by pushing and merging them into your default branch")
-	}
 
 	if len(detectedSecrets) > 0 || len(detectedVariables) > 0 {
-		fmt.Fprintf(out, "  2. Your workflows depend on %d secret(s) and %d variable(s) which need to be imported from GitHub:\n", len(detectedSecrets), len(detectedVariables))
+		fmt.Fprintf(out, "  1. Your workflows depend on %d secret(s) and %d variable(s) which need to be imported from GitHub:\n", len(detectedSecrets), len(detectedVariables))
 		fmt.Fprintln(out, "     - Import them automatically with `depot ci migrate secrets-and-vars`")
 		fmt.Fprintln(out, "     - Or import them manually with `depot ci secrets add` and `depot ci vars add`")
+		if defaultBranch != "" {
+			fmt.Fprintf(out, "  2. Activate these workflows by pushing and merging them into %s\n", bold.Render(defaultBranch))
+		} else {
+			fmt.Fprintln(out, "  2. Activate these workflows by pushing and merging them into your default branch")
+		}
+	} else {
+		if defaultBranch != "" {
+			fmt.Fprintf(out, "  Activate these workflows by pushing and merging them into %s\n", bold.Render(defaultBranch))
+		} else {
+			fmt.Fprintln(out, "  Activate these workflows by pushing and merging them into your default branch")
+		}
 	}
 
 	fmt.Fprintln(out, "")

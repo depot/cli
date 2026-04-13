@@ -39,6 +39,13 @@ message ImportSecretsAndVarsRequest {
   string repo = 1;
   // dry_run returns the planned branch, workflow name, and content without committing
   bool dry_run = 2;
+  // branch_name overrides the default branch name used to create the migration workflow
+  string branch_name = 3;
+
+  // include_secrets is a list of secret names to include in the workflow
+  repeated string include_secrets = 4;
+  // include_vars is a list of variable names to include in the workflow
+  repeated string include_vars = 5;
 }
 message ImportSecretsAndVarsResponse {
   oneof result {
@@ -80,6 +87,9 @@ message RunRequest {
   // job filters to a specific job within the workflow
   // only valid when a single workflow is specified (workflow or single workflow_content)
   optional string job = 5;
+  // When set, orchestrator compile fetches this generic cache key (same bytes the worker applies)
+  // and runs git apply in the compile temp repo before resolving .depot/actions and .depot/workflows.
+  optional string workspace_patch_cache_key = 6;
 }
 
 message RunResponse {
