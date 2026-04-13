@@ -277,3 +277,93 @@ func TestSetRunRequestGitContext_noPatch_headUnresolved(t *testing.T) {
 		t.Fatalf("WorkspacePatchCacheKey should be unset, got %q", req.GetWorkspacePatchCacheKey())
 	}
 }
+
+func TestFindUntrackedDepotFiles_includesNewActions(t *testing.T) {
+	bare := initBareRemote(t)
+	clone := cloneRepo(t, bare)
+
+	// Create untracked .depot/ files
+	depotDir := filepath.Join(clone, ".depot", "actions", "my-action")
+	if err := os.MkdirAll(depotDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(depotDir, "action.yml"), "name: test")
+
+	files := findUntrackedDepotFiles(clone)
+	if len(files) != 1 {
+		t.Fatalf("expected 1 untracked file, got %d: %v", len(files), files)
+	}
+	if files[0] != ".depot/actions/my-action/action.yml" {
+		t.Errorf("expected .depot/actions/my-action/action.yml, got %q", files[0])
+	}
+}
+
+func TestFindUntrackedDepotFiles_emptyWhenAllTracked(t *testing.T) {
+	bare := initBareRemote(t)
+	clone := cloneRepo(t, bare)
+
+	files := findUntrackedDepotFiles(clone)
+	if len(files) != 0 {
+		t.Fatalf("expected no untracked files, got %d: %v", len(files), files)
+	}
+}
+
+func TestFindUntrackedDepotFiles_excludesNonDepotFiles(t *testing.T) {
+	bare := initBareRemote(t)
+	clone := cloneRepo(t, bare)
+
+	// Create untracked files both inside and outside .depot/
+	depotDir := filepath.Join(clone, ".depot", "actions", "test")
+	if err := os.MkdirAll(depotDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(depotDir, "action.yml"), "name: test")
+	writeFile(t, filepath.Join(clone, "unrelated.txt"), "not depot")
+
+	files := findUntrackedDepotFiles(clone)
+	if len(files) != 1 {
+		t.Fatalf("expected 1 untracked file, got %d: %v", len(files), files)
+	}
+}
+
+func TestDetectPatch_includesUntrackedDepotFiles(t *testing.T) {
+	bare := initBareRemote(t)
+	clone := cloneRepo(t, bare)
+
+	// Create an untracked .depot/ action
+	actionDir := filepath.Join(clone, ".depot", "actions", "local-action")
+	if err := os.MkdirAll(actionDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(actionDir, "action.yml"), "name: local\nruns:\n  using: composite\n  steps:\n    - run: echo hi\n      shell: bash")
+
+	patch := detectPatch(clone)
+	if patch == nil {
+		t.Fatal("expected patch to be generated for untracked .depot/ files")
+	}
+	if !strings.Contains(patch.content, ".depot/actions/local-action/action.yml") {
+		t.Error("patch should contain the new action file")
+	}
+
+	// Verify git state is clean after detectPatch
+	status := run(t, clone, "git", "status", "--short")
+	for _, line := range strings.Split(status, "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		// All .depot/ files should be back to untracked (??)
+		if strings.Contains(line, ".depot/") && !strings.HasPrefix(line, "??") {
+			t.Errorf("expected .depot/ files to be untracked after detectPatch, got: %s", line)
+		}
+	}
+}
+
+func TestDetectPatch_noChanges(t *testing.T) {
+	bare := initBareRemote(t)
+	clone := cloneRepo(t, bare)
+
+	patch := detectPatch(clone)
+	if patch != nil {
+		t.Fatalf("expected nil patch when no changes, got %+v", patch)
+	}
+}

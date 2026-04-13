@@ -396,7 +396,37 @@ func detectPatch(workflowDir string) *patchInfo {
 		return nil
 	}
 
+	repoRoot := resolveRepoRoot(workflowDir)
+	if repoRoot == "" {
+		repoRoot = workflowDir
+	}
+
+	// Temporarily track untracked .depot/ files so they appear in the diff.
+	// git diff only sees tracked files; without this, new local actions that
+	// haven't been staged/committed are invisible to the workspace patch.
+	untrackedFiles := findUntrackedDepotFiles(repoRoot)
+	addedToIndex := false
+	if len(untrackedFiles) > 0 {
+		addArgs := append([]string{"-C", repoRoot, "add", "-N", "--"}, untrackedFiles...)
+		if err := exec.Command("git", addArgs...).Run(); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to stage .depot/ files for patch: %v\n", err)
+		} else {
+			addedToIndex = true
+			defer func() {
+				if addedToIndex {
+					resetIntentToAdd(repoRoot, untrackedFiles)
+				}
+			}()
+		}
+	}
+
 	diffOut, err := exec.Command("git", "-C", workflowDir, "diff", "--binary", mergeBase).Output()
+
+	if addedToIndex {
+		resetIntentToAdd(repoRoot, untrackedFiles)
+		addedToIndex = false
+	}
+
 	if err != nil {
 		return nil
 	}
@@ -411,6 +441,37 @@ func detectPatch(workflowDir string) *patchInfo {
 		mergeBase:  mergeBase,
 		content:    content,
 	}
+}
+
+func resetIntentToAdd(repoRoot string, files []string) {
+	args := append([]string{"-C", repoRoot, "reset", "--"}, files...)
+	if err := exec.Command("git", args...).Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to reset intent-to-add .depot/ files: %v\n", err)
+	}
+}
+
+func resolveRepoRoot(dir string) string {
+	out, err := exec.Command("git", "-C", dir, "rev-parse", "--show-toplevel").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// findUntrackedDepotFiles returns untracked files under .depot/ so the
+// workspace patch can include new local actions and workflows.
+func findUntrackedDepotFiles(repoRoot string) []string {
+	out, err := exec.Command("git", "-C", repoRoot, "ls-files", "--others", "--exclude-standard", "--", ".depot/").Output()
+	if err != nil {
+		return nil
+	}
+	var files []string
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if line != "" {
+			files = append(files, line)
+		}
+	}
+	return files
 }
 
 // resolveJobDeps returns the set of job names that must be included to satisfy
