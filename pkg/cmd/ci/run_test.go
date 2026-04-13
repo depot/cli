@@ -213,7 +213,7 @@ func TestFindMergeBase_DetachedHEAD_WithPushedAncestor(t *testing.T) {
 
 	if baseBranch != "origin/feature/jj-test" {
 		t.Errorf("expected baseBranch=origin/feature/jj-test, got %q", baseBranch)
-  }
+	}
 }
 
 func TestValidateWorkspacePatch_emptyMergeBase(t *testing.T) {
