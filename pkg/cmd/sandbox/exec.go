@@ -38,6 +38,9 @@ func newSandboxExec() *cobra.Command {
 				return fmt.Errorf("failed to resolve token: %w", err)
 			}
 
+			orgID, err := cmd.Flags().GetString("org")
+			cobra.CheckErr(err)
+
 			sandboxID, err := cmd.Flags().GetString("sandbox-id")
 			cobra.CheckErr(err)
 
@@ -57,14 +60,14 @@ func newSandboxExec() *cobra.Command {
 
 			client := api.NewComputeClient()
 
-			stream, err := client.RemoteExec(ctx, api.WithAuthentication(connect.NewRequest(&civ1.ExecuteCommandRequest{
+			stream, err := client.RemoteExec(ctx, api.WithAuthenticationAndOrg(connect.NewRequest(&civ1.ExecuteCommandRequest{
 				SandboxId: sandboxID,
 				SessionId: sessionID,
 				Command: &civ1.Command{
 					CommandArray: args,
 					TimeoutMs:    int32(timeout),
 				},
-			}), token))
+			}), token, orgID))
 			if err != nil {
 				// nolint:wrapcheck
 				return err

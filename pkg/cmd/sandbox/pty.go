@@ -35,6 +35,9 @@ func newSandboxPty() *cobra.Command {
 				return fmt.Errorf("failed to resolve token: %w", err)
 			}
 
+			orgID, err := cmd.Flags().GetString("org")
+			cobra.CheckErr(err)
+
 			sandboxID, err := cmd.Flags().GetString("sandbox-id")
 			cobra.CheckErr(err)
 
@@ -66,6 +69,7 @@ func newSandboxPty() *cobra.Command {
 
 			return pty.Run(ctx, pty.SessionOptions{
 				Token:     token,
+				OrgID:     orgID,
 				SandboxID: sandboxID,
 				SessionID: sessionID,
 				Cwd:       cwd,

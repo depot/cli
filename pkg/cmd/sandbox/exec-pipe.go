@@ -37,6 +37,9 @@ func newSandboxExecPipe() *cobra.Command {
 				return fmt.Errorf("failed to resolve token: %w", err)
 			}
 
+			orgID, err := cmd.Flags().GetString("org")
+			cobra.CheckErr(err)
+
 			sandboxID, err := cmd.Flags().GetString("sandbox-id")
 			cobra.CheckErr(err)
 
@@ -60,6 +63,9 @@ func newSandboxExecPipe() *cobra.Command {
 			client := api.NewComputeClient()
 			stream := client.ExecPipe(ctx)
 			stream.RequestHeader().Set("Authorization", "Bearer "+token)
+			if orgID != "" {
+				stream.RequestHeader().Set("x-depot-org", orgID)
+			}
 
 			// Send init message with the command.
 			if err := stream.Send(&civ1.ExecuteCommandPipeRequest{
