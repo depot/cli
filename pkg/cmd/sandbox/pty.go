@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/depot/cli/pkg/config"
 	"github.com/depot/cli/pkg/helpers"
 	"github.com/depot/cli/pkg/pty"
 	"github.com/spf13/cobra"
@@ -37,6 +38,10 @@ func newSandboxPty() *cobra.Command {
 
 			orgID, err := cmd.Flags().GetString("org")
 			cobra.CheckErr(err)
+
+			if orgID == "" {
+				orgID = config.GetCurrentOrganization()
+			}
 
 			sandboxID, err := cmd.Flags().GetString("sandbox-id")
 			cobra.CheckErr(err)

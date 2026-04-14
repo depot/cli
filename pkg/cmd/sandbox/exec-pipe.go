@@ -8,6 +8,7 @@ import (
 	"os"
 
 	"github.com/depot/cli/pkg/api"
+	"github.com/depot/cli/pkg/config"
 	"github.com/depot/cli/pkg/helpers"
 	civ1 "github.com/depot/cli/pkg/proto/depot/ci/v1"
 	"github.com/spf13/cobra"
@@ -39,6 +40,10 @@ func newSandboxExecPipe() *cobra.Command {
 
 			orgID, err := cmd.Flags().GetString("org")
 			cobra.CheckErr(err)
+
+			if orgID == "" {
+				orgID = config.GetCurrentOrganization()
+			}
 
 			sandboxID, err := cmd.Flags().GetString("sandbox-id")
 			cobra.CheckErr(err)
