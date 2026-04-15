@@ -420,7 +420,7 @@ func detectPatch(workflowDir string) *patchInfo {
 		}
 	}
 
-	diffOut, err := exec.Command("git", "-C", workflowDir, "diff", "--binary", mergeBase).Output()
+	diffOut, err := exec.Command("git", "-C", workflowDir, "diff", "--binary", "--no-ext-diff", mergeBase).Output()
 
 	if addedToIndex {
 		resetIntentToAdd(repoRoot, untrackedFiles)
