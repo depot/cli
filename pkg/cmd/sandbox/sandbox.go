@@ -19,6 +19,7 @@ Subcommands:
 	}
 
 	cmd.PersistentFlags().String("token", "", "Depot API token")
+	cmd.PersistentFlags().String("org", "", "Organization ID (required when user is a member of multiple organizations)")
 
 	cmd.AddCommand(newSandboxExec())
 	cmd.AddCommand(newSandboxPty())
