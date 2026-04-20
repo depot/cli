@@ -37,9 +37,10 @@ import (
 )
 
 type BakeOptions struct {
-	files     []string
-	overrides []string
-	printOnly bool
+	files            []string
+	overrides        []string
+	printOnly        bool
+	requestedProject string
 	commonOptions
 	DepotOptions
 }
@@ -80,6 +81,10 @@ func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator, pri
 	}
 
 	buildOpts := validatedOpts.ProjectOpts(in.project)
+	if buildOpts == nil && in.requestedProject != "" {
+		validatedOpts = validatedOpts.WithResolvedProjectID(in.requestedProject, in.project)
+		buildOpts = validatedOpts.ProjectOpts(in.project)
+	}
 	if buildOpts == nil {
 		return nil, nil, fmt.Errorf("project %s build options not found", in.project)
 	}
@@ -288,6 +293,7 @@ func BakeCmd() *cobra.Command {
 			}
 
 			options.project = helpers.ResolveProjectID(options.project, options.files...)
+			options.requestedProject = options.project
 
 			buildPlatform, err := helpers.ResolveBuildPlatform(options.buildPlatform)
 			if err != nil {
