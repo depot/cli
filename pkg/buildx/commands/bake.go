@@ -342,6 +342,7 @@ func BakeCmd() *cobra.Command {
 			eg, ctx := errgroup.WithContext(context.Background())
 			for _, projectID := range projectIDs {
 				options.project = projectID
+				options.requestedProject = projectID
 				bakeOpts := validatedOpts.ProjectOpts(projectID)
 
 				req := helpers.NewBakeRequest(
