@@ -5,8 +5,33 @@ import (
 	"testing"
 
 	"github.com/depot/cli/pkg/buildx/bake"
+	build "github.com/docker/buildx/build"
 	"github.com/stretchr/testify/require"
 )
+
+func TestDepotBakeOptionsWithResolvedProjectID(t *testing.T) {
+	opts := &bake.DepotBakeOptions{
+		ProjectTargetOptions: map[string]map[string]build.Options{
+			"default": {
+				"web-prod": {},
+			},
+			"other-project": {
+				"worker": {},
+			},
+		},
+	}
+
+	resolved := opts.WithResolvedProjectID("default", "2g91tjw9dr")
+	require.NotNil(t, resolved)
+
+	require.Nil(t, resolved.ProjectOpts("default"))
+	require.Contains(t, resolved.ProjectOpts("2g91tjw9dr"), "web-prod")
+	require.Contains(t, resolved.ProjectOpts("other-project"), "worker")
+
+	// Ensure the original options remain untouched for any parallel builds.
+	require.Contains(t, opts.ProjectOpts("default"), "web-prod")
+	require.Nil(t, opts.ProjectOpts("2g91tjw9dr"))
+}
 
 func TestReadTargets(t *testing.T) {
 	fp := bake.File{

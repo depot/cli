@@ -1046,6 +1046,35 @@ func (o *DepotBakeOptions) ProjectIDs() []string {
 	return projectIDs
 }
 
+// WithResolvedProjectID returns a copy of the bake options keyed by the
+// resolved project ID returned from the API. This keeps the original options
+// stable for other in-flight project builds while fixing lookups for the
+// current build after onboarding rewrites the project ID.
+func (o *DepotBakeOptions) WithResolvedProjectID(requestedID, resolvedID string) *DepotBakeOptions {
+	if o == nil || resolvedID == "" || requestedID == "" || requestedID == resolvedID {
+		return o
+	}
+
+	projectOpts, ok := o.ProjectTargetOptions[requestedID]
+	if !ok {
+		return o
+	}
+	if _, ok := o.ProjectTargetOptions[resolvedID]; ok {
+		return o
+	}
+
+	projectTargetOptions := make(map[string]map[string]build.Options, len(o.ProjectTargetOptions))
+	for projectID, targetOpts := range o.ProjectTargetOptions {
+		projectTargetOptions[projectID] = targetOpts
+	}
+	projectTargetOptions[resolvedID] = projectOpts
+	delete(projectTargetOptions, requestedID)
+
+	return &DepotBakeOptions{
+		ProjectTargetOptions: projectTargetOptions,
+	}
+}
+
 func updateContext(t *build.Inputs, inp *Input) {
 	if inp == nil || inp.State == nil {
 		return
