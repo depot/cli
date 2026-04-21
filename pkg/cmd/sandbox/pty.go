@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/depot/cli/pkg/config"
 	"github.com/depot/cli/pkg/helpers"
 	"github.com/depot/cli/pkg/pty"
 	"github.com/spf13/cobra"
@@ -33,6 +34,13 @@ func newSandboxPty() *cobra.Command {
 			token, err = helpers.ResolveOrgAuth(ctx, token)
 			if err != nil {
 				return fmt.Errorf("failed to resolve token: %w", err)
+			}
+
+			orgID, err := cmd.Flags().GetString("org")
+			cobra.CheckErr(err)
+
+			if orgID == "" {
+				orgID = config.GetCurrentOrganization()
 			}
 
 			sandboxID, err := cmd.Flags().GetString("sandbox-id")
@@ -66,6 +74,7 @@ func newSandboxPty() *cobra.Command {
 
 			return pty.Run(ctx, pty.SessionOptions{
 				Token:     token,
+				OrgID:     orgID,
 				SandboxID: sandboxID,
 				SessionID: sessionID,
 				Cwd:       cwd,
