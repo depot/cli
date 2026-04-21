@@ -691,7 +691,8 @@ type DispatchWorkflowRequest struct {
 	OrgId string `protobuf:"bytes,1,opt,name=org_id,json=orgId,proto3" json:"org_id,omitempty"`
 	// repo is the name of the target GitHub repo in {org}/{repo} format
 	Repo string `protobuf:"bytes,2,opt,name=repo,proto3" json:"repo,omitempty"`
-	// workflow is the workflow file path (e.g., ".depot/workflows/deploy.yml")
+	// workflow is the workflow file basename (e.g., "deploy.yml"), not the
+	// full repo path. Matches GitHub's workflow_dispatch convention.
 	Workflow string `protobuf:"bytes,3,opt,name=workflow,proto3" json:"workflow,omitempty"`
 	// ref is the branch or tag name to run the workflow on (e.g., "main")
 	Ref string `protobuf:"bytes,4,opt,name=ref,proto3" json:"ref,omitempty"`

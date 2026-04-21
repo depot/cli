@@ -1,9 +1,7 @@
 package ci
 
 import (
-	"encoding/json"
 	"fmt"
-	"os"
 
 	"github.com/depot/cli/pkg/api"
 	"github.com/depot/cli/pkg/config"
@@ -73,9 +71,7 @@ only a single workflow; --job resolves its containing workflow from the run auto
 					return fmt.Errorf("failed to retry failed jobs: %w", err)
 				}
 				if output == "json" {
-					enc := json.NewEncoder(os.Stdout)
-					enc.SetIndent("", "  ")
-					return enc.Encode(resp)
+					return writeJSON(resp)
 				}
 				fmt.Printf("Retrying %d failed jobs in workflow %s\n", resp.JobCount, resp.WorkflowId)
 				for _, id := range resp.JobIds {
@@ -96,9 +92,7 @@ only a single workflow; --job resolves its containing workflow from the run auto
 				return fmt.Errorf("failed to retry job: %w", err)
 			}
 			if output == "json" {
-				enc := json.NewEncoder(os.Stdout)
-				enc.SetIndent("", "  ")
-				return enc.Encode(resp)
+				return writeJSON(resp)
 			}
 			fmt.Printf("Retrying job %s (attempt #%d, %s)\n", resp.JobId, resp.Attempt, resp.Status)
 			return nil

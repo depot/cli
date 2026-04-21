@@ -124,7 +124,8 @@ message DispatchWorkflowRequest {
   string org_id = 1;
   // repo is the name of the target GitHub repo in {org}/{repo} format
   string repo = 2;
-  // workflow is the workflow file path (e.g., ".depot/workflows/deploy.yml")
+  // workflow is the workflow file basename (e.g., "deploy.yml"), not the
+  // full repo path. Matches GitHub's workflow_dispatch convention.
   string workflow = 3;
   // ref is the branch or tag name to run the workflow on (e.g., "main")
   string ref = 4;

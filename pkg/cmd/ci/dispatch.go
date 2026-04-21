@@ -1,9 +1,7 @@
 package ci
 
 import (
-	"encoding/json"
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/depot/cli/pkg/api"
@@ -74,13 +72,11 @@ This matches GitHub's workflow_dispatch API convention.`,
 			}
 
 			if output == "json" {
-				enc := json.NewEncoder(os.Stdout)
-				enc.SetIndent("", "  ")
-				return enc.Encode(resp)
+				return writeJSON(resp)
 			}
 
 			fmt.Printf("Dispatched workflow; run %s queued\n", resp.RunId)
-			fmt.Printf("  View: https://depot.dev/orgs/%s/runs/%s\n", resp.OrgId, resp.RunId)
+			fmt.Printf("View in Depot: https://depot.dev/orgs/%s/workflows/%s\n", resp.OrgId, resp.RunId)
 			return nil
 		},
 	}

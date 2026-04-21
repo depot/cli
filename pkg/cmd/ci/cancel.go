@@ -1,9 +1,7 @@
 package ci
 
 import (
-	"encoding/json"
 	"fmt"
-	"os"
 
 	"github.com/depot/cli/pkg/api"
 	"github.com/depot/cli/pkg/config"
@@ -66,22 +64,21 @@ and all its jobs; use --job to cancel a single job within its workflow.`,
 					return fmt.Errorf("failed to cancel job: %w", err)
 				}
 				if output == "json" {
-					enc := json.NewEncoder(os.Stdout)
-					enc.SetIndent("", "  ")
-					return enc.Encode(resp)
+					return writeJSON(resp)
 				}
 				fmt.Printf("Cancelled job %s (%s)\n", resp.JobId, resp.Status)
 				return nil
 			}
 
+			if err := validateWorkflowInRun(ctx, tokenVal, orgID, runID, workflowID); err != nil {
+				return err
+			}
 			resp, err := api.CICancelWorkflow(ctx, tokenVal, orgID, workflowID)
 			if err != nil {
 				return fmt.Errorf("failed to cancel workflow: %w", err)
 			}
 			if output == "json" {
-				enc := json.NewEncoder(os.Stdout)
-				enc.SetIndent("", "  ")
-				return enc.Encode(resp)
+				return writeJSON(resp)
 			}
 			fmt.Printf("Cancelled workflow %s (%s)\n", resp.WorkflowId, resp.Status)
 			return nil

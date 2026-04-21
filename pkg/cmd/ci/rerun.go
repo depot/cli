@@ -1,9 +1,7 @@
 package ci
 
 import (
-	"encoding/json"
 	"fmt"
-	"os"
 
 	"github.com/depot/cli/pkg/api"
 	"github.com/depot/cli/pkg/config"
@@ -63,9 +61,7 @@ func NewCmdRerun() *cobra.Command {
 			}
 
 			if output == "json" {
-				enc := json.NewEncoder(os.Stdout)
-				enc.SetIndent("", "  ")
-				return enc.Encode(resp)
+				return writeJSON(resp)
 			}
 
 			fmt.Printf("Rerunning workflow %s (%d jobs reset)\n", resp.WorkflowId, resp.JobCount)

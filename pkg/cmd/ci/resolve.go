@@ -3,6 +3,7 @@ package ci
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/depot/cli/pkg/api"
 )
@@ -26,7 +27,7 @@ func resolveSingleWorkflow(ctx context.Context, token, orgID, runID string) (str
 		for _, w := range resp.Workflows {
 			ids = append(ids, w.WorkflowId)
 		}
-		return "", fmt.Errorf("run %s contains multiple workflows; specify --workflow=<id> (available: %v)", runID, ids)
+		return "", fmt.Errorf("run %s contains multiple workflows; specify --workflow=<id> (available: %s)", runID, strings.Join(ids, ", "))
 	}
 }
 
@@ -45,4 +46,23 @@ func findWorkflowForJob(ctx context.Context, token, orgID, runID, jobID string) 
 		}
 	}
 	return "", fmt.Errorf("job %s not found in run %s", jobID, runID)
+}
+
+// validateWorkflowInRun returns nil iff workflowID is one of the workflows in
+// runID. Used by --workflow code paths to keep the <run-id> positional honest:
+// without this check, `depot ci cancel wrong_run --workflow=wf_real` would
+// happily cancel wf_real even though it doesn't belong to wrong_run.
+func validateWorkflowInRun(ctx context.Context, token, orgID, runID, workflowID string) error {
+	resp, err := api.CIGetRunStatus(ctx, token, orgID, runID)
+	if err != nil {
+		return fmt.Errorf("failed to look up run %s: %w", runID, err)
+	}
+	ids := make([]string, 0, len(resp.Workflows))
+	for _, w := range resp.Workflows {
+		if w.WorkflowId == workflowID {
+			return nil
+		}
+		ids = append(ids, w.WorkflowId)
+	}
+	return fmt.Errorf("workflow %s is not part of run %s (available: %s)", workflowID, runID, strings.Join(ids, ", "))
 }

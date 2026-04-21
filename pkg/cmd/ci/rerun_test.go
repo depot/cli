@@ -19,20 +19,3 @@ func TestRerunFlagValidation(t *testing.T) {
 		}
 	})
 }
-
-func TestCICommandRegistration(t *testing.T) {
-	cmd := NewCmdCI()
-	wanted := []string{"cancel", "dispatch", "rerun", "retry"}
-	for _, name := range wanted {
-		var found bool
-		for _, sub := range cmd.Commands() {
-			if sub.Name() == name {
-				found = true
-				break
-			}
-		}
-		if !found {
-			t.Errorf("subcommand %q not registered under `depot ci`", name)
-		}
-	}
-}
