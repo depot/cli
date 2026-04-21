@@ -37,6 +37,21 @@ const (
 const (
 	// CIServiceRunProcedure is the fully-qualified name of the CIService's Run RPC.
 	CIServiceRunProcedure = "/depot.ci.v1.CIService/Run"
+	// CIServiceDispatchWorkflowProcedure is the fully-qualified name of the CIService's
+	// DispatchWorkflow RPC.
+	CIServiceDispatchWorkflowProcedure = "/depot.ci.v1.CIService/DispatchWorkflow"
+	// CIServiceRetryJobProcedure is the fully-qualified name of the CIService's RetryJob RPC.
+	CIServiceRetryJobProcedure = "/depot.ci.v1.CIService/RetryJob"
+	// CIServiceRerunWorkflowProcedure is the fully-qualified name of the CIService's RerunWorkflow RPC.
+	CIServiceRerunWorkflowProcedure = "/depot.ci.v1.CIService/RerunWorkflow"
+	// CIServiceRetryFailedJobsProcedure is the fully-qualified name of the CIService's RetryFailedJobs
+	// RPC.
+	CIServiceRetryFailedJobsProcedure = "/depot.ci.v1.CIService/RetryFailedJobs"
+	// CIServiceCancelJobProcedure is the fully-qualified name of the CIService's CancelJob RPC.
+	CIServiceCancelJobProcedure = "/depot.ci.v1.CIService/CancelJob"
+	// CIServiceCancelWorkflowProcedure is the fully-qualified name of the CIService's CancelWorkflow
+	// RPC.
+	CIServiceCancelWorkflowProcedure = "/depot.ci.v1.CIService/CancelWorkflow"
 	// CIServiceGetRunStatusProcedure is the fully-qualified name of the CIService's GetRunStatus RPC.
 	CIServiceGetRunStatusProcedure = "/depot.ci.v1.CIService/GetRunStatus"
 	// CIServiceGetJobAttemptLogsProcedure is the fully-qualified name of the CIService's
@@ -56,6 +71,18 @@ const (
 type CIServiceClient interface {
 	// Run triggers a CI run that can contain one or more workflows
 	Run(context.Context, *connect.Request[v1.RunRequest]) (*connect.Response[v1.RunResponse], error)
+	// DispatchWorkflow triggers a single workflow via workflow_dispatch, validating inputs against the workflow's schema
+	DispatchWorkflow(context.Context, *connect.Request[v1.DispatchWorkflowRequest]) (*connect.Response[v1.DispatchWorkflowResponse], error)
+	// RetryJob retries a failed job within a running workflow
+	RetryJob(context.Context, *connect.Request[v1.RetryJobRequest]) (*connect.Response[v1.RetryJobResponse], error)
+	// RerunWorkflow resets all jobs in a finished workflow and re-runs them
+	RerunWorkflow(context.Context, *connect.Request[v1.RerunWorkflowRequest]) (*connect.Response[v1.RerunWorkflowResponse], error)
+	// RetryFailedJobs retries only failed/cancelled jobs (and their skipped dependents) in a finished workflow
+	RetryFailedJobs(context.Context, *connect.Request[v1.RetryFailedJobsRequest]) (*connect.Response[v1.RetryFailedJobsResponse], error)
+	// CancelJob cancels a queued or running job
+	CancelJob(context.Context, *connect.Request[v1.CancelJobRequest]) (*connect.Response[v1.CancelJobResponse], error)
+	// CancelWorkflow cancels a queued or running workflow and all its child jobs
+	CancelWorkflow(context.Context, *connect.Request[v1.CancelWorkflowRequest]) (*connect.Response[v1.CancelWorkflowResponse], error)
 	// GetRunStatus returns the current status of a run including its workflows, jobs, and attempts
 	GetRunStatus(context.Context, *connect.Request[v1.GetRunStatusRequest]) (*connect.Response[v1.GetRunStatusResponse], error)
 	// GetJobAttemptLogs returns log lines for a job attempt
@@ -79,6 +106,36 @@ func NewCIServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...c
 			baseURL+CIServiceRunProcedure,
 			opts...,
 		),
+		dispatchWorkflow: connect.NewClient[v1.DispatchWorkflowRequest, v1.DispatchWorkflowResponse](
+			httpClient,
+			baseURL+CIServiceDispatchWorkflowProcedure,
+			opts...,
+		),
+		retryJob: connect.NewClient[v1.RetryJobRequest, v1.RetryJobResponse](
+			httpClient,
+			baseURL+CIServiceRetryJobProcedure,
+			opts...,
+		),
+		rerunWorkflow: connect.NewClient[v1.RerunWorkflowRequest, v1.RerunWorkflowResponse](
+			httpClient,
+			baseURL+CIServiceRerunWorkflowProcedure,
+			opts...,
+		),
+		retryFailedJobs: connect.NewClient[v1.RetryFailedJobsRequest, v1.RetryFailedJobsResponse](
+			httpClient,
+			baseURL+CIServiceRetryFailedJobsProcedure,
+			opts...,
+		),
+		cancelJob: connect.NewClient[v1.CancelJobRequest, v1.CancelJobResponse](
+			httpClient,
+			baseURL+CIServiceCancelJobProcedure,
+			opts...,
+		),
+		cancelWorkflow: connect.NewClient[v1.CancelWorkflowRequest, v1.CancelWorkflowResponse](
+			httpClient,
+			baseURL+CIServiceCancelWorkflowProcedure,
+			opts...,
+		),
 		getRunStatus: connect.NewClient[v1.GetRunStatusRequest, v1.GetRunStatusResponse](
 			httpClient,
 			baseURL+CIServiceGetRunStatusProcedure,
@@ -100,6 +157,12 @@ func NewCIServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...c
 // cIServiceClient implements CIServiceClient.
 type cIServiceClient struct {
 	run               *connect.Client[v1.RunRequest, v1.RunResponse]
+	dispatchWorkflow  *connect.Client[v1.DispatchWorkflowRequest, v1.DispatchWorkflowResponse]
+	retryJob          *connect.Client[v1.RetryJobRequest, v1.RetryJobResponse]
+	rerunWorkflow     *connect.Client[v1.RerunWorkflowRequest, v1.RerunWorkflowResponse]
+	retryFailedJobs   *connect.Client[v1.RetryFailedJobsRequest, v1.RetryFailedJobsResponse]
+	cancelJob         *connect.Client[v1.CancelJobRequest, v1.CancelJobResponse]
+	cancelWorkflow    *connect.Client[v1.CancelWorkflowRequest, v1.CancelWorkflowResponse]
 	getRunStatus      *connect.Client[v1.GetRunStatusRequest, v1.GetRunStatusResponse]
 	getJobAttemptLogs *connect.Client[v1.GetJobAttemptLogsRequest, v1.GetJobAttemptLogsResponse]
 	listRuns          *connect.Client[v1.ListRunsRequest, v1.ListRunsResponse]
@@ -108,6 +171,36 @@ type cIServiceClient struct {
 // Run calls depot.ci.v1.CIService.Run.
 func (c *cIServiceClient) Run(ctx context.Context, req *connect.Request[v1.RunRequest]) (*connect.Response[v1.RunResponse], error) {
 	return c.run.CallUnary(ctx, req)
+}
+
+// DispatchWorkflow calls depot.ci.v1.CIService.DispatchWorkflow.
+func (c *cIServiceClient) DispatchWorkflow(ctx context.Context, req *connect.Request[v1.DispatchWorkflowRequest]) (*connect.Response[v1.DispatchWorkflowResponse], error) {
+	return c.dispatchWorkflow.CallUnary(ctx, req)
+}
+
+// RetryJob calls depot.ci.v1.CIService.RetryJob.
+func (c *cIServiceClient) RetryJob(ctx context.Context, req *connect.Request[v1.RetryJobRequest]) (*connect.Response[v1.RetryJobResponse], error) {
+	return c.retryJob.CallUnary(ctx, req)
+}
+
+// RerunWorkflow calls depot.ci.v1.CIService.RerunWorkflow.
+func (c *cIServiceClient) RerunWorkflow(ctx context.Context, req *connect.Request[v1.RerunWorkflowRequest]) (*connect.Response[v1.RerunWorkflowResponse], error) {
+	return c.rerunWorkflow.CallUnary(ctx, req)
+}
+
+// RetryFailedJobs calls depot.ci.v1.CIService.RetryFailedJobs.
+func (c *cIServiceClient) RetryFailedJobs(ctx context.Context, req *connect.Request[v1.RetryFailedJobsRequest]) (*connect.Response[v1.RetryFailedJobsResponse], error) {
+	return c.retryFailedJobs.CallUnary(ctx, req)
+}
+
+// CancelJob calls depot.ci.v1.CIService.CancelJob.
+func (c *cIServiceClient) CancelJob(ctx context.Context, req *connect.Request[v1.CancelJobRequest]) (*connect.Response[v1.CancelJobResponse], error) {
+	return c.cancelJob.CallUnary(ctx, req)
+}
+
+// CancelWorkflow calls depot.ci.v1.CIService.CancelWorkflow.
+func (c *cIServiceClient) CancelWorkflow(ctx context.Context, req *connect.Request[v1.CancelWorkflowRequest]) (*connect.Response[v1.CancelWorkflowResponse], error) {
+	return c.cancelWorkflow.CallUnary(ctx, req)
 }
 
 // GetRunStatus calls depot.ci.v1.CIService.GetRunStatus.
@@ -129,6 +222,18 @@ func (c *cIServiceClient) ListRuns(ctx context.Context, req *connect.Request[v1.
 type CIServiceHandler interface {
 	// Run triggers a CI run that can contain one or more workflows
 	Run(context.Context, *connect.Request[v1.RunRequest]) (*connect.Response[v1.RunResponse], error)
+	// DispatchWorkflow triggers a single workflow via workflow_dispatch, validating inputs against the workflow's schema
+	DispatchWorkflow(context.Context, *connect.Request[v1.DispatchWorkflowRequest]) (*connect.Response[v1.DispatchWorkflowResponse], error)
+	// RetryJob retries a failed job within a running workflow
+	RetryJob(context.Context, *connect.Request[v1.RetryJobRequest]) (*connect.Response[v1.RetryJobResponse], error)
+	// RerunWorkflow resets all jobs in a finished workflow and re-runs them
+	RerunWorkflow(context.Context, *connect.Request[v1.RerunWorkflowRequest]) (*connect.Response[v1.RerunWorkflowResponse], error)
+	// RetryFailedJobs retries only failed/cancelled jobs (and their skipped dependents) in a finished workflow
+	RetryFailedJobs(context.Context, *connect.Request[v1.RetryFailedJobsRequest]) (*connect.Response[v1.RetryFailedJobsResponse], error)
+	// CancelJob cancels a queued or running job
+	CancelJob(context.Context, *connect.Request[v1.CancelJobRequest]) (*connect.Response[v1.CancelJobResponse], error)
+	// CancelWorkflow cancels a queued or running workflow and all its child jobs
+	CancelWorkflow(context.Context, *connect.Request[v1.CancelWorkflowRequest]) (*connect.Response[v1.CancelWorkflowResponse], error)
 	// GetRunStatus returns the current status of a run including its workflows, jobs, and attempts
 	GetRunStatus(context.Context, *connect.Request[v1.GetRunStatusRequest]) (*connect.Response[v1.GetRunStatusResponse], error)
 	// GetJobAttemptLogs returns log lines for a job attempt
@@ -146,6 +251,36 @@ func NewCIServiceHandler(svc CIServiceHandler, opts ...connect.HandlerOption) (s
 	cIServiceRunHandler := connect.NewUnaryHandler(
 		CIServiceRunProcedure,
 		svc.Run,
+		opts...,
+	)
+	cIServiceDispatchWorkflowHandler := connect.NewUnaryHandler(
+		CIServiceDispatchWorkflowProcedure,
+		svc.DispatchWorkflow,
+		opts...,
+	)
+	cIServiceRetryJobHandler := connect.NewUnaryHandler(
+		CIServiceRetryJobProcedure,
+		svc.RetryJob,
+		opts...,
+	)
+	cIServiceRerunWorkflowHandler := connect.NewUnaryHandler(
+		CIServiceRerunWorkflowProcedure,
+		svc.RerunWorkflow,
+		opts...,
+	)
+	cIServiceRetryFailedJobsHandler := connect.NewUnaryHandler(
+		CIServiceRetryFailedJobsProcedure,
+		svc.RetryFailedJobs,
+		opts...,
+	)
+	cIServiceCancelJobHandler := connect.NewUnaryHandler(
+		CIServiceCancelJobProcedure,
+		svc.CancelJob,
+		opts...,
+	)
+	cIServiceCancelWorkflowHandler := connect.NewUnaryHandler(
+		CIServiceCancelWorkflowProcedure,
+		svc.CancelWorkflow,
 		opts...,
 	)
 	cIServiceGetRunStatusHandler := connect.NewUnaryHandler(
@@ -167,6 +302,18 @@ func NewCIServiceHandler(svc CIServiceHandler, opts ...connect.HandlerOption) (s
 		switch r.URL.Path {
 		case CIServiceRunProcedure:
 			cIServiceRunHandler.ServeHTTP(w, r)
+		case CIServiceDispatchWorkflowProcedure:
+			cIServiceDispatchWorkflowHandler.ServeHTTP(w, r)
+		case CIServiceRetryJobProcedure:
+			cIServiceRetryJobHandler.ServeHTTP(w, r)
+		case CIServiceRerunWorkflowProcedure:
+			cIServiceRerunWorkflowHandler.ServeHTTP(w, r)
+		case CIServiceRetryFailedJobsProcedure:
+			cIServiceRetryFailedJobsHandler.ServeHTTP(w, r)
+		case CIServiceCancelJobProcedure:
+			cIServiceCancelJobHandler.ServeHTTP(w, r)
+		case CIServiceCancelWorkflowProcedure:
+			cIServiceCancelWorkflowHandler.ServeHTTP(w, r)
 		case CIServiceGetRunStatusProcedure:
 			cIServiceGetRunStatusHandler.ServeHTTP(w, r)
 		case CIServiceGetJobAttemptLogsProcedure:
@@ -184,6 +331,30 @@ type UnimplementedCIServiceHandler struct{}
 
 func (UnimplementedCIServiceHandler) Run(context.Context, *connect.Request[v1.RunRequest]) (*connect.Response[v1.RunResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.ci.v1.CIService.Run is not implemented"))
+}
+
+func (UnimplementedCIServiceHandler) DispatchWorkflow(context.Context, *connect.Request[v1.DispatchWorkflowRequest]) (*connect.Response[v1.DispatchWorkflowResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.ci.v1.CIService.DispatchWorkflow is not implemented"))
+}
+
+func (UnimplementedCIServiceHandler) RetryJob(context.Context, *connect.Request[v1.RetryJobRequest]) (*connect.Response[v1.RetryJobResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.ci.v1.CIService.RetryJob is not implemented"))
+}
+
+func (UnimplementedCIServiceHandler) RerunWorkflow(context.Context, *connect.Request[v1.RerunWorkflowRequest]) (*connect.Response[v1.RerunWorkflowResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.ci.v1.CIService.RerunWorkflow is not implemented"))
+}
+
+func (UnimplementedCIServiceHandler) RetryFailedJobs(context.Context, *connect.Request[v1.RetryFailedJobsRequest]) (*connect.Response[v1.RetryFailedJobsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.ci.v1.CIService.RetryFailedJobs is not implemented"))
+}
+
+func (UnimplementedCIServiceHandler) CancelJob(context.Context, *connect.Request[v1.CancelJobRequest]) (*connect.Response[v1.CancelJobResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.ci.v1.CIService.CancelJob is not implemented"))
+}
+
+func (UnimplementedCIServiceHandler) CancelWorkflow(context.Context, *connect.Request[v1.CancelWorkflowRequest]) (*connect.Response[v1.CancelWorkflowResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.ci.v1.CIService.CancelWorkflow is not implemented"))
 }
 
 func (UnimplementedCIServiceHandler) GetRunStatus(context.Context, *connect.Request[v1.GetRunStatusRequest]) (*connect.Response[v1.GetRunStatusResponse], error) {

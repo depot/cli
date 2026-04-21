@@ -12,8 +12,12 @@ func NewCmdCI() *cobra.Command {
 		},
 	}
 
+	cmd.AddCommand(NewCmdCancel())
+	cmd.AddCommand(NewCmdDispatch())
 	cmd.AddCommand(NewCmdLogs())
 	cmd.AddCommand(NewCmdMigrate())
+	cmd.AddCommand(NewCmdRerun())
+	cmd.AddCommand(NewCmdRetry())
 	cmd.AddCommand(NewCmdRun())
 	cmd.AddCommand(NewCmdSecrets())
 	cmd.AddCommand(NewCmdSSH())
