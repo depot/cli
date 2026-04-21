@@ -423,6 +423,87 @@ func TestJobKeyShort_MultipleColons(t *testing.T) {
 	}
 }
 
+func TestFindLogsJob_WorkflowIDAutoFilter(t *testing.T) {
+	// When the positional arg matches a workflow ID, findLogsJob should
+	// filter to that workflow's jobs when the workflow filter is set.
+	resp := &civ1.GetRunStatusResponse{
+		RunId: "run-1",
+		Workflows: []*civ1.WorkflowStatus{
+			{
+				WorkflowId:   "wf-1",
+				WorkflowPath: ".depot/workflows/ci.yml",
+				Jobs: []*civ1.JobStatus{
+					{JobId: "job-1", JobKey: "build", Status: "finished"},
+				},
+			},
+			{
+				WorkflowId:   "wf-2",
+				WorkflowPath: ".depot/workflows/release.yml",
+				Jobs: []*civ1.JobStatus{
+					{JobId: "job-2", JobKey: "deploy", Status: "running"},
+				},
+			},
+		},
+	}
+
+	// Filtering by the first workflow's path should only see its jobs.
+	job, path, err := findLogsJob(resp, "wf-1", "", ".depot/workflows/ci.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if job.JobId != "job-1" {
+		t.Fatalf("expected job ID %q, got %q", "job-1", job.JobId)
+	}
+	if path != ".depot/workflows/ci.yml" {
+		t.Fatalf("expected workflow path %q, got %q", ".depot/workflows/ci.yml", path)
+	}
+}
+
+func TestResolveAttempt_WorkflowIDAutoFilter(t *testing.T) {
+	resp := &civ1.GetRunStatusResponse{
+		RunId: "run-1",
+		Workflows: []*civ1.WorkflowStatus{
+			{
+				WorkflowId:   "wf-1",
+				WorkflowPath: ".depot/workflows/ci.yml",
+				Jobs: []*civ1.JobStatus{
+					{
+						JobId:  "job-1",
+						JobKey: "build",
+						Status: "finished",
+						Attempts: []*civ1.AttemptStatus{
+							{AttemptId: "att-1", Attempt: 1, Status: "finished"},
+						},
+					},
+				},
+			},
+			{
+				WorkflowId:   "wf-2",
+				WorkflowPath: ".depot/workflows/release.yml",
+				Jobs: []*civ1.JobStatus{
+					{
+						JobId:  "job-2",
+						JobKey: "deploy",
+						Status: "running",
+						Attempts: []*civ1.AttemptStatus{
+							{AttemptId: "att-2", Attempt: 1, Status: "running"},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	// Passing workflow path as the filter should auto-select the single job in that workflow.
+	attemptID, err := resolveAttempt(resp, "wf-1", "", ".depot/workflows/ci.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if attemptID != "att-1" {
+		t.Fatalf("expected attempt ID %q, got %q", "att-1", attemptID)
+	}
+}
+
 func TestWorkflowPathMatches(t *testing.T) {
 	tests := []struct {
 		path   string
