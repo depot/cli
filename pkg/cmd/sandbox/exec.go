@@ -6,6 +6,7 @@ import (
 
 	"connectrpc.com/connect"
 	"github.com/depot/cli/pkg/api"
+	"github.com/depot/cli/pkg/config"
 	"github.com/depot/cli/pkg/helpers"
 	civ1 "github.com/depot/cli/pkg/proto/depot/ci/v1"
 	"github.com/spf13/cobra"
@@ -38,6 +39,13 @@ func newSandboxExec() *cobra.Command {
 				return fmt.Errorf("failed to resolve token: %w", err)
 			}
 
+			orgID, err := cmd.Flags().GetString("org")
+			cobra.CheckErr(err)
+
+			if orgID == "" {
+				orgID = config.GetCurrentOrganization()
+			}
+
 			sandboxID, err := cmd.Flags().GetString("sandbox-id")
 			cobra.CheckErr(err)
 
@@ -57,14 +65,14 @@ func newSandboxExec() *cobra.Command {
 
 			client := api.NewComputeClient()
 
-			stream, err := client.RemoteExec(ctx, api.WithAuthentication(connect.NewRequest(&civ1.ExecuteCommandRequest{
+			stream, err := client.RemoteExec(ctx, api.WithAuthenticationAndOrg(connect.NewRequest(&civ1.ExecuteCommandRequest{
 				SandboxId: sandboxID,
 				SessionId: sessionID,
 				Command: &civ1.Command{
 					CommandArray: args,
 					TimeoutMs:    int32(timeout),
 				},
-			}), token))
+			}), token, orgID))
 			if err != nil {
 				// nolint:wrapcheck
 				return err

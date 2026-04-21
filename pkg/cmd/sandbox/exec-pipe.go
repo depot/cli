@@ -8,6 +8,7 @@ import (
 	"os"
 
 	"github.com/depot/cli/pkg/api"
+	"github.com/depot/cli/pkg/config"
 	"github.com/depot/cli/pkg/helpers"
 	civ1 "github.com/depot/cli/pkg/proto/depot/ci/v1"
 	"github.com/spf13/cobra"
@@ -37,6 +38,13 @@ func newSandboxExecPipe() *cobra.Command {
 				return fmt.Errorf("failed to resolve token: %w", err)
 			}
 
+			orgID, err := cmd.Flags().GetString("org")
+			cobra.CheckErr(err)
+
+			if orgID == "" {
+				orgID = config.GetCurrentOrganization()
+			}
+
 			sandboxID, err := cmd.Flags().GetString("sandbox-id")
 			cobra.CheckErr(err)
 
@@ -60,6 +68,9 @@ func newSandboxExecPipe() *cobra.Command {
 			client := api.NewComputeClient()
 			stream := client.ExecPipe(ctx)
 			stream.RequestHeader().Set("Authorization", "Bearer "+token)
+			if orgID != "" {
+				stream.RequestHeader().Set("x-depot-org", orgID)
+			}
 
 			// Send init message with the command.
 			if err := stream.Send(&civ1.ExecuteCommandPipeRequest{
