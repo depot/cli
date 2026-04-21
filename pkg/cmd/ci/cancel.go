@@ -26,17 +26,15 @@ func NewCmdCancel() *cobra.Command {
 		Long: `Cancel a queued or running CI workflow (and all its child jobs), or a single job within a workflow.
 
 Exactly one of --workflow or --job must be set. Use --workflow to cancel an entire workflow
-and all its jobs; use --job to cancel a single job within its workflow.
-
-This command is in beta and subject to change.`,
+and all its jobs; use --job to cancel a single job within its workflow.`,
 		Example: `  # Cancel a workflow (and all its jobs)
-  depot ci cancel <run-id> --workflow <workflow-id>
+  depot ci cancel run_abc123 --workflow wf_xyz
 
   # Cancel a single job in a workflow
-  depot ci cancel <run-id> --job <job-id>
+  depot ci cancel run_abc123 --job job_xyz
 
   # Output the RPC response as JSON
-  depot ci cancel <run-id> --workflow <workflow-id> --output json`,
+  depot ci cancel run_abc123 --workflow wf_xyz --output json`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
@@ -44,9 +42,6 @@ This command is in beta and subject to change.`,
 
 			if workflowID == "" && jobID == "" {
 				return fmt.Errorf("one of --workflow or --job must be provided (cancelling an entire run is not yet supported)")
-			}
-			if workflowID != "" && jobID != "" {
-				return fmt.Errorf("--workflow and --job are mutually exclusive")
 			}
 
 			if orgID == "" {
@@ -97,7 +92,9 @@ This command is in beta and subject to change.`,
 	cmd.Flags().StringVar(&token, "token", "", "Depot API token")
 	cmd.Flags().StringVar(&workflowID, "workflow", "", "Workflow ID to cancel")
 	cmd.Flags().StringVar(&jobID, "job", "", "Job ID to cancel within its workflow")
-	cmd.Flags().StringVar(&output, "output", "", "Output format (json)")
+	cmd.Flags().StringVarP(&output, "output", "o", "", "Output format (json)")
+
+	cmd.MarkFlagsMutuallyExclusive("workflow", "job")
 
 	return cmd
 }

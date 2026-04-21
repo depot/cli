@@ -27,20 +27,18 @@ func NewCmdRetry() *cobra.Command {
 		Long: `Retry a single failed job with --job, or retry every failed/cancelled job in a workflow with --failed.
 
 Exactly one of --job or --failed must be set. --failed requires --workflow unless the run contains
-only a single workflow; --job resolves its containing workflow from the run automatically.
-
-This command is in beta and subject to change.`,
+only a single workflow; --job resolves its containing workflow from the run automatically.`,
 		Example: `  # Retry a single failed job
-  depot ci retry <run-id> --job <job-id>
+  depot ci retry run_abc123 --job job_xyz
 
   # Retry all failed jobs in the only workflow
-  depot ci retry <run-id> --failed
+  depot ci retry run_abc123 --failed
 
   # Retry all failed jobs in a specific workflow
-  depot ci retry <run-id> --failed --workflow <workflow-id>
+  depot ci retry run_abc123 --failed --workflow wf_xyz
 
   # Output the RPC response as JSON
-  depot ci retry <run-id> --job <job-id> --output json`,
+  depot ci retry run_abc123 --job job_xyz --output json`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
@@ -48,9 +46,6 @@ This command is in beta and subject to change.`,
 
 			if jobID == "" && !failed {
 				return fmt.Errorf("one of --job or --failed must be provided")
-			}
-			if jobID != "" && failed {
-				return fmt.Errorf("--job and --failed are mutually exclusive")
 			}
 
 			if orgID == "" {
@@ -115,7 +110,9 @@ This command is in beta and subject to change.`,
 	cmd.Flags().StringVar(&jobID, "job", "", "Job ID to retry")
 	cmd.Flags().BoolVar(&failed, "failed", false, "Retry every failed or cancelled job in the workflow")
 	cmd.Flags().StringVar(&workflowID, "workflow", "", "Workflow ID (required with --failed if the run has multiple workflows)")
-	cmd.Flags().StringVar(&output, "output", "", "Output format (json)")
+	cmd.Flags().StringVarP(&output, "output", "o", "", "Output format (json)")
+
+	cmd.MarkFlagsMutuallyExclusive("job", "failed")
 
 	return cmd
 }

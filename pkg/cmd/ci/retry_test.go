@@ -25,7 +25,7 @@ func TestRetryFlagValidation(t *testing.T) {
 		{
 			name:    "both mode flags",
 			args:    []string{"run-123", "--job=job-1", "--failed"},
-			wantErr: "mutually exclusive",
+			wantErr: "none of the others can be",
 		},
 	}
 	for _, tt := range tests {

@@ -87,17 +87,17 @@ func TestDispatchRequiredFlags(t *testing.T) {
 		{
 			name:    "missing repo",
 			args:    []string{"--workflow=.depot/workflows/deploy.yml", "--ref=main"},
-			wantErr: "--repo is required",
+			wantErr: `"repo" not set`,
 		},
 		{
 			name:    "missing workflow",
 			args:    []string{"--repo=depot/cli", "--ref=main"},
-			wantErr: "--workflow is required",
+			wantErr: `"workflow" not set`,
 		},
 		{
 			name:    "missing ref",
 			args:    []string{"--repo=depot/cli", "--workflow=.depot/workflows/deploy.yml"},
-			wantErr: "--ref is required",
+			wantErr: `"ref" not set`,
 		},
 		{
 			name:    "invalid input",

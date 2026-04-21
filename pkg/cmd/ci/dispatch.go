@@ -31,9 +31,7 @@ func NewCmdDispatch() *cobra.Command {
 declared input schema.
 
 --workflow takes the workflow file's basename (e.g. deploy.yml), not the full repo path.
-This matches GitHub's workflow_dispatch API convention.
-
-This command is in beta and subject to change.`,
+This matches GitHub's workflow_dispatch API convention.`,
 		Example: `  # Dispatch a workflow on the main branch (use the workflow file's basename)
   depot ci dispatch --repo depot/cli --workflow deploy.yml --ref main
 
@@ -43,18 +41,9 @@ This command is in beta and subject to change.`,
 
   # Output the RPC response as JSON
   depot ci dispatch --repo depot/cli --workflow deploy.yml --ref main --output json`,
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
-
-			if repo == "" {
-				return fmt.Errorf("--repo is required")
-			}
-			if workflow == "" {
-				return fmt.Errorf("--workflow is required")
-			}
-			if ref == "" {
-				return fmt.Errorf("--ref is required")
-			}
 
 			inputMap, err := parseDispatchInputs(inputs)
 			if err != nil {
@@ -102,7 +91,11 @@ This command is in beta and subject to change.`,
 	cmd.Flags().StringVar(&workflow, "workflow", "", "Workflow file basename, e.g. deploy.yml — NOT the full path (required)")
 	cmd.Flags().StringVar(&ref, "ref", "", "Branch or tag name to run the workflow on (required)")
 	cmd.Flags().StringArrayVar(&inputs, "input", nil, "Workflow input as key=value; repeat for multiple inputs")
-	cmd.Flags().StringVar(&output, "output", "", "Output format (json)")
+	cmd.Flags().StringVarP(&output, "output", "o", "", "Output format (json)")
+
+	_ = cmd.MarkFlagRequired("repo")
+	_ = cmd.MarkFlagRequired("workflow")
+	_ = cmd.MarkFlagRequired("ref")
 
 	return cmd
 }

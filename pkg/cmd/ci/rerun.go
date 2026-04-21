@@ -23,17 +23,15 @@ func NewCmdRerun() *cobra.Command {
 		Use:   "rerun <run-id>",
 		Short: "Re-run a CI workflow [beta]",
 		Long: `Re-run every job in a finished workflow. For runs that contain more than one workflow,
---workflow is required to disambiguate.
-
-This command is in beta and subject to change.`,
+--workflow is required to disambiguate.`,
 		Example: `  # Re-run the only workflow in a run
-  depot ci rerun <run-id>
+  depot ci rerun run_abc123
 
   # Re-run a specific workflow
-  depot ci rerun <run-id> --workflow <workflow-id>
+  depot ci rerun run_abc123 --workflow wf_xyz
 
   # Output the RPC response as JSON
-  depot ci rerun <run-id> --workflow <workflow-id> --output json`,
+  depot ci rerun run_abc123 --workflow wf_xyz --output json`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
@@ -78,7 +76,7 @@ This command is in beta and subject to change.`,
 	cmd.Flags().StringVar(&orgID, "org", "", "Organization ID (required when user is a member of multiple organizations)")
 	cmd.Flags().StringVar(&token, "token", "", "Depot API token")
 	cmd.Flags().StringVar(&workflowID, "workflow", "", "Workflow ID to rerun (required if the run contains multiple workflows)")
-	cmd.Flags().StringVar(&output, "output", "", "Output format (json)")
+	cmd.Flags().StringVarP(&output, "output", "o", "", "Output format (json)")
 
 	return cmd
 }

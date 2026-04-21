@@ -25,7 +25,7 @@ func TestCancelFlagValidation(t *testing.T) {
 		{
 			name:    "both scope flags",
 			args:    []string{"run-123", "--workflow=wf-1", "--job=job-1"},
-			wantErr: "mutually exclusive",
+			wantErr: "none of the others can be",
 		},
 	}
 	for _, tt := range tests {
