@@ -24,7 +24,7 @@ func NewCmdDispatch() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "dispatch",
-		Short: "Dispatch a workflow via workflow_dispatch [beta]",
+		Short: "Dispatch a workflow via workflow_dispatch",
 		Long: `Trigger a single workflow via workflow_dispatch. Inputs are validated against the workflow's
 declared input schema.
 

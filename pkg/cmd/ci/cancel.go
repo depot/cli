@@ -20,7 +20,7 @@ func NewCmdCancel() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "cancel <run-id>",
-		Short: "Cancel a CI workflow or job [beta]",
+		Short: "Cancel a CI workflow or job",
 		Long: `Cancel a queued or running CI workflow (and all its child jobs), or a single job within a workflow.
 
 Exactly one of --workflow or --job must be set. Use --workflow to cancel an entire workflow

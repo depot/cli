@@ -22,14 +22,12 @@ func NewCmdLogs() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "logs <run-id | job-id | attempt-id>",
-		Short: "Fetch logs for a CI job [beta]",
+		Short: "Fetch logs for a CI job",
 		Long: `Fetch and display log output for a CI job.
 
 Accepts a run ID, job ID, or attempt ID. When given a run or job ID, the
 command resolves to the latest attempt automatically. Use --job and --workflow
-to disambiguate when a run has multiple jobs.
-
-This command is in beta and subject to change.`,
+to disambiguate when a run has multiple jobs.`,
 		Example: `  # Logs for a specific attempt
   depot ci logs <attempt-id>
 

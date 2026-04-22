@@ -21,7 +21,7 @@ func NewCmdRetry() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "retry <run-id>",
-		Short: "Retry a failed CI job, or all failed jobs in a workflow [beta]",
+		Short: "Retry a failed CI job, or all failed jobs in a workflow",
 		Long: `Retry a single failed job with --job, or retry every failed/cancelled job in a workflow with --failed.
 
 Exactly one of --job or --failed must be set. --failed requires --workflow unless the run contains

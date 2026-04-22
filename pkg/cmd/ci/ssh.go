@@ -28,14 +28,12 @@ func NewCmdSSH() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "ssh <run-id | job-id>",
-		Short: "Connect to a running CI job via interactive terminal [beta]",
+		Short: "Connect to a running CI job via interactive terminal",
 		Long: `Open an interactive terminal session to the sandbox running a CI job.
 
 Accepts either a run ID (with optional --job flag) or a job ID directly.
 If the job hasn't started yet, the command will wait for the sandbox to be provisioned.
-Use --info to print SSH connection details instead of connecting interactively.
-
-This command is in beta and subject to change.`,
+Use --info to print SSH connection details instead of connecting interactively.`,
 		Example: `  # Connect directly using a job ID
   depot ci ssh <job-id>
 

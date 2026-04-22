@@ -19,7 +19,7 @@ func NewCmdRerun() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "rerun <run-id>",
-		Short: "Re-run a CI workflow [beta]",
+		Short: "Re-run a CI workflow",
 		Long: `Re-run every job in a finished workflow. For runs that contain more than one workflow,
 --workflow is required to disambiguate.`,
 		Example: `  # Re-run the only workflow in a run

@@ -24,7 +24,7 @@ A minimal command declaration looks like:
 ```go
 cmd := &cobra.Command{
     Use:     "cancel <run-id>",
-    Short:   "Cancel a CI workflow or job [beta]",
+    Short:   "Cancel a CI workflow or job",
     Long:    `Cancel a queued or running CI workflow (and all its child jobs), or a single job within a workflow.`,
     Example: `  # Cancel a workflow (and all its jobs)
   depot ci cancel <run-id> --workflow <workflow-id>
@@ -69,12 +69,11 @@ commands stay as-is.
 - Imperative mood.
 - Capitalized first word.
 - **No terminating period.**
-- Append `[beta]` for unstable commands under `depot ci ...` (dropped once the
-  surface is GA). Only the `ci` tree uses this today.
+- Do not append stability markers like `[beta]`.
 
 Good:
 ```go
-Short: "Retry a failed CI job, or all failed jobs in a workflow [beta]",
+Short: "Retry a failed CI job, or all failed jobs in a workflow",
 Short: "List CI runs",
 Short: "Authenticate the Depot CLI",
 ```
@@ -264,19 +263,13 @@ return fmt.Errorf("--workflow is required when the run contains multiple workflo
 
 ---
 
-## 7. Beta marker
+## 7. Stability Markers
 
-Unstable surfaces under `depot ci` suffix `[beta]` on `Short:`:
+Do not suffix `Short:` descriptions with stability markers like `[beta]`.
 
-```go
-Short: "Manage Depot CI [beta]",
-Short: "Cancel a CI workflow or job [beta]",
-```
-
-- Keep the marker on the parent group command **and** each subcommand until GA.
-- Drop it in the same PR that flips the server contract to stable.
-- Other command trees (`sandbox`, `claude`, `push`, `pull`) do not use
-  `[beta]`; don't introduce it there without a separate discussion.
+- Keep `Short:` focused on the action the command performs.
+- If a surface needs a stability callout, put that context in release notes or
+  higher-level documentation rather than inline in every help summary.
 
 ---
 
@@ -318,7 +311,7 @@ surface until there is a separate reason to touch it.
 Before opening a PR for a new `depot ...` command, confirm:
 
 - [ ] `Use:` uses `<angle>` for required and `[square]` for optional positionals.
-- [ ] `Short:` is imperative, capitalized, no terminating period, `[beta]` if applicable.
+- [ ] `Short:` is imperative, capitalized, no terminating period, and has no stability suffix.
 - [ ] `Long:` explains behavior, not flags.
 - [ ] `Example:` has at least two examples with `#` comments, blank-line separators, and `<placeholders>` for opaque IDs.
 - [ ] All flags are kebab-case, lowercase.

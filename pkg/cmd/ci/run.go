@@ -36,15 +36,13 @@ func NewCmdRun() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "run",
-		Short: "Run a local CI workflow [beta]",
+		Short: "Run a local CI workflow",
 		Long: `Run a local CI workflow YAML via the Depot CI API.
 
 If there are local changes relative to the remote state of your branch, they are
 automatically uploaded as a patch and applied during the workflow run. For pushed
 branches, the patch contains only unpushed changes; for unpushed branches, the
-patch is relative to the default branch.
-
-This command is in beta and subject to change.`,
+patch is relative to the default branch.`,
 		Example: `  # Run a workflow
   depot ci run --workflow .depot/workflows/ci.yml
 
