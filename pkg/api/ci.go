@@ -60,6 +60,66 @@ func CIRun(ctx context.Context, token, orgID string, req *civ1.RunRequest) (*civ
 	return resp.Msg, nil
 }
 
+// CIDispatchWorkflow triggers a single workflow via workflow_dispatch.
+func CIDispatchWorkflow(ctx context.Context, token, orgID string, req *civ1.DispatchWorkflowRequest) (*civ1.DispatchWorkflowResponse, error) {
+	client := newCIServiceClient()
+	resp, err := client.DispatchWorkflow(ctx, WithAuthenticationAndOrg(connect.NewRequest(req), token, orgID))
+	if err != nil {
+		return nil, err
+	}
+	return resp.Msg, nil
+}
+
+// CICancelWorkflow cancels a queued or running workflow and all its child jobs.
+func CICancelWorkflow(ctx context.Context, token, orgID, workflowID string) (*civ1.CancelWorkflowResponse, error) {
+	client := newCIServiceClient()
+	resp, err := client.CancelWorkflow(ctx, WithAuthenticationAndOrg(connect.NewRequest(&civ1.CancelWorkflowRequest{WorkflowId: workflowID}), token, orgID))
+	if err != nil {
+		return nil, err
+	}
+	return resp.Msg, nil
+}
+
+// CICancelJob cancels a queued or running job within a workflow.
+func CICancelJob(ctx context.Context, token, orgID, workflowID, jobID string) (*civ1.CancelJobResponse, error) {
+	client := newCIServiceClient()
+	resp, err := client.CancelJob(ctx, WithAuthenticationAndOrg(connect.NewRequest(&civ1.CancelJobRequest{WorkflowId: workflowID, JobId: jobID}), token, orgID))
+	if err != nil {
+		return nil, err
+	}
+	return resp.Msg, nil
+}
+
+// CIRerunWorkflow resets and re-runs all jobs in a finished workflow.
+func CIRerunWorkflow(ctx context.Context, token, orgID, workflowID string) (*civ1.RerunWorkflowResponse, error) {
+	client := newCIServiceClient()
+	resp, err := client.RerunWorkflow(ctx, WithAuthenticationAndOrg(connect.NewRequest(&civ1.RerunWorkflowRequest{WorkflowId: workflowID}), token, orgID))
+	if err != nil {
+		return nil, err
+	}
+	return resp.Msg, nil
+}
+
+// CIRetryFailedJobs retries only failed/cancelled jobs in a finished workflow.
+func CIRetryFailedJobs(ctx context.Context, token, orgID, workflowID string) (*civ1.RetryFailedJobsResponse, error) {
+	client := newCIServiceClient()
+	resp, err := client.RetryFailedJobs(ctx, WithAuthenticationAndOrg(connect.NewRequest(&civ1.RetryFailedJobsRequest{WorkflowId: workflowID}), token, orgID))
+	if err != nil {
+		return nil, err
+	}
+	return resp.Msg, nil
+}
+
+// CIRetryJob retries a single failed job within a workflow.
+func CIRetryJob(ctx context.Context, token, orgID, workflowID, jobID string) (*civ1.RetryJobResponse, error) {
+	client := newCIServiceClient()
+	resp, err := client.RetryJob(ctx, WithAuthenticationAndOrg(connect.NewRequest(&civ1.RetryJobRequest{WorkflowId: workflowID, JobId: jobID}), token, orgID))
+	if err != nil {
+		return nil, err
+	}
+	return resp.Msg, nil
+}
+
 // CIListRuns returns CI runs, paginating as needed to collect up to `limit` results.
 // If limit is 0, all results are returned.
 func CIListRuns(ctx context.Context, token, orgID string, statuses []civ1.CIRunStatus, limit int32) ([]*civ1.ListRunsResponseRun, error) {

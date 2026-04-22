@@ -8,6 +8,24 @@ service CIService {
   // Run triggers a CI run that can contain one or more workflows
   rpc Run(RunRequest) returns (RunResponse) {}
 
+  // DispatchWorkflow triggers a single workflow via workflow_dispatch, validating inputs against the workflow's schema
+  rpc DispatchWorkflow(DispatchWorkflowRequest) returns (DispatchWorkflowResponse) {}
+
+  // RetryJob retries a failed job within a running workflow
+  rpc RetryJob(RetryJobRequest) returns (RetryJobResponse) {}
+
+  // RerunWorkflow resets all jobs in a finished workflow and re-runs them
+  rpc RerunWorkflow(RerunWorkflowRequest) returns (RerunWorkflowResponse) {}
+
+  // RetryFailedJobs retries only failed/cancelled jobs (and their skipped dependents) in a finished workflow
+  rpc RetryFailedJobs(RetryFailedJobsRequest) returns (RetryFailedJobsResponse) {}
+
+  // CancelJob cancels a queued or running job
+  rpc CancelJob(CancelJobRequest) returns (CancelJobResponse) {}
+
+  // CancelWorkflow cancels a queued or running workflow and all its child jobs
+  rpc CancelWorkflow(CancelWorkflowRequest) returns (CancelWorkflowResponse) {}
+
   // GetRunStatus returns the current status of a run including its workflows, jobs, and attempts
   rpc GetRunStatus(GetRunStatusRequest) returns (GetRunStatusResponse) {}
 
@@ -97,6 +115,110 @@ message RunResponse {
   string org_id = 2;
   // run_id is the unique identifier for the created CI run
   string run_id = 1;
+}
+
+// DispatchWorkflow messages
+
+message DispatchWorkflowRequest {
+  // org_id is the organization that owns the workflow
+  string org_id = 1;
+  // repo is the name of the target GitHub repo in {org}/{repo} format
+  string repo = 2;
+  // workflow is the workflow file basename (e.g., "deploy.yml"), not the
+  // full repo path. Matches GitHub's workflow_dispatch convention.
+  string workflow = 3;
+  // ref is the branch or tag name to run the workflow on (e.g., "main")
+  string ref = 4;
+  // inputs are key-value pairs matching the workflow's input definitions
+  // all values are strings; the server coerces to the correct type
+  map<string, string> inputs = 5;
+}
+
+message DispatchWorkflowResponse {
+  // org_id is the organization that owns this run
+  string org_id = 1;
+  // run_id is the unique identifier for the created CI run
+  string run_id = 2;
+}
+
+// RetryJob messages
+
+message RetryJobRequest {
+  // workflow_id identifies the workflow containing the job
+  string workflow_id = 1;
+  // job_id identifies the job to retry
+  string job_id = 2;
+}
+
+message RetryJobResponse {
+  // job_id is the ID of the retried job
+  string job_id = 1;
+  // attempt_id is the new attempt's unique identifier
+  string attempt_id = 2;
+  // attempt is the new attempt number
+  int32 attempt = 3;
+  // status is the new job status (should be "queued")
+  string status = 4;
+}
+
+// RerunWorkflow messages
+
+message RerunWorkflowRequest {
+  // workflow_id identifies the workflow to re-run
+  string workflow_id = 1;
+}
+
+message RerunWorkflowResponse {
+  // workflow_id is the ID of the re-run workflow
+  string workflow_id = 1;
+  // job_count is the number of jobs reset to queued
+  int32 job_count = 2;
+}
+
+// RetryFailedJobs messages
+
+message RetryFailedJobsRequest {
+  // workflow_id identifies the workflow containing failed jobs
+  string workflow_id = 1;
+}
+
+message RetryFailedJobsResponse {
+  // workflow_id is the ID of the workflow
+  string workflow_id = 1;
+  // job_ids are the IDs of jobs that were reset to queued
+  repeated string job_ids = 2;
+  // job_count is the number of jobs reset to queued
+  int32 job_count = 3;
+}
+
+// CancelJob messages
+
+message CancelJobRequest {
+  // workflow_id identifies the workflow containing the job
+  string workflow_id = 1;
+  // job_id identifies the job to cancel
+  string job_id = 2;
+}
+
+message CancelJobResponse {
+  // job_id is the ID of the cancelled job
+  string job_id = 1;
+  // status is the new job status (should be "cancelled")
+  string status = 2;
+}
+
+// CancelWorkflow messages
+
+message CancelWorkflowRequest {
+  // workflow_id identifies the workflow to cancel
+  string workflow_id = 1;
+}
+
+message CancelWorkflowResponse {
+  // workflow_id is the ID of the cancelled workflow
+  string workflow_id = 1;
+  // status is the new workflow status (should be "cancelled")
+  string status = 2;
 }
 
 // GetRunStatus messages

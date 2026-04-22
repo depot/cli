@@ -24,13 +24,13 @@ A minimal command declaration looks like:
 ```go
 cmd := &cobra.Command{
     Use:     "cancel <run-id>",
-    Short:   "Cancel a CI workflow or job [beta]",
+    Short:   "Cancel a CI workflow or job",
     Long:    `Cancel a queued or running CI workflow (and all its child jobs), or a single job within a workflow.`,
     Example: `  # Cancel a workflow (and all its jobs)
-  depot ci cancel run_abc123 --workflow wf_xyz
+  depot ci cancel <run-id> --workflow <workflow-id>
 
   # Cancel a single job
-  depot ci cancel run_abc123 --job job_xyz`,
+  depot ci cancel <run-id> --job <job-id>`,
     Args: cobra.ExactArgs(1),
     RunE: func(cmd *cobra.Command, args []string) error { /* ... */ },
 }
@@ -69,12 +69,11 @@ commands stay as-is.
 - Imperative mood.
 - Capitalized first word.
 - **No terminating period.**
-- Append `[beta]` for unstable commands under `depot ci ...` (dropped once the
-  surface is GA). Only the `ci` tree uses this today.
+- Do not append stability markers like `[beta]`.
 
 Good:
 ```go
-Short: "Retry a failed CI job, or all failed jobs in a workflow [beta]",
+Short: "Retry a failed CI job, or all failed jobs in a workflow",
 Short: "List CI runs",
 Short: "Authenticate the Depot CLI",
 ```
@@ -94,13 +93,17 @@ idempotency notes).
 - Raw string literal (backticks), **two-space indent**.
 - Each example preceded by a `# comment` describing the intent.
 - Separate examples with a blank line.
+- Use `<placeholders>` for opaque identifiers in examples: `<run-id>`,
+  `<workflow-id>`, `<job-id>`.
+- Use realistic literals only when the value's shape matters to the user:
+  `depot/cli`, `deploy.yml`, `main`, `environment=staging`.
 
 ```go
 Example: `  # Retry a single failed job
-  depot ci retry run_abc123 --job job_xyz
+  depot ci retry <run-id> --job <job-id>
 
   # Retry every failed job in a workflow
-  depot ci retry run_abc123 --failed`,
+  depot ci retry <run-id> --failed`,
 ```
 
 ### `Args:`
@@ -260,19 +263,13 @@ return fmt.Errorf("--workflow is required when the run contains multiple workflo
 
 ---
 
-## 7. Beta marker
+## 7. Stability Markers
 
-Unstable surfaces under `depot ci` suffix `[beta]` on `Short:`:
+Do not suffix `Short:` descriptions with stability markers like `[beta]`.
 
-```go
-Short: "Manage Depot CI [beta]",
-Short: "Cancel a CI workflow or job [beta]",
-```
-
-- Keep the marker on the parent group command **and** each subcommand until GA.
-- Drop it in the same PR that flips the server contract to stable.
-- Other command trees (`sandbox`, `claude`, `push`, `pull`) do not use
-  `[beta]`; don't introduce it there without a separate discussion.
+- Keep `Short:` focused on the action the command performs.
+- If a surface needs a stability callout, put that context in release notes or
+  higher-level documentation rather than inline in every help summary.
 
 ---
 
@@ -314,9 +311,9 @@ surface until there is a separate reason to touch it.
 Before opening a PR for a new `depot ...` command, confirm:
 
 - [ ] `Use:` uses `<angle>` for required and `[square]` for optional positionals.
-- [ ] `Short:` is imperative, capitalized, no terminating period, `[beta]` if applicable.
+- [ ] `Short:` is imperative, capitalized, no terminating period, and has no stability suffix.
 - [ ] `Long:` explains behavior, not flags.
-- [ ] `Example:` has at least two examples with `#` comments and blank-line separators.
+- [ ] `Example:` has at least two examples with `#` comments, blank-line separators, and `<placeholders>` for opaque IDs.
 - [ ] All flags are kebab-case, lowercase.
 - [ ] Help text starts capital, no terminating period, parentheses for hints.
 - [ ] `--org` and `--token` are present on any org-scoped command, with the canonical help strings.
