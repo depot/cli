@@ -27,10 +27,10 @@ cmd := &cobra.Command{
     Short:   "Cancel a CI workflow or job [beta]",
     Long:    `Cancel a queued or running CI workflow (and all its child jobs), or a single job within a workflow.`,
     Example: `  # Cancel a workflow (and all its jobs)
-  depot ci cancel run_abc123 --workflow wf_xyz
+  depot ci cancel <run-id> --workflow <workflow-id>
 
   # Cancel a single job
-  depot ci cancel run_abc123 --job job_xyz`,
+  depot ci cancel <run-id> --job <job-id>`,
     Args: cobra.ExactArgs(1),
     RunE: func(cmd *cobra.Command, args []string) error { /* ... */ },
 }
@@ -94,13 +94,17 @@ idempotency notes).
 - Raw string literal (backticks), **two-space indent**.
 - Each example preceded by a `# comment` describing the intent.
 - Separate examples with a blank line.
+- Use `<placeholders>` for opaque identifiers in examples: `<run-id>`,
+  `<workflow-id>`, `<job-id>`.
+- Use realistic literals only when the value's shape matters to the user:
+  `depot/cli`, `deploy.yml`, `main`, `environment=staging`.
 
 ```go
 Example: `  # Retry a single failed job
-  depot ci retry run_abc123 --job job_xyz
+  depot ci retry <run-id> --job <job-id>
 
   # Retry every failed job in a workflow
-  depot ci retry run_abc123 --failed`,
+  depot ci retry <run-id> --failed`,
 ```
 
 ### `Args:`
@@ -316,7 +320,7 @@ Before opening a PR for a new `depot ...` command, confirm:
 - [ ] `Use:` uses `<angle>` for required and `[square]` for optional positionals.
 - [ ] `Short:` is imperative, capitalized, no terminating period, `[beta]` if applicable.
 - [ ] `Long:` explains behavior, not flags.
-- [ ] `Example:` has at least two examples with `#` comments and blank-line separators.
+- [ ] `Example:` has at least two examples with `#` comments, blank-line separators, and `<placeholders>` for opaque IDs.
 - [ ] All flags are kebab-case, lowercase.
 - [ ] Help text starts capital, no terminating period, parentheses for hints.
 - [ ] `--org` and `--token` are present on any org-scoped command, with the canonical help strings.

@@ -26,13 +26,13 @@ func NewCmdCancel() *cobra.Command {
 Exactly one of --workflow or --job must be set. Use --workflow to cancel an entire workflow
 and all its jobs; use --job to cancel a single job within its workflow.`,
 		Example: `  # Cancel a workflow (and all its jobs)
-  depot ci cancel run_abc123 --workflow wf_xyz
+  depot ci cancel <run-id> --workflow <workflow-id>
 
   # Cancel a single job in a workflow
-  depot ci cancel run_abc123 --job job_xyz
+  depot ci cancel <run-id> --job <job-id>
 
   # Output the RPC response as JSON
-  depot ci cancel run_abc123 --workflow wf_xyz --output json`,
+  depot ci cancel <run-id> --workflow <workflow-id> --output json`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()

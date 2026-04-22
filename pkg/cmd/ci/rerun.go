@@ -23,13 +23,13 @@ func NewCmdRerun() *cobra.Command {
 		Long: `Re-run every job in a finished workflow. For runs that contain more than one workflow,
 --workflow is required to disambiguate.`,
 		Example: `  # Re-run the only workflow in a run
-  depot ci rerun run_abc123
+  depot ci rerun <run-id>
 
   # Re-run a specific workflow
-  depot ci rerun run_abc123 --workflow wf_xyz
+  depot ci rerun <run-id> --workflow <workflow-id>
 
   # Output the RPC response as JSON
-  depot ci rerun run_abc123 --workflow wf_xyz --output json`,
+  depot ci rerun <run-id> --workflow <workflow-id> --output json`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()

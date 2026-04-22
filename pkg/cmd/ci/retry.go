@@ -27,16 +27,16 @@ func NewCmdRetry() *cobra.Command {
 Exactly one of --job or --failed must be set. --failed requires --workflow unless the run contains
 only a single workflow; --job resolves its containing workflow from the run automatically.`,
 		Example: `  # Retry a single failed job
-  depot ci retry run_abc123 --job job_xyz
+  depot ci retry <run-id> --job <job-id>
 
   # Retry all failed jobs in the only workflow
-  depot ci retry run_abc123 --failed
+  depot ci retry <run-id> --failed
 
   # Retry all failed jobs in a specific workflow
-  depot ci retry run_abc123 --failed --workflow wf_xyz
+  depot ci retry <run-id> --failed --workflow <workflow-id>
 
   # Output the RPC response as JSON
-  depot ci retry run_abc123 --job job_xyz --output json`,
+  depot ci retry <run-id> --job <job-id> --output json`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
