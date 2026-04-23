@@ -278,6 +278,7 @@ patch is relative to the default branch.`,
 	cmd.Flags().StringVar(&repoFlag, "repo", "", "GitHub repository (owner/repo) to use instead of detecting from git remotes")
 
 	cmd.AddCommand(NewCmdRunList())
+	cmd.AddCommand(NewCmdRunShow())
 
 	return cmd
 }
