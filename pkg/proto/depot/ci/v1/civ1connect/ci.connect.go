@@ -52,6 +52,10 @@ const (
 	// CIServiceCancelWorkflowProcedure is the fully-qualified name of the CIService's CancelWorkflow
 	// RPC.
 	CIServiceCancelWorkflowProcedure = "/depot.ci.v1.CIService/CancelWorkflow"
+	// CIServiceGetRunProcedure is the fully-qualified name of the CIService's GetRun RPC.
+	CIServiceGetRunProcedure = "/depot.ci.v1.CIService/GetRun"
+	// CIServiceCancelRunProcedure is the fully-qualified name of the CIService's CancelRun RPC.
+	CIServiceCancelRunProcedure = "/depot.ci.v1.CIService/CancelRun"
 	// CIServiceGetRunStatusProcedure is the fully-qualified name of the CIService's GetRunStatus RPC.
 	CIServiceGetRunStatusProcedure = "/depot.ci.v1.CIService/GetRunStatus"
 	// CIServiceGetJobAttemptLogsProcedure is the fully-qualified name of the CIService's
@@ -83,6 +87,10 @@ type CIServiceClient interface {
 	CancelJob(context.Context, *connect.Request[v1.CancelJobRequest]) (*connect.Response[v1.CancelJobResponse], error)
 	// CancelWorkflow cancels a queued or running workflow and all its child jobs
 	CancelWorkflow(context.Context, *connect.Request[v1.CancelWorkflowRequest]) (*connect.Response[v1.CancelWorkflowResponse], error)
+	// GetRun returns a flat CI run record
+	GetRun(context.Context, *connect.Request[v1.GetRunRequest]) (*connect.Response[v1.GetRunResponse], error)
+	// CancelRun cancels a queued or running CI run and all active child work
+	CancelRun(context.Context, *connect.Request[v1.CancelRunRequest]) (*connect.Response[v1.CancelRunResponse], error)
 	// GetRunStatus returns the current status of a run including its workflows, jobs, and attempts
 	GetRunStatus(context.Context, *connect.Request[v1.GetRunStatusRequest]) (*connect.Response[v1.GetRunStatusResponse], error)
 	// GetJobAttemptLogs returns log lines for a job attempt
@@ -136,6 +144,16 @@ func NewCIServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...c
 			baseURL+CIServiceCancelWorkflowProcedure,
 			opts...,
 		),
+		getRun: connect.NewClient[v1.GetRunRequest, v1.GetRunResponse](
+			httpClient,
+			baseURL+CIServiceGetRunProcedure,
+			opts...,
+		),
+		cancelRun: connect.NewClient[v1.CancelRunRequest, v1.CancelRunResponse](
+			httpClient,
+			baseURL+CIServiceCancelRunProcedure,
+			opts...,
+		),
 		getRunStatus: connect.NewClient[v1.GetRunStatusRequest, v1.GetRunStatusResponse](
 			httpClient,
 			baseURL+CIServiceGetRunStatusProcedure,
@@ -163,6 +181,8 @@ type cIServiceClient struct {
 	retryFailedJobs   *connect.Client[v1.RetryFailedJobsRequest, v1.RetryFailedJobsResponse]
 	cancelJob         *connect.Client[v1.CancelJobRequest, v1.CancelJobResponse]
 	cancelWorkflow    *connect.Client[v1.CancelWorkflowRequest, v1.CancelWorkflowResponse]
+	getRun            *connect.Client[v1.GetRunRequest, v1.GetRunResponse]
+	cancelRun         *connect.Client[v1.CancelRunRequest, v1.CancelRunResponse]
 	getRunStatus      *connect.Client[v1.GetRunStatusRequest, v1.GetRunStatusResponse]
 	getJobAttemptLogs *connect.Client[v1.GetJobAttemptLogsRequest, v1.GetJobAttemptLogsResponse]
 	listRuns          *connect.Client[v1.ListRunsRequest, v1.ListRunsResponse]
@@ -203,6 +223,16 @@ func (c *cIServiceClient) CancelWorkflow(ctx context.Context, req *connect.Reque
 	return c.cancelWorkflow.CallUnary(ctx, req)
 }
 
+// GetRun calls depot.ci.v1.CIService.GetRun.
+func (c *cIServiceClient) GetRun(ctx context.Context, req *connect.Request[v1.GetRunRequest]) (*connect.Response[v1.GetRunResponse], error) {
+	return c.getRun.CallUnary(ctx, req)
+}
+
+// CancelRun calls depot.ci.v1.CIService.CancelRun.
+func (c *cIServiceClient) CancelRun(ctx context.Context, req *connect.Request[v1.CancelRunRequest]) (*connect.Response[v1.CancelRunResponse], error) {
+	return c.cancelRun.CallUnary(ctx, req)
+}
+
 // GetRunStatus calls depot.ci.v1.CIService.GetRunStatus.
 func (c *cIServiceClient) GetRunStatus(ctx context.Context, req *connect.Request[v1.GetRunStatusRequest]) (*connect.Response[v1.GetRunStatusResponse], error) {
 	return c.getRunStatus.CallUnary(ctx, req)
@@ -234,6 +264,10 @@ type CIServiceHandler interface {
 	CancelJob(context.Context, *connect.Request[v1.CancelJobRequest]) (*connect.Response[v1.CancelJobResponse], error)
 	// CancelWorkflow cancels a queued or running workflow and all its child jobs
 	CancelWorkflow(context.Context, *connect.Request[v1.CancelWorkflowRequest]) (*connect.Response[v1.CancelWorkflowResponse], error)
+	// GetRun returns a flat CI run record
+	GetRun(context.Context, *connect.Request[v1.GetRunRequest]) (*connect.Response[v1.GetRunResponse], error)
+	// CancelRun cancels a queued or running CI run and all active child work
+	CancelRun(context.Context, *connect.Request[v1.CancelRunRequest]) (*connect.Response[v1.CancelRunResponse], error)
 	// GetRunStatus returns the current status of a run including its workflows, jobs, and attempts
 	GetRunStatus(context.Context, *connect.Request[v1.GetRunStatusRequest]) (*connect.Response[v1.GetRunStatusResponse], error)
 	// GetJobAttemptLogs returns log lines for a job attempt
@@ -283,6 +317,16 @@ func NewCIServiceHandler(svc CIServiceHandler, opts ...connect.HandlerOption) (s
 		svc.CancelWorkflow,
 		opts...,
 	)
+	cIServiceGetRunHandler := connect.NewUnaryHandler(
+		CIServiceGetRunProcedure,
+		svc.GetRun,
+		opts...,
+	)
+	cIServiceCancelRunHandler := connect.NewUnaryHandler(
+		CIServiceCancelRunProcedure,
+		svc.CancelRun,
+		opts...,
+	)
 	cIServiceGetRunStatusHandler := connect.NewUnaryHandler(
 		CIServiceGetRunStatusProcedure,
 		svc.GetRunStatus,
@@ -314,6 +358,10 @@ func NewCIServiceHandler(svc CIServiceHandler, opts ...connect.HandlerOption) (s
 			cIServiceCancelJobHandler.ServeHTTP(w, r)
 		case CIServiceCancelWorkflowProcedure:
 			cIServiceCancelWorkflowHandler.ServeHTTP(w, r)
+		case CIServiceGetRunProcedure:
+			cIServiceGetRunHandler.ServeHTTP(w, r)
+		case CIServiceCancelRunProcedure:
+			cIServiceCancelRunHandler.ServeHTTP(w, r)
 		case CIServiceGetRunStatusProcedure:
 			cIServiceGetRunStatusHandler.ServeHTTP(w, r)
 		case CIServiceGetJobAttemptLogsProcedure:
@@ -355,6 +403,14 @@ func (UnimplementedCIServiceHandler) CancelJob(context.Context, *connect.Request
 
 func (UnimplementedCIServiceHandler) CancelWorkflow(context.Context, *connect.Request[v1.CancelWorkflowRequest]) (*connect.Response[v1.CancelWorkflowResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.ci.v1.CIService.CancelWorkflow is not implemented"))
+}
+
+func (UnimplementedCIServiceHandler) GetRun(context.Context, *connect.Request[v1.GetRunRequest]) (*connect.Response[v1.GetRunResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.ci.v1.CIService.GetRun is not implemented"))
+}
+
+func (UnimplementedCIServiceHandler) CancelRun(context.Context, *connect.Request[v1.CancelRunRequest]) (*connect.Response[v1.CancelRunResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.ci.v1.CIService.CancelRun is not implemented"))
 }
 
 func (UnimplementedCIServiceHandler) GetRunStatus(context.Context, *connect.Request[v1.GetRunStatusRequest]) (*connect.Response[v1.GetRunStatusResponse], error) {
