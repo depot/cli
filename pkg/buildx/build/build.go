@@ -324,7 +324,7 @@ func toRepoOnly(in string) (string, error) {
 	return strings.Join(out, ","), nil
 }
 
-func toSolveOpt(ctx context.Context, node builder.Node, multiDriver bool, opt Options, configDir string, pw progress.Writer, dl dockerLoadCallback) (solveOpt *client.SolveOpt, dockerfile *DockerfileInputs, release func(), err error) {
+func toSolveOpt(ctx context.Context, node builder.Node, multiDriver bool, name string, opt Options, configDir string, pw progress.Writer, dl dockerLoadCallback) (solveOpt *client.SolveOpt, dockerfile *DockerfileInputs, release func(), err error) {
 	nodeDriver := node.Driver
 	defers := make([]func(), 0, 2)
 	releaseF := func() {
@@ -536,7 +536,7 @@ func toSolveOpt(ctx context.Context, node builder.Node, multiDriver bool, opt Op
 		if p, err := filepath.Abs(sharedKey); err == nil {
 			sharedKey = filepath.Base(p)
 		}
-		so.SharedKey = sharedKey + ":" + tryNodeIdentifier(configDir)
+		so.SharedKey = sharedKey + ":" + name + ":" + tryNodeIdentifier(configDir)
 	}
 
 	if opt.Pull {
@@ -851,7 +851,7 @@ func BuildWithResultHandler(ctx context.Context, nodes []builder.Node, opt map[s
 				hasMobyDriver = true
 			}
 			opt.Platforms = np.platforms
-			so, dockerfile, release, err := toSolveOpt(ctx, node, multiDriver, opt, configDir, w, func(name string) (io.WriteCloser, func(), error) {
+			so, dockerfile, release, err := toSolveOpt(ctx, node, multiDriver, k, opt, configDir, w, func(name string) (io.WriteCloser, func(), error) {
 				return docker.LoadImage(ctx, name, w)
 			})
 			if err != nil {
@@ -980,6 +980,7 @@ func BuildWithResultHandler(ctx context.Context, nodes []builder.Node, opt map[s
 				pw := progress.WithPrefix(w, k, multiTarget)
 
 				c := clients[dp.driverIndex]
+
 				eg2.Go(func() error {
 					debuglog.Log("Preparing to call client Build()")
 					pw = progress.ResetTime(pw)
