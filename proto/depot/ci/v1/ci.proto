@@ -342,6 +342,10 @@ message ListRunsRequest {
   repeated CIRunStatus status = 1;
   int32 page_size = 2;
   string page_token = 3;
+  // repo filters runs by exact repository slug, such as "owner/repo"
+  string repo = 4;
+  // sha filters runs by commit SHA prefix, matching either sha or head_sha
+  string sha = 5;
 }
 
 message ListRunsResponse {
@@ -357,4 +361,6 @@ message ListRunsResponseRun {
   // status is the lowercase run state, e.g. "queued", "running", or "finished".
   string status = 5;
   string created_at = 6;
+  string ref = 7;
+  string head_sha = 8;
 }

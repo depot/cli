@@ -11,6 +11,7 @@ import (
 	"github.com/depot/cli/pkg/proto/depot/ci/v1/civ1connect"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
+	"google.golang.org/protobuf/proto"
 )
 
 type ciServiceTestHandler struct {
@@ -122,5 +123,82 @@ func assertAuthAndOrg(t *testing.T, header http.Header) {
 	}
 	if got := header.Get("x-depot-org"); got != "org-123" {
 		t.Fatalf("x-depot-org = %q, want org-123", got)
+	}
+}
+
+type listRunsRecorder struct {
+	civ1connect.UnimplementedCIServiceHandler
+	requests []*civ1.ListRunsRequest
+}
+
+func (r *listRunsRecorder) ListRuns(ctx context.Context, req *connect.Request[civ1.ListRunsRequest]) (*connect.Response[civ1.ListRunsResponse], error) {
+	r.requests = append(r.requests, proto.Clone(req.Msg).(*civ1.ListRunsRequest))
+
+	resp := &civ1.ListRunsResponse{
+		Runs: []*civ1.ListRunsResponseRun{
+			{RunId: "run-1"},
+		},
+	}
+	if len(r.requests) == 1 {
+		resp.NextPageToken = "next"
+	}
+	return connect.NewResponse(resp), nil
+}
+
+func TestCIListRunsPassesFiltersAcrossPages(t *testing.T) {
+	recorder := &listRunsRecorder{}
+	_, handler := civ1connect.NewCIServiceHandler(recorder)
+	server := httptest.NewServer(h2c.NewHandler(handler, &http2.Server{}))
+	t.Cleanup(server.Close)
+
+	originalBaseURLFunc := baseURLFunc
+	baseURLFunc = func() string { return server.URL }
+	t.Cleanup(func() { baseURLFunc = originalBaseURLFunc })
+
+	runs, err := CIListRuns(context.Background(), "token", "org-123", CIListRunsOptions{
+		Statuses: []civ1.CIRunStatus{civ1.CIRunStatus_CI_RUN_STATUS_FAILED},
+		Limit:    2,
+		Repo:     "depot/api",
+		Sha:      "abc123",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(runs) != 2 {
+		t.Fatalf("expected 2 runs, got %d", len(runs))
+	}
+	if len(recorder.requests) != 2 {
+		t.Fatalf("expected 2 ListRuns requests, got %d", len(recorder.requests))
+	}
+
+	first := recorder.requests[0]
+	if first.GetRepo() != "depot/api" {
+		t.Fatalf("first Repo = %q, want depot/api", first.GetRepo())
+	}
+	if first.GetSha() != "abc123" {
+		t.Fatalf("first Sha = %q, want abc123", first.GetSha())
+	}
+	if first.GetPageSize() != 2 {
+		t.Fatalf("first PageSize = %d, want 2", first.GetPageSize())
+	}
+	if first.GetPageToken() != "" {
+		t.Fatalf("first PageToken = %q, want empty", first.GetPageToken())
+	}
+	if got := first.GetStatus(); len(got) != 1 || got[0] != civ1.CIRunStatus_CI_RUN_STATUS_FAILED {
+		t.Fatalf("first Status = %v, want [FAILED]", got)
+	}
+
+	second := recorder.requests[1]
+	if second.GetRepo() != "depot/api" {
+		t.Fatalf("second Repo = %q, want depot/api", second.GetRepo())
+	}
+	if second.GetSha() != "abc123" {
+		t.Fatalf("second Sha = %q, want abc123", second.GetSha())
+	}
+	if second.GetPageSize() != 1 {
+		t.Fatalf("second PageSize = %d, want 1", second.GetPageSize())
+	}
+	if second.GetPageToken() != "next" {
+		t.Fatalf("second PageToken = %q, want next", second.GetPageToken())
 	}
 }

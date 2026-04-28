@@ -23,6 +23,8 @@ import (
 
 const cacheBaseURL = "https://cache.depot.dev"
 
+var ciListRuns = api.CIListRuns
+
 func NewCmdRun() *cobra.Command {
 	var (
 		orgID        string
@@ -776,6 +778,8 @@ func NewCmdRunList() *cobra.Command {
 		statuses []string
 		n        int32
 		output   string
+		repo     string
+		sha      string
 	)
 
 	cmd := &cobra.Command{
@@ -787,6 +791,9 @@ func NewCmdRunList() *cobra.Command {
 
   # List failed runs
   depot ci run list --status failed
+
+  # List runs for a repository and commit SHA prefix
+  depot ci run list --repo depot/api --sha abc123
 
   # List finished and failed runs
   depot ci run list --status finished --status failed
@@ -825,7 +832,12 @@ func NewCmdRunList() *cobra.Command {
 				protoStatuses = append(protoStatuses, ps)
 			}
 
-			runs, err := api.CIListRuns(ctx, tokenVal, orgID, protoStatuses, n)
+			runs, err := ciListRuns(ctx, tokenVal, orgID, api.CIListRunsOptions{
+				Statuses: protoStatuses,
+				Limit:    n,
+				Repo:     repo,
+				Sha:      sha,
+			})
 			if err != nil {
 				return fmt.Errorf("failed to list runs: %w", err)
 			}
@@ -888,6 +900,8 @@ func NewCmdRunList() *cobra.Command {
 	cmd.Flags().StringVar(&orgID, "org", "", "Organization ID (required when user is a member of multiple organizations)")
 	cmd.Flags().StringVar(&token, "token", "", "Depot API token")
 	cmd.Flags().StringSliceVar(&statuses, "status", nil, "Filter by status (repeatable: queued, running, finished, failed, cancelled)")
+	cmd.Flags().StringVar(&repo, "repo", "", "Filter by repository (owner/repo)")
+	cmd.Flags().StringVar(&sha, "sha", "", "Filter by commit SHA prefix")
 	cmd.Flags().Int32VarP(&n, "n", "n", 50, "Number of runs to return")
 	cmd.Flags().StringVarP(&output, "output", "o", "", "Output format (json)")
 
