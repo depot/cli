@@ -769,23 +769,6 @@ func parseStatus(s string) (civ1.CIRunStatus, error) {
 	}
 }
 
-func formatStatus(s civ1.CIRunStatus) string {
-	switch s {
-	case civ1.CIRunStatus_CI_RUN_STATUS_QUEUED:
-		return "queued"
-	case civ1.CIRunStatus_CI_RUN_STATUS_RUNNING:
-		return "running"
-	case civ1.CIRunStatus_CI_RUN_STATUS_FINISHED:
-		return "finished"
-	case civ1.CIRunStatus_CI_RUN_STATUS_FAILED:
-		return "failed"
-	case civ1.CIRunStatus_CI_RUN_STATUS_CANCELLED:
-		return "cancelled"
-	default:
-		return "unknown"
-	}
-}
-
 func NewCmdRunList() *cobra.Command {
 	var (
 		orgID    string
