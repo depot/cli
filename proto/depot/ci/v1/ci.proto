@@ -346,6 +346,10 @@ message ListRunsRequest {
   string repo = 4;
   // sha filters runs by commit SHA prefix, matching either sha or head_sha
   string sha = 5;
+  // ref filters runs by exact fully qualified Git ref, such as refs/heads/main
+  string ref = 6;
+  // branch filters runs by branch name and normalizes to refs/heads/<branch>
+  string branch = 7;
 }
 
 message ListRunsResponse {

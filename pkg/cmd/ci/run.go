@@ -780,6 +780,8 @@ func NewCmdRunList() *cobra.Command {
 		output   string
 		repo     string
 		sha      string
+		branch   string
+		ref      string
 	)
 
 	cmd := &cobra.Command{
@@ -795,6 +797,12 @@ func NewCmdRunList() *cobra.Command {
   # List runs for a repository and commit SHA prefix
   depot ci run list --repo depot/api --sha abc123
 
+  # List runs for a branch
+  depot ci run list --repo depot/api --branch main
+
+  # List runs for a fully qualified Git ref
+  depot ci run list --repo depot/api --ref refs/heads/main
+
   # List finished and failed runs
   depot ci run list --status finished --status failed
 
@@ -807,6 +815,10 @@ func NewCmdRunList() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if n <= 0 {
 				return fmt.Errorf("page size (-n) must be greater than 0")
+			}
+
+			if branch != "" && ref != "" {
+				return fmt.Errorf("--branch and --ref are mutually exclusive")
 			}
 
 			ctx := cmd.Context()
@@ -837,6 +849,8 @@ func NewCmdRunList() *cobra.Command {
 				Limit:    n,
 				Repo:     repo,
 				Sha:      sha,
+				Branch:   branch,
+				Ref:      ref,
 			})
 			if err != nil {
 				return fmt.Errorf("failed to list runs: %w", err)
@@ -902,6 +916,8 @@ func NewCmdRunList() *cobra.Command {
 	cmd.Flags().StringSliceVar(&statuses, "status", nil, "Filter by status (repeatable: queued, running, finished, failed, cancelled)")
 	cmd.Flags().StringVar(&repo, "repo", "", "Filter by repository (owner/repo)")
 	cmd.Flags().StringVar(&sha, "sha", "", "Filter by commit SHA prefix")
+	cmd.Flags().StringVar(&branch, "branch", "", "Filter by branch name")
+	cmd.Flags().StringVar(&ref, "ref", "", "Filter by fully qualified Git ref")
 	cmd.Flags().Int32VarP(&n, "n", "n", 50, "Number of runs to return")
 	cmd.Flags().StringVarP(&output, "output", "o", "", "Output format (json)")
 

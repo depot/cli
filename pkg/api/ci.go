@@ -145,6 +145,8 @@ type CIListRunsOptions struct {
 	Limit    int32
 	Repo     string
 	Sha      string
+	Ref      string
+	Branch   string
 }
 
 // CIListRuns returns CI runs, paginating as needed to collect up to `Limit` results.
@@ -170,6 +172,8 @@ func CIListRuns(ctx context.Context, token, orgID string, options CIListRunsOpti
 			PageToken: pageToken,
 			Repo:      options.Repo,
 			Sha:       options.Sha,
+			Ref:       options.Ref,
+			Branch:    options.Branch,
 		}
 		resp, err := client.ListRuns(ctx, WithAuthenticationAndOrg(connect.NewRequest(req), token, orgID))
 		if err != nil {

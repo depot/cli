@@ -35,7 +35,7 @@ func captureStdout(t *testing.T, fn func() error) (string, error) {
 	return string(out), runErr
 }
 
-func TestRunListPassesRepoAndShaFilters(t *testing.T) {
+func TestRunListPassesRepoShaAndBranchFilters(t *testing.T) {
 	t.Setenv("DEPOT_TOKEN", "token-from-env")
 
 	originalCIListRuns := ciListRuns
@@ -67,6 +67,7 @@ func TestRunListPassesRepoAndShaFilters(t *testing.T) {
 		"--org", "org-123",
 		"--repo", "depot/api",
 		"--sha", "ABC123",
+		"--branch", "main",
 		"--status", "failed",
 		"--output", "json",
 	})
@@ -90,6 +91,12 @@ func TestRunListPassesRepoAndShaFilters(t *testing.T) {
 	if capturedOptions.Sha != "ABC123" {
 		t.Fatalf("Sha = %q, want ABC123", capturedOptions.Sha)
 	}
+	if capturedOptions.Branch != "main" {
+		t.Fatalf("Branch = %q, want main", capturedOptions.Branch)
+	}
+	if capturedOptions.Ref != "" {
+		t.Fatalf("Ref = %q, want empty", capturedOptions.Ref)
+	}
 	if capturedOptions.Limit != 50 {
 		t.Fatalf("Limit = %d, want 50", capturedOptions.Limit)
 	}
@@ -104,5 +111,59 @@ func TestRunListPassesRepoAndShaFilters(t *testing.T) {
 	}
 	if !strings.Contains(stdout, `"status": "failed"`) {
 		t.Fatalf("JSON output missing status field:\n%s", stdout)
+	}
+}
+
+func TestRunListPassesQualifiedRefFilter(t *testing.T) {
+	t.Setenv("DEPOT_TOKEN", "token-from-env")
+
+	originalCIListRuns := ciListRuns
+	t.Cleanup(func() { ciListRuns = originalCIListRuns })
+
+	var capturedOptions api.CIListRunsOptions
+	ciListRuns = func(ctx context.Context, token, orgID string, options api.CIListRunsOptions) ([]*civ1.ListRunsResponseRun, error) {
+		capturedOptions = options
+		return nil, nil
+	}
+
+	cmd := NewCmdRunList()
+	cmd.SetArgs([]string{
+		"--org", "org-123",
+		"--ref", "refs/heads/feature/x",
+	})
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if capturedOptions.Ref != "refs/heads/feature/x" {
+		t.Fatalf("Ref = %q, want refs/heads/feature/x", capturedOptions.Ref)
+	}
+}
+
+func TestRunListRejectsBranchAndRefTogether(t *testing.T) {
+	originalCIListRuns := ciListRuns
+	t.Cleanup(func() { ciListRuns = originalCIListRuns })
+
+	ciListRuns = func(ctx context.Context, token, orgID string, options api.CIListRunsOptions) ([]*civ1.ListRunsResponseRun, error) {
+		t.Fatal("ciListRuns should not be called")
+		return nil, nil
+	}
+
+	cmd := NewCmdRunList()
+	cmd.SetArgs([]string{
+		"--branch", "main",
+		"--ref", "refs/heads/main",
+	})
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected conflicting branch/ref error")
+	}
+	if !strings.Contains(err.Error(), "--branch and --ref are mutually exclusive") {
+		t.Fatalf("error = %v", err)
 	}
 }
