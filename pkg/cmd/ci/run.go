@@ -754,20 +754,12 @@ func execSSH(target string) error {
 // validStatuses are the user-facing status names accepted by --status.
 var validStatuses = []string{"queued", "running", "finished", "failed", "cancelled"}
 
-func parseStatus(s string) (civ1.CIRunStatus, error) {
-	switch strings.ToLower(s) {
-	case "queued":
-		return civ1.CIRunStatus_CI_RUN_STATUS_QUEUED, nil
-	case "running":
-		return civ1.CIRunStatus_CI_RUN_STATUS_RUNNING, nil
-	case "finished":
-		return civ1.CIRunStatus_CI_RUN_STATUS_FINISHED, nil
-	case "failed":
-		return civ1.CIRunStatus_CI_RUN_STATUS_FAILED, nil
-	case "cancelled":
-		return civ1.CIRunStatus_CI_RUN_STATUS_CANCELLED, nil
+func validateStatus(s string) error {
+	switch s {
+	case "queued", "running", "finished", "failed", "cancelled":
+		return nil
 	default:
-		return 0, fmt.Errorf("invalid status %q, valid values: %s", s, strings.Join(validStatuses, ", "))
+		return fmt.Errorf("invalid status %q, valid values: %s", s, strings.Join(validStatuses, ", "))
 	}
 }
 
@@ -823,17 +815,14 @@ func NewCmdRunList() *cobra.Command {
 				return fmt.Errorf("missing API token, please run `depot login`")
 			}
 
-			var protoStatuses []civ1.CIRunStatus
 			for _, s := range statuses {
-				ps, err := parseStatus(s)
-				if err != nil {
+				if err := validateStatus(s); err != nil {
 					return err
 				}
-				protoStatuses = append(protoStatuses, ps)
 			}
 
 			runs, err := ciListRuns(ctx, tokenVal, orgID, api.CIListRunsOptions{
-				Statuses: protoStatuses,
+				Statuses: statuses,
 				Limit:    n,
 				Repo:     repo,
 				Sha:      sha,

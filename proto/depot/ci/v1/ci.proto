@@ -328,18 +328,10 @@ message LogLine {
 
 // ListRuns messages
 
-enum CIRunStatus {
-  CI_RUN_STATUS_UNSPECIFIED = 0;
-  CI_RUN_STATUS_QUEUED = 1;
-  CI_RUN_STATUS_RUNNING = 2;
-  CI_RUN_STATUS_FINISHED = 3;
-  CI_RUN_STATUS_FAILED = 4;
-  CI_RUN_STATUS_CANCELLED = 5;
-}
-
 message ListRunsRequest {
-  // status filters runs by status; defaults to [RUNNING, QUEUED] when empty
-  repeated CIRunStatus status = 1;
+  // status filters runs by lowercase status values (queued, running, finished, failed, cancelled);
+  // defaults to [running, queued] when empty
+  repeated string status = 1;
   int32 page_size = 2;
   string page_token = 3;
   // repo filters runs by exact repository slug, such as "owner/repo"

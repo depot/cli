@@ -93,8 +93,8 @@ func TestRunListPassesRepoAndShaFilters(t *testing.T) {
 	if capturedOptions.Limit != 50 {
 		t.Fatalf("Limit = %d, want 50", capturedOptions.Limit)
 	}
-	if len(capturedOptions.Statuses) != 1 || capturedOptions.Statuses[0] != civ1.CIRunStatus_CI_RUN_STATUS_FAILED {
-		t.Fatalf("Statuses = %v, want [FAILED]", capturedOptions.Statuses)
+	if len(capturedOptions.Statuses) != 1 || capturedOptions.Statuses[0] != "failed" {
+		t.Fatalf("Statuses = %v, want [failed]", capturedOptions.Statuses)
 	}
 	if !strings.Contains(stdout, `"ref": "refs/heads/main"`) {
 		t.Fatalf("JSON output missing ref field:\n%s", stdout)

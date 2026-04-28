@@ -156,7 +156,7 @@ func TestCIListRunsPassesFiltersAcrossPages(t *testing.T) {
 	t.Cleanup(func() { baseURLFunc = originalBaseURLFunc })
 
 	runs, err := CIListRuns(context.Background(), "token", "org-123", CIListRunsOptions{
-		Statuses: []civ1.CIRunStatus{civ1.CIRunStatus_CI_RUN_STATUS_FAILED},
+		Statuses: []string{"failed"},
 		Limit:    2,
 		Repo:     "depot/api",
 		Sha:      "abc123",
@@ -184,8 +184,8 @@ func TestCIListRunsPassesFiltersAcrossPages(t *testing.T) {
 	if first.GetPageToken() != "" {
 		t.Fatalf("first PageToken = %q, want empty", first.GetPageToken())
 	}
-	if got := first.GetStatus(); len(got) != 1 || got[0] != civ1.CIRunStatus_CI_RUN_STATUS_FAILED {
-		t.Fatalf("first Status = %v, want [FAILED]", got)
+	if got := first.GetStatus(); len(got) != 1 || got[0] != "failed" {
+		t.Fatalf("first Status = %v, want [failed]", got)
 	}
 
 	second := recorder.requests[1]

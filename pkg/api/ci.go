@@ -141,7 +141,7 @@ func CIRetryJob(ctx context.Context, token, orgID, workflowID, jobID string) (*c
 }
 
 type CIListRunsOptions struct {
-	Statuses []civ1.CIRunStatus
+	Statuses []string
 	Limit    int32
 	Repo     string
 	Sha      string
