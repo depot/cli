@@ -140,17 +140,24 @@ func CIRetryJob(ctx context.Context, token, orgID, workflowID, jobID string) (*c
 	return resp.Msg, nil
 }
 
-// CIListRuns returns CI runs, paginating as needed to collect up to `limit` results.
-// If limit is 0, all results are returned.
-func CIListRuns(ctx context.Context, token, orgID string, statuses []civ1.CIRunStatus, limit int32) ([]*civ1.ListRunsResponseRun, error) {
+type CIListRunsOptions struct {
+	Statuses []string
+	Limit    int32
+	Repo     string
+	Sha      string
+}
+
+// CIListRuns returns CI runs, paginating as needed to collect up to `Limit` results.
+// If Limit is 0, all results are returned.
+func CIListRuns(ctx context.Context, token, orgID string, options CIListRunsOptions) ([]*civ1.ListRunsResponseRun, error) {
 	client := newCIServiceClient()
 	var allRuns []*civ1.ListRunsResponseRun
 	var pageToken string
 
 	for {
-		pageSize := limit
-		if limit > 0 {
-			remaining := limit - int32(len(allRuns))
+		pageSize := options.Limit
+		if options.Limit > 0 {
+			remaining := options.Limit - int32(len(allRuns))
 			if remaining <= 0 {
 				break
 			}
@@ -158,9 +165,11 @@ func CIListRuns(ctx context.Context, token, orgID string, statuses []civ1.CIRunS
 		}
 
 		req := &civ1.ListRunsRequest{
-			Status:    statuses,
+			Status:    options.Statuses,
 			PageSize:  pageSize,
 			PageToken: pageToken,
+			Repo:      options.Repo,
+			Sha:       options.Sha,
 		}
 		resp, err := client.ListRuns(ctx, WithAuthenticationAndOrg(connect.NewRequest(req), token, orgID))
 		if err != nil {
@@ -169,8 +178,8 @@ func CIListRuns(ctx context.Context, token, orgID string, statuses []civ1.CIRunS
 
 		allRuns = append(allRuns, resp.Msg.Runs...)
 
-		if limit > 0 && int32(len(allRuns)) >= limit {
-			allRuns = allRuns[:limit]
+		if options.Limit > 0 && int32(len(allRuns)) >= options.Limit {
+			allRuns = allRuns[:options.Limit]
 			break
 		}
 
