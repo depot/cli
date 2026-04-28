@@ -892,7 +892,7 @@ func NewCmdRunList() *cobra.Command {
 					run.RunId,
 					repo,
 					sha,
-					formatStatus(run.Status),
+					run.Status,
 					trigger,
 					run.CreatedAt,
 				)

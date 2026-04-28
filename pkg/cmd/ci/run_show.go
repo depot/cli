@@ -67,7 +67,7 @@ func printRun(run *civ1.GetRunResponse) {
 	fmt.Printf("%-10s %s\n", "Org", run.OrgId)
 	fmt.Printf("%-10s %s\n", "Run", run.RunId)
 	fmt.Printf("%-10s %s\n", "Repo", run.Repo)
-	fmt.Printf("%-10s %s\n", "Status", formatStatus(run.Status))
+	fmt.Printf("%-10s %s\n", "Status", run.Status)
 	fmt.Printf("%-10s %s\n", "Trigger", run.Trigger)
 	fmt.Printf("%-10s %s\n", "Ref", run.Ref)
 	fmt.Printf("%-10s %s\n", "Sha", run.Sha)

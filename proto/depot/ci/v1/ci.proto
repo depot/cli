@@ -241,7 +241,8 @@ message GetRunResponse {
   string sha = 5;
   string head_sha = 6;
   string trigger = 7;
-  CIRunStatus status = 8;
+  // status is the lowercase run state, e.g. "queued", "running", or "finished".
+  string status = 8;
   string created_at = 9;
   string started_at = 10;
   string finished_at = 11;
@@ -353,6 +354,7 @@ message ListRunsResponseRun {
   string repo = 2;
   string trigger = 3;
   string sha = 4;
-  CIRunStatus status = 5;
+  // status is the lowercase run state, e.g. "queued", "running", or "finished".
+  string status = 5;
   string created_at = 6;
 }
