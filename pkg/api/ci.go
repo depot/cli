@@ -28,6 +28,16 @@ func CIGetRunStatus(ctx context.Context, token, orgID, runID string) (*civ1.GetR
 	return resp.Msg, nil
 }
 
+// CIGetRun returns a flat CI run record.
+func CIGetRun(ctx context.Context, token, orgID, runID string) (*civ1.GetRunResponse, error) {
+	client := newCIServiceClient()
+	resp, err := client.GetRun(ctx, WithAuthenticationAndOrg(connect.NewRequest(&civ1.GetRunRequest{RunId: runID}), token, orgID))
+	if err != nil {
+		return nil, err
+	}
+	return resp.Msg, nil
+}
+
 // CIGetJobAttemptLogs returns all log lines for a job attempt, paginating through all pages.
 func CIGetJobAttemptLogs(ctx context.Context, token, orgID, attemptID string) ([]*civ1.LogLine, error) {
 	client := newCIServiceClient()
@@ -64,6 +74,16 @@ func CIRun(ctx context.Context, token, orgID string, req *civ1.RunRequest) (*civ
 func CIDispatchWorkflow(ctx context.Context, token, orgID string, req *civ1.DispatchWorkflowRequest) (*civ1.DispatchWorkflowResponse, error) {
 	client := newCIServiceClient()
 	resp, err := client.DispatchWorkflow(ctx, WithAuthenticationAndOrg(connect.NewRequest(req), token, orgID))
+	if err != nil {
+		return nil, err
+	}
+	return resp.Msg, nil
+}
+
+// CICancelRun cancels a queued or running CI run and all active child work.
+func CICancelRun(ctx context.Context, token, orgID, runID string) (*civ1.CancelRunResponse, error) {
+	client := newCIServiceClient()
+	resp, err := client.CancelRun(ctx, WithAuthenticationAndOrg(connect.NewRequest(&civ1.CancelRunRequest{RunId: runID}), token, orgID))
 	if err != nil {
 		return nil, err
 	}

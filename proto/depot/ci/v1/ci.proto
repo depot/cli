@@ -26,6 +26,12 @@ service CIService {
   // CancelWorkflow cancels a queued or running workflow and all its child jobs
   rpc CancelWorkflow(CancelWorkflowRequest) returns (CancelWorkflowResponse) {}
 
+  // GetRun returns a flat CI run record
+  rpc GetRun(GetRunRequest) returns (GetRunResponse) {}
+
+  // CancelRun cancels a queued or running CI run and all active child work
+  rpc CancelRun(CancelRunRequest) returns (CancelRunResponse) {}
+
   // GetRunStatus returns the current status of a run including its workflows, jobs, and attempts
   rpc GetRunStatus(GetRunStatusRequest) returns (GetRunStatusResponse) {}
 
@@ -221,6 +227,38 @@ message CancelWorkflowResponse {
   string status = 2;
 }
 
+// GetRun messages
+
+message GetRunRequest {
+  string run_id = 1;
+}
+
+message GetRunResponse {
+  string org_id = 1;
+  string run_id = 2;
+  string repo = 3;
+  string ref = 4;
+  string sha = 5;
+  string head_sha = 6;
+  string trigger = 7;
+  // status is the lowercase run state, e.g. "queued", "running", or "finished".
+  string status = 8;
+  string created_at = 9;
+  string started_at = 10;
+  string finished_at = 11;
+}
+
+// CancelRun messages
+
+message CancelRunRequest {
+  string run_id = 1;
+}
+
+message CancelRunResponse {
+  string run_id = 1;
+  string status = 2;
+}
+
 // GetRunStatus messages
 
 message GetRunStatusRequest {
@@ -316,6 +354,7 @@ message ListRunsResponseRun {
   string repo = 2;
   string trigger = 3;
   string sha = 4;
-  CIRunStatus status = 5;
+  // status is the lowercase run state, e.g. "queued", "running", or "finished".
+  string status = 5;
   string created_at = 6;
 }
