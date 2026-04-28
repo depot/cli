@@ -35,7 +35,7 @@ func captureStdout(t *testing.T, fn func() error) (string, error) {
 	return string(out), runErr
 }
 
-func TestRunListPassesRepoShaAndBranchFilters(t *testing.T) {
+func TestRunListPassesRepoShaBranchAndPullRequestFilters(t *testing.T) {
 	t.Setenv("DEPOT_TOKEN", "token-from-env")
 
 	originalCIListRuns := ciListRuns
@@ -68,6 +68,7 @@ func TestRunListPassesRepoShaAndBranchFilters(t *testing.T) {
 		"--repo", "depot/api",
 		"--sha", "ABC123",
 		"--branch", "main",
+		"--pr", "42",
 		"--status", "failed",
 		"--output", "json",
 	})
@@ -97,6 +98,9 @@ func TestRunListPassesRepoShaAndBranchFilters(t *testing.T) {
 	if capturedOptions.Ref != "" {
 		t.Fatalf("Ref = %q, want empty", capturedOptions.Ref)
 	}
+	if capturedOptions.PullRequestNumber != 42 {
+		t.Fatalf("PullRequestNumber = %d, want 42", capturedOptions.PullRequestNumber)
+	}
 	if capturedOptions.Limit != 50 {
 		t.Fatalf("Limit = %d, want 50", capturedOptions.Limit)
 	}
@@ -111,6 +115,57 @@ func TestRunListPassesRepoShaAndBranchFilters(t *testing.T) {
 	}
 	if !strings.Contains(stdout, `"status": "failed"`) {
 		t.Fatalf("JSON output missing status field:\n%s", stdout)
+	}
+}
+
+func TestRunListRejectsInvalidPullRequestNumber(t *testing.T) {
+	originalCIListRuns := ciListRuns
+	t.Cleanup(func() { ciListRuns = originalCIListRuns })
+
+	ciListRuns = func(ctx context.Context, token, orgID string, options api.CIListRunsOptions) ([]*civ1.ListRunsResponseRun, error) {
+		t.Fatal("ciListRuns should not be called")
+		return nil, nil
+	}
+
+	cmd := NewCmdRunList()
+	cmd.SetArgs([]string{
+		"--repo", "depot/api",
+		"--pr", "0",
+	})
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected invalid pull request number error")
+	}
+	if !strings.Contains(err.Error(), "--pr must be greater than 0") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestRunListRejectsPullRequestWithoutRepo(t *testing.T) {
+	originalCIListRuns := ciListRuns
+	t.Cleanup(func() { ciListRuns = originalCIListRuns })
+
+	ciListRuns = func(ctx context.Context, token, orgID string, options api.CIListRunsOptions) ([]*civ1.ListRunsResponseRun, error) {
+		t.Fatal("ciListRuns should not be called")
+		return nil, nil
+	}
+
+	cmd := NewCmdRunList()
+	cmd.SetArgs([]string{
+		"--pr", "42",
+	})
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected missing repo error")
+	}
+	if !strings.Contains(err.Error(), "--repo is required when using --pr") {
+		t.Fatalf("error = %v", err)
 	}
 }
 

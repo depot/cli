@@ -350,6 +350,8 @@ message ListRunsRequest {
   string ref = 6;
   // branch filters runs by branch name and normalizes to refs/heads/<branch>
   string branch = 7;
+  // pull_request_number filters runs by GitHub pull request number.
+  optional int32 pull_request_number = 8;
 }
 
 message ListRunsResponse {

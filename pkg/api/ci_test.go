@@ -156,10 +156,11 @@ func TestCIListRunsPassesFiltersAcrossPages(t *testing.T) {
 	t.Cleanup(func() { baseURLFunc = originalBaseURLFunc })
 
 	runs, err := CIListRuns(context.Background(), "token", "org-123", CIListRunsOptions{
-		Statuses: []civ1.CIRunStatus{civ1.CIRunStatus_CI_RUN_STATUS_FAILED},
-		Limit:    2,
-		Repo:     "depot/api",
-		Sha:      "abc123",
+		Statuses:          []civ1.CIRunStatus{civ1.CIRunStatus_CI_RUN_STATUS_FAILED},
+		Limit:             2,
+		Repo:              "depot/api",
+		Sha:               "abc123",
+		PullRequestNumber: 42,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -178,6 +179,9 @@ func TestCIListRunsPassesFiltersAcrossPages(t *testing.T) {
 	if first.GetSha() != "abc123" {
 		t.Fatalf("first Sha = %q, want abc123", first.GetSha())
 	}
+	if first.GetPullRequestNumber() != 42 {
+		t.Fatalf("first PullRequestNumber = %d, want 42", first.GetPullRequestNumber())
+	}
 	if first.GetPageSize() != 2 {
 		t.Fatalf("first PageSize = %d, want 2", first.GetPageSize())
 	}
@@ -194,6 +198,9 @@ func TestCIListRunsPassesFiltersAcrossPages(t *testing.T) {
 	}
 	if second.GetSha() != "abc123" {
 		t.Fatalf("second Sha = %q, want abc123", second.GetSha())
+	}
+	if second.GetPullRequestNumber() != 42 {
+		t.Fatalf("second PullRequestNumber = %d, want 42", second.GetPullRequestNumber())
 	}
 	if second.GetPageSize() != 1 {
 		t.Fatalf("second PageSize = %d, want 1", second.GetPageSize())

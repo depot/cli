@@ -141,12 +141,13 @@ func CIRetryJob(ctx context.Context, token, orgID, workflowID, jobID string) (*c
 }
 
 type CIListRunsOptions struct {
-	Statuses []civ1.CIRunStatus
-	Limit    int32
-	Repo     string
-	Sha      string
-	Ref      string
-	Branch   string
+	Statuses          []civ1.CIRunStatus
+	Limit             int32
+	Repo              string
+	Sha               string
+	Ref               string
+	Branch            string
+	PullRequestNumber int32
 }
 
 // CIListRuns returns CI runs, paginating as needed to collect up to `Limit` results.
@@ -174,6 +175,9 @@ func CIListRuns(ctx context.Context, token, orgID string, options CIListRunsOpti
 			Sha:       options.Sha,
 			Ref:       options.Ref,
 			Branch:    options.Branch,
+		}
+		if options.PullRequestNumber != 0 {
+			req.PullRequestNumber = &options.PullRequestNumber
 		}
 		resp, err := client.ListRuns(ctx, WithAuthenticationAndOrg(connect.NewRequest(req), token, orgID))
 		if err != nil {

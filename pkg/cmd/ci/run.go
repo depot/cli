@@ -782,6 +782,7 @@ func NewCmdRunList() *cobra.Command {
 		sha      string
 		branch   string
 		ref      string
+		prNumber int32
 	)
 
 	cmd := &cobra.Command{
@@ -803,6 +804,9 @@ func NewCmdRunList() *cobra.Command {
   # List runs for a fully qualified Git ref
   depot ci run list --repo depot/api --ref refs/heads/main
 
+  # List runs for a pull request
+  depot ci run list --repo depot/api --pr 42
+
   # List finished and failed runs
   depot ci run list --status finished --status failed
 
@@ -819,6 +823,15 @@ func NewCmdRunList() *cobra.Command {
 
 			if branch != "" && ref != "" {
 				return fmt.Errorf("--branch and --ref are mutually exclusive")
+			}
+
+			if cmd.Flags().Changed("pr") {
+				if prNumber <= 0 {
+					return fmt.Errorf("--pr must be greater than 0")
+				}
+				if repo == "" {
+					return fmt.Errorf("--repo is required when using --pr because pull request numbers are repository-scoped")
+				}
 			}
 
 			ctx := cmd.Context()
@@ -845,12 +858,13 @@ func NewCmdRunList() *cobra.Command {
 			}
 
 			runs, err := ciListRuns(ctx, tokenVal, orgID, api.CIListRunsOptions{
-				Statuses: protoStatuses,
-				Limit:    n,
-				Repo:     repo,
-				Sha:      sha,
-				Branch:   branch,
-				Ref:      ref,
+				Statuses:          protoStatuses,
+				Limit:             n,
+				Repo:              repo,
+				Sha:               sha,
+				Branch:            branch,
+				Ref:               ref,
+				PullRequestNumber: prNumber,
 			})
 			if err != nil {
 				return fmt.Errorf("failed to list runs: %w", err)
@@ -918,6 +932,7 @@ func NewCmdRunList() *cobra.Command {
 	cmd.Flags().StringVar(&sha, "sha", "", "Filter by commit SHA prefix")
 	cmd.Flags().StringVar(&branch, "branch", "", "Filter by branch name")
 	cmd.Flags().StringVar(&ref, "ref", "", "Filter by fully qualified Git ref")
+	cmd.Flags().Int32Var(&prNumber, "pr", 0, "Filter by GitHub pull request number (requires --repo)")
 	cmd.Flags().Int32VarP(&n, "n", "n", 50, "Number of runs to return")
 	cmd.Flags().StringVarP(&output, "output", "o", "", "Output format (json)")
 
