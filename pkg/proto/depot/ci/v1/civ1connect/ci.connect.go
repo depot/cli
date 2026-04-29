@@ -63,6 +63,8 @@ const (
 	CIServiceGetJobAttemptLogsProcedure = "/depot.ci.v1.CIService/GetJobAttemptLogs"
 	// CIServiceListRunsProcedure is the fully-qualified name of the CIService's ListRuns RPC.
 	CIServiceListRunsProcedure = "/depot.ci.v1.CIService/ListRuns"
+	// CIServiceListWorkflowsProcedure is the fully-qualified name of the CIService's ListWorkflows RPC.
+	CIServiceListWorkflowsProcedure = "/depot.ci.v1.CIService/ListWorkflows"
 	// MigrationServiceGetInstallationProcedure is the fully-qualified name of the MigrationService's
 	// GetInstallation RPC.
 	MigrationServiceGetInstallationProcedure = "/depot.ci.v1.MigrationService/GetInstallation"
@@ -97,6 +99,8 @@ type CIServiceClient interface {
 	GetJobAttemptLogs(context.Context, *connect.Request[v1.GetJobAttemptLogsRequest]) (*connect.Response[v1.GetJobAttemptLogsResponse], error)
 	// ListRuns returns a paginated list of CI runs for the authenticated organization
 	ListRuns(context.Context, *connect.Request[v1.ListRunsRequest]) (*connect.Response[v1.ListRunsResponse], error)
+	// ListWorkflows returns a paginated list of recent CI workflows for the authenticated organization
+	ListWorkflows(context.Context, *connect.Request[v1.ListWorkflowsRequest]) (*connect.Response[v1.ListWorkflowsResponse], error)
 }
 
 // NewCIServiceClient constructs a client for the depot.ci.v1.CIService service. By default, it uses
@@ -169,6 +173,11 @@ func NewCIServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...c
 			baseURL+CIServiceListRunsProcedure,
 			opts...,
 		),
+		listWorkflows: connect.NewClient[v1.ListWorkflowsRequest, v1.ListWorkflowsResponse](
+			httpClient,
+			baseURL+CIServiceListWorkflowsProcedure,
+			opts...,
+		),
 	}
 }
 
@@ -186,6 +195,7 @@ type cIServiceClient struct {
 	getRunStatus      *connect.Client[v1.GetRunStatusRequest, v1.GetRunStatusResponse]
 	getJobAttemptLogs *connect.Client[v1.GetJobAttemptLogsRequest, v1.GetJobAttemptLogsResponse]
 	listRuns          *connect.Client[v1.ListRunsRequest, v1.ListRunsResponse]
+	listWorkflows     *connect.Client[v1.ListWorkflowsRequest, v1.ListWorkflowsResponse]
 }
 
 // Run calls depot.ci.v1.CIService.Run.
@@ -248,6 +258,11 @@ func (c *cIServiceClient) ListRuns(ctx context.Context, req *connect.Request[v1.
 	return c.listRuns.CallUnary(ctx, req)
 }
 
+// ListWorkflows calls depot.ci.v1.CIService.ListWorkflows.
+func (c *cIServiceClient) ListWorkflows(ctx context.Context, req *connect.Request[v1.ListWorkflowsRequest]) (*connect.Response[v1.ListWorkflowsResponse], error) {
+	return c.listWorkflows.CallUnary(ctx, req)
+}
+
 // CIServiceHandler is an implementation of the depot.ci.v1.CIService service.
 type CIServiceHandler interface {
 	// Run triggers a CI run that can contain one or more workflows
@@ -274,6 +289,8 @@ type CIServiceHandler interface {
 	GetJobAttemptLogs(context.Context, *connect.Request[v1.GetJobAttemptLogsRequest]) (*connect.Response[v1.GetJobAttemptLogsResponse], error)
 	// ListRuns returns a paginated list of CI runs for the authenticated organization
 	ListRuns(context.Context, *connect.Request[v1.ListRunsRequest]) (*connect.Response[v1.ListRunsResponse], error)
+	// ListWorkflows returns a paginated list of recent CI workflows for the authenticated organization
+	ListWorkflows(context.Context, *connect.Request[v1.ListWorkflowsRequest]) (*connect.Response[v1.ListWorkflowsResponse], error)
 }
 
 // NewCIServiceHandler builds an HTTP handler from the service implementation. It returns the path
@@ -342,6 +359,11 @@ func NewCIServiceHandler(svc CIServiceHandler, opts ...connect.HandlerOption) (s
 		svc.ListRuns,
 		opts...,
 	)
+	cIServiceListWorkflowsHandler := connect.NewUnaryHandler(
+		CIServiceListWorkflowsProcedure,
+		svc.ListWorkflows,
+		opts...,
+	)
 	return "/depot.ci.v1.CIService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case CIServiceRunProcedure:
@@ -368,6 +390,8 @@ func NewCIServiceHandler(svc CIServiceHandler, opts ...connect.HandlerOption) (s
 			cIServiceGetJobAttemptLogsHandler.ServeHTTP(w, r)
 		case CIServiceListRunsProcedure:
 			cIServiceListRunsHandler.ServeHTTP(w, r)
+		case CIServiceListWorkflowsProcedure:
+			cIServiceListWorkflowsHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -423,6 +447,10 @@ func (UnimplementedCIServiceHandler) GetJobAttemptLogs(context.Context, *connect
 
 func (UnimplementedCIServiceHandler) ListRuns(context.Context, *connect.Request[v1.ListRunsRequest]) (*connect.Response[v1.ListRunsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.ci.v1.CIService.ListRuns is not implemented"))
+}
+
+func (UnimplementedCIServiceHandler) ListWorkflows(context.Context, *connect.Request[v1.ListWorkflowsRequest]) (*connect.Response[v1.ListWorkflowsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.ci.v1.CIService.ListWorkflows is not implemented"))
 }
 
 // MigrationServiceClient is a client for the depot.ci.v1.MigrationService service.

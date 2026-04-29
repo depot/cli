@@ -192,6 +192,52 @@ func CIListRuns(ctx context.Context, token, orgID string, options CIListRunsOpti
 	return allRuns, nil
 }
 
+type CIListWorkflowsOptions struct {
+	Limit int32
+}
+
+// CIListWorkflows returns CI workflows, paginating as needed to collect up to `Limit` results.
+// If Limit is 0, all results are returned.
+func CIListWorkflows(ctx context.Context, token, orgID string, options CIListWorkflowsOptions) ([]*civ1.ListWorkflowsResponseWorkflow, error) {
+	client := newCIServiceClient()
+	var allWorkflows []*civ1.ListWorkflowsResponseWorkflow
+	var pageToken string
+
+	for {
+		pageSize := options.Limit
+		if options.Limit > 0 {
+			remaining := options.Limit - int32(len(allWorkflows))
+			if remaining <= 0 {
+				break
+			}
+			pageSize = remaining
+		}
+
+		req := &civ1.ListWorkflowsRequest{
+			PageSize:  pageSize,
+			PageToken: pageToken,
+		}
+		resp, err := client.ListWorkflows(ctx, WithAuthenticationAndOrg(connect.NewRequest(req), token, orgID))
+		if err != nil {
+			return nil, err
+		}
+
+		allWorkflows = append(allWorkflows, resp.Msg.Workflows...)
+
+		if options.Limit > 0 && int32(len(allWorkflows)) >= options.Limit {
+			allWorkflows = allWorkflows[:options.Limit]
+			break
+		}
+
+		if resp.Msg.NextPageToken == "" {
+			break
+		}
+		pageToken = resp.Msg.NextPageToken
+	}
+
+	return allWorkflows, nil
+}
+
 func newCISecretServiceV2Client() civ2connect.SecretServiceClient {
 	baseURL := baseURLFunc()
 	return civ2connect.NewSecretServiceClient(getHTTPClient(baseURL), baseURL, WithUserAgent())
