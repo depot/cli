@@ -55,10 +55,16 @@ func NewCmdWorkflow() *cobra.Command {
 
 func NewCmdWorkflowList() *cobra.Command {
 	var (
-		orgID  string
-		token  string
-		n      int32
-		output string
+		orgID   string
+		token   string
+		n       int32
+		output  string
+		name    string
+		repo    string
+		status  []string
+		trigger string
+		sha     string
+		pr      string
 	)
 
 	cmd := &cobra.Command{
@@ -71,12 +77,26 @@ func NewCmdWorkflowList() *cobra.Command {
   # List the 5 most recent workflows
   depot ci workflow list -n 5
 
+  # Filter workflows by name
+  depot ci workflow list --name deploy
+
+  # Filter recent workflows like the app
+  depot ci workflow list --repo depot/api --status failed --sha abc123 --pr 42
+
   # Output as JSON
   depot ci workflow list --output json`,
 		Aliases: []string{"ls"},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if n <= 0 {
 				return fmt.Errorf("page size (-n) must be greater than 0")
+			}
+			if n > 200 {
+				return fmt.Errorf("page size (-n) must be 200 or less")
+			}
+			for _, s := range status {
+				if err := validateStatus(s); err != nil {
+					return err
+				}
 			}
 
 			ctx := cmd.Context()
@@ -94,7 +114,13 @@ func NewCmdWorkflowList() *cobra.Command {
 			}
 
 			workflows, err := ciListWorkflows(ctx, tokenVal, orgID, api.CIListWorkflowsOptions{
-				Limit: n,
+				Limit:       n,
+				Name:        name,
+				Repo:        repo,
+				Statuses:    status,
+				Trigger:     trigger,
+				Sha:         sha,
+				PullRequest: pr,
 			})
 			if err != nil {
 				return fmt.Errorf("failed to list workflows: %w", err)
@@ -140,7 +166,13 @@ func NewCmdWorkflowList() *cobra.Command {
 
 	cmd.Flags().StringVar(&orgID, "org", "", "Organization ID (required when user is a member of multiple organizations)")
 	cmd.Flags().StringVar(&token, "token", "", "Depot API token")
-	cmd.Flags().Int32VarP(&n, "n", "n", 50, "Number of workflows to return")
+	cmd.Flags().Int32VarP(&n, "n", "n", 50, "Number of recent workflows to return (max 200)")
+	cmd.Flags().StringVar(&name, "name", "", "Filter workflows by name")
+	cmd.Flags().StringVar(&repo, "repo", "", "Filter by repo in owner/name format")
+	cmd.Flags().StringSliceVar(&status, "status", nil, "Filter by status (repeatable: queued, running, finished, failed, cancelled)")
+	cmd.Flags().StringVar(&trigger, "trigger", "", "Filter by trigger, e.g. push or workflow_dispatch")
+	cmd.Flags().StringVar(&sha, "sha", "", "Filter by head SHA prefix")
+	cmd.Flags().StringVar(&pr, "pr", "", "Filter by pull request number")
 	cmd.Flags().StringVarP(&output, "output", "o", "", "Output format (json)")
 
 	return cmd

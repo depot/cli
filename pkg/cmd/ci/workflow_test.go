@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"slices"
 	"strings"
 	"testing"
 
@@ -44,7 +45,26 @@ func TestWorkflowListPassesRequestOptionsAndPrintsTable(t *testing.T) {
 	}
 
 	cmd := NewCmdWorkflowList()
-	cmd.SetArgs([]string{"--org", "org-123", "-n", "5"})
+	cmd.SetArgs([]string{
+		"--org",
+		"org-123",
+		"-n",
+		"5",
+		"--name",
+		"deploy",
+		"--repo",
+		"depot/api",
+		"--status",
+		"running",
+		"--status",
+		"failed",
+		"--trigger",
+		"workflow_dispatch",
+		"--sha",
+		"abc123",
+		"--pr",
+		"42",
+	})
 	cmd.SetOut(io.Discard)
 	cmd.SetErr(io.Discard)
 
@@ -62,6 +82,24 @@ func TestWorkflowListPassesRequestOptionsAndPrintsTable(t *testing.T) {
 	if capturedOptions.Limit != 5 {
 		t.Fatalf("Limit = %d, want 5", capturedOptions.Limit)
 	}
+	if capturedOptions.Name != "deploy" {
+		t.Fatalf("Name = %q, want deploy", capturedOptions.Name)
+	}
+	if capturedOptions.Repo != "depot/api" {
+		t.Fatalf("Repo = %q, want depot/api", capturedOptions.Repo)
+	}
+	if got, want := capturedOptions.Statuses, []string{"running", "failed"}; !slices.Equal(got, want) {
+		t.Fatalf("Statuses = %v, want %v", got, want)
+	}
+	if capturedOptions.Trigger != "workflow_dispatch" {
+		t.Fatalf("Trigger = %q, want workflow_dispatch", capturedOptions.Trigger)
+	}
+	if capturedOptions.Sha != "abc123" {
+		t.Fatalf("Sha = %q, want abc123", capturedOptions.Sha)
+	}
+	if capturedOptions.PullRequest != "42" {
+		t.Fatalf("PullRequest = %q, want 42", capturedOptions.PullRequest)
+	}
 	for _, want := range []string{"WORKFLOW ID", "workflow-1", "CI", "depot/api", "failed", "push", "head456", "run-1"} {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("table output missing %q:\n%s", want, stdout)
@@ -75,7 +113,9 @@ func TestWorkflowListJSONOutput(t *testing.T) {
 	originalCIListWorkflows := ciListWorkflows
 	t.Cleanup(func() { ciListWorkflows = originalCIListWorkflows })
 
+	var capturedOptions api.CIListWorkflowsOptions
 	ciListWorkflows = func(ctx context.Context, token, orgID string, options api.CIListWorkflowsOptions) ([]*civ1.ListWorkflowsResponseWorkflow, error) {
+		capturedOptions = options
 		return []*civ1.ListWorkflowsResponseWorkflow{
 			{
 				WorkflowId:   "workflow-1",
@@ -103,7 +143,7 @@ func TestWorkflowListJSONOutput(t *testing.T) {
 	}
 
 	cmd := NewCmdWorkflowList()
-	cmd.SetArgs([]string{"--org", "org-123", "--output", "json"})
+	cmd.SetArgs([]string{"--org", "org-123", "--output", "json", "--name", "workflow_dispatch"})
 	cmd.SetOut(io.Discard)
 	cmd.SetErr(io.Discard)
 
@@ -118,6 +158,9 @@ func TestWorkflowListJSONOutput(t *testing.T) {
 	}
 	if len(workflows) != 1 {
 		t.Fatalf("expected 1 workflow, got %d", len(workflows))
+	}
+	if capturedOptions.Name != "workflow_dispatch" {
+		t.Fatalf("Name = %q, want workflow_dispatch", capturedOptions.Name)
 	}
 
 	got := workflows[0]
@@ -158,19 +201,50 @@ func TestWorkflowListRejectsInvalidLimitBeforeCallingAPI(t *testing.T) {
 		return nil, nil
 	}
 
-	for _, limit := range []string{"0", "-1"} {
+	for _, tt := range []struct {
+		limit string
+		want  string
+	}{
+		{limit: "0", want: "page size (-n) must be greater than 0"},
+		{limit: "-1", want: "page size (-n) must be greater than 0"},
+		{limit: "201", want: "page size (-n) must be 200 or less"},
+	} {
 		cmd := NewCmdWorkflowList()
-		cmd.SetArgs([]string{"--org", "org-123", "-n", limit})
+		cmd.SetArgs([]string{"--org", "org-123", "-n", tt.limit})
 		cmd.SetOut(io.Discard)
 		cmd.SetErr(io.Discard)
 
 		_, err := captureStdout(t, cmd.Execute)
-		if err == nil || !strings.Contains(err.Error(), "page size (-n) must be greater than 0") {
-			t.Fatalf("limit %s error = %v, want page size validation", limit, err)
+		if err == nil || !strings.Contains(err.Error(), tt.want) {
+			t.Fatalf("limit %s error = %v, want %q", tt.limit, err, tt.want)
 		}
 	}
 	if called {
 		t.Fatal("ciListWorkflows was called for invalid limit")
+	}
+}
+
+func TestWorkflowListRejectsInvalidStatusBeforeCallingAPI(t *testing.T) {
+	originalCIListWorkflows := ciListWorkflows
+	t.Cleanup(func() { ciListWorkflows = originalCIListWorkflows })
+
+	called := false
+	ciListWorkflows = func(ctx context.Context, token, orgID string, options api.CIListWorkflowsOptions) ([]*civ1.ListWorkflowsResponseWorkflow, error) {
+		called = true
+		return nil, nil
+	}
+
+	cmd := NewCmdWorkflowList()
+	cmd.SetArgs([]string{"--org", "org-123", "--status", "skipped"})
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+
+	_, err := captureStdout(t, cmd.Execute)
+	if err == nil || !strings.Contains(err.Error(), `invalid status "skipped"`) {
+		t.Fatalf("error = %v, want invalid status validation", err)
+	}
+	if called {
+		t.Fatal("ciListWorkflows was called for invalid status")
 	}
 }
 
@@ -180,12 +254,14 @@ func TestWorkflowListEmptyResults(t *testing.T) {
 	originalCIListWorkflows := ciListWorkflows
 	t.Cleanup(func() { ciListWorkflows = originalCIListWorkflows })
 
+	var capturedOptions api.CIListWorkflowsOptions
 	ciListWorkflows = func(ctx context.Context, token, orgID string, options api.CIListWorkflowsOptions) ([]*civ1.ListWorkflowsResponseWorkflow, error) {
+		capturedOptions = options
 		return nil, nil
 	}
 
 	cmd := NewCmdWorkflowList()
-	cmd.SetArgs([]string{"--org", "org-123"})
+	cmd.SetArgs([]string{"--org", "org-123", "--name", "no-matches"})
 	cmd.SetOut(io.Discard)
 	cmd.SetErr(io.Discard)
 
@@ -195,6 +271,9 @@ func TestWorkflowListEmptyResults(t *testing.T) {
 	}
 	if strings.TrimSpace(stdout) != "No workflows found." {
 		t.Fatalf("stdout = %q, want empty-results message", stdout)
+	}
+	if capturedOptions.Name != "no-matches" {
+		t.Fatalf("Name = %q, want no-matches", capturedOptions.Name)
 	}
 }
 

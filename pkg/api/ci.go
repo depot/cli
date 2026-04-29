@@ -193,49 +193,34 @@ func CIListRuns(ctx context.Context, token, orgID string, options CIListRunsOpti
 }
 
 type CIListWorkflowsOptions struct {
-	Limit int32
+	Limit       int32
+	Name        string
+	Repo        string
+	Statuses    []string
+	Trigger     string
+	Sha         string
+	PullRequest string
 }
 
-// CIListWorkflows returns CI workflows, paginating as needed to collect up to `Limit` results.
-// If Limit is 0, all results are returned.
+// CIListWorkflows returns one newest-first page of recent CI workflows.
+// If Limit is 0, the API default is used.
 func CIListWorkflows(ctx context.Context, token, orgID string, options CIListWorkflowsOptions) ([]*civ1.ListWorkflowsResponseWorkflow, error) {
 	client := newCIServiceClient()
-	var allWorkflows []*civ1.ListWorkflowsResponseWorkflow
-	var pageToken string
-
-	for {
-		pageSize := options.Limit
-		if options.Limit > 0 {
-			remaining := options.Limit - int32(len(allWorkflows))
-			if remaining <= 0 {
-				break
-			}
-			pageSize = remaining
-		}
-
-		req := &civ1.ListWorkflowsRequest{
-			PageSize:  pageSize,
-			PageToken: pageToken,
-		}
-		resp, err := client.ListWorkflows(ctx, WithAuthenticationAndOrg(connect.NewRequest(req), token, orgID))
-		if err != nil {
-			return nil, err
-		}
-
-		allWorkflows = append(allWorkflows, resp.Msg.Workflows...)
-
-		if options.Limit > 0 && int32(len(allWorkflows)) >= options.Limit {
-			allWorkflows = allWorkflows[:options.Limit]
-			break
-		}
-
-		if resp.Msg.NextPageToken == "" {
-			break
-		}
-		pageToken = resp.Msg.NextPageToken
+	req := &civ1.ListWorkflowsRequest{
+		PageSize: options.Limit,
+		Name:     options.Name,
+		Repo:     options.Repo,
+		Status:   options.Statuses,
+		Trigger:  options.Trigger,
+		Sha:      options.Sha,
+		Pr:       options.PullRequest,
+	}
+	resp, err := client.ListWorkflows(ctx, WithAuthenticationAndOrg(connect.NewRequest(req), token, orgID))
+	if err != nil {
+		return nil, err
 	}
 
-	return allWorkflows, nil
+	return resp.Msg.Workflows, nil
 }
 
 func newCISecretServiceV2Client() civ2connect.SecretServiceClient {

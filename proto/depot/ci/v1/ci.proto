@@ -363,13 +363,30 @@ message ListRunsResponseRun {
 // ListWorkflows messages
 
 message ListWorkflowsRequest {
+  reserved 2;
+  reserved "page_token";
+
+  // page_size is the maximum number of recent workflows to return. Defaults to 50 and is capped at 200.
   int32 page_size = 1;
-  string page_token = 2;
+  // name filters recent workflows by substring match on the workflow name or path fallback.
+  string name = 3;
+  // repo filters recent workflows by repo in {owner}/{repo} format.
+  string repo = 4;
+  // status filters recent workflows by lowercase workflow status. Multiple values are ORed.
+  repeated string status = 5;
+  // trigger filters recent workflows by the parent run trigger, e.g. "push" or "workflow_dispatch".
+  string trigger = 6;
+  // sha filters recent workflows by parent run head SHA prefix.
+  string sha = 7;
+  // pr filters recent workflows by pull request number.
+  string pr = 8;
 }
 
 message ListWorkflowsResponse {
+  reserved 2;
+  reserved "next_page_token";
+
   repeated ListWorkflowsResponseWorkflow workflows = 1;
-  string next_page_token = 2;
 }
 
 message ListWorkflowsResponseWorkflow {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"testing"
 
 	"connectrpc.com/connect"
@@ -222,13 +223,10 @@ func (r *listWorkflowsRecorder) ListWorkflows(ctx context.Context, req *connect.
 			{WorkflowId: "workflow-1"},
 		},
 	}
-	if len(r.requests) == 1 {
-		resp.NextPageToken = "next"
-	}
 	return connect.NewResponse(resp), nil
 }
 
-func TestCIListWorkflowsPaginatesRequests(t *testing.T) {
+func TestCIListWorkflowsSendsRecentDiscoveryFilters(t *testing.T) {
 	recorder := &listWorkflowsRecorder{}
 	_, handler := civ1connect.NewCIServiceHandler(recorder)
 	server := httptest.NewServer(h2c.NewHandler(handler, &http2.Server{}))
@@ -239,16 +237,22 @@ func TestCIListWorkflowsPaginatesRequests(t *testing.T) {
 	t.Cleanup(func() { baseURLFunc = originalBaseURLFunc })
 
 	workflows, err := CIListWorkflows(context.Background(), "token-123", "org-123", CIListWorkflowsOptions{
-		Limit: 2,
+		Limit:       2,
+		Name:        "deploy",
+		Repo:        "depot/api",
+		Statuses:    []string{"running", "failed"},
+		Trigger:     "workflow_dispatch",
+		Sha:         "abc123",
+		PullRequest: "42",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(workflows) != 2 {
-		t.Fatalf("expected 2 workflows, got %d", len(workflows))
+	if len(workflows) != 1 {
+		t.Fatalf("expected 1 workflow, got %d", len(workflows))
 	}
-	if len(recorder.requests) != 2 {
-		t.Fatalf("expected 2 ListWorkflows requests, got %d", len(recorder.requests))
+	if len(recorder.requests) != 1 {
+		t.Fatalf("expected 1 ListWorkflows request, got %d", len(recorder.requests))
 	}
 
 	if got := recorder.headers[0].Get("Authorization"); got != "Bearer token-123" {
@@ -258,19 +262,26 @@ func TestCIListWorkflowsPaginatesRequests(t *testing.T) {
 		t.Fatalf("x-depot-org = %q, want org-123", got)
 	}
 
-	first := recorder.requests[0]
-	if first.GetPageSize() != 2 {
-		t.Fatalf("first PageSize = %d, want 2", first.GetPageSize())
+	request := recorder.requests[0]
+	if request.GetPageSize() != 2 {
+		t.Fatalf("PageSize = %d, want 2", request.GetPageSize())
 	}
-	if first.GetPageToken() != "" {
-		t.Fatalf("first PageToken = %q, want empty", first.GetPageToken())
+	if request.GetName() != "deploy" {
+		t.Fatalf("Name = %q, want deploy", request.GetName())
 	}
-
-	second := recorder.requests[1]
-	if second.GetPageSize() != 1 {
-		t.Fatalf("second PageSize = %d, want 1", second.GetPageSize())
+	if request.GetRepo() != "depot/api" {
+		t.Fatalf("Repo = %q, want depot/api", request.GetRepo())
 	}
-	if second.GetPageToken() != "next" {
-		t.Fatalf("second PageToken = %q, want next", second.GetPageToken())
+	if got, want := request.GetStatus(), []string{"running", "failed"}; !slices.Equal(got, want) {
+		t.Fatalf("Status = %v, want %v", got, want)
+	}
+	if request.GetTrigger() != "workflow_dispatch" {
+		t.Fatalf("Trigger = %q, want workflow_dispatch", request.GetTrigger())
+	}
+	if request.GetSha() != "abc123" {
+		t.Fatalf("Sha = %q, want abc123", request.GetSha())
+	}
+	if request.GetPr() != "42" {
+		t.Fatalf("Pr = %q, want 42", request.GetPr())
 	}
 }
