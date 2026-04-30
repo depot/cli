@@ -40,6 +40,9 @@ service CIService {
 
   // ListRuns returns a paginated list of CI runs for the authenticated organization
   rpc ListRuns(ListRunsRequest) returns (ListRunsResponse) {}
+
+  // ListWorkflows returns a paginated list of recent CI workflows for the authenticated organization
+  rpc ListWorkflows(ListWorkflowsRequest) returns (ListWorkflowsResponse) {}
 }
 
 // MigrationService is the API used by `depot ci migrate` to handhold customers during the
@@ -355,4 +358,59 @@ message ListRunsResponseRun {
   string created_at = 6;
   string ref = 7;
   string head_sha = 8;
+}
+
+// ListWorkflows messages
+
+message ListWorkflowsRequest {
+  reserved 2;
+  reserved "page_token";
+
+  // page_size is the maximum number of recent workflows to return. Defaults to 50 and is capped at 200.
+  int32 page_size = 1;
+  // name filters recent workflows by substring match on the workflow name or path fallback.
+  string name = 3;
+  // repo filters recent workflows by repo in {owner}/{repo} format.
+  string repo = 4;
+  // status filters recent workflows by lowercase workflow status. Multiple values are ORed.
+  repeated string status = 5;
+  // trigger filters recent workflows by the parent run trigger, e.g. "push" or "workflow_dispatch".
+  string trigger = 6;
+  // sha filters recent workflows by parent run head SHA prefix.
+  string sha = 7;
+  // pr filters recent workflows by pull request number.
+  string pr = 8;
+}
+
+message ListWorkflowsResponse {
+  reserved 2;
+  reserved "next_page_token";
+
+  repeated ListWorkflowsResponseWorkflow workflows = 1;
+}
+
+message ListWorkflowsResponseWorkflow {
+  string workflow_id = 1;
+  string name = 2;
+  string workflow_path = 3;
+  string repo = 4;
+  // status is the lowercase workflow state, e.g. "queued", "running", or "finished".
+  string status = 5;
+  string trigger = 6;
+  string run_id = 7;
+  string sha = 8;
+  string head_sha = 9;
+  string created_at = 10;
+  ListWorkflowsResponseJobCounts job_counts = 11;
+}
+
+message ListWorkflowsResponseJobCounts {
+  int32 total = 1;
+  int32 queued = 2;
+  int32 waiting = 3;
+  int32 running = 4;
+  int32 finished = 5;
+  int32 failed = 6;
+  int32 cancelled = 7;
+  int32 skipped = 8;
 }

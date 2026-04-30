@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"testing"
 
 	"connectrpc.com/connect"
@@ -71,6 +72,10 @@ func (h ciServiceTestHandler) GetJobAttemptLogs(context.Context, *connect.Reques
 }
 
 func (h ciServiceTestHandler) ListRuns(context.Context, *connect.Request[civ1.ListRunsRequest]) (*connect.Response[civ1.ListRunsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, nil)
+}
+
+func (h ciServiceTestHandler) ListWorkflows(context.Context, *connect.Request[civ1.ListWorkflowsRequest]) (*connect.Response[civ1.ListWorkflowsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, nil)
 }
 
@@ -200,5 +205,83 @@ func TestCIListRunsPassesFiltersAcrossPages(t *testing.T) {
 	}
 	if second.GetPageToken() != "next" {
 		t.Fatalf("second PageToken = %q, want next", second.GetPageToken())
+	}
+}
+
+type listWorkflowsRecorder struct {
+	civ1connect.UnimplementedCIServiceHandler
+	requests []*civ1.ListWorkflowsRequest
+	headers  []http.Header
+}
+
+func (r *listWorkflowsRecorder) ListWorkflows(ctx context.Context, req *connect.Request[civ1.ListWorkflowsRequest]) (*connect.Response[civ1.ListWorkflowsResponse], error) {
+	r.requests = append(r.requests, proto.Clone(req.Msg).(*civ1.ListWorkflowsRequest))
+	r.headers = append(r.headers, req.Header().Clone())
+
+	resp := &civ1.ListWorkflowsResponse{
+		Workflows: []*civ1.ListWorkflowsResponseWorkflow{
+			{WorkflowId: "workflow-1"},
+		},
+	}
+	return connect.NewResponse(resp), nil
+}
+
+func TestCIListWorkflowsSendsRecentDiscoveryFilters(t *testing.T) {
+	recorder := &listWorkflowsRecorder{}
+	_, handler := civ1connect.NewCIServiceHandler(recorder)
+	server := httptest.NewServer(h2c.NewHandler(handler, &http2.Server{}))
+	t.Cleanup(server.Close)
+
+	originalBaseURLFunc := baseURLFunc
+	baseURLFunc = func() string { return server.URL }
+	t.Cleanup(func() { baseURLFunc = originalBaseURLFunc })
+
+	workflows, err := CIListWorkflows(context.Background(), "token-123", "org-123", CIListWorkflowsOptions{
+		Limit:       2,
+		Name:        "deploy",
+		Repo:        "depot/api",
+		Statuses:    []string{"running", "failed"},
+		Trigger:     "workflow_dispatch",
+		Sha:         "abc123",
+		PullRequest: "42",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(workflows) != 1 {
+		t.Fatalf("expected 1 workflow, got %d", len(workflows))
+	}
+	if len(recorder.requests) != 1 {
+		t.Fatalf("expected 1 ListWorkflows request, got %d", len(recorder.requests))
+	}
+
+	if got := recorder.headers[0].Get("Authorization"); got != "Bearer token-123" {
+		t.Fatalf("Authorization = %q, want Bearer token-123", got)
+	}
+	if got := recorder.headers[0].Get("x-depot-org"); got != "org-123" {
+		t.Fatalf("x-depot-org = %q, want org-123", got)
+	}
+
+	request := recorder.requests[0]
+	if request.GetPageSize() != 2 {
+		t.Fatalf("PageSize = %d, want 2", request.GetPageSize())
+	}
+	if request.GetName() != "deploy" {
+		t.Fatalf("Name = %q, want deploy", request.GetName())
+	}
+	if request.GetRepo() != "depot/api" {
+		t.Fatalf("Repo = %q, want depot/api", request.GetRepo())
+	}
+	if got, want := request.GetStatus(), []string{"running", "failed"}; !slices.Equal(got, want) {
+		t.Fatalf("Status = %v, want %v", got, want)
+	}
+	if request.GetTrigger() != "workflow_dispatch" {
+		t.Fatalf("Trigger = %q, want workflow_dispatch", request.GetTrigger())
+	}
+	if request.GetSha() != "abc123" {
+		t.Fatalf("Sha = %q, want abc123", request.GetSha())
+	}
+	if request.GetPr() != "42" {
+		t.Fatalf("Pr = %q, want 42", request.GetPr())
 	}
 }

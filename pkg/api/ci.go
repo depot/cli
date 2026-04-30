@@ -192,6 +192,37 @@ func CIListRuns(ctx context.Context, token, orgID string, options CIListRunsOpti
 	return allRuns, nil
 }
 
+type CIListWorkflowsOptions struct {
+	Limit       int32
+	Name        string
+	Repo        string
+	Statuses    []string
+	Trigger     string
+	Sha         string
+	PullRequest string
+}
+
+// CIListWorkflows returns one newest-first page of recent CI workflows.
+// If Limit is 0, the API default is used.
+func CIListWorkflows(ctx context.Context, token, orgID string, options CIListWorkflowsOptions) ([]*civ1.ListWorkflowsResponseWorkflow, error) {
+	client := newCIServiceClient()
+	req := &civ1.ListWorkflowsRequest{
+		PageSize: options.Limit,
+		Name:     options.Name,
+		Repo:     options.Repo,
+		Status:   options.Statuses,
+		Trigger:  options.Trigger,
+		Sha:      options.Sha,
+		Pr:       options.PullRequest,
+	}
+	resp, err := client.ListWorkflows(ctx, WithAuthenticationAndOrg(connect.NewRequest(req), token, orgID))
+	if err != nil {
+		return nil, err
+	}
+
+	return resp.Msg.Workflows, nil
+}
+
 func newCISecretServiceV2Client() civ2connect.SecretServiceClient {
 	baseURL := baseURLFunc()
 	return civ2connect.NewSecretServiceClient(getHTTPClient(baseURL), baseURL, WithUserAgent())
