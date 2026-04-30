@@ -97,7 +97,10 @@ type CIServiceClient interface {
 	GetRunStatus(context.Context, *connect.Request[v1.GetRunStatusRequest]) (*connect.Response[v1.GetRunStatusResponse], error)
 	// GetJobAttemptLogs returns log lines for a job attempt
 	GetJobAttemptLogs(context.Context, *connect.Request[v1.GetJobAttemptLogsRequest]) (*connect.Response[v1.GetJobAttemptLogsResponse], error)
-	// ListRuns returns a paginated list of CI runs for the authenticated organization
+	// ListRuns returns recent CI runs for the authenticated organization.
+	//
+	// This is a recent run discovery API, not a historical search API. Results are always
+	// newest-first, filters are applied before the limit, and cursor pagination is preserved.
 	ListRuns(context.Context, *connect.Request[v1.ListRunsRequest]) (*connect.Response[v1.ListRunsResponse], error)
 	// ListWorkflows returns a paginated list of recent CI workflows for the authenticated organization
 	ListWorkflows(context.Context, *connect.Request[v1.ListWorkflowsRequest]) (*connect.Response[v1.ListWorkflowsResponse], error)
@@ -287,7 +290,10 @@ type CIServiceHandler interface {
 	GetRunStatus(context.Context, *connect.Request[v1.GetRunStatusRequest]) (*connect.Response[v1.GetRunStatusResponse], error)
 	// GetJobAttemptLogs returns log lines for a job attempt
 	GetJobAttemptLogs(context.Context, *connect.Request[v1.GetJobAttemptLogsRequest]) (*connect.Response[v1.GetJobAttemptLogsResponse], error)
-	// ListRuns returns a paginated list of CI runs for the authenticated organization
+	// ListRuns returns recent CI runs for the authenticated organization.
+	//
+	// This is a recent run discovery API, not a historical search API. Results are always
+	// newest-first, filters are applied before the limit, and cursor pagination is preserved.
 	ListRuns(context.Context, *connect.Request[v1.ListRunsRequest]) (*connect.Response[v1.ListRunsResponse], error)
 	// ListWorkflows returns a paginated list of recent CI workflows for the authenticated organization
 	ListWorkflows(context.Context, *connect.Request[v1.ListWorkflowsRequest]) (*connect.Response[v1.ListWorkflowsResponse], error)

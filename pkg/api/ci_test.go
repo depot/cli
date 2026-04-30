@@ -161,10 +161,12 @@ func TestCIListRunsPassesFiltersAcrossPages(t *testing.T) {
 	t.Cleanup(func() { baseURLFunc = originalBaseURLFunc })
 
 	runs, err := CIListRuns(context.Background(), "token", "org-123", CIListRunsOptions{
-		Statuses: []string{"failed"},
-		Limit:    2,
-		Repo:     "depot/api",
-		Sha:      "abc123",
+		Statuses:    []string{"failed"},
+		Limit:       2,
+		Repo:        "depot/api",
+		Sha:         "abc123",
+		Trigger:     "workflow_dispatch",
+		PullRequest: "42",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -183,6 +185,12 @@ func TestCIListRunsPassesFiltersAcrossPages(t *testing.T) {
 	if first.GetSha() != "abc123" {
 		t.Fatalf("first Sha = %q, want abc123", first.GetSha())
 	}
+	if first.GetTrigger() != "workflow_dispatch" {
+		t.Fatalf("first Trigger = %q, want workflow_dispatch", first.GetTrigger())
+	}
+	if first.GetPr() != "42" {
+		t.Fatalf("first Pr = %q, want 42", first.GetPr())
+	}
 	if first.GetPageSize() != 2 {
 		t.Fatalf("first PageSize = %d, want 2", first.GetPageSize())
 	}
@@ -199,6 +207,12 @@ func TestCIListRunsPassesFiltersAcrossPages(t *testing.T) {
 	}
 	if second.GetSha() != "abc123" {
 		t.Fatalf("second Sha = %q, want abc123", second.GetSha())
+	}
+	if second.GetTrigger() != "workflow_dispatch" {
+		t.Fatalf("second Trigger = %q, want workflow_dispatch", second.GetTrigger())
+	}
+	if second.GetPr() != "42" {
+		t.Fatalf("second Pr = %q, want 42", second.GetPr())
 	}
 	if second.GetPageSize() != 1 {
 		t.Fatalf("second PageSize = %d, want 1", second.GetPageSize())
