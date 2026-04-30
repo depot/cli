@@ -58,6 +58,8 @@ const (
 	CIServiceCancelRunProcedure = "/depot.ci.v1.CIService/CancelRun"
 	// CIServiceGetRunStatusProcedure is the fully-qualified name of the CIService's GetRunStatus RPC.
 	CIServiceGetRunStatusProcedure = "/depot.ci.v1.CIService/GetRunStatus"
+	// CIServiceGetWorkflowProcedure is the fully-qualified name of the CIService's GetWorkflow RPC.
+	CIServiceGetWorkflowProcedure = "/depot.ci.v1.CIService/GetWorkflow"
 	// CIServiceGetJobAttemptLogsProcedure is the fully-qualified name of the CIService's
 	// GetJobAttemptLogs RPC.
 	CIServiceGetJobAttemptLogsProcedure = "/depot.ci.v1.CIService/GetJobAttemptLogs"
@@ -95,6 +97,8 @@ type CIServiceClient interface {
 	CancelRun(context.Context, *connect.Request[v1.CancelRunRequest]) (*connect.Response[v1.CancelRunResponse], error)
 	// GetRunStatus returns the current status of a run including its workflows, jobs, and attempts
 	GetRunStatus(context.Context, *connect.Request[v1.GetRunStatusRequest]) (*connect.Response[v1.GetRunStatusResponse], error)
+	// GetWorkflow returns curated workflow, run, execution, job, and attempt metadata for single-workflow inspection
+	GetWorkflow(context.Context, *connect.Request[v1.GetWorkflowRequest]) (*connect.Response[v1.GetWorkflowResponse], error)
 	// GetJobAttemptLogs returns log lines for a job attempt
 	GetJobAttemptLogs(context.Context, *connect.Request[v1.GetJobAttemptLogsRequest]) (*connect.Response[v1.GetJobAttemptLogsResponse], error)
 	// ListRuns returns recent CI runs for the authenticated organization.
@@ -166,6 +170,11 @@ func NewCIServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...c
 			baseURL+CIServiceGetRunStatusProcedure,
 			opts...,
 		),
+		getWorkflow: connect.NewClient[v1.GetWorkflowRequest, v1.GetWorkflowResponse](
+			httpClient,
+			baseURL+CIServiceGetWorkflowProcedure,
+			opts...,
+		),
 		getJobAttemptLogs: connect.NewClient[v1.GetJobAttemptLogsRequest, v1.GetJobAttemptLogsResponse](
 			httpClient,
 			baseURL+CIServiceGetJobAttemptLogsProcedure,
@@ -196,6 +205,7 @@ type cIServiceClient struct {
 	getRun            *connect.Client[v1.GetRunRequest, v1.GetRunResponse]
 	cancelRun         *connect.Client[v1.CancelRunRequest, v1.CancelRunResponse]
 	getRunStatus      *connect.Client[v1.GetRunStatusRequest, v1.GetRunStatusResponse]
+	getWorkflow       *connect.Client[v1.GetWorkflowRequest, v1.GetWorkflowResponse]
 	getJobAttemptLogs *connect.Client[v1.GetJobAttemptLogsRequest, v1.GetJobAttemptLogsResponse]
 	listRuns          *connect.Client[v1.ListRunsRequest, v1.ListRunsResponse]
 	listWorkflows     *connect.Client[v1.ListWorkflowsRequest, v1.ListWorkflowsResponse]
@@ -251,6 +261,11 @@ func (c *cIServiceClient) GetRunStatus(ctx context.Context, req *connect.Request
 	return c.getRunStatus.CallUnary(ctx, req)
 }
 
+// GetWorkflow calls depot.ci.v1.CIService.GetWorkflow.
+func (c *cIServiceClient) GetWorkflow(ctx context.Context, req *connect.Request[v1.GetWorkflowRequest]) (*connect.Response[v1.GetWorkflowResponse], error) {
+	return c.getWorkflow.CallUnary(ctx, req)
+}
+
 // GetJobAttemptLogs calls depot.ci.v1.CIService.GetJobAttemptLogs.
 func (c *cIServiceClient) GetJobAttemptLogs(ctx context.Context, req *connect.Request[v1.GetJobAttemptLogsRequest]) (*connect.Response[v1.GetJobAttemptLogsResponse], error) {
 	return c.getJobAttemptLogs.CallUnary(ctx, req)
@@ -288,6 +303,8 @@ type CIServiceHandler interface {
 	CancelRun(context.Context, *connect.Request[v1.CancelRunRequest]) (*connect.Response[v1.CancelRunResponse], error)
 	// GetRunStatus returns the current status of a run including its workflows, jobs, and attempts
 	GetRunStatus(context.Context, *connect.Request[v1.GetRunStatusRequest]) (*connect.Response[v1.GetRunStatusResponse], error)
+	// GetWorkflow returns curated workflow, run, execution, job, and attempt metadata for single-workflow inspection
+	GetWorkflow(context.Context, *connect.Request[v1.GetWorkflowRequest]) (*connect.Response[v1.GetWorkflowResponse], error)
 	// GetJobAttemptLogs returns log lines for a job attempt
 	GetJobAttemptLogs(context.Context, *connect.Request[v1.GetJobAttemptLogsRequest]) (*connect.Response[v1.GetJobAttemptLogsResponse], error)
 	// ListRuns returns recent CI runs for the authenticated organization.
@@ -355,6 +372,11 @@ func NewCIServiceHandler(svc CIServiceHandler, opts ...connect.HandlerOption) (s
 		svc.GetRunStatus,
 		opts...,
 	)
+	cIServiceGetWorkflowHandler := connect.NewUnaryHandler(
+		CIServiceGetWorkflowProcedure,
+		svc.GetWorkflow,
+		opts...,
+	)
 	cIServiceGetJobAttemptLogsHandler := connect.NewUnaryHandler(
 		CIServiceGetJobAttemptLogsProcedure,
 		svc.GetJobAttemptLogs,
@@ -392,6 +414,8 @@ func NewCIServiceHandler(svc CIServiceHandler, opts ...connect.HandlerOption) (s
 			cIServiceCancelRunHandler.ServeHTTP(w, r)
 		case CIServiceGetRunStatusProcedure:
 			cIServiceGetRunStatusHandler.ServeHTTP(w, r)
+		case CIServiceGetWorkflowProcedure:
+			cIServiceGetWorkflowHandler.ServeHTTP(w, r)
 		case CIServiceGetJobAttemptLogsProcedure:
 			cIServiceGetJobAttemptLogsHandler.ServeHTTP(w, r)
 		case CIServiceListRunsProcedure:
@@ -445,6 +469,10 @@ func (UnimplementedCIServiceHandler) CancelRun(context.Context, *connect.Request
 
 func (UnimplementedCIServiceHandler) GetRunStatus(context.Context, *connect.Request[v1.GetRunStatusRequest]) (*connect.Response[v1.GetRunStatusResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.ci.v1.CIService.GetRunStatus is not implemented"))
+}
+
+func (UnimplementedCIServiceHandler) GetWorkflow(context.Context, *connect.Request[v1.GetWorkflowRequest]) (*connect.Response[v1.GetWorkflowResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.ci.v1.CIService.GetWorkflow is not implemented"))
 }
 
 func (UnimplementedCIServiceHandler) GetJobAttemptLogs(context.Context, *connect.Request[v1.GetJobAttemptLogsRequest]) (*connect.Response[v1.GetJobAttemptLogsResponse], error) {

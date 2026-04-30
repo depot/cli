@@ -191,6 +191,108 @@ func TestWorkflowListJSONOutput(t *testing.T) {
 	}
 }
 
+func TestWorkflowShowPassesWorkflowIDAndPrintsDetails(t *testing.T) {
+	t.Setenv("DEPOT_TOKEN", "token-from-env")
+
+	originalCIGetWorkflow := ciGetWorkflow
+	t.Cleanup(func() { ciGetWorkflow = originalCIGetWorkflow })
+
+	var capturedToken string
+	var capturedOrgID string
+	var capturedWorkflowID string
+	ciGetWorkflow = func(ctx context.Context, token, orgID, workflowID string) (*civ1.GetWorkflowResponse, error) {
+		capturedToken = token
+		capturedOrgID = orgID
+		capturedWorkflowID = workflowID
+		return sampleGetWorkflowResponse(), nil
+	}
+
+	cmd := NewCmdWorkflowShow()
+	cmd.SetArgs([]string{"--org", "org-123", "workflow-1"})
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+
+	stdout, err := captureStdout(t, cmd.Execute)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if capturedToken != "token-from-env" {
+		t.Fatalf("token = %q, want token-from-env", capturedToken)
+	}
+	if capturedOrgID != "org-123" {
+		t.Fatalf("orgID = %q, want org-123", capturedOrgID)
+	}
+	if capturedWorkflowID != "workflow-1" {
+		t.Fatalf("workflowID = %q, want workflow-1", capturedWorkflowID)
+	}
+
+	for _, want := range []string{
+		"Org: org-123",
+		"Repo: depot/api",
+		"Run: run-1 (failed)",
+		"Workflow: workflow-1 (failed)",
+		"Name: CI",
+		"Path: .depot/workflows/ci.yml",
+		"#1 finished 8m42s",
+		"#2 failed 3m14s",
+		"build [finished] 4m2s",
+		"test [failed] 2m58s",
+		"Latest attempt: #2 att-test-2 (failed) 2m58s",
+		"Sandbox: sandbox-2",
+		"Session: session-2",
+		"Logs: depot ci logs att-test-2 --org org-123",
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("workflow show output missing %q:\n%s", want, stdout)
+		}
+	}
+}
+
+func TestWorkflowShowJSONOutput(t *testing.T) {
+	t.Setenv("DEPOT_TOKEN", "token-from-env")
+
+	originalCIGetWorkflow := ciGetWorkflow
+	t.Cleanup(func() { ciGetWorkflow = originalCIGetWorkflow })
+
+	ciGetWorkflow = func(ctx context.Context, token, orgID, workflowID string) (*civ1.GetWorkflowResponse, error) {
+		return sampleGetWorkflowResponse(), nil
+	}
+
+	cmd := NewCmdWorkflowShow()
+	cmd.SetArgs([]string{"--org", "org-123", "--output", "json", "workflow-1"})
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+
+	stdout, err := captureStdout(t, cmd.Execute)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var workflow workflowShowJSON
+	if err := json.Unmarshal([]byte(stdout), &workflow); err != nil {
+		t.Fatalf("invalid JSON output: %v\n%s", err, stdout)
+	}
+	if workflow.OrgID != "org-123" {
+		t.Fatalf("org_id = %q, want org-123", workflow.OrgID)
+	}
+	if workflow.Run.RunID != "run-1" || workflow.Run.Status != "failed" {
+		t.Fatalf("unexpected run JSON: %+v", workflow.Run)
+	}
+	if workflow.Workflow.WorkflowID != "workflow-1" || workflow.Workflow.WorkflowPath != ".depot/workflows/ci.yml" {
+		t.Fatalf("unexpected workflow JSON: %+v", workflow.Workflow)
+	}
+	if len(workflow.Executions) != 2 || workflow.Executions[1].ExecutionID != "exec-2" {
+		t.Fatalf("unexpected executions JSON: %+v", workflow.Executions)
+	}
+	if len(workflow.Jobs) != 2 || len(workflow.Jobs[1].Attempts) != 2 {
+		t.Fatalf("unexpected jobs JSON: %+v", workflow.Jobs)
+	}
+	if workflow.Jobs[1].Attempts[1].SessionID != "session-2" {
+		t.Fatalf("unexpected attempt JSON: %+v", workflow.Jobs[1].Attempts[1])
+	}
+}
+
 func TestWorkflowListRejectsInvalidLimitBeforeCallingAPI(t *testing.T) {
 	originalCIListWorkflows := ciListWorkflows
 	t.Cleanup(func() { ciListWorkflows = originalCIListWorkflows })
@@ -304,10 +406,98 @@ func TestCICommandRegistersWorkflowListWithoutBreakingExistingCommands(t *testin
 	if findCommand(t, cmd, "workflow", "list") == nil {
 		t.Fatal("depot ci workflow list is not registered")
 	}
+	if findCommand(t, cmd, "workflow", "show") == nil {
+		t.Fatal("depot ci workflow show is not registered")
+	}
 	for _, existing := range [][]string{{"run", "list"}, {"status"}, {"logs"}} {
 		if findCommand(t, cmd, existing...) == nil {
 			t.Fatalf("depot ci %s is not registered", strings.Join(existing, " "))
 		}
+	}
+}
+
+func sampleGetWorkflowResponse() *civ1.GetWorkflowResponse {
+	return &civ1.GetWorkflowResponse{
+		OrgId:                "org-123",
+		RunId:                "run-1",
+		Repo:                 "depot/api",
+		Ref:                  "refs/heads/main",
+		Sha:                  "merge123",
+		HeadSha:              "head456",
+		Trigger:              "push",
+		RunStatus:            "failed",
+		RunCreatedAt:         "2026-04-30T14:01:00Z",
+		RunStartedAt:         "2026-04-30T14:02:00Z",
+		RunFinishedAt:        "2026-04-30T14:25:15Z",
+		WorkflowId:           "workflow-1",
+		WorkflowName:         "CI",
+		WorkflowPath:         ".depot/workflows/ci.yml",
+		WorkflowStatus:       "failed",
+		WorkflowErrorMessage: "tests failed",
+		WorkflowCreatedAt:    "2026-04-30T14:01:05Z",
+		WorkflowStartedAt:    "2026-04-30T14:02:11Z",
+		WorkflowFinishedAt:   "2026-04-30T14:25:15Z",
+		Executions: []*civ1.GetWorkflowExecution{
+			{
+				ExecutionId: "exec-1",
+				Execution:   1,
+				Status:      "finished",
+				CreatedAt:   "2026-04-30T14:01:05Z",
+				StartedAt:   "2026-04-30T14:02:11Z",
+				FinishedAt:  "2026-04-30T14:10:53Z",
+			},
+			{
+				ExecutionId: "exec-2",
+				Execution:   2,
+				Status:      "failed",
+				CreatedAt:   "2026-04-30T14:21:45Z",
+				StartedAt:   "2026-04-30T14:22:01Z",
+				FinishedAt:  "2026-04-30T14:25:15Z",
+			},
+		},
+		Jobs: []*civ1.GetWorkflowJob{
+			{
+				JobId:      "job-build",
+				JobKey:     "ci.yml:build",
+				Status:     "finished",
+				StartedAt:  "2026-04-30T14:02:20Z",
+				FinishedAt: "2026-04-30T14:06:22Z",
+				Attempts: []*civ1.GetWorkflowJobAttempt{
+					{
+						AttemptId:  "att-build-1",
+						Attempt:    1,
+						Status:     "finished",
+						StartedAt:  "2026-04-30T14:02:20Z",
+						FinishedAt: "2026-04-30T14:06:22Z",
+					},
+				},
+			},
+			{
+				JobId:      "job-test",
+				JobKey:     "ci.yml:test",
+				Status:     "failed",
+				StartedAt:  "2026-04-30T14:22:10Z",
+				FinishedAt: "2026-04-30T14:25:08Z",
+				Attempts: []*civ1.GetWorkflowJobAttempt{
+					{
+						AttemptId:  "att-test-1",
+						Attempt:    1,
+						Status:     "failed",
+						StartedAt:  "2026-04-30T14:07:00Z",
+						FinishedAt: "2026-04-30T14:09:10Z",
+					},
+					{
+						AttemptId:  "att-test-2",
+						Attempt:    2,
+						Status:     "failed",
+						SandboxId:  "sandbox-2",
+						SessionId:  "session-2",
+						StartedAt:  "2026-04-30T14:22:10Z",
+						FinishedAt: "2026-04-30T14:25:08Z",
+					},
+				},
+			},
+		},
 	}
 }
 

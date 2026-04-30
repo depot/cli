@@ -35,6 +35,9 @@ service CIService {
   // GetRunStatus returns the current status of a run including its workflows, jobs, and attempts
   rpc GetRunStatus(GetRunStatusRequest) returns (GetRunStatusResponse) {}
 
+  // GetWorkflow returns curated workflow, run, execution, job, and attempt metadata for single-workflow inspection
+  rpc GetWorkflow(GetWorkflowRequest) returns (GetWorkflowResponse) {}
+
   // GetJobAttemptLogs returns log lines for a job attempt
   rpc GetJobAttemptLogs(GetJobAttemptLogsRequest) returns (GetJobAttemptLogsResponse) {}
 
@@ -307,6 +310,75 @@ message AttemptStatus {
   string sandbox_id = 4;
   // session_id is populated alongside sandbox_id.
   string session_id = 5;
+}
+
+// GetWorkflow messages
+
+message GetWorkflowRequest {
+  // workflow_id identifies the workflow to fetch
+  string workflow_id = 1;
+}
+
+message GetWorkflowResponse {
+  string org_id = 1;
+
+  // Parent run context
+  string run_id = 2;
+  string repo = 3;
+  string ref = 4;
+  string sha = 5;
+  string head_sha = 6;
+  string trigger = 7;
+  string run_status = 8;
+  string run_created_at = 9;
+  string run_started_at = 10;
+  string run_finished_at = 11;
+
+  // Workflow metadata
+  string workflow_id = 12;
+  string workflow_name = 13;
+  string workflow_path = 14;
+  string workflow_status = 15;
+  string workflow_error_message = 16;
+  string workflow_created_at = 17;
+  string workflow_started_at = 18;
+  string workflow_finished_at = 19;
+
+  // executions are workflow-level records; each re-run creates another execution.
+  repeated GetWorkflowExecution executions = 20;
+  // jobs are the workflow jobs and their per-job attempts.
+  repeated GetWorkflowJob jobs = 21;
+}
+
+// GetWorkflowExecution describes one workflow execution/re-run.
+message GetWorkflowExecution {
+  string execution_id = 1;
+  int32 execution = 2;
+  string status = 3;
+  string created_at = 4;
+  string started_at = 5;
+  string finished_at = 6;
+}
+
+message GetWorkflowJob {
+  string job_id = 1;
+  string job_key = 2;
+  string status = 3;
+  string started_at = 4;
+  string finished_at = 5;
+  // attempts are per-job attempts, not workflow execution records.
+  repeated GetWorkflowJobAttempt attempts = 6;
+}
+
+// GetWorkflowJobAttempt describes one attempt of a job returned by GetWorkflow.
+message GetWorkflowJobAttempt {
+  string attempt_id = 1;
+  int32 attempt = 2;
+  string status = 3;
+  string sandbox_id = 4;
+  string session_id = 5;
+  string started_at = 6;
+  string finished_at = 7;
 }
 
 // GetJobAttemptLogs messages
