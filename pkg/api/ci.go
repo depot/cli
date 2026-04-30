@@ -28,6 +28,16 @@ func CIGetRunStatus(ctx context.Context, token, orgID, runID string) (*civ1.GetR
 	return resp.Msg, nil
 }
 
+// CIGetWorkflow returns curated run/workflow/execution/job/attempt metadata for a single workflow.
+func CIGetWorkflow(ctx context.Context, token, orgID, workflowID string) (*civ1.GetWorkflowResponse, error) {
+	client := newCIServiceClient()
+	resp, err := client.GetWorkflow(ctx, WithAuthenticationAndOrg(connect.NewRequest(&civ1.GetWorkflowRequest{WorkflowId: workflowID}), token, orgID))
+	if err != nil {
+		return nil, err
+	}
+	return resp.Msg, nil
+}
+
 // CIGetRun returns a flat CI run record.
 func CIGetRun(ctx context.Context, token, orgID, runID string) (*civ1.GetRunResponse, error) {
 	client := newCIServiceClient()

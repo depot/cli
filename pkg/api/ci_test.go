@@ -67,6 +67,14 @@ func (h ciServiceTestHandler) GetRunStatus(context.Context, *connect.Request[civ
 	return nil, connect.NewError(connect.CodeUnimplemented, nil)
 }
 
+func (h ciServiceTestHandler) GetWorkflow(_ context.Context, req *connect.Request[civ1.GetWorkflowRequest]) (*connect.Response[civ1.GetWorkflowResponse], error) {
+	assertAuthAndOrg(h.t, req.Header())
+	if req.Msg.WorkflowId != "workflow-123" {
+		h.t.Fatalf("WorkflowId = %q, want workflow-123", req.Msg.WorkflowId)
+	}
+	return connect.NewResponse(&civ1.GetWorkflowResponse{WorkflowId: req.Msg.WorkflowId, OrgId: "org-123"}), nil
+}
+
 func (h ciServiceTestHandler) GetJobAttemptLogs(context.Context, *connect.Request[civ1.GetJobAttemptLogsRequest]) (*connect.Response[civ1.GetJobAttemptLogsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, nil)
 }
@@ -98,6 +106,18 @@ func TestCICancelRunWrapper(t *testing.T) {
 			t.Fatalf("CICancelRun returned error: %v", err)
 		}
 		if resp.RunId != "run-123" || resp.Status != "cancelled" {
+			t.Fatalf("unexpected response: %+v", resp)
+		}
+	})
+}
+
+func TestCIGetWorkflowWrapper(t *testing.T) {
+	withTestCIService(t, func() {
+		resp, err := CIGetWorkflow(context.Background(), "token-123", "org-123", "workflow-123")
+		if err != nil {
+			t.Fatalf("CIGetWorkflow returned error: %v", err)
+		}
+		if resp.WorkflowId != "workflow-123" || resp.OrgId != "org-123" {
 			t.Fatalf("unexpected response: %+v", resp)
 		}
 	})
