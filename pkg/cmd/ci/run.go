@@ -772,6 +772,8 @@ func NewCmdRunList() *cobra.Command {
 		output   string
 		repo     string
 		sha      string
+		trigger  string
+		pr       string
 	)
 
 	cmd := &cobra.Command{
@@ -786,6 +788,12 @@ func NewCmdRunList() *cobra.Command {
 
   # List runs for a repository and commit SHA prefix
   depot ci run list --repo depot/api --sha abc123
+
+  # List failed runs for a pull request
+  depot ci run list --repo depot/api --status failed --pr 42
+
+  # List workflow dispatch runs
+  depot ci run list --trigger workflow_dispatch
 
   # List finished and failed runs
   depot ci run list --status finished --status failed
@@ -820,12 +828,17 @@ func NewCmdRunList() *cobra.Command {
 					return err
 				}
 			}
+			if strings.TrimSpace(pr) != "" && strings.TrimSpace(repo) == "" {
+				return fmt.Errorf("--repo is required when --pr is set because pull request numbers are repository-scoped")
+			}
 
 			runs, err := ciListRuns(ctx, tokenVal, orgID, api.CIListRunsOptions{
-				Statuses: statuses,
-				Limit:    n,
-				Repo:     repo,
-				Sha:      sha,
+				Statuses:    statuses,
+				Limit:       n,
+				Repo:        repo,
+				Sha:         sha,
+				Trigger:     trigger,
+				PullRequest: pr,
 			})
 			if err != nil {
 				return fmt.Errorf("failed to list runs: %w", err)
@@ -891,6 +904,8 @@ func NewCmdRunList() *cobra.Command {
 	cmd.Flags().StringSliceVar(&statuses, "status", nil, "Filter by status (repeatable: queued, running, finished, failed, cancelled)")
 	cmd.Flags().StringVar(&repo, "repo", "", "Filter by repository (owner/repo)")
 	cmd.Flags().StringVar(&sha, "sha", "", "Filter by commit SHA prefix")
+	cmd.Flags().StringVar(&trigger, "trigger", "", "Filter by trigger, e.g. push or workflow_dispatch")
+	cmd.Flags().StringVar(&pr, "pr", "", "Filter by pull request number (requires --repo)")
 	cmd.Flags().Int32VarP(&n, "n", "n", 50, "Number of runs to return")
 	cmd.Flags().StringVarP(&output, "output", "o", "", "Output format (json)")
 

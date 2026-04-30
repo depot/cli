@@ -35,7 +35,7 @@ func captureStdout(t *testing.T, fn func() error) (string, error) {
 	return string(out), runErr
 }
 
-func TestRunListPassesRepoAndShaFilters(t *testing.T) {
+func TestRunListPassesRecentDiscoveryFilters(t *testing.T) {
 	t.Setenv("DEPOT_TOKEN", "token-from-env")
 
 	originalCIListRuns := ciListRuns
@@ -67,6 +67,8 @@ func TestRunListPassesRepoAndShaFilters(t *testing.T) {
 		"--org", "org-123",
 		"--repo", "depot/api",
 		"--sha", "ABC123",
+		"--trigger", "workflow_dispatch",
+		"--pr", "42",
 		"--status", "failed",
 		"--output", "json",
 	})
@@ -90,6 +92,12 @@ func TestRunListPassesRepoAndShaFilters(t *testing.T) {
 	if capturedOptions.Sha != "ABC123" {
 		t.Fatalf("Sha = %q, want ABC123", capturedOptions.Sha)
 	}
+	if capturedOptions.Trigger != "workflow_dispatch" {
+		t.Fatalf("Trigger = %q, want workflow_dispatch", capturedOptions.Trigger)
+	}
+	if capturedOptions.PullRequest != "42" {
+		t.Fatalf("PullRequest = %q, want 42", capturedOptions.PullRequest)
+	}
 	if capturedOptions.Limit != 50 {
 		t.Fatalf("Limit = %d, want 50", capturedOptions.Limit)
 	}
@@ -104,5 +112,34 @@ func TestRunListPassesRepoAndShaFilters(t *testing.T) {
 	}
 	if !strings.Contains(stdout, `"status": "failed"`) {
 		t.Fatalf("JSON output missing status field:\n%s", stdout)
+	}
+}
+
+func TestRunListRequiresRepoWithPullRequestFilter(t *testing.T) {
+	t.Setenv("DEPOT_TOKEN", "token-from-env")
+
+	originalCIListRuns := ciListRuns
+	t.Cleanup(func() { ciListRuns = originalCIListRuns })
+
+	ciListRuns = func(ctx context.Context, token, orgID string, options api.CIListRunsOptions) ([]*civ1.ListRunsResponseRun, error) {
+		t.Fatal("ciListRuns should not be called when --pr is missing --repo")
+		return nil, nil
+	}
+
+	cmd := NewCmdRunList()
+	cmd.SetArgs([]string{
+		"--org", "org-123",
+		"--pr", "42",
+		"--status", "failed",
+	})
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "--repo is required when --pr is set") {
+		t.Fatalf("error = %q, want missing repo message", err)
 	}
 }

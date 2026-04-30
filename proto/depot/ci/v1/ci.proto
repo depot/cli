@@ -38,7 +38,10 @@ service CIService {
   // GetJobAttemptLogs returns log lines for a job attempt
   rpc GetJobAttemptLogs(GetJobAttemptLogsRequest) returns (GetJobAttemptLogsResponse) {}
 
-  // ListRuns returns a paginated list of CI runs for the authenticated organization
+  // ListRuns returns recent CI runs for the authenticated organization.
+  //
+  // This is a recent run discovery API, not a historical search API. Results are always
+  // newest-first, filters are applied before the limit, and cursor pagination is preserved.
   rpc ListRuns(ListRunsRequest) returns (ListRunsResponse) {}
 
   // ListWorkflows returns a paginated list of recent CI workflows for the authenticated organization
@@ -332,15 +335,21 @@ message LogLine {
 // ListRuns messages
 
 message ListRunsRequest {
-  // status filters runs by lowercase status values (queued, running, finished, failed, cancelled);
+  // status filters recent runs by lowercase status values (queued, running, finished, failed, cancelled);
   // defaults to [running, queued] when empty
   repeated string status = 1;
+  // page_size is the maximum number of recent runs to return. Defaults to 50 and is capped at 100.
   int32 page_size = 2;
+  // page_token resumes cursor pagination from a previous response.
   string page_token = 3;
-  // repo filters runs by exact repository slug, such as "owner/repo"
+  // repo filters recent runs by exact repository slug, such as "owner/repo"
   string repo = 4;
-  // sha filters runs by commit SHA prefix, matching either sha or head_sha
+  // sha filters recent runs by commit SHA prefix, matching either sha or head_sha
   string sha = 5;
+  // trigger filters recent runs by exact parent run trigger, e.g. "push" or "workflow_dispatch".
+  string trigger = 6;
+  // pr filters recent runs by pull request number. repo is required when pr is set.
+  string pr = 7;
 }
 
 message ListRunsResponse {
