@@ -1,7 +1,10 @@
 package api
 
 import (
+	"bytes"
 	"context"
+	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -77,6 +80,10 @@ func (h ciServiceTestHandler) GetWorkflow(_ context.Context, req *connect.Reques
 
 func (h ciServiceTestHandler) GetJobAttemptLogs(context.Context, *connect.Request[civ1.GetJobAttemptLogsRequest]) (*connect.Response[civ1.GetJobAttemptLogsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, nil)
+}
+
+func (h ciServiceTestHandler) StreamJobAttemptLogs(context.Context, *connect.Request[civ1.StreamJobAttemptLogsRequest], *connect.ServerStream[civ1.StreamJobAttemptLogsResponse]) error {
+	return connect.NewError(connect.CodeUnimplemented, nil)
 }
 
 func (h ciServiceTestHandler) ListRuns(context.Context, *connect.Request[civ1.ListRunsRequest]) (*connect.Response[civ1.ListRunsResponse], error) {
@@ -317,5 +324,135 @@ func TestCIListWorkflowsSendsRecentDiscoveryFilters(t *testing.T) {
 	}
 	if request.GetPr() != "42" {
 		t.Fatalf("Pr = %q, want 42", request.GetPr())
+	}
+}
+
+type streamLogsRecorder struct {
+	civ1connect.UnimplementedCIServiceHandler
+	requests []*civ1.StreamJobAttemptLogsRequest
+}
+
+func (r *streamLogsRecorder) StreamJobAttemptLogs(_ context.Context, req *connect.Request[civ1.StreamJobAttemptLogsRequest], stream *connect.ServerStream[civ1.StreamJobAttemptLogsResponse]) error {
+	r.requests = append(r.requests, proto.Clone(req.Msg).(*civ1.StreamJobAttemptLogsRequest))
+
+	if req.Msg.GetAttemptId() != "attempt-123" || req.Msg.GetJobId() != "" {
+		return connect.NewError(connect.CodeInvalidArgument, errors.New("unexpected stream target"))
+	}
+
+	switch len(r.requests) {
+	case 1:
+		if err := stream.Send(&civ1.StreamJobAttemptLogsResponse{
+			AttemptStatus: "running",
+		}); err != nil {
+			return err
+		}
+		if err := stream.Send(&civ1.StreamJobAttemptLogsResponse{
+			Line:          testLogLine("step-1", 1, "first"),
+			NextCursor:    "cursor-1",
+			AttemptStatus: "running",
+		}); err != nil {
+			return err
+		}
+		if err := stream.Send(&civ1.StreamJobAttemptLogsResponse{
+			Line:          testLogLine("step-1", 2, "second"),
+			NextCursor:    "cursor-2",
+			AttemptStatus: "running",
+		}); err != nil {
+			return err
+		}
+		return connect.NewError(connect.CodeUnavailable, errors.New("stream interrupted"))
+	case 2:
+		if err := stream.Send(&civ1.StreamJobAttemptLogsResponse{
+			Line:          testLogLine("step-1", 2, "second"),
+			NextCursor:    "cursor-2-replay",
+			AttemptStatus: "running",
+		}); err != nil {
+			return err
+		}
+		return connect.NewError(connect.CodeUnavailable, errors.New("stream interrupted after duplicate"))
+	case 3:
+		return stream.Send(&civ1.StreamJobAttemptLogsResponse{
+			Line:          testLogLine("step-1", 3, "third"),
+			NextCursor:    "cursor-3",
+			AttemptStatus: "finished",
+		})
+	default:
+		return nil
+	}
+}
+
+func TestCIStreamJobAttemptLogsReconnectsFromLastWrittenCursorAndSuppressesDuplicates(t *testing.T) {
+	recorder := &streamLogsRecorder{}
+	_, handler := civ1connect.NewCIServiceHandler(recorder)
+	server := httptest.NewServer(h2c.NewHandler(handler, &http2.Server{}))
+	t.Cleanup(server.Close)
+
+	originalBaseURLFunc := baseURLFunc
+	baseURLFunc = func() string { return server.URL }
+	t.Cleanup(func() { baseURLFunc = originalBaseURLFunc })
+
+	originalInitialBackoff := ciStreamInitialBackoff
+	ciStreamInitialBackoff = 0
+	t.Cleanup(func() { ciStreamInitialBackoff = originalInitialBackoff })
+
+	var output bytes.Buffer
+	var statuses []string
+	if err := CIStreamJobAttemptLogs(context.Background(), "token-123", "org-123", CILogStreamTarget{AttemptID: "attempt-123"}, &output, func(status string) {
+		statuses = append(statuses, status)
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if got, want := output.String(), "first\nsecond\nthird\n"; got != want {
+		t.Fatalf("output = %q, want %q", got, want)
+	}
+	if len(recorder.requests) != 3 {
+		t.Fatalf("requests = %d, want 3", len(recorder.requests))
+	}
+	if got := recorder.requests[0].GetCursor(); got != "" {
+		t.Fatalf("first cursor = %q, want empty", got)
+	}
+	if got := recorder.requests[1].GetCursor(); got != "cursor-2" {
+		t.Fatalf("second cursor = %q, want cursor-2", got)
+	}
+	if got := recorder.requests[2].GetCursor(); got != "cursor-2-replay" {
+		t.Fatalf("third cursor = %q, want cursor-2-replay", got)
+	}
+	if got, want := statuses, []string{"running", "running", "running", "running", "finished"}; !slices.Equal(got, want) {
+		t.Fatalf("statuses = %v, want %v", got, want)
+	}
+}
+
+func TestCIStreamJobAttemptLogsSendsJobIDTarget(t *testing.T) {
+	recorder := &streamLogsRecorder{}
+	_, handler := civ1connect.NewCIServiceHandler(recorder)
+	server := httptest.NewServer(h2c.NewHandler(handler, &http2.Server{}))
+	t.Cleanup(server.Close)
+
+	originalBaseURLFunc := baseURLFunc
+	baseURLFunc = func() string { return server.URL }
+	t.Cleanup(func() { baseURLFunc = originalBaseURLFunc })
+
+	if err := CIStreamJobAttemptLogs(context.Background(), "token-123", "org-123", CILogStreamTarget{JobID: "job-123"}, io.Discard, nil); err == nil {
+		t.Fatal("expected test handler to reject the job ID target after recording it")
+	}
+	if len(recorder.requests) != 1 {
+		t.Fatalf("requests = %d, want 1", len(recorder.requests))
+	}
+	if got := recorder.requests[0].GetJobId(); got != "job-123" {
+		t.Fatalf("job ID = %q, want job-123", got)
+	}
+	if got := recorder.requests[0].GetAttemptId(); got != "" {
+		t.Fatalf("attempt ID = %q, want empty", got)
+	}
+}
+
+func testLogLine(stepID string, lineNumber uint32, body string) *civ1.LogLine {
+	return &civ1.LogLine{
+		StepId:      stepID,
+		TimestampMs: int64(lineNumber),
+		LineNumber:  lineNumber,
+		Stream:      0,
+		Body:        body,
 	}
 }
