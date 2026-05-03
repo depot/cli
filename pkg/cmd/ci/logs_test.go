@@ -1,6 +1,7 @@
 package ci
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -95,6 +96,38 @@ func TestFindLogsJob_MatchByJobID(t *testing.T) {
 	}
 	if job.JobKey != "test" {
 		t.Fatalf("expected job key %q, got %q", "test", job.JobKey)
+	}
+}
+
+func TestResolveLogTarget_DirectJobIDUsesJobIDStreamTarget(t *testing.T) {
+	resp := &civ1.GetRunStatusResponse{
+		RunId: "run-1",
+		Workflows: []*civ1.WorkflowStatus{
+			{
+				WorkflowPath: ".depot/workflows/ci.yml",
+				Jobs: []*civ1.JobStatus{
+					{
+						JobId:  "job-2",
+						JobKey: "test",
+						Status: "running",
+						Attempts: []*civ1.AttemptStatus{
+							{AttemptId: "att-2", Attempt: 2, Status: "running"},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	target, err := resolveLogTarget(resp, "job-2", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if target.streamJobID != "job-2" {
+		t.Fatalf("expected stream job ID %q, got %q", "job-2", target.streamJobID)
+	}
+	if target.attemptID != "att-2" {
+		t.Fatalf("expected display attempt ID %q, got %q", "att-2", target.attemptID)
 	}
 }
 
@@ -219,6 +252,123 @@ func TestResolveAttempt_NoAttempts(t *testing.T) {
 	_, err := resolveAttempt(resp, "run-1", "", "")
 	if err == nil {
 		t.Fatal("expected error for job with no attempts")
+	}
+	if !isFollowRetryableResolutionError(err) {
+		t.Fatalf("expected no-attempt error to be retryable for --follow, got: %v", err)
+	}
+}
+
+func TestResolveLogTarget_QueuedRunWithoutJobsIsPending(t *testing.T) {
+	resp := &civ1.GetRunStatusResponse{
+		RunId:  "run-1",
+		Status: "queued",
+	}
+
+	_, err := resolveLogTarget(resp, "run-1", "", "")
+	if err == nil {
+		t.Fatal("expected pending error")
+	}
+	pending, ok := err.(*pendingLogTargetError)
+	if !ok {
+		t.Fatalf("expected pendingLogTargetError, got %T: %v", err, err)
+	}
+	want := "Waiting for jobs to be created (run status: queued)..."
+	if pending.Error() != want {
+		t.Fatalf("expected %q, got %q", want, pending.Error())
+	}
+}
+
+func TestResolveLogTarget_TerminalRunWithoutJobsReturnsNoLogsMessage(t *testing.T) {
+	resp := &civ1.GetRunStatusResponse{
+		RunId:  "run-1",
+		Status: "finished",
+	}
+
+	target, err := resolveLogTarget(resp, "run-1", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "run run-1 has no jobs (run status: finished); no logs were produced."
+	if target.noLogsMessage != want {
+		t.Fatalf("expected %q, got %q", want, target.noLogsMessage)
+	}
+}
+
+func TestResolveLogTarget_QueuedJobWithoutAttemptsIsPending(t *testing.T) {
+	resp := &civ1.GetRunStatusResponse{
+		RunId:  "run-1",
+		Status: "running",
+		Workflows: []*civ1.WorkflowStatus{
+			{
+				WorkflowPath: ".depot/workflows/ci.yml",
+				Jobs: []*civ1.JobStatus{
+					{JobId: "job-1", JobKey: "ci.yml:build", Status: "queued"},
+				},
+			},
+		},
+	}
+
+	_, err := resolveLogTarget(resp, "run-1", "", "")
+	if err == nil {
+		t.Fatal("expected pending error")
+	}
+	pending, ok := err.(*pendingLogTargetError)
+	if !ok {
+		t.Fatalf("expected pendingLogTargetError, got %T: %v", err, err)
+	}
+	want := `Waiting for job "build" to start (status: queued)...`
+	if pending.Error() != want {
+		t.Fatalf("expected %q, got %q", want, pending.Error())
+	}
+}
+
+func TestResolveLogTarget_SkippedJobWithoutAttemptsReturnsNoLogsMessage(t *testing.T) {
+	resp := &civ1.GetRunStatusResponse{
+		RunId:  "run-1",
+		Status: "finished",
+		Workflows: []*civ1.WorkflowStatus{
+			{
+				WorkflowPath: ".depot/workflows/ci.yml",
+				Jobs: []*civ1.JobStatus{
+					{JobId: "job-1", JobKey: "ci.yml:build", Status: "skipped"},
+				},
+			},
+		},
+	}
+
+	target, err := resolveLogTarget(resp, "run-1", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `Job "build" was skipped; no logs were produced.`
+	if target.noLogsMessage != want {
+		t.Fatalf("expected %q, got %q", want, target.noLogsMessage)
+	}
+}
+
+func TestFollowRetryableResolutionError(t *testing.T) {
+	if !isFollowRetryableResolutionError(&pendingLogTargetError{message: "Waiting for job to start..."}) {
+		t.Fatal("pending log target errors should be retryable")
+	}
+
+	if isFollowRetryableResolutionError(errors.New(`job "deploy" not found`)) {
+		t.Fatal("plain errors should not be retryable")
+	}
+}
+
+func TestNoStreamLogsReceivedMessage(t *testing.T) {
+	target := logTarget{attemptID: "att-1", attemptStatus: "failed", jobKey: "ci.yml:build"}
+	want := `Log stream ended for job "build" (status: failed); no logs were produced.`
+	if got := noStreamLogsReceivedMessage(target); got != want {
+		t.Fatalf("expected %q, got %q", want, got)
+	}
+}
+
+func TestLogStreamWaitingMessageIncludesStatus(t *testing.T) {
+	target := logTarget{attemptID: "att-1", attemptStatus: "running"}
+	want := "Waiting for logs from attempt att-1 (status: running)..."
+	if got := logStreamWaitingMessage(target); got != want {
+		t.Fatalf("expected %q, got %q", want, got)
 	}
 }
 
