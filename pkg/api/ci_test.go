@@ -415,8 +415,8 @@ func TestCIStreamJobAttemptLogsReconnectsFromLastWrittenCursorAndSuppressesDupli
 	if got := recorder.requests[1].GetCursor(); got != "cursor-2" {
 		t.Fatalf("second cursor = %q, want cursor-2", got)
 	}
-	if got := recorder.requests[2].GetCursor(); got != "cursor-2-replay" {
-		t.Fatalf("third cursor = %q, want cursor-2-replay", got)
+	if got := recorder.requests[2].GetCursor(); got != "cursor-2" {
+		t.Fatalf("third cursor = %q, want cursor-2", got)
 	}
 	if got, want := statuses, []string{"running", "running", "running", "running", "finished"}; !slices.Equal(got, want) {
 		t.Fatalf("statuses = %v, want %v", got, want)

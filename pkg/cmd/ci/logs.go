@@ -182,7 +182,6 @@ type logTarget struct {
 	jobStatus      string
 	workflowPath   string
 	noLogsMessage  string
-	autoSelected   bool
 	hasAlternates  bool
 	alternateLabel string
 }
@@ -253,6 +252,16 @@ func (r *logFollowReporter) Stop() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.stopLocked()
+	r.lastStatus = ""
+}
+
+func (r *logFollowReporter) pause() {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.stopLocked()
 }
 
 func (r *logFollowReporter) SawLogs() {
@@ -301,7 +310,7 @@ type followLogWriter struct {
 
 func (w *followLogWriter) Write(p []byte) (int, error) {
 	w.lines++
-	w.reporter.Stop()
+	w.reporter.pause()
 	n, err := w.w.Write(p)
 	if err == nil {
 		w.reporter.SawLogs()
@@ -575,7 +584,6 @@ func resolveLogTarget(resp *civ1.GetRunStatusResponse, originalID, jobKey, workf
 		jobKey:         targetJob.JobKey,
 		jobStatus:      targetJob.Status,
 		workflowPath:   workflowPath,
-		autoSelected:   jobKey == "",
 		hasAlternates:  len(targetJob.Attempts) > 1,
 		alternateLabel: alternateLabel,
 	}, nil

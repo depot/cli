@@ -133,9 +133,9 @@ func CIStreamJobAttemptLogs(ctx context.Context, token, orgID string, target CIL
 					return err
 				}
 				seen.Add(identity)
-			}
-			if msg.GetNextCursor() != "" {
-				cursor = msg.GetNextCursor()
+				if msg.GetNextCursor() != "" {
+					cursor = msg.GetNextCursor()
+				}
 			}
 			backoff = ciStreamInitialBackoff
 		}

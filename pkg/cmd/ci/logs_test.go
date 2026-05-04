@@ -415,6 +415,29 @@ func TestLogFollowReporterRestartsWaitingAfterIdleLogs(t *testing.T) {
 	}
 }
 
+func TestLogFollowReporterStopPreventsIdleRestart(t *testing.T) {
+	reporter := newLogFollowReporter(io.Discard, true)
+	reporter.idleDelay = 10 * time.Millisecond
+
+	reporter.Status("Waiting for logs (status: running)...")
+	reporter.SawLogs()
+	reporter.Stop()
+
+	time.Sleep(50 * time.Millisecond)
+
+	reporter.mu.Lock()
+	active := reporter.spinner != nil
+	lastStatus := reporter.lastStatus
+	reporter.mu.Unlock()
+
+	if active {
+		t.Fatal("spinner restarted after Stop")
+	}
+	if lastStatus != "" {
+		t.Fatalf("lastStatus = %q, want empty", lastStatus)
+	}
+}
+
 func TestStreamUnresolvedLogsWithFollowUXTriesJobThenAttempt(t *testing.T) {
 	original := ciStreamJobAttemptLogs
 	t.Cleanup(func() { ciStreamJobAttemptLogs = original })
