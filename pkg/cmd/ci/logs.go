@@ -366,6 +366,9 @@ func streamUnresolvedLogsWithFollowUX(
 	if jobErr == nil {
 		return nil
 	}
+	if isContextDoneError(jobErr) {
+		return jobErr
+	}
 
 	attemptErr := streamLogTargetWithFollowUX(
 		ctx,
@@ -379,8 +382,15 @@ func streamUnresolvedLogsWithFollowUX(
 	if attemptErr == nil {
 		return nil
 	}
+	if isContextDoneError(attemptErr) {
+		return attemptErr
+	}
 
 	return &unresolvedLogStreamError{jobErr: jobErr, attemptErr: attemptErr}
+}
+
+func isContextDoneError(err error) bool {
+	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
 }
 
 func streamLogTargetWithFollowUX(
@@ -510,20 +520,6 @@ func jobDisplayNames(candidates []jobCandidate) map[string]string {
 		}
 	}
 	return names
-}
-
-// resolveAttempt finds the target attempt from a run status response.
-// It selects a job (by workflow job key flag, by job ID match, or auto-select), then
-// picks the latest attempt and prints informational messages about what was chosen.
-func resolveAttempt(resp *civ1.GetRunStatusResponse, originalID, jobKey, workflowFilter string) (string, error) {
-	target, err := resolveLogTarget(resp, originalID, jobKey, workflowFilter)
-	if err != nil {
-		return "", err
-	}
-	if target.attemptID == "" {
-		return "", errors.New(target.noLogsMessage)
-	}
-	return target.attemptID, nil
 }
 
 func resolveLogTarget(resp *civ1.GetRunStatusResponse, originalID, jobKey, workflowFilter string) (logTarget, error) {

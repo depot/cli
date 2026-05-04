@@ -211,37 +211,7 @@ func TestFindLogsJob_WorkflowFilterNoMatch(t *testing.T) {
 	}
 }
 
-func TestResolveAttempt_LatestAttempt(t *testing.T) {
-	resp := &civ1.GetRunStatusResponse{
-		RunId: "run-1",
-		Workflows: []*civ1.WorkflowStatus{
-			{
-				WorkflowPath: ".depot/workflows/ci.yml",
-				Jobs: []*civ1.JobStatus{
-					{
-						JobId:  "job-1",
-						JobKey: "build",
-						Status: "finished",
-						Attempts: []*civ1.AttemptStatus{
-							{AttemptId: "att-1", Attempt: 1, Status: "failed"},
-							{AttemptId: "att-2", Attempt: 2, Status: "finished"},
-						},
-					},
-				},
-			},
-		},
-	}
-
-	attemptID, err := resolveAttempt(resp, "run-1", "build", "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if attemptID != "att-2" {
-		t.Fatalf("expected attempt ID %q, got %q", "att-2", attemptID)
-	}
-}
-
-func TestResolveAttempt_NoAttempts(t *testing.T) {
+func TestResolveLogTarget_NoAttempts(t *testing.T) {
 	resp := &civ1.GetRunStatusResponse{
 		RunId: "run-1",
 		Workflows: []*civ1.WorkflowStatus{
@@ -254,7 +224,7 @@ func TestResolveAttempt_NoAttempts(t *testing.T) {
 		},
 	}
 
-	_, err := resolveAttempt(resp, "run-1", "", "")
+	_, err := resolveLogTarget(resp, "run-1", "", "")
 	if err == nil {
 		t.Fatal("expected error for job with no attempts")
 	}
@@ -486,6 +456,41 @@ func TestStreamUnresolvedLogsWithFollowUXTriesJobThenAttempt(t *testing.T) {
 	}
 	if strings.Contains(stderr.String(), "Following logs for attempt") {
 		t.Fatalf("stderr should not classify unresolved ID as attempt: %q", stderr.String())
+	}
+}
+
+func TestStreamUnresolvedLogsWithFollowUXPropagatesCancellation(t *testing.T) {
+	original := ciStreamJobAttemptLogs
+	t.Cleanup(func() { ciStreamJobAttemptLogs = original })
+
+	var calls []api.CILogStreamTarget
+	ciStreamJobAttemptLogs = func(
+		_ context.Context,
+		_, _ string,
+		target api.CILogStreamTarget,
+		_ io.Writer,
+		_ func(string),
+	) error {
+		calls = append(calls, target)
+		return context.Canceled
+	}
+
+	err := streamUnresolvedLogsWithFollowUX(
+		context.Background(),
+		"token-123",
+		"org-123",
+		"id-123",
+		io.Discard,
+		newLogFollowReporter(io.Discard, false),
+	)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected context cancellation, got %v", err)
+	}
+	if len(calls) != 1 {
+		t.Fatalf("calls = %d, want 1", len(calls))
+	}
+	if calls[0].JobID != "id-123" || calls[0].AttemptID != "" {
+		t.Fatalf("first call = %+v, want job target", calls[0])
 	}
 }
 
