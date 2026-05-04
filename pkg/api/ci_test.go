@@ -424,6 +424,74 @@ func TestCIStreamJobAttemptLogsReconnectsFromLastWrittenCursorAndSuppressesDupli
 	}
 }
 
+func TestCIStreamJobAttemptLogLinesReturnsMetadataAndSuppressesDuplicates(t *testing.T) {
+	recorder := &streamLogsRecorder{}
+	_, handler := civ1connect.NewCIServiceHandler(recorder)
+	server := httptest.NewServer(h2c.NewHandler(handler, &http2.Server{}))
+	t.Cleanup(server.Close)
+
+	originalBaseURLFunc := baseURLFunc
+	baseURLFunc = func() string { return server.URL }
+	t.Cleanup(func() { baseURLFunc = originalBaseURLFunc })
+
+	originalInitialBackoff := ciStreamInitialBackoff
+	ciStreamInitialBackoff = 0
+	t.Cleanup(func() { ciStreamInitialBackoff = originalInitialBackoff })
+
+	var lines []*civ1.LogLine
+	var statuses []string
+	if err := CIStreamJobAttemptLogLines(context.Background(), "token-123", "org-123", CILogStreamTarget{AttemptID: "attempt-123"}, func(line *civ1.LogLine) error {
+		lines = append(lines, proto.Clone(line).(*civ1.LogLine))
+		return nil
+	}, func(status string) error {
+		statuses = append(statuses, status)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if got, want := len(lines), 3; got != want {
+		t.Fatalf("lines = %d, want %d", got, want)
+	}
+	for i, wantBody := range []string{"first", "second", "third"} {
+		if got := lines[i].GetBody(); got != wantBody {
+			t.Fatalf("line %d body = %q, want %q", i, got, wantBody)
+		}
+		if got, want := lines[i].GetLineNumber(), uint32(i+1); got != want {
+			t.Fatalf("line %d line number = %d, want %d", i, got, want)
+		}
+		if got, want := lines[i].GetTimestampMs(), int64(i+1); got != want {
+			t.Fatalf("line %d timestamp_ms = %d, want %d", i, got, want)
+		}
+	}
+	if got, want := statuses, []string{"running", "running", "running", "running", "finished"}; !slices.Equal(got, want) {
+		t.Fatalf("statuses = %v, want %v", got, want)
+	}
+}
+
+func TestCIStreamJobAttemptLogLinesPropagatesLineCallbackError(t *testing.T) {
+	recorder := &streamLogsRecorder{}
+	_, handler := civ1connect.NewCIServiceHandler(recorder)
+	server := httptest.NewServer(h2c.NewHandler(handler, &http2.Server{}))
+	t.Cleanup(server.Close)
+
+	originalBaseURLFunc := baseURLFunc
+	baseURLFunc = func() string { return server.URL }
+	t.Cleanup(func() { baseURLFunc = originalBaseURLFunc })
+
+	originalInitialBackoff := ciStreamInitialBackoff
+	ciStreamInitialBackoff = 0
+	t.Cleanup(func() { ciStreamInitialBackoff = originalInitialBackoff })
+
+	callbackErr := errors.New("callback failed")
+	err := CIStreamJobAttemptLogLines(context.Background(), "token-123", "org-123", CILogStreamTarget{AttemptID: "attempt-123"}, func(*civ1.LogLine) error {
+		return callbackErr
+	}, nil)
+	if !errors.Is(err, callbackErr) {
+		t.Fatalf("expected callback error, got %v", err)
+	}
+}
+
 type statusOnlyStreamRecorder struct {
 	civ1connect.UnimplementedCIServiceHandler
 	requests []*civ1.StreamJobAttemptLogsRequest

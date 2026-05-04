@@ -93,6 +93,22 @@ type CILogStreamTarget struct {
 // attempt of a job, resuming from the last cursor after transient stream errors.
 // If onStatus is non-nil, it receives attempt status updates from the stream.
 func CIStreamJobAttemptLogs(ctx context.Context, token, orgID string, target CILogStreamTarget, w io.Writer, onStatus func(string)) error {
+	var onStatusWithError func(string) error
+	if onStatus != nil {
+		onStatusWithError = func(status string) error {
+			onStatus(status)
+			return nil
+		}
+	}
+	return CIStreamJobAttemptLogLines(ctx, token, orgID, target, func(line *civ1.LogLine) error {
+		return writeLogLine(w, line)
+	}, onStatusWithError)
+}
+
+// CIStreamJobAttemptLogLines streams log line metadata for a job attempt or the
+// latest attempt of a job, resuming from the last cursor after transient stream
+// errors. Duplicate replayed lines are suppressed before onLine is called.
+func CIStreamJobAttemptLogLines(ctx context.Context, token, orgID string, target CILogStreamTarget, onLine func(*civ1.LogLine) error, onStatus func(string) error) error {
 	if target.AttemptID == "" && target.JobID == "" {
 		return fmt.Errorf("exactly one of attempt ID or job ID is required")
 	}
@@ -123,7 +139,10 @@ func CIStreamJobAttemptLogs(ctx context.Context, token, orgID string, target CIL
 			msg := stream.Msg()
 			backoff = ciStreamInitialBackoff
 			if status := msg.GetAttemptStatus(); status != "" && onStatus != nil {
-				onStatus(status)
+				if err := onStatus(status); err != nil {
+					stream.Close()
+					return err
+				}
 			}
 
 			line := msg.GetLine()
@@ -133,9 +152,11 @@ func CIStreamJobAttemptLogs(ctx context.Context, token, orgID string, target CIL
 
 			identity := logLineIdentity(line)
 			if !seen.Contains(identity) {
-				if err := writeLogLine(w, line); err != nil {
-					stream.Close()
-					return err
+				if onLine != nil {
+					if err := onLine(line); err != nil {
+						stream.Close()
+						return err
+					}
 				}
 				seen.Add(identity)
 				if msg.GetNextCursor() != "" {
