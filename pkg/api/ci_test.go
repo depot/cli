@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"slices"
 	"testing"
+	"time"
 
 	"connectrpc.com/connect"
 	civ1 "github.com/depot/cli/pkg/proto/depot/ci/v1"
@@ -419,6 +420,67 @@ func TestCIStreamJobAttemptLogsReconnectsFromLastWrittenCursorAndSuppressesDupli
 		t.Fatalf("third cursor = %q, want cursor-2", got)
 	}
 	if got, want := statuses, []string{"running", "running", "running", "running", "finished"}; !slices.Equal(got, want) {
+		t.Fatalf("statuses = %v, want %v", got, want)
+	}
+}
+
+type statusOnlyStreamRecorder struct {
+	civ1connect.UnimplementedCIServiceHandler
+	requests []*civ1.StreamJobAttemptLogsRequest
+}
+
+func (r *statusOnlyStreamRecorder) StreamJobAttemptLogs(_ context.Context, req *connect.Request[civ1.StreamJobAttemptLogsRequest], stream *connect.ServerStream[civ1.StreamJobAttemptLogsResponse]) error {
+	r.requests = append(r.requests, proto.Clone(req.Msg).(*civ1.StreamJobAttemptLogsRequest))
+
+	switch len(r.requests) {
+	case 1:
+		return connect.NewError(connect.CodeUnavailable, errors.New("stream unavailable"))
+	case 2:
+		if err := stream.Send(&civ1.StreamJobAttemptLogsResponse{AttemptStatus: "running"}); err != nil {
+			return err
+		}
+		return connect.NewError(connect.CodeUnavailable, errors.New("status-only stream interrupted"))
+	default:
+		return nil
+	}
+}
+
+func TestCIStreamJobAttemptLogsResetsBackoffAfterStatusOnlyMessage(t *testing.T) {
+	recorder := &statusOnlyStreamRecorder{}
+	_, handler := civ1connect.NewCIServiceHandler(recorder)
+	server := httptest.NewServer(h2c.NewHandler(handler, &http2.Server{}))
+	t.Cleanup(server.Close)
+
+	originalBaseURLFunc := baseURLFunc
+	baseURLFunc = func() string { return server.URL }
+	t.Cleanup(func() { baseURLFunc = originalBaseURLFunc })
+
+	originalInitialBackoff := ciStreamInitialBackoff
+	ciStreamInitialBackoff = 10 * time.Millisecond
+	t.Cleanup(func() { ciStreamInitialBackoff = originalInitialBackoff })
+
+	originalSleep := ciStreamSleep
+	var sleeps []time.Duration
+	ciStreamSleep = func(ctx context.Context, d time.Duration) error {
+		sleeps = append(sleeps, d)
+		return nil
+	}
+	t.Cleanup(func() { ciStreamSleep = originalSleep })
+
+	var statuses []string
+	if err := CIStreamJobAttemptLogs(context.Background(), "token-123", "org-123", CILogStreamTarget{AttemptID: "attempt-123"}, io.Discard, func(status string) {
+		statuses = append(statuses, status)
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(recorder.requests) != 3 {
+		t.Fatalf("requests = %d, want 3", len(recorder.requests))
+	}
+	if got, want := sleeps, []time.Duration{10 * time.Millisecond, 10 * time.Millisecond}; !slices.Equal(got, want) {
+		t.Fatalf("sleeps = %v, want %v", got, want)
+	}
+	if got, want := statuses, []string{"running"}; !slices.Equal(got, want) {
 		t.Fatalf("statuses = %v, want %v", got, want)
 	}
 }

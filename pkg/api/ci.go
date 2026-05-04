@@ -24,6 +24,7 @@ const ciStreamLogDedupeSize = 4096
 var (
 	ciStreamInitialBackoff = 250 * time.Millisecond
 	ciStreamMaxBackoff     = 30 * time.Second
+	ciStreamSleep          = sleepWithContext
 )
 
 func newCIServiceClient() civ1connect.CIServiceClient {
@@ -108,7 +109,7 @@ func CIStreamJobAttemptLogs(ctx context.Context, token, orgID string, target CIL
 			if !isTransientConnectError(err) {
 				return err
 			}
-			if err := sleepWithContext(ctx, backoff); err != nil {
+			if err := ciStreamSleep(ctx, backoff); err != nil {
 				return err
 			}
 			backoff = nextCIStreamBackoff(backoff)
@@ -117,6 +118,7 @@ func CIStreamJobAttemptLogs(ctx context.Context, token, orgID string, target CIL
 
 		for stream.Receive() {
 			msg := stream.Msg()
+			backoff = ciStreamInitialBackoff
 			if status := msg.GetAttemptStatus(); status != "" && onStatus != nil {
 				onStatus(status)
 			}
@@ -137,7 +139,6 @@ func CIStreamJobAttemptLogs(ctx context.Context, token, orgID string, target CIL
 					cursor = msg.GetNextCursor()
 				}
 			}
-			backoff = ciStreamInitialBackoff
 		}
 
 		err = stream.Err()
@@ -148,7 +149,7 @@ func CIStreamJobAttemptLogs(ctx context.Context, token, orgID string, target CIL
 		if !isTransientConnectError(err) {
 			return err
 		}
-		if err := sleepWithContext(ctx, backoff); err != nil {
+		if err := ciStreamSleep(ctx, backoff); err != nil {
 			return err
 		}
 		backoff = nextCIStreamBackoff(backoff)
