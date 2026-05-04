@@ -7,6 +7,7 @@ import (
 	"io"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/depot/cli/pkg/api"
 	civ1 "github.com/depot/cli/pkg/proto/depot/ci/v1"
@@ -381,6 +382,36 @@ func TestLogStreamWaitingMessageIncludesUnresolvedStatus(t *testing.T) {
 	want := "Waiting for logs (status: running)..."
 	if got := logStreamWaitingMessage(target); got != want {
 		t.Fatalf("expected %q, got %q", want, got)
+	}
+}
+
+func TestLogFollowReporterRestartsWaitingAfterIdleLogs(t *testing.T) {
+	reporter := newLogFollowReporter(io.Discard, true)
+	reporter.idleDelay = 10 * time.Millisecond
+	t.Cleanup(reporter.Stop)
+
+	reporter.Status("Waiting for logs (status: running)...")
+	reporter.SawLogs()
+
+	reporter.mu.Lock()
+	activeImmediately := reporter.spinner != nil
+	reporter.mu.Unlock()
+	if activeImmediately {
+		t.Fatal("spinner should stop while logs are being written")
+	}
+
+	deadline := time.Now().Add(250 * time.Millisecond)
+	for {
+		reporter.mu.Lock()
+		active := reporter.spinner != nil
+		reporter.mu.Unlock()
+		if active {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("spinner did not restart after logs went idle")
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
 }
 

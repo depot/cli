@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/briandowns/spinner"
@@ -19,6 +20,7 @@ import (
 const (
 	followAttemptRetryTimeout  = 30 * time.Second
 	followAttemptRetryInterval = 1 * time.Second
+	followLogIdleDelay         = 2 * time.Second
 )
 
 var ciStreamJobAttemptLogs = api.CIStreamJobAttemptLogs
@@ -113,9 +115,9 @@ ID, use --job and --workflow to disambiguate by workflow job key.`,
 				return nil
 			}
 
-				// Fall back to probing the positional ID directly.
-				// Don't fall back if --job or --workflow were specified — those
-				// only make sense for run-level resolution.
+			// Fall back to probing the positional ID directly.
+			// Don't fall back if --job or --workflow were specified — those
+			// only make sense for run-level resolution.
 			if job != "" || workflow != "" {
 				return fmt.Errorf("failed to look up run: %w", runErr)
 			}
@@ -206,14 +208,23 @@ type logFollowReporter struct {
 	interactive bool
 	spinner     *spinner.Spinner
 	lastStatus  string
+	mu          sync.Mutex
+	idleTimer   *time.Timer
+	idleDelay   time.Duration
 }
 
 func newLogFollowReporter(w io.Writer, interactive bool) *logFollowReporter {
-	return &logFollowReporter{w: w, interactive: interactive}
+	return &logFollowReporter{w: w, interactive: interactive, idleDelay: followLogIdleDelay}
 }
 
 func (r *logFollowReporter) Status(message string) {
-	if r == nil || message == "" || message == r.lastStatus {
+	if r == nil || message == "" {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if message == r.lastStatus && (!r.interactive || r.spinner != nil) {
 		return
 	}
 	r.lastStatus = message
@@ -223,10 +234,8 @@ func (r *logFollowReporter) Status(message string) {
 		return
 	}
 
-	r.Stop()
-	r.spinner = spinner.New(spinner.CharSets[14], 100*time.Millisecond, spinner.WithWriter(r.w))
-	r.spinner.Prefix = message + " "
-	r.spinner.Start()
+	r.stopLocked()
+	r.startLocked(message)
 }
 
 func (r *logFollowReporter) Message(message string) {
@@ -238,7 +247,46 @@ func (r *logFollowReporter) Message(message string) {
 }
 
 func (r *logFollowReporter) Stop() {
-	if r == nil || r.spinner == nil {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.stopLocked()
+}
+
+func (r *logFollowReporter) SawLogs() {
+	if r == nil || !r.interactive {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.stopLocked()
+	if r.lastStatus == "" {
+		return
+	}
+	r.idleTimer = time.AfterFunc(r.idleDelay, func() {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		if r.spinner == nil && r.lastStatus != "" {
+			r.startLocked(r.lastStatus)
+		}
+	})
+}
+
+func (r *logFollowReporter) startLocked(message string) {
+	r.spinner = spinner.New(spinner.CharSets[14], 100*time.Millisecond, spinner.WithWriter(r.w))
+	r.spinner.Prefix = message + " "
+	r.spinner.Start()
+}
+
+func (r *logFollowReporter) stopLocked() {
+	if r.idleTimer != nil {
+		r.idleTimer.Stop()
+		r.idleTimer = nil
+	}
+	if r.spinner == nil {
 		return
 	}
 	r.spinner.Stop()
@@ -252,11 +300,13 @@ type followLogWriter struct {
 }
 
 func (w *followLogWriter) Write(p []byte) (int, error) {
-	if w.lines == 0 {
-		w.reporter.Stop()
-	}
 	w.lines++
-	return w.w.Write(p)
+	w.reporter.Stop()
+	n, err := w.w.Write(p)
+	if err == nil {
+		w.reporter.SawLogs()
+	}
+	return n, err
 }
 
 func streamLogsWithFollowUX(
@@ -337,6 +387,9 @@ func streamLogTargetWithFollowUX(
 
 	logWriter := &followLogWriter{w: out, reporter: reporter}
 	err := ciStreamJobAttemptLogs(ctx, tokenVal, orgID, streamTarget, logWriter, func(status string) {
+		if logWriter.lines > 0 && status == target.attemptStatus {
+			return
+		}
 		target.attemptStatus = status
 		reporter.Status(logStreamWaitingMessage(target))
 	})
