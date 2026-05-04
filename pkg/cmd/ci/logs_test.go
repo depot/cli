@@ -1,10 +1,14 @@
 package ci
 
 import (
+	"bytes"
+	"context"
 	"errors"
+	"io"
 	"strings"
 	"testing"
 
+	"github.com/depot/cli/pkg/api"
 	civ1 "github.com/depot/cli/pkg/proto/depot/ci/v1"
 )
 
@@ -369,6 +373,105 @@ func TestLogStreamWaitingMessageIncludesStatus(t *testing.T) {
 	want := "Waiting for logs from attempt att-1 (status: running)..."
 	if got := logStreamWaitingMessage(target); got != want {
 		t.Fatalf("expected %q, got %q", want, got)
+	}
+}
+
+func TestLogStreamWaitingMessageIncludesUnresolvedStatus(t *testing.T) {
+	target := logTarget{attemptStatus: "running"}
+	want := "Waiting for logs (status: running)..."
+	if got := logStreamWaitingMessage(target); got != want {
+		t.Fatalf("expected %q, got %q", want, got)
+	}
+}
+
+func TestStreamUnresolvedLogsWithFollowUXTriesJobThenAttempt(t *testing.T) {
+	original := ciStreamJobAttemptLogs
+	t.Cleanup(func() { ciStreamJobAttemptLogs = original })
+
+	var calls []api.CILogStreamTarget
+	ciStreamJobAttemptLogs = func(
+		_ context.Context,
+		_, _ string,
+		target api.CILogStreamTarget,
+		w io.Writer,
+		_ func(string),
+	) error {
+		calls = append(calls, target)
+		if target.JobID != "" {
+			return errors.New("job not found")
+		}
+		_, err := w.Write([]byte("hello\n"))
+		return err
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	err := streamUnresolvedLogsWithFollowUX(
+		context.Background(),
+		"token-123",
+		"org-123",
+		"id-123",
+		&stdout,
+		newLogFollowReporter(&stderr, false),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if got, want := stdout.String(), "hello\n"; got != want {
+		t.Fatalf("stdout = %q, want %q", got, want)
+	}
+	if len(calls) != 2 {
+		t.Fatalf("calls = %d, want 2", len(calls))
+	}
+	if calls[0].JobID != "id-123" || calls[0].AttemptID != "" {
+		t.Fatalf("first call = %+v, want job target", calls[0])
+	}
+	if calls[1].AttemptID != "id-123" || calls[1].JobID != "" {
+		t.Fatalf("second call = %+v, want attempt target", calls[1])
+	}
+	if strings.Contains(stderr.String(), "Following logs for attempt") {
+		t.Fatalf("stderr should not classify unresolved ID as attempt: %q", stderr.String())
+	}
+}
+
+func TestStreamUnresolvedLogsWithFollowUXReturnsBothTargetErrors(t *testing.T) {
+	original := ciStreamJobAttemptLogs
+	t.Cleanup(func() { ciStreamJobAttemptLogs = original })
+
+	ciStreamJobAttemptLogs = func(
+		_ context.Context,
+		_, _ string,
+		target api.CILogStreamTarget,
+		_ io.Writer,
+		_ func(string),
+	) error {
+		if target.JobID != "" {
+			return errors.New("job failed")
+		}
+		return errors.New("attempt failed")
+	}
+
+	err := streamUnresolvedLogsWithFollowUX(
+		context.Background(),
+		"token-123",
+		"org-123",
+		"id-123",
+		io.Discard,
+		newLogFollowReporter(io.Discard, false),
+	)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	unresolvedErr, ok := err.(*unresolvedLogStreamError)
+	if !ok {
+		t.Fatalf("expected unresolvedLogStreamError, got %T", err)
+	}
+	if unresolvedErr.jobErr.Error() != "job failed" {
+		t.Fatalf("job error = %v", unresolvedErr.jobErr)
+	}
+	if unresolvedErr.attemptErr.Error() != "attempt failed" {
+		t.Fatalf("attempt error = %v", unresolvedErr.attemptErr)
 	}
 }
 

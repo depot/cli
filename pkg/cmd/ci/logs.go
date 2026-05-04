@@ -21,6 +21,8 @@ const (
 	followAttemptRetryInterval = 1 * time.Second
 )
 
+var ciStreamJobAttemptLogs = api.CIStreamJobAttemptLogs
+
 func NewCmdLogs() *cobra.Command {
 	var (
 		orgID    string
@@ -111,24 +113,37 @@ ID, use --job and --workflow to disambiguate by workflow job key.`,
 				return nil
 			}
 
-			// Fall back to treating the ID as an attempt ID directly.
-			// Don't fall back if --job or --workflow were specified — those
-			// only make sense for run-level resolution.
+				// Fall back to probing the positional ID directly.
+				// Don't fall back if --job or --workflow were specified — those
+				// only make sense for run-level resolution.
 			if job != "" || workflow != "" {
 				return fmt.Errorf("failed to look up run: %w", runErr)
 			}
 
 			if follow {
-				target := logTarget{attemptID: id}
-				if err := streamLogsWithFollowUX(ctx, tokenVal, orgID, target, cmd.OutOrStdout(), reporter); err != nil {
-					return fmt.Errorf("could not resolve %q as a run, job, or attempt ID:\n  as run: %v\n  as attempt: %v", id, runErr, err)
+				if err := streamUnresolvedLogsWithFollowUX(ctx, tokenVal, orgID, id, cmd.OutOrStdout(), reporter); err != nil {
+					if unresolvedErr, ok := err.(*unresolvedLogStreamError); ok {
+						return fmt.Errorf(
+							"could not resolve %q as a run, job, or attempt ID:\n  as run: %v\n  as job: %v\n  as attempt: %v",
+							id,
+							runErr,
+							unresolvedErr.jobErr,
+							unresolvedErr.attemptErr,
+						)
+					}
+					return fmt.Errorf("failed to stream logs: %w", err)
 				}
 			} else {
 				lines, err := api.CIGetJobAttemptLogs(ctx, tokenVal, orgID, id)
 				if err != nil {
 					// Both paths failed — show both errors so the user can
 					// distinguish "bad ID" from "auth/network failure".
-					return fmt.Errorf("could not resolve %q as a run, job, or attempt ID:\n  as run: %v\n  as attempt: %v", id, runErr, err)
+					return fmt.Errorf(
+						"could not resolve %q as a run, job, or attempt ID:\n  as run/job: %v\n  as attempt: %v",
+						id,
+						runErr,
+						err,
+					)
 				}
 				if len(lines) == 0 {
 					reporter.Message("No logs were produced.")
@@ -253,14 +268,75 @@ func streamLogsWithFollowUX(
 	reporter *logFollowReporter,
 ) error {
 	reportLogTargetSelection(target, reporter, true)
-	reporter.Status(logStreamWaitingMessage(target))
-
-	logWriter := &followLogWriter{w: out, reporter: reporter}
 	streamTarget := api.CILogStreamTarget{AttemptID: target.attemptID}
 	if target.streamJobID != "" {
 		streamTarget = api.CILogStreamTarget{JobID: target.streamJobID}
 	}
-	err := api.CIStreamJobAttemptLogs(ctx, tokenVal, orgID, streamTarget, logWriter, func(status string) {
+
+	return streamLogTargetWithFollowUX(ctx, tokenVal, orgID, streamTarget, target, out, reporter)
+}
+
+type unresolvedLogStreamError struct {
+	jobErr     error
+	attemptErr error
+}
+
+func (e *unresolvedLogStreamError) Error() string {
+	return fmt.Sprintf("as job: %v; as attempt: %v", e.jobErr, e.attemptErr)
+}
+
+func streamUnresolvedLogsWithFollowUX(
+	ctx context.Context,
+	tokenVal string,
+	orgID string,
+	id string,
+	out io.Writer,
+	reporter *logFollowReporter,
+) error {
+	reporter.Message(fmt.Sprintf("Following logs for %s.", id))
+
+	jobErr := streamLogTargetWithFollowUX(
+		ctx,
+		tokenVal,
+		orgID,
+		api.CILogStreamTarget{JobID: id},
+		logTarget{},
+		out,
+		reporter,
+	)
+	if jobErr == nil {
+		return nil
+	}
+
+	attemptErr := streamLogTargetWithFollowUX(
+		ctx,
+		tokenVal,
+		orgID,
+		api.CILogStreamTarget{AttemptID: id},
+		logTarget{},
+		out,
+		reporter,
+	)
+	if attemptErr == nil {
+		return nil
+	}
+
+	return &unresolvedLogStreamError{jobErr: jobErr, attemptErr: attemptErr}
+}
+
+func streamLogTargetWithFollowUX(
+	ctx context.Context,
+	tokenVal string,
+	orgID string,
+	streamTarget api.CILogStreamTarget,
+	target logTarget,
+	out io.Writer,
+	reporter *logFollowReporter,
+) error {
+	reporter.Status(logStreamWaitingMessage(target))
+
+	logWriter := &followLogWriter{w: out, reporter: reporter}
+	err := ciStreamJobAttemptLogs(ctx, tokenVal, orgID, streamTarget, logWriter, func(status string) {
 		target.attemptStatus = status
 		reporter.Status(logStreamWaitingMessage(target))
 	})
@@ -539,6 +615,9 @@ func noStreamLogsReceivedMessage(target logTarget) string {
 		}
 		return fmt.Sprintf("Log stream ended for attempt %s; no logs were produced.", target.attemptID)
 	}
+	if status != "" {
+		return fmt.Sprintf("Log stream ended (status: %s); no logs were produced.", status)
+	}
 	return "Log stream ended; no logs were produced."
 }
 
@@ -555,6 +634,9 @@ func logStreamWaitingMessage(target logTarget) string {
 			return fmt.Sprintf("Waiting for logs from attempt %s (status: %s)...", target.attemptID, status)
 		}
 		return fmt.Sprintf("Waiting for logs from attempt %s...", target.attemptID)
+	}
+	if status != "" {
+		return fmt.Sprintf("Waiting for logs (status: %s)...", status)
 	}
 	return "Waiting for logs..."
 }
