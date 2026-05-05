@@ -2620,6 +2620,140 @@ func (x *GetJobAttemptLogsResponse) GetNextPageToken() string {
 	return ""
 }
 
+type StreamJobAttemptLogsRequest struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	// attempt_id identifies the concrete job attempt whose logs to stream.
+	AttemptId string `protobuf:"bytes,1,opt,name=attempt_id,json=attemptId,proto3" json:"attempt_id,omitempty"`
+	// Opaque cursor returned by a previous stream response.
+	Cursor string `protobuf:"bytes,2,opt,name=cursor,proto3" json:"cursor,omitempty"`
+	// job_id identifies a CI job. The stream resolves it to that job's latest attempt.
+	JobId string `protobuf:"bytes,3,opt,name=job_id,json=jobId,proto3" json:"job_id,omitempty"`
+}
+
+func (x *StreamJobAttemptLogsRequest) Reset() {
+	*x = StreamJobAttemptLogsRequest{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_depot_ci_v1_ci_proto_msgTypes[37]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *StreamJobAttemptLogsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StreamJobAttemptLogsRequest) ProtoMessage() {}
+
+func (x *StreamJobAttemptLogsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_depot_ci_v1_ci_proto_msgTypes[37]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StreamJobAttemptLogsRequest.ProtoReflect.Descriptor instead.
+func (*StreamJobAttemptLogsRequest) Descriptor() ([]byte, []int) {
+	return file_depot_ci_v1_ci_proto_rawDescGZIP(), []int{37}
+}
+
+func (x *StreamJobAttemptLogsRequest) GetAttemptId() string {
+	if x != nil {
+		return x.AttemptId
+	}
+	return ""
+}
+
+func (x *StreamJobAttemptLogsRequest) GetCursor() string {
+	if x != nil {
+		return x.Cursor
+	}
+	return ""
+}
+
+func (x *StreamJobAttemptLogsRequest) GetJobId() string {
+	if x != nil {
+		return x.JobId
+	}
+	return ""
+}
+
+type StreamJobAttemptLogsResponse struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	// line is set when this response carries a persisted log line.
+	// Status-only responses can omit it while the stream is waiting for rows.
+	Line *LogLine `protobuf:"bytes,1,opt,name=line,proto3" json:"line,omitempty"`
+	// Opaque cursor to resume after the emitted line.
+	NextCursor string `protobuf:"bytes,2,opt,name=next_cursor,json=nextCursor,proto3" json:"next_cursor,omitempty"`
+	// attempt_status is the current lowercase attempt state, e.g. "queued",
+	// "running", "finished", "failed", or "cancelled".
+	AttemptStatus string `protobuf:"bytes,3,opt,name=attempt_status,json=attemptStatus,proto3" json:"attempt_status,omitempty"`
+}
+
+func (x *StreamJobAttemptLogsResponse) Reset() {
+	*x = StreamJobAttemptLogsResponse{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_depot_ci_v1_ci_proto_msgTypes[38]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *StreamJobAttemptLogsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StreamJobAttemptLogsResponse) ProtoMessage() {}
+
+func (x *StreamJobAttemptLogsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_depot_ci_v1_ci_proto_msgTypes[38]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StreamJobAttemptLogsResponse.ProtoReflect.Descriptor instead.
+func (*StreamJobAttemptLogsResponse) Descriptor() ([]byte, []int) {
+	return file_depot_ci_v1_ci_proto_rawDescGZIP(), []int{38}
+}
+
+func (x *StreamJobAttemptLogsResponse) GetLine() *LogLine {
+	if x != nil {
+		return x.Line
+	}
+	return nil
+}
+
+func (x *StreamJobAttemptLogsResponse) GetNextCursor() string {
+	if x != nil {
+		return x.NextCursor
+	}
+	return ""
+}
+
+func (x *StreamJobAttemptLogsResponse) GetAttemptStatus() string {
+	if x != nil {
+		return x.AttemptStatus
+	}
+	return ""
+}
+
 type LogLine struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
@@ -2635,7 +2769,7 @@ type LogLine struct {
 func (x *LogLine) Reset() {
 	*x = LogLine{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_depot_ci_v1_ci_proto_msgTypes[37]
+		mi := &file_depot_ci_v1_ci_proto_msgTypes[39]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2648,7 +2782,7 @@ func (x *LogLine) String() string {
 func (*LogLine) ProtoMessage() {}
 
 func (x *LogLine) ProtoReflect() protoreflect.Message {
-	mi := &file_depot_ci_v1_ci_proto_msgTypes[37]
+	mi := &file_depot_ci_v1_ci_proto_msgTypes[39]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2661,7 +2795,7 @@ func (x *LogLine) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LogLine.ProtoReflect.Descriptor instead.
 func (*LogLine) Descriptor() ([]byte, []int) {
-	return file_depot_ci_v1_ci_proto_rawDescGZIP(), []int{37}
+	return file_depot_ci_v1_ci_proto_rawDescGZIP(), []int{39}
 }
 
 func (x *LogLine) GetStepId() string {
@@ -2724,7 +2858,7 @@ type ListRunsRequest struct {
 func (x *ListRunsRequest) Reset() {
 	*x = ListRunsRequest{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_depot_ci_v1_ci_proto_msgTypes[38]
+		mi := &file_depot_ci_v1_ci_proto_msgTypes[40]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2737,7 +2871,7 @@ func (x *ListRunsRequest) String() string {
 func (*ListRunsRequest) ProtoMessage() {}
 
 func (x *ListRunsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_depot_ci_v1_ci_proto_msgTypes[38]
+	mi := &file_depot_ci_v1_ci_proto_msgTypes[40]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2750,7 +2884,7 @@ func (x *ListRunsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListRunsRequest.ProtoReflect.Descriptor instead.
 func (*ListRunsRequest) Descriptor() ([]byte, []int) {
-	return file_depot_ci_v1_ci_proto_rawDescGZIP(), []int{38}
+	return file_depot_ci_v1_ci_proto_rawDescGZIP(), []int{40}
 }
 
 func (x *ListRunsRequest) GetStatus() []string {
@@ -2814,7 +2948,7 @@ type ListRunsResponse struct {
 func (x *ListRunsResponse) Reset() {
 	*x = ListRunsResponse{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_depot_ci_v1_ci_proto_msgTypes[39]
+		mi := &file_depot_ci_v1_ci_proto_msgTypes[41]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2827,7 +2961,7 @@ func (x *ListRunsResponse) String() string {
 func (*ListRunsResponse) ProtoMessage() {}
 
 func (x *ListRunsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_depot_ci_v1_ci_proto_msgTypes[39]
+	mi := &file_depot_ci_v1_ci_proto_msgTypes[41]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2840,7 +2974,7 @@ func (x *ListRunsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListRunsResponse.ProtoReflect.Descriptor instead.
 func (*ListRunsResponse) Descriptor() ([]byte, []int) {
-	return file_depot_ci_v1_ci_proto_rawDescGZIP(), []int{39}
+	return file_depot_ci_v1_ci_proto_rawDescGZIP(), []int{41}
 }
 
 func (x *ListRunsResponse) GetRuns() []*ListRunsResponseRun {
@@ -2876,7 +3010,7 @@ type ListRunsResponseRun struct {
 func (x *ListRunsResponseRun) Reset() {
 	*x = ListRunsResponseRun{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_depot_ci_v1_ci_proto_msgTypes[40]
+		mi := &file_depot_ci_v1_ci_proto_msgTypes[42]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2889,7 +3023,7 @@ func (x *ListRunsResponseRun) String() string {
 func (*ListRunsResponseRun) ProtoMessage() {}
 
 func (x *ListRunsResponseRun) ProtoReflect() protoreflect.Message {
-	mi := &file_depot_ci_v1_ci_proto_msgTypes[40]
+	mi := &file_depot_ci_v1_ci_proto_msgTypes[42]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2902,7 +3036,7 @@ func (x *ListRunsResponseRun) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListRunsResponseRun.ProtoReflect.Descriptor instead.
 func (*ListRunsResponseRun) Descriptor() ([]byte, []int) {
-	return file_depot_ci_v1_ci_proto_rawDescGZIP(), []int{40}
+	return file_depot_ci_v1_ci_proto_rawDescGZIP(), []int{42}
 }
 
 func (x *ListRunsResponseRun) GetRunId() string {
@@ -2985,7 +3119,7 @@ type ListWorkflowsRequest struct {
 func (x *ListWorkflowsRequest) Reset() {
 	*x = ListWorkflowsRequest{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_depot_ci_v1_ci_proto_msgTypes[41]
+		mi := &file_depot_ci_v1_ci_proto_msgTypes[43]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2998,7 +3132,7 @@ func (x *ListWorkflowsRequest) String() string {
 func (*ListWorkflowsRequest) ProtoMessage() {}
 
 func (x *ListWorkflowsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_depot_ci_v1_ci_proto_msgTypes[41]
+	mi := &file_depot_ci_v1_ci_proto_msgTypes[43]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3011,7 +3145,7 @@ func (x *ListWorkflowsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListWorkflowsRequest.ProtoReflect.Descriptor instead.
 func (*ListWorkflowsRequest) Descriptor() ([]byte, []int) {
-	return file_depot_ci_v1_ci_proto_rawDescGZIP(), []int{41}
+	return file_depot_ci_v1_ci_proto_rawDescGZIP(), []int{43}
 }
 
 func (x *ListWorkflowsRequest) GetPageSize() int32 {
@@ -3074,7 +3208,7 @@ type ListWorkflowsResponse struct {
 func (x *ListWorkflowsResponse) Reset() {
 	*x = ListWorkflowsResponse{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_depot_ci_v1_ci_proto_msgTypes[42]
+		mi := &file_depot_ci_v1_ci_proto_msgTypes[44]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -3087,7 +3221,7 @@ func (x *ListWorkflowsResponse) String() string {
 func (*ListWorkflowsResponse) ProtoMessage() {}
 
 func (x *ListWorkflowsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_depot_ci_v1_ci_proto_msgTypes[42]
+	mi := &file_depot_ci_v1_ci_proto_msgTypes[44]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3100,7 +3234,7 @@ func (x *ListWorkflowsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListWorkflowsResponse.ProtoReflect.Descriptor instead.
 func (*ListWorkflowsResponse) Descriptor() ([]byte, []int) {
-	return file_depot_ci_v1_ci_proto_rawDescGZIP(), []int{42}
+	return file_depot_ci_v1_ci_proto_rawDescGZIP(), []int{44}
 }
 
 func (x *ListWorkflowsResponse) GetWorkflows() []*ListWorkflowsResponseWorkflow {
@@ -3132,7 +3266,7 @@ type ListWorkflowsResponseWorkflow struct {
 func (x *ListWorkflowsResponseWorkflow) Reset() {
 	*x = ListWorkflowsResponseWorkflow{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_depot_ci_v1_ci_proto_msgTypes[43]
+		mi := &file_depot_ci_v1_ci_proto_msgTypes[45]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -3145,7 +3279,7 @@ func (x *ListWorkflowsResponseWorkflow) String() string {
 func (*ListWorkflowsResponseWorkflow) ProtoMessage() {}
 
 func (x *ListWorkflowsResponseWorkflow) ProtoReflect() protoreflect.Message {
-	mi := &file_depot_ci_v1_ci_proto_msgTypes[43]
+	mi := &file_depot_ci_v1_ci_proto_msgTypes[45]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3158,7 +3292,7 @@ func (x *ListWorkflowsResponseWorkflow) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListWorkflowsResponseWorkflow.ProtoReflect.Descriptor instead.
 func (*ListWorkflowsResponseWorkflow) Descriptor() ([]byte, []int) {
-	return file_depot_ci_v1_ci_proto_rawDescGZIP(), []int{43}
+	return file_depot_ci_v1_ci_proto_rawDescGZIP(), []int{45}
 }
 
 func (x *ListWorkflowsResponseWorkflow) GetWorkflowId() string {
@@ -3256,7 +3390,7 @@ type ListWorkflowsResponseJobCounts struct {
 func (x *ListWorkflowsResponseJobCounts) Reset() {
 	*x = ListWorkflowsResponseJobCounts{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_depot_ci_v1_ci_proto_msgTypes[44]
+		mi := &file_depot_ci_v1_ci_proto_msgTypes[46]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -3269,7 +3403,7 @@ func (x *ListWorkflowsResponseJobCounts) String() string {
 func (*ListWorkflowsResponseJobCounts) ProtoMessage() {}
 
 func (x *ListWorkflowsResponseJobCounts) ProtoReflect() protoreflect.Message {
-	mi := &file_depot_ci_v1_ci_proto_msgTypes[44]
+	mi := &file_depot_ci_v1_ci_proto_msgTypes[46]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3282,7 +3416,7 @@ func (x *ListWorkflowsResponseJobCounts) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListWorkflowsResponseJobCounts.ProtoReflect.Descriptor instead.
 func (*ListWorkflowsResponseJobCounts) Descriptor() ([]byte, []int) {
-	return file_depot_ci_v1_ci_proto_rawDescGZIP(), []int{44}
+	return file_depot_ci_v1_ci_proto_rawDescGZIP(), []int{46}
 }
 
 func (x *ListWorkflowsResponseJobCounts) GetTotal() int32 {
@@ -3671,7 +3805,23 @@ var file_depot_ci_v1_ci_proto_rawDesc = []byte{
 	0x76, 0x31, 0x2e, 0x4c, 0x6f, 0x67, 0x4c, 0x69, 0x6e, 0x65, 0x52, 0x05, 0x6c, 0x69, 0x6e, 0x65,
 	0x73, 0x12, 0x26, 0x0a, 0x0f, 0x6e, 0x65, 0x78, 0x74, 0x5f, 0x70, 0x61, 0x67, 0x65, 0x5f, 0x74,
 	0x6f, 0x6b, 0x65, 0x6e, 0x18, 0x02, 0x20, 0x01, 0x28, 0x09, 0x52, 0x0d, 0x6e, 0x65, 0x78, 0x74,
-	0x50, 0x61, 0x67, 0x65, 0x54, 0x6f, 0x6b, 0x65, 0x6e, 0x22, 0x92, 0x01, 0x0a, 0x07, 0x4c, 0x6f,
+	0x50, 0x61, 0x67, 0x65, 0x54, 0x6f, 0x6b, 0x65, 0x6e, 0x22, 0x6b, 0x0a, 0x1b, 0x53, 0x74, 0x72,
+	0x65, 0x61, 0x6d, 0x4a, 0x6f, 0x62, 0x41, 0x74, 0x74, 0x65, 0x6d, 0x70, 0x74, 0x4c, 0x6f, 0x67,
+	0x73, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x12, 0x1d, 0x0a, 0x0a, 0x61, 0x74, 0x74, 0x65,
+	0x6d, 0x70, 0x74, 0x5f, 0x69, 0x64, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x09, 0x61, 0x74,
+	0x74, 0x65, 0x6d, 0x70, 0x74, 0x49, 0x64, 0x12, 0x16, 0x0a, 0x06, 0x63, 0x75, 0x72, 0x73, 0x6f,
+	0x72, 0x18, 0x02, 0x20, 0x01, 0x28, 0x09, 0x52, 0x06, 0x63, 0x75, 0x72, 0x73, 0x6f, 0x72, 0x12,
+	0x15, 0x0a, 0x06, 0x6a, 0x6f, 0x62, 0x5f, 0x69, 0x64, 0x18, 0x03, 0x20, 0x01, 0x28, 0x09, 0x52,
+	0x05, 0x6a, 0x6f, 0x62, 0x49, 0x64, 0x22, 0x90, 0x01, 0x0a, 0x1c, 0x53, 0x74, 0x72, 0x65, 0x61,
+	0x6d, 0x4a, 0x6f, 0x62, 0x41, 0x74, 0x74, 0x65, 0x6d, 0x70, 0x74, 0x4c, 0x6f, 0x67, 0x73, 0x52,
+	0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x28, 0x0a, 0x04, 0x6c, 0x69, 0x6e, 0x65, 0x18,
+	0x01, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x14, 0x2e, 0x64, 0x65, 0x70, 0x6f, 0x74, 0x2e, 0x63, 0x69,
+	0x2e, 0x76, 0x31, 0x2e, 0x4c, 0x6f, 0x67, 0x4c, 0x69, 0x6e, 0x65, 0x52, 0x04, 0x6c, 0x69, 0x6e,
+	0x65, 0x12, 0x1f, 0x0a, 0x0b, 0x6e, 0x65, 0x78, 0x74, 0x5f, 0x63, 0x75, 0x72, 0x73, 0x6f, 0x72,
+	0x18, 0x02, 0x20, 0x01, 0x28, 0x09, 0x52, 0x0a, 0x6e, 0x65, 0x78, 0x74, 0x43, 0x75, 0x72, 0x73,
+	0x6f, 0x72, 0x12, 0x25, 0x0a, 0x0e, 0x61, 0x74, 0x74, 0x65, 0x6d, 0x70, 0x74, 0x5f, 0x73, 0x74,
+	0x61, 0x74, 0x75, 0x73, 0x18, 0x03, 0x20, 0x01, 0x28, 0x09, 0x52, 0x0d, 0x61, 0x74, 0x74, 0x65,
+	0x6d, 0x70, 0x74, 0x53, 0x74, 0x61, 0x74, 0x75, 0x73, 0x22, 0x92, 0x01, 0x0a, 0x07, 0x4c, 0x6f,
 	0x67, 0x4c, 0x69, 0x6e, 0x65, 0x12, 0x17, 0x0a, 0x07, 0x73, 0x74, 0x65, 0x70, 0x5f, 0x69, 0x64,
 	0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x06, 0x73, 0x74, 0x65, 0x70, 0x49, 0x64, 0x12, 0x21,
 	0x0a, 0x0c, 0x74, 0x69, 0x6d, 0x65, 0x73, 0x74, 0x61, 0x6d, 0x70, 0x5f, 0x6d, 0x73, 0x18, 0x02,
@@ -3770,7 +3920,7 @@ var file_depot_ci_v1_ci_proto_rawDesc = []byte{
 	0x6c, 0x65, 0x64, 0x12, 0x1c, 0x0a, 0x09, 0x63, 0x61, 0x6e, 0x63, 0x65, 0x6c, 0x6c, 0x65, 0x64,
 	0x18, 0x07, 0x20, 0x01, 0x28, 0x05, 0x52, 0x09, 0x63, 0x61, 0x6e, 0x63, 0x65, 0x6c, 0x6c, 0x65,
 	0x64, 0x12, 0x18, 0x0a, 0x07, 0x73, 0x6b, 0x69, 0x70, 0x70, 0x65, 0x64, 0x18, 0x08, 0x20, 0x01,
-	0x28, 0x05, 0x52, 0x07, 0x73, 0x6b, 0x69, 0x70, 0x70, 0x65, 0x64, 0x32, 0xa3, 0x09, 0x0a, 0x09,
+	0x28, 0x05, 0x52, 0x07, 0x73, 0x6b, 0x69, 0x70, 0x70, 0x65, 0x64, 0x32, 0x94, 0x0a, 0x0a, 0x09,
 	0x43, 0x49, 0x53, 0x65, 0x72, 0x76, 0x69, 0x63, 0x65, 0x12, 0x3a, 0x0a, 0x03, 0x52, 0x75, 0x6e,
 	0x12, 0x17, 0x2e, 0x64, 0x65, 0x70, 0x6f, 0x74, 0x2e, 0x63, 0x69, 0x2e, 0x76, 0x31, 0x2e, 0x52,
 	0x75, 0x6e, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x18, 0x2e, 0x64, 0x65, 0x70, 0x6f,
@@ -3834,42 +3984,49 @@ var file_depot_ci_v1_ci_proto_rawDesc = []byte{
 	0x41, 0x74, 0x74, 0x65, 0x6d, 0x70, 0x74, 0x4c, 0x6f, 0x67, 0x73, 0x52, 0x65, 0x71, 0x75, 0x65,
 	0x73, 0x74, 0x1a, 0x26, 0x2e, 0x64, 0x65, 0x70, 0x6f, 0x74, 0x2e, 0x63, 0x69, 0x2e, 0x76, 0x31,
 	0x2e, 0x47, 0x65, 0x74, 0x4a, 0x6f, 0x62, 0x41, 0x74, 0x74, 0x65, 0x6d, 0x70, 0x74, 0x4c, 0x6f,
-	0x67, 0x73, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x22, 0x00, 0x12, 0x49, 0x0a, 0x08,
-	0x4c, 0x69, 0x73, 0x74, 0x52, 0x75, 0x6e, 0x73, 0x12, 0x1c, 0x2e, 0x64, 0x65, 0x70, 0x6f, 0x74,
-	0x2e, 0x63, 0x69, 0x2e, 0x76, 0x31, 0x2e, 0x4c, 0x69, 0x73, 0x74, 0x52, 0x75, 0x6e, 0x73, 0x52,
-	0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x1d, 0x2e, 0x64, 0x65, 0x70, 0x6f, 0x74, 0x2e, 0x63,
-	0x69, 0x2e, 0x76, 0x31, 0x2e, 0x4c, 0x69, 0x73, 0x74, 0x52, 0x75, 0x6e, 0x73, 0x52, 0x65, 0x73,
-	0x70, 0x6f, 0x6e, 0x73, 0x65, 0x22, 0x00, 0x12, 0x58, 0x0a, 0x0d, 0x4c, 0x69, 0x73, 0x74, 0x57,
-	0x6f, 0x72, 0x6b, 0x66, 0x6c, 0x6f, 0x77, 0x73, 0x12, 0x21, 0x2e, 0x64, 0x65, 0x70, 0x6f, 0x74,
-	0x2e, 0x63, 0x69, 0x2e, 0x76, 0x31, 0x2e, 0x4c, 0x69, 0x73, 0x74, 0x57, 0x6f, 0x72, 0x6b, 0x66,
-	0x6c, 0x6f, 0x77, 0x73, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x22, 0x2e, 0x64, 0x65,
-	0x70, 0x6f, 0x74, 0x2e, 0x63, 0x69, 0x2e, 0x76, 0x31, 0x2e, 0x4c, 0x69, 0x73, 0x74, 0x57, 0x6f,
-	0x72, 0x6b, 0x66, 0x6c, 0x6f, 0x77, 0x73, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x22,
-	0x00, 0x32, 0xe1, 0x01, 0x0a, 0x10, 0x4d, 0x69, 0x67, 0x72, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x53,
-	0x65, 0x72, 0x76, 0x69, 0x63, 0x65, 0x12, 0x5e, 0x0a, 0x0f, 0x47, 0x65, 0x74, 0x49, 0x6e, 0x73,
-	0x74, 0x61, 0x6c, 0x6c, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x12, 0x23, 0x2e, 0x64, 0x65, 0x70, 0x6f,
-	0x74, 0x2e, 0x63, 0x69, 0x2e, 0x76, 0x31, 0x2e, 0x47, 0x65, 0x74, 0x49, 0x6e, 0x73, 0x74, 0x61,
-	0x6c, 0x6c, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x24,
-	0x2e, 0x64, 0x65, 0x70, 0x6f, 0x74, 0x2e, 0x63, 0x69, 0x2e, 0x76, 0x31, 0x2e, 0x47, 0x65, 0x74,
-	0x49, 0x6e, 0x73, 0x74, 0x61, 0x6c, 0x6c, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x52, 0x65, 0x73, 0x70,
-	0x6f, 0x6e, 0x73, 0x65, 0x22, 0x00, 0x12, 0x6d, 0x0a, 0x14, 0x49, 0x6d, 0x70, 0x6f, 0x72, 0x74,
-	0x53, 0x65, 0x63, 0x72, 0x65, 0x74, 0x73, 0x41, 0x6e, 0x64, 0x56, 0x61, 0x72, 0x73, 0x12, 0x28,
-	0x2e, 0x64, 0x65, 0x70, 0x6f, 0x74, 0x2e, 0x63, 0x69, 0x2e, 0x76, 0x31, 0x2e, 0x49, 0x6d, 0x70,
-	0x6f, 0x72, 0x74, 0x53, 0x65, 0x63, 0x72, 0x65, 0x74, 0x73, 0x41, 0x6e, 0x64, 0x56, 0x61, 0x72,
-	0x73, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x29, 0x2e, 0x64, 0x65, 0x70, 0x6f, 0x74,
-	0x2e, 0x63, 0x69, 0x2e, 0x76, 0x31, 0x2e, 0x49, 0x6d, 0x70, 0x6f, 0x72, 0x74, 0x53, 0x65, 0x63,
-	0x72, 0x65, 0x74, 0x73, 0x41, 0x6e, 0x64, 0x56, 0x61, 0x72, 0x73, 0x52, 0x65, 0x73, 0x70, 0x6f,
-	0x6e, 0x73, 0x65, 0x22, 0x00, 0x42, 0x99, 0x01, 0x0a, 0x0f, 0x63, 0x6f, 0x6d, 0x2e, 0x64, 0x65,
-	0x70, 0x6f, 0x74, 0x2e, 0x63, 0x69, 0x2e, 0x76, 0x31, 0x42, 0x07, 0x43, 0x69, 0x50, 0x72, 0x6f,
-	0x74, 0x6f, 0x50, 0x01, 0x5a, 0x2f, 0x67, 0x69, 0x74, 0x68, 0x75, 0x62, 0x2e, 0x63, 0x6f, 0x6d,
-	0x2f, 0x64, 0x65, 0x70, 0x6f, 0x74, 0x2f, 0x63, 0x6c, 0x69, 0x2f, 0x70, 0x6b, 0x67, 0x2f, 0x70,
-	0x72, 0x6f, 0x74, 0x6f, 0x2f, 0x64, 0x65, 0x70, 0x6f, 0x74, 0x2f, 0x63, 0x69, 0x2f, 0x76, 0x31,
-	0x3b, 0x63, 0x69, 0x76, 0x31, 0xa2, 0x02, 0x03, 0x44, 0x43, 0x58, 0xaa, 0x02, 0x0b, 0x44, 0x65,
-	0x70, 0x6f, 0x74, 0x2e, 0x43, 0x69, 0x2e, 0x56, 0x31, 0xca, 0x02, 0x0b, 0x44, 0x65, 0x70, 0x6f,
-	0x74, 0x5c, 0x43, 0x69, 0x5c, 0x56, 0x31, 0xe2, 0x02, 0x17, 0x44, 0x65, 0x70, 0x6f, 0x74, 0x5c,
-	0x43, 0x69, 0x5c, 0x56, 0x31, 0x5c, 0x47, 0x50, 0x42, 0x4d, 0x65, 0x74, 0x61, 0x64, 0x61, 0x74,
-	0x61, 0xea, 0x02, 0x0d, 0x44, 0x65, 0x70, 0x6f, 0x74, 0x3a, 0x3a, 0x43, 0x69, 0x3a, 0x3a, 0x56,
-	0x31, 0x62, 0x06, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x33,
+	0x67, 0x73, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x22, 0x00, 0x12, 0x6f, 0x0a, 0x14,
+	0x53, 0x74, 0x72, 0x65, 0x61, 0x6d, 0x4a, 0x6f, 0x62, 0x41, 0x74, 0x74, 0x65, 0x6d, 0x70, 0x74,
+	0x4c, 0x6f, 0x67, 0x73, 0x12, 0x28, 0x2e, 0x64, 0x65, 0x70, 0x6f, 0x74, 0x2e, 0x63, 0x69, 0x2e,
+	0x76, 0x31, 0x2e, 0x53, 0x74, 0x72, 0x65, 0x61, 0x6d, 0x4a, 0x6f, 0x62, 0x41, 0x74, 0x74, 0x65,
+	0x6d, 0x70, 0x74, 0x4c, 0x6f, 0x67, 0x73, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x29,
+	0x2e, 0x64, 0x65, 0x70, 0x6f, 0x74, 0x2e, 0x63, 0x69, 0x2e, 0x76, 0x31, 0x2e, 0x53, 0x74, 0x72,
+	0x65, 0x61, 0x6d, 0x4a, 0x6f, 0x62, 0x41, 0x74, 0x74, 0x65, 0x6d, 0x70, 0x74, 0x4c, 0x6f, 0x67,
+	0x73, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x22, 0x00, 0x30, 0x01, 0x12, 0x49, 0x0a,
+	0x08, 0x4c, 0x69, 0x73, 0x74, 0x52, 0x75, 0x6e, 0x73, 0x12, 0x1c, 0x2e, 0x64, 0x65, 0x70, 0x6f,
+	0x74, 0x2e, 0x63, 0x69, 0x2e, 0x76, 0x31, 0x2e, 0x4c, 0x69, 0x73, 0x74, 0x52, 0x75, 0x6e, 0x73,
+	0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x1d, 0x2e, 0x64, 0x65, 0x70, 0x6f, 0x74, 0x2e,
+	0x63, 0x69, 0x2e, 0x76, 0x31, 0x2e, 0x4c, 0x69, 0x73, 0x74, 0x52, 0x75, 0x6e, 0x73, 0x52, 0x65,
+	0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x22, 0x00, 0x12, 0x58, 0x0a, 0x0d, 0x4c, 0x69, 0x73, 0x74,
+	0x57, 0x6f, 0x72, 0x6b, 0x66, 0x6c, 0x6f, 0x77, 0x73, 0x12, 0x21, 0x2e, 0x64, 0x65, 0x70, 0x6f,
+	0x74, 0x2e, 0x63, 0x69, 0x2e, 0x76, 0x31, 0x2e, 0x4c, 0x69, 0x73, 0x74, 0x57, 0x6f, 0x72, 0x6b,
+	0x66, 0x6c, 0x6f, 0x77, 0x73, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x22, 0x2e, 0x64,
+	0x65, 0x70, 0x6f, 0x74, 0x2e, 0x63, 0x69, 0x2e, 0x76, 0x31, 0x2e, 0x4c, 0x69, 0x73, 0x74, 0x57,
+	0x6f, 0x72, 0x6b, 0x66, 0x6c, 0x6f, 0x77, 0x73, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65,
+	0x22, 0x00, 0x32, 0xe1, 0x01, 0x0a, 0x10, 0x4d, 0x69, 0x67, 0x72, 0x61, 0x74, 0x69, 0x6f, 0x6e,
+	0x53, 0x65, 0x72, 0x76, 0x69, 0x63, 0x65, 0x12, 0x5e, 0x0a, 0x0f, 0x47, 0x65, 0x74, 0x49, 0x6e,
+	0x73, 0x74, 0x61, 0x6c, 0x6c, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x12, 0x23, 0x2e, 0x64, 0x65, 0x70,
+	0x6f, 0x74, 0x2e, 0x63, 0x69, 0x2e, 0x76, 0x31, 0x2e, 0x47, 0x65, 0x74, 0x49, 0x6e, 0x73, 0x74,
+	0x61, 0x6c, 0x6c, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a,
+	0x24, 0x2e, 0x64, 0x65, 0x70, 0x6f, 0x74, 0x2e, 0x63, 0x69, 0x2e, 0x76, 0x31, 0x2e, 0x47, 0x65,
+	0x74, 0x49, 0x6e, 0x73, 0x74, 0x61, 0x6c, 0x6c, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x52, 0x65, 0x73,
+	0x70, 0x6f, 0x6e, 0x73, 0x65, 0x22, 0x00, 0x12, 0x6d, 0x0a, 0x14, 0x49, 0x6d, 0x70, 0x6f, 0x72,
+	0x74, 0x53, 0x65, 0x63, 0x72, 0x65, 0x74, 0x73, 0x41, 0x6e, 0x64, 0x56, 0x61, 0x72, 0x73, 0x12,
+	0x28, 0x2e, 0x64, 0x65, 0x70, 0x6f, 0x74, 0x2e, 0x63, 0x69, 0x2e, 0x76, 0x31, 0x2e, 0x49, 0x6d,
+	0x70, 0x6f, 0x72, 0x74, 0x53, 0x65, 0x63, 0x72, 0x65, 0x74, 0x73, 0x41, 0x6e, 0x64, 0x56, 0x61,
+	0x72, 0x73, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x29, 0x2e, 0x64, 0x65, 0x70, 0x6f,
+	0x74, 0x2e, 0x63, 0x69, 0x2e, 0x76, 0x31, 0x2e, 0x49, 0x6d, 0x70, 0x6f, 0x72, 0x74, 0x53, 0x65,
+	0x63, 0x72, 0x65, 0x74, 0x73, 0x41, 0x6e, 0x64, 0x56, 0x61, 0x72, 0x73, 0x52, 0x65, 0x73, 0x70,
+	0x6f, 0x6e, 0x73, 0x65, 0x22, 0x00, 0x42, 0x99, 0x01, 0x0a, 0x0f, 0x63, 0x6f, 0x6d, 0x2e, 0x64,
+	0x65, 0x70, 0x6f, 0x74, 0x2e, 0x63, 0x69, 0x2e, 0x76, 0x31, 0x42, 0x07, 0x43, 0x69, 0x50, 0x72,
+	0x6f, 0x74, 0x6f, 0x50, 0x01, 0x5a, 0x2f, 0x67, 0x69, 0x74, 0x68, 0x75, 0x62, 0x2e, 0x63, 0x6f,
+	0x6d, 0x2f, 0x64, 0x65, 0x70, 0x6f, 0x74, 0x2f, 0x63, 0x6c, 0x69, 0x2f, 0x70, 0x6b, 0x67, 0x2f,
+	0x70, 0x72, 0x6f, 0x74, 0x6f, 0x2f, 0x64, 0x65, 0x70, 0x6f, 0x74, 0x2f, 0x63, 0x69, 0x2f, 0x76,
+	0x31, 0x3b, 0x63, 0x69, 0x76, 0x31, 0xa2, 0x02, 0x03, 0x44, 0x43, 0x58, 0xaa, 0x02, 0x0b, 0x44,
+	0x65, 0x70, 0x6f, 0x74, 0x2e, 0x43, 0x69, 0x2e, 0x56, 0x31, 0xca, 0x02, 0x0b, 0x44, 0x65, 0x70,
+	0x6f, 0x74, 0x5c, 0x43, 0x69, 0x5c, 0x56, 0x31, 0xe2, 0x02, 0x17, 0x44, 0x65, 0x70, 0x6f, 0x74,
+	0x5c, 0x43, 0x69, 0x5c, 0x56, 0x31, 0x5c, 0x47, 0x50, 0x42, 0x4d, 0x65, 0x74, 0x61, 0x64, 0x61,
+	0x74, 0x61, 0xea, 0x02, 0x0d, 0x44, 0x65, 0x70, 0x6f, 0x74, 0x3a, 0x3a, 0x43, 0x69, 0x3a, 0x3a,
+	0x56, 0x31, 0x62, 0x06, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x33,
 }
 
 var (
@@ -3884,7 +4041,7 @@ func file_depot_ci_v1_ci_proto_rawDescGZIP() []byte {
 	return file_depot_ci_v1_ci_proto_rawDescData
 }
 
-var file_depot_ci_v1_ci_proto_msgTypes = make([]protoimpl.MessageInfo, 46)
+var file_depot_ci_v1_ci_proto_msgTypes = make([]protoimpl.MessageInfo, 48)
 var file_depot_ci_v1_ci_proto_goTypes = []interface{}{
 	(*GetInstallationRequest)(nil),         // 0: depot.ci.v1.GetInstallationRequest
 	(*GetInstallationResponse)(nil),        // 1: depot.ci.v1.GetInstallationResponse
@@ -3923,68 +4080,73 @@ var file_depot_ci_v1_ci_proto_goTypes = []interface{}{
 	(*GetWorkflowJobAttempt)(nil),          // 34: depot.ci.v1.GetWorkflowJobAttempt
 	(*GetJobAttemptLogsRequest)(nil),       // 35: depot.ci.v1.GetJobAttemptLogsRequest
 	(*GetJobAttemptLogsResponse)(nil),      // 36: depot.ci.v1.GetJobAttemptLogsResponse
-	(*LogLine)(nil),                        // 37: depot.ci.v1.LogLine
-	(*ListRunsRequest)(nil),                // 38: depot.ci.v1.ListRunsRequest
-	(*ListRunsResponse)(nil),               // 39: depot.ci.v1.ListRunsResponse
-	(*ListRunsResponseRun)(nil),            // 40: depot.ci.v1.ListRunsResponseRun
-	(*ListWorkflowsRequest)(nil),           // 41: depot.ci.v1.ListWorkflowsRequest
-	(*ListWorkflowsResponse)(nil),          // 42: depot.ci.v1.ListWorkflowsResponse
-	(*ListWorkflowsResponseWorkflow)(nil),  // 43: depot.ci.v1.ListWorkflowsResponseWorkflow
-	(*ListWorkflowsResponseJobCounts)(nil), // 44: depot.ci.v1.ListWorkflowsResponseJobCounts
-	nil,                                    // 45: depot.ci.v1.DispatchWorkflowRequest.InputsEntry
+	(*StreamJobAttemptLogsRequest)(nil),    // 37: depot.ci.v1.StreamJobAttemptLogsRequest
+	(*StreamJobAttemptLogsResponse)(nil),   // 38: depot.ci.v1.StreamJobAttemptLogsResponse
+	(*LogLine)(nil),                        // 39: depot.ci.v1.LogLine
+	(*ListRunsRequest)(nil),                // 40: depot.ci.v1.ListRunsRequest
+	(*ListRunsResponse)(nil),               // 41: depot.ci.v1.ListRunsResponse
+	(*ListRunsResponseRun)(nil),            // 42: depot.ci.v1.ListRunsResponseRun
+	(*ListWorkflowsRequest)(nil),           // 43: depot.ci.v1.ListWorkflowsRequest
+	(*ListWorkflowsResponse)(nil),          // 44: depot.ci.v1.ListWorkflowsResponse
+	(*ListWorkflowsResponseWorkflow)(nil),  // 45: depot.ci.v1.ListWorkflowsResponseWorkflow
+	(*ListWorkflowsResponseJobCounts)(nil), // 46: depot.ci.v1.ListWorkflowsResponseJobCounts
+	nil,                                    // 47: depot.ci.v1.DispatchWorkflowRequest.InputsEntry
 }
 var file_depot_ci_v1_ci_proto_depIdxs = []int32{
 	6,  // 0: depot.ci.v1.GetInstallationResponse.installations:type_name -> depot.ci.v1.Installation
 	4,  // 1: depot.ci.v1.ImportSecretsAndVarsResponse.dry_run_result:type_name -> depot.ci.v1.DryRunResult
 	5,  // 2: depot.ci.v1.ImportSecretsAndVarsResponse.run_result:type_name -> depot.ci.v1.RunResult
-	45, // 3: depot.ci.v1.DispatchWorkflowRequest.inputs:type_name -> depot.ci.v1.DispatchWorkflowRequest.InputsEntry
+	47, // 3: depot.ci.v1.DispatchWorkflowRequest.inputs:type_name -> depot.ci.v1.DispatchWorkflowRequest.InputsEntry
 	27, // 4: depot.ci.v1.GetRunStatusResponse.workflows:type_name -> depot.ci.v1.WorkflowStatus
 	28, // 5: depot.ci.v1.WorkflowStatus.jobs:type_name -> depot.ci.v1.JobStatus
 	29, // 6: depot.ci.v1.JobStatus.attempts:type_name -> depot.ci.v1.AttemptStatus
 	32, // 7: depot.ci.v1.GetWorkflowResponse.executions:type_name -> depot.ci.v1.GetWorkflowExecution
 	33, // 8: depot.ci.v1.GetWorkflowResponse.jobs:type_name -> depot.ci.v1.GetWorkflowJob
 	34, // 9: depot.ci.v1.GetWorkflowJob.attempts:type_name -> depot.ci.v1.GetWorkflowJobAttempt
-	37, // 10: depot.ci.v1.GetJobAttemptLogsResponse.lines:type_name -> depot.ci.v1.LogLine
-	40, // 11: depot.ci.v1.ListRunsResponse.runs:type_name -> depot.ci.v1.ListRunsResponseRun
-	43, // 12: depot.ci.v1.ListWorkflowsResponse.workflows:type_name -> depot.ci.v1.ListWorkflowsResponseWorkflow
-	44, // 13: depot.ci.v1.ListWorkflowsResponseWorkflow.job_counts:type_name -> depot.ci.v1.ListWorkflowsResponseJobCounts
-	7,  // 14: depot.ci.v1.CIService.Run:input_type -> depot.ci.v1.RunRequest
-	9,  // 15: depot.ci.v1.CIService.DispatchWorkflow:input_type -> depot.ci.v1.DispatchWorkflowRequest
-	11, // 16: depot.ci.v1.CIService.RetryJob:input_type -> depot.ci.v1.RetryJobRequest
-	13, // 17: depot.ci.v1.CIService.RerunWorkflow:input_type -> depot.ci.v1.RerunWorkflowRequest
-	15, // 18: depot.ci.v1.CIService.RetryFailedJobs:input_type -> depot.ci.v1.RetryFailedJobsRequest
-	17, // 19: depot.ci.v1.CIService.CancelJob:input_type -> depot.ci.v1.CancelJobRequest
-	19, // 20: depot.ci.v1.CIService.CancelWorkflow:input_type -> depot.ci.v1.CancelWorkflowRequest
-	21, // 21: depot.ci.v1.CIService.GetRun:input_type -> depot.ci.v1.GetRunRequest
-	23, // 22: depot.ci.v1.CIService.CancelRun:input_type -> depot.ci.v1.CancelRunRequest
-	25, // 23: depot.ci.v1.CIService.GetRunStatus:input_type -> depot.ci.v1.GetRunStatusRequest
-	30, // 24: depot.ci.v1.CIService.GetWorkflow:input_type -> depot.ci.v1.GetWorkflowRequest
-	35, // 25: depot.ci.v1.CIService.GetJobAttemptLogs:input_type -> depot.ci.v1.GetJobAttemptLogsRequest
-	38, // 26: depot.ci.v1.CIService.ListRuns:input_type -> depot.ci.v1.ListRunsRequest
-	41, // 27: depot.ci.v1.CIService.ListWorkflows:input_type -> depot.ci.v1.ListWorkflowsRequest
-	0,  // 28: depot.ci.v1.MigrationService.GetInstallation:input_type -> depot.ci.v1.GetInstallationRequest
-	2,  // 29: depot.ci.v1.MigrationService.ImportSecretsAndVars:input_type -> depot.ci.v1.ImportSecretsAndVarsRequest
-	8,  // 30: depot.ci.v1.CIService.Run:output_type -> depot.ci.v1.RunResponse
-	10, // 31: depot.ci.v1.CIService.DispatchWorkflow:output_type -> depot.ci.v1.DispatchWorkflowResponse
-	12, // 32: depot.ci.v1.CIService.RetryJob:output_type -> depot.ci.v1.RetryJobResponse
-	14, // 33: depot.ci.v1.CIService.RerunWorkflow:output_type -> depot.ci.v1.RerunWorkflowResponse
-	16, // 34: depot.ci.v1.CIService.RetryFailedJobs:output_type -> depot.ci.v1.RetryFailedJobsResponse
-	18, // 35: depot.ci.v1.CIService.CancelJob:output_type -> depot.ci.v1.CancelJobResponse
-	20, // 36: depot.ci.v1.CIService.CancelWorkflow:output_type -> depot.ci.v1.CancelWorkflowResponse
-	22, // 37: depot.ci.v1.CIService.GetRun:output_type -> depot.ci.v1.GetRunResponse
-	24, // 38: depot.ci.v1.CIService.CancelRun:output_type -> depot.ci.v1.CancelRunResponse
-	26, // 39: depot.ci.v1.CIService.GetRunStatus:output_type -> depot.ci.v1.GetRunStatusResponse
-	31, // 40: depot.ci.v1.CIService.GetWorkflow:output_type -> depot.ci.v1.GetWorkflowResponse
-	36, // 41: depot.ci.v1.CIService.GetJobAttemptLogs:output_type -> depot.ci.v1.GetJobAttemptLogsResponse
-	39, // 42: depot.ci.v1.CIService.ListRuns:output_type -> depot.ci.v1.ListRunsResponse
-	42, // 43: depot.ci.v1.CIService.ListWorkflows:output_type -> depot.ci.v1.ListWorkflowsResponse
-	1,  // 44: depot.ci.v1.MigrationService.GetInstallation:output_type -> depot.ci.v1.GetInstallationResponse
-	3,  // 45: depot.ci.v1.MigrationService.ImportSecretsAndVars:output_type -> depot.ci.v1.ImportSecretsAndVarsResponse
-	30, // [30:46] is the sub-list for method output_type
-	14, // [14:30] is the sub-list for method input_type
-	14, // [14:14] is the sub-list for extension type_name
-	14, // [14:14] is the sub-list for extension extendee
-	0,  // [0:14] is the sub-list for field type_name
+	39, // 10: depot.ci.v1.GetJobAttemptLogsResponse.lines:type_name -> depot.ci.v1.LogLine
+	39, // 11: depot.ci.v1.StreamJobAttemptLogsResponse.line:type_name -> depot.ci.v1.LogLine
+	42, // 12: depot.ci.v1.ListRunsResponse.runs:type_name -> depot.ci.v1.ListRunsResponseRun
+	45, // 13: depot.ci.v1.ListWorkflowsResponse.workflows:type_name -> depot.ci.v1.ListWorkflowsResponseWorkflow
+	46, // 14: depot.ci.v1.ListWorkflowsResponseWorkflow.job_counts:type_name -> depot.ci.v1.ListWorkflowsResponseJobCounts
+	7,  // 15: depot.ci.v1.CIService.Run:input_type -> depot.ci.v1.RunRequest
+	9,  // 16: depot.ci.v1.CIService.DispatchWorkflow:input_type -> depot.ci.v1.DispatchWorkflowRequest
+	11, // 17: depot.ci.v1.CIService.RetryJob:input_type -> depot.ci.v1.RetryJobRequest
+	13, // 18: depot.ci.v1.CIService.RerunWorkflow:input_type -> depot.ci.v1.RerunWorkflowRequest
+	15, // 19: depot.ci.v1.CIService.RetryFailedJobs:input_type -> depot.ci.v1.RetryFailedJobsRequest
+	17, // 20: depot.ci.v1.CIService.CancelJob:input_type -> depot.ci.v1.CancelJobRequest
+	19, // 21: depot.ci.v1.CIService.CancelWorkflow:input_type -> depot.ci.v1.CancelWorkflowRequest
+	21, // 22: depot.ci.v1.CIService.GetRun:input_type -> depot.ci.v1.GetRunRequest
+	23, // 23: depot.ci.v1.CIService.CancelRun:input_type -> depot.ci.v1.CancelRunRequest
+	25, // 24: depot.ci.v1.CIService.GetRunStatus:input_type -> depot.ci.v1.GetRunStatusRequest
+	30, // 25: depot.ci.v1.CIService.GetWorkflow:input_type -> depot.ci.v1.GetWorkflowRequest
+	35, // 26: depot.ci.v1.CIService.GetJobAttemptLogs:input_type -> depot.ci.v1.GetJobAttemptLogsRequest
+	37, // 27: depot.ci.v1.CIService.StreamJobAttemptLogs:input_type -> depot.ci.v1.StreamJobAttemptLogsRequest
+	40, // 28: depot.ci.v1.CIService.ListRuns:input_type -> depot.ci.v1.ListRunsRequest
+	43, // 29: depot.ci.v1.CIService.ListWorkflows:input_type -> depot.ci.v1.ListWorkflowsRequest
+	0,  // 30: depot.ci.v1.MigrationService.GetInstallation:input_type -> depot.ci.v1.GetInstallationRequest
+	2,  // 31: depot.ci.v1.MigrationService.ImportSecretsAndVars:input_type -> depot.ci.v1.ImportSecretsAndVarsRequest
+	8,  // 32: depot.ci.v1.CIService.Run:output_type -> depot.ci.v1.RunResponse
+	10, // 33: depot.ci.v1.CIService.DispatchWorkflow:output_type -> depot.ci.v1.DispatchWorkflowResponse
+	12, // 34: depot.ci.v1.CIService.RetryJob:output_type -> depot.ci.v1.RetryJobResponse
+	14, // 35: depot.ci.v1.CIService.RerunWorkflow:output_type -> depot.ci.v1.RerunWorkflowResponse
+	16, // 36: depot.ci.v1.CIService.RetryFailedJobs:output_type -> depot.ci.v1.RetryFailedJobsResponse
+	18, // 37: depot.ci.v1.CIService.CancelJob:output_type -> depot.ci.v1.CancelJobResponse
+	20, // 38: depot.ci.v1.CIService.CancelWorkflow:output_type -> depot.ci.v1.CancelWorkflowResponse
+	22, // 39: depot.ci.v1.CIService.GetRun:output_type -> depot.ci.v1.GetRunResponse
+	24, // 40: depot.ci.v1.CIService.CancelRun:output_type -> depot.ci.v1.CancelRunResponse
+	26, // 41: depot.ci.v1.CIService.GetRunStatus:output_type -> depot.ci.v1.GetRunStatusResponse
+	31, // 42: depot.ci.v1.CIService.GetWorkflow:output_type -> depot.ci.v1.GetWorkflowResponse
+	36, // 43: depot.ci.v1.CIService.GetJobAttemptLogs:output_type -> depot.ci.v1.GetJobAttemptLogsResponse
+	38, // 44: depot.ci.v1.CIService.StreamJobAttemptLogs:output_type -> depot.ci.v1.StreamJobAttemptLogsResponse
+	41, // 45: depot.ci.v1.CIService.ListRuns:output_type -> depot.ci.v1.ListRunsResponse
+	44, // 46: depot.ci.v1.CIService.ListWorkflows:output_type -> depot.ci.v1.ListWorkflowsResponse
+	1,  // 47: depot.ci.v1.MigrationService.GetInstallation:output_type -> depot.ci.v1.GetInstallationResponse
+	3,  // 48: depot.ci.v1.MigrationService.ImportSecretsAndVars:output_type -> depot.ci.v1.ImportSecretsAndVarsResponse
+	32, // [32:49] is the sub-list for method output_type
+	15, // [15:32] is the sub-list for method input_type
+	15, // [15:15] is the sub-list for extension type_name
+	15, // [15:15] is the sub-list for extension extendee
+	0,  // [0:15] is the sub-list for field type_name
 }
 
 func init() { file_depot_ci_v1_ci_proto_init() }
@@ -4438,7 +4600,7 @@ func file_depot_ci_v1_ci_proto_init() {
 			}
 		}
 		file_depot_ci_v1_ci_proto_msgTypes[37].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*LogLine); i {
+			switch v := v.(*StreamJobAttemptLogsRequest); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -4450,7 +4612,7 @@ func file_depot_ci_v1_ci_proto_init() {
 			}
 		}
 		file_depot_ci_v1_ci_proto_msgTypes[38].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*ListRunsRequest); i {
+			switch v := v.(*StreamJobAttemptLogsResponse); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -4462,7 +4624,7 @@ func file_depot_ci_v1_ci_proto_init() {
 			}
 		}
 		file_depot_ci_v1_ci_proto_msgTypes[39].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*ListRunsResponse); i {
+			switch v := v.(*LogLine); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -4474,7 +4636,7 @@ func file_depot_ci_v1_ci_proto_init() {
 			}
 		}
 		file_depot_ci_v1_ci_proto_msgTypes[40].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*ListRunsResponseRun); i {
+			switch v := v.(*ListRunsRequest); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -4486,7 +4648,7 @@ func file_depot_ci_v1_ci_proto_init() {
 			}
 		}
 		file_depot_ci_v1_ci_proto_msgTypes[41].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*ListWorkflowsRequest); i {
+			switch v := v.(*ListRunsResponse); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -4498,7 +4660,7 @@ func file_depot_ci_v1_ci_proto_init() {
 			}
 		}
 		file_depot_ci_v1_ci_proto_msgTypes[42].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*ListWorkflowsResponse); i {
+			switch v := v.(*ListRunsResponseRun); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -4510,7 +4672,7 @@ func file_depot_ci_v1_ci_proto_init() {
 			}
 		}
 		file_depot_ci_v1_ci_proto_msgTypes[43].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*ListWorkflowsResponseWorkflow); i {
+			switch v := v.(*ListWorkflowsRequest); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -4522,6 +4684,30 @@ func file_depot_ci_v1_ci_proto_init() {
 			}
 		}
 		file_depot_ci_v1_ci_proto_msgTypes[44].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*ListWorkflowsResponse); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_depot_ci_v1_ci_proto_msgTypes[45].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*ListWorkflowsResponseWorkflow); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_depot_ci_v1_ci_proto_msgTypes[46].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*ListWorkflowsResponseJobCounts); i {
 			case 0:
 				return &v.state
@@ -4545,7 +4731,7 @@ func file_depot_ci_v1_ci_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: file_depot_ci_v1_ci_proto_rawDesc,
 			NumEnums:      0,
-			NumMessages:   46,
+			NumMessages:   48,
 			NumExtensions: 0,
 			NumServices:   2,
 		},

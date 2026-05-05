@@ -41,6 +41,9 @@ service CIService {
   // GetJobAttemptLogs returns log lines for a job attempt
   rpc GetJobAttemptLogs(GetJobAttemptLogsRequest) returns (GetJobAttemptLogsResponse) {}
 
+  // StreamJobAttemptLogs streams persisted log lines for a job attempt
+  rpc StreamJobAttemptLogs(StreamJobAttemptLogsRequest) returns (stream StreamJobAttemptLogsResponse) {}
+
   // ListRuns returns recent CI runs for the authenticated organization.
   //
   // This is a recent run discovery API, not a historical search API. Results are always
@@ -394,6 +397,26 @@ message GetJobAttemptLogsResponse {
   repeated LogLine lines = 1;
   // Token to retrieve the next page of results; empty if no more pages.
   string next_page_token = 2;
+}
+
+message StreamJobAttemptLogsRequest {
+  // attempt_id identifies the concrete job attempt whose logs to stream.
+  string attempt_id = 1;
+  // Opaque cursor returned by a previous stream response.
+  string cursor = 2;
+  // job_id identifies a CI job. The stream resolves it to that job's latest attempt.
+  string job_id = 3;
+}
+
+message StreamJobAttemptLogsResponse {
+  // line is set when this response carries a persisted log line.
+  // Status-only responses can omit it while the stream is waiting for rows.
+  LogLine line = 1;
+  // Opaque cursor to resume after the emitted line.
+  string next_cursor = 2;
+  // attempt_status is the current lowercase attempt state, e.g. "queued",
+  // "running", "finished", "failed", or "cancelled".
+  string attempt_status = 3;
 }
 
 message LogLine {
