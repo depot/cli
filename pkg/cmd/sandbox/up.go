@@ -79,58 +79,50 @@ references inside the spec.`,
 				return fmt.Errorf("resolve token: %w", err)
 			}
 
-			if spec.Container != nil && spec.Container.Build != nil && !noBuild {
-				built, err := resolveAndBuild(spec, specPath, tagOverride, cmd.OutOrStdout(), cmd.ErrOrStderr())
+			if spec.Container != nil && spec.Container.Build != nil {
+				ociOrgRef, ext4OrgRef, err := sandboxRegistryRefs(spec, specPath, orgID)
 				if err != nil {
 					return err
 				}
 
-				// All registry refs derive from spec.Name + project + org.
-				// `--save-tag <name>` already published the OCI image at
-				// <orgID>.registry.depot.dev/<projectID>:<name>; we convert
-				// from that to a sibling :<name>-ext4 ref. StartSandbox
-				// receives the org-tenant form — the sandbox runtime only
-				// resolves `<tenant>.registry.depot.dev/...` refs, so the
-				// bare-host form fails with "remote fetch error: token
-				// request returned 404 Not Found" at sandbox boot.
-				// (DEP-4388 expanded the API-side validator to accept this
-				// form.)
-				agentTag := sanitizeTag(spec.Name)
-				if agentTag == "" {
-					return fmt.Errorf("spec %s: name is required (it determines the registry tag)", specPath)
-				}
-				orgRegistryHost := fmt.Sprintf("%s.registry.depot.dev", orgID)
-				ext4Tag := agentTag + "-ext4"
-				ociOrgRef := fmt.Sprintf("%s/%s:%s", orgRegistryHost, built.ProjectID, agentTag)
-				ext4OrgRef := fmt.Sprintf("%s/%s:%s", orgRegistryHost, built.ProjectID, ext4Tag)
-				ext4SandboxRef := ext4OrgRef
-
-				if !noConvert {
-					// Prefer the digest ref over the mutable
-					// :<name> tag so the convert step pins to the exact
-					// bytes we just saved. depot build's metadata-file
-					// emits the digest under containerimage.digest; if
-					// that's missing (older depot CLI), fall back to the
-					// org-scoped tag.
-					source := built.DigestRef
-					if source == "" {
-						source = ociOrgRef
-					}
-					specDir := filepath.Dir(specPath)
-					if _, err := convertOCIToExt4(
-						ctx, token, orgID,
-						specDir,
-						source, ext4OrgRef,
-						cmd.OutOrStdout(), cmd.ErrOrStderr(),
-					); err != nil {
+				if !noBuild {
+					built, err := resolveAndBuild(spec, specPath, tagOverride, cmd.OutOrStdout(), cmd.ErrOrStderr())
+					if err != nil {
 						return err
 					}
-					spec.Image = ext4SandboxRef
+
+					if !noConvert {
+						// Prefer the digest ref over the mutable :<name> tag
+						// so the convert step pins to the exact bytes we
+						// just saved. depot build's metadata-file emits
+						// the digest under containerimage.digest; if that's
+						// missing (older depot CLI), fall back to the
+						// org-scoped tag.
+						source := built.DigestRef
+						if source == "" {
+							source = ociOrgRef
+						}
+						if _, err := convertOCIToExt4(
+							ctx, token, orgID,
+							filepath.Dir(specPath),
+							source, ext4OrgRef,
+							cmd.OutOrStdout(), cmd.ErrOrStderr(),
+						); err != nil {
+							return err
+						}
+						spec.Image = ext4OrgRef
+					} else {
+						// --no-convert: hand the OCI ref through verbatim.
+						// The sandbox runtime will reject it; this path
+						// exists for debugging the build half in isolation.
+						spec.Image = built.ImageRef
+					}
 				} else {
-					// --no-convert: hand the OCI ref through verbatim.
-					// The sandbox runtime will reject it; this path
-					// exists for debugging the build half in isolation.
-					spec.Image = built.ImageRef
+					// --no-build: trust that a prior `depot sandbox build`
+					// (or `depot sandbox up`) already published the
+					// conventional ext4 ref. The sandbox runtime will
+					// surface a clear pull error at boot if it doesn't.
+					spec.Image = ext4OrgRef
 				}
 			}
 

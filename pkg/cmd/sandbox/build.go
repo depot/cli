@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/depot/cli/pkg/config"
+	"github.com/depot/cli/pkg/helpers"
 	"github.com/depot/cli/pkg/project"
 	"github.com/depot/cli/pkg/sandbox"
 	"github.com/spf13/cobra"
@@ -30,12 +32,17 @@ type buildResult struct {
 func newSandboxBuild() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "build [flags]",
-		Short: "Build the image declared by sandbox.depot.yml and save it to depot's registry",
-		Long: `Build the image declared by the [build] section of sandbox.depot.yml
-and save it to depot's internal registry. Use this when you want to publish
-a new agent image without spawning a sandbox; "depot sandbox up" performs the
-same step automatically when [build] is present.`,
+		Short: "Build the sandbox image end-to-end (OCI build + convert to ext4 rootfs)",
+		Long: `Build the image declared by the [container.build] section of sandbox.depot.yml,
+push it to depot's registry, and convert it to the ext4 rootfs the sandbox
+runtime boots from.
+
+The output ref is the same one ` + "`depot sandbox up`" + ` would feed StartSandbox,
+so a subsequent ` + "`depot sandbox up --no-build`" + ` boots from this image without
+rebuilding.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := cmd.Context()
+
 			file, _ := cmd.Flags().GetString("file")
 			specPath, err := resolveSpecPath(file)
 			if err != nil {
@@ -49,18 +56,75 @@ same step automatically when [build] is present.`,
 				return fmt.Errorf("spec %s has no [container.build] section; nothing to build", specPath)
 			}
 
-			tagOverride, _ := cmd.Flags().GetString("tag")
-			result, err := resolveAndBuild(spec, specPath, tagOverride, cmd.OutOrStdout(), cmd.ErrOrStderr())
+			orgID, _ := cmd.Flags().GetString("org")
+			if orgID == "" {
+				orgID = config.GetCurrentOrganization()
+			}
+			token, _ := cmd.Flags().GetString("token")
+			token, err = helpers.ResolveOrgAuth(ctx, token)
+			if err != nil {
+				return fmt.Errorf("resolve token: %w", err)
+			}
+
+			ociOrgRef, ext4OrgRef, err := sandboxRegistryRefs(spec, specPath, orgID)
 			if err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Saved %s\n", result.ImageRef)
+
+			tagOverride, _ := cmd.Flags().GetString("tag")
+			built, err := resolveAndBuild(spec, specPath, tagOverride, cmd.OutOrStdout(), cmd.ErrOrStderr())
+			if err != nil {
+				return err
+			}
+
+			source := built.DigestRef
+			if source == "" {
+				source = ociOrgRef
+			}
+			if _, err := convertOCIToExt4(
+				ctx, token, orgID,
+				filepath.Dir(specPath),
+				source, ext4OrgRef,
+				cmd.OutOrStdout(), cmd.ErrOrStderr(),
+			); err != nil {
+				return err
+			}
+
+			fmt.Fprintf(cmd.OutOrStdout(), "Saved %s\n", ext4OrgRef)
 			return nil
 		},
 	}
 	cmd.Flags().StringP("file", "f", "", "Path to a sandbox.depot.yml file (default: walk up from cwd)")
 	cmd.Flags().String("tag", "", "Friendly --save-tag for the depot UI (the ref is still <projectID>:<buildID>)")
 	return cmd
+}
+
+// sandboxRegistryRefs returns the conventional OCI and ext4 refs the sandbox
+// build/up commands agree on. Both live in the org-tenant subdomain of the
+// depot registry (the sandbox runtime only resolves <tenant>.registry.depot.dev
+// refs; bare-host fails at boot — see DEP-4388).
+//
+//	oci  = <orgID>.registry.depot.dev/<projectID>:<sanitized-name>
+//	ext4 = <orgID>.registry.depot.dev/<projectID>:<sanitized-name>-ext4
+//
+// Same spec.Name + same project + same org → same refs, so `sandbox build`
+// publishes to ext4 and `sandbox up --no-build` boots from it.
+func sandboxRegistryRefs(spec *sandbox.Spec, specPath, orgID string) (string, string, error) {
+	if spec.Container == nil || spec.Container.Build == nil {
+		return "", "", fmt.Errorf("spec %s: registry refs require a [container.build] section", specPath)
+	}
+	agentTag := sanitizeTag(spec.Name)
+	if agentTag == "" {
+		return "", "", fmt.Errorf("spec %s: name is required (it determines the registry tag)", specPath)
+	}
+	projectID, err := resolvePushProject(spec.Container.Build, filepath.Dir(specPath))
+	if err != nil {
+		return "", "", err
+	}
+	base := fmt.Sprintf("%s.registry.depot.dev/%s", orgID, projectID)
+	oci := fmt.Sprintf("%s:%s", base, agentTag)
+	ext4 := fmt.Sprintf("%s:%s-ext4", base, agentTag)
+	return oci, ext4, nil
 }
 
 // resolveAndBuild runs the equivalent of
