@@ -2,6 +2,7 @@ package ci
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -21,17 +22,25 @@ const (
 	followAttemptRetryTimeout  = 30 * time.Second
 	followAttemptRetryInterval = 1 * time.Second
 	followLogIdleDelay         = 2 * time.Second
+	logOutputJSON              = "json"
 )
 
-var ciStreamJobAttemptLogs = api.CIStreamJobAttemptLogs
+var (
+	ciGetRunStatus             = api.CIGetRunStatus
+	ciGetJobAttemptLogs        = api.CIGetJobAttemptLogs
+	ciStreamJobAttemptLogs     = api.CIStreamJobAttemptLogs
+	ciStreamJobAttemptLogLines = api.CIStreamJobAttemptLogLines
+)
 
 func NewCmdLogs() *cobra.Command {
 	var (
-		orgID    string
-		token    string
-		job      string
-		workflow string
-		follow   bool
+		orgID      string
+		token      string
+		job        string
+		workflow   string
+		follow     bool
+		output     string
+		timestamps bool
 	)
 
 	cmd := &cobra.Command{
@@ -58,10 +67,21 @@ ID, use --job and --workflow to disambiguate by workflow job key.`,
   depot ci logs <run-id> --job build --workflow ci.yml
 
   # Follow live logs for a job's latest attempt
-  depot ci logs <job-id> --follow`,
+  depot ci logs <job-id> --follow
+
+  # Prefix log lines with persisted UTC timestamps
+  depot ci logs <attempt-id> --timestamps
+
+  # Emit newline-delimited JSON log events
+  depot ci logs <attempt-id> --output json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 0 {
 				return cmd.Help()
+			}
+
+			outputOptions := logOutputOptions{timestamps: timestamps, output: output}
+			if err := outputOptions.validate(); err != nil {
+				return err
 			}
 
 			ctx := cmd.Context()
@@ -79,14 +99,21 @@ ID, use --job and --workflow to disambiguate by workflow job key.`,
 				return fmt.Errorf("missing API token, please run `depot login`")
 			}
 
-			reporter := newLogFollowReporter(cmd.ErrOrStderr(), follow && helpers.IsTerminal())
+			reporterWriter := cmd.ErrOrStderr()
+			reporterInteractive := follow && helpers.IsTerminal()
+			if outputOptions.json() {
+				reporterWriter = io.Discard
+				reporterInteractive = false
+			}
+			reporter := newLogFollowReporter(reporterWriter, reporterInteractive)
 
 			// First, try resolving as a run ID (or job ID — the API accepts both).
-			resp, runErr := api.CIGetRunStatus(ctx, tokenVal, orgID, id)
+			resolutionOptions := logTargetResolutionOptionsForOutput(outputOptions)
+			resp, runErr := ciGetRunStatus(ctx, tokenVal, orgID, id)
 			if runErr == nil {
-				target, err := resolveLogTarget(resp, id, job, workflow)
+				target, err := resolveLogTargetWithOptions(resp, id, job, workflow, resolutionOptions)
 				if follow && err != nil {
-					target, err = resolveLogTargetWithFollowRetry(ctx, tokenVal, orgID, id, job, workflow, err, reporter)
+					target, err = resolveLogTargetWithFollowRetry(ctx, tokenVal, orgID, id, job, workflow, err, reporter, resolutionOptions)
 				}
 				if err != nil {
 					return err
@@ -97,12 +124,12 @@ ID, use --job and --workflow to disambiguate by workflow job key.`,
 				}
 
 				if follow {
-					if err := streamLogsWithFollowUX(ctx, tokenVal, orgID, target, cmd.OutOrStdout(), reporter); err != nil {
+					if err := streamLogsWithFollowUX(ctx, tokenVal, orgID, target, cmd.OutOrStdout(), reporter, outputOptions); err != nil {
 						return fmt.Errorf("failed to stream logs: %w", err)
 					}
 				} else {
 					reportLogTargetSelection(target, reporter, false)
-					lines, err := api.CIGetJobAttemptLogs(ctx, tokenVal, orgID, target.attemptID)
+					lines, err := ciGetJobAttemptLogs(ctx, tokenVal, orgID, target.attemptID)
 					if err != nil {
 						return fmt.Errorf("failed to get logs: %w", err)
 					}
@@ -110,7 +137,9 @@ ID, use --job and --workflow to disambiguate by workflow job key.`,
 						reporter.Message(noLogsProducedMessage(target.jobKey, target.jobStatus))
 						return nil
 					}
-					printLogLines(cmd.OutOrStdout(), lines)
+					if err := printLogLines(cmd.OutOrStdout(), lines, outputOptions); err != nil {
+						return err
+					}
 				}
 				return nil
 			}
@@ -123,7 +152,7 @@ ID, use --job and --workflow to disambiguate by workflow job key.`,
 			}
 
 			if follow {
-				if err := streamUnresolvedLogsWithFollowUX(ctx, tokenVal, orgID, id, cmd.OutOrStdout(), reporter); err != nil {
+				if err := streamUnresolvedLogsWithFollowUX(ctx, tokenVal, orgID, id, cmd.OutOrStdout(), reporter, outputOptions); err != nil {
 					if unresolvedErr, ok := err.(*unresolvedLogStreamError); ok {
 						return fmt.Errorf(
 							"could not resolve %q as a run, job, or attempt ID:\n  as run: %v\n  as job: %v\n  as attempt: %v",
@@ -136,7 +165,7 @@ ID, use --job and --workflow to disambiguate by workflow job key.`,
 					return fmt.Errorf("failed to stream logs: %w", err)
 				}
 			} else {
-				lines, err := api.CIGetJobAttemptLogs(ctx, tokenVal, orgID, id)
+				lines, err := ciGetJobAttemptLogs(ctx, tokenVal, orgID, id)
 				if err != nil {
 					// Both paths failed — show both errors so the user can
 					// distinguish "bad ID" from "auth/network failure".
@@ -151,7 +180,9 @@ ID, use --job and --workflow to disambiguate by workflow job key.`,
 					reporter.Message("No logs were produced.")
 					return nil
 				}
-				printLogLines(cmd.OutOrStdout(), lines)
+				if err := printLogLines(cmd.OutOrStdout(), lines, outputOptions); err != nil {
+					return err
+				}
 			}
 			return nil
 		},
@@ -162,13 +193,132 @@ ID, use --job and --workflow to disambiguate by workflow job key.`,
 	cmd.Flags().StringVar(&job, "job", "", "Workflow job key to select when using a run ID")
 	cmd.Flags().StringVar(&workflow, "workflow", "", "Workflow path to filter jobs (e.g. ci.yml)")
 	cmd.Flags().BoolVarP(&follow, "follow", "f", false, "Follow live logs")
+	cmd.Flags().BoolVar(&timestamps, "timestamps", false, "Prefix plain log lines with UTC timestamps")
+	cmd.Flags().StringVarP(&output, "output", "o", "", "Output format (json)")
 
 	return cmd
 }
 
-func printLogLines(w io.Writer, lines []*civ1.LogLine) {
+type logOutputOptions struct {
+	timestamps bool
+	output     string
+}
+
+func (o logOutputOptions) validate() error {
+	switch o.output {
+	case "", logOutputJSON:
+		return nil
+	default:
+		return fmt.Errorf("unsupported output %q (valid: json)", o.output)
+	}
+}
+
+func (o logOutputOptions) json() bool {
+	return o.output == logOutputJSON
+}
+
+type logLineEvent struct {
+	Type        string `json:"type"`
+	Timestamp   string `json:"timestamp"`
+	TimestampMs int64  `json:"timestamp_ms"`
+	Stream      string `json:"stream"`
+	StepKey     string `json:"step_key"`
+	LineNumber  uint32 `json:"line_number"`
+	Body        string `json:"body"`
+}
+
+type logStatusEvent struct {
+	Type   string `json:"type"`
+	Status string `json:"status"`
+}
+
+type logEndEvent struct {
+	Type      string `json:"type"`
+	Status    string `json:"status,omitempty"`
+	LineCount int    `json:"line_count"`
+}
+
+type logJSONEventWriter struct {
+	enc *json.Encoder
+}
+
+func newLogJSONEventWriter(w io.Writer) *logJSONEventWriter {
+	return &logJSONEventWriter{enc: json.NewEncoder(w)}
+}
+
+func (w *logJSONEventWriter) Line(line *civ1.LogLine) error {
+	return w.enc.Encode(logLineEventFromLine(line))
+}
+
+func (w *logJSONEventWriter) Status(status string) error {
+	if status == "" {
+		return nil
+	}
+	return w.enc.Encode(logStatusEvent{Type: "status", Status: status})
+}
+
+func (w *logJSONEventWriter) End(status string, lineCount int) error {
+	return w.enc.Encode(logEndEvent{Type: "end", Status: status, LineCount: lineCount})
+}
+
+func logLineEventFromLine(line *civ1.LogLine) logLineEvent {
+	return logLineEvent{
+		Type:        "line",
+		Timestamp:   formatLogTimestamp(line),
+		TimestampMs: line.GetTimestampMs(),
+		Stream:      logStreamName(line.GetStream()),
+		StepKey:     line.GetStepId(),
+		LineNumber:  line.GetLineNumber(),
+		Body:        line.GetBody(),
+	}
+}
+
+func printLogLines(w io.Writer, lines []*civ1.LogLine, options logOutputOptions) error {
+	if options.json() {
+		writer := newLogJSONEventWriter(w)
+		for _, line := range lines {
+			if err := writer.Line(line); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
 	for _, line := range lines {
-		fmt.Fprintln(w, line.Body)
+		if err := writePlainLogLine(w, line, options.timestamps); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func writePlainLogLine(w io.Writer, line *civ1.LogLine, timestamps bool) error {
+	text := line.GetBody() + "\n"
+	if timestamps {
+		text = formatLogTimestamp(line) + " " + line.GetBody() + "\n"
+	}
+	n, err := io.WriteString(w, text)
+	if err != nil {
+		return err
+	}
+	if n != len(text) {
+		return io.ErrShortWrite
+	}
+	return nil
+}
+
+func formatLogTimestamp(line *civ1.LogLine) string {
+	return time.UnixMilli(line.GetTimestampMs()).UTC().Format(time.RFC3339Nano)
+}
+
+func logStreamName(stream uint32) string {
+	switch stream {
+	case 0:
+		return "stdout"
+	case 1:
+		return "stderr"
+	default:
+		return fmt.Sprintf("stream_%d", stream)
 	}
 }
 
@@ -318,6 +468,16 @@ func (w *followLogWriter) Write(p []byte) (int, error) {
 	return n, err
 }
 
+func (w *followLogWriter) WriteLine(line *civ1.LogLine, timestamps bool) error {
+	w.lines++
+	w.reporter.pause()
+	err := writePlainLogLine(w.w, line, timestamps)
+	if err == nil {
+		w.reporter.SawLogs()
+	}
+	return err
+}
+
 func streamLogsWithFollowUX(
 	ctx context.Context,
 	tokenVal string,
@@ -325,14 +485,17 @@ func streamLogsWithFollowUX(
 	target logTarget,
 	out io.Writer,
 	reporter *logFollowReporter,
+	options logOutputOptions,
 ) error {
-	reportLogTargetSelection(target, reporter, true)
+	if !options.json() {
+		reportLogTargetSelection(target, reporter, true)
+	}
 	streamTarget := api.CILogStreamTarget{AttemptID: target.attemptID}
 	if target.streamJobID != "" {
 		streamTarget = api.CILogStreamTarget{JobID: target.streamJobID}
 	}
 
-	return streamLogTargetWithFollowUX(ctx, tokenVal, orgID, streamTarget, target, out, reporter)
+	return streamLogTargetWithFollowUX(ctx, tokenVal, orgID, streamTarget, target, out, reporter, options)
 }
 
 type unresolvedLogStreamError struct {
@@ -351,8 +514,11 @@ func streamUnresolvedLogsWithFollowUX(
 	id string,
 	out io.Writer,
 	reporter *logFollowReporter,
+	options logOutputOptions,
 ) error {
-	reporter.Message(fmt.Sprintf("Following logs for %s.", id))
+	if !options.json() {
+		reporter.Message(fmt.Sprintf("Following logs for %s.", id))
+	}
 
 	jobErr := streamLogTargetWithFollowUX(
 		ctx,
@@ -362,6 +528,7 @@ func streamUnresolvedLogsWithFollowUX(
 		logTarget{},
 		out,
 		reporter,
+		options,
 	)
 	if jobErr == nil {
 		return nil
@@ -378,6 +545,7 @@ func streamUnresolvedLogsWithFollowUX(
 		logTarget{},
 		out,
 		reporter,
+		options,
 	)
 	if attemptErr == nil {
 		return nil
@@ -401,17 +569,36 @@ func streamLogTargetWithFollowUX(
 	target logTarget,
 	out io.Writer,
 	reporter *logFollowReporter,
+	options logOutputOptions,
 ) error {
+	if options.json() {
+		return streamLogTargetAsJSON(ctx, tokenVal, orgID, streamTarget, target, out)
+	}
+
 	reporter.Status(logStreamWaitingMessage(target))
 
 	logWriter := &followLogWriter{w: out, reporter: reporter}
-	err := ciStreamJobAttemptLogs(ctx, tokenVal, orgID, streamTarget, logWriter, func(status string) {
-		if logWriter.lines > 0 && status == target.attemptStatus {
-			return
-		}
-		target.attemptStatus = status
-		reporter.Status(logStreamWaitingMessage(target))
-	})
+	var err error
+	if options.timestamps {
+		err = ciStreamJobAttemptLogLines(ctx, tokenVal, orgID, streamTarget, func(line *civ1.LogLine) error {
+			return logWriter.WriteLine(line, true)
+		}, func(status string) error {
+			if logWriter.lines > 0 && status == target.attemptStatus {
+				return nil
+			}
+			target.attemptStatus = status
+			reporter.Status(logStreamWaitingMessage(target))
+			return nil
+		})
+	} else {
+		err = ciStreamJobAttemptLogs(ctx, tokenVal, orgID, streamTarget, logWriter, func(status string) {
+			if logWriter.lines > 0 && status == target.attemptStatus {
+				return
+			}
+			target.attemptStatus = status
+			reporter.Status(logStreamWaitingMessage(target))
+		})
+	}
 	reporter.Stop()
 	if err != nil {
 		return err
@@ -425,6 +612,43 @@ func streamLogTargetWithFollowUX(
 	return nil
 }
 
+func streamLogTargetAsJSON(
+	ctx context.Context,
+	tokenVal string,
+	orgID string,
+	streamTarget api.CILogStreamTarget,
+	target logTarget,
+	out io.Writer,
+) error {
+	writer := newLogJSONEventWriter(out)
+	lineCount := 0
+	lastStatus := ""
+
+	if status := logTargetStatus(target); status != "" {
+		if err := writer.Status(status); err != nil {
+			return err
+		}
+		lastStatus = status
+	}
+
+	err := ciStreamJobAttemptLogLines(ctx, tokenVal, orgID, streamTarget, func(line *civ1.LogLine) error {
+		lineCount++
+		return writer.Line(line)
+	}, func(status string) error {
+		target.attemptStatus = status
+		if status == "" || status == lastStatus {
+			return nil
+		}
+		lastStatus = status
+		return writer.Status(status)
+	})
+	if err != nil {
+		return err
+	}
+
+	return writer.End(logTargetStatus(target), lineCount)
+}
+
 func resolveLogTargetWithFollowRetry(
 	ctx context.Context,
 	tokenVal string,
@@ -434,6 +658,7 @@ func resolveLogTargetWithFollowRetry(
 	workflow string,
 	initialErr error,
 	reporter *logFollowReporter,
+	options logTargetResolutionOptions,
 ) (logTarget, error) {
 	if !isFollowRetryableResolutionError(initialErr) {
 		return logTarget{}, initialErr
@@ -458,11 +683,11 @@ func resolveLogTargetWithFollowRetry(
 			return logTarget{}, lastErr
 		case <-ticker.C:
 			var err error
-			resp, err := api.CIGetRunStatus(ctx, tokenVal, orgID, id)
+			resp, err := ciGetRunStatus(ctx, tokenVal, orgID, id)
 			if err != nil {
 				return logTarget{}, err
 			}
-			target, err := resolveLogTarget(resp, id, job, workflow)
+			target, err := resolveLogTargetWithOptions(resp, id, job, workflow, options)
 			if err == nil {
 				return target, nil
 			}
@@ -490,6 +715,14 @@ type jobCandidate struct {
 	job          *civ1.JobStatus
 	workflowPath string
 	workflowName string
+}
+
+type logTargetResolutionOptions struct {
+	allowInteractive bool
+}
+
+func logTargetResolutionOptionsForOutput(outputOptions logOutputOptions) logTargetResolutionOptions {
+	return logTargetResolutionOptions{allowInteractive: !outputOptions.json()}
 }
 
 // jobKeyShort returns the short form of a job key (after the first colon),
@@ -524,7 +757,11 @@ func jobDisplayNames(candidates []jobCandidate) map[string]string {
 }
 
 func resolveLogTarget(resp *civ1.GetRunStatusResponse, originalID, jobKey, workflowFilter string) (logTarget, error) {
-	targetJob, workflowPath, err := findLogsJob(resp, originalID, jobKey, workflowFilter)
+	return resolveLogTargetWithOptions(resp, originalID, jobKey, workflowFilter, logTargetResolutionOptions{allowInteractive: true})
+}
+
+func resolveLogTargetWithOptions(resp *civ1.GetRunStatusResponse, originalID, jobKey, workflowFilter string, options logTargetResolutionOptions) (logTarget, error) {
+	targetJob, workflowPath, err := findLogsJobWithOptions(resp, originalID, jobKey, workflowFilter, options)
 	if err != nil {
 		if isRetryableLogJobError(err) {
 			if isActiveRunStatus(resp.Status) {
@@ -740,6 +977,10 @@ func reportLogTargetSelection(target logTarget, reporter *logFollowReporter, fol
 // findLogsJob locates the target job in the run status response.
 // Returns the job and the workflow path it belongs to.
 func findLogsJob(resp *civ1.GetRunStatusResponse, originalID, jobKey, workflowFilter string) (*civ1.JobStatus, string, error) {
+	return findLogsJobWithOptions(resp, originalID, jobKey, workflowFilter, logTargetResolutionOptions{allowInteractive: true})
+}
+
+func findLogsJobWithOptions(resp *civ1.GetRunStatusResponse, originalID, jobKey, workflowFilter string, options logTargetResolutionOptions) (*civ1.JobStatus, string, error) {
 	var candidates []jobCandidate
 	for _, wf := range resp.Workflows {
 		if workflowFilter != "" && !workflowPathMatches(wf.WorkflowPath, workflowFilter) {
@@ -819,8 +1060,8 @@ func findLogsJob(resp *civ1.GetRunStatusResponse, originalID, jobKey, workflowFi
 		return candidates[0].job, candidates[0].workflowPath, nil
 	}
 
-	// Interactive fuzzy picker when terminal is available.
-	if helpers.IsTerminal() {
+	// Interactive fuzzy picker when terminal is available and interactive mode is allowed.
+	if options.allowInteractive && helpers.IsTerminal() {
 		displayNames := jobDisplayNames(candidates)
 		items := make([]PickJobItem, len(candidates))
 		for i, c := range candidates {

@@ -3,6 +3,7 @@ package ci
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"strings"
@@ -55,6 +56,34 @@ func TestFindLogsJob_MultipleJobsRequiresFlag(t *testing.T) {
 	_, _, err := findLogsJob(resp, "run-1", "", "")
 	if err == nil {
 		t.Fatal("expected error for multiple jobs without --job flag")
+	}
+}
+
+func TestResolveLogTargetJSONOptionsReturnNonInteractiveAmbiguity(t *testing.T) {
+	resp := &civ1.GetRunStatusResponse{
+		RunId: "run-1",
+		Workflows: []*civ1.WorkflowStatus{
+			{
+				WorkflowPath: ".depot/workflows/ci.yml",
+				Jobs: []*civ1.JobStatus{
+					{JobId: "job-1", JobKey: "build", Status: "finished"},
+					{JobId: "job-2", JobKey: "test", Status: "running"},
+				},
+			},
+		},
+	}
+
+	options := logTargetResolutionOptionsForOutput(logOutputOptions{output: logOutputJSON})
+	if options.allowInteractive {
+		t.Fatal("json output should disable interactive job resolution")
+	}
+
+	_, err := resolveLogTargetWithOptions(resp, "run-1", "", "", options)
+	if err == nil {
+		t.Fatal("expected ambiguity error")
+	}
+	if !strings.Contains(err.Error(), "run has multiple jobs, specify one with --job") {
+		t.Fatalf("expected multiple-jobs ambiguity error, got: %v", err)
 	}
 }
 
@@ -355,6 +384,372 @@ func TestLogStreamWaitingMessageIncludesUnresolvedStatus(t *testing.T) {
 	}
 }
 
+func TestLogsCommandHistoricalDirectAttemptDefaultOutputUnchanged(t *testing.T) {
+	originalGetRunStatus := ciGetRunStatus
+	originalGetJobAttemptLogs := ciGetJobAttemptLogs
+	t.Cleanup(func() {
+		ciGetRunStatus = originalGetRunStatus
+		ciGetJobAttemptLogs = originalGetJobAttemptLogs
+	})
+
+	ciGetRunStatus = func(context.Context, string, string, string) (*civ1.GetRunStatusResponse, error) {
+		return nil, errors.New("not a run")
+	}
+	ciGetJobAttemptLogs = func(_ context.Context, _, _, attemptID string) ([]*civ1.LogLine, error) {
+		if attemptID != "attempt-1" {
+			t.Fatalf("attemptID = %q, want attempt-1", attemptID)
+		}
+		return []*civ1.LogLine{
+			{Body: "first"},
+			{Body: "second"},
+		}, nil
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd := NewCmdLogs()
+	cmd.SetArgs([]string{"attempt-1", "--token", "token-123", "--org", "org-123"})
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := stdout.String(), "first\nsecond\n"; got != want {
+		t.Fatalf("stdout = %q, want %q", got, want)
+	}
+	if got := stderr.String(); got != "" {
+		t.Fatalf("stderr = %q, want empty", got)
+	}
+}
+
+func TestLogsCommandHistoricalJSONSuppressesHumanTargetMessages(t *testing.T) {
+	originalGetRunStatus := ciGetRunStatus
+	originalGetJobAttemptLogs := ciGetJobAttemptLogs
+	t.Cleanup(func() {
+		ciGetRunStatus = originalGetRunStatus
+		ciGetJobAttemptLogs = originalGetJobAttemptLogs
+	})
+
+	ciGetRunStatus = func(context.Context, string, string, string) (*civ1.GetRunStatusResponse, error) {
+		return &civ1.GetRunStatusResponse{
+			RunId: "run-1",
+			Workflows: []*civ1.WorkflowStatus{
+				{
+					WorkflowPath: ".depot/workflows/ci.yml",
+					Jobs: []*civ1.JobStatus{
+						{
+							JobId:  "job-1",
+							JobKey: "ci.yml:build",
+							Status: "finished",
+							Attempts: []*civ1.AttemptStatus{
+								{AttemptId: "attempt-1", Attempt: 1, Status: "finished"},
+							},
+						},
+					},
+				},
+			},
+		}, nil
+	}
+	ciGetJobAttemptLogs = func(context.Context, string, string, string) ([]*civ1.LogLine, error) {
+		return []*civ1.LogLine{
+			testCmdLogLine("step-1", 7, 123, 1, `quoted "body" \ path`),
+		}, nil
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd := NewCmdLogs()
+	cmd.SetArgs([]string{"run-1", "--token", "token-123", "--org", "org-123", "-o", "json"})
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	events := decodeLogEvents(t, stdout.String())
+	if len(events) != 1 {
+		t.Fatalf("events = %d, want 1: %s", len(events), stdout.String())
+	}
+	assertLogLineEvent(t, events[0], map[string]any{
+		"type":         "line",
+		"timestamp":    "1970-01-01T00:00:00.123Z",
+		"timestamp_ms": float64(123),
+		"stream":       "stderr",
+		"step_key":     "step-1",
+		"line_number":  float64(7),
+		"body":         `quoted "body" \ path`,
+	})
+	if got := stderr.String(); got != "" {
+		t.Fatalf("stderr = %q, want empty", got)
+	}
+}
+
+func TestPrintLogLinesDefaultOutputUnchanged(t *testing.T) {
+	lines := []*civ1.LogLine{
+		{Body: "first"},
+		{Body: "second"},
+	}
+
+	var out bytes.Buffer
+	if err := printLogLines(&out, lines, logOutputOptions{}); err != nil {
+		t.Fatal(err)
+	}
+
+	if got, want := out.String(), "first\nsecond\n"; got != want {
+		t.Fatalf("output = %q, want %q", got, want)
+	}
+}
+
+func TestPrintLogLinesTimestamps(t *testing.T) {
+	lines := []*civ1.LogLine{
+		{TimestampMs: 0, Body: "first"},
+		{TimestampMs: 123, Body: "second"},
+	}
+
+	var out bytes.Buffer
+	if err := printLogLines(&out, lines, logOutputOptions{timestamps: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	want := "1970-01-01T00:00:00Z first\n1970-01-01T00:00:00.123Z second\n"
+	if got := out.String(); got != want {
+		t.Fatalf("output = %q, want %q", got, want)
+	}
+}
+
+func TestPrintLogLinesJSON(t *testing.T) {
+	largeBody := strings.Repeat("x", 5000) + ` "quoted" \ slash`
+	lines := []*civ1.LogLine{
+		testCmdLogLine("step-1", 7, 123, 1, largeBody),
+	}
+
+	var out bytes.Buffer
+	if err := printLogLines(&out, lines, logOutputOptions{output: logOutputJSON}); err != nil {
+		t.Fatal(err)
+	}
+
+	events := decodeLogEvents(t, out.String())
+	if len(events) != 1 {
+		t.Fatalf("events = %d, want 1: %s", len(events), out.String())
+	}
+	assertLogLineEvent(t, events[0], map[string]any{
+		"type":         "line",
+		"timestamp":    "1970-01-01T00:00:00.123Z",
+		"timestamp_ms": float64(123),
+		"stream":       "stderr",
+		"step_key":     "step-1",
+		"line_number":  float64(7),
+		"body":         largeBody,
+	})
+}
+
+func TestPrintLogLinesJSONIgnoresTimestampsOption(t *testing.T) {
+	lines := []*civ1.LogLine{
+		testCmdLogLine("step-1", 7, 123, 1, "body"),
+	}
+
+	var jsonOnly bytes.Buffer
+	if err := printLogLines(&jsonOnly, lines, logOutputOptions{output: logOutputJSON}); err != nil {
+		t.Fatal(err)
+	}
+
+	var jsonWithTimestamps bytes.Buffer
+	if err := printLogLines(&jsonWithTimestamps, lines, logOutputOptions{output: logOutputJSON, timestamps: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	if jsonWithTimestamps.String() != jsonOnly.String() {
+		t.Fatalf("json with timestamps differs:\nwithout: %s\nwith: %s", jsonOnly.String(), jsonWithTimestamps.String())
+	}
+}
+
+func TestLogOutputOptionsValidateRejectsUnsupportedOutput(t *testing.T) {
+	err := (logOutputOptions{output: "yaml"}).validate()
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+	if !strings.Contains(err.Error(), `unsupported output "yaml"`) {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestLogsCommandRejectsUnsupportedOutputBeforeAuth(t *testing.T) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd := NewCmdLogs()
+	cmd.SetArgs([]string{"attempt-1", "--output", "yaml"})
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), `unsupported output "yaml"`) {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestStreamLogTargetWithFollowUXTimestamps(t *testing.T) {
+	original := ciStreamJobAttemptLogLines
+	t.Cleanup(func() { ciStreamJobAttemptLogLines = original })
+
+	ciStreamJobAttemptLogLines = func(
+		_ context.Context,
+		_, _ string,
+		target api.CILogStreamTarget,
+		onLine func(*civ1.LogLine) error,
+		onStatus func(string) error,
+	) error {
+		if target.AttemptID != "attempt-1" {
+			t.Fatalf("attemptID = %q, want attempt-1", target.AttemptID)
+		}
+		if err := onStatus("running"); err != nil {
+			return err
+		}
+		return onLine(testCmdLogLine("step-1", 1, 123, 0, "build"))
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	err := streamLogTargetWithFollowUX(
+		context.Background(),
+		"token-123",
+		"org-123",
+		api.CILogStreamTarget{AttemptID: "attempt-1"},
+		logTarget{attemptID: "attempt-1", attemptStatus: "queued"},
+		&stdout,
+		newLogFollowReporter(&stderr, false),
+		logOutputOptions{timestamps: true},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if got, want := stdout.String(), "1970-01-01T00:00:00.123Z build\n"; got != want {
+		t.Fatalf("stdout = %q, want %q", got, want)
+	}
+	if strings.Contains(stderr.String(), "1970-01-01") {
+		t.Fatalf("status output should not be timestamp-prefixed: %q", stderr.String())
+	}
+}
+
+func TestStreamLogTargetWithFollowUXJSONEmitsStatusLineAndEnd(t *testing.T) {
+	original := ciStreamJobAttemptLogLines
+	t.Cleanup(func() { ciStreamJobAttemptLogLines = original })
+
+	ciStreamJobAttemptLogLines = func(
+		_ context.Context,
+		_, _ string,
+		target api.CILogStreamTarget,
+		onLine func(*civ1.LogLine) error,
+		onStatus func(string) error,
+	) error {
+		if target.AttemptID != "attempt-1" {
+			t.Fatalf("attemptID = %q, want attempt-1", target.AttemptID)
+		}
+		if err := onStatus("running"); err != nil {
+			return err
+		}
+		if err := onStatus("running"); err != nil {
+			return err
+		}
+		if err := onLine(testCmdLogLine("step-1", 1, 123, 0, "build")); err != nil {
+			return err
+		}
+		return onStatus("finished")
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	err := streamLogTargetWithFollowUX(
+		context.Background(),
+		"token-123",
+		"org-123",
+		api.CILogStreamTarget{AttemptID: "attempt-1"},
+		logTarget{attemptID: "attempt-1", attemptStatus: "running"},
+		&stdout,
+		newLogFollowReporter(&stderr, false),
+		logOutputOptions{output: logOutputJSON},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	events := decodeLogEvents(t, stdout.String())
+	if len(events) != 4 {
+		t.Fatalf("events = %d, want 4: %s", len(events), stdout.String())
+	}
+	assertEventFields(t, events[0], map[string]any{"type": "status", "status": "running"})
+	assertLogLineEvent(t, events[1], map[string]any{
+		"type":         "line",
+		"timestamp":    "1970-01-01T00:00:00.123Z",
+		"timestamp_ms": float64(123),
+		"stream":       "stdout",
+		"step_key":     "step-1",
+		"line_number":  float64(1),
+		"body":         "build",
+	})
+	assertEventFields(t, events[2], map[string]any{"type": "status", "status": "finished"})
+	assertEventFields(t, events[3], map[string]any{"type": "end", "status": "finished", "line_count": float64(1)})
+	if got := stderr.String(); got != "" {
+		t.Fatalf("stderr = %q, want empty", got)
+	}
+}
+
+func testCmdLogLine(stepID string, lineNumber uint32, timestampMs int64, stream uint32, body string) *civ1.LogLine {
+	return &civ1.LogLine{
+		StepId:      stepID,
+		TimestampMs: timestampMs,
+		LineNumber:  lineNumber,
+		Stream:      stream,
+		Body:        body,
+	}
+}
+
+func decodeLogEvents(t *testing.T, output string) []map[string]any {
+	t.Helper()
+
+	dec := json.NewDecoder(strings.NewReader(output))
+	var events []map[string]any
+	for {
+		var event map[string]any
+		err := dec.Decode(&event)
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			t.Fatalf("invalid NDJSON: %v\n%s", err, output)
+		}
+		events = append(events, event)
+	}
+	return events
+}
+
+func assertLogLineEvent(t *testing.T, got map[string]any, want map[string]any) {
+	t.Helper()
+
+	assertEventFields(t, got, want)
+	if _, ok := got["step_id"]; ok {
+		t.Fatalf("line event should not include step_id: %#v", got)
+	}
+	if _, ok := got["step_name"]; ok {
+		t.Fatalf("line event should not include step_name: %#v", got)
+	}
+}
+
+func assertEventFields(t *testing.T, got map[string]any, want map[string]any) {
+	t.Helper()
+
+	for key, wantValue := range want {
+		if gotValue := got[key]; gotValue != wantValue {
+			t.Fatalf("%s = %#v, want %#v in event %#v", key, gotValue, wantValue, got)
+		}
+	}
+}
+
 func TestLogFollowReporterRestartsWaitingAfterIdleLogs(t *testing.T) {
 	reporter := newLogFollowReporter(io.Discard, true)
 	reporter.idleDelay = 10 * time.Millisecond
@@ -424,6 +819,7 @@ func TestResolveLogTargetWithFollowRetryStopsReporterOnCancellation(t *testing.T
 		"",
 		&pendingLogTargetError{message: "Waiting for job to start..."},
 		reporter,
+		logTargetResolutionOptions{allowInteractive: true},
 	)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected context cancellation, got %v", err)
@@ -471,6 +867,7 @@ func TestStreamUnresolvedLogsWithFollowUXTriesJobThenAttempt(t *testing.T) {
 		"id-123",
 		&stdout,
 		newLogFollowReporter(&stderr, false),
+		logOutputOptions{},
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -516,6 +913,7 @@ func TestStreamUnresolvedLogsWithFollowUXPropagatesCancellation(t *testing.T) {
 		"id-123",
 		io.Discard,
 		newLogFollowReporter(io.Discard, false),
+		logOutputOptions{},
 	)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected context cancellation, got %v", err)
@@ -552,6 +950,7 @@ func TestStreamUnresolvedLogsWithFollowUXReturnsBothTargetErrors(t *testing.T) {
 		"id-123",
 		io.Discard,
 		newLogFollowReporter(io.Discard, false),
+		logOutputOptions{},
 	)
 	if err == nil {
 		t.Fatal("expected error")
