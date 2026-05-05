@@ -66,6 +66,9 @@ const (
 	// CIServiceStreamJobAttemptLogsProcedure is the fully-qualified name of the CIService's
 	// StreamJobAttemptLogs RPC.
 	CIServiceStreamJobAttemptLogsProcedure = "/depot.ci.v1.CIService/StreamJobAttemptLogs"
+	// CIServiceExportJobAttemptLogsProcedure is the fully-qualified name of the CIService's
+	// ExportJobAttemptLogs RPC.
+	CIServiceExportJobAttemptLogsProcedure = "/depot.ci.v1.CIService/ExportJobAttemptLogs"
 	// CIServiceListRunsProcedure is the fully-qualified name of the CIService's ListRuns RPC.
 	CIServiceListRunsProcedure = "/depot.ci.v1.CIService/ListRuns"
 	// CIServiceListWorkflowsProcedure is the fully-qualified name of the CIService's ListWorkflows RPC.
@@ -104,8 +107,22 @@ type CIServiceClient interface {
 	GetWorkflow(context.Context, *connect.Request[v1.GetWorkflowRequest]) (*connect.Response[v1.GetWorkflowResponse], error)
 	// GetJobAttemptLogs returns log lines for a job attempt
 	GetJobAttemptLogs(context.Context, *connect.Request[v1.GetJobAttemptLogsRequest]) (*connect.Response[v1.GetJobAttemptLogsResponse], error)
-	// StreamJobAttemptLogs streams persisted log lines for a job attempt
+	// StreamJobAttemptLogs follows persisted log lines for a job attempt.
+	//
+	// This is a framed Connect/gRPC server stream, not a raw text response. Clients
+	// should consume response messages with a generated client or protocol-aware
+	// decoder. Each response includes the current attempt_status. Responses that
+	// carry a line also include next_cursor; persist that cursor and send it on a
+	// later request to resume after the emitted line.
 	StreamJobAttemptLogs(context.Context, *connect.Request[v1.StreamJobAttemptLogsRequest]) (*connect.ServerStreamForClient[v1.StreamJobAttemptLogsResponse], error)
+	// ExportJobAttemptLogs exports a finite snapshot of persisted log lines.
+	//
+	// This is a framed Connect/gRPC server stream, not a raw HTTP file download.
+	// Agents and API clients should call it with a generated client or
+	// protocol-aware decoder, read the first metadata response, then append each
+	// following chunk response to a file or writer in order. Use the Depot CLI
+	// `depot ci logs --output-file` when a shell-native file download is needed.
+	ExportJobAttemptLogs(context.Context, *connect.Request[v1.ExportJobAttemptLogsRequest]) (*connect.ServerStreamForClient[v1.ExportJobAttemptLogsResponse], error)
 	// ListRuns returns recent CI runs for the authenticated organization.
 	//
 	// This is a recent run discovery API, not a historical search API. Results are always
@@ -190,6 +207,11 @@ func NewCIServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...c
 			baseURL+CIServiceStreamJobAttemptLogsProcedure,
 			opts...,
 		),
+		exportJobAttemptLogs: connect.NewClient[v1.ExportJobAttemptLogsRequest, v1.ExportJobAttemptLogsResponse](
+			httpClient,
+			baseURL+CIServiceExportJobAttemptLogsProcedure,
+			opts...,
+		),
 		listRuns: connect.NewClient[v1.ListRunsRequest, v1.ListRunsResponse](
 			httpClient,
 			baseURL+CIServiceListRunsProcedure,
@@ -218,6 +240,7 @@ type cIServiceClient struct {
 	getWorkflow          *connect.Client[v1.GetWorkflowRequest, v1.GetWorkflowResponse]
 	getJobAttemptLogs    *connect.Client[v1.GetJobAttemptLogsRequest, v1.GetJobAttemptLogsResponse]
 	streamJobAttemptLogs *connect.Client[v1.StreamJobAttemptLogsRequest, v1.StreamJobAttemptLogsResponse]
+	exportJobAttemptLogs *connect.Client[v1.ExportJobAttemptLogsRequest, v1.ExportJobAttemptLogsResponse]
 	listRuns             *connect.Client[v1.ListRunsRequest, v1.ListRunsResponse]
 	listWorkflows        *connect.Client[v1.ListWorkflowsRequest, v1.ListWorkflowsResponse]
 }
@@ -287,6 +310,11 @@ func (c *cIServiceClient) StreamJobAttemptLogs(ctx context.Context, req *connect
 	return c.streamJobAttemptLogs.CallServerStream(ctx, req)
 }
 
+// ExportJobAttemptLogs calls depot.ci.v1.CIService.ExportJobAttemptLogs.
+func (c *cIServiceClient) ExportJobAttemptLogs(ctx context.Context, req *connect.Request[v1.ExportJobAttemptLogsRequest]) (*connect.ServerStreamForClient[v1.ExportJobAttemptLogsResponse], error) {
+	return c.exportJobAttemptLogs.CallServerStream(ctx, req)
+}
+
 // ListRuns calls depot.ci.v1.CIService.ListRuns.
 func (c *cIServiceClient) ListRuns(ctx context.Context, req *connect.Request[v1.ListRunsRequest]) (*connect.Response[v1.ListRunsResponse], error) {
 	return c.listRuns.CallUnary(ctx, req)
@@ -323,8 +351,22 @@ type CIServiceHandler interface {
 	GetWorkflow(context.Context, *connect.Request[v1.GetWorkflowRequest]) (*connect.Response[v1.GetWorkflowResponse], error)
 	// GetJobAttemptLogs returns log lines for a job attempt
 	GetJobAttemptLogs(context.Context, *connect.Request[v1.GetJobAttemptLogsRequest]) (*connect.Response[v1.GetJobAttemptLogsResponse], error)
-	// StreamJobAttemptLogs streams persisted log lines for a job attempt
+	// StreamJobAttemptLogs follows persisted log lines for a job attempt.
+	//
+	// This is a framed Connect/gRPC server stream, not a raw text response. Clients
+	// should consume response messages with a generated client or protocol-aware
+	// decoder. Each response includes the current attempt_status. Responses that
+	// carry a line also include next_cursor; persist that cursor and send it on a
+	// later request to resume after the emitted line.
 	StreamJobAttemptLogs(context.Context, *connect.Request[v1.StreamJobAttemptLogsRequest], *connect.ServerStream[v1.StreamJobAttemptLogsResponse]) error
+	// ExportJobAttemptLogs exports a finite snapshot of persisted log lines.
+	//
+	// This is a framed Connect/gRPC server stream, not a raw HTTP file download.
+	// Agents and API clients should call it with a generated client or
+	// protocol-aware decoder, read the first metadata response, then append each
+	// following chunk response to a file or writer in order. Use the Depot CLI
+	// `depot ci logs --output-file` when a shell-native file download is needed.
+	ExportJobAttemptLogs(context.Context, *connect.Request[v1.ExportJobAttemptLogsRequest], *connect.ServerStream[v1.ExportJobAttemptLogsResponse]) error
 	// ListRuns returns recent CI runs for the authenticated organization.
 	//
 	// This is a recent run discovery API, not a historical search API. Results are always
@@ -405,6 +447,11 @@ func NewCIServiceHandler(svc CIServiceHandler, opts ...connect.HandlerOption) (s
 		svc.StreamJobAttemptLogs,
 		opts...,
 	)
+	cIServiceExportJobAttemptLogsHandler := connect.NewServerStreamHandler(
+		CIServiceExportJobAttemptLogsProcedure,
+		svc.ExportJobAttemptLogs,
+		opts...,
+	)
 	cIServiceListRunsHandler := connect.NewUnaryHandler(
 		CIServiceListRunsProcedure,
 		svc.ListRuns,
@@ -443,6 +490,8 @@ func NewCIServiceHandler(svc CIServiceHandler, opts ...connect.HandlerOption) (s
 			cIServiceGetJobAttemptLogsHandler.ServeHTTP(w, r)
 		case CIServiceStreamJobAttemptLogsProcedure:
 			cIServiceStreamJobAttemptLogsHandler.ServeHTTP(w, r)
+		case CIServiceExportJobAttemptLogsProcedure:
+			cIServiceExportJobAttemptLogsHandler.ServeHTTP(w, r)
 		case CIServiceListRunsProcedure:
 			cIServiceListRunsHandler.ServeHTTP(w, r)
 		case CIServiceListWorkflowsProcedure:
@@ -506,6 +555,10 @@ func (UnimplementedCIServiceHandler) GetJobAttemptLogs(context.Context, *connect
 
 func (UnimplementedCIServiceHandler) StreamJobAttemptLogs(context.Context, *connect.Request[v1.StreamJobAttemptLogsRequest], *connect.ServerStream[v1.StreamJobAttemptLogsResponse]) error {
 	return connect.NewError(connect.CodeUnimplemented, errors.New("depot.ci.v1.CIService.StreamJobAttemptLogs is not implemented"))
+}
+
+func (UnimplementedCIServiceHandler) ExportJobAttemptLogs(context.Context, *connect.Request[v1.ExportJobAttemptLogsRequest], *connect.ServerStream[v1.ExportJobAttemptLogsResponse]) error {
+	return connect.NewError(connect.CodeUnimplemented, errors.New("depot.ci.v1.CIService.ExportJobAttemptLogs is not implemented"))
 }
 
 func (UnimplementedCIServiceHandler) ListRuns(context.Context, *connect.Request[v1.ListRunsRequest]) (*connect.Response[v1.ListRunsResponse], error) {

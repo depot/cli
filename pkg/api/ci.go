@@ -89,6 +89,56 @@ type CILogStreamTarget struct {
 	JobID     string
 }
 
+// CIExportJobAttemptLogs streams a finite exported log snapshot for a job
+// attempt or the latest attempt of a job into w. The returned metadata is
+// advisory; callers choose their own destination path.
+func CIExportJobAttemptLogs(ctx context.Context, token, orgID string, target CILogStreamTarget, format civ1.JobAttemptLogExportFormat, w io.Writer) (*civ1.JobAttemptLogExportMetadata, error) {
+	if target.AttemptID == "" && target.JobID == "" {
+		return nil, fmt.Errorf("exactly one of attempt ID or job ID is required")
+	}
+	if target.AttemptID != "" && target.JobID != "" {
+		return nil, fmt.Errorf("exactly one of attempt ID or job ID is required")
+	}
+
+	client := newCIServiceClient()
+	req := &civ1.ExportJobAttemptLogsRequest{AttemptId: target.AttemptID, JobId: target.JobID, Format: format}
+	stream, err := client.ExportJobAttemptLogs(ctx, WithAuthenticationAndOrg(connect.NewRequest(req), token, orgID))
+	if err != nil {
+		return nil, err
+	}
+	defer stream.Close()
+
+	var metadata *civ1.JobAttemptLogExportMetadata
+	for stream.Receive() {
+		msg := stream.Msg()
+		if nextMetadata := msg.GetMetadata(); nextMetadata != nil {
+			if metadata != nil {
+				return nil, fmt.Errorf("log export stream sent metadata more than once")
+			}
+			metadata = nextMetadata
+			continue
+		}
+
+		chunk := msg.GetChunk()
+		if len(chunk) == 0 {
+			continue
+		}
+		if metadata == nil {
+			return nil, fmt.Errorf("log export stream sent chunk before metadata")
+		}
+		if _, err := w.Write(chunk); err != nil {
+			return nil, err
+		}
+	}
+	if err := stream.Err(); err != nil {
+		return nil, err
+	}
+	if metadata == nil {
+		return nil, fmt.Errorf("log export stream ended without metadata")
+	}
+	return metadata, nil
+}
+
 // CIStreamJobAttemptLogs streams log lines for a job attempt or the latest
 // attempt of a job, resuming from the last cursor after transient stream errors.
 // If onStatus is non-nil, it receives attempt status updates from the stream.

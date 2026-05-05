@@ -476,6 +476,9 @@ func printWorkflow(workflow *civ1.GetWorkflowResponse, orgFlag string) {
 			}
 		}
 		fmt.Printf("    Logs: depot ci logs %s%s\n", latest.GetAttemptId(), orgFlag)
+		if canDownloadLogExport(latest.GetStatus()) {
+			fmt.Printf("    Download: depot ci logs %s --output-file %s%s\n", latest.GetAttemptId(), logDownloadFilename, orgFlag)
+		}
 	}
 }
 

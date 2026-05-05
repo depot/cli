@@ -237,6 +237,8 @@ func TestWorkflowShowPassesWorkflowIDAndPrintsDetails(t *testing.T) {
 		"#1 finished 8m42s",
 		"#2 failed 3m14s",
 		"build [finished] 4m2s",
+		"Logs: depot ci logs att-build-1 --org org-123",
+		"Download: depot ci logs att-build-1 --output-file logs.txt --org org-123",
 		"test [failed] 2m58s",
 		"Latest attempt: #2 att-test-2 (failed) 2m58s",
 		"Sandbox: sandbox-2",
@@ -246,6 +248,9 @@ func TestWorkflowShowPassesWorkflowIDAndPrintsDetails(t *testing.T) {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("workflow show output missing %q:\n%s", want, stdout)
 		}
+	}
+	if strings.Contains(stdout, "Download: depot ci logs att-test-2") {
+		t.Fatalf("workflow show output advertised download for failed latest attempt:\n%s", stdout)
 	}
 }
 
