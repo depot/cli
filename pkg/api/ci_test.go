@@ -509,6 +509,53 @@ func TestCIStreamJobAttemptLogsSendsJobIDTarget(t *testing.T) {
 	}
 }
 
+func TestIsTransientConnectError(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{
+			name: "context canceled",
+			err:  context.Canceled,
+			want: false,
+		},
+		{
+			name: "context deadline exceeded",
+			err:  context.DeadlineExceeded,
+			want: false,
+		},
+		{
+			name: "connect-wrapped context deadline exceeded",
+			err:  connect.NewError(connect.CodeDeadlineExceeded, context.DeadlineExceeded),
+			want: false,
+		},
+		{
+			name: "connect unavailable",
+			err:  connect.NewError(connect.CodeUnavailable, errors.New("stream interrupted")),
+			want: true,
+		},
+		{
+			name: "connect deadline exceeded",
+			err:  connect.NewError(connect.CodeDeadlineExceeded, errors.New("server deadline exceeded")),
+			want: true,
+		},
+		{
+			name: "connect invalid argument",
+			err:  connect.NewError(connect.CodeInvalidArgument, errors.New("bad request")),
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isTransientConnectError(tt.err); got != tt.want {
+				t.Fatalf("isTransientConnectError(%v) = %t, want %t", tt.err, got, tt.want)
+			}
+		})
+	}
+}
+
 func testLogLine(stepID string, lineNumber uint32, body string) *civ1.LogLine {
 	return &civ1.LogLine{
 		StepId:      stepID,

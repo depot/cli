@@ -172,7 +172,7 @@ func writeLogLine(w io.Writer, line *civ1.LogLine) error {
 }
 
 func isTransientConnectError(err error) bool {
-	if errors.Is(err, context.Canceled) {
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return false
 	}
 	switch connect.CodeOf(err) {
