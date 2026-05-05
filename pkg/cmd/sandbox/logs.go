@@ -41,7 +41,7 @@ func newSandboxLogs() *cobra.Command {
 				return fmt.Errorf("get sandbox: %w", err)
 			}
 			if sb := info.Msg.Sandbox; sb == nil || sb.GetAgentType() == agentv1.AgentType_AGENT_TYPE_UNSPECIFIED {
-				return fmt.Errorf("sandbox %s has no agent_type — modal log stream is empty for vanilla / compose-wrapped sandboxes.\n  Axiom: ['vm-execution-log'] | where sandbox_id == \"%s\"\n  SSH:   depot sandbox ssh %s\n", sandboxID, sandboxID, sandboxID)
+				return fmt.Errorf("sandbox %s has no agent_type — modal log stream is empty for vanilla / compose-wrapped sandboxes.\n  Axiom: ['vm-execution-log'] | where sandbox_id == \"%s\"\n  Shell: depot sandbox shell %s\n", sandboxID, sandboxID, sandboxID)
 			}
 
 			return streamLogs(ctx, client, token, orgID, sandboxID, cmd.OutOrStdout(), cmd.ErrOrStderr())

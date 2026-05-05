@@ -2,13 +2,11 @@ package sandbox
 
 import (
 	"context"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"connectrpc.com/connect"
 	"github.com/depot/cli/pkg/api"
@@ -158,9 +156,6 @@ references inside the spec.`,
 			if msg.OrganizationId != "" {
 				fmt.Fprintf(cmd.OutOrStdout(), "Org:     %s\n", msg.OrganizationId)
 			}
-			if conn := msg.SshConnection; conn != nil {
-				printSSHHint(cmd.OutOrStdout(), msg.SandboxId, conn)
-			}
 			if r := msg.CommandResult; r != nil {
 				fmt.Fprintf(cmd.OutOrStdout(), "Command exit %d (%d bytes stdout, %d bytes stderr)\n",
 					r.ExitCode, len(r.Stdout), len(r.Stderr))
@@ -171,6 +166,7 @@ references inside the spec.`,
 					fmt.Fprintln(cmd.ErrOrStderr(), r.Stderr)
 				}
 			}
+			fmt.Fprintf(cmd.OutOrStdout(), "Shell:   depot sandbox shell %s\n", msg.SandboxId)
 			fmt.Fprintf(cmd.OutOrStdout(),
 				"Logs:    depot sandbox logs %s -f\n         Axiom: ['vm-execution-log'] | where sandbox_id == \"%s\"\n",
 				msg.SandboxId, msg.SandboxId)
@@ -178,7 +174,7 @@ references inside the spec.`,
 
 			if follow {
 				if spec.AgentType == "" {
-					return fmt.Errorf("--logs requires a modal sandbox (spec.agent_type set); this spec has no agent_type, so the modal log stream would be empty.\n  Axiom: ['vm-execution-log'] | where sandbox_id == \"%s\"\n  SSH:   depot sandbox ssh %s\n", msg.SandboxId, msg.SandboxId)
+					return fmt.Errorf("--logs requires a modal sandbox (spec.agent_type set); this spec has no agent_type, so the modal log stream would be empty.\n  Axiom: ['vm-execution-log'] | where sandbox_id == \"%s\"\n  Shell: depot sandbox shell %s\n", msg.SandboxId, msg.SandboxId)
 				}
 				return streamLogs(ctx, client, token, orgID, msg.SandboxId, cmd.OutOrStdout(), cmd.ErrOrStderr())
 			}
@@ -213,45 +209,6 @@ func resolveSpecPath(file string) (string, error) {
 		return "", err
 	}
 	return sandbox.FindSpec(cwd)
-}
-
-func printSSHHint(w io.Writer, sandboxID string, conn *agentv1.SSHConnection) {
-	keyPath, err := writeSandboxSSHKey(sandboxID, conn.PrivateKey)
-	if err != nil {
-		fmt.Fprintf(w, "SSH:     %s@%s -p %d  (failed to write key: %v)\n", conn.Username, conn.Host, conn.Port, err)
-		return
-	}
-	fmt.Fprintf(w, "SSH:     ssh -i %s -p %d %s@%s\n", keyPath, conn.Port, conn.Username, conn.Host)
-}
-
-// writeSandboxSSHKey decodes the base64 PEM private key from the API and
-// writes it to a temp file with 0600 permissions so the user can immediately
-// invoke ssh with -i. The path is deterministic per sandbox so re-running
-// `up` overwrites the previous key.
-func writeSandboxSSHKey(sandboxID, b64Key string) (string, error) {
-	pem, err := base64.StdEncoding.DecodeString(b64Key)
-	if err != nil {
-		return "", fmt.Errorf("decode key: %w", err)
-	}
-	dir := filepath.Join(os.TempDir(), "depot-sandbox-keys")
-	if err := os.MkdirAll(dir, 0700); err != nil {
-		return "", err
-	}
-	path := filepath.Join(dir, fmt.Sprintf("%s.key", sanitizeID(sandboxID)))
-	if err := os.WriteFile(path, pem, 0600); err != nil {
-		return "", err
-	}
-	return path, nil
-}
-
-func sanitizeID(id string) string {
-	return strings.Map(func(r rune) rune {
-		switch {
-		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '-', r == '_':
-			return r
-		}
-		return '_'
-	}, id)
 }
 
 // streamLogs is shared with `depot sandbox logs -f`. Defined here so `up

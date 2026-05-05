@@ -40,10 +40,9 @@ env:
 #   branch: main
 #   secret: github-token
 
-# Enable SSH for debug. Disable in production agents.
-ssh:
-  enabled: true
-  timeout_minutes: 60
+# Interactive debugging is via "depot sandbox shell <id>" (compute exec
+# channel, no SSH bastion). The spec's ssh block is reserved for a future
+# real-SSH path; leave it off for now.
 
 # MCP servers serialized to DEPOT_AGENT_MCP_CONFIG. Your image's boot script
 # materializes them into the right location for whichever runtime you're using.

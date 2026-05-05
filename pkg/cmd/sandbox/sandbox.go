@@ -14,14 +14,14 @@ Lifecycle (sandbox.depot.yml + SandboxService):
   init           Scaffold a sandbox.depot.yml.
   up             Start a sandbox from a sandbox.depot.yml.
   ls             List sandboxes for the current organization.
-  ssh            Open an SSH session to a running sandbox.
+  shell          Open an interactive shell in a running sandbox.
+  cp             Copy files between local filesystem and a sandbox.
   logs           Stream entrypoint stdout/stderr from a sandbox.
   kill           Terminate one or more sandboxes.
 
 Direct exec (skip the spec, run a command in an existing sandbox):
   exec           Execute arbitrary commands within the sandbox.
-  exec-pipe      Execute a command and stream bytes to its stdin.
-  pty            Open a pseudo-terminal within the sandbox.`,
+  exec-pipe      Execute a command and stream bytes to its stdin.`,
 	}
 
 	cmd.PersistentFlags().String("token", "", "Depot API token")
@@ -31,11 +31,11 @@ Direct exec (skip the spec, run a command in an existing sandbox):
 	cmd.AddCommand(newSandboxUp())
 	cmd.AddCommand(newSandboxBuild())
 	cmd.AddCommand(newSandboxList())
-	cmd.AddCommand(newSandboxSSH())
+	cmd.AddCommand(newSandboxShell())
+	cmd.AddCommand(newSandboxCp())
 	cmd.AddCommand(newSandboxLogs())
 	cmd.AddCommand(newSandboxKill())
 	cmd.AddCommand(newSandboxExec())
-	cmd.AddCommand(newSandboxPty())
 	cmd.AddCommand(newSandboxExecPipe())
 
 	return cmd
