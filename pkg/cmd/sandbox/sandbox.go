@@ -8,19 +8,32 @@ func NewCmdSandbox() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "sandbox [flags] [compute args...]",
 		Short: "Manage Depot compute",
-		Long: `Compute is the building block of Depot CI. 
+		Long: `Manage Depot sandboxes — declaratively configured VMs.
 
-The command enables user to start, stop and interact with compute instances.
+Lifecycle (sandbox.depot.yml + SandboxService):
+  init           Scaffold a sandbox.depot.yml.
+  up             Start a sandbox from a sandbox.depot.yml.
+  ls             List sandboxes for the current organization.
+  ssh            Open an SSH session to a running sandbox.
+  logs           Stream entrypoint stdout/stderr from a sandbox.
+  kill           Terminate one or more sandboxes.
 
-Subcommands:
-  exec           Execute arbitrary commands within the compute. Streams stdout, stderr and exit code.
-  exec-pipe      Execute a command, then stream bytes to the command's stdin.
-  pty            Open a pseudo-terminal within the compute.`,
+Direct exec (skip the spec, run a command in an existing sandbox):
+  exec           Execute arbitrary commands within the sandbox.
+  exec-pipe      Execute a command and stream bytes to its stdin.
+  pty            Open a pseudo-terminal within the sandbox.`,
 	}
 
 	cmd.PersistentFlags().String("token", "", "Depot API token")
 	cmd.PersistentFlags().String("org", "", "Organization ID (required when user is a member of multiple organizations)")
 
+	cmd.AddCommand(newSandboxInit())
+	cmd.AddCommand(newSandboxUp())
+	cmd.AddCommand(newSandboxBuild())
+	cmd.AddCommand(newSandboxList())
+	cmd.AddCommand(newSandboxSSH())
+	cmd.AddCommand(newSandboxLogs())
+	cmd.AddCommand(newSandboxKill())
 	cmd.AddCommand(newSandboxExec())
 	cmd.AddCommand(newSandboxPty())
 	cmd.AddCommand(newSandboxExecPipe())
