@@ -247,6 +247,29 @@ fi
 	return yaml.Marshal(workflow)
 }
 
+// latestAttemptIDFromStatus picks the highest-attempt id across all jobs in
+// a run-status snapshot. Inline workflows produce one workflow with one job
+// and one attempt, but we iterate defensively in case the shape changes.
+func latestAttemptIDFromStatus(status *civ1.GetRunStatusResponse) string {
+	var latest *civ1.AttemptStatus
+	for _, wf := range status.Workflows {
+		for _, j := range wf.Jobs {
+			for _, a := range j.Attempts {
+				if a.AttemptId == "" {
+					continue
+				}
+				if latest == nil || a.Attempt > latest.Attempt {
+					latest = a
+				}
+			}
+		}
+	}
+	if latest == nil {
+		return ""
+	}
+	return latest.AttemptId
+}
+
 // waitForRun follows the convert run from dispatch to terminal state. It
 // polls until the convert job appears, streams that job's logs to stdout
 // via the CI log stream, then re-polls the run until it settles. Status
@@ -268,12 +291,14 @@ func waitForRun(ctx context.Context, token, orgID, runID string, stdout, stderr 
 		lastStatus = s
 	}
 
-	// Phase 1: wait for the convert job to appear. Inline workflows produce
-	// one workflow with one job, so we just take the first job_id we see.
-	// A run can also reach a terminal state without ever spawning a job
-	// (workflow YAML validation failure, etc.), so we surface that too.
-	var jobID string
-	for jobID == "" {
+	// Phase 1: wait until the convert run has a job AND an attempt visible.
+	// We can't stream by job_id alone — the api's resolver joins CIJob with
+	// CIJobAttempt, so a job whose first attempt hasn't been persisted yet
+	// returns NotFound. Stream by attempt_id once it shows up. A run can
+	// also reach a terminal state without ever spawning an attempt (workflow
+	// YAML validation failure, etc.), which we surface before bailing.
+	var attemptID string
+	for attemptID == "" {
 		if time.Now().After(deadline) {
 			return fmt.Errorf("convert: timed out after %s waiting for run %s to start", stallTimeout, runID)
 		}
@@ -282,18 +307,8 @@ func waitForRun(ctx context.Context, token, orgID, runID string, stdout, stderr 
 			return fmt.Errorf("convert: poll run: %w", err)
 		}
 		reportStatus(status.Status)
-		for _, wf := range status.Workflows {
-			for _, j := range wf.Jobs {
-				if j.JobId != "" {
-					jobID = j.JobId
-					break
-				}
-			}
-			if jobID != "" {
-				break
-			}
-		}
-		if jobID != "" {
+		attemptID = latestAttemptIDFromStatus(status)
+		if attemptID != "" {
 			break
 		}
 		switch status.Status {
@@ -303,7 +318,11 @@ func waitForRun(ctx context.Context, token, orgID, runID string, stdout, stderr 
 					fmt.Fprintf(stderr, "  workflow:    %s\n", wf.ErrorMessage)
 				}
 			}
-			return fmt.Errorf("convert: run %s ended with status %s before any job ran", runID, status.Status)
+			return fmt.Errorf("convert: run %s ended with status %s before any attempt ran", runID, status.Status)
+		case "finished":
+			// Cache hit can finish the whole run before any attempt is
+			// emitted in the run-status snapshot. Nothing to stream; bail.
+			return nil
 		}
 		select {
 		case <-ctx.Done():
@@ -312,10 +331,10 @@ func waitForRun(ctx context.Context, token, orgID, runID string, stdout, stderr 
 		}
 	}
 
-	// Phase 2: stream the job's logs. JobID resolves to the latest attempt
-	// server-side; the stream returns once that attempt reaches a terminal
-	// state. Transient connect errors are retried inside the helper.
-	target := api.CILogStreamTarget{JobID: jobID}
+	// Phase 2: stream the attempt's logs. The stream returns once the
+	// attempt reaches a terminal state. Transient connect errors are
+	// retried inside the helper.
+	target := api.CILogStreamTarget{AttemptID: attemptID}
 	if err := api.CIStreamJobAttemptLogs(ctx, token, orgID, target, stdout, reportStatus); err != nil {
 		return fmt.Errorf("convert: stream logs: %w", err)
 	}
