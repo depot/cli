@@ -93,7 +93,10 @@ type CILogStreamTarget struct {
 // attempt of a job, resuming from the last cursor after transient stream errors.
 // If onStatus is non-nil, it receives attempt status updates from the stream.
 func CIStreamJobAttemptLogs(ctx context.Context, token, orgID string, target CILogStreamTarget, w io.Writer, onStatus func(string)) error {
-	if (target.AttemptID == "") == (target.JobID == "") {
+	if target.AttemptID == "" && target.JobID == "" {
+		return fmt.Errorf("exactly one of attempt ID or job ID is required")
+	}
+	if target.AttemptID != "" && target.JobID != "" {
 		return fmt.Errorf("exactly one of attempt ID or job ID is required")
 	}
 

@@ -408,6 +408,40 @@ func TestLogFollowReporterStopPreventsIdleRestart(t *testing.T) {
 	}
 }
 
+func TestResolveLogTargetWithFollowRetryStopsReporterOnCancellation(t *testing.T) {
+	reporter := newLogFollowReporter(io.Discard, true)
+	t.Cleanup(reporter.Stop)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := resolveLogTargetWithFollowRetry(
+		ctx,
+		"token-123",
+		"org-123",
+		"run-123",
+		"",
+		"",
+		&pendingLogTargetError{message: "Waiting for job to start..."},
+		reporter,
+	)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected context cancellation, got %v", err)
+	}
+
+	reporter.mu.Lock()
+	active := reporter.spinner != nil
+	lastStatus := reporter.lastStatus
+	reporter.mu.Unlock()
+
+	if active {
+		t.Fatal("spinner should stop when retry resolution is cancelled")
+	}
+	if lastStatus != "" {
+		t.Fatalf("lastStatus = %q, want empty", lastStatus)
+	}
+}
+
 func TestStreamUnresolvedLogsWithFollowUXTriesJobThenAttempt(t *testing.T) {
 	original := ciStreamJobAttemptLogs
 	t.Cleanup(func() { ciStreamJobAttemptLogs = original })

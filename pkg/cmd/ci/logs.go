@@ -446,6 +446,7 @@ func resolveLogTargetWithFollowRetry(
 
 	lastErr := initialErr
 	reportPendingLogTarget(lastErr, reporter)
+	defer reporter.Stop()
 	for {
 		select {
 		case <-ctx.Done():
