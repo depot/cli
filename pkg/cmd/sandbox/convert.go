@@ -17,7 +17,7 @@ import (
 // pin (rather than `latest`) so a `depot sandbox up` from N weeks ago still
 // produces a comparable image. Bump in lockstep with the version pinned in
 // other depot/* workflows.
-const snapshotVersion = "1.2.12"
+const snapshotVersion = "1.2.16"
 
 // convertOCIToExt4 runs a Depot CI inline workflow that takes the just-saved
 // OCI image, extracts its rootfs, and runs `snapshot build-ext4` to produce
@@ -194,38 +194,15 @@ if [ "$cache_hit" = "false" ]; then
   docker export "$container" | tar -xC "$rootfs_dir"
   docker rm "$container" >/dev/null
 
-  # XXX: FIXME(DEP-4393): the snapshot binary's resize2fs output parser
-  # only handles "is now <N> blocks long" from resize2fs -M, not the
-  # "is already <N> blocks long. Nothing to do!" form it produces when
-  # the image-size we pass mkfs.ext4 already matches what the rootfs
-  # needs. The fix is upstream; drop this whole block when DEP-4393
-  # ships. Until then, oversize so resize2fs
-  # always finds slack to shrink — the final transferred image is the
-  # shrunk size, so the only cost is scratch disk on the convert runner
-  # during the few seconds between mkfs and resize2fs.
-  #
-  # Formula: max(rootfs * 2, 3 GiB) + 1 GiB. The 3 GiB term is the empirical
-  # metadata-only floor for snapshot's mkfs flags (-G 32 -T small
-  # ^resize_inode at -b 4096): below ~2.78 GB image-size, group-descriptor
-  # + inode-table overhead alone consumes the whole image and resize2fs has
-  # nothing to lop off. The 2x term takes over once data dominates
-  # (rootfs > ~1.5 GiB). The +1 GiB slack is sized to dwarf the per-flex-bg
-  # metadata jumps that happen when the image crosses a 128 MiB boundary,
-  # so increasing rootfs can't push the natural minimum past our slack and
-  # re-trigger "is already".
   rootfs_bytes=$(sudo du -sb "$rootfs_dir" | awk '{print $1}')
-  floor_bytes=$((3 * 1024 * 1024 * 1024))   # 3 GiB metadata-only floor
-  twox_bytes=$((rootfs_bytes * 2))
-  base_bytes=$twox_bytes
-  [ "$twox_bytes" -lt "$floor_bytes" ] && base_bytes=$floor_bytes
-  oversize_bytes=$((base_bytes + 1024 * 1024 * 1024))  # +1 GiB slack
+  image_size=$((rootfs_bytes + 1024 * 1024 * 1024))
 
   # 5. Pack into ext4 and push to the cache tag. snapshot reads
   #    REGISTRY_USERNAME / REGISTRY_PASSWORD from the env (same vars
   #    docker uses) for the push.
   sudo -E "$install_dir/snapshot" build-ext4 \
     --source-dir "$rootfs_dir" \
-    --image-size "$oversize_bytes" \
+    --image-size "$image_size" \
     -o /tmp/rootfs.ext4 \
     --registry "$cache_ref"
 fi
