@@ -37,9 +37,17 @@ type Spec struct {
 	MCP       *MCPSpec          `yaml:"mcp,omitempty"`
 	Container *ContainerSpec    `yaml:"container,omitempty"`
 
-	// Image is the post-resolution image ref handed to StartSandbox.
-	// Not a YAML field — written by the CLI after build/convert run.
-	Image string `yaml:"-"`
+	// Image is the rootfs image ref handed to StartSandbox. Two ways it
+	// gets set:
+	//   1. User pins a prebuilt ref via the YAML `image:` key (e.g., the
+	//      output of `depot sandbox build` or `depot sandbox snapshot`).
+	//   2. The CLI's build/convert pipeline derives one from spec.Name +
+	//      project + org and overwrites whatever the YAML had.
+	//
+	// When [container.build] is set, (2) wins — the build product is
+	// always preferred over a stale YAML ref. With no build section, the
+	// YAML ref is used verbatim. With neither, the API picks a default.
+	Image string `yaml:"image,omitempty"`
 }
 
 // ContainerSpec describes how to produce the sandbox's rootfs.
@@ -193,9 +201,9 @@ func (s *Spec) ToStartSandboxRequest(inputs map[string]string) (*agentv1.StartSa
 		Argv:      argv,
 	}
 
-	// s.Image is the resolved image ref — populated by the CLI either
-	// from container.tag (prebuilt) or from the build/convert pipeline.
-	// Spec YAML never sets this field directly.
+	// s.Image is the resolved image ref — set by the YAML `image:` key
+	// when no build is configured, or overwritten by the build/convert
+	// pipeline when [container.build] is present.
 	if s.Image != "" {
 		v := s.Image
 		req.Image = &v

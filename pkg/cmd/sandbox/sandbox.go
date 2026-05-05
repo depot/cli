@@ -16,6 +16,7 @@ Lifecycle (sandbox.depot.yml + SandboxService):
   ls             List sandboxes for the current organization.
   shell          Open an interactive shell in a running sandbox.
   cp             Copy files between local filesystem and a sandbox.
+  snapshot       Snapshot a running sandbox to a registry image.
   logs           Stream entrypoint stdout/stderr from a sandbox.
   kill           Terminate one or more sandboxes.
 
@@ -33,6 +34,7 @@ Direct exec (skip the spec, run a command in an existing sandbox):
 	cmd.AddCommand(newSandboxList())
 	cmd.AddCommand(newSandboxShell())
 	cmd.AddCommand(newSandboxCp())
+	cmd.AddCommand(newSandboxSnapshot())
 	cmd.AddCommand(newSandboxLogs())
 	cmd.AddCommand(newSandboxKill())
 	cmd.AddCommand(newSandboxExec())
