@@ -47,7 +47,7 @@ download.`,
 		Example: `
   # Snapshot a sandbox into an org-tenant tag.
   depot sandbox snapshot cs-abc123 \
-    cl0wyyk6k39487ebgraxasinja.registry.depot.dev/sj1xxssjz6:investigation-snap
+    <orgID>.registry.depot.dev/<projectID>:my-snap
 `,
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
