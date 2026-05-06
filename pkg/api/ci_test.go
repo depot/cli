@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -84,6 +85,10 @@ func (h ciServiceTestHandler) GetJobAttemptLogs(context.Context, *connect.Reques
 }
 
 func (h ciServiceTestHandler) StreamJobAttemptLogs(context.Context, *connect.Request[civ1.StreamJobAttemptLogsRequest], *connect.ServerStream[civ1.StreamJobAttemptLogsResponse]) error {
+	return connect.NewError(connect.CodeUnimplemented, nil)
+}
+
+func (h ciServiceTestHandler) ExportJobAttemptLogs(context.Context, *connect.Request[civ1.ExportJobAttemptLogsRequest], *connect.ServerStream[civ1.ExportJobAttemptLogsResponse]) error {
 	return connect.NewError(connect.CodeUnimplemented, nil)
 }
 
@@ -489,6 +494,113 @@ func TestCIStreamJobAttemptLogLinesPropagatesLineCallbackError(t *testing.T) {
 	}, nil)
 	if !errors.Is(err, callbackErr) {
 		t.Fatalf("expected callback error, got %v", err)
+	}
+}
+
+type exportLogsRecorder struct {
+	civ1connect.UnimplementedCIServiceHandler
+	requests []*civ1.ExportJobAttemptLogsRequest
+}
+
+func (r *exportLogsRecorder) ExportJobAttemptLogs(_ context.Context, req *connect.Request[civ1.ExportJobAttemptLogsRequest], stream *connect.ServerStream[civ1.ExportJobAttemptLogsResponse]) error {
+	r.requests = append(r.requests, proto.Clone(req.Msg).(*civ1.ExportJobAttemptLogsRequest))
+	if req.Msg.GetJobId() != "job-123" || req.Msg.GetAttemptId() != "" {
+		return connect.NewError(connect.CodeInvalidArgument, errors.New("unexpected export target"))
+	}
+	if req.Msg.GetFormat() != civ1.JobAttemptLogExportFormat_JOB_ATTEMPT_LOG_EXPORT_FORMAT_JSONL {
+		return connect.NewError(connect.CodeInvalidArgument, errors.New("unexpected export format"))
+	}
+
+	if err := stream.Send(&civ1.ExportJobAttemptLogsResponse{
+		Event: &civ1.ExportJobAttemptLogsResponse_Metadata{
+			Metadata: &civ1.JobAttemptLogExportMetadata{
+				Filename:    "logs.jsonl",
+				ContentType: "application/x-ndjson; charset=utf-8",
+				Format:      civ1.JobAttemptLogExportFormat_JOB_ATTEMPT_LOG_EXPORT_FORMAT_JSONL,
+			},
+		},
+	}); err != nil {
+		return err
+	}
+	if err := stream.Send(&civ1.ExportJobAttemptLogsResponse{
+		Event: &civ1.ExportJobAttemptLogsResponse_Chunk{Chunk: []byte("first\n")},
+	}); err != nil {
+		return err
+	}
+	return stream.Send(&civ1.ExportJobAttemptLogsResponse{
+		Event: &civ1.ExportJobAttemptLogsResponse_Chunk{Chunk: []byte("second\n")},
+	})
+}
+
+func TestCIExportJobAttemptLogsStreamsChunks(t *testing.T) {
+	recorder := &exportLogsRecorder{}
+	_, handler := civ1connect.NewCIServiceHandler(recorder)
+	server := httptest.NewServer(h2c.NewHandler(handler, &http2.Server{}))
+	t.Cleanup(server.Close)
+
+	originalBaseURLFunc := baseURLFunc
+	baseURLFunc = func() string { return server.URL }
+	t.Cleanup(func() { baseURLFunc = originalBaseURLFunc })
+
+	var output bytes.Buffer
+	metadata, err := CIExportJobAttemptLogs(
+		context.Background(),
+		"token-123",
+		"org-123",
+		CILogStreamTarget{JobID: "job-123"},
+		civ1.JobAttemptLogExportFormat_JOB_ATTEMPT_LOG_EXPORT_FORMAT_JSONL,
+		&output,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := output.String(), "first\nsecond\n"; got != want {
+		t.Fatalf("output = %q, want %q", got, want)
+	}
+	if metadata.GetContentType() != "application/x-ndjson; charset=utf-8" {
+		t.Fatalf("content type = %q", metadata.GetContentType())
+	}
+	if len(recorder.requests) != 1 {
+		t.Fatalf("requests = %d, want 1", len(recorder.requests))
+	}
+}
+
+type exportChunkBeforeMetadataRecorder struct {
+	civ1connect.UnimplementedCIServiceHandler
+}
+
+func (r exportChunkBeforeMetadataRecorder) ExportJobAttemptLogs(_ context.Context, _ *connect.Request[civ1.ExportJobAttemptLogsRequest], stream *connect.ServerStream[civ1.ExportJobAttemptLogsResponse]) error {
+	return stream.Send(&civ1.ExportJobAttemptLogsResponse{
+		Event: &civ1.ExportJobAttemptLogsResponse_Chunk{Chunk: []byte("body\n")},
+	})
+}
+
+func TestCIExportJobAttemptLogsRejectsChunkBeforeMetadata(t *testing.T) {
+	_, handler := civ1connect.NewCIServiceHandler(exportChunkBeforeMetadataRecorder{})
+	server := httptest.NewServer(h2c.NewHandler(handler, &http2.Server{}))
+	t.Cleanup(server.Close)
+
+	originalBaseURLFunc := baseURLFunc
+	baseURLFunc = func() string { return server.URL }
+	t.Cleanup(func() { baseURLFunc = originalBaseURLFunc })
+
+	var output bytes.Buffer
+	_, err := CIExportJobAttemptLogs(
+		context.Background(),
+		"token-123",
+		"org-123",
+		CILogStreamTarget{AttemptID: "attempt-123"},
+		civ1.JobAttemptLogExportFormat_JOB_ATTEMPT_LOG_EXPORT_FORMAT_TEXT,
+		&output,
+	)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "chunk before metadata") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if output.Len() != 0 {
+		t.Fatalf("output = %q, want empty", output.String())
 	}
 }
 

@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -73,9 +75,37 @@ func TestResolveLogTargetJSONOptionsReturnNonInteractiveAmbiguity(t *testing.T) 
 		},
 	}
 
-	options := logTargetResolutionOptionsForOutput(logOutputOptions{output: logOutputJSON})
+	options := logTargetResolutionOptionsForOutput(logOutputOptions{output: logOutputJSON}, "")
 	if options.allowInteractive {
 		t.Fatal("json output should disable interactive job resolution")
+	}
+
+	_, err := resolveLogTargetWithOptions(resp, "run-1", "", "", options)
+	if err == nil {
+		t.Fatal("expected ambiguity error")
+	}
+	if !strings.Contains(err.Error(), "run has multiple jobs, specify one with --job") {
+		t.Fatalf("expected multiple-jobs ambiguity error, got: %v", err)
+	}
+}
+
+func TestResolveLogTargetOutputFileOptionsReturnNonInteractiveAmbiguity(t *testing.T) {
+	resp := &civ1.GetRunStatusResponse{
+		RunId: "run-1",
+		Workflows: []*civ1.WorkflowStatus{
+			{
+				WorkflowPath: ".depot/workflows/ci.yml",
+				Jobs: []*civ1.JobStatus{
+					{JobId: "job-1", JobKey: "build", Status: "finished"},
+					{JobId: "job-2", JobKey: "test", Status: "running"},
+				},
+			},
+		},
+	}
+
+	options := logTargetResolutionOptionsForOutput(logOutputOptions{}, "logs.txt")
+	if options.allowInteractive {
+		t.Fatal("--output-file should disable interactive job resolution")
 	}
 
 	_, err := resolveLogTargetWithOptions(resp, "run-1", "", "", options)
@@ -420,6 +450,313 @@ func TestLogsCommandHistoricalDirectAttemptDefaultOutputUnchanged(t *testing.T) 
 	}
 	if got := stderr.String(); got != "" {
 		t.Fatalf("stderr = %q, want empty", got)
+	}
+}
+
+func TestLogsCommandOutputFileDownloadsTextAndLeavesStdoutEmpty(t *testing.T) {
+	originalGetRunStatus := ciGetRunStatus
+	originalExport := ciExportJobAttemptLogs
+	t.Cleanup(func() {
+		ciGetRunStatus = originalGetRunStatus
+		ciExportJobAttemptLogs = originalExport
+	})
+
+	ciGetRunStatus = func(context.Context, string, string, string) (*civ1.GetRunStatusResponse, error) {
+		return &civ1.GetRunStatusResponse{
+			RunId: "run-1",
+			Workflows: []*civ1.WorkflowStatus{
+				{
+					WorkflowPath: ".depot/workflows/ci.yml",
+					Jobs: []*civ1.JobStatus{
+						{
+							JobId:  "job-1",
+							JobKey: "ci.yml:build",
+							Status: "finished",
+							Attempts: []*civ1.AttemptStatus{
+								{AttemptId: "attempt-1", Attempt: 1, Status: "finished"},
+							},
+						},
+					},
+				},
+			},
+		}, nil
+	}
+	var exportCalls int
+	ciExportJobAttemptLogs = func(_ context.Context, _, _ string, target api.CILogStreamTarget, format civ1.JobAttemptLogExportFormat, w io.Writer) (*civ1.JobAttemptLogExportMetadata, error) {
+		exportCalls++
+		if target.AttemptID != "attempt-1" || target.JobID != "" {
+			t.Fatalf("target = %+v, want attempt-1", target)
+		}
+		if format != civ1.JobAttemptLogExportFormat_JOB_ATTEMPT_LOG_EXPORT_FORMAT_TEXT {
+			t.Fatalf("format = %v, want text", format)
+		}
+		if _, err := io.WriteString(w, "1970-01-01T00:00:00Z first\n"); err != nil {
+			return nil, err
+		}
+		return &civ1.JobAttemptLogExportMetadata{Filename: "ignored.txt"}, nil
+	}
+
+	outputPath := filepath.Join(t.TempDir(), "logs.txt")
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd := NewCmdLogs()
+	cmd.SetArgs([]string{"run-1", "--token", "token-123", "--org", "org-123", "--output-file", outputPath})
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(outputPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := string(body), "1970-01-01T00:00:00Z first\n"; got != want {
+		t.Fatalf("file = %q, want %q", got, want)
+	}
+	if got := stdout.String(); got != "" {
+		t.Fatalf("stdout = %q, want empty", got)
+	}
+	for _, want := range []string{
+		"Downloading logs to " + outputPath + "...",
+		"Downloaded logs to " + outputPath + " (27 bytes).",
+	} {
+		if !strings.Contains(stderr.String(), want) {
+			t.Fatalf("stderr missing %q:\n%s", want, stderr.String())
+		}
+	}
+	if exportCalls != 1 {
+		t.Fatalf("export calls = %d, want 1", exportCalls)
+	}
+}
+
+func TestLogsCommandOutputFileNoLogsMessageWritesStderr(t *testing.T) {
+	originalGetRunStatus := ciGetRunStatus
+	originalExport := ciExportJobAttemptLogs
+	t.Cleanup(func() {
+		ciGetRunStatus = originalGetRunStatus
+		ciExportJobAttemptLogs = originalExport
+	})
+
+	ciGetRunStatus = func(context.Context, string, string, string) (*civ1.GetRunStatusResponse, error) {
+		return &civ1.GetRunStatusResponse{
+			RunId:  "run-1",
+			Status: "finished",
+		}, nil
+	}
+	ciExportJobAttemptLogs = func(context.Context, string, string, api.CILogStreamTarget, civ1.JobAttemptLogExportFormat, io.Writer) (*civ1.JobAttemptLogExportMetadata, error) {
+		t.Fatal("export should not run when the resolved target has no logs")
+		return nil, nil
+	}
+
+	outputPath := filepath.Join(t.TempDir(), "logs.txt")
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd := NewCmdLogs()
+	cmd.SetArgs([]string{"run-1", "--token", "token-123", "--org", "org-123", "--output-file", outputPath})
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if got := stdout.String(); got != "" {
+		t.Fatalf("stdout = %q, want empty", got)
+	}
+	want := "run run-1 has no jobs (run status: finished); no logs were produced."
+	if !strings.Contains(stderr.String(), want) {
+		t.Fatalf("stderr missing %q:\n%s", want, stderr.String())
+	}
+	if _, statErr := os.Stat(outputPath); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("output file should not exist, stat err: %v", statErr)
+	}
+}
+
+func TestLogsCommandOutputFileJSONUsesJSONLExport(t *testing.T) {
+	originalGetRunStatus := ciGetRunStatus
+	originalExport := ciExportJobAttemptLogs
+	t.Cleanup(func() {
+		ciGetRunStatus = originalGetRunStatus
+		ciExportJobAttemptLogs = originalExport
+	})
+
+	ciGetRunStatus = func(context.Context, string, string, string) (*civ1.GetRunStatusResponse, error) {
+		return nil, errors.New("not a run")
+	}
+	var targets []api.CILogStreamTarget
+	ciExportJobAttemptLogs = func(_ context.Context, _, _ string, target api.CILogStreamTarget, format civ1.JobAttemptLogExportFormat, w io.Writer) (*civ1.JobAttemptLogExportMetadata, error) {
+		targets = append(targets, target)
+		if format != civ1.JobAttemptLogExportFormat_JOB_ATTEMPT_LOG_EXPORT_FORMAT_JSONL {
+			t.Fatalf("format = %v, want jsonl", format)
+		}
+		if target.JobID != "" {
+			return nil, errors.New("not a job")
+		}
+		if _, err := io.WriteString(w, `{"type":"line"}`+"\n"); err != nil {
+			return nil, err
+		}
+		return &civ1.JobAttemptLogExportMetadata{Filename: "ignored.jsonl"}, nil
+	}
+
+	outputPath := filepath.Join(t.TempDir(), "logs.jsonl")
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd := NewCmdLogs()
+	cmd.SetArgs([]string{"attempt-1", "--token", "token-123", "--org", "org-123", "--output", "json", "--output-file", outputPath})
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(outputPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := string(body), "{\"type\":\"line\"}\n"; got != want {
+		t.Fatalf("file = %q, want %q", got, want)
+	}
+	if got := stdout.String(); got != "" {
+		t.Fatalf("stdout = %q, want empty", got)
+	}
+	if got := strings.Count(stderr.String(), "Downloading logs to "); got != 1 {
+		t.Fatalf("download start messages = %d, want 1:\n%s", got, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "Downloaded logs to "+outputPath) {
+		t.Fatalf("stderr missing download completion:\n%s", stderr.String())
+	}
+	if len(targets) != 2 || targets[0].JobID != "attempt-1" || targets[1].AttemptID != "attempt-1" {
+		t.Fatalf("targets = %+v, want job fallback then attempt", targets)
+	}
+}
+
+func TestLogsCommandOutputFileTextAlias(t *testing.T) {
+	originalGetRunStatus := ciGetRunStatus
+	originalExport := ciExportJobAttemptLogs
+	t.Cleanup(func() {
+		ciGetRunStatus = originalGetRunStatus
+		ciExportJobAttemptLogs = originalExport
+	})
+
+	ciGetRunStatus = func(context.Context, string, string, string) (*civ1.GetRunStatusResponse, error) {
+		return nil, errors.New("not a run")
+	}
+	ciExportJobAttemptLogs = func(_ context.Context, _, _ string, target api.CILogStreamTarget, format civ1.JobAttemptLogExportFormat, w io.Writer) (*civ1.JobAttemptLogExportMetadata, error) {
+		if target.JobID != "job-1" {
+			t.Fatalf("target = %+v, want job-1", target)
+		}
+		if format != civ1.JobAttemptLogExportFormat_JOB_ATTEMPT_LOG_EXPORT_FORMAT_TEXT {
+			t.Fatalf("format = %v, want text", format)
+		}
+		_, err := io.WriteString(w, "text\n")
+		return &civ1.JobAttemptLogExportMetadata{}, err
+	}
+
+	outputPath := filepath.Join(t.TempDir(), "logs.txt")
+	cmd := NewCmdLogs()
+	cmd.SetArgs([]string{"job-1", "--token", "token-123", "--org", "org-123", "--output", "text", "--output-file", outputPath})
+	cmd.SetErr(io.Discard)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestLogsCommandRejectsFollowOutputFileBeforeNetworkWork(t *testing.T) {
+	originalGetRunStatus := ciGetRunStatus
+	originalExport := ciExportJobAttemptLogs
+	t.Cleanup(func() {
+		ciGetRunStatus = originalGetRunStatus
+		ciExportJobAttemptLogs = originalExport
+	})
+	ciGetRunStatus = func(context.Context, string, string, string) (*civ1.GetRunStatusResponse, error) {
+		t.Fatal("network lookup should not run")
+		return nil, nil
+	}
+	ciExportJobAttemptLogs = func(context.Context, string, string, api.CILogStreamTarget, civ1.JobAttemptLogExportFormat, io.Writer) (*civ1.JobAttemptLogExportMetadata, error) {
+		t.Fatal("export should not run")
+		return nil, nil
+	}
+
+	cmd := NewCmdLogs()
+	cmd.SetArgs([]string{"attempt-1", "--follow", "--output-file", filepath.Join(t.TempDir(), "logs.txt")})
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "--follow cannot be used with --output-file") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestLogsCommandRejectsOutputFileDashBeforeNetworkWork(t *testing.T) {
+	originalGetRunStatus := ciGetRunStatus
+	originalExport := ciExportJobAttemptLogs
+	t.Cleanup(func() {
+		ciGetRunStatus = originalGetRunStatus
+		ciExportJobAttemptLogs = originalExport
+	})
+	ciGetRunStatus = func(context.Context, string, string, string) (*civ1.GetRunStatusResponse, error) {
+		t.Fatal("network lookup should not run")
+		return nil, nil
+	}
+	ciExportJobAttemptLogs = func(context.Context, string, string, api.CILogStreamTarget, civ1.JobAttemptLogExportFormat, io.Writer) (*civ1.JobAttemptLogExportMetadata, error) {
+		t.Fatal("export should not run")
+		return nil, nil
+	}
+
+	cmd := NewCmdLogs()
+	cmd.SetArgs([]string{"attempt-1", "--output-file", "-"})
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "--output-file - is not supported") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, statErr := os.Stat("-"); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("literal '-' file should not exist, stat err: %v", statErr)
+	}
+}
+
+func TestLogsCommandOutputFileRemovesTempFileOnExportError(t *testing.T) {
+	originalGetRunStatus := ciGetRunStatus
+	originalExport := ciExportJobAttemptLogs
+	t.Cleanup(func() {
+		ciGetRunStatus = originalGetRunStatus
+		ciExportJobAttemptLogs = originalExport
+	})
+
+	ciGetRunStatus = func(context.Context, string, string, string) (*civ1.GetRunStatusResponse, error) {
+		return nil, errors.New("not a run")
+	}
+	ciExportJobAttemptLogs = func(_ context.Context, _, _ string, target api.CILogStreamTarget, _ civ1.JobAttemptLogExportFormat, w io.Writer) (*civ1.JobAttemptLogExportMetadata, error) {
+		if target.JobID != "" {
+			return nil, errors.New("not a job")
+		}
+		_, _ = io.WriteString(w, "partial")
+		return nil, errors.New("stream failed")
+	}
+
+	dir := t.TempDir()
+	outputPath := filepath.Join(dir, "logs.txt")
+	var stderr bytes.Buffer
+	cmd := NewCmdLogs()
+	cmd.SetArgs([]string{"attempt-1", "--token", "token-123", "--org", "org-123", "--output-file", outputPath})
+	cmd.SetErr(&stderr)
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(stderr.String(), "Downloading logs to "+outputPath+"...") {
+		t.Fatalf("stderr missing download start:\n%s", stderr.String())
+	}
+	if strings.Contains(stderr.String(), "Downloaded logs to ") {
+		t.Fatalf("stderr should not include download completion on error:\n%s", stderr.String())
+	}
+	if _, statErr := os.Stat(outputPath); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("output file should not exist, stat err: %v", statErr)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("temp dir entries = %v, want empty", entries)
 	}
 }
 

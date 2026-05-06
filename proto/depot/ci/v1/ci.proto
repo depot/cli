@@ -41,8 +41,23 @@ service CIService {
   // GetJobAttemptLogs returns log lines for a job attempt
   rpc GetJobAttemptLogs(GetJobAttemptLogsRequest) returns (GetJobAttemptLogsResponse) {}
 
-  // StreamJobAttemptLogs streams persisted log lines for a job attempt
+  // StreamJobAttemptLogs follows persisted log lines for a job attempt.
+  //
+  // This is a framed Connect/gRPC server stream, not a raw text response. Clients
+  // should consume response messages with a generated client or protocol-aware
+  // decoder. Each response includes the current attempt_status. Responses that
+  // carry a line also include next_cursor; persist that cursor and send it on a
+  // later request to resume after the emitted line.
   rpc StreamJobAttemptLogs(StreamJobAttemptLogsRequest) returns (stream StreamJobAttemptLogsResponse) {}
+
+  // ExportJobAttemptLogs exports a finite snapshot of persisted log lines.
+  //
+  // This is a framed Connect/gRPC server stream, not a raw HTTP file download.
+  // Agents and API clients should call it with a generated client or
+  // protocol-aware decoder, read the first metadata response, then append each
+  // following chunk response to a file or writer in order. Use the Depot CLI
+  // `depot ci logs --output-file` when a shell-native file download is needed.
+  rpc ExportJobAttemptLogs(ExportJobAttemptLogsRequest) returns (stream ExportJobAttemptLogsResponse) {}
 
   // ListRuns returns recent CI runs for the authenticated organization.
   //
@@ -400,11 +415,14 @@ message GetJobAttemptLogsResponse {
 }
 
 message StreamJobAttemptLogsRequest {
-  // attempt_id identifies the concrete job attempt whose logs to stream.
+  // attempt_id identifies the concrete job attempt whose logs to stream. Set
+  // exactly one of attempt_id or job_id.
   string attempt_id = 1;
-  // Opaque cursor returned by a previous stream response.
+  // Opaque cursor returned by a previous stream response for the same target.
+  // Omit it to stream from the first persisted line.
   string cursor = 2;
-  // job_id identifies a CI job. The stream resolves it to that job's latest attempt.
+  // job_id identifies a CI job. The stream resolves it to that job's latest
+  // attempt. Set exactly one of attempt_id or job_id.
   string job_id = 3;
 }
 
@@ -419,11 +437,64 @@ message StreamJobAttemptLogsResponse {
   string attempt_status = 3;
 }
 
+enum JobAttemptLogExportFormat {
+  // Defaults to JOB_ATTEMPT_LOG_EXPORT_FORMAT_TEXT.
+  JOB_ATTEMPT_LOG_EXPORT_FORMAT_UNSPECIFIED = 0;
+  // Timestamped UTF-8 text. Each exported row is `RFC3339Nano timestamp`, a
+  // space, the log body, and a trailing newline.
+  JOB_ATTEMPT_LOG_EXPORT_FORMAT_TEXT = 1;
+  // UTF-8 newline-delimited JSON. Each exported row is one JSON object with
+  // type, timestamp, timestamp_ms, stream, step_key, line_number, and body.
+  JOB_ATTEMPT_LOG_EXPORT_FORMAT_JSONL = 2;
+}
+
+message ExportJobAttemptLogsRequest {
+  // attempt_id identifies the concrete job attempt whose logs to export. Set
+  // exactly one of attempt_id or job_id.
+  string attempt_id = 1;
+  // job_id identifies a CI job. Export resolves it to that job's latest attempt
+  // at stream start. Set exactly one of attempt_id or job_id.
+  string job_id = 2;
+  // format selects the export byte format. Unspecified defaults to text.
+  JobAttemptLogExportFormat format = 3;
+}
+
+message JobAttemptLogExportMetadata {
+  // filename is an advisory, non-stable basename hint for generated clients.
+  // It is not a destination path and clients must not depend on the stem staying
+  // stable across calls. It is basename-only ASCII and ends in .txt for text or
+  // .jsonl for JSONL.
+  string filename = 1;
+  // content_type is the exact media type for chunk bytes:
+  // `text/plain; charset=utf-8` for text or
+  // `application/x-ndjson; charset=utf-8` for JSONL.
+  string content_type = 2;
+  // format is the selected byte format for following chunk responses.
+  JobAttemptLogExportFormat format = 3;
+}
+
+message ExportJobAttemptLogsResponse {
+  oneof event {
+    // metadata is the first response in every successful export stream. It
+    // describes the byte format and advisory filename for following chunks.
+    JobAttemptLogExportMetadata metadata = 1;
+    // chunk contains export file bytes. Append chunks in stream order to
+    // reconstruct the text or JSONL export. In JSON-encoded Connect/grpc-web
+    // protocols, bytes are represented using the protocol's base64 encoding.
+    bytes chunk = 2;
+  }
+}
+
 message LogLine {
+  // step_id identifies the workflow step that emitted the line when available.
   string step_id = 1;
+  // timestamp_ms is the log timestamp as Unix epoch milliseconds.
   int64 timestamp_ms = 2;
+  // line_number is the persisted line number within the emitting stream.
   uint32 line_number = 3;
-  uint32 stream = 4; // 0 = stdout, 1 = stderr
+  // stream is 0 for stdout and 1 for stderr.
+  uint32 stream = 4;
+  // body is the log line content without transport framing.
   string body = 5;
 }
 

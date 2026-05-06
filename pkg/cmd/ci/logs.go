@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -22,12 +24,14 @@ const (
 	followAttemptRetryTimeout  = 30 * time.Second
 	followAttemptRetryInterval = 1 * time.Second
 	followLogIdleDelay         = 2 * time.Second
+	logOutputText              = "text"
 	logOutputJSON              = "json"
 )
 
 var (
 	ciGetRunStatus             = api.CIGetRunStatus
 	ciGetJobAttemptLogs        = api.CIGetJobAttemptLogs
+	ciExportJobAttemptLogs     = api.CIExportJobAttemptLogs
 	ciStreamJobAttemptLogs     = api.CIStreamJobAttemptLogs
 	ciStreamJobAttemptLogLines = api.CIStreamJobAttemptLogLines
 )
@@ -40,6 +44,7 @@ func NewCmdLogs() *cobra.Command {
 		workflow   string
 		follow     bool
 		output     string
+		outputFile string
 		timestamps bool
 	)
 
@@ -73,7 +78,13 @@ ID, use --job and --workflow to disambiguate by workflow job key.`,
   depot ci logs <attempt-id> --timestamps
 
   # Emit newline-delimited JSON log events
-  depot ci logs <attempt-id> --output json`,
+  depot ci logs <attempt-id> --output json
+
+  # Download a timestamped text export to a file
+  depot ci logs <attempt-id> --output-file logs.txt
+
+  # Download a JSONL export to a file
+  depot ci logs <attempt-id> --output json --output-file logs.jsonl`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 0 {
 				return cmd.Help()
@@ -82,6 +93,12 @@ ID, use --job and --workflow to disambiguate by workflow job key.`,
 			outputOptions := logOutputOptions{timestamps: timestamps, output: output}
 			if err := outputOptions.validate(); err != nil {
 				return err
+			}
+			if follow && outputFile != "" {
+				return fmt.Errorf("--follow cannot be used with --output-file")
+			}
+			if outputFile == "-" {
+				return fmt.Errorf("--output-file - is not supported; omit --output-file to write logs to stdout, or provide a file path")
 			}
 
 			ctx := cmd.Context()
@@ -105,10 +122,14 @@ ID, use --job and --workflow to disambiguate by workflow job key.`,
 				reporterWriter = io.Discard
 				reporterInteractive = false
 			}
+			if outputFile != "" {
+				reporterWriter = io.Discard
+				reporterInteractive = false
+			}
 			reporter := newLogFollowReporter(reporterWriter, reporterInteractive)
 
 			// First, try resolving as a run ID (or job ID — the API accepts both).
-			resolutionOptions := logTargetResolutionOptionsForOutput(outputOptions)
+			resolutionOptions := logTargetResolutionOptionsForOutput(outputOptions, outputFile)
 			resp, runErr := ciGetRunStatus(ctx, tokenVal, orgID, id)
 			if runErr == nil {
 				target, err := resolveLogTargetWithOptions(resp, id, job, workflow, resolutionOptions)
@@ -119,11 +140,17 @@ ID, use --job and --workflow to disambiguate by workflow job key.`,
 					return err
 				}
 				if target.noLogsMessage != "" {
-					reporter.Message(target.noLogsMessage)
+					if outputFile != "" {
+						fmt.Fprintln(cmd.ErrOrStderr(), target.noLogsMessage)
+					} else {
+						reporter.Message(target.noLogsMessage)
+					}
 					return nil
 				}
 
-				if follow {
+				if outputFile != "" {
+					return downloadLogsToFile(ctx, tokenVal, orgID, api.CILogStreamTarget{AttemptID: target.attemptID}, outputOptions, outputFile, cmd.ErrOrStderr())
+				} else if follow {
 					if err := streamLogsWithFollowUX(ctx, tokenVal, orgID, target, cmd.OutOrStdout(), reporter, outputOptions); err != nil {
 						return fmt.Errorf("failed to stream logs: %w", err)
 					}
@@ -151,7 +178,16 @@ ID, use --job and --workflow to disambiguate by workflow job key.`,
 				return fmt.Errorf("failed to look up run: %w", runErr)
 			}
 
-			if follow {
+			if outputFile != "" {
+				if err := downloadUnresolvedLogsToFile(ctx, tokenVal, orgID, id, outputOptions, outputFile, cmd.ErrOrStderr()); err != nil {
+					return fmt.Errorf(
+						"could not resolve %q as a run, job, or attempt ID:\n  as run/job: %v\n  as job/attempt export: %v",
+						id,
+						runErr,
+						err,
+					)
+				}
+			} else if follow {
 				if err := streamUnresolvedLogsWithFollowUX(ctx, tokenVal, orgID, id, cmd.OutOrStdout(), reporter, outputOptions); err != nil {
 					if unresolvedErr, ok := err.(*unresolvedLogStreamError); ok {
 						return fmt.Errorf(
@@ -194,7 +230,8 @@ ID, use --job and --workflow to disambiguate by workflow job key.`,
 	cmd.Flags().StringVar(&workflow, "workflow", "", "Workflow path to filter jobs (e.g. ci.yml)")
 	cmd.Flags().BoolVarP(&follow, "follow", "f", false, "Follow live logs")
 	cmd.Flags().BoolVar(&timestamps, "timestamps", false, "Prefix plain log lines with UTC timestamps")
-	cmd.Flags().StringVarP(&output, "output", "o", "", "Output format (json)")
+	cmd.Flags().StringVarP(&output, "output", "o", "", "Output format (text, json)")
+	cmd.Flags().StringVar(&outputFile, "output-file", "", "Write a finite log export to the provided file path")
 
 	return cmd
 }
@@ -206,15 +243,22 @@ type logOutputOptions struct {
 
 func (o logOutputOptions) validate() error {
 	switch o.output {
-	case "", logOutputJSON:
+	case "", logOutputText, logOutputJSON:
 		return nil
 	default:
-		return fmt.Errorf("unsupported output %q (valid: json)", o.output)
+		return fmt.Errorf("unsupported output %q (valid: text, json)", o.output)
 	}
 }
 
 func (o logOutputOptions) json() bool {
 	return o.output == logOutputJSON
+}
+
+func (o logOutputOptions) exportFormat() civ1.JobAttemptLogExportFormat {
+	if o.json() {
+		return civ1.JobAttemptLogExportFormat_JOB_ATTEMPT_LOG_EXPORT_FORMAT_JSONL
+	}
+	return civ1.JobAttemptLogExportFormat_JOB_ATTEMPT_LOG_EXPORT_FORMAT_TEXT
 }
 
 type logLineEvent struct {
@@ -320,6 +364,89 @@ func logStreamName(stream uint32) string {
 	default:
 		return fmt.Sprintf("stream_%d", stream)
 	}
+}
+
+func downloadLogsToFile(ctx context.Context, tokenVal string, orgID string, target api.CILogStreamTarget, options logOutputOptions, outputFile string, statusWriter io.Writer) error {
+	return runLogFileDownload(outputFile, statusWriter, func() error {
+		return exportLogsToFile(ctx, tokenVal, orgID, target, options, outputFile)
+	})
+}
+
+func downloadUnresolvedLogsToFile(ctx context.Context, tokenVal string, orgID string, id string, options logOutputOptions, outputFile string, statusWriter io.Writer) error {
+	return runLogFileDownload(outputFile, statusWriter, func() error {
+		return exportUnresolvedLogsToFile(ctx, tokenVal, orgID, id, options, outputFile)
+	})
+}
+
+func runLogFileDownload(outputFile string, statusWriter io.Writer, export func() error) error {
+	if statusWriter != nil {
+		fmt.Fprintf(statusWriter, "Downloading logs to %s...\n", outputFile)
+	}
+	if err := export(); err != nil {
+		return err
+	}
+
+	info, err := os.Stat(outputFile)
+	if err != nil {
+		return err
+	}
+	if statusWriter != nil {
+		fmt.Fprintf(statusWriter, "Downloaded logs to %s (%s).\n", outputFile, logDownloadByteCount(info.Size()))
+	}
+	return nil
+}
+
+func logDownloadByteCount(size int64) string {
+	if size == 1 {
+		return "1 byte"
+	}
+	return fmt.Sprintf("%d bytes", size)
+}
+
+func exportLogsToFile(ctx context.Context, tokenVal string, orgID string, target api.CILogStreamTarget, options logOutputOptions, outputFile string) error {
+	dir := filepath.Dir(outputFile)
+	if dir == "" {
+		dir = "."
+	}
+	base := filepath.Base(outputFile)
+	temp, err := os.CreateTemp(dir, "."+base+".tmp-*")
+	if err != nil {
+		return err
+	}
+	tempPath := temp.Name()
+	completed := false
+	defer func() {
+		if !completed {
+			_ = os.Remove(tempPath)
+		}
+	}()
+
+	if _, err := ciExportJobAttemptLogs(ctx, tokenVal, orgID, target, options.exportFormat(), temp); err != nil {
+		_ = temp.Close()
+		return fmt.Errorf("failed to export logs: %w", err)
+	}
+	if err := temp.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tempPath, outputFile); err != nil {
+		return err
+	}
+	completed = true
+	return nil
+}
+
+func exportUnresolvedLogsToFile(ctx context.Context, tokenVal string, orgID string, id string, options logOutputOptions, outputFile string) error {
+	jobErr := exportLogsToFile(ctx, tokenVal, orgID, api.CILogStreamTarget{JobID: id}, options, outputFile)
+	if jobErr == nil || isContextDoneError(jobErr) {
+		return jobErr
+	}
+
+	attemptErr := exportLogsToFile(ctx, tokenVal, orgID, api.CILogStreamTarget{AttemptID: id}, options, outputFile)
+	if attemptErr == nil || isContextDoneError(attemptErr) {
+		return attemptErr
+	}
+
+	return fmt.Errorf("as job: %v; as attempt: %v", jobErr, attemptErr)
 }
 
 type logTarget struct {
@@ -721,8 +848,8 @@ type logTargetResolutionOptions struct {
 	allowInteractive bool
 }
 
-func logTargetResolutionOptionsForOutput(outputOptions logOutputOptions) logTargetResolutionOptions {
-	return logTargetResolutionOptions{allowInteractive: !outputOptions.json()}
+func logTargetResolutionOptionsForOutput(outputOptions logOutputOptions, outputFile string) logTargetResolutionOptions {
+	return logTargetResolutionOptions{allowInteractive: !outputOptions.json() && outputFile == ""}
 }
 
 // jobKeyShort returns the short form of a job key (after the first colon),

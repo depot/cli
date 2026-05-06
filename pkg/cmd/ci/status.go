@@ -3,7 +3,6 @@ package ci
 import (
 	"fmt"
 
-	"github.com/depot/cli/pkg/api"
 	"github.com/depot/cli/pkg/config"
 	"github.com/depot/cli/pkg/helpers"
 	"github.com/spf13/cobra"
@@ -39,7 +38,7 @@ func NewCmdStatus() *cobra.Command {
 				return fmt.Errorf("missing API token, please run `depot login`")
 			}
 
-			resp, err := api.CIGetRunStatus(ctx, tokenVal, orgID, runID)
+			resp, err := ciGetRunStatus(ctx, tokenVal, orgID, runID)
 			if err != nil {
 				return fmt.Errorf("failed to get run status: %w", err)
 			}
@@ -70,6 +69,9 @@ func NewCmdStatus() *cobra.Command {
 
 						fmt.Printf("      Attempt #%d (%s)\n", attempt.Attempt, attempt.Status)
 						fmt.Printf("        Logs: depot ci logs %s%s\n", attempt.AttemptId, orgFlag)
+						if canDownloadLogExport(attempt.Status) {
+							fmt.Printf("        Download: depot ci logs %s --output-file %s%s\n", attempt.AttemptId, logDownloadFilename, orgFlag)
+						}
 						fmt.Printf("        View: https://depot.dev/orgs/%s/workflows/%s\n", resp.OrgId, attempt.AttemptId)
 						if attempt.GetSandboxId() != "" && isRunning {
 							fmt.Printf("        SSH:  depot ci ssh %s --job %s%s\n", resp.RunId, job.JobKey, orgFlag)
