@@ -78,6 +78,9 @@ func NewCmdMetrics() *cobra.Command {
 			case jobID != "":
 				resp, err := ciGetJobMetrics(ctx, tokenVal, orgID, jobID)
 				if err != nil {
+					if connect.CodeOf(err) == connect.CodeResourceExhausted {
+						return connectErrorMessage(err)
+					}
 					return fmt.Errorf("failed to get job metrics: %w", err)
 				}
 				if metricsOutputJSON(output) {

@@ -182,6 +182,34 @@ Use ` + "`depot ci status run-1`" + ` to find job and attempt IDs.`
 	}
 }
 
+func TestMetricsJobResourceExhaustedShowsActionableMessage(t *testing.T) {
+	originalGetJobMetrics := ciGetJobMetrics
+	t.Cleanup(func() { ciGetJobMetrics = originalGetJobMetrics })
+
+	message := `This job has 51 attempts, which is too many to summarize safely.
+
+Try a narrower metrics request:
+  depot ci metrics <attempt-id>
+
+Use ` + "`depot ci status run-1`" + ` to find attempt IDs.`
+	ciGetJobMetrics = func(ctx context.Context, token, orgID, jobID string) (*civ1.GetJobMetricsResponse, error) {
+		return nil, connect.NewError(connect.CodeResourceExhausted, errors.New(message))
+	}
+
+	cmd := NewCmdMetrics()
+	cmd.SetArgs([]string{"--org", "org-123", "--token", "token-123", "--job", "job-1"})
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected resource exhausted error")
+	}
+	if err.Error() != message {
+		t.Fatalf("err = %q, want actionable message", err.Error())
+	}
+}
+
 func TestMetricsRejectsAmbiguousSelectionBeforeAPIRequest(t *testing.T) {
 	originalGetAttemptMetrics := ciGetJobAttemptMetrics
 	t.Cleanup(func() { ciGetJobAttemptMetrics = originalGetAttemptMetrics })
