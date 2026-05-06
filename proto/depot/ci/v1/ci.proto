@@ -486,8 +486,8 @@ message ExportJobAttemptLogsResponse {
 }
 
 message LogLine {
-  // step_id identifies the workflow step that emitted the line when available.
-  string step_id = 1;
+  // step_key identifies the stable Depot log/step correlation key.
+  string step_key = 1;
   // timestamp_ms is the log timestamp as Unix epoch milliseconds.
   int64 timestamp_ms = 2;
   // line_number is the persisted line number within the emitting stream.
@@ -496,6 +496,10 @@ message LogLine {
   uint32 stream = 4;
   // body is the log line content without transport framing.
   string body = 5;
+  // step_id identifies the optional user-authored workflow step ID when available.
+  string step_id = 6;
+  // step_name identifies the optional user-authored workflow step name when available.
+  string step_name = 7;
 }
 
 // ListRuns messages

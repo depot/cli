@@ -267,6 +267,8 @@ type logLineEvent struct {
 	TimestampMs int64  `json:"timestamp_ms"`
 	Stream      string `json:"stream"`
 	StepKey     string `json:"step_key"`
+	StepID      string `json:"step_id"`
+	StepName    string `json:"step_name"`
 	LineNumber  uint32 `json:"line_number"`
 	Body        string `json:"body"`
 }
@@ -311,7 +313,9 @@ func logLineEventFromLine(line *civ1.LogLine) logLineEvent {
 		Timestamp:   formatLogTimestamp(line),
 		TimestampMs: line.GetTimestampMs(),
 		Stream:      logStreamName(line.GetStream()),
-		StepKey:     line.GetStepId(),
+		StepKey:     line.GetStepKey(),
+		StepID:      line.GetStepId(),
+		StepName:    line.GetStepName(),
 		LineNumber:  line.GetLineNumber(),
 		Body:        line.GetBody(),
 	}

@@ -738,7 +738,7 @@ func TestIsTransientConnectError(t *testing.T) {
 
 func testLogLine(stepID string, lineNumber uint32, body string) *civ1.LogLine {
 	return &civ1.LogLine{
-		StepId:      stepID,
+		StepKey:     stepID,
 		TimestampMs: int64(lineNumber),
 		LineNumber:  lineNumber,
 		Stream:      0,
