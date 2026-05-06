@@ -194,15 +194,14 @@ if [ "$cache_hit" = "false" ]; then
   docker export "$container" | tar -xC "$rootfs_dir"
   docker rm "$container" >/dev/null
 
-  rootfs_bytes=$(sudo du -sb "$rootfs_dir" | awk '{print $1}')
-  image_size=$((rootfs_bytes + 1024 * 1024 * 1024))
-
-  # 5. Pack into ext4 and push to the cache tag. snapshot reads
-  #    REGISTRY_USERNAME / REGISTRY_PASSWORD from the env (same vars
-  #    docker uses) for the push.
+  # 5. Pack into ext4 and push to the cache tag. snapshot picks
+  #    --image-size itself (data_bytes * 1.20, 64 MiB floor) when
+  #    omitted, then resize2fs -M's the filesystem before push so
+  #    the OCI artifact is minimum size regardless. snapshot reads
+  #    REGISTRY_USERNAME / REGISTRY_PASSWORD from the env (same
+  #    vars docker uses) for the push.
   sudo -E "$install_dir/snapshot" build-ext4 \
     --source-dir "$rootfs_dir" \
-    --image-size "$image_size" \
     -o /tmp/rootfs.ext4 \
     --registry "$cache_ref"
 fi
