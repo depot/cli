@@ -159,11 +159,9 @@ func TestMetricsRunResourceExhaustedShowsActionableMessage(t *testing.T) {
 
 	message := `This run has 198 attempts, which is too many to summarize safely.
 
-Try a narrower metrics request:
-  depot ci metrics --job <job-id>
-  depot ci metrics <attempt-id>
+Request metrics for a narrower scope, such as a single job or attempt.
 
-Use ` + "`depot ci status run-1`" + ` to find job and attempt IDs.`
+Use GetRunStatus for run run-1 to find job and attempt IDs.`
 	ciGetRunMetrics = func(ctx context.Context, token, orgID, runID string) (*civ1.GetRunMetricsResponse, error) {
 		return nil, connect.NewError(connect.CodeResourceExhausted, errors.New(message))
 	}
@@ -177,7 +175,14 @@ Use ` + "`depot ci status run-1`" + ` to find job and attempt IDs.`
 	if err == nil {
 		t.Fatal("expected resource exhausted error")
 	}
-	if err.Error() != message {
+	want := `This run has 198 attempts, which is too many to summarize safely.
+
+Try a narrower metrics request:
+  depot ci metrics --job <job-id>
+  depot ci metrics <attempt-id>
+
+Use ` + "`depot ci status run-1`" + ` to find job and attempt IDs.`
+	if err.Error() != want {
 		t.Fatalf("err = %q, want actionable message", err.Error())
 	}
 }
@@ -188,10 +193,9 @@ func TestMetricsJobResourceExhaustedShowsActionableMessage(t *testing.T) {
 
 	message := `This job has 51 attempts, which is too many to summarize safely.
 
-Try a narrower metrics request:
-  depot ci metrics <attempt-id>
+Request metrics for a single attempt instead.
 
-Use ` + "`depot ci status run-1`" + ` to find attempt IDs.`
+Use GetRunStatus for run run-1 to find attempt IDs.`
 	ciGetJobMetrics = func(ctx context.Context, token, orgID, jobID string) (*civ1.GetJobMetricsResponse, error) {
 		return nil, connect.NewError(connect.CodeResourceExhausted, errors.New(message))
 	}
@@ -205,8 +209,75 @@ Use ` + "`depot ci status run-1`" + ` to find attempt IDs.`
 	if err == nil {
 		t.Fatal("expected resource exhausted error")
 	}
-	if err.Error() != message {
+	want := `This job has 51 attempts, which is too many to summarize safely.
+
+Try a narrower metrics request:
+  depot ci metrics <attempt-id>
+
+Use ` + "`depot ci status run-1`" + ` to find attempt IDs.`
+	if err.Error() != want {
 		t.Fatalf("err = %q, want actionable message", err.Error())
+	}
+}
+
+func TestMetricsJSONHandlesMissingStatsAndCap(t *testing.T) {
+	originalGetAttemptMetrics := ciGetJobAttemptMetrics
+	t.Cleanup(func() { ciGetJobAttemptMetrics = originalGetAttemptMetrics })
+
+	resp := attemptMetricsResponse()
+	resp.Attempt.Availability = &civ1.CIMetricsAvailability{
+		Code:   civ1.CIMetricsAvailabilityCode_CI_METRICS_AVAILABILITY_CODE_NO_SAMPLES,
+		Reason: "no_samples",
+	}
+	resp.Attempt.Stats = nil
+	resp.Attempt.Cap = nil
+	resp.Attempt.Samples = nil
+	ciGetJobAttemptMetrics = func(ctx context.Context, token, orgID, attemptID string) (*civ1.GetJobAttemptMetricsResponse, error) {
+		return resp, nil
+	}
+
+	cmd := NewCmdMetrics()
+	cmd.SetArgs([]string{"--org", "org-123", "--token", "token-123", "--output", "json", "att-1"})
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+
+	stdout, err := captureStdout(t, cmd.Execute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout, `"reason": "no_samples"`) {
+		t.Fatalf("JSON output missing availability reason:\n%s", stdout)
+	}
+	if !strings.Contains(stdout, `"sample_count": 0`) {
+		t.Fatalf("JSON output missing zero stats fallback:\n%s", stdout)
+	}
+}
+
+func TestMetricsTextHandlesMissingStats(t *testing.T) {
+	originalGetAttemptMetrics := ciGetJobAttemptMetrics
+	t.Cleanup(func() { ciGetJobAttemptMetrics = originalGetAttemptMetrics })
+
+	resp := attemptMetricsResponse()
+	resp.Attempt.Availability = &civ1.CIMetricsAvailability{
+		Code:   civ1.CIMetricsAvailabilityCode_CI_METRICS_AVAILABILITY_CODE_NO_SAMPLES,
+		Reason: "no_samples",
+	}
+	resp.Attempt.Stats = nil
+	ciGetJobAttemptMetrics = func(ctx context.Context, token, orgID, attemptID string) (*civ1.GetJobAttemptMetricsResponse, error) {
+		return resp, nil
+	}
+
+	cmd := NewCmdMetrics()
+	cmd.SetArgs([]string{"--org", "org-123", "--token", "token-123", "att-1"})
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+
+	stdout, err := captureStdout(t, cmd.Execute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout, "Availability: no_samples") {
+		t.Fatalf("text output missing availability:\n%s", stdout)
 	}
 }
 

@@ -3,6 +3,7 @@ package ci
 import (
 	"errors"
 	"fmt"
+	"strings"
 
 	"connectrpc.com/connect"
 	"github.com/depot/cli/pkg/api"
@@ -79,7 +80,7 @@ func NewCmdMetrics() *cobra.Command {
 				resp, err := ciGetJobMetrics(ctx, tokenVal, orgID, jobID)
 				if err != nil {
 					if connect.CodeOf(err) == connect.CodeResourceExhausted {
-						return connectErrorMessage(err)
+						return jobMetricsLimitError(err)
 					}
 					return fmt.Errorf("failed to get job metrics: %w", err)
 				}
@@ -91,7 +92,7 @@ func NewCmdMetrics() *cobra.Command {
 				resp, err := ciGetRunMetrics(ctx, tokenVal, orgID, runID)
 				if err != nil {
 					if connect.CodeOf(err) == connect.CodeResourceExhausted {
-						return connectErrorMessage(err)
+						return runMetricsLimitError(err, runID)
 					}
 					return fmt.Errorf("failed to get run metrics: %w", err)
 				}
@@ -309,6 +310,10 @@ func metricAvailabilityCode(code civ1.CIMetricsAvailabilityCode) string {
 }
 
 func metricStatsJSON(stats *civ1.CIMetricsStats) statsJSON {
+	if stats == nil {
+		return statsJSON{}
+	}
+
 	return statsJSON{
 		SampleCount:              stats.GetSampleCount(),
 		CpuSampleCount:           stats.GetCpuSampleCount(),
@@ -325,6 +330,10 @@ func metricStatsJSON(stats *civ1.CIMetricsStats) statsJSON {
 }
 
 func metricCapJSON(cap *civ1.CIMetricsCapMetadata) capJSON {
+	if cap == nil {
+		return capJSON{}
+	}
+
 	return capJSON{
 		RawSampleCount:         cap.GetRawSampleCount(),
 		ReturnedSampleCount:    cap.GetReturnedSampleCount(),
@@ -374,6 +383,9 @@ func printAttemptSummary(attempt *civ1.CIMetricsAttemptMetrics, metricsCommand s
 func printAttemptSummaryFields(attempt *civ1.CIMetricsAttemptContext, availability *civ1.CIMetricsAvailability, stats *civ1.CIMetricsStats, metricsCommand string) {
 	fmt.Printf("  Attempt #%d %s (%s)\n", attempt.GetAttempt(), attempt.GetAttemptId(), attempt.GetStatus())
 	fmt.Printf("    Availability: %s\n", metricAvailabilityCode(availability.GetCode()))
+	if stats == nil {
+		stats = &civ1.CIMetricsStats{}
+	}
 	if stats.GetObservedStartedAt() != "" || stats.GetObservedFinishedAt() != "" {
 		fmt.Printf("    Observed: %s - %s\n", stats.GetObservedStartedAt(), stats.GetObservedFinishedAt())
 	}
@@ -393,12 +405,50 @@ func metricsCommand(attemptID, orgFlag string) string {
 	return fmt.Sprintf("depot ci metrics %s%s", attemptID, orgFlag)
 }
 
-func connectErrorMessage(err error) error {
+func runMetricsLimitError(err error, runID string) error {
+	return metricsLimitErrorMessage(
+		connectErrorText(err),
+		fmt.Sprintf("Try a narrower metrics request:\n  depot ci metrics --job <job-id>\n  depot ci metrics <attempt-id>\n\nUse `depot ci status %s` to find job and attempt IDs.", runID),
+	)
+}
+
+func jobMetricsLimitError(err error) error {
+	message := connectErrorText(err)
+	runID := runIDFromMetricsLimitMessage(message)
+	if runID == "" {
+		runID = "<run-id>"
+	}
+	return metricsLimitErrorMessage(
+		message,
+		fmt.Sprintf("Try a narrower metrics request:\n  depot ci metrics <attempt-id>\n\nUse `depot ci status %s` to find attempt IDs.", runID),
+	)
+}
+
+func metricsLimitErrorMessage(message, guidance string) error {
+	if message == "" {
+		return errors.New(guidance)
+	}
+	return errors.New(strings.SplitN(message, "\n", 2)[0] + "\n\n" + guidance)
+}
+
+func runIDFromMetricsLimitMessage(message string) string {
+	_, after, ok := strings.Cut(message, "Use GetRunStatus for run ")
+	if !ok {
+		return ""
+	}
+	fields := strings.Fields(after)
+	if len(fields) == 0 {
+		return ""
+	}
+	return strings.TrimSuffix(fields[0], ".")
+}
+
+func connectErrorText(err error) string {
 	var connectErr *connect.Error
 	if errors.As(err, &connectErr) && connectErr.Message() != "" {
-		return errors.New(connectErr.Message())
+		return connectErr.Message()
 	}
-	return err
+	return ""
 }
 
 func validateMetricsOutput(output string) error {
