@@ -15,6 +15,7 @@ func NewCmdCI() *cobra.Command {
 	cmd.AddCommand(NewCmdCancel())
 	cmd.AddCommand(NewCmdDispatch())
 	cmd.AddCommand(NewCmdLogs())
+	cmd.AddCommand(NewCmdMetrics())
 	cmd.AddCommand(NewCmdMigrate())
 	cmd.AddCommand(NewCmdRerun())
 	cmd.AddCommand(NewCmdRetry())

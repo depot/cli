@@ -38,6 +38,15 @@ service CIService {
   // GetWorkflow returns curated workflow, run, execution, job, and attempt metadata for single-workflow inspection
   rpc GetWorkflow(GetWorkflowRequest) returns (GetWorkflowResponse) {}
 
+  // GetJobAttemptMetrics returns CPU and memory metrics for one concrete job attempt
+  rpc GetJobAttemptMetrics(GetJobAttemptMetricsRequest) returns (GetJobAttemptMetricsResponse) {}
+
+  // GetJobMetrics returns per-attempt CPU and memory metric summaries for one job
+  rpc GetJobMetrics(GetJobMetricsRequest) returns (GetJobMetricsResponse) {}
+
+  // GetRunMetrics returns workflow/job/attempt CPU and memory metric summaries for one run
+  rpc GetRunMetrics(GetRunMetricsRequest) returns (GetRunMetricsResponse) {}
+
   // GetJobAttemptLogs returns log lines for a job attempt
   rpc GetJobAttemptLogs(GetJobAttemptLogsRequest) returns (GetJobAttemptLogsResponse) {}
 
@@ -397,6 +406,161 @@ message GetWorkflowJobAttempt {
   string session_id = 5;
   string started_at = 6;
   string finished_at = 7;
+}
+
+// CI metrics messages
+
+message GetJobAttemptMetricsRequest {
+  // attempt_id identifies the concrete job attempt whose metric samples to fetch.
+  string attempt_id = 1;
+}
+
+message GetJobMetricsRequest {
+  // job_id identifies the job whose attempts should be summarized.
+  string job_id = 1;
+}
+
+message GetRunMetricsRequest {
+  // run_id identifies the run whose workflow/job/attempt metrics should be summarized.
+  string run_id = 1;
+}
+
+message GetJobAttemptMetricsResponse {
+  CIMetricsRunContext run = 1;
+  CIMetricsWorkflowContext workflow = 2;
+  CIMetricsJobContext job = 3;
+  CIMetricsAttemptMetrics attempt = 4;
+  // snapshot_at is the request timestamp used as the upper bound for running attempts.
+  string snapshot_at = 5;
+}
+
+message GetJobMetricsResponse {
+  CIMetricsRunContext run = 1;
+  CIMetricsWorkflowContext workflow = 2;
+  CIMetricsJobContext job = 3;
+  repeated CIMetricsAttemptSummary attempts = 4;
+  // snapshot_at is the request timestamp used as the upper bound for running attempts.
+  string snapshot_at = 5;
+}
+
+message GetRunMetricsResponse {
+  CIMetricsRunContext run = 1;
+  repeated CIMetricsWorkflowMetrics workflows = 2;
+  // snapshot_at is the request timestamp used as the upper bound for running attempts.
+  string snapshot_at = 3;
+}
+
+message CIMetricsWorkflowMetrics {
+  CIMetricsWorkflowContext workflow = 1;
+  repeated CIMetricsJobMetrics jobs = 2;
+}
+
+message CIMetricsJobMetrics {
+  CIMetricsJobContext job = 1;
+  repeated CIMetricsAttemptSummary attempts = 2;
+}
+
+message CIMetricsAttemptMetrics {
+  CIMetricsAttemptContext attempt = 1;
+  CIMetricsAvailability availability = 2;
+  CIMetricsStats stats = 3;
+  CIMetricsCapMetadata cap = 4;
+  repeated CIMetricSample samples = 5;
+}
+
+message CIMetricsAttemptSummary {
+  CIMetricsAttemptContext attempt = 1;
+  CIMetricsAvailability availability = 2;
+  CIMetricsStats stats = 3;
+  CIMetricsCapMetadata cap = 4;
+}
+
+message CIMetricsRunContext {
+  string run_id = 1;
+  string repo = 2;
+  string ref = 3;
+  string sha = 4;
+  string head_sha = 5;
+  string trigger = 6;
+  string status = 7;
+  string created_at = 8;
+  string started_at = 9;
+  string finished_at = 10;
+}
+
+message CIMetricsWorkflowContext {
+  string workflow_id = 1;
+  string workflow_path = 2;
+  string name = 3;
+  string status = 4;
+  string created_at = 5;
+  string started_at = 6;
+  string finished_at = 7;
+}
+
+message CIMetricsJobContext {
+  string job_id = 1;
+  string job_key = 2;
+  string status = 3;
+  string conclusion = 4;
+  int32 current_attempt = 5;
+  string created_at = 6;
+  string started_at = 7;
+  string finished_at = 8;
+}
+
+message CIMetricsAttemptContext {
+  string attempt_id = 1;
+  int32 attempt = 2;
+  string status = 3;
+  string conclusion = 4;
+  string sandbox_id = 5;
+  string session_id = 6;
+  string created_at = 7;
+  string started_at = 8;
+  string finished_at = 9;
+}
+
+message CIMetricSample {
+  string timestamp = 1;
+  optional double cpu_utilization = 2;
+  optional double memory_utilization = 3;
+  optional uint64 memory_usage_bytes = 4;
+}
+
+message CIMetricsStats {
+  uint32 sample_count = 1;
+  uint32 cpu_sample_count = 2;
+  uint32 memory_sample_count = 3;
+  optional double peak_cpu_utilization = 4;
+  optional double average_cpu_utilization = 5;
+  optional double peak_memory_utilization = 6;
+  optional double average_memory_utilization = 7;
+  string observed_started_at = 8;
+  string observed_finished_at = 9;
+  optional uint64 peak_memory_usage_bytes = 10;
+  optional double average_memory_usage_bytes = 11;
+}
+
+enum CIMetricsAvailabilityCode {
+  CI_METRICS_AVAILABILITY_CODE_UNSPECIFIED = 0;
+  CI_METRICS_AVAILABILITY_CODE_AVAILABLE = 1;
+  CI_METRICS_AVAILABILITY_CODE_NO_SANDBOX = 2;
+  CI_METRICS_AVAILABILITY_CODE_NO_TIME_RANGE = 3;
+  CI_METRICS_AVAILABILITY_CODE_NO_SAMPLES = 4;
+}
+
+message CIMetricsAvailability {
+  CIMetricsAvailabilityCode code = 1;
+  string reason = 2;
+}
+
+message CIMetricsCapMetadata {
+  uint32 raw_sample_count = 1;
+  uint32 returned_sample_count = 2;
+  uint32 max_returned_sample_count = 3;
+  bool downsampled = 4;
+  string downsample_strategy = 5;
 }
 
 // GetJobAttemptLogs messages
