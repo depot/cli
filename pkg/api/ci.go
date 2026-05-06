@@ -275,7 +275,7 @@ func nextCIStreamBackoff(current time.Duration) time.Duration {
 
 func logLineIdentity(line *civ1.LogLine) string {
 	sum := sha256.Sum256([]byte(line.GetBody()))
-	return fmt.Sprintf("%s:%d:%d:%d:%s", line.GetStepId(), line.GetTimestampMs(), line.GetLineNumber(), line.GetStream(), hex.EncodeToString(sum[:]))
+	return fmt.Sprintf("%s:%d:%d:%d:%s", line.GetStepKey(), line.GetTimestampMs(), line.GetLineNumber(), line.GetStream(), hex.EncodeToString(sum[:]))
 }
 
 type logLineDedupe struct {

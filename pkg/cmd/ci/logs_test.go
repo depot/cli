@@ -859,7 +859,7 @@ func TestPrintLogLinesTimestamps(t *testing.T) {
 func TestPrintLogLinesJSON(t *testing.T) {
 	largeBody := strings.Repeat("x", 5000) + ` "quoted" \ slash`
 	lines := []*civ1.LogLine{
-		testCmdLogLine("step-1", 7, 123, 1, largeBody),
+		testCmdLogLine("step-1", 7, 123, 1, largeBody, "build", "Build"),
 	}
 
 	var out bytes.Buffer
@@ -877,6 +877,8 @@ func TestPrintLogLinesJSON(t *testing.T) {
 		"timestamp_ms": float64(123),
 		"stream":       "stderr",
 		"step_key":     "step-1",
+		"step_id":      "build",
+		"step_name":    "Build",
 		"line_number":  float64(7),
 		"body":         largeBody,
 	})
@@ -1036,14 +1038,21 @@ func TestStreamLogTargetWithFollowUXJSONEmitsStatusLineAndEnd(t *testing.T) {
 	}
 }
 
-func testCmdLogLine(stepID string, lineNumber uint32, timestampMs int64, stream uint32, body string) *civ1.LogLine {
-	return &civ1.LogLine{
-		StepId:      stepID,
+func testCmdLogLine(stepKey string, lineNumber uint32, timestampMs int64, stream uint32, body string, metadata ...string) *civ1.LogLine {
+	line := &civ1.LogLine{
+		StepKey:     stepKey,
 		TimestampMs: timestampMs,
 		LineNumber:  lineNumber,
 		Stream:      stream,
 		Body:        body,
 	}
+	if len(metadata) > 0 {
+		line.StepId = metadata[0]
+	}
+	if len(metadata) > 1 {
+		line.StepName = metadata[1]
+	}
+	return line
 }
 
 func decodeLogEvents(t *testing.T, output string) []map[string]any {
@@ -1068,13 +1077,13 @@ func decodeLogEvents(t *testing.T, output string) []map[string]any {
 func assertLogLineEvent(t *testing.T, got map[string]any, want map[string]any) {
 	t.Helper()
 
+	if _, ok := want["step_id"]; !ok {
+		want["step_id"] = ""
+	}
+	if _, ok := want["step_name"]; !ok {
+		want["step_name"] = ""
+	}
 	assertEventFields(t, got, want)
-	if _, ok := got["step_id"]; ok {
-		t.Fatalf("line event should not include step_id: %#v", got)
-	}
-	if _, ok := got["step_name"]; ok {
-		t.Fatalf("line event should not include step_name: %#v", got)
-	}
 }
 
 func assertEventFields(t *testing.T, got map[string]any, want map[string]any) {
