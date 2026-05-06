@@ -42,7 +42,7 @@ func GetAuthToken(ctx context.Context, dockerCli command.Cli, parsedTag *ParsedT
 // GetAuthConfig gets the auth config from the local docker login.
 func GetAuthConfig(dockerCli command.Cli, host string) (*configtypes.AuthConfig, error) {
 	// First try to get credentials from DEPOT environment variables
-	if depotAuth := registry.GetDepotAuthConfig(); depotAuth != nil {
+	if depotAuth := registry.GetDepotAuthConfigForHost(host); depotAuth != nil {
 		return (*configtypes.AuthConfig)(depotAuth), nil
 	}
 

@@ -194,7 +194,7 @@ func (a *DepotAuthProvider) Register(server *grpc.Server) {
 
 func (a *DepotAuthProvider) Credentials(ctx context.Context, req *auth.CredentialsRequest) (*auth.CredentialsResponse, error) {
 	// First try to get credentials from DEPOT environment variables
-	if creds := GetDepotAuthConfig(); creds != nil {
+	if creds := GetDepotAuthConfigForHost(req.Host); creds != nil {
 		return &auth.CredentialsResponse{
 			Username: creds.Username,
 			Secret:   creds.Password,
@@ -206,7 +206,7 @@ func (a *DepotAuthProvider) Credentials(ctx context.Context, req *auth.Credentia
 }
 
 func (a *DepotAuthProvider) FetchToken(ctx context.Context, req *auth.FetchTokenRequest) (*auth.FetchTokenResponse, error) {
-	creds := GetDepotAuthConfig()
+	creds := GetDepotAuthConfigForHost(req.Host)
 	if creds == nil {
 		return a.inner.FetchToken(ctx, req)
 	}
@@ -229,6 +229,30 @@ func (a *DepotAuthProvider) VerifyTokenAuthority(ctx context.Context, req *auth.
 // GetDepotAuthConfig retrieves credentials from DEPOT_PUSH_REGISTRY_AUTH environment variables.
 // Returns nil if no depot auth is configured.
 func GetDepotAuthConfig() *types.AuthConfig {
+	return getDepotPushRegistryAuthConfig()
+}
+
+// GetDepotAuthConfigForHost retrieves credentials for a registry host from Depot
+// environment variables. DEPOT_PUSH_REGISTRY_* remains an explicit override for
+// any registry; DEPOT_TOKEN is only used for Depot Registry hosts.
+func GetDepotAuthConfigForHost(host string) *types.AuthConfig {
+	if creds := getDepotPushRegistryAuthConfig(); creds != nil {
+		return creds
+	}
+
+	if isDepotRegistryHost(host) {
+		if token := os.Getenv("DEPOT_TOKEN"); token != "" {
+			return &types.AuthConfig{
+				Username: "x-token",
+				Password: token,
+			}
+		}
+	}
+
+	return nil
+}
+
+func getDepotPushRegistryAuthConfig() *types.AuthConfig {
 	// Try username/password environment variables first
 	username := os.Getenv("DEPOT_PUSH_REGISTRY_USERNAME")
 	registryPassword := os.Getenv("DEPOT_PUSH_REGISTRY_PASSWORD")
@@ -256,4 +280,8 @@ func GetDepotAuthConfig() *types.AuthConfig {
 	}
 
 	return nil
+}
+
+func isDepotRegistryHost(host string) bool {
+	return host == "registry.depot.dev" || strings.HasSuffix(host, ".registry.depot.dev")
 }
