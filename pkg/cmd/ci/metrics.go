@@ -1,6 +1,7 @@
 package ci
 
 import (
+	"errors"
 	"fmt"
 
 	"connectrpc.com/connect"
@@ -86,6 +87,9 @@ func NewCmdMetrics() *cobra.Command {
 			case runID != "":
 				resp, err := ciGetRunMetrics(ctx, tokenVal, orgID, runID)
 				if err != nil {
+					if connect.CodeOf(err) == connect.CodeResourceExhausted {
+						return connectErrorMessage(err)
+					}
 					return fmt.Errorf("failed to get run metrics: %w", err)
 				}
 				if metricsOutputJSON(output) {
@@ -384,6 +388,14 @@ func printAttemptSummaryFields(attempt *civ1.CIMetricsAttemptContext, availabili
 
 func metricsCommand(attemptID, orgFlag string) string {
 	return fmt.Sprintf("depot ci metrics %s%s", attemptID, orgFlag)
+}
+
+func connectErrorMessage(err error) error {
+	var connectErr *connect.Error
+	if errors.As(err, &connectErr) && connectErr.Message() != "" {
+		return errors.New(connectErr.Message())
+	}
+	return err
 }
 
 func validateMetricsOutput(output string) error {
