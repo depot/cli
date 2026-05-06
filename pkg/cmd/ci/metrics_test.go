@@ -123,6 +123,34 @@ func TestMetricsHumanJobOutputShowsDrillDownCommand(t *testing.T) {
 	if !strings.Contains(stdout, "Metrics: depot ci metrics att-1 --org org-123") {
 		t.Fatalf("human output missing drill-down command:\n%s", stdout)
 	}
+	if !strings.Contains(stdout, "Full samples: depot ci metrics att-1 --org org-123 --output json") {
+		t.Fatalf("human output missing full samples command:\n%s", stdout)
+	}
+}
+
+func TestMetricsHumanAttemptOutputShowsFullSamplesCommand(t *testing.T) {
+	originalGetAttemptMetrics := ciGetJobAttemptMetrics
+	t.Cleanup(func() { ciGetJobAttemptMetrics = originalGetAttemptMetrics })
+
+	ciGetJobAttemptMetrics = func(ctx context.Context, token, orgID, attemptID string) (*civ1.GetJobAttemptMetricsResponse, error) {
+		return attemptMetricsResponse(), nil
+	}
+
+	cmd := NewCmdMetrics()
+	cmd.SetArgs([]string{"--org", "org-123", "--token", "token-123", "att-1"})
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+
+	stdout, err := captureStdout(t, cmd.Execute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout, "Samples: 2 returned / 2 raw") {
+		t.Fatalf("human output missing sample count:\n%s", stdout)
+	}
+	if !strings.Contains(stdout, "Full samples: depot ci metrics att-1 --org org-123 --output json") {
+		t.Fatalf("human output missing full samples command:\n%s", stdout)
+	}
 }
 
 func TestMetricsRejectsAmbiguousSelectionBeforeAPIRequest(t *testing.T) {

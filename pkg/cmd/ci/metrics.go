@@ -103,7 +103,7 @@ func NewCmdMetrics() *cobra.Command {
 				if metricsOutputJSON(output) {
 					return writeJSON(buildAttemptMetricsJSON(resp))
 				}
-				printAttemptMetrics(resp)
+				printAttemptMetrics(resp, orgFlag)
 			}
 
 			return nil
@@ -327,12 +327,15 @@ func metricCapJSON(cap *civ1.CIMetricsCapMetadata) capJSON {
 	}
 }
 
-func printAttemptMetrics(resp *civ1.GetJobAttemptMetricsResponse) {
+func printAttemptMetrics(resp *civ1.GetJobAttemptMetricsResponse, orgFlag string) {
 	fmt.Printf("Run: %s (%s)\n", resp.GetRun().GetRunId(), resp.GetRun().GetStatus())
 	fmt.Printf("Workflow: %s\n", resp.GetWorkflow().GetWorkflowId())
 	fmt.Printf("Job: %s [%s] (%s)\n", resp.GetJob().GetJobId(), resp.GetJob().GetJobKey(), resp.GetJob().GetStatus())
 	printAttemptSummary(resp.GetAttempt(), "")
 	fmt.Printf("Samples: %d returned / %d raw\n", resp.GetAttempt().GetCap().GetReturnedSampleCount(), resp.GetAttempt().GetCap().GetRawSampleCount())
+	if attemptID := resp.GetAttempt().GetAttempt().GetAttemptId(); attemptID != "" {
+		fmt.Printf("Full samples: %s --output json\n", metricsCommand(attemptID, orgFlag))
+	}
 }
 
 func printJobMetrics(resp *civ1.GetJobMetricsResponse, orgFlag string) {
@@ -340,7 +343,7 @@ func printJobMetrics(resp *civ1.GetJobMetricsResponse, orgFlag string) {
 	fmt.Printf("Workflow: %s\n", resp.GetWorkflow().GetWorkflowId())
 	fmt.Printf("Job: %s [%s] (%s)\n", resp.GetJob().GetJobId(), resp.GetJob().GetJobKey(), resp.GetJob().GetStatus())
 	for _, attempt := range resp.GetAttempts() {
-		printAttemptSummaryFields(attempt.GetAttempt(), attempt.GetAvailability(), attempt.GetStats(), fmt.Sprintf("depot ci metrics %s%s", attempt.GetAttempt().GetAttemptId(), orgFlag))
+		printAttemptSummaryFields(attempt.GetAttempt(), attempt.GetAvailability(), attempt.GetStats(), metricsCommand(attempt.GetAttempt().GetAttemptId(), orgFlag))
 	}
 }
 
@@ -351,7 +354,7 @@ func printRunMetrics(resp *civ1.GetRunMetricsResponse, orgFlag string) {
 		for _, job := range workflow.GetJobs() {
 			fmt.Printf("  Job: %s [%s] (%s)\n", job.GetJob().GetJobId(), job.GetJob().GetJobKey(), job.GetJob().GetStatus())
 			for _, attempt := range job.GetAttempts() {
-				printAttemptSummaryFields(attempt.GetAttempt(), attempt.GetAvailability(), attempt.GetStats(), fmt.Sprintf("depot ci metrics %s%s", attempt.GetAttempt().GetAttemptId(), orgFlag))
+				printAttemptSummaryFields(attempt.GetAttempt(), attempt.GetAvailability(), attempt.GetStats(), metricsCommand(attempt.GetAttempt().GetAttemptId(), orgFlag))
 			}
 		}
 	}
@@ -375,7 +378,12 @@ func printAttemptSummaryFields(attempt *civ1.CIMetricsAttemptContext, availabili
 	}
 	if metricsCommand != "" && attempt.GetAttemptId() != "" {
 		fmt.Printf("    Metrics: %s\n", metricsCommand)
+		fmt.Printf("    Full samples: %s --output json\n", metricsCommand)
 	}
+}
+
+func metricsCommand(attemptID, orgFlag string) string {
+	return fmt.Sprintf("depot ci metrics %s%s", attemptID, orgFlag)
 }
 
 func validateMetricsOutput(output string) error {
