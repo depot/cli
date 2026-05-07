@@ -15,6 +15,7 @@ func TestCICommandRegistration(t *testing.T) {
 		"run",
 		"status",
 		"logs",
+		"summary",
 		"ssh",
 		// mutation verbs (added in DEP-4221)
 		"cancel",
