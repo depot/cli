@@ -80,6 +80,30 @@ func (h ciServiceTestHandler) GetWorkflow(_ context.Context, req *connect.Reques
 	return connect.NewResponse(&civ1.GetWorkflowResponse{WorkflowId: req.Msg.WorkflowId, OrgId: "org-123"}), nil
 }
 
+func (h ciServiceTestHandler) GetJobAttemptMetrics(_ context.Context, req *connect.Request[civ1.GetJobAttemptMetricsRequest]) (*connect.Response[civ1.GetJobAttemptMetricsResponse], error) {
+	assertAuthAndOrg(h.t, req.Header())
+	if req.Msg.AttemptId != "attempt-123" {
+		h.t.Fatalf("AttemptId = %q, want attempt-123", req.Msg.AttemptId)
+	}
+	return connect.NewResponse(&civ1.GetJobAttemptMetricsResponse{SnapshotAt: "2026-05-03T12:00:00Z"}), nil
+}
+
+func (h ciServiceTestHandler) GetJobMetrics(_ context.Context, req *connect.Request[civ1.GetJobMetricsRequest]) (*connect.Response[civ1.GetJobMetricsResponse], error) {
+	assertAuthAndOrg(h.t, req.Header())
+	if req.Msg.JobId != "job-123" {
+		h.t.Fatalf("JobId = %q, want job-123", req.Msg.JobId)
+	}
+	return connect.NewResponse(&civ1.GetJobMetricsResponse{SnapshotAt: "2026-05-03T12:00:00Z"}), nil
+}
+
+func (h ciServiceTestHandler) GetRunMetrics(_ context.Context, req *connect.Request[civ1.GetRunMetricsRequest]) (*connect.Response[civ1.GetRunMetricsResponse], error) {
+	assertAuthAndOrg(h.t, req.Header())
+	if req.Msg.RunId != "run-123" {
+		h.t.Fatalf("RunId = %q, want run-123", req.Msg.RunId)
+	}
+	return connect.NewResponse(&civ1.GetRunMetricsResponse{SnapshotAt: "2026-05-03T12:00:00Z"}), nil
+}
+
 func (h ciServiceTestHandler) GetJobAttemptLogs(context.Context, *connect.Request[civ1.GetJobAttemptLogsRequest]) (*connect.Response[civ1.GetJobAttemptLogsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, nil)
 }
@@ -132,6 +156,34 @@ func TestCIGetWorkflowWrapper(t *testing.T) {
 		}
 		if resp.WorkflowId != "workflow-123" || resp.OrgId != "org-123" {
 			t.Fatalf("unexpected response: %+v", resp)
+		}
+	})
+}
+
+func TestCIMetricsWrappers(t *testing.T) {
+	withTestCIService(t, func() {
+		attemptResp, err := CIGetJobAttemptMetrics(context.Background(), "token-123", "org-123", "attempt-123")
+		if err != nil {
+			t.Fatalf("CIGetJobAttemptMetrics returned error: %v", err)
+		}
+		if attemptResp.SnapshotAt == "" {
+			t.Fatal("CIGetJobAttemptMetrics returned empty snapshot")
+		}
+
+		jobResp, err := CIGetJobMetrics(context.Background(), "token-123", "org-123", "job-123")
+		if err != nil {
+			t.Fatalf("CIGetJobMetrics returned error: %v", err)
+		}
+		if jobResp.SnapshotAt == "" {
+			t.Fatal("CIGetJobMetrics returned empty snapshot")
+		}
+
+		runResp, err := CIGetRunMetrics(context.Background(), "token-123", "org-123", "run-123")
+		if err != nil {
+			t.Fatalf("CIGetRunMetrics returned error: %v", err)
+		}
+		if runResp.SnapshotAt == "" {
+			t.Fatal("CIGetRunMetrics returned empty snapshot")
 		}
 	})
 }

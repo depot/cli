@@ -62,6 +62,36 @@ func CIGetRun(ctx context.Context, token, orgID, runID string) (*civ1.GetRunResp
 	return resp.Msg, nil
 }
 
+// CIGetJobAttemptMetrics returns CPU and memory samples for a CI job attempt.
+func CIGetJobAttemptMetrics(ctx context.Context, token, orgID, attemptID string) (*civ1.GetJobAttemptMetricsResponse, error) {
+	client := newCIServiceClient()
+	resp, err := client.GetJobAttemptMetrics(ctx, WithAuthenticationAndOrg(connect.NewRequest(&civ1.GetJobAttemptMetricsRequest{AttemptId: attemptID}), token, orgID))
+	if err != nil {
+		return nil, err
+	}
+	return resp.Msg, nil
+}
+
+// CIGetJobMetrics returns per-attempt CPU and memory metric summaries for a CI job.
+func CIGetJobMetrics(ctx context.Context, token, orgID, jobID string) (*civ1.GetJobMetricsResponse, error) {
+	client := newCIServiceClient()
+	resp, err := client.GetJobMetrics(ctx, WithAuthenticationAndOrg(connect.NewRequest(&civ1.GetJobMetricsRequest{JobId: jobID}), token, orgID))
+	if err != nil {
+		return nil, err
+	}
+	return resp.Msg, nil
+}
+
+// CIGetRunMetrics returns workflow/job/attempt CPU and memory metric summaries for a CI run.
+func CIGetRunMetrics(ctx context.Context, token, orgID, runID string) (*civ1.GetRunMetricsResponse, error) {
+	client := newCIServiceClient()
+	resp, err := client.GetRunMetrics(ctx, WithAuthenticationAndOrg(connect.NewRequest(&civ1.GetRunMetricsRequest{RunId: runID}), token, orgID))
+	if err != nil {
+		return nil, err
+	}
+	return resp.Msg, nil
+}
+
 // CIGetJobAttemptLogs returns all log lines for a job attempt, paginating through all pages.
 func CIGetJobAttemptLogs(ctx context.Context, token, orgID, attemptID string) ([]*civ1.LogLine, error) {
 	client := newCIServiceClient()
