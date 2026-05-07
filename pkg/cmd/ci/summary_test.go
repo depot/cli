@@ -3,7 +3,9 @@ package ci
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"io"
 	"strings"
 	"testing"
 
@@ -36,6 +38,39 @@ func TestSummaryAttemptPrintsMarkdownOnlyToStdout(t *testing.T) {
 	}
 	if stderr != "" {
 		t.Fatalf("stderr = %q, want empty", stderr)
+	}
+}
+
+func TestSummaryAttemptJSONOutput(t *testing.T) {
+	restoreSummaryAPIs(t)
+
+	ciGetJobAttemptSummary = func(ctx context.Context, token, orgID, attemptID string) (*civ1.GetJobSummaryResponse, error) {
+		return summaryResponse(attemptID, "job-1", "## Build\n\nok"), nil
+	}
+	ciGetJobSummary = func(ctx context.Context, token, orgID, jobID string) (*civ1.GetJobSummaryResponse, error) {
+		t.Fatal("job summary should not be called for a resolved attempt")
+		return nil, nil
+	}
+
+	cmd := NewCmdSummary()
+	cmd.SetArgs([]string{"--org", "org-123", "--token", "token-123", "--output", "json", "attempt-1"})
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+
+	stdout, err := captureStdout(t, cmd.Execute)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var got summaryJSONDocument
+	if err := json.Unmarshal([]byte(stdout), &got); err != nil {
+		t.Fatalf("invalid JSON output: %v\n%s", err, stdout)
+	}
+	if got.AttemptID != "attempt-1" || got.JobID != "job-1" || !got.HasSummary || got.Markdown != "## Build\n\nok" {
+		t.Fatalf("unexpected JSON document: %+v", got)
+	}
+	if got.StepCount != 1 {
+		t.Fatalf("step_count = %d, want 1", got.StepCount)
 	}
 }
 
@@ -122,6 +157,56 @@ func TestSummaryNoAttemptJobIsNonError(t *testing.T) {
 	}
 }
 
+func TestSummaryJSONJobFallbackEmptyIncludesResolvedAttempt(t *testing.T) {
+	restoreSummaryAPIs(t)
+
+	ciGetJobAttemptSummary = func(ctx context.Context, token, orgID, attemptID string) (*civ1.GetJobSummaryResponse, error) {
+		return nil, connect.NewError(connect.CodeNotFound, errors.New("attempt not found"))
+	}
+	ciGetJobSummary = func(ctx context.Context, token, orgID, jobID string) (*civ1.GetJobSummaryResponse, error) {
+		return &civ1.GetJobSummaryResponse{
+			OrgId:         "org-123",
+			RunId:         "run-1",
+			WorkflowId:    "workflow-1",
+			JobId:         jobID,
+			AttemptId:     "attempt-1",
+			Attempt:       1,
+			JobStatus:     "finished",
+			AttemptStatus: "finished",
+			HasSummary:    false,
+			EmptyReason:   "no_summary",
+		}, nil
+	}
+
+	var stderr bytes.Buffer
+	cmd := NewCmdSummary()
+	cmd.SetArgs([]string{"--org", "org-123", "--token", "token-123", "--output", "json", "job-1"})
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(&stderr)
+
+	stdout, err := captureStdout(t, cmd.Execute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stderr.String() != "" {
+		t.Fatalf("stderr = %q, want empty for json output", stderr.String())
+	}
+
+	var got map[string]any
+	if err := json.Unmarshal([]byte(stdout), &got); err != nil {
+		t.Fatalf("invalid JSON output: %v\n%s", err, stdout)
+	}
+	if got["job_id"] != "job-1" || got["attempt_id"] != "attempt-1" || got["empty_reason"] != "no_summary" {
+		t.Fatalf("unexpected JSON document: %+v", got)
+	}
+	if got["has_summary"] != false {
+		t.Fatalf("has_summary = %#v, want false", got["has_summary"])
+	}
+	if got["step_count"] != float64(0) {
+		t.Fatalf("step_count = %#v, want 0", got["step_count"])
+	}
+}
+
 func TestSummaryBothNotFoundNamesUnresolvedID(t *testing.T) {
 	restoreSummaryAPIs(t)
 
@@ -156,6 +241,29 @@ func TestSummaryAttemptUnavailableDoesNotFallBackToJob(t *testing.T) {
 	}
 	if jobCalled {
 		t.Fatal("job fallback should not run on unavailable attempt lookup")
+	}
+}
+
+func TestSummaryRejectsUnsupportedOutputBeforeAuth(t *testing.T) {
+	restoreSummaryAPIs(t)
+
+	ciGetJobAttemptSummary = func(ctx context.Context, token, orgID, attemptID string) (*civ1.GetJobSummaryResponse, error) {
+		t.Fatal("attempt summary should not be called for invalid output")
+		return nil, nil
+	}
+	ciGetJobSummary = func(ctx context.Context, token, orgID, jobID string) (*civ1.GetJobSummaryResponse, error) {
+		t.Fatal("job summary should not be called for invalid output")
+		return nil, nil
+	}
+
+	cmd := NewCmdSummary()
+	cmd.SetArgs([]string{"--output", "yaml", "attempt-1"})
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), `unsupported output "yaml"`) {
+		t.Fatalf("err = %v", err)
 	}
 }
 
