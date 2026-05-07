@@ -263,6 +263,33 @@ func TestSummaryRejectsUnsupportedOutputBeforeAuth(t *testing.T) {
 	}
 }
 
+func TestSummaryJSONOutputRequiresIDWithoutPrintingHelp(t *testing.T) {
+	restoreSummaryAPIs(t)
+
+	ciGetJobSummary = func(ctx context.Context, token, orgID string, req *civ1.GetJobSummaryRequest) (*civ1.GetJobSummaryResponse, error) {
+		t.Fatal("summary API should not be called without an ID")
+		return nil, nil
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd := NewCmdSummary()
+	cmd.SetArgs([]string{"--output", "json"})
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "expected exactly one attempt or job ID") {
+		t.Fatalf("err = %v", err)
+	}
+	if stdout.String() != "" {
+		t.Fatalf("stdout = %q, want empty", stdout.String())
+	}
+	if strings.Contains(stderr.String(), "Usage:") {
+		t.Fatalf("stderr = %q, want no help text", stderr.String())
+	}
+}
+
 func executeSummaryCommand(id string) (string, string, error) {
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer

@@ -36,6 +36,10 @@ func NewCmdSummary() *cobra.Command {
 				return err
 			}
 			if len(args) == 0 {
+				if outputIsJSON(output) {
+					cmd.SilenceUsage = true
+					return fmt.Errorf("expected exactly one attempt or job ID")
+				}
 				return cmd.Help()
 			}
 			if len(args) > 1 {
