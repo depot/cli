@@ -67,9 +67,6 @@ const (
 	CIServiceGetJobMetricsProcedure = "/depot.ci.v1.CIService/GetJobMetrics"
 	// CIServiceGetRunMetricsProcedure is the fully-qualified name of the CIService's GetRunMetrics RPC.
 	CIServiceGetRunMetricsProcedure = "/depot.ci.v1.CIService/GetRunMetrics"
-	// CIServiceGetJobAttemptSummaryProcedure is the fully-qualified name of the CIService's
-	// GetJobAttemptSummary RPC.
-	CIServiceGetJobAttemptSummaryProcedure = "/depot.ci.v1.CIService/GetJobAttemptSummary"
 	// CIServiceGetJobSummaryProcedure is the fully-qualified name of the CIService's GetJobSummary RPC.
 	CIServiceGetJobSummaryProcedure = "/depot.ci.v1.CIService/GetJobSummary"
 	// CIServiceGetJobAttemptLogsProcedure is the fully-qualified name of the CIService's
@@ -123,9 +120,7 @@ type CIServiceClient interface {
 	GetJobMetrics(context.Context, *connect.Request[v1.GetJobMetricsRequest]) (*connect.Response[v1.GetJobMetricsResponse], error)
 	// GetRunMetrics returns workflow/job/attempt CPU and memory metric summaries for one run
 	GetRunMetrics(context.Context, *connect.Request[v1.GetRunMetricsRequest]) (*connect.Response[v1.GetRunMetricsResponse], error)
-	// GetJobAttemptSummary returns authored step summary markdown for one concrete job attempt
-	GetJobAttemptSummary(context.Context, *connect.Request[v1.GetJobAttemptSummaryRequest]) (*connect.Response[v1.GetJobSummaryResponse], error)
-	// GetJobSummary resolves one job to its current/latest attempt and returns authored step summary markdown
+	// GetJobSummary returns authored step summary markdown for a job, a concrete attempt, or both.
 	GetJobSummary(context.Context, *connect.Request[v1.GetJobSummaryRequest]) (*connect.Response[v1.GetJobSummaryResponse], error)
 	// GetJobAttemptLogs returns log lines for a job attempt
 	GetJobAttemptLogs(context.Context, *connect.Request[v1.GetJobAttemptLogsRequest]) (*connect.Response[v1.GetJobAttemptLogsResponse], error)
@@ -234,11 +229,6 @@ func NewCIServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...c
 			baseURL+CIServiceGetRunMetricsProcedure,
 			opts...,
 		),
-		getJobAttemptSummary: connect.NewClient[v1.GetJobAttemptSummaryRequest, v1.GetJobSummaryResponse](
-			httpClient,
-			baseURL+CIServiceGetJobAttemptSummaryProcedure,
-			opts...,
-		),
 		getJobSummary: connect.NewClient[v1.GetJobSummaryRequest, v1.GetJobSummaryResponse](
 			httpClient,
 			baseURL+CIServiceGetJobSummaryProcedure,
@@ -288,7 +278,6 @@ type cIServiceClient struct {
 	getJobAttemptMetrics *connect.Client[v1.GetJobAttemptMetricsRequest, v1.GetJobAttemptMetricsResponse]
 	getJobMetrics        *connect.Client[v1.GetJobMetricsRequest, v1.GetJobMetricsResponse]
 	getRunMetrics        *connect.Client[v1.GetRunMetricsRequest, v1.GetRunMetricsResponse]
-	getJobAttemptSummary *connect.Client[v1.GetJobAttemptSummaryRequest, v1.GetJobSummaryResponse]
 	getJobSummary        *connect.Client[v1.GetJobSummaryRequest, v1.GetJobSummaryResponse]
 	getJobAttemptLogs    *connect.Client[v1.GetJobAttemptLogsRequest, v1.GetJobAttemptLogsResponse]
 	streamJobAttemptLogs *connect.Client[v1.StreamJobAttemptLogsRequest, v1.StreamJobAttemptLogsResponse]
@@ -367,11 +356,6 @@ func (c *cIServiceClient) GetRunMetrics(ctx context.Context, req *connect.Reques
 	return c.getRunMetrics.CallUnary(ctx, req)
 }
 
-// GetJobAttemptSummary calls depot.ci.v1.CIService.GetJobAttemptSummary.
-func (c *cIServiceClient) GetJobAttemptSummary(ctx context.Context, req *connect.Request[v1.GetJobAttemptSummaryRequest]) (*connect.Response[v1.GetJobSummaryResponse], error) {
-	return c.getJobAttemptSummary.CallUnary(ctx, req)
-}
-
 // GetJobSummary calls depot.ci.v1.CIService.GetJobSummary.
 func (c *cIServiceClient) GetJobSummary(ctx context.Context, req *connect.Request[v1.GetJobSummaryRequest]) (*connect.Response[v1.GetJobSummaryResponse], error) {
 	return c.getJobSummary.CallUnary(ctx, req)
@@ -432,9 +416,7 @@ type CIServiceHandler interface {
 	GetJobMetrics(context.Context, *connect.Request[v1.GetJobMetricsRequest]) (*connect.Response[v1.GetJobMetricsResponse], error)
 	// GetRunMetrics returns workflow/job/attempt CPU and memory metric summaries for one run
 	GetRunMetrics(context.Context, *connect.Request[v1.GetRunMetricsRequest]) (*connect.Response[v1.GetRunMetricsResponse], error)
-	// GetJobAttemptSummary returns authored step summary markdown for one concrete job attempt
-	GetJobAttemptSummary(context.Context, *connect.Request[v1.GetJobAttemptSummaryRequest]) (*connect.Response[v1.GetJobSummaryResponse], error)
-	// GetJobSummary resolves one job to its current/latest attempt and returns authored step summary markdown
+	// GetJobSummary returns authored step summary markdown for a job, a concrete attempt, or both.
 	GetJobSummary(context.Context, *connect.Request[v1.GetJobSummaryRequest]) (*connect.Response[v1.GetJobSummaryResponse], error)
 	// GetJobAttemptLogs returns log lines for a job attempt
 	GetJobAttemptLogs(context.Context, *connect.Request[v1.GetJobAttemptLogsRequest]) (*connect.Response[v1.GetJobAttemptLogsResponse], error)
@@ -539,11 +521,6 @@ func NewCIServiceHandler(svc CIServiceHandler, opts ...connect.HandlerOption) (s
 		svc.GetRunMetrics,
 		opts...,
 	)
-	cIServiceGetJobAttemptSummaryHandler := connect.NewUnaryHandler(
-		CIServiceGetJobAttemptSummaryProcedure,
-		svc.GetJobAttemptSummary,
-		opts...,
-	)
 	cIServiceGetJobSummaryHandler := connect.NewUnaryHandler(
 		CIServiceGetJobSummaryProcedure,
 		svc.GetJobSummary,
@@ -604,8 +581,6 @@ func NewCIServiceHandler(svc CIServiceHandler, opts ...connect.HandlerOption) (s
 			cIServiceGetJobMetricsHandler.ServeHTTP(w, r)
 		case CIServiceGetRunMetricsProcedure:
 			cIServiceGetRunMetricsHandler.ServeHTTP(w, r)
-		case CIServiceGetJobAttemptSummaryProcedure:
-			cIServiceGetJobAttemptSummaryHandler.ServeHTTP(w, r)
 		case CIServiceGetJobSummaryProcedure:
 			cIServiceGetJobSummaryHandler.ServeHTTP(w, r)
 		case CIServiceGetJobAttemptLogsProcedure:
@@ -681,10 +656,6 @@ func (UnimplementedCIServiceHandler) GetJobMetrics(context.Context, *connect.Req
 
 func (UnimplementedCIServiceHandler) GetRunMetrics(context.Context, *connect.Request[v1.GetRunMetricsRequest]) (*connect.Response[v1.GetRunMetricsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.ci.v1.CIService.GetRunMetrics is not implemented"))
-}
-
-func (UnimplementedCIServiceHandler) GetJobAttemptSummary(context.Context, *connect.Request[v1.GetJobAttemptSummaryRequest]) (*connect.Response[v1.GetJobSummaryResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.ci.v1.CIService.GetJobAttemptSummary is not implemented"))
 }
 
 func (UnimplementedCIServiceHandler) GetJobSummary(context.Context, *connect.Request[v1.GetJobSummaryRequest]) (*connect.Response[v1.GetJobSummaryResponse], error) {

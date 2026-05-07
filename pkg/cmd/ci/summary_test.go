@@ -17,13 +17,12 @@ func TestSummaryAttemptPrintsMarkdownOnlyToStdout(t *testing.T) {
 	restoreSummaryAPIs(t)
 
 	var capturedAttemptID string
-	ciGetJobAttemptSummary = func(ctx context.Context, token, orgID, attemptID string) (*civ1.GetJobSummaryResponse, error) {
-		capturedAttemptID = attemptID
+	ciGetJobSummary = func(ctx context.Context, token, orgID string, req *civ1.GetJobSummaryRequest) (*civ1.GetJobSummaryResponse, error) {
+		if req.GetJobId() != "" {
+			return nil, connect.NewError(connect.CodeNotFound, errors.New("job not found"))
+		}
+		capturedAttemptID = req.GetAttemptId()
 		return summaryResponse("attempt-1", "job-1", "## Build\n\nok"), nil
-	}
-	ciGetJobSummary = func(ctx context.Context, token, orgID, jobID string) (*civ1.GetJobSummaryResponse, error) {
-		t.Fatal("job summary should not be called for a resolved attempt")
-		return nil, nil
 	}
 
 	stdout, stderr, err := executeSummaryCommand("attempt-1")
@@ -44,12 +43,11 @@ func TestSummaryAttemptPrintsMarkdownOnlyToStdout(t *testing.T) {
 func TestSummaryAttemptJSONOutput(t *testing.T) {
 	restoreSummaryAPIs(t)
 
-	ciGetJobAttemptSummary = func(ctx context.Context, token, orgID, attemptID string) (*civ1.GetJobSummaryResponse, error) {
-		return summaryResponse(attemptID, "job-1", "## Build\n\nok"), nil
-	}
-	ciGetJobSummary = func(ctx context.Context, token, orgID, jobID string) (*civ1.GetJobSummaryResponse, error) {
-		t.Fatal("job summary should not be called for a resolved attempt")
-		return nil, nil
+	ciGetJobSummary = func(ctx context.Context, token, orgID string, req *civ1.GetJobSummaryRequest) (*civ1.GetJobSummaryResponse, error) {
+		if req.GetJobId() != "" {
+			return nil, connect.NewError(connect.CodeNotFound, errors.New("job not found"))
+		}
+		return summaryResponse(req.GetAttemptId(), "job-1", "## Build\n\nok"), nil
 	}
 
 	cmd := NewCmdSummary()
@@ -74,15 +72,14 @@ func TestSummaryAttemptJSONOutput(t *testing.T) {
 	}
 }
 
-func TestSummaryFallsBackToJobOnAttemptNotFound(t *testing.T) {
+func TestSummaryResolvesJobBeforeAttempt(t *testing.T) {
 	restoreSummaryAPIs(t)
 
-	ciGetJobAttemptSummary = func(ctx context.Context, token, orgID, attemptID string) (*civ1.GetJobSummaryResponse, error) {
-		return nil, connect.NewError(connect.CodeNotFound, errors.New("attempt not found"))
-	}
-	ciGetJobSummary = func(ctx context.Context, token, orgID, jobID string) (*civ1.GetJobSummaryResponse, error) {
-		if jobID != "job-1" {
-			t.Fatalf("jobID = %q, want job-1", jobID)
+	var requests []string
+	ciGetJobSummary = func(ctx context.Context, token, orgID string, req *civ1.GetJobSummaryRequest) (*civ1.GetJobSummaryResponse, error) {
+		requests = append(requests, "job:"+req.GetJobId()+" attempt:"+req.GetAttemptId())
+		if req.GetJobId() != "job-1" {
+			t.Fatalf("JobId = %q, want job-1", req.GetJobId())
 		}
 		return summaryResponse("attempt-3", "job-1", "job markdown"), nil
 	}
@@ -94,6 +91,9 @@ func TestSummaryFallsBackToJobOnAttemptNotFound(t *testing.T) {
 	if stdout != "job markdown\n" {
 		t.Fatalf("stdout = %q", stdout)
 	}
+	if strings.Join(requests, ",") != "job:job-1 attempt:" {
+		t.Fatalf("requests = %#v, want job lookup only", requests)
+	}
 	if !strings.Contains(stderr, "Using attempt #3 attempt-3 for job job-1.") {
 		t.Fatalf("stderr missing resolution note: %q", stderr)
 	}
@@ -102,9 +102,12 @@ func TestSummaryFallsBackToJobOnAttemptNotFound(t *testing.T) {
 func TestSummaryEmptyAttemptIsNonError(t *testing.T) {
 	restoreSummaryAPIs(t)
 
-	ciGetJobAttemptSummary = func(ctx context.Context, token, orgID, attemptID string) (*civ1.GetJobSummaryResponse, error) {
+	ciGetJobSummary = func(ctx context.Context, token, orgID string, req *civ1.GetJobSummaryRequest) (*civ1.GetJobSummaryResponse, error) {
+		if req.GetJobId() != "" {
+			return nil, connect.NewError(connect.CodeNotFound, errors.New("job not found"))
+		}
 		return &civ1.GetJobSummaryResponse{
-			AttemptId:     attemptID,
+			AttemptId:     req.GetAttemptId(),
 			JobId:         "job-1",
 			HasSummary:    false,
 			EmptyReason:   "no_summary",
@@ -113,11 +116,6 @@ func TestSummaryEmptyAttemptIsNonError(t *testing.T) {
 			AttemptStatus: "finished",
 		}, nil
 	}
-	ciGetJobSummary = func(ctx context.Context, token, orgID, jobID string) (*civ1.GetJobSummaryResponse, error) {
-		t.Fatal("job summary should not be called for a resolved attempt")
-		return nil, nil
-	}
-
 	stdout, stderr, err := executeSummaryCommand("attempt-1")
 	if err != nil {
 		t.Fatal(err)
@@ -133,12 +131,13 @@ func TestSummaryEmptyAttemptIsNonError(t *testing.T) {
 func TestSummaryNoAttemptJobIsNonError(t *testing.T) {
 	restoreSummaryAPIs(t)
 
-	ciGetJobAttemptSummary = func(ctx context.Context, token, orgID, attemptID string) (*civ1.GetJobSummaryResponse, error) {
-		return nil, connect.NewError(connect.CodeNotFound, errors.New("attempt not found"))
-	}
-	ciGetJobSummary = func(ctx context.Context, token, orgID, jobID string) (*civ1.GetJobSummaryResponse, error) {
+	ciGetJobSummary = func(ctx context.Context, token, orgID string, req *civ1.GetJobSummaryRequest) (*civ1.GetJobSummaryResponse, error) {
+		if req.GetAttemptId() != "" {
+			t.Fatal("attempt lookup should not be called for a resolved job")
+			return nil, nil
+		}
 		return &civ1.GetJobSummaryResponse{
-			JobId:       jobID,
+			JobId:       req.GetJobId(),
 			JobStatus:   "queued",
 			HasSummary:  false,
 			EmptyReason: "no_attempt",
@@ -160,15 +159,16 @@ func TestSummaryNoAttemptJobIsNonError(t *testing.T) {
 func TestSummaryJSONJobFallbackEmptyIncludesResolvedAttempt(t *testing.T) {
 	restoreSummaryAPIs(t)
 
-	ciGetJobAttemptSummary = func(ctx context.Context, token, orgID, attemptID string) (*civ1.GetJobSummaryResponse, error) {
-		return nil, connect.NewError(connect.CodeNotFound, errors.New("attempt not found"))
-	}
-	ciGetJobSummary = func(ctx context.Context, token, orgID, jobID string) (*civ1.GetJobSummaryResponse, error) {
+	ciGetJobSummary = func(ctx context.Context, token, orgID string, req *civ1.GetJobSummaryRequest) (*civ1.GetJobSummaryResponse, error) {
+		if req.GetAttemptId() != "" {
+			t.Fatal("attempt lookup should not be called for a resolved job")
+			return nil, nil
+		}
 		return &civ1.GetJobSummaryResponse{
 			OrgId:         "org-123",
 			RunId:         "run-1",
 			WorkflowId:    "workflow-1",
-			JobId:         jobID,
+			JobId:         req.GetJobId(),
 			AttemptId:     "attempt-1",
 			Attempt:       1,
 			JobStatus:     "finished",
@@ -210,11 +210,11 @@ func TestSummaryJSONJobFallbackEmptyIncludesResolvedAttempt(t *testing.T) {
 func TestSummaryBothNotFoundNamesUnresolvedID(t *testing.T) {
 	restoreSummaryAPIs(t)
 
-	ciGetJobAttemptSummary = func(ctx context.Context, token, orgID, attemptID string) (*civ1.GetJobSummaryResponse, error) {
+	ciGetJobSummary = func(ctx context.Context, token, orgID string, req *civ1.GetJobSummaryRequest) (*civ1.GetJobSummaryResponse, error) {
+		if req.GetJobId() != "" {
+			return nil, connect.NewError(connect.CodeNotFound, errors.New("job not found"))
+		}
 		return nil, connect.NewError(connect.CodeNotFound, errors.New("attempt not found"))
-	}
-	ciGetJobSummary = func(ctx context.Context, token, orgID, jobID string) (*civ1.GetJobSummaryResponse, error) {
-		return nil, connect.NewError(connect.CodeNotFound, errors.New("job not found"))
 	}
 
 	_, _, err := executeSummaryCommand("missing-id")
@@ -223,36 +223,32 @@ func TestSummaryBothNotFoundNamesUnresolvedID(t *testing.T) {
 	}
 }
 
-func TestSummaryAttemptUnavailableDoesNotFallBackToJob(t *testing.T) {
+func TestSummaryJobUnavailableDoesNotTryAttempt(t *testing.T) {
 	restoreSummaryAPIs(t)
 
-	jobCalled := false
-	ciGetJobAttemptSummary = func(ctx context.Context, token, orgID, attemptID string) (*civ1.GetJobSummaryResponse, error) {
+	attemptCalled := false
+	ciGetJobSummary = func(ctx context.Context, token, orgID string, req *civ1.GetJobSummaryRequest) (*civ1.GetJobSummaryResponse, error) {
+		if req.GetAttemptId() != "" {
+			attemptCalled = true
+			return nil, nil
+		}
 		return nil, connect.NewError(connect.CodeUnavailable, errors.New("storage unavailable"))
 	}
-	ciGetJobSummary = func(ctx context.Context, token, orgID, jobID string) (*civ1.GetJobSummaryResponse, error) {
-		jobCalled = true
-		return nil, nil
-	}
 
-	_, _, err := executeSummaryCommand("attempt-1")
-	if err == nil || !strings.Contains(err.Error(), "failed to get attempt summary") {
+	_, _, err := executeSummaryCommand("job-1")
+	if err == nil || !strings.Contains(err.Error(), "failed to get job summary") {
 		t.Fatalf("err = %v", err)
 	}
-	if jobCalled {
-		t.Fatal("job fallback should not run on unavailable attempt lookup")
+	if attemptCalled {
+		t.Fatal("attempt lookup should not run on unavailable job lookup")
 	}
 }
 
 func TestSummaryRejectsUnsupportedOutputBeforeAuth(t *testing.T) {
 	restoreSummaryAPIs(t)
 
-	ciGetJobAttemptSummary = func(ctx context.Context, token, orgID, attemptID string) (*civ1.GetJobSummaryResponse, error) {
-		t.Fatal("attempt summary should not be called for invalid output")
-		return nil, nil
-	}
-	ciGetJobSummary = func(ctx context.Context, token, orgID, jobID string) (*civ1.GetJobSummaryResponse, error) {
-		t.Fatal("job summary should not be called for invalid output")
+	ciGetJobSummary = func(ctx context.Context, token, orgID string, req *civ1.GetJobSummaryRequest) (*civ1.GetJobSummaryResponse, error) {
+		t.Fatal("summary API should not be called for invalid output")
 		return nil, nil
 	}
 
@@ -281,10 +277,8 @@ func executeSummaryCommand(id string) (string, string, error) {
 func restoreSummaryAPIs(t *testing.T) {
 	t.Helper()
 
-	originalGetAttemptSummary := ciGetJobAttemptSummary
 	originalGetJobSummary := ciGetJobSummary
 	t.Cleanup(func() {
-		ciGetJobAttemptSummary = originalGetAttemptSummary
 		ciGetJobSummary = originalGetJobSummary
 	})
 }

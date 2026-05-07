@@ -104,16 +104,14 @@ func (h ciServiceTestHandler) GetRunMetrics(_ context.Context, req *connect.Requ
 	return connect.NewResponse(&civ1.GetRunMetricsResponse{SnapshotAt: "2026-05-03T12:00:00Z"}), nil
 }
 
-func (h ciServiceTestHandler) GetJobAttemptSummary(_ context.Context, req *connect.Request[civ1.GetJobAttemptSummaryRequest]) (*connect.Response[civ1.GetJobSummaryResponse], error) {
-	assertAuthAndOrg(h.t, req.Header())
-	if req.Msg.AttemptId != "attempt-123" {
-		h.t.Fatalf("AttemptId = %q, want attempt-123", req.Msg.AttemptId)
-	}
-	return connect.NewResponse(&civ1.GetJobSummaryResponse{AttemptId: req.Msg.AttemptId, HasSummary: true, Markdown: "attempt summary"}), nil
-}
-
 func (h ciServiceTestHandler) GetJobSummary(_ context.Context, req *connect.Request[civ1.GetJobSummaryRequest]) (*connect.Response[civ1.GetJobSummaryResponse], error) {
 	assertAuthAndOrg(h.t, req.Header())
+	if req.Msg.AttemptId != "" {
+		if req.Msg.AttemptId != "attempt-123" {
+			h.t.Fatalf("AttemptId = %q, want attempt-123", req.Msg.AttemptId)
+		}
+		return connect.NewResponse(&civ1.GetJobSummaryResponse{AttemptId: req.Msg.AttemptId, HasSummary: true, Markdown: "attempt summary"}), nil
+	}
 	if req.Msg.JobId != "job-123" {
 		h.t.Fatalf("JobId = %q, want job-123", req.Msg.JobId)
 	}
@@ -206,17 +204,27 @@ func TestCIMetricsWrappers(t *testing.T) {
 
 func TestCISummaryWrappers(t *testing.T) {
 	withTestCIService(t, func() {
-		attemptResp, err := CIGetJobAttemptSummary(context.Background(), "token-123", "org-123", "attempt-123")
+		attemptResp, err := CIGetJobSummary(
+			context.Background(),
+			"token-123",
+			"org-123",
+			&civ1.GetJobSummaryRequest{AttemptId: "attempt-123"},
+		)
 		if err != nil {
-			t.Fatalf("CIGetJobAttemptSummary returned error: %v", err)
+			t.Fatalf("CIGetJobSummary attempt request returned error: %v", err)
 		}
 		if attemptResp.GetMarkdown() != "attempt summary" {
 			t.Fatalf("unexpected attempt summary: %+v", attemptResp)
 		}
 
-		jobResp, err := CIGetJobSummary(context.Background(), "token-123", "org-123", "job-123")
+		jobResp, err := CIGetJobSummary(
+			context.Background(),
+			"token-123",
+			"org-123",
+			&civ1.GetJobSummaryRequest{JobId: "job-123"},
+		)
 		if err != nil {
-			t.Fatalf("CIGetJobSummary returned error: %v", err)
+			t.Fatalf("CIGetJobSummary job request returned error: %v", err)
 		}
 		if jobResp.GetAttemptId() != "attempt-456" || jobResp.GetMarkdown() != "job summary" {
 			t.Fatalf("unexpected job summary: %+v", jobResp)

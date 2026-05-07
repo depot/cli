@@ -47,10 +47,7 @@ service CIService {
   // GetRunMetrics returns workflow/job/attempt CPU and memory metric summaries for one run
   rpc GetRunMetrics(GetRunMetricsRequest) returns (GetRunMetricsResponse) {}
 
-  // GetJobAttemptSummary returns authored step summary markdown for one concrete job attempt
-  rpc GetJobAttemptSummary(GetJobAttemptSummaryRequest) returns (GetJobSummaryResponse) {}
-
-  // GetJobSummary resolves one job to its current/latest attempt and returns authored step summary markdown
+  // GetJobSummary returns authored step summary markdown for a job, a concrete attempt, or both.
   rpc GetJobSummary(GetJobSummaryRequest) returns (GetJobSummaryResponse) {}
 
   // GetJobAttemptLogs returns log lines for a job attempt
@@ -571,14 +568,11 @@ message CIMetricsCapMetadata {
 
 // GetJobSummary messages
 
-message GetJobAttemptSummaryRequest {
-  // attempt_id identifies the job attempt whose authored summary markdown to fetch
-  string attempt_id = 1;
-}
-
 message GetJobSummaryRequest {
   // job_id identifies the job whose current/latest attempt summary markdown to fetch
   string job_id = 1;
+  // attempt_id identifies one concrete job attempt summary to fetch, optionally scoped by job_id
+  string attempt_id = 2;
 }
 
 message GetJobSummaryResponse {

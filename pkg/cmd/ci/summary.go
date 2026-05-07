@@ -14,8 +14,7 @@ import (
 )
 
 var (
-	ciGetJobAttemptSummary = api.CIGetJobAttemptSummary
-	ciGetJobSummary        = api.CIGetJobSummary
+	ciGetJobSummary = api.CIGetJobSummary
 )
 
 func NewCmdSummary() *cobra.Command {
@@ -33,7 +32,7 @@ func NewCmdSummary() *cobra.Command {
   depot ci summary <job-id>
   depot ci summary <attempt-id> --output json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := validateSummaryOutput(output); err != nil {
+			if err := validateTextOrJSONOutput(output); err != nil {
 				return err
 			}
 			if len(args) == 0 {
@@ -58,20 +57,23 @@ func NewCmdSummary() *cobra.Command {
 				return fmt.Errorf("missing API token, please run `depot login`")
 			}
 
-			resp, attemptErr := ciGetJobAttemptSummary(ctx, tokenVal, orgID, id)
-			if attemptErr == nil {
-				if summaryOutputJSON(output) {
+			resp, jobErr := ciGetJobSummary(ctx, tokenVal, orgID, &civ1.GetJobSummaryRequest{JobId: id})
+			if jobErr == nil {
+				if outputIsJSON(output) {
 					return writeJSON(buildSummaryJSON(resp))
+				}
+				if resp.GetAttemptId() != "" {
+					fmt.Fprintf(cmd.ErrOrStderr(), "Using attempt #%d %s for job %s.\n", resp.GetAttempt(), resp.GetAttemptId(), resp.GetJobId())
 				}
 				return printSummaryResponse(cmd.OutOrStdout(), resp)
 			}
-			if connect.CodeOf(attemptErr) != connect.CodeNotFound {
-				return fmt.Errorf("failed to get attempt summary: %w", attemptErr)
+			if connect.CodeOf(jobErr) != connect.CodeNotFound {
+				return fmt.Errorf("failed to get job summary: %w", jobErr)
 			}
 
-			resp, jobErr := ciGetJobSummary(ctx, tokenVal, orgID, id)
-			if jobErr != nil {
-				if connect.CodeOf(jobErr) == connect.CodeNotFound {
+			resp, attemptErr := ciGetJobSummary(ctx, tokenVal, orgID, &civ1.GetJobSummaryRequest{AttemptId: id})
+			if attemptErr != nil {
+				if connect.CodeOf(attemptErr) == connect.CodeNotFound {
 					return fmt.Errorf(
 						"could not resolve %q as an attempt or job ID:\n  as attempt: %v\n  as job: %v",
 						id,
@@ -79,15 +81,11 @@ func NewCmdSummary() *cobra.Command {
 						jobErr,
 					)
 				}
-				return fmt.Errorf("failed to get job summary: %w", jobErr)
+				return fmt.Errorf("failed to get attempt summary: %w", attemptErr)
 			}
 
-			if summaryOutputJSON(output) {
+			if outputIsJSON(output) {
 				return writeJSON(buildSummaryJSON(resp))
-			}
-
-			if resp.GetAttemptId() != "" {
-				fmt.Fprintf(cmd.ErrOrStderr(), "Using attempt #%d %s for job %s.\n", resp.GetAttempt(), resp.GetAttemptId(), resp.GetJobId())
 			}
 			return printSummaryResponse(cmd.OutOrStdout(), resp)
 		},
@@ -155,15 +153,4 @@ func emptySummaryMessage(resp *civ1.GetJobSummaryResponse) string {
 		}
 		return "No CI step summary was produced."
 	}
-}
-
-func validateSummaryOutput(output string) error {
-	if output == "" || output == "text" || output == "json" {
-		return nil
-	}
-	return fmt.Errorf("unsupported output %q (valid: text, json)", output)
-}
-
-func summaryOutputJSON(output string) bool {
-	return output == "json"
 }

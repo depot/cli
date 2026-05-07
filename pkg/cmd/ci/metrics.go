@@ -38,7 +38,7 @@ func NewCmdMetrics() *cobra.Command {
   depot ci metrics --job job_123 --output json
   depot ci metrics --run run_123 --output json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := validateMetricsOutput(output); err != nil {
+			if err := validateTextOrJSONOutput(output); err != nil {
 				return err
 			}
 			if len(args) > 1 {
@@ -84,7 +84,7 @@ func NewCmdMetrics() *cobra.Command {
 					}
 					return fmt.Errorf("failed to get job metrics: %w", err)
 				}
-				if metricsOutputJSON(output) {
+				if outputIsJSON(output) {
 					return writeJSON(buildJobMetricsJSON(resp))
 				}
 				printJobMetrics(resp, orgFlag)
@@ -96,7 +96,7 @@ func NewCmdMetrics() *cobra.Command {
 					}
 					return fmt.Errorf("failed to get run metrics: %w", err)
 				}
-				if metricsOutputJSON(output) {
+				if outputIsJSON(output) {
 					return writeJSON(buildRunMetricsJSON(resp))
 				}
 				printRunMetrics(resp, orgFlag)
@@ -108,7 +108,7 @@ func NewCmdMetrics() *cobra.Command {
 					}
 					return fmt.Errorf("failed to get attempt metrics: %w", err)
 				}
-				if metricsOutputJSON(output) {
+				if outputIsJSON(output) {
 					return writeJSON(buildAttemptMetricsJSON(resp))
 				}
 				printAttemptMetrics(resp, orgFlag)
@@ -449,17 +449,6 @@ func connectErrorText(err error) string {
 		return connectErr.Message()
 	}
 	return ""
-}
-
-func validateMetricsOutput(output string) error {
-	if output == "" || output == "text" || output == "json" {
-		return nil
-	}
-	return fmt.Errorf("unsupported output %q (valid: text, json)", output)
-}
-
-func metricsOutputJSON(output string) bool {
-	return output == "json"
 }
 
 func countNonEmpty(values ...string) int {
