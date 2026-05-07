@@ -74,6 +74,7 @@ func TestStatusHumanOutputShowsDownloadForFinishedAttemptsOnly(t *testing.T) {
 	for _, want := range []string{
 		"Logs: depot ci logs att-finished --org org-123",
 		"Download: depot ci logs att-finished --output-file logs.txt --org org-123",
+		"View: https://depot.dev/orgs/org-123/workflows/workflow-1?job=job-1&attempt=att-finished",
 		"Logs: depot ci logs att-running --org org-123",
 		"Logs: depot ci logs att-failed --org org-123",
 	} {
@@ -159,7 +160,7 @@ func TestStatusJSONOutput(t *testing.T) {
 	if !attempts[0].DownloadAvailable || attempts[0].DownloadCommand != "depot ci logs att-finished --output-file logs.txt --org org-123" {
 		t.Fatalf("unexpected finished download affordance: %+v", attempts[0])
 	}
-	if attempts[0].ViewURL != "https://depot.dev/orgs/org-123/workflows/att-finished" {
+	if attempts[0].ViewURL != "https://depot.dev/orgs/org-123/workflows/workflow-1?job=job-1&attempt=att-finished" {
 		t.Fatalf("finished view url = %q", attempts[0].ViewURL)
 	}
 	if !attempts[1].SSHAvailable || attempts[1].SSHCommand != "depot ci ssh run-1 --job ci.yml:build --org org-123" {
