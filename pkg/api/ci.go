@@ -92,6 +92,26 @@ func CIGetRunMetrics(ctx context.Context, token, orgID, runID string) (*civ1.Get
 	return resp.Msg, nil
 }
 
+// CIGetJobAttemptSummary returns authored step summary markdown for a job attempt.
+func CIGetJobAttemptSummary(ctx context.Context, token, orgID, attemptID string) (*civ1.GetJobSummaryResponse, error) {
+	client := newCIServiceClient()
+	resp, err := client.GetJobAttemptSummary(ctx, WithAuthenticationAndOrg(connect.NewRequest(&civ1.GetJobAttemptSummaryRequest{AttemptId: attemptID}), token, orgID))
+	if err != nil {
+		return nil, err
+	}
+	return resp.Msg, nil
+}
+
+// CIGetJobSummary returns authored step summary markdown for the current/latest attempt of a job.
+func CIGetJobSummary(ctx context.Context, token, orgID, jobID string) (*civ1.GetJobSummaryResponse, error) {
+	client := newCIServiceClient()
+	resp, err := client.GetJobSummary(ctx, WithAuthenticationAndOrg(connect.NewRequest(&civ1.GetJobSummaryRequest{JobId: jobID}), token, orgID))
+	if err != nil {
+		return nil, err
+	}
+	return resp.Msg, nil
+}
+
 // CIGetJobAttemptLogs returns all log lines for a job attempt, paginating through all pages.
 func CIGetJobAttemptLogs(ctx context.Context, token, orgID, attemptID string) ([]*civ1.LogLine, error) {
 	client := newCIServiceClient()

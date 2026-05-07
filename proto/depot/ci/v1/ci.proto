@@ -47,6 +47,12 @@ service CIService {
   // GetRunMetrics returns workflow/job/attempt CPU and memory metric summaries for one run
   rpc GetRunMetrics(GetRunMetricsRequest) returns (GetRunMetricsResponse) {}
 
+  // GetJobAttemptSummary returns authored step summary markdown for one concrete job attempt
+  rpc GetJobAttemptSummary(GetJobAttemptSummaryRequest) returns (GetJobSummaryResponse) {}
+
+  // GetJobSummary resolves one job to its current/latest attempt and returns authored step summary markdown
+  rpc GetJobSummary(GetJobSummaryRequest) returns (GetJobSummaryResponse) {}
+
   // GetJobAttemptLogs returns log lines for a job attempt
   rpc GetJobAttemptLogs(GetJobAttemptLogsRequest) returns (GetJobAttemptLogsResponse) {}
 
@@ -561,6 +567,36 @@ message CIMetricsCapMetadata {
   uint32 max_returned_sample_count = 3;
   bool downsampled = 4;
   string downsample_strategy = 5;
+}
+
+// GetJobSummary messages
+
+message GetJobAttemptSummaryRequest {
+  // attempt_id identifies the job attempt whose authored summary markdown to fetch
+  string attempt_id = 1;
+}
+
+message GetJobSummaryRequest {
+  // job_id identifies the job whose current/latest attempt summary markdown to fetch
+  string job_id = 1;
+}
+
+message GetJobSummaryResponse {
+  string org_id = 1;
+  string run_id = 2;
+  string workflow_id = 3;
+  string job_id = 4;
+  string attempt_id = 5;
+  int32 attempt = 6;
+  string job_status = 7;
+  string attempt_status = 8;
+  bool has_summary = 9;
+  // empty_reason is set when has_summary is false, e.g. "no_summary" or "no_attempt".
+  string empty_reason = 10;
+  // step_count counts non-empty step summaries included in markdown.
+  uint32 step_count = 11;
+  // markdown contains the authored step summary markdown joined in step order.
+  string markdown = 12;
 }
 
 // GetJobAttemptLogs messages
