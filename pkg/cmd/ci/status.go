@@ -2,6 +2,8 @@ package ci
 
 import (
 	"fmt"
+	"net/url"
+	"strings"
 
 	"github.com/depot/cli/pkg/config"
 	"github.com/depot/cli/pkg/helpers"
@@ -81,7 +83,7 @@ func NewCmdStatus() *cobra.Command {
 						if canDownloadLogExport(attempt.Status) {
 							fmt.Printf("        Download: depot ci logs %s --output-file %s%s\n", attempt.AttemptId, logDownloadFilename, orgFlag)
 						}
-						fmt.Printf("        View: https://depot.dev/orgs/%s/workflows/%s\n", resp.OrgId, attempt.AttemptId)
+						fmt.Printf("        View: %s\n", statusAttemptViewURL(resp.OrgId, workflow.WorkflowId, job.JobId, attempt.AttemptId))
 						if attempt.GetSandboxId() != "" && statusIsRunning(attempt.GetStatus()) {
 							fmt.Printf("        SSH:  depot ci ssh %s --job %s%s\n", resp.RunId, job.JobKey, orgFlag)
 						}
@@ -172,7 +174,7 @@ func statusToJSON(resp *civ1.GetRunStatusResponse, orgFlag string) statusJSON {
 					SessionID:         attempt.GetSessionId(),
 					LogsCommand:       fmt.Sprintf("depot ci logs %s%s", attempt.GetAttemptId(), orgFlag),
 					DownloadAvailable: canDownloadLogExport(attempt.GetStatus()),
-					ViewURL:           fmt.Sprintf("https://depot.dev/orgs/%s/workflows/%s", resp.GetOrgId(), attempt.GetAttemptId()),
+					ViewURL:           statusAttemptViewURL(resp.GetOrgId(), workflow.GetWorkflowId(), job.GetJobId(), attempt.GetAttemptId()),
 					SSHAvailable:      attempt.GetSandboxId() != "" && statusIsRunning(attempt.GetStatus()),
 				}
 				if a.DownloadAvailable {
@@ -193,4 +195,20 @@ func statusToJSON(resp *civ1.GetRunStatusResponse, orgFlag string) statusJSON {
 
 func statusIsRunning(status string) bool {
 	return status != "finished" && status != "failed" && status != "cancelled"
+}
+
+func statusAttemptViewURL(orgID, workflowID, jobID, attemptID string) string {
+	path := fmt.Sprintf("https://depot.dev/orgs/%s/workflows/%s", url.PathEscape(orgID), url.PathEscape(workflowID))
+
+	var params []string
+	if jobID != "" {
+		params = append(params, "job="+url.QueryEscape(jobID))
+	}
+	if attemptID != "" {
+		params = append(params, "attempt="+url.QueryEscape(attemptID))
+	}
+	if len(params) == 0 {
+		return path
+	}
+	return path + "?" + strings.Join(params, "&")
 }
