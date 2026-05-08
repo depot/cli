@@ -278,21 +278,16 @@ func printOverLimitDiagnosis(w io.Writer, resp *civ1.FailureDiagnosis, renderer 
 
 func printFocusedDiagnosis(w io.Writer, resp *civ1.FailureDiagnosis, renderer diagnosisCommandRenderer) {
 	fmt.Fprintln(w)
-	if len(resp.GetRepresentativeAttempts()) == 0 && len(resp.GetFailureGroups()) == 0 {
+	if len(resp.GetRepresentativeAttempts()) == 0 {
 		fmt.Fprintln(w, "Focused diagnosis returned no representative attempts.")
 		printNextCommands(w, renderer.commands(resp.GetNextCommands(), resp.GetCommandCapabilities(), true), "Next commands")
 		printBoundsSummary(w, resp)
 		return
 	}
-	if len(resp.GetRepresentativeAttempts()) > 0 {
-		fmt.Fprintln(w, "Focused diagnosis:")
-		for _, representative := range resp.GetRepresentativeAttempts() {
-			printRepresentativeAttempt(w, resp.GetOrgId(), representative, resp.GetCommandCapabilities(), renderer, "  ")
-		}
-	}
-	if len(resp.GetFailureGroups()) > 0 {
-		printGroupedDiagnosis(w, resp, renderer)
-		return
+
+	fmt.Fprintln(w, "Focused diagnosis:")
+	for _, representative := range resp.GetRepresentativeAttempts() {
+		printRepresentativeAttempt(w, resp.GetOrgId(), representative, resp.GetCommandCapabilities(), renderer, "  ")
 	}
 	printSummaryUnavailableNote(w, resp.GetCommandCapabilities())
 	printBoundsSummary(w, resp)

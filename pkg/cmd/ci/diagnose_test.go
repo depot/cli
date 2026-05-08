@@ -187,6 +187,31 @@ func TestDiagnoseFocusedOutputDoesNotRepeatRepresentativeCommandsFooter(t *testi
 	}
 }
 
+func TestDiagnoseFocusedTextIgnoresFailureGroups(t *testing.T) {
+	restoreDiagnoseAPI(t)
+
+	ciDiagnose = func(ctx context.Context, token, orgID string, req *civ1.GetFailureDiagnosisRequest) (*civ1.FailureDiagnosis, error) {
+		return focusedDiagnosisResponseWithGroup(true), nil
+	}
+
+	stdout, _, err := executeDiagnoseTextCommand([]string{"--org", "org-123", "--token", "token-123", "--type", "attempt", "att-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout, "Focused diagnosis:") {
+		t.Fatalf("focused output missing focused diagnosis:\n%s", stdout)
+	}
+	if strings.Contains(stdout, "Failure groups:") || strings.Contains(stdout, "Group 1:") {
+		t.Fatalf("focused output rendered failure groups:\n%s", stdout)
+	}
+	if count := strings.Count(stdout, "Unit tests failed in package pkg/cmd/ci."); count != 1 {
+		t.Fatalf("focused diagnosis rendered %d times, want once:\n%s", count, stdout)
+	}
+	if strings.Contains(stdout, "group-level diagnosis should stay JSON-only") {
+		t.Fatalf("focused text output leaked group diagnosis:\n%s", stdout)
+	}
+}
+
 func TestDiagnoseJSONOutputIsCLINormalized(t *testing.T) {
 	restoreDiagnoseAPI(t)
 
@@ -235,6 +260,41 @@ func TestDiagnoseJSONOutputIsCLINormalized(t *testing.T) {
 	}
 	if commands[1].Kind != "summary" || commands[1].Command != "depot ci summary att-1 --org org-123" {
 		t.Fatalf("unexpected summary command JSON: %+v", commands[1])
+	}
+}
+
+func TestDiagnoseFocusedJSONKeepsFailureGroups(t *testing.T) {
+	restoreDiagnoseAPI(t)
+
+	ciDiagnose = func(ctx context.Context, token, orgID string, req *civ1.GetFailureDiagnosisRequest) (*civ1.FailureDiagnosis, error) {
+		return focusedDiagnosisResponseWithGroup(true), nil
+	}
+
+	cmd := NewCmdDiagnose()
+	cmd.SetArgs([]string{"--org", "org-123", "--token", "token-123", "--type", "attempt", "--output", "json", "att-1"})
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+
+	stdout, err := captureStdout(t, cmd.Execute)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var got diagnoseJSONDocument
+	if err := json.Unmarshal([]byte(stdout), &got); err != nil {
+		t.Fatalf("invalid JSON output: %v\n%s", err, stdout)
+	}
+	if got.State != "focused_failure" {
+		t.Fatalf("state = %q, want focused_failure", got.State)
+	}
+	if len(got.RepresentativeAttempts) != 1 {
+		t.Fatalf("representative_attempts = %+v, want one", got.RepresentativeAttempts)
+	}
+	if len(got.FailureGroups) != 1 {
+		t.Fatalf("failure_groups = %+v, want API groups preserved in JSON", got.FailureGroups)
+	}
+	if got.FailureGroups[0].Diagnosis != "group-level diagnosis should stay JSON-only" {
+		t.Fatalf("failure group diagnosis = %q", got.FailureGroups[0].Diagnosis)
 	}
 }
 
@@ -516,6 +576,25 @@ func focusedDiagnosisResponse(summaryAvailable bool) *civ1.FailureDiagnosis {
 		CommandCapabilities:    &civ1.FailureDiagnosisCommandCapabilities{SummaryCommandAvailable: summaryAvailable},
 		Bounds:                 &civ1.FailureDiagnosisBounds{TotalAttemptCount: 1, RecentAttemptLimit: 5},
 	}
+}
+
+func focusedDiagnosisResponseWithGroup(summaryAvailable bool) *civ1.FailureDiagnosis {
+	resp := focusedDiagnosisResponse(summaryAvailable)
+	resp.FailureGroups = []*civ1.FailureGroup{
+		{
+			Fingerprint:  "attempt_error:go-test",
+			Source:       "attempt_error",
+			Count:        1,
+			ErrorMessage: "go test ./... failed",
+			Diagnosis:    "group-level diagnosis should stay JSON-only",
+			PossibleFix:  "group-level fix should stay JSON-only",
+			Representatives: []*civ1.RepresentativeAttempt{
+				diagnoseRepresentative(summaryAvailable),
+			},
+		},
+	}
+	resp.Bounds.TotalFailureGroupCount = 1
+	return resp
 }
 
 func diagnoseRepresentative(summaryAvailable bool) *civ1.RepresentativeAttempt {
