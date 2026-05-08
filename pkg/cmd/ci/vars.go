@@ -9,7 +9,6 @@ import (
 	"github.com/depot/cli/pkg/api"
 	"github.com/depot/cli/pkg/config"
 	"github.com/depot/cli/pkg/helpers"
-	civ2 "github.com/depot/cli/pkg/proto/depot/ci/v2"
 	"github.com/spf13/cobra"
 )
 
@@ -21,6 +20,9 @@ func NewCmdVars() *cobra.Command {
 		Example: `  # Add a new variable
   depot ci vars add GITHUB_REPO
   depot ci vars add MY_SERVICE_NAME --value "my_service"
+
+  # Set a named variable variant
+  depot ci vars set DEPLOY_ENV production --repo owner/repo --value "production"
 
   # Add multiple variables at once
   depot ci vars add REGION=us-east-1 ENV=prod
@@ -40,22 +42,120 @@ func NewCmdVars() *cobra.Command {
 			return cmd.Help()
 		},
 	}
+	cmd.AddCommand(NewCmdVarsSet())
 	cmd.AddCommand(NewCmdVarsAdd())
 	cmd.AddCommand(NewCmdVarsList())
 	cmd.AddCommand(NewCmdVarsRemove())
 	return cmd
 }
 
-func NewCmdVarsAdd() *cobra.Command {
+func NewCmdVarsSet() *cobra.Command {
 	var (
-		orgID string
-		token string
-		value string
-		repo  string
+		orgID       string
+		token       string
+		value       string
+		description string
+		repo        []string
+		environment []string
+		branch      []string
+		workflow    []string
 	)
 
 	cmd := &cobra.Command{
-		Use:   "add [VAR_NAME | KEY=VALUE ...]",
+		Use:   "set <variable-name> [variant]",
+		Short: "Create or update a CI variable variant",
+		Long: `Create or update a CI variable variant.
+
+Variants let one variable name have different values for matching repositories,
+environments, branches, or workflows. When variant is omitted, the variant is
+named "default".`,
+		Example: `  # Set the default variant
+  depot ci vars set DEPLOY_ENV --value "staging"
+
+  # Set a named variant
+  depot ci vars set DEPLOY_ENV production --value "production"
+
+  # Set a variant that only applies to matching workflow runs
+  depot ci vars set DEPLOY_ENV production --repo owner/repo --env production --branch main --workflow deploy.yml --value "production"
+
+  # Set a variant that applies to multiple branches
+  depot ci vars set DEPLOY_ENV release --repo owner/repo --branch main --branch 'release/*' --value "release"`,
+		Args: cobra.RangeArgs(1, 2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := cmd.Context()
+
+			if orgID == "" {
+				orgID = config.GetCurrentOrganization()
+			}
+
+			tokenVal, err := helpers.ResolveProjectAuth(ctx, token)
+			if err != nil {
+				return err
+			}
+			if tokenVal == "" {
+				return fmt.Errorf("missing API token, please run `depot login`")
+			}
+
+			varName, variant := args[0], ""
+			if len(args) == 2 {
+				variant = args[1]
+			}
+			if varName == "" {
+				return fmt.Errorf("variable name cannot be empty")
+			}
+
+			varValue := value
+			if varValue == "" {
+				varValue, err = helpers.PromptForValue(fmt.Sprintf("Enter value for variable '%s': ", varName))
+				if err != nil {
+					return fmt.Errorf("failed to read variable value: %w", err)
+				}
+			}
+
+			result, err := api.CISetVariableVariant(ctx, tokenVal, orgID, api.CISetVariableVariantOptions{
+				Name:        varName,
+				Variant:     variant,
+				Value:       varValue,
+				Description: description,
+				Repo:        repo,
+				Environment: environment,
+				Branch:      branch,
+				Workflow:    workflow,
+			})
+			if err != nil {
+				return fmt.Errorf("failed to set CI variable variant: %w", err)
+			}
+
+			fmt.Printf("Successfully set CI variable '%s' variant '%s'\n", varName, displayVariantName(result.Variant.Name))
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVar(&orgID, "org", "", "Organization ID (required when user is a member of multiple organizations)")
+	cmd.Flags().StringVar(&token, "token", "", "Depot API token")
+	cmd.Flags().StringVar(&value, "value", "", "Variable value (will prompt if not provided)")
+	cmd.Flags().StringVar(&description, "description", "", "Description of the variable variant")
+	cmd.Flags().StringArrayVar(&repo, "repo", nil, "Apply variant to a repository (repeatable, e.g. owner/repo)")
+	cmd.Flags().StringArrayVar(&environment, "env", nil, "Apply variant to an environment (repeatable)")
+	cmd.Flags().StringArrayVar(&branch, "branch", nil, "Apply variant to a branch (repeatable)")
+	cmd.Flags().StringArrayVar(&workflow, "workflow", nil, "Apply variant to a workflow file (repeatable)")
+
+	return cmd
+}
+
+func NewCmdVarsAdd() *cobra.Command {
+	var (
+		orgID       string
+		token       string
+		value       string
+		repo        []string
+		environment []string
+		branch      []string
+		workflow    []string
+	)
+
+	cmd := &cobra.Command{
+		Use:   "add [VAR_NAME [variant] | KEY=VALUE ...]",
 		Short: "Add one or more CI variables",
 		Long: `Add variables that can be used in Depot CI workflows.
 
@@ -65,13 +165,16 @@ Supports three modes:
   3. Bulk KEY=VALUE pairs: depot ci vars add FOO=bar BAZ=qux
 
 The --value flag cannot be used with KEY=VALUE pairs.
-Use --repo to scope variables to a specific repository. Without --repo, variables
-apply to all repositories in the organization.`,
+Use --repo, --env, --branch, and --workflow to choose where the variant applies.
+Without match flags, the variant applies to all workflow runs in the organization.`,
 		Example: `  # Add an org-wide variable with interactive prompt
   depot ci vars add GITHUB_REPO
 
   # Add an org-wide variable with value from command line
   depot ci vars add MY_SERVICE_NAME --value "my_service"
+
+  # Add a named variable variant
+  depot ci vars add DEPLOY_ENV production --value "production"
 
   # Add multiple variables at once
   depot ci vars add REGION=us-east-1 ENV=prod
@@ -95,10 +198,8 @@ apply to all repositories in the organization.`,
 				return fmt.Errorf("missing API token, please run `depot login`")
 			}
 
-			scope := "org-wide"
-			if repo != "" {
-				scope = repo
-			}
+			scope := variantScope(repo)
+			variant := ""
 
 			// Detect KEY=VALUE pairs
 			hasKVPairs := false
@@ -115,32 +216,50 @@ apply to all repositories in the organization.`,
 					return fmt.Errorf("cannot use --value with KEY=VALUE arguments")
 				}
 
-				var variables []*civ2.VariableInput
+				type variableInput struct {
+					name  string
+					value string
+				}
+
+				var variables []variableInput
 				for _, arg := range args {
 					parts := strings.SplitN(arg, "=", 2)
 					if len(parts) != 2 || parts[0] == "" {
-						return fmt.Errorf("invalid argument %q — expected KEY=VALUE format", arg)
+						return fmt.Errorf("invalid argument %q - expected KEY=VALUE format", arg)
 					}
-					variables = append(variables, &civ2.VariableInput{Name: parts[0], Value: parts[1]})
+					variables = append(variables, variableInput{name: parts[0], value: parts[1]})
 				}
 
-				err := api.CIBatchAddVariables(ctx, tokenVal, orgID, variables, repo)
-				if err != nil {
-					return fmt.Errorf("failed to add variables: %w", err)
+				for _, variable := range variables {
+					_, err := api.CISetVariableVariant(ctx, tokenVal, orgID, api.CISetVariableVariantOptions{
+						Name:        variable.name,
+						Variant:     variant,
+						Value:       variable.value,
+						Repo:        repo,
+						Environment: environment,
+						Branch:      branch,
+						Workflow:    workflow,
+					})
+					if err != nil {
+						return fmt.Errorf("failed to add CI variable '%s': %w", variable.name, err)
+					}
 				}
 
 				for _, v := range variables {
-					fmt.Printf("Successfully added CI variable '%s' (%s)\n", v.Name, scope)
+					fmt.Printf("Successfully added CI variable '%s' variant '%s' (%s)\n", v.name, displayVariantName(variant), scope)
 				}
 				return nil
 			}
 
-			// Single mode: first arg is variable name
-			if len(args) > 1 {
-				return fmt.Errorf("too many arguments — did you mean to use KEY=VALUE format?")
+			// Single mode: first arg is variable name, second optional arg is variant.
+			if len(args) > 2 {
+				return fmt.Errorf("too many arguments - did you mean to use KEY=VALUE format?")
 			}
 
 			varName := args[0]
+			if len(args) == 2 {
+				variant = args[1]
+			}
 			if varName == "" {
 				return fmt.Errorf("variable name cannot be empty")
 			}
@@ -153,38 +272,57 @@ apply to all repositories in the organization.`,
 				}
 			}
 
-			err = api.CIAddVariable(ctx, tokenVal, orgID, varName, varValue, repo)
+			_, err = api.CISetVariableVariant(ctx, tokenVal, orgID, api.CISetVariableVariantOptions{
+				Name:        varName,
+				Variant:     variant,
+				Value:       varValue,
+				Repo:        repo,
+				Environment: environment,
+				Branch:      branch,
+				Workflow:    workflow,
+			})
 			if err != nil {
 				return fmt.Errorf("failed to add CI variable: %w", err)
 			}
 
-			fmt.Printf("Successfully added CI variable '%s' (%s)\n", varName, scope)
+			fmt.Printf("Successfully added CI variable '%s' variant '%s' (%s)\n", varName, displayVariantName(variant), scope)
 			return nil
 		},
 	}
 
-	cmd.Flags().StringVar(&orgID, "org", "", "Organization ID")
+	cmd.Flags().StringVar(&orgID, "org", "", "Organization ID (required when user is a member of multiple organizations)")
 	cmd.Flags().StringVar(&token, "token", "", "Depot API token")
 	cmd.Flags().StringVar(&value, "value", "", "Variable value (will prompt if not provided)")
-	cmd.Flags().StringVar(&repo, "repo", "", "Scope variable to a specific repository (e.g. owner/repo)")
+	cmd.Flags().StringArrayVar(&repo, "repo", nil, "Apply variant to a repository (repeatable, e.g. owner/repo)")
+	cmd.Flags().StringArrayVar(&environment, "env", nil, "Apply variant to an environment (repeatable)")
+	cmd.Flags().StringArrayVar(&branch, "branch", nil, "Apply variant to a branch (repeatable)")
+	cmd.Flags().StringArrayVar(&workflow, "workflow", nil, "Apply variant to a workflow file (repeatable)")
 
 	return cmd
 }
 
 func NewCmdVarsList() *cobra.Command {
 	var (
-		orgID  string
-		token  string
-		output string
-		repo   string
+		orgID       string
+		token       string
+		output      string
+		repo        []string
+		environment []string
+		branch      []string
+		workflow    []string
+		page        uint32
+		pageSize    uint32
 	)
 
 	cmd := &cobra.Command{
-		Use:   "list",
+		Use:   "list [<variable-name>]",
 		Short: "List all CI variables",
-		Long: `List all CI variables for your organization.
-Use --repo to also show repo-specific variables that override org-wide values.`,
+		Long: `List CI variables and their variants.
+
+Use --repo, --env, --branch, and --workflow to filter variants by matching
+attributes. Passing a variable name lists one grouped variable.`,
 		Aliases: []string{"ls"},
+		Args:    cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
 
@@ -200,53 +338,55 @@ Use --repo to also show repo-specific variables that override org-wide values.`,
 				return fmt.Errorf("missing API token, please run `depot login`")
 			}
 
-			variables, err := api.CIListVariables(ctx, tokenVal, orgID, repo)
-			if err != nil {
-				return fmt.Errorf("failed to list CI variables: %w", err)
+			var result api.CIListVariableVariantsResult
+			if len(args) == 1 {
+				variable, err := api.CIGetVariableVariantGroup(ctx, tokenVal, orgID, args[0])
+				if err != nil {
+					return fmt.Errorf("failed to get CI variable: %w", err)
+				}
+				result.Variables = []api.CIVariableGroup{filterVariableVariants(variable, repo, environment, branch, workflow)}
+			} else {
+				var err error
+				result, err = api.CIListVariableVariants(ctx, tokenVal, orgID, api.CIListVariableVariantsOptions{
+					Repo:        repo,
+					Environment: environment,
+					Branch:      branch,
+					Workflow:    workflow,
+					Page:        page,
+					PageSize:    pageSize,
+				})
+				if err != nil {
+					return fmt.Errorf("failed to list CI variables: %w", err)
+				}
 			}
 
 			if output == "json" {
 				enc := json.NewEncoder(os.Stdout)
 				enc.SetIndent("", "  ")
-				return enc.Encode(variables)
+				return enc.Encode(result)
 			}
 
-			if len(variables) == 0 {
+			if len(result.Variables) == 0 {
 				fmt.Println("No CI variables found.")
 				return nil
 			}
 
-			if repo != "" {
-				fmt.Printf("%-30s %-20s %-40s %s\n", "NAME", "SCOPE", "DESCRIPTION", "CREATED")
-				fmt.Printf("%-30s %-20s %-40s %s\n", strings.Repeat("-", 30), strings.Repeat("-", 20), strings.Repeat("-", 40), strings.Repeat("-", 20))
-			} else {
-				fmt.Printf("%-30s %-50s %s\n", "NAME", "DESCRIPTION", "CREATED")
-				fmt.Printf("%-30s %-50s %s\n", strings.Repeat("-", 30), strings.Repeat("-", 50), strings.Repeat("-", 20))
-			}
-
-			for _, v := range variables {
-				name := v.Name
-				if len(name) > 30 {
-					name = name[:27] + "..."
+			fmt.Printf("%-30s %-18s %-32s %-42s %-30s %s\n", "NAME", "VARIANT", "VALUE", "ATTRIBUTES", "DESCRIPTION", "UPDATED")
+			fmt.Printf("%-30s %-18s %-32s %-42s %-30s %s\n", strings.Repeat("-", 30), strings.Repeat("-", 18), strings.Repeat("-", 32), strings.Repeat("-", 42), strings.Repeat("-", 30), strings.Repeat("-", 20))
+			for _, variable := range result.Variables {
+				if len(variable.Variants) == 0 {
+					fmt.Printf("%-30s %-18s %-32s %-42s %-30s %s\n", truncateForTable(variable.Name, 30), "-", "-", "-", "-", variable.LastModified)
+					continue
 				}
-
-				description := v.Description
-				created := v.CreatedAt
-
-				if repo != "" {
-					if len(description) > 40 {
-						description = description[:37] + "..."
-					}
-					scope := v.Scope
-					if len(scope) > 20 {
-						scope = scope[:17] + "..."
-					}
-					fmt.Printf("%-30s %-20s %-40s %s\n", name, scope, description, created)
-				} else {
-					if len(description) > 50 {
-						description = description[:47] + "..."
-					}
-					fmt.Printf("%-30s %-50s %s\n", name, description, created)
+				for _, variant := range variable.Variants {
+					fmt.Printf("%-30s %-18s %-32s %-42s %-30s %s\n",
+						truncateForTable(variable.Name, 30),
+						truncateForTable(displayVariantName(variant.Name), 18),
+						truncateForTable(variant.Value, 32),
+						truncateForTable(formatVariantAttributes(variant.Attributes), 42),
+						truncateForTable(variant.Description, 30),
+						variant.LastModified,
+					)
 				}
 			}
 
@@ -254,35 +394,50 @@ Use --repo to also show repo-specific variables that override org-wide values.`,
 		},
 	}
 
-	cmd.Flags().StringVar(&orgID, "org", "", "Organization ID")
+	cmd.Flags().StringVar(&orgID, "org", "", "Organization ID (required when user is a member of multiple organizations)")
 	cmd.Flags().StringVar(&token, "token", "", "Depot API token")
 	cmd.Flags().StringVar(&output, "output", "", "Output format (json)")
-	cmd.Flags().StringVar(&repo, "repo", "", "Also show repo-specific variables for this repository (e.g. owner/repo)")
+	cmd.Flags().StringArrayVar(&repo, "repo", nil, "Filter variants by repository (repeatable, e.g. owner/repo)")
+	cmd.Flags().StringArrayVar(&environment, "env", nil, "Filter variants by environment (repeatable)")
+	cmd.Flags().StringArrayVar(&branch, "branch", nil, "Filter variants by branch (repeatable)")
+	cmd.Flags().StringArrayVar(&workflow, "workflow", nil, "Filter variants by workflow file (repeatable)")
+	cmd.Flags().Uint32Var(&page, "page", 1, "Page number")
+	cmd.Flags().Uint32Var(&pageSize, "page-size", 50, "Number of variables per page")
 
 	return cmd
 }
 
 func NewCmdVarsRemove() *cobra.Command {
 	var (
-		orgID string
-		token string
-		force bool
-		repo  string
+		orgID       string
+		token       string
+		force       bool
+		repo        []string
+		environment []string
+		branch      []string
+		workflow    []string
+		all         bool
 	)
 
 	cmd := &cobra.Command{
-		Use:   "remove VAR_NAME [VAR_NAME...]",
+		Use:   "remove <variable-name> [variant]",
 		Short: "Remove one or more CI variables",
-		Long: `Remove one or more CI variables from your organization.
-Use --repo to remove repo-specific variables instead of org-wide ones.`,
+		Long: `Remove one or more CI variable variants.
+
+By default, removal only succeeds when the target variable has one unambiguous
+variant. Pass a variant name to delete a named variant, or use --all to delete the whole
+variable and every variant under it.`,
 		Example: `  # Remove an org-wide variable
   depot ci vars remove GITHUB_REPO
 
-  # Remove a repo-specific variable
-  depot ci vars remove GITHUB_REPO --repo owner/repo
+  # Remove a named variant
+  depot ci vars remove GITHUB_REPO production
+
+  # Remove every variant for a variable
+  depot ci vars remove GITHUB_REPO --all
 
   # Remove variables without confirmation prompt
-  depot ci vars remove GITHUB_REPO MY_SERVICE_NAME --force`,
+  depot ci vars remove GITHUB_REPO MY_SERVICE_NAME --all --force`,
 		Aliases: []string{"rm"},
 		Args:    cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -300,14 +455,29 @@ Use --repo to remove repo-specific variables instead of org-wide ones.`,
 				return fmt.Errorf("missing API token, please run `depot login`")
 			}
 
-			scope := "org-wide"
-			if repo != "" {
-				scope = repo
+			var variant string
+			names := args
+			if all {
+				variant = ""
+			} else {
+				if len(args) > 2 {
+					return fmt.Errorf("too many arguments; pass one variable and optional variant, or use --all to remove multiple variables")
+				}
+				if len(args) == 2 {
+					variant = args[1]
+				}
+				names = args[:1]
 			}
 
 			if !force {
-				names := strings.Join(args, ", ")
-				prompt := fmt.Sprintf("Are you sure you want to remove %s CI variable(s) %s? (y/N): ", scope, names)
+				namesLabel := strings.Join(names, ", ")
+				target := "selected CI variable variant(s)"
+				if all {
+					target = "all variants for CI variable(s)"
+				} else if variant != "" {
+					target = fmt.Sprintf("variant %q for CI variable(s)", variant)
+				}
+				prompt := fmt.Sprintf("Are you sure you want to remove %s %s? (y/N): ", target, namesLabel)
 				y, err := helpers.PromptForYN(prompt)
 				if err != nil {
 					return fmt.Errorf("failed to read confirmation: %w", err)
@@ -316,22 +486,55 @@ Use --repo to remove repo-specific variables instead of org-wide ones.`,
 				}
 			}
 
-			for _, varName := range args {
-				err := api.CIDeleteVariable(ctx, tokenVal, orgID, varName, repo)
-				if err != nil {
-					return fmt.Errorf("failed to remove CI variable '%s': %w", varName, err)
+			for _, varName := range names {
+				if all {
+					if err := api.CIDeleteVariableGroup(ctx, tokenVal, orgID, varName); err != nil {
+						return fmt.Errorf("failed to remove CI variable '%s': %w", varName, err)
+					}
+					fmt.Printf("Successfully removed CI variable '%s' and all variants\n", varName)
+					continue
 				}
-				fmt.Printf("Successfully removed CI variable '%s' (%s)\n", varName, scope)
+
+				group, err := api.CIGetVariableVariantGroup(ctx, tokenVal, orgID, varName)
+				if err != nil {
+					return fmt.Errorf("failed to get CI variable '%s': %w", varName, err)
+				}
+
+				matches := make([]api.CIVariableVariant, 0, len(group.Variants))
+				for _, candidate := range group.Variants {
+					if variant != "" && candidate.Name != variant {
+						continue
+					}
+					if !variantAttributesMatch(candidate.Attributes, repo, environment, branch, workflow) {
+						continue
+					}
+					matches = append(matches, candidate)
+				}
+				if len(matches) == 0 {
+					return fmt.Errorf("no matching variant found for CI variable '%s'", varName)
+				}
+				if len(matches) > 1 {
+					return fmt.Errorf("CI variable '%s' has multiple matching variants; pass a variant or use --all", varName)
+				}
+
+				if _, err := api.CIDeleteVariableVariant(ctx, tokenVal, orgID, matches[0].ID); err != nil {
+					return fmt.Errorf("failed to remove CI variable '%s' variant '%s': %w", varName, matches[0].Name, err)
+				}
+				fmt.Printf("Successfully removed CI variable '%s' variant '%s'\n", varName, displayVariantName(matches[0].Name))
 			}
 
 			return nil
 		},
 	}
 
-	cmd.Flags().StringVar(&orgID, "org", "", "Organization ID")
+	cmd.Flags().StringVar(&orgID, "org", "", "Organization ID (required when user is a member of multiple organizations)")
 	cmd.Flags().StringVar(&token, "token", "", "Depot API token")
 	cmd.Flags().BoolVar(&force, "force", false, "Skip confirmation prompt")
-	cmd.Flags().StringVar(&repo, "repo", "", "Remove repo-specific variable instead of org-wide (e.g. owner/repo)")
+	cmd.Flags().StringArrayVar(&repo, "repo", nil, "Select variant matching a repository (repeatable, e.g. owner/repo)")
+	cmd.Flags().StringArrayVar(&environment, "env", nil, "Select variant matching an environment (repeatable)")
+	cmd.Flags().StringArrayVar(&branch, "branch", nil, "Select variant matching a branch (repeatable)")
+	cmd.Flags().StringArrayVar(&workflow, "workflow", nil, "Select variant matching a workflow file (repeatable)")
+	cmd.Flags().BoolVar(&all, "all", false, "Remove the variable and all variants")
 
 	return cmd
 }

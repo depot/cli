@@ -1,0 +1,21 @@
+syntax = "proto3";
+
+package depot.ci.v3beta2;
+
+// Shared types for CI v3beta2 secrets and variables.
+
+message Attribute {
+  string key = 1; // "repository" | "environment" | "branch" | "workflow"
+  string value = 2; // exact value or pattern, depending on key
+}
+
+message PageRequest {
+  uint32 page = 1; // 1-based page number. Defaults to 1.
+  uint32 page_size = 2; // Number of parent resources per page.
+}
+
+message PageResponse {
+  uint32 page = 1;
+  uint32 page_size = 2;
+  bool has_more = 3;
+}

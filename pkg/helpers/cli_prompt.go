@@ -3,6 +3,7 @@ package helpers
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"os"
 	"regexp"
 	"strings"
@@ -22,6 +23,24 @@ func PromptForSecret(prompt string) (string, error) {
 	fmt.Println()
 
 	return password, nil
+}
+
+func SecretValueFromInput(prompt string) (string, error) {
+	if !IsStdinTerminal() {
+		input, err := io.ReadAll(os.Stdin)
+		if err != nil {
+			return "", err
+		}
+		return stripANSI(trimOneTrailingNewline(string(input))), nil
+	}
+	return PromptForSecret(prompt)
+}
+
+func trimOneTrailingNewline(s string) string {
+	if strings.HasSuffix(s, "\r\n") {
+		return strings.TrimSuffix(s, "\r\n")
+	}
+	return strings.TrimSuffix(s, "\n")
 }
 
 func stripANSI(s string) string {
