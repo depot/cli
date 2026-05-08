@@ -49,11 +49,13 @@ func TestDiagnoseHumanGroupedOutputWithOrgQualifiedCommands(t *testing.T) {
 		"Target: run run-1 (failed)",
 		"Source: depot/cli @ refs/heads/main (abc123)",
 		"Failure groups: 2 (1 omitted)",
-		"Group 1: 3 failures from attempt_error",
-		"Error: go test ./... failed",
-		"Diagnosis: Unit tests failed in package pkg/cmd/ci.",
-		"Possible fix: Fix the failing assertion and rerun tests.",
-		"Attempt #2 att-1 for ci.yml:test (failed)",
+		"Group 1: go test ./... failed",
+		"3 failures",
+		"Diagnosis:\n    Unit tests failed in package pkg/cmd/ci.",
+		"Possible fix:\n    Fix the failing assertion and rerun tests.",
+		"Attempts:",
+		"- #2 att-1  ci.yml:test (failed)",
+		"Evidence:",
 		"build:42: expected true, got false",
 		"Logs: depot ci logs att-1 --org org-123",
 		"Summary: depot ci summary att-1 --org org-123",
@@ -65,6 +67,15 @@ func TestDiagnoseHumanGroupedOutputWithOrgQualifiedCommands(t *testing.T) {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("diagnose output missing %q:\n%s", want, stdout)
 		}
+	}
+	if count := strings.Count(stdout, "Unit tests failed in package pkg/cmd/ci."); count != 1 {
+		t.Fatalf("diagnosis rendered %d times, want group-level only:\n%s", count, stdout)
+	}
+	if count := strings.Count(stdout, "Fix the failing assertion and rerun tests."); count != 1 {
+		t.Fatalf("possible fix rendered %d times, want group-level only:\n%s", count, stdout)
+	}
+	if count := strings.Count(stdout, "go test ./... failed"); count != 1 {
+		t.Fatalf("group error rendered %d times, want group heading only:\n%s", count, stdout)
 	}
 }
 
@@ -125,6 +136,54 @@ func TestDiagnoseRepresentativeSamplingStillPrintsRealTruncationFooter(t *testin
 	}
 	if !strings.Contains(stdout, "Output was truncated by diagnosis bounds.") {
 		t.Fatalf("diagnose output missing generic truncation footer when bounds truncated is true:\n%s", stdout)
+	}
+}
+
+func TestDiagnoseGroupedOutputDoesNotRepeatRepresentativeCommandsFooter(t *testing.T) {
+	restoreDiagnoseAPI(t)
+
+	ciDiagnose = func(ctx context.Context, token, orgID string, req *civ1.GetFailureDiagnosisRequest) (*civ1.FailureDiagnosis, error) {
+		resp := groupedDiagnosisResponse(true)
+		resp.NextCommands = []*civ1.DrillDownCommand{logsCommand("att-1"), summaryCommand("att-1")}
+		return resp, nil
+	}
+
+	stdout, _, err := executeDiagnoseTextCommand([]string{"--org", "org-123", "--token", "token-123", "run-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(stdout, "Next commands:") {
+		t.Fatalf("grouped output repeated representative commands in footer:\n%s", stdout)
+	}
+	if count := strings.Count(stdout, "depot ci logs att-1 --org org-123"); count != 1 {
+		t.Fatalf("logs command rendered %d times, want once:\n%s", count, stdout)
+	}
+	if count := strings.Count(stdout, "depot ci summary att-1 --org org-123"); count != 1 {
+		t.Fatalf("summary command rendered %d times, want once:\n%s", count, stdout)
+	}
+}
+
+func TestDiagnoseFocusedOutputDoesNotRepeatRepresentativeCommandsFooter(t *testing.T) {
+	restoreDiagnoseAPI(t)
+
+	ciDiagnose = func(ctx context.Context, token, orgID string, req *civ1.GetFailureDiagnosisRequest) (*civ1.FailureDiagnosis, error) {
+		resp := focusedDiagnosisResponse(true)
+		resp.NextCommands = []*civ1.DrillDownCommand{logsCommand("att-1"), summaryCommand("att-1")}
+		return resp, nil
+	}
+
+	stdout, _, err := executeDiagnoseTextCommand([]string{"--org", "org-123", "--token", "token-123", "--type", "attempt", "att-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(stdout, "Next commands:") {
+		t.Fatalf("focused output repeated representative commands in footer:\n%s", stdout)
+	}
+	if count := strings.Count(stdout, "depot ci logs att-1 --org org-123"); count != 1 {
+		t.Fatalf("logs command rendered %d times, want once:\n%s", count, stdout)
+	}
+	if count := strings.Count(stdout, "depot ci summary att-1 --org org-123"); count != 1 {
+		t.Fatalf("summary command rendered %d times, want once:\n%s", count, stdout)
 	}
 }
 

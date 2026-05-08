@@ -15,6 +15,11 @@ import (
 
 var ciDiagnose = api.CIGetFailureDiagnosis
 
+const (
+	diagnoseTextWidth     = 96
+	maxGroupEvidenceLines = 5
+)
+
 func NewCmdDiagnose() *cobra.Command {
 	var (
 		orgID      string
@@ -188,7 +193,7 @@ func printDiagnosisContext(w io.Writer, context *civ1.FailureDiagnosisContext) {
 		if context.GetRef() != "" {
 			fmt.Fprintf(w, " @ %s", context.GetRef())
 		}
-		if context.GetSha() != "" {
+		if context.GetSha() != "" && context.GetSha() != context.GetRef() {
 			fmt.Fprintf(w, " (%s)", context.GetSha())
 		}
 		fmt.Fprintln(w)
@@ -289,7 +294,6 @@ func printFocusedDiagnosis(w io.Writer, resp *civ1.FailureDiagnosis, renderer di
 		printGroupedDiagnosis(w, resp, renderer)
 		return
 	}
-	printNextCommands(w, renderer.commands(resp.GetNextCommands(), resp.GetCommandCapabilities(), true), "Next commands")
 	printSummaryUnavailableNote(w, resp.GetCommandCapabilities())
 	printBoundsSummary(w, resp)
 }
@@ -307,27 +311,32 @@ func printGroupedDiagnosis(w io.Writer, resp *civ1.FailureDiagnosis, renderer di
 		fmt.Fprintf(w, "Failure groups: %d\n", len(resp.GetFailureGroups()))
 	}
 	for i, group := range resp.GetFailureGroups() {
-		fmt.Fprintf(w, "\nGroup %d: %d failure", i+1, group.GetCount())
-		if group.GetCount() != 1 {
-			fmt.Fprint(w, "s")
+		fmt.Fprintf(w, "\nGroup %d: %s\n", i+1, firstNonEmpty(group.GetErrorMessage(), "failure group"))
+		fmt.Fprintf(w, "  %d %s\n", group.GetCount(), pluralize("failure", int(group.GetCount())))
+		if group.GetErrorMessageTruncated() {
+			fmt.Fprintf(w, "  Error truncated%s\n", truncatedSuffix(true, group.GetErrorMessageOriginalLength()))
 		}
-		if group.GetSource() != "" {
-			fmt.Fprintf(w, " from %s", group.GetSource())
-		}
-		fmt.Fprintln(w)
-		if group.GetErrorMessage() != "" {
-			fmt.Fprintf(w, "  Error: %s%s\n", group.GetErrorMessage(), truncatedSuffix(group.GetErrorMessageTruncated(), group.GetErrorMessageOriginalLength()))
+		representativeError := commonRepresentativeError(group)
+		showRepresentativeErrors := true
+		if representativeError != "" && representativeError != group.GetErrorMessage() {
+			fmt.Fprintf(w, "  Where: %s\n", representativeError)
+			showRepresentativeErrors = false
+		} else if representativeError == group.GetErrorMessage() {
+			showRepresentativeErrors = false
 		}
 		if group.GetDiagnosis() != "" {
-			fmt.Fprintf(w, "  Diagnosis: %s\n", group.GetDiagnosis())
+			fmt.Fprintln(w)
+			printWrappedSection(w, "Diagnosis", group.GetDiagnosis(), "  ")
 		}
 		if group.GetPossibleFix() != "" {
-			fmt.Fprintf(w, "  Possible fix: %s\n", group.GetPossibleFix())
+			fmt.Fprintln(w)
+			printWrappedSection(w, "Possible fix", group.GetPossibleFix(), "  ")
 		}
 		if len(group.GetRepresentatives()) > 0 {
-			fmt.Fprintln(w, "  Representative attempts:")
+			fmt.Fprintln(w)
+			fmt.Fprintln(w, "  Attempts:")
 			for _, representative := range group.GetRepresentatives() {
-				printRepresentativeAttempt(w, resp.GetOrgId(), representative, resp.GetCommandCapabilities(), renderer, "    ")
+				printCompactRepresentativeAttempt(w, resp.GetOrgId(), representative, resp.GetCommandCapabilities(), renderer, "    ", showRepresentativeErrors)
 			}
 		}
 		if group.GetOmittedRepresentativeCount() > 0 {
@@ -338,10 +347,47 @@ func printGroupedDiagnosis(w io.Writer, resp *civ1.FailureDiagnosis, renderer di
 				len(group.GetRepresentatives())+int(group.GetOmittedRepresentativeCount()),
 			)
 		}
+		printGroupEvidence(w, group, "  ")
 	}
-	printNextCommands(w, renderer.commands(resp.GetNextCommands(), resp.GetCommandCapabilities(), true), "Next commands")
 	printSummaryUnavailableNote(w, resp.GetCommandCapabilities())
 	printBoundsSummary(w, resp)
+}
+
+func printCompactRepresentativeAttempt(w io.Writer, orgID string, representative *civ1.RepresentativeAttempt, capabilities *civ1.FailureDiagnosisCommandCapabilities, renderer diagnosisCommandRenderer, indent string, showError bool) {
+	fmt.Fprintf(w, "%s- #%d %s", indent, representative.GetAttempt(), representative.GetAttemptId())
+	if representative.GetJobKey() != "" || representative.GetJobDisplayName() != "" {
+		fmt.Fprintf(w, "  %s", firstNonEmpty(representative.GetJobDisplayName(), representative.GetJobKey()))
+	}
+	if representative.GetAttemptStatus() != "" {
+		fmt.Fprintf(w, " (%s)", representative.GetAttemptStatus())
+	}
+	fmt.Fprintln(w)
+	if showError && representative.GetErrorMessage() != "" {
+		fmt.Fprintf(w, "%s  Error: %s%s\n", indent, representative.GetErrorMessage(), truncatedSuffix(representative.GetErrorMessageTruncated(), representative.GetErrorMessageOriginalLength()))
+	}
+	for _, command := range renderer.commands(representative.GetNextCommands(), capabilities, true) {
+		fmt.Fprintf(w, "%s  %s: %s\n", indent, firstNonEmpty(command.Label, "Command"), command.Command)
+	}
+	if orgID != "" && representative.GetWorkflowId() != "" && representative.GetJobId() != "" && representative.GetAttemptId() != "" {
+		fmt.Fprintf(w, "%s  View: %s\n", indent, statusAttemptViewURL(orgID, representative.GetWorkflowId(), representative.GetJobId(), representative.GetAttemptId()))
+	}
+}
+
+func commonRepresentativeError(group *civ1.FailureGroup) string {
+	var common string
+	for _, representative := range group.GetRepresentatives() {
+		if representative.GetErrorMessage() == "" {
+			continue
+		}
+		if common == "" {
+			common = representative.GetErrorMessage()
+			continue
+		}
+		if representative.GetErrorMessage() != common {
+			return ""
+		}
+	}
+	return common
 }
 
 func printRepresentativeAttempt(w io.Writer, orgID string, representative *civ1.RepresentativeAttempt, capabilities *civ1.FailureDiagnosisCommandCapabilities, renderer diagnosisCommandRenderer, indent string) {
@@ -378,6 +424,66 @@ func printRepresentativeAttempt(w io.Writer, orgID string, representative *civ1.
 	if orgID != "" && representative.GetWorkflowId() != "" && representative.GetJobId() != "" && representative.GetAttemptId() != "" {
 		fmt.Fprintf(w, "%s  View: %s\n", indent, statusAttemptViewURL(orgID, representative.GetWorkflowId(), representative.GetJobId(), representative.GetAttemptId()))
 	}
+}
+
+func printGroupEvidence(w io.Writer, group *civ1.FailureGroup, indent string) {
+	type evidenceLine struct {
+		prefix         string
+		content        string
+		truncated      bool
+		originalLength uint32
+	}
+
+	seen := map[string]struct{}{}
+	lines := make([]evidenceLine, 0, maxGroupEvidenceLines)
+	for _, representative := range group.GetRepresentatives() {
+		for _, line := range representative.GetRelevantLines() {
+			if isGenericEvidenceLine(line.GetContent()) {
+				continue
+			}
+			prefix := fmt.Sprintf("%d", line.GetLineNumber())
+			if line.GetStepId() != "" {
+				prefix = line.GetStepId() + ":" + prefix
+			}
+			key := normalizeEvidenceContent(line.GetContent())
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+			lines = append(lines, evidenceLine{
+				prefix:         prefix,
+				content:        line.GetContent(),
+				truncated:      line.GetContentTruncated(),
+				originalLength: line.GetContentOriginalLength(),
+			})
+			if len(lines) == maxGroupEvidenceLines {
+				break
+			}
+		}
+		if len(lines) == maxGroupEvidenceLines {
+			break
+		}
+	}
+	if len(lines) == 0 {
+		return
+	}
+
+	fmt.Fprintln(w)
+	fmt.Fprintf(w, "%sEvidence:\n", indent)
+	for _, line := range lines {
+		fmt.Fprintf(w, "%s  - %s: %s%s\n", indent, line.prefix, line.content, truncatedSuffix(line.truncated, line.originalLength))
+	}
+}
+
+func normalizeEvidenceContent(content string) string {
+	return strings.Join(strings.Fields(content), " ")
+}
+
+func isGenericEvidenceLine(content string) bool {
+	normalized := strings.ToLower(normalizeEvidenceContent(content))
+	return strings.HasPrefix(normalized, "##[error]script exited with code ") ||
+		strings.Contains(normalized, "err_pnpm_recursive_run_first_fail") ||
+		strings.Contains(normalized, "elifecycle command failed")
 }
 
 func printNextCommands(w io.Writer, commands []diagnoseCommandJSON, title string) {
@@ -429,6 +535,49 @@ func truncatedSuffix(truncated bool, originalLength uint32) string {
 		return " (truncated)"
 	}
 	return fmt.Sprintf(" (truncated from %d chars)", originalLength)
+}
+
+func printWrappedSection(w io.Writer, title, text, indent string) {
+	fmt.Fprintf(w, "%s%s:\n", indent, title)
+	printWrappedText(w, text, indent+"  ", diagnoseTextWidth)
+}
+
+func printWrappedText(w io.Writer, text, indent string, width int) {
+	available := width - len(indent)
+	if available < 20 {
+		available = 20
+	}
+	for _, paragraph := range strings.Split(text, "\n") {
+		words := strings.Fields(paragraph)
+		if len(words) == 0 {
+			fmt.Fprintln(w, indent)
+			continue
+		}
+
+		line := ""
+		for _, word := range words {
+			if line == "" {
+				line = word
+				continue
+			}
+			if len(line)+1+len(word) > available {
+				fmt.Fprintln(w, indent+line)
+				line = word
+				continue
+			}
+			line += " " + word
+		}
+		if line != "" {
+			fmt.Fprintln(w, indent+line)
+		}
+	}
+}
+
+func pluralize(singular string, count int) string {
+	if count == 1 {
+		return singular
+	}
+	return singular + "s"
 }
 
 type diagnoseJSONDocument struct {
