@@ -21,6 +21,7 @@ import (
 )
 
 type ciServiceTestHandler struct {
+	civ1connect.UnimplementedCIServiceHandler
 	t *testing.T
 }
 
@@ -70,6 +71,25 @@ func (h ciServiceTestHandler) CancelRun(_ context.Context, req *connect.Request[
 
 func (h ciServiceTestHandler) GetRunStatus(context.Context, *connect.Request[civ1.GetRunStatusRequest]) (*connect.Response[civ1.GetRunStatusResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, nil)
+}
+
+func (h ciServiceTestHandler) GetFailureDiagnosis(_ context.Context, req *connect.Request[civ1.GetFailureDiagnosisRequest]) (*connect.Response[civ1.FailureDiagnosis], error) {
+	assertAuthAndOrg(h.t, req.Header())
+	if req.Msg.TargetId != "job-123" {
+		h.t.Fatalf("TargetId = %q, want job-123", req.Msg.TargetId)
+	}
+	if req.Msg.TargetType != civ1.FailureDiagnosisTargetType_FAILURE_DIAGNOSIS_TARGET_TYPE_JOB {
+		h.t.Fatalf("TargetType = %v, want job", req.Msg.TargetType)
+	}
+	return connect.NewResponse(&civ1.FailureDiagnosis{
+		OrgId: "org-123",
+		Target: &civ1.FailureDiagnosisTarget{
+			TargetId:   req.Msg.TargetId,
+			TargetType: req.Msg.TargetType,
+			Status:     "failed",
+		},
+		State: civ1.FailureDiagnosisState_FAILURE_DIAGNOSIS_STATE_FOCUSED_FAILURE,
+	}), nil
 }
 
 func (h ciServiceTestHandler) GetWorkflow(_ context.Context, req *connect.Request[civ1.GetWorkflowRequest]) (*connect.Response[civ1.GetWorkflowResponse], error) {
@@ -145,6 +165,26 @@ func TestCIGetRunWrapper(t *testing.T) {
 			t.Fatalf("CIGetRun returned error: %v", err)
 		}
 		if resp.RunId != "run-123" || resp.OrgId != "org-123" {
+			t.Fatalf("unexpected response: %+v", resp)
+		}
+	})
+}
+
+func TestCIGetFailureDiagnosisWrapper(t *testing.T) {
+	withTestCIService(t, func() {
+		resp, err := CIGetFailureDiagnosis(
+			context.Background(),
+			"token-123",
+			"org-123",
+			&civ1.GetFailureDiagnosisRequest{
+				TargetId:   "job-123",
+				TargetType: civ1.FailureDiagnosisTargetType_FAILURE_DIAGNOSIS_TARGET_TYPE_JOB,
+			},
+		)
+		if err != nil {
+			t.Fatalf("CIGetFailureDiagnosis returned error: %v", err)
+		}
+		if resp.GetTarget().GetTargetId() != "job-123" || resp.GetState() != civ1.FailureDiagnosisState_FAILURE_DIAGNOSIS_STATE_FOCUSED_FAILURE {
 			t.Fatalf("unexpected response: %+v", resp)
 		}
 	})

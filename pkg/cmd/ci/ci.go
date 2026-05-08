@@ -13,6 +13,7 @@ func NewCmdCI() *cobra.Command {
 	}
 
 	cmd.AddCommand(NewCmdCancel())
+	cmd.AddCommand(NewCmdDiagnose())
 	cmd.AddCommand(NewCmdDispatch())
 	cmd.AddCommand(NewCmdLogs())
 	cmd.AddCommand(NewCmdMetrics())
