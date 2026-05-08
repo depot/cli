@@ -1,9 +1,7 @@
 package ci
 
 import (
-	"encoding/json"
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/depot/cli/pkg/api"
@@ -324,6 +322,9 @@ attributes. Passing a variable name lists one grouped variable.`,
 		Aliases: []string{"ls"},
 		Args:    cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := validateTextOrJSONOutput(output); err != nil {
+				return err
+			}
 			ctx := cmd.Context()
 
 			if orgID == "" {
@@ -360,10 +361,8 @@ attributes. Passing a variable name lists one grouped variable.`,
 				}
 			}
 
-			if output == "json" {
-				enc := json.NewEncoder(os.Stdout)
-				enc.SetIndent("", "  ")
-				return enc.Encode(result)
+			if outputIsJSON(output) {
+				return writeJSON(result)
 			}
 
 			if len(result.Variables) == 0 {

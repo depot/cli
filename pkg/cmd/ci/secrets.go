@@ -1,7 +1,6 @@
 package ci
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -483,6 +482,9 @@ with an optional variant and match flags to resolve one variant.`,
   depot ci secrets get MY_API_KEY production --output json`,
 		Args: cobra.MaximumNArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := validateTextOrJSONOutput(output); err != nil {
+				return err
+			}
 			ctx := cmd.Context()
 
 			if orgID == "" {
@@ -534,10 +536,8 @@ with an optional variant and match flags to resolve one variant.`,
 				resolved = matches[0]
 			}
 
-			if output == "json" {
-				enc := json.NewEncoder(os.Stdout)
-				enc.SetIndent("", "  ")
-				return enc.Encode(resolved)
+			if outputIsJSON(output) {
+				return writeJSON(resolved)
 			}
 
 			printSecretVariantDetail(secretName, resolved)
@@ -621,6 +621,9 @@ attributes. Passing a secret name lists one grouped secret.`,
 		Aliases: []string{"ls"},
 		Args:    cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := validateTextOrJSONOutput(output); err != nil {
+				return err
+			}
 			ctx := cmd.Context()
 
 			if orgID == "" {
@@ -657,10 +660,8 @@ attributes. Passing a secret name lists one grouped secret.`,
 				}
 			}
 
-			if output == "json" {
-				enc := json.NewEncoder(os.Stdout)
-				enc.SetIndent("", "  ")
-				return enc.Encode(result)
+			if outputIsJSON(output) {
+				return writeJSON(result)
 			}
 
 			if len(result.Secrets) == 0 {
