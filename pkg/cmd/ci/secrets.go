@@ -782,7 +782,7 @@ explicit and cannot be combined with selector flags or --variant.`,
 
 			if !force {
 				namesLabel := strings.Join(names, ", ")
-				target := "CI secret(s)"
+				var target string
 				if removeGroups {
 					target = "CI secret(s) and all variants"
 				} else if variant != "" {
