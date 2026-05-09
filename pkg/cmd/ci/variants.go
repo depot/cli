@@ -45,14 +45,14 @@ func variantScope(repos []string) string {
 	return strings.Join(repos, ",")
 }
 
-func filterSecretVariants(secret api.CISecretGroup, repo, environment, branch, workflow []string) api.CISecretGroup {
+func filterSecretVariantsForList(secret api.CISecretGroup, repo, environment, branch, workflow []string) api.CISecretGroup {
 	if len(repo) == 0 && len(environment) == 0 && len(branch) == 0 && len(workflow) == 0 {
 		return secret
 	}
 	filtered := secret
 	filtered.Variants = nil
 	for _, variant := range secret.Variants {
-		if variantAttributesMatch(variant.Attributes, repo, environment, branch, workflow) {
+		if variantAppliesToListFilter(variant.Attributes, repo, environment, branch, workflow) {
 			filtered.Variants = append(filtered.Variants, variant)
 		}
 	}
@@ -88,14 +88,14 @@ func resolveVariableVariant(group api.CIVariableGroup, variant string, repo, env
 	return matches, nil
 }
 
-func filterVariableVariants(variable api.CIVariableGroup, repo, environment, branch, workflow []string) api.CIVariableGroup {
+func filterVariableVariantsForList(variable api.CIVariableGroup, repo, environment, branch, workflow []string) api.CIVariableGroup {
 	if len(repo) == 0 && len(environment) == 0 && len(branch) == 0 && len(workflow) == 0 {
 		return variable
 	}
 	filtered := variable
 	filtered.Variants = nil
 	for _, variant := range variable.Variants {
-		if variantAttributesMatch(variant.Attributes, repo, environment, branch, workflow) {
+		if variantAppliesToListFilter(variant.Attributes, repo, environment, branch, workflow) {
 			filtered.Variants = append(filtered.Variants, variant)
 		}
 	}
@@ -114,6 +114,64 @@ func hasNonEmpty(values []string) bool {
 		}
 	}
 	return false
+}
+
+func legacyListRepoSelector(repo, environment, branch, workflow []string) (string, bool) {
+	if hasNonEmpty(environment) || hasNonEmpty(branch) || hasNonEmpty(workflow) {
+		return "", false
+	}
+	nonEmptyRepos := nonEmptyValues(repo)
+	if len(nonEmptyRepos) > 1 {
+		return "", false
+	}
+	if len(nonEmptyRepos) == 1 {
+		return nonEmptyRepos[0], true
+	}
+	return "", true
+}
+
+func nonEmptyValues(values []string) []string {
+	nonEmpty := make([]string, 0, len(values))
+	for _, value := range values {
+		if value != "" {
+			nonEmpty = append(nonEmpty, value)
+		}
+	}
+	return nonEmpty
+}
+
+func variantAppliesToListFilter(attrs []api.CIVariantAttribute, repos, environments, branches, workflows []string) bool {
+	expected := map[string][]string{}
+	addExpected := func(key string, values []string) {
+		for _, value := range values {
+			if value != "" {
+				expected[key] = append(expected[key], value)
+			}
+		}
+	}
+	addExpected("repository", repos)
+	addExpected("environment", environments)
+	addExpected("branch", branches)
+	addExpected("workflow", workflows)
+	if len(expected) == 0 || len(attrs) == 0 {
+		return true
+	}
+
+	attributesByKey := map[string][]string{}
+	for _, attr := range attrs {
+		attributesByKey[attr.Key] = append(attributesByKey[attr.Key], attr.Value)
+	}
+
+	for key, wants := range expected {
+		values, ok := attributesByKey[key]
+		if !ok {
+			continue
+		}
+		if !anyAttributeValueMatches(key, values, wants) {
+			return false
+		}
+	}
+	return true
 }
 
 func variantAttributesMatch(attrs []api.CIVariantAttribute, repos, environments, branches, workflows []string) bool {
@@ -139,16 +197,23 @@ func variantAttributesMatch(attrs []api.CIVariantAttribute, repos, environments,
 		if !ok {
 			continue
 		}
-		for _, want := range wants {
-			if attr.Key == "repository" && strings.EqualFold(want, attr.Value) {
-				matched[attr.Key] = true
-				break
-			}
-			if attr.Key != "repository" && want == attr.Value {
-				matched[attr.Key] = true
-				break
-			}
+		if anyAttributeValueMatches(attr.Key, []string{attr.Value}, wants) {
+			matched[attr.Key] = true
 		}
 	}
 	return len(matched) == len(expected)
+}
+
+func anyAttributeValueMatches(key string, values, wants []string) bool {
+	for _, value := range values {
+		for _, want := range wants {
+			if key == "repository" && strings.EqualFold(want, value) {
+				return true
+			}
+			if key != "repository" && want == value {
+				return true
+			}
+		}
+	}
+	return false
 }

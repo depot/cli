@@ -658,6 +658,15 @@ attributes. Passing a secret name lists one grouped secret.`,
 			default:
 				return fmt.Errorf("unsupported output %q (valid: json)", output)
 			}
+			if output == "json" && len(args) == 0 {
+				if legacyRepo, ok := legacyListRepoSelector(repo, environment, branch, workflow); ok {
+					secrets, err := api.CIListSecrets(ctx, tokenVal, orgID, legacyRepo)
+					if err != nil {
+						return fmt.Errorf("failed to list secrets: %w", err)
+					}
+					return writeJSON(secrets)
+				}
+			}
 
 			var result api.CIListSecretVariantsResult
 			if len(args) == 1 {
@@ -665,18 +674,26 @@ attributes. Passing a secret name lists one grouped secret.`,
 				if err != nil {
 					return fmt.Errorf("failed to get secret: %w", err)
 				}
-				result.Secrets = []api.CISecretGroup{filterSecretVariants(secret, repo, environment, branch, workflow)}
+				result.Secrets = []api.CISecretGroup{filterSecretVariantsForList(secret, repo, environment, branch, workflow)}
 			} else {
 				var err error
 				result, err = api.CIListSecretVariants(ctx, tokenVal, orgID, api.CIListSecretVariantsOptions{
-					Repo:        repo,
-					Environment: environment,
-					Branch:      branch,
-					Workflow:    workflow,
+					Repo:        nil,
+					Environment: nil,
+					Branch:      nil,
+					Workflow:    nil,
 				})
 				if err != nil {
 					return fmt.Errorf("failed to list secrets: %w", err)
 				}
+				filtered := result.Secrets[:0]
+				for i := range result.Secrets {
+					result.Secrets[i] = filterSecretVariantsForList(result.Secrets[i], repo, environment, branch, workflow)
+					if len(result.Secrets[i].Variants) > 0 {
+						filtered = append(filtered, result.Secrets[i])
+					}
+				}
+				result.Secrets = filtered
 			}
 
 			if output == "json" {

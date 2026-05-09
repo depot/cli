@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/depot/cli/pkg/api"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 )
@@ -161,6 +162,56 @@ func TestRemoveAllRejectsVariantSelectors(t *testing.T) {
 				t.Fatalf("error = %q", err)
 			}
 		})
+	}
+}
+
+func TestLegacyListRepoSelectorOnlyAcceptsLegacySelectors(t *testing.T) {
+	if repo, ok := legacyListRepoSelector([]string{"owner/repo"}, nil, nil, nil); !ok || repo != "owner/repo" {
+		t.Fatalf("legacyListRepoSelector() = %q, %v; want owner/repo, true", repo, ok)
+	}
+	if _, ok := legacyListRepoSelector([]string{"one", "two"}, nil, nil, nil); ok {
+		t.Fatal("expected multiple repos to use variant JSON")
+	}
+	if _, ok := legacyListRepoSelector([]string{"owner/repo"}, []string{"prod"}, nil, nil); ok {
+		t.Fatal("expected new selectors to use variant JSON")
+	}
+}
+
+func TestListFilteringIncludesUnscopedVariantsForRepo(t *testing.T) {
+	group := api.CISecretGroup{
+		Name: "TOKEN",
+		Variants: []api.CISecretVariant{
+			{Name: "default"},
+			{Name: "matching", Attributes: []api.CIVariantAttribute{{Key: "repository", Value: "Owner/Repo"}}},
+			{Name: "other", Attributes: []api.CIVariantAttribute{{Key: "repository", Value: "other/repo"}}},
+		},
+	}
+
+	filtered := filterSecretVariantsForList(group, []string{"owner/repo"}, nil, nil, nil)
+
+	if len(filtered.Variants) != 2 {
+		t.Fatalf("len(filtered.Variants) = %d, want 2: %#v", len(filtered.Variants), filtered.Variants)
+	}
+	if filtered.Variants[0].Name != "default" || filtered.Variants[1].Name != "matching" {
+		t.Fatalf("filtered variants = %#v", filtered.Variants)
+	}
+}
+
+func TestStrictVariantMatchingStillRequiresRepoAttribute(t *testing.T) {
+	group := api.CISecretGroup{
+		Name: "TOKEN",
+		Variants: []api.CISecretVariant{
+			{Name: "default"},
+			{Name: "matching", Attributes: []api.CIVariantAttribute{{Key: "repository", Value: "owner/repo"}}},
+		},
+	}
+
+	matches, err := resolveSecretVariant(group, "", []string{"owner/repo"}, nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(matches) != 1 || matches[0].Name != "matching" {
+		t.Fatalf("matches = %#v, want only matching", matches)
 	}
 }
 

@@ -338,6 +338,15 @@ attributes. Passing a variable name lists one grouped variable.`,
 			default:
 				return fmt.Errorf("unsupported output %q (valid: json)", output)
 			}
+			if output == "json" && len(args) == 0 {
+				if legacyRepo, ok := legacyListRepoSelector(repo, environment, branch, workflow); ok {
+					variables, err := api.CIListVariables(ctx, tokenVal, orgID, legacyRepo)
+					if err != nil {
+						return fmt.Errorf("failed to list CI variables: %w", err)
+					}
+					return writeJSON(variables)
+				}
+			}
 
 			var result api.CIListVariableVariantsResult
 			if len(args) == 1 {
@@ -345,18 +354,26 @@ attributes. Passing a variable name lists one grouped variable.`,
 				if err != nil {
 					return fmt.Errorf("failed to get CI variable: %w", err)
 				}
-				result.Variables = []api.CIVariableGroup{filterVariableVariants(variable, repo, environment, branch, workflow)}
+				result.Variables = []api.CIVariableGroup{filterVariableVariantsForList(variable, repo, environment, branch, workflow)}
 			} else {
 				var err error
 				result, err = api.CIListVariableVariants(ctx, tokenVal, orgID, api.CIListVariableVariantsOptions{
-					Repo:        repo,
-					Environment: environment,
-					Branch:      branch,
-					Workflow:    workflow,
+					Repo:        nil,
+					Environment: nil,
+					Branch:      nil,
+					Workflow:    nil,
 				})
 				if err != nil {
 					return fmt.Errorf("failed to list CI variables: %w", err)
 				}
+				filtered := result.Variables[:0]
+				for i := range result.Variables {
+					result.Variables[i] = filterVariableVariantsForList(result.Variables[i], repo, environment, branch, workflow)
+					if len(result.Variables[i].Variants) > 0 {
+						filtered = append(filtered, result.Variables[i])
+					}
+				}
+				result.Variables = filtered
 			}
 
 			if output == "json" {
