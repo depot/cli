@@ -86,6 +86,10 @@ named "default".`,
 				orgID = config.GetCurrentOrganization()
 			}
 
+			if value == "" && !helpers.IsStdinTerminal() {
+				return fmt.Errorf("cannot prompt for a variable value in non-interactive mode; pass --value to provide the value")
+			}
+
 			tokenVal, err := helpers.ResolveProjectAuth(ctx, token)
 			if err != nil {
 				return err
