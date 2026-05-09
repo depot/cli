@@ -45,14 +45,6 @@ func variantScope(repos []string) string {
 	return strings.Join(repos, ",")
 }
 
-func secretVariantRepositoryMatches(variant api.CISecretVariant, repos []string) bool {
-	return variantAttributesMatch(variant.Attributes, repos, nil, nil, nil)
-}
-
-func variableVariantRepositoryMatches(variant api.CIVariableVariant, repos []string) bool {
-	return variantAttributesMatch(variant.Attributes, repos, nil, nil, nil)
-}
-
 func filterSecretVariants(secret api.CISecretGroup, repo, environment, branch, workflow []string) api.CISecretGroup {
 	if len(repo) == 0 && len(environment) == 0 && len(branch) == 0 && len(workflow) == 0 {
 		return secret
