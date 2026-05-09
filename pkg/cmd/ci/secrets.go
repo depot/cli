@@ -1,7 +1,6 @@
 package ci
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -496,6 +495,11 @@ with an optional variant and match flags to resolve one variant.`,
 			if tokenVal == "" {
 				return fmt.Errorf("missing API token, please run `depot login`")
 			}
+			switch output {
+			case "", "json":
+			default:
+				return fmt.Errorf("unsupported output %q (valid: json)", output)
+			}
 
 			var secretName string
 			var resolved api.CISecretVariant
@@ -535,9 +539,7 @@ with an optional variant and match flags to resolve one variant.`,
 			}
 
 			if output == "json" {
-				enc := json.NewEncoder(os.Stdout)
-				enc.SetIndent("", "  ")
-				return enc.Encode(resolved)
+				return writeJSON(resolved)
 			}
 
 			printSecretVariantDetail(secretName, resolved)
@@ -596,8 +598,6 @@ func NewCmdSecretsList() *cobra.Command {
 		environment []string
 		branch      []string
 		workflow    []string
-		page        uint32
-		pageSize    uint32
 	)
 
 	cmd := &cobra.Command{
@@ -634,6 +634,11 @@ attributes. Passing a secret name lists one grouped secret.`,
 			if tokenVal == "" {
 				return fmt.Errorf("missing API token, please run `depot login`")
 			}
+			switch output {
+			case "", "json":
+			default:
+				return fmt.Errorf("unsupported output %q (valid: json)", output)
+			}
 
 			var result api.CIListSecretVariantsResult
 			if len(args) == 1 {
@@ -649,8 +654,6 @@ attributes. Passing a secret name lists one grouped secret.`,
 					Environment: environment,
 					Branch:      branch,
 					Workflow:    workflow,
-					Page:        page,
-					PageSize:    pageSize,
 				})
 				if err != nil {
 					return fmt.Errorf("failed to list secrets: %w", err)
@@ -658,9 +661,7 @@ attributes. Passing a secret name lists one grouped secret.`,
 			}
 
 			if output == "json" {
-				enc := json.NewEncoder(os.Stdout)
-				enc.SetIndent("", "  ")
-				return enc.Encode(result)
+				return writeJSON(result)
 			}
 
 			if len(result.Secrets) == 0 {
@@ -668,18 +669,17 @@ attributes. Passing a secret name lists one grouped secret.`,
 				return nil
 			}
 
-			fmt.Printf("%-30s %-18s %-42s %-38s %s\n", "NAME", "VARIANT", "ATTRIBUTES", "DESCRIPTION", "UPDATED")
-			fmt.Printf("%-30s %-18s %-42s %-38s %s\n", strings.Repeat("-", 30), strings.Repeat("-", 18), strings.Repeat("-", 42), strings.Repeat("-", 38), strings.Repeat("-", 20))
+			fmt.Printf("%-30s %-18s %-38s %s\n", "NAME", "VARIANT", "DESCRIPTION", "UPDATED")
+			fmt.Printf("%-30s %-18s %-38s %s\n", strings.Repeat("-", 30), strings.Repeat("-", 18), strings.Repeat("-", 38), strings.Repeat("-", 20))
 			for _, secret := range result.Secrets {
 				if len(secret.Variants) == 0 {
-					fmt.Printf("%-30s %-18s %-42s %-38s %s\n", truncateForTable(secret.Name, 30), "-", "-", "-", secret.LastModified)
+					fmt.Printf("%-30s %-18s %-38s %s\n", truncateForTable(secret.Name, 30), "-", "-", secret.LastModified)
 					continue
 				}
 				for _, variant := range secret.Variants {
-					fmt.Printf("%-30s %-18s %-42s %-38s %s\n",
+					fmt.Printf("%-30s %-18s %-38s %s\n",
 						truncateForTable(secret.Name, 30),
 						truncateForTable(displayVariantName(variant.Name), 18),
-						truncateForTable(formatVariantAttributes(variant.Attributes), 42),
 						truncateForTable(variant.Description, 38),
 						variant.LastModified,
 					)
@@ -697,8 +697,6 @@ attributes. Passing a secret name lists one grouped secret.`,
 	cmd.Flags().StringArrayVar(&environment, "env", nil, "Filter variants by environment (repeatable)")
 	cmd.Flags().StringArrayVar(&branch, "branch", nil, "Filter variants by branch (repeatable)")
 	cmd.Flags().StringArrayVar(&workflow, "workflow", nil, "Filter variants by workflow file (repeatable)")
-	cmd.Flags().Uint32Var(&page, "page", 1, "Page number")
-	cmd.Flags().Uint32Var(&pageSize, "page-size", 50, "Number of secrets per page")
 
 	return cmd
 }

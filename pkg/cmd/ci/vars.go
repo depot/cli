@@ -1,9 +1,7 @@
 package ci
 
 import (
-	"encoding/json"
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/depot/cli/pkg/api"
@@ -310,8 +308,6 @@ func NewCmdVarsList() *cobra.Command {
 		environment []string
 		branch      []string
 		workflow    []string
-		page        uint32
-		pageSize    uint32
 	)
 
 	cmd := &cobra.Command{
@@ -337,6 +333,11 @@ attributes. Passing a variable name lists one grouped variable.`,
 			if tokenVal == "" {
 				return fmt.Errorf("missing API token, please run `depot login`")
 			}
+			switch output {
+			case "", "json":
+			default:
+				return fmt.Errorf("unsupported output %q (valid: json)", output)
+			}
 
 			var result api.CIListVariableVariantsResult
 			if len(args) == 1 {
@@ -352,8 +353,6 @@ attributes. Passing a variable name lists one grouped variable.`,
 					Environment: environment,
 					Branch:      branch,
 					Workflow:    workflow,
-					Page:        page,
-					PageSize:    pageSize,
 				})
 				if err != nil {
 					return fmt.Errorf("failed to list CI variables: %w", err)
@@ -361,9 +360,7 @@ attributes. Passing a variable name lists one grouped variable.`,
 			}
 
 			if output == "json" {
-				enc := json.NewEncoder(os.Stdout)
-				enc.SetIndent("", "  ")
-				return enc.Encode(result)
+				return writeJSON(result)
 			}
 
 			if len(result.Variables) == 0 {
@@ -401,8 +398,6 @@ attributes. Passing a variable name lists one grouped variable.`,
 	cmd.Flags().StringArrayVar(&environment, "env", nil, "Filter variants by environment (repeatable)")
 	cmd.Flags().StringArrayVar(&branch, "branch", nil, "Filter variants by branch (repeatable)")
 	cmd.Flags().StringArrayVar(&workflow, "workflow", nil, "Filter variants by workflow file (repeatable)")
-	cmd.Flags().Uint32Var(&page, "page", 1, "Page number")
-	cmd.Flags().Uint32Var(&pageSize, "page-size", 50, "Number of variables per page")
 
 	return cmd
 }

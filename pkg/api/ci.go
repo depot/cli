@@ -27,7 +27,6 @@ const ciStreamLogDedupeSize = 4096
 const (
 	ciDefaultVariantName = "default"
 	ciDefaultPage        = 1
-	ciDefaultPageSize    = 50
 	ciMaxPageSize        = 100
 )
 
@@ -644,13 +643,6 @@ type CIVariantAttribute struct {
 	Value string `json:"value"`
 }
 
-// CIPage contains page-number pagination metadata returned by v3beta2 CI resources.
-type CIPage struct {
-	Page     uint32 `json:"page"`
-	PageSize uint32 `json:"pageSize"`
-	HasMore  bool   `json:"hasMore"`
-}
-
 // CISecretGroup contains a logical CI secret and its variants.
 type CISecretGroup struct {
 	ID           string            `json:"id"`
@@ -677,13 +669,10 @@ type CIListSecretVariantsOptions struct {
 	Environment []string
 	Branch      []string
 	Workflow    []string
-	Page        uint32
-	PageSize    uint32
 }
 
 type CIListSecretVariantsResult struct {
 	Secrets []CISecretGroup `json:"secrets"`
-	Page    CIPage          `json:"page"`
 }
 
 type CISetSecretVariantOptions struct {
@@ -706,19 +695,24 @@ type CISetSecretVariantResult struct {
 
 func CIListSecretVariants(ctx context.Context, token, orgID string, opts CIListSecretVariantsOptions) (CIListSecretVariantsResult, error) {
 	client := newCISecretServiceV3Beta2Client()
-	resp, err := client.ListSecrets(ctx, WithAuthenticationAndOrg(connect.NewRequest(&civ3beta2.ListSecretsRequest{
-		Page:       ciPageRequest(opts.Page, opts.PageSize),
-		Query:      opts.Query,
-		Attributes: ciAttributes(opts.Repo, opts.Environment, opts.Branch, opts.Workflow),
-	}), token, orgID))
-	if err != nil {
-		return CIListSecretVariantsResult{}, err
-	}
 
-	return CIListSecretVariantsResult{
-		Secrets: secretGroupsFromProto(resp.Msg.GetSecrets()),
-		Page:    ciPageFromProto(resp.Msg.GetPage()),
-	}, nil
+	attrs := ciAttributes(opts.Repo, opts.Environment, opts.Branch, opts.Workflow)
+	result := CIListSecretVariantsResult{Secrets: []CISecretGroup{}}
+	for page := uint32(ciDefaultPage); ; page++ {
+		resp, err := client.ListSecrets(ctx, WithAuthenticationAndOrg(connect.NewRequest(&civ3beta2.ListSecretsRequest{
+			Page:       ciPageRequest(page),
+			Query:      opts.Query,
+			Attributes: attrs,
+		}), token, orgID))
+		if err != nil {
+			return CIListSecretVariantsResult{}, err
+		}
+
+		result.Secrets = append(result.Secrets, secretGroupsFromProto(resp.Msg.GetSecrets())...)
+		if !resp.Msg.GetPage().GetHasMore() {
+			return result, nil
+		}
+	}
 }
 
 func CIGetSecretVariantGroup(ctx context.Context, token, orgID, name string) (CISecretGroup, error) {
@@ -901,13 +895,10 @@ type CIListVariableVariantsOptions struct {
 	Environment []string
 	Branch      []string
 	Workflow    []string
-	Page        uint32
-	PageSize    uint32
 }
 
 type CIListVariableVariantsResult struct {
 	Variables []CIVariableGroup `json:"variables"`
-	Page      CIPage            `json:"page"`
 }
 
 type CISetVariableVariantOptions struct {
@@ -930,19 +921,24 @@ type CISetVariableVariantResult struct {
 
 func CIListVariableVariants(ctx context.Context, token, orgID string, opts CIListVariableVariantsOptions) (CIListVariableVariantsResult, error) {
 	client := newCIVariableServiceV3Beta2Client()
-	resp, err := client.ListVariables(ctx, WithAuthenticationAndOrg(connect.NewRequest(&civ3beta2.ListVariablesRequest{
-		Page:       ciPageRequest(opts.Page, opts.PageSize),
-		Query:      opts.Query,
-		Attributes: ciAttributes(opts.Repo, opts.Environment, opts.Branch, opts.Workflow),
-	}), token, orgID))
-	if err != nil {
-		return CIListVariableVariantsResult{}, err
-	}
 
-	return CIListVariableVariantsResult{
-		Variables: variableGroupsFromProto(resp.Msg.GetVariables()),
-		Page:      ciPageFromProto(resp.Msg.GetPage()),
-	}, nil
+	attrs := ciAttributes(opts.Repo, opts.Environment, opts.Branch, opts.Workflow)
+	result := CIListVariableVariantsResult{Variables: []CIVariableGroup{}}
+	for page := uint32(ciDefaultPage); ; page++ {
+		resp, err := client.ListVariables(ctx, WithAuthenticationAndOrg(connect.NewRequest(&civ3beta2.ListVariablesRequest{
+			Page:       ciPageRequest(page),
+			Query:      opts.Query,
+			Attributes: attrs,
+		}), token, orgID))
+		if err != nil {
+			return CIListVariableVariantsResult{}, err
+		}
+
+		result.Variables = append(result.Variables, variableGroupsFromProto(resp.Msg.GetVariables())...)
+		if !resp.Msg.GetPage().GetHasMore() {
+			return result, nil
+		}
+	}
 }
 
 func CIGetVariableVariantGroup(ctx context.Context, token, orgID, name string) (CIVariableGroup, error) {
@@ -1005,17 +1001,11 @@ func ciVariantName(name string) string {
 	return name
 }
 
-func ciPageRequest(page, pageSize uint32) *civ3beta2.PageRequest {
+func ciPageRequest(page uint32) *civ3beta2.PageRequest {
 	if page == 0 {
 		page = ciDefaultPage
 	}
-	if pageSize == 0 {
-		pageSize = ciDefaultPageSize
-	}
-	if pageSize > ciMaxPageSize {
-		pageSize = ciMaxPageSize
-	}
-	return &civ3beta2.PageRequest{Page: page, PageSize: pageSize}
+	return &civ3beta2.PageRequest{Page: page, PageSize: ciMaxPageSize}
 }
 
 func ciAttributes(repos, environments, branches, workflows []string) []*civ3beta2.Attribute {
@@ -1049,13 +1039,6 @@ func ciAttributesFromProto(attrs []*civ3beta2.Attribute) []CIVariantAttribute {
 		result = append(result, CIVariantAttribute{Key: attr.GetKey(), Value: attr.GetValue()})
 	}
 	return result
-}
-
-func ciPageFromProto(page *civ3beta2.PageResponse) CIPage {
-	if page == nil {
-		return CIPage{Page: ciDefaultPage, PageSize: ciDefaultPageSize}
-	}
-	return CIPage{Page: page.GetPage(), PageSize: page.GetPageSize(), HasMore: page.GetHasMore()}
 }
 
 func ciTimeString(ts *timestamppb.Timestamp) string {
