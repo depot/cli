@@ -3,6 +3,7 @@ package ci
 import (
 	"testing"
 
+	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 )
 
@@ -44,14 +45,19 @@ func TestCICommandRegistration(t *testing.T) {
 }
 
 func TestSecretsAddKeepsHiddenValueFlagForCompatibility(t *testing.T) {
-	cmd := NewCmdSecretsAdd()
-
-	valueFlag := cmd.Flags().Lookup("value")
-	if valueFlag == nil {
-		t.Fatal("expected hidden --value compatibility flag")
-	}
-	if !valueFlag.Hidden {
-		t.Fatal("expected --value to stay hidden from help")
+	for name, cmd := range map[string]*cobra.Command{
+		"secrets add": NewCmdSecretsAdd(),
+		"secrets set": NewCmdSecretsSet(),
+	} {
+		t.Run(name, func(t *testing.T) {
+			valueFlag := cmd.Flags().Lookup("value")
+			if valueFlag == nil {
+				t.Fatal("expected hidden --value compatibility flag")
+			}
+			if !valueFlag.Hidden {
+				t.Fatal("expected --value to stay hidden from help")
+			}
+		})
 	}
 }
 

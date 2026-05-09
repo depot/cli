@@ -62,6 +62,7 @@ func NewCmdSecretsSet() *cobra.Command {
 	var (
 		orgID       string
 		token       string
+		value       string
 		description string
 		repo        []string
 		environment []string
@@ -112,9 +113,12 @@ named "default".`,
 				return fmt.Errorf("secret name cannot be empty")
 			}
 
-			secretValue, err := helpers.SecretValueFromInput(fmt.Sprintf("Enter value for secret '%s': ", secretName))
-			if err != nil {
-				return fmt.Errorf("failed to read secret value: %w", err)
+			secretValue := value
+			if secretValue == "" {
+				secretValue, err = helpers.SecretValueFromInput(fmt.Sprintf("Enter value for secret '%s': ", secretName))
+				if err != nil {
+					return fmt.Errorf("failed to read secret value: %w", err)
+				}
 			}
 
 			result, err := api.CISetSecretVariant(ctx, tokenVal, orgID, api.CISetSecretVariantOptions{
@@ -138,11 +142,13 @@ named "default".`,
 
 	cmd.Flags().StringVar(&orgID, "org", "", "Organization ID (required when user is a member of multiple organizations)")
 	cmd.Flags().StringVar(&token, "token", "", "Depot API token")
+	cmd.Flags().StringVar(&value, "value", "", "Secret value (deprecated; prefer stdin)")
 	cmd.Flags().StringVar(&description, "description", "", "Description of the secret variant")
 	cmd.Flags().StringArrayVar(&repo, "repo", nil, "Apply variant to a repository (repeatable, e.g. owner/repo)")
 	cmd.Flags().StringArrayVar(&environment, "env", nil, "Apply variant to an environment (repeatable)")
 	cmd.Flags().StringArrayVar(&branch, "branch", nil, "Apply variant to a branch (repeatable)")
 	cmd.Flags().StringArrayVar(&workflow, "workflow", nil, "Apply variant to a workflow file (repeatable)")
+	_ = cmd.Flags().MarkHidden("value")
 
 	return cmd
 }
