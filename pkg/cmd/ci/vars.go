@@ -411,28 +411,33 @@ func NewCmdVarsRemove() *cobra.Command {
 		environment []string
 		branch      []string
 		workflow    []string
+		variant     string
 		all         bool
 	)
 
 	cmd := &cobra.Command{
-		Use:   "remove <variable-name> [variant]",
+		Use:   "remove <variable-name> [<variable-name>...]",
 		Short: "Remove one or more CI variables",
-		Long: `Remove one or more CI variable variants.
+		Long: `Remove one or more CI variables.
 
-By default, removal only succeeds when the target variable has one unambiguous
-variant. Pass a variant name to delete a named variant, or use --all to delete the whole
-variable and every variant under it.`,
+By default, positional arguments are treated as variable names and the command
+removes the whole variable with every variant under it. Use selector flags or
+--variant to remove one matching variant. --all makes whole-variable removal
+explicit and cannot be combined with selector flags or --variant.`,
 		Example: `  # Remove an org-wide variable
   depot ci vars remove GITHUB_REPO
 
+  # Remove a repo-specific variant
+  depot ci vars remove GITHUB_REPO --repo owner/repo
+
   # Remove a named variant
-  depot ci vars remove GITHUB_REPO production
+  depot ci vars remove GITHUB_REPO --variant production
 
   # Remove every variant for a variable
   depot ci vars remove GITHUB_REPO --all
 
   # Remove variables without confirmation prompt
-  depot ci vars remove GITHUB_REPO MY_SERVICE_NAME --all --force`,
+  depot ci vars remove GITHUB_REPO MY_SERVICE_NAME --force`,
 		Aliases: []string{"rm"},
 		Args:    cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -442,6 +447,13 @@ variable and every variant under it.`,
 				orgID = config.GetCurrentOrganization()
 			}
 
+			names := args
+			selectsVariant := variant != "" || hasVariantSelectors(repo, environment, branch, workflow)
+			if all && selectsVariant {
+				return fmt.Errorf("--all cannot be used with --variant, --repo, --env, --branch, or --workflow")
+			}
+			removeGroups := all || !selectsVariant
+
 			tokenVal, err := helpers.ResolveOrgAuth(ctx, token)
 			if err != nil {
 				return err
@@ -450,27 +462,15 @@ variable and every variant under it.`,
 				return fmt.Errorf("missing API token, please run `depot login`")
 			}
 
-			var variant string
-			names := args
-			if all {
-				variant = ""
-			} else {
-				if len(args) > 2 {
-					return fmt.Errorf("too many arguments; pass one variable and optional variant, or use --all to remove multiple variables")
-				}
-				if len(args) == 2 {
-					variant = args[1]
-				}
-				names = args[:1]
-			}
-
 			if !force {
 				namesLabel := strings.Join(names, ", ")
-				target := "selected CI variable variant(s)"
-				if all {
-					target = "all variants for CI variable(s)"
+				target := "CI variable(s)"
+				if removeGroups {
+					target = "CI variable(s) and all variants"
 				} else if variant != "" {
 					target = fmt.Sprintf("variant %q for CI variable(s)", variant)
+				} else {
+					target = "selected CI variable variant(s)"
 				}
 				prompt := fmt.Sprintf("Are you sure you want to remove %s %s? (y/N): ", target, namesLabel)
 				y, err := helpers.PromptForYN(prompt)
@@ -482,7 +482,7 @@ variable and every variant under it.`,
 			}
 
 			for _, varName := range names {
-				if all {
+				if removeGroups {
 					if err := api.CIDeleteVariableGroup(ctx, tokenVal, orgID, varName); err != nil {
 						return fmt.Errorf("failed to remove CI variable '%s': %w", varName, err)
 					}
@@ -495,21 +495,15 @@ variable and every variant under it.`,
 					return fmt.Errorf("failed to get CI variable '%s': %w", varName, err)
 				}
 
-				matches := make([]api.CIVariableVariant, 0, len(group.Variants))
-				for _, candidate := range group.Variants {
-					if variant != "" && candidate.Name != variant {
-						continue
-					}
-					if !variantAttributesMatch(candidate.Attributes, repo, environment, branch, workflow) {
-						continue
-					}
-					matches = append(matches, candidate)
+				matches, err := resolveVariableVariant(group, variant, repo, environment, branch, workflow)
+				if err != nil {
+					return err
 				}
 				if len(matches) == 0 {
 					return fmt.Errorf("no matching variant found for CI variable '%s'", varName)
 				}
 				if len(matches) > 1 {
-					return fmt.Errorf("CI variable '%s' has multiple matching variants; pass a variant or use --all", varName)
+					return fmt.Errorf("CI variable '%s' has multiple matching variants; pass --variant or add selector flags", varName)
 				}
 
 				if _, err := api.CIDeleteVariableVariant(ctx, tokenVal, orgID, matches[0].ID); err != nil {
@@ -529,6 +523,7 @@ variable and every variant under it.`,
 	cmd.Flags().StringArrayVar(&environment, "env", nil, "Select variant matching an environment (repeatable)")
 	cmd.Flags().StringArrayVar(&branch, "branch", nil, "Select variant matching a branch (repeatable)")
 	cmd.Flags().StringArrayVar(&workflow, "workflow", nil, "Select variant matching a workflow file (repeatable)")
+	cmd.Flags().StringVar(&variant, "variant", "", "Select variant by name")
 	cmd.Flags().BoolVar(&all, "all", false, "Remove the variable and all variants")
 
 	return cmd

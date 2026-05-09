@@ -1,8 +1,10 @@
 package ci
 
 import (
+	"strings"
 	"testing"
 
+	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 )
 
@@ -82,18 +84,66 @@ func TestVariantSelectorFlagsAreRepeatable(t *testing.T) {
 
 func TestVariantNameIsPositionalNotFlag(t *testing.T) {
 	for name, cmd := range map[string]commandWithFlags{
-		"secrets set":    {flags: NewCmdSecretsSet().Flags()},
-		"secrets add":    {flags: NewCmdSecretsAdd().Flags()},
-		"secrets bulk":   {flags: NewCmdSecretsBulk().Flags()},
-		"secrets get":    {flags: NewCmdSecretsGet().Flags()},
-		"secrets remove": {flags: NewCmdSecretsRemove().Flags()},
-		"vars set":       {flags: NewCmdVarsSet().Flags()},
-		"vars add":       {flags: NewCmdVarsAdd().Flags()},
-		"vars remove":    {flags: NewCmdVarsRemove().Flags()},
+		"secrets set":  {flags: NewCmdSecretsSet().Flags()},
+		"secrets add":  {flags: NewCmdSecretsAdd().Flags()},
+		"secrets bulk": {flags: NewCmdSecretsBulk().Flags()},
+		"secrets get":  {flags: NewCmdSecretsGet().Flags()},
+		"vars set":     {flags: NewCmdVarsSet().Flags()},
+		"vars add":     {flags: NewCmdVarsAdd().Flags()},
 	} {
 		t.Run(name, func(t *testing.T) {
 			if flag := cmd.flags.Lookup("variant"); flag != nil {
 				t.Fatalf("did not expect --variant flag: %#v", flag)
+			}
+		})
+	}
+}
+
+func TestRemoveCommandsUseVariantFlagForVariantDeletion(t *testing.T) {
+	for name, cmd := range map[string]commandWithFlags{
+		"secrets remove": {flags: NewCmdSecretsRemove().Flags()},
+		"vars remove":    {flags: NewCmdVarsRemove().Flags()},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if flag := cmd.flags.Lookup("variant"); flag == nil {
+				t.Fatal("expected --variant flag")
+			}
+		})
+	}
+}
+
+func TestRemoveCommandsKeepLegacyMultiNameUse(t *testing.T) {
+	for name, tc := range map[string]struct {
+		use  string
+		want string
+	}{
+		"secrets remove": {use: NewCmdSecretsRemove().Use, want: "remove <secret-name> [<secret-name>...]"},
+		"vars remove":    {use: NewCmdVarsRemove().Use, want: "remove <variable-name> [<variable-name>...]"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if tc.use != tc.want {
+				t.Fatalf("Use = %q, want %q", tc.use, tc.want)
+			}
+		})
+	}
+}
+
+func TestRemoveAllRejectsVariantSelectors(t *testing.T) {
+	for name, cmd := range map[string]*cobra.Command{
+		"secrets remove": NewCmdSecretsRemove(),
+		"vars remove":    NewCmdVarsRemove(),
+	} {
+		t.Run(name, func(t *testing.T) {
+			cmd.SilenceUsage = true
+			cmd.SilenceErrors = true
+			cmd.SetArgs([]string{"NAME", "--all", "--repo", "owner/repo", "--force"})
+
+			err := cmd.Execute()
+			if err == nil {
+				t.Fatal("expected error")
+			}
+			if !strings.Contains(err.Error(), "--all cannot be used with --variant, --repo, --env, --branch, or --workflow") {
+				t.Fatalf("error = %q", err)
 			}
 		})
 	}

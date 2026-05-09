@@ -710,28 +710,33 @@ func NewCmdSecretsRemove() *cobra.Command {
 		environment []string
 		branch      []string
 		workflow    []string
+		variant     string
 		all         bool
 	)
 
 	cmd := &cobra.Command{
-		Use:   "remove <secret-name> [variant]",
+		Use:   "remove <secret-name> [<secret-name>...]",
 		Short: "Remove one or more CI secrets",
-		Long: `Remove one or more CI secret variants.
+		Long: `Remove one or more CI secrets.
 
-By default, removal only succeeds when the target secret has one unambiguous
-variant. Pass a variant name to delete a named variant, or use --all to delete the whole
-secret and every variant under it.`,
+By default, positional arguments are treated as secret names and the command
+removes the whole secret with every variant under it. Use selector flags or
+--variant to remove one matching variant. --all makes whole-secret removal
+explicit and cannot be combined with selector flags or --variant.`,
 		Example: `  # Remove an org-wide secret
   depot ci secrets remove GITHUB_TOKEN
 
+  # Remove a repo-specific variant
+  depot ci secrets remove GITHUB_TOKEN --repo owner/repo
+
   # Remove a named variant
-  depot ci secrets remove GITHUB_TOKEN production
+  depot ci secrets remove GITHUB_TOKEN --variant production
 
   # Remove every variant for a secret
   depot ci secrets remove GITHUB_TOKEN --all
 
   # Remove multiple secrets without confirmation prompt
-  depot ci secrets remove GITHUB_TOKEN MY_API_KEY --all --force`,
+  depot ci secrets remove GITHUB_TOKEN MY_API_KEY --force`,
 		Aliases: []string{"rm"},
 		Args:    cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -741,6 +746,13 @@ secret and every variant under it.`,
 				orgID = config.GetCurrentOrganization()
 			}
 
+			names := args
+			selectsVariant := variant != "" || hasVariantSelectors(repo, environment, branch, workflow)
+			if all && selectsVariant {
+				return fmt.Errorf("--all cannot be used with --variant, --repo, --env, --branch, or --workflow")
+			}
+			removeGroups := all || !selectsVariant
+
 			tokenVal, err := helpers.ResolveOrgAuth(ctx, token)
 			if err != nil {
 				return err
@@ -749,27 +761,15 @@ secret and every variant under it.`,
 				return fmt.Errorf("missing API token, please run `depot login`")
 			}
 
-			var variant string
-			names := args
-			if all {
-				variant = ""
-			} else {
-				if len(args) > 2 {
-					return fmt.Errorf("too many arguments; pass one secret and optional variant, or use --all to remove multiple secrets")
-				}
-				if len(args) == 2 {
-					variant = args[1]
-				}
-				names = args[:1]
-			}
-
 			if !force {
 				namesLabel := strings.Join(names, ", ")
-				target := "selected CI secret variant(s)"
-				if all {
-					target = "all variants for CI secret(s)"
+				target := "CI secret(s)"
+				if removeGroups {
+					target = "CI secret(s) and all variants"
 				} else if variant != "" {
 					target = fmt.Sprintf("variant %q for CI secret(s)", variant)
+				} else {
+					target = "selected CI secret variant(s)"
 				}
 				prompt := fmt.Sprintf("Are you sure you want to remove %s %s? (y/N): ", target, namesLabel)
 				y, err := helpers.PromptForYN(prompt)
@@ -781,7 +781,7 @@ secret and every variant under it.`,
 			}
 
 			for _, secretName := range names {
-				if all {
+				if removeGroups {
 					if err := api.CIDeleteSecretGroup(ctx, tokenVal, orgID, secretName); err != nil {
 						return fmt.Errorf("failed to remove secret '%s': %w", secretName, err)
 					}
@@ -802,7 +802,7 @@ secret and every variant under it.`,
 					return fmt.Errorf("no matching variant found for secret '%s'", secretName)
 				}
 				if len(matches) > 1 {
-					return fmt.Errorf("secret '%s' has multiple matching variants; pass a variant or use --all", secretName)
+					return fmt.Errorf("secret '%s' has multiple matching variants; pass --variant or add selector flags", secretName)
 				}
 
 				if _, err := api.CIDeleteSecretVariant(ctx, tokenVal, orgID, matches[0].ID); err != nil {
@@ -822,6 +822,7 @@ secret and every variant under it.`,
 	cmd.Flags().StringArrayVar(&environment, "env", nil, "Select variant matching an environment (repeatable)")
 	cmd.Flags().StringArrayVar(&branch, "branch", nil, "Select variant matching a branch (repeatable)")
 	cmd.Flags().StringArrayVar(&workflow, "workflow", nil, "Select variant matching a workflow file (repeatable)")
+	cmd.Flags().StringVar(&variant, "variant", "", "Select variant by name")
 	cmd.Flags().BoolVar(&all, "all", false, "Remove the secret and all variants")
 
 	return cmd

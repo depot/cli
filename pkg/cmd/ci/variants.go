@@ -82,6 +82,20 @@ func resolveSecretVariant(group api.CISecretGroup, variant string, repo, environ
 	return matches, nil
 }
 
+func resolveVariableVariant(group api.CIVariableGroup, variant string, repo, environment, branch, workflow []string) ([]api.CIVariableVariant, error) {
+	matches := make([]api.CIVariableVariant, 0, len(group.Variants))
+	for _, candidate := range group.Variants {
+		if variant != "" && candidate.Name != variant {
+			continue
+		}
+		if !variantAttributesMatch(candidate.Attributes, repo, environment, branch, workflow) {
+			continue
+		}
+		matches = append(matches, candidate)
+	}
+	return matches, nil
+}
+
 func filterVariableVariants(variable api.CIVariableGroup, repo, environment, branch, workflow []string) api.CIVariableGroup {
 	if len(repo) == 0 && len(environment) == 0 && len(branch) == 0 && len(workflow) == 0 {
 		return variable
@@ -95,6 +109,19 @@ func filterVariableVariants(variable api.CIVariableGroup, repo, environment, bra
 	}
 	filtered.VariantCount = uint32(len(filtered.Variants))
 	return filtered
+}
+
+func hasVariantSelectors(repo, environment, branch, workflow []string) bool {
+	return hasNonEmpty(repo) || hasNonEmpty(environment) || hasNonEmpty(branch) || hasNonEmpty(workflow)
+}
+
+func hasNonEmpty(values []string) bool {
+	for _, value := range values {
+		if value != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func variantAttributesMatch(attrs []api.CIVariantAttribute, repos, environments, branches, workflows []string) bool {

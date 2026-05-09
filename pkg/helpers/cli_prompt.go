@@ -31,6 +31,9 @@ func SecretValueFromInput(prompt string) (string, error) {
 		if err != nil {
 			return "", err
 		}
+		if len(input) == 0 {
+			return "", fmt.Errorf("no secret value provided on stdin")
+		}
 		return stripANSI(trimOneTrailingNewline(string(input))), nil
 	}
 	return PromptForSecret(prompt)
