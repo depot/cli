@@ -57,6 +57,21 @@ func TestSecretsAddKeepsHiddenValueFlagForCompatibility(t *testing.T) {
 	}
 }
 
+func TestSecretsSetRequiresExplicitStdinInNonInteractiveMode(t *testing.T) {
+	cmd := NewCmdSecretsSet()
+	cmd.SilenceUsage = true
+	cmd.SilenceErrors = true
+	cmd.SetArgs([]string{"MY_SECRET"})
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "pass --from-stdin") {
+		t.Fatalf("error = %q", err)
+	}
+}
+
 func TestVariantSelectorFlagsAreRepeatable(t *testing.T) {
 	for name, cmd := range map[string]commandWithFlags{
 		"secrets set":    {flags: NewCmdSecretsSet().Flags()},

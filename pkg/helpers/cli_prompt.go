@@ -27,16 +27,20 @@ func PromptForSecret(prompt string) (string, error) {
 
 func SecretValueFromInput(prompt string) (string, error) {
 	if !IsStdinTerminal() {
-		input, err := io.ReadAll(os.Stdin)
-		if err != nil {
-			return "", err
-		}
-		if len(input) == 0 {
-			return "", fmt.Errorf("no secret value provided on stdin")
-		}
-		return stripANSI(trimOneTrailingNewline(string(input))), nil
+		return SecretValueFromStdin()
 	}
 	return PromptForSecret(prompt)
+}
+
+func SecretValueFromStdin() (string, error) {
+	input, err := io.ReadAll(os.Stdin)
+	if err != nil {
+		return "", err
+	}
+	if len(input) == 0 {
+		return "", fmt.Errorf("no secret value provided on stdin")
+	}
+	return stripANSI(trimOneTrailingNewline(string(input))), nil
 }
 
 func trimOneTrailingNewline(s string) string {

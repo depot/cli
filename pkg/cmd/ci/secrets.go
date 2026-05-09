@@ -24,7 +24,7 @@ func NewCmdSecrets() *cobra.Command {
   printf '%s' "$MY_API_KEY" | depot ci secrets add MY_API_KEY
 
   # Set a named secret variant
-  printf '%s' "$MY_API_KEY" | depot ci secrets set MY_API_KEY production --repo owner/repo --env production
+  printf '%s' "$MY_API_KEY" | depot ci secrets set MY_API_KEY production --from-stdin --repo owner/repo --env production
 
   # Add multiple secrets at once (legacy syntax)
   depot ci secrets add FOO=bar BAZ=qux
@@ -67,6 +67,7 @@ func NewCmdSecretsSet() *cobra.Command {
 		environment []string
 		branch      []string
 		workflow    []string
+		fromStdin   bool
 	)
 
 	cmd := &cobra.Command{
@@ -80,20 +81,27 @@ named "default".`,
 		Example: `  # Set the default variant
   depot ci secrets set MY_API_KEY
 
-  # Set a named variant from piped input
-  printf '%s' "$MY_API_KEY" | depot ci secrets set MY_API_KEY production
+  # Set a named variant from stdin
+  printf '%s' "$MY_API_KEY" | depot ci secrets set MY_API_KEY production --from-stdin
 
-  # Set a variant that only applies to matching workflow runs from piped input
-  printf '%s' "$MY_API_KEY" | depot ci secrets set MY_API_KEY production --repo owner/repo --env production --branch main --workflow deploy.yml
+  # Set a variant that only applies to matching workflow runs from stdin
+  printf '%s' "$MY_API_KEY" | depot ci secrets set MY_API_KEY production --from-stdin --repo owner/repo --env production --branch main --workflow deploy.yml
 
   # Set a variant that applies to multiple branches
-  printf '%s' "$MY_API_KEY" | depot ci secrets set MY_API_KEY release --repo owner/repo --branch main --branch 'release/*'`,
+  printf '%s' "$MY_API_KEY" | depot ci secrets set MY_API_KEY release --from-stdin --repo owner/repo --branch main --branch 'release/*'`,
 		Args: cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
 
 			if orgID == "" {
 				orgID = config.GetCurrentOrganization()
+			}
+
+			if fromStdin && helpers.IsStdinTerminal() {
+				return fmt.Errorf("--from-stdin requires piped stdin")
+			}
+			if !fromStdin && !helpers.IsStdinTerminal() {
+				return fmt.Errorf("cannot prompt for a secret value in non-interactive mode; pass --from-stdin to read the value from stdin")
 			}
 
 			tokenVal, err := helpers.ResolveProjectAuth(ctx, token)
@@ -112,9 +120,19 @@ named "default".`,
 				return fmt.Errorf("secret name cannot be empty")
 			}
 
-			secretValue, err := helpers.SecretValueFromInput(fmt.Sprintf("Enter value for secret '%s': ", secretName))
-			if err != nil {
-				return fmt.Errorf("failed to read secret value: %w", err)
+			var secretValue string
+			if fromStdin {
+				var err error
+				secretValue, err = helpers.SecretValueFromStdin()
+				if err != nil {
+					return fmt.Errorf("failed to read secret value: %w", err)
+				}
+			} else {
+				var err error
+				secretValue, err = helpers.PromptForSecret(fmt.Sprintf("Enter value for secret '%s': ", secretName))
+				if err != nil {
+					return fmt.Errorf("failed to read secret value: %w", err)
+				}
 			}
 
 			result, err := api.CISetSecretVariant(ctx, tokenVal, orgID, api.CISetSecretVariantOptions{
@@ -143,6 +161,7 @@ named "default".`,
 	cmd.Flags().StringArrayVar(&environment, "env", nil, "Apply variant to an environment (repeatable)")
 	cmd.Flags().StringArrayVar(&branch, "branch", nil, "Apply variant to a branch (repeatable)")
 	cmd.Flags().StringArrayVar(&workflow, "workflow", nil, "Apply variant to a workflow file (repeatable)")
+	cmd.Flags().BoolVar(&fromStdin, "from-stdin", false, "Read secret value from stdin")
 
 	return cmd
 }
