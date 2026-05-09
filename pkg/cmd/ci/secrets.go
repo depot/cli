@@ -678,10 +678,10 @@ attributes. Passing a secret name lists one grouped secret.`,
 			} else {
 				var err error
 				result, err = api.CIListSecretVariants(ctx, tokenVal, orgID, api.CIListSecretVariantsOptions{
-					Repo:        nil,
-					Environment: nil,
-					Branch:      nil,
-					Workflow:    nil,
+					Repo:        repo,
+					Environment: environment,
+					Branch:      branch,
+					Workflow:    workflow,
 				})
 				if err != nil {
 					return fmt.Errorf("failed to list secrets: %w", err)

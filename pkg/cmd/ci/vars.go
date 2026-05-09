@@ -362,10 +362,10 @@ attributes. Passing a variable name lists one grouped variable.`,
 			} else {
 				var err error
 				result, err = api.CIListVariableVariants(ctx, tokenVal, orgID, api.CIListVariableVariantsOptions{
-					Repo:        nil,
-					Environment: nil,
-					Branch:      nil,
-					Workflow:    nil,
+					Repo:        repo,
+					Environment: environment,
+					Branch:      branch,
+					Workflow:    workflow,
 				})
 				if err != nil {
 					return fmt.Errorf("failed to list CI variables: %w", err)
