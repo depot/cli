@@ -73,7 +73,7 @@ func (h ciServiceTestHandler) GetRunStatus(context.Context, *connect.Request[civ
 	return nil, connect.NewError(connect.CodeUnimplemented, nil)
 }
 
-func (h ciServiceTestHandler) GetFailureDiagnosis(_ context.Context, req *connect.Request[civ1.GetFailureDiagnosisRequest]) (*connect.Response[civ1.FailureDiagnosis], error) {
+func (h ciServiceTestHandler) GetFailureDiagnosis(_ context.Context, req *connect.Request[civ1.GetFailureDiagnosisRequest]) (*connect.Response[civ1.GetFailureDiagnosisResponse], error) {
 	assertAuthAndOrg(h.t, req.Header())
 	if req.Msg.TargetId != "job-123" {
 		h.t.Fatalf("TargetId = %q, want job-123", req.Msg.TargetId)
@@ -81,12 +81,12 @@ func (h ciServiceTestHandler) GetFailureDiagnosis(_ context.Context, req *connec
 	if req.Msg.TargetType != civ1.FailureDiagnosisTargetType_FAILURE_DIAGNOSIS_TARGET_TYPE_JOB {
 		h.t.Fatalf("TargetType = %v, want job", req.Msg.TargetType)
 	}
-	return connect.NewResponse(&civ1.FailureDiagnosis{
+	return connect.NewResponse(&civ1.GetFailureDiagnosisResponse{
 		OrgId: "org-123",
 		Target: &civ1.FailureDiagnosisTarget{
 			TargetId:   req.Msg.TargetId,
 			TargetType: req.Msg.TargetType,
-			Status:     "failed",
+			Status:     civ1.FailureDiagnosisResourceStatus_FAILURE_DIAGNOSIS_RESOURCE_STATUS_FAILED,
 		},
 		State: civ1.FailureDiagnosisState_FAILURE_DIAGNOSIS_STATE_FOCUSED_FAILURE,
 	}), nil

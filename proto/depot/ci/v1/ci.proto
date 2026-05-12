@@ -39,7 +39,7 @@ service CIService {
   rpc GetWorkflow(GetWorkflowRequest) returns (GetWorkflowResponse) {}
 
   // GetFailureDiagnosis returns a bounded deterministic failure diagnosis for a run, workflow, job, or attempt.
-  rpc GetFailureDiagnosis(GetFailureDiagnosisRequest) returns (FailureDiagnosis) {}
+  rpc GetFailureDiagnosis(GetFailureDiagnosisRequest) returns (GetFailureDiagnosisResponse) {}
 
   // GetJobAttemptMetrics returns CPU and memory metrics for one concrete job attempt
   rpc GetJobAttemptMetrics(GetJobAttemptMetricsRequest) returns (GetJobAttemptMetricsResponse) {}
@@ -432,6 +432,26 @@ enum FailureDiagnosisState {
   FAILURE_DIAGNOSIS_STATE_OVER_LIMIT = 4;
 }
 
+enum FailureDiagnosisResourceStatus {
+  FAILURE_DIAGNOSIS_RESOURCE_STATUS_UNSPECIFIED = 0;
+  FAILURE_DIAGNOSIS_RESOURCE_STATUS_QUEUED = 1;
+  FAILURE_DIAGNOSIS_RESOURCE_STATUS_WAITING = 2;
+  FAILURE_DIAGNOSIS_RESOURCE_STATUS_RUNNING = 3;
+  FAILURE_DIAGNOSIS_RESOURCE_STATUS_FINISHED = 4;
+  FAILURE_DIAGNOSIS_RESOURCE_STATUS_FAILED = 5;
+  FAILURE_DIAGNOSIS_RESOURCE_STATUS_CANCELLED = 6;
+  FAILURE_DIAGNOSIS_RESOURCE_STATUS_SKIPPED = 7;
+}
+
+enum FailureDiagnosisConclusion {
+  FAILURE_DIAGNOSIS_CONCLUSION_UNSPECIFIED = 0;
+  FAILURE_DIAGNOSIS_CONCLUSION_SUCCESS = 1;
+  FAILURE_DIAGNOSIS_CONCLUSION_FAILURE = 2;
+  FAILURE_DIAGNOSIS_CONCLUSION_CANCELLED = 3;
+  FAILURE_DIAGNOSIS_CONCLUSION_SKIPPED = 4;
+  FAILURE_DIAGNOSIS_CONCLUSION_TIMED_OUT = 5;
+}
+
 enum DrillDownCommandKind {
   DRILL_DOWN_COMMAND_KIND_UNSPECIFIED = 0;
   DRILL_DOWN_COMMAND_KIND_LOGS = 1;
@@ -441,12 +461,13 @@ enum DrillDownCommandKind {
 }
 
 message GetFailureDiagnosisRequest {
-  // target_id identifies a run, workflow, job, or attempt. When target_type is unspecified the server resolves it.
+  // target_id identifies the requested CI run, workflow, job, or attempt.
   string target_id = 1;
+  // target_type is required; clients should specify the resource type rather than relying on server probing.
   FailureDiagnosisTargetType target_type = 2;
 }
 
-message FailureDiagnosis {
+message GetFailureDiagnosisResponse {
   string org_id = 1;
   FailureDiagnosisTarget target = 2;
   FailureDiagnosisContext context = 3;
@@ -463,7 +484,7 @@ message FailureDiagnosis {
 message FailureDiagnosisTarget {
   string target_id = 1;
   FailureDiagnosisTargetType target_type = 2;
-  string status = 3;
+  FailureDiagnosisResourceStatus status = 3;
 }
 
 message FailureDiagnosisContext {
@@ -473,20 +494,20 @@ message FailureDiagnosisContext {
   string sha = 4;
   string head_sha = 5;
   string trigger = 6;
-  string run_status = 7;
+  FailureDiagnosisResourceStatus run_status = 7;
   string workflow_id = 8;
   string workflow_name = 9;
   string workflow_path = 10;
-  string workflow_status = 11;
+  FailureDiagnosisResourceStatus workflow_status = 11;
   string job_id = 12;
   string job_key = 13;
   string job_display_name = 14;
-  string job_status = 15;
-  string job_conclusion = 16;
+  FailureDiagnosisResourceStatus job_status = 15;
+  FailureDiagnosisConclusion job_conclusion = 16;
   string attempt_id = 17;
   int32 attempt = 18;
-  string attempt_status = 19;
-  string attempt_conclusion = 20;
+  FailureDiagnosisResourceStatus attempt_status = 19;
+  FailureDiagnosisConclusion attempt_conclusion = 20;
   repeated string truncated_context_fields = 21;
 }
 
@@ -511,12 +532,12 @@ message RepresentativeAttempt {
   string job_id = 5;
   string job_key = 6;
   string job_display_name = 7;
-  string job_status = 8;
-  string job_conclusion = 9;
+  FailureDiagnosisResourceStatus job_status = 8;
+  FailureDiagnosisConclusion job_conclusion = 9;
   string attempt_id = 10;
   int32 attempt = 11;
-  string attempt_status = 12;
-  string attempt_conclusion = 13;
+  FailureDiagnosisResourceStatus attempt_status = 12;
+  FailureDiagnosisConclusion attempt_conclusion = 13;
   string error_message = 14;
   bool error_message_truncated = 15;
   uint32 error_message_original_length = 16;
@@ -574,7 +595,7 @@ message FailureDiagnosisBreakdownRow {
   FailureDiagnosisTargetType target_type = 1;
   string target_id = 2;
   string label = 3;
-  string status = 4;
+  FailureDiagnosisResourceStatus status = 4;
   uint32 failed_problem_candidate_count = 5;
   repeated DrillDownCommand next_commands = 6;
 }

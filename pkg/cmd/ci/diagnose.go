@@ -25,38 +25,33 @@ func NewCmdDiagnose() *cobra.Command {
 		orgID      string
 		token      string
 		output     string
-		targetType string
+		runID      string
+		workflowID string
+		jobID      string
+		attemptID  string
 	)
 
 	cmd := &cobra.Command{
-		Use:   "diagnose <id>",
+		Use:   "diagnose --run <run-id> | --workflow <workflow-id> | --job <job-id> | --attempt <attempt-id>",
 		Short: "Diagnose a failed CI run, workflow, job, or attempt",
 		Long:  "Diagnose a failed CI run, workflow, job, or attempt using bounded stored failure context.",
-		Example: `  depot ci diagnose <run-id>
-  depot ci diagnose <workflow-id>
-  depot ci diagnose <job-id> --output json
-  depot ci diagnose <attempt-id>`,
+		Example: `  depot ci diagnose --run <run-id>
+  depot ci diagnose --workflow <workflow-id>
+  depot ci diagnose --job <job-id> --output json
+  depot ci diagnose --attempt <attempt-id>`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := validateTextOrJSONOutput(output); err != nil {
 				return err
 			}
-			diagnosisTargetType, err := parseDiagnosisTargetType(targetType)
+			if len(args) > 0 {
+				return fmt.Errorf("positional target IDs are not supported; use exactly one of --run, --workflow, --job, or --attempt")
+			}
+			targetID, diagnosisTargetType, err := diagnosisTargetFromSelectors(runID, workflowID, jobID, attemptID)
 			if err != nil {
 				return err
 			}
-			if len(args) == 0 {
-				if outputIsJSON(output) {
-					cmd.SilenceUsage = true
-					return fmt.Errorf("expected exactly one run, workflow, job, or attempt ID")
-				}
-				return cmd.Help()
-			}
-			if len(args) > 1 {
-				return fmt.Errorf("expected exactly one run, workflow, job, or attempt ID")
-			}
 
 			ctx := cmd.Context()
-			id := args[0]
 
 			if orgID == "" {
 				orgID = config.GetCurrentOrganization()
@@ -71,22 +66,22 @@ func NewCmdDiagnose() *cobra.Command {
 			}
 
 			resp, err := ciDiagnose(ctx, tokenVal, orgID, &civ1.GetFailureDiagnosisRequest{
-				TargetId:   id,
+				TargetId:   targetID,
 				TargetType: diagnosisTargetType,
 			})
 			if err != nil {
 				return fmt.Errorf("failed to diagnose CI target: %w", err)
 			}
 
-			renderer := diagnosisCommandRenderer{}
+			commandOrgID := ""
 			if cmd.Flags().Changed("org") {
-				renderer.orgID = orgID
+				commandOrgID = orgID
 			}
 
 			if outputIsJSON(output) {
-				return writeJSON(buildDiagnoseJSON(resp, renderer))
+				return writeJSON(buildDiagnoseJSON(resp, commandOrgID))
 			}
-			printDiagnoseResponse(cmd.OutOrStdout(), resp, renderer)
+			printDiagnoseResponse(cmd.OutOrStdout(), resp, commandOrgID)
 			return nil
 		},
 	}
@@ -94,37 +89,34 @@ func NewCmdDiagnose() *cobra.Command {
 	cmd.Flags().StringVar(&orgID, "org", "", "Organization ID (required when user is a member of multiple organizations)")
 	cmd.Flags().StringVar(&token, "token", "", "Depot API token")
 	cmd.Flags().StringVarP(&output, "output", "o", "", "Output format (text, json)")
-	cmd.Flags().StringVar(&targetType, "type", "", "Target type (run, workflow, job, attempt)")
-	_ = cmd.Flags().MarkHidden("type")
+	cmd.Flags().StringVar(&runID, "run", "", "Run ID to diagnose")
+	cmd.Flags().StringVar(&workflowID, "workflow", "", "Workflow ID to diagnose")
+	cmd.Flags().StringVar(&jobID, "job", "", "Job ID to diagnose")
+	cmd.Flags().StringVar(&attemptID, "attempt", "", "Job attempt ID to diagnose")
 
 	return cmd
 }
 
-func parseDiagnosisTargetType(value string) (civ1.FailureDiagnosisTargetType, error) {
-	switch value {
-	case "":
-		return civ1.FailureDiagnosisTargetType_FAILURE_DIAGNOSIS_TARGET_TYPE_UNSPECIFIED, nil
-	case "run":
-		return civ1.FailureDiagnosisTargetType_FAILURE_DIAGNOSIS_TARGET_TYPE_RUN, nil
-	case "workflow":
-		return civ1.FailureDiagnosisTargetType_FAILURE_DIAGNOSIS_TARGET_TYPE_WORKFLOW, nil
-	case "job":
-		return civ1.FailureDiagnosisTargetType_FAILURE_DIAGNOSIS_TARGET_TYPE_JOB, nil
-	case "attempt":
-		return civ1.FailureDiagnosisTargetType_FAILURE_DIAGNOSIS_TARGET_TYPE_ATTEMPT, nil
+func diagnosisTargetFromSelectors(runID, workflowID, jobID, attemptID string) (string, civ1.FailureDiagnosisTargetType, error) {
+	if countNonEmpty(runID, workflowID, jobID, attemptID) != 1 {
+		return "", civ1.FailureDiagnosisTargetType_FAILURE_DIAGNOSIS_TARGET_TYPE_UNSPECIFIED, fmt.Errorf("expected exactly one target selector: --run, --workflow, --job, or --attempt")
+	}
+	switch {
+	case runID != "":
+		return runID, civ1.FailureDiagnosisTargetType_FAILURE_DIAGNOSIS_TARGET_TYPE_RUN, nil
+	case workflowID != "":
+		return workflowID, civ1.FailureDiagnosisTargetType_FAILURE_DIAGNOSIS_TARGET_TYPE_WORKFLOW, nil
+	case jobID != "":
+		return jobID, civ1.FailureDiagnosisTargetType_FAILURE_DIAGNOSIS_TARGET_TYPE_JOB, nil
 	default:
-		return civ1.FailureDiagnosisTargetType_FAILURE_DIAGNOSIS_TARGET_TYPE_UNSPECIFIED, fmt.Errorf("unsupported type %q (valid: run, workflow, job, attempt)", value)
+		return attemptID, civ1.FailureDiagnosisTargetType_FAILURE_DIAGNOSIS_TARGET_TYPE_ATTEMPT, nil
 	}
 }
 
-type diagnosisCommandRenderer struct {
-	orgID string
-}
-
-func (r diagnosisCommandRenderer) command(cmd *civ1.DrillDownCommand) diagnoseCommandJSON {
+func buildDiagnoseCommandJSON(cmd *civ1.DrillDownCommand, orgID string) diagnoseCommandJSON {
 	argv := append([]string(nil), cmd.GetArgv()...)
-	if r.orgID != "" && len(argv) > 0 {
-		argv = append(argv, "--org", r.orgID)
+	if orgID != "" && len(argv) > 0 {
+		argv = append(argv, "--org", orgID)
 	}
 	return diagnoseCommandJSON{
 		Kind:              diagnosisCommandKindString(cmd.GetKind()),
@@ -133,11 +125,11 @@ func (r diagnosisCommandRenderer) command(cmd *civ1.DrillDownCommand) diagnoseCo
 		TargetID:          cmd.GetTargetId(),
 		Label:             cmd.GetLabel(),
 		Argv:              argv,
-		Command:           shellJoin(argv),
+		Shell:             shellJoin(argv),
 	}
 }
 
-func (r diagnosisCommandRenderer) commands(commands []*civ1.DrillDownCommand, capabilities *civ1.FailureDiagnosisCommandCapabilities, textOnly bool) []diagnoseCommandJSON {
+func buildDiagnoseCommandJSONs(commands []*civ1.DrillDownCommand, capabilities *civ1.FailureDiagnosisCommandCapabilities, orgID string, textOnly bool) []diagnoseCommandJSON {
 	out := make([]diagnoseCommandJSON, 0, len(commands))
 	for _, command := range commands {
 		if command == nil {
@@ -149,17 +141,17 @@ func (r diagnosisCommandRenderer) commands(commands []*civ1.DrillDownCommand, ca
 		if textOnly && (!command.GetAvailable() || len(command.GetArgv()) == 0) {
 			continue
 		}
-		out = append(out, r.command(command))
+		out = append(out, buildDiagnoseCommandJSON(command, orgID))
 	}
 	return out
 }
 
-func printDiagnoseResponse(w io.Writer, resp *civ1.FailureDiagnosis, renderer diagnosisCommandRenderer) {
+func printDiagnoseResponse(w io.Writer, resp *civ1.GetFailureDiagnosisResponse, commandOrgID string) {
 	fmt.Fprintf(w, "Org: %s\n", resp.GetOrgId())
 	if target := resp.GetTarget(); target != nil {
 		fmt.Fprintf(w, "Target: %s %s", diagnosisTargetTypeString(target.GetTargetType()), target.GetTargetId())
-		if target.GetStatus() != "" {
-			fmt.Fprintf(w, " (%s)", target.GetStatus())
+		if status := diagnosisResourceStatusDisplayString(target.GetStatus()); status != "" {
+			fmt.Fprintf(w, " (%s)", status)
 		}
 		fmt.Fprintln(w)
 	}
@@ -169,22 +161,19 @@ func printDiagnoseResponse(w io.Writer, resp *civ1.FailureDiagnosis, renderer di
 	case civ1.FailureDiagnosisState_FAILURE_DIAGNOSIS_STATE_EMPTY:
 		printEmptyDiagnosis(w, resp)
 	case civ1.FailureDiagnosisState_FAILURE_DIAGNOSIS_STATE_OVER_LIMIT:
-		printOverLimitDiagnosis(w, resp, renderer)
+		printOverLimitDiagnosis(w, resp, commandOrgID)
 	case civ1.FailureDiagnosisState_FAILURE_DIAGNOSIS_STATE_FOCUSED_FAILURE:
-		printFocusedDiagnosis(w, resp, renderer)
+		printFocusedDiagnosis(w, resp, commandOrgID)
 	default:
-		printGroupedDiagnosis(w, resp, renderer)
+		printGroupedDiagnosis(w, resp, commandOrgID)
 	}
 }
 
 func printDiagnosisContext(w io.Writer, context *civ1.FailureDiagnosisContext) {
-	if context == nil {
-		return
-	}
 	if context.GetRunId() != "" {
 		line := fmt.Sprintf("Run: %s", context.GetRunId())
-		if context.GetRunStatus() != "" {
-			line += fmt.Sprintf(" (%s)", context.GetRunStatus())
+		if status := diagnosisResourceStatusDisplayString(context.GetRunStatus()); status != "" {
+			line += fmt.Sprintf(" (%s)", status)
 		}
 		fmt.Fprintln(w, line)
 	}
@@ -203,28 +192,28 @@ func printDiagnosisContext(w io.Writer, context *civ1.FailureDiagnosisContext) {
 		if context.GetWorkflowPath() != "" && context.GetWorkflowPath() != context.GetWorkflowName() {
 			fmt.Fprintf(w, " [%s]", context.GetWorkflowPath())
 		}
-		if context.GetWorkflowStatus() != "" {
-			fmt.Fprintf(w, " (%s)", context.GetWorkflowStatus())
+		if status := diagnosisResourceStatusDisplayString(context.GetWorkflowStatus()); status != "" {
+			fmt.Fprintf(w, " (%s)", status)
 		}
 		fmt.Fprintln(w)
 	}
 	if context.GetJobId() != "" {
 		fmt.Fprintf(w, "Job: %s", firstNonEmpty(context.GetJobDisplayName(), context.GetJobKey(), context.GetJobId()))
-		if context.GetJobStatus() != "" {
-			fmt.Fprintf(w, " (%s)", context.GetJobStatus())
+		if status := diagnosisResourceStatusDisplayString(context.GetJobStatus()); status != "" {
+			fmt.Fprintf(w, " (%s)", status)
 		}
-		if context.GetJobConclusion() != "" {
-			fmt.Fprintf(w, " conclusion=%s", context.GetJobConclusion())
+		if conclusion := diagnosisConclusionDisplayString(context.GetJobConclusion()); conclusion != "" {
+			fmt.Fprintf(w, " conclusion=%s", conclusion)
 		}
 		fmt.Fprintln(w)
 	}
 	if context.GetAttemptId() != "" {
 		fmt.Fprintf(w, "Attempt: #%d %s", context.GetAttempt(), context.GetAttemptId())
-		if context.GetAttemptStatus() != "" {
-			fmt.Fprintf(w, " (%s)", context.GetAttemptStatus())
+		if status := diagnosisResourceStatusDisplayString(context.GetAttemptStatus()); status != "" {
+			fmt.Fprintf(w, " (%s)", status)
 		}
-		if context.GetAttemptConclusion() != "" {
-			fmt.Fprintf(w, " conclusion=%s", context.GetAttemptConclusion())
+		if conclusion := diagnosisConclusionDisplayString(context.GetAttemptConclusion()); conclusion != "" {
+			fmt.Fprintf(w, " conclusion=%s", conclusion)
 		}
 		fmt.Fprintln(w)
 	}
@@ -233,7 +222,7 @@ func printDiagnosisContext(w io.Writer, context *civ1.FailureDiagnosisContext) {
 	}
 }
 
-func printEmptyDiagnosis(w io.Writer, resp *civ1.FailureDiagnosis) {
+func printEmptyDiagnosis(w io.Writer, resp *civ1.GetFailureDiagnosisResponse) {
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "No CI failures found for this target.")
 	if resp.GetEmptyReason() != "" {
@@ -242,7 +231,7 @@ func printEmptyDiagnosis(w io.Writer, resp *civ1.FailureDiagnosis) {
 	printBoundsSummary(w, resp)
 }
 
-func printOverLimitDiagnosis(w io.Writer, resp *civ1.FailureDiagnosis, renderer diagnosisCommandRenderer) {
+func printOverLimitDiagnosis(w io.Writer, resp *civ1.GetFailureDiagnosisResponse, commandOrgID string) {
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Diagnosis is over limit.")
 	bounds := resp.GetBounds()
@@ -264,36 +253,36 @@ func printOverLimitDiagnosis(w io.Writer, resp *civ1.FailureDiagnosis, renderer 
 			if row.GetLabel() != "" {
 				fmt.Fprintf(w, " [%s]", row.GetLabel())
 			}
-			if row.GetStatus() != "" {
-				fmt.Fprintf(w, " (%s)", row.GetStatus())
+			if status := diagnosisResourceStatusDisplayString(row.GetStatus()); status != "" {
+				fmt.Fprintf(w, " (%s)", status)
 			}
 			fmt.Fprintf(w, ": %d failed/problem candidates\n", row.GetFailedProblemCandidateCount())
-			for _, command := range renderer.commands(row.GetNextCommands(), resp.GetCommandCapabilities(), true) {
-				fmt.Fprintf(w, "    %s: %s\n", firstNonEmpty(command.Label, "Command"), command.Command)
+			for _, command := range buildDiagnoseCommandJSONs(row.GetNextCommands(), resp.GetCommandCapabilities(), commandOrgID, true) {
+				fmt.Fprintf(w, "    %s: %s\n", firstNonEmpty(command.Label, "Command"), command.Shell)
 			}
 		}
 	}
 	printBoundsSummary(w, resp)
 }
 
-func printFocusedDiagnosis(w io.Writer, resp *civ1.FailureDiagnosis, renderer diagnosisCommandRenderer) {
+func printFocusedDiagnosis(w io.Writer, resp *civ1.GetFailureDiagnosisResponse, commandOrgID string) {
 	fmt.Fprintln(w)
 	if len(resp.GetRepresentativeAttempts()) == 0 {
 		fmt.Fprintln(w, "Focused diagnosis returned no representative attempts.")
-		printNextCommands(w, renderer.commands(resp.GetNextCommands(), resp.GetCommandCapabilities(), true), "Next commands")
+		printNextCommands(w, buildDiagnoseCommandJSONs(resp.GetNextCommands(), resp.GetCommandCapabilities(), commandOrgID, true), "Next commands")
 		printBoundsSummary(w, resp)
 		return
 	}
 
 	fmt.Fprintln(w, "Focused diagnosis:")
 	for _, representative := range resp.GetRepresentativeAttempts() {
-		printRepresentativeAttempt(w, resp.GetOrgId(), representative, resp.GetCommandCapabilities(), renderer, "  ")
+		printRepresentativeAttempt(w, resp.GetOrgId(), representative, resp.GetCommandCapabilities(), commandOrgID, "  ")
 	}
 	printSummaryUnavailableNote(w, resp.GetCommandCapabilities())
 	printBoundsSummary(w, resp)
 }
 
-func printGroupedDiagnosis(w io.Writer, resp *civ1.FailureDiagnosis, renderer diagnosisCommandRenderer) {
+func printGroupedDiagnosis(w io.Writer, resp *civ1.GetFailureDiagnosisResponse, commandOrgID string) {
 	fmt.Fprintln(w)
 	bounds := resp.GetBounds()
 	if bounds != nil && bounds.GetTotalFailureGroupCount() > 0 {
@@ -331,7 +320,7 @@ func printGroupedDiagnosis(w io.Writer, resp *civ1.FailureDiagnosis, renderer di
 			fmt.Fprintln(w)
 			fmt.Fprintln(w, "  Attempts:")
 			for _, representative := range group.GetRepresentatives() {
-				printCompactRepresentativeAttempt(w, resp.GetOrgId(), representative, resp.GetCommandCapabilities(), renderer, "    ", showRepresentativeErrors)
+				printCompactRepresentativeAttempt(w, resp.GetOrgId(), representative, resp.GetCommandCapabilities(), commandOrgID, "    ", showRepresentativeErrors)
 			}
 		}
 		if group.GetOmittedRepresentativeCount() > 0 {
@@ -348,20 +337,20 @@ func printGroupedDiagnosis(w io.Writer, resp *civ1.FailureDiagnosis, renderer di
 	printBoundsSummary(w, resp)
 }
 
-func printCompactRepresentativeAttempt(w io.Writer, orgID string, representative *civ1.RepresentativeAttempt, capabilities *civ1.FailureDiagnosisCommandCapabilities, renderer diagnosisCommandRenderer, indent string, showError bool) {
+func printCompactRepresentativeAttempt(w io.Writer, orgID string, representative *civ1.RepresentativeAttempt, capabilities *civ1.FailureDiagnosisCommandCapabilities, commandOrgID string, indent string, showError bool) {
 	fmt.Fprintf(w, "%s- #%d %s", indent, representative.GetAttempt(), representative.GetAttemptId())
 	if representative.GetJobKey() != "" || representative.GetJobDisplayName() != "" {
 		fmt.Fprintf(w, "  %s", firstNonEmpty(representative.GetJobDisplayName(), representative.GetJobKey()))
 	}
-	if representative.GetAttemptStatus() != "" {
-		fmt.Fprintf(w, " (%s)", representative.GetAttemptStatus())
+	if status := diagnosisResourceStatusDisplayString(representative.GetAttemptStatus()); status != "" {
+		fmt.Fprintf(w, " (%s)", status)
 	}
 	fmt.Fprintln(w)
 	if showError && representative.GetErrorMessage() != "" {
 		fmt.Fprintf(w, "%s  Error: %s%s\n", indent, representative.GetErrorMessage(), truncatedSuffix(representative.GetErrorMessageTruncated(), representative.GetErrorMessageOriginalLength()))
 	}
-	for _, command := range renderer.commands(representative.GetNextCommands(), capabilities, true) {
-		fmt.Fprintf(w, "%s  %s: %s\n", indent, firstNonEmpty(command.Label, "Command"), command.Command)
+	for _, command := range buildDiagnoseCommandJSONs(representative.GetNextCommands(), capabilities, commandOrgID, true) {
+		fmt.Fprintf(w, "%s  %s: %s\n", indent, firstNonEmpty(command.Label, "Command"), command.Shell)
 	}
 	if orgID != "" && representative.GetWorkflowId() != "" && representative.GetJobId() != "" && representative.GetAttemptId() != "" {
 		fmt.Fprintf(w, "%s  View: %s\n", indent, statusAttemptViewURL(orgID, representative.GetWorkflowId(), representative.GetJobId(), representative.GetAttemptId()))
@@ -385,13 +374,13 @@ func commonRepresentativeError(group *civ1.FailureGroup) string {
 	return common
 }
 
-func printRepresentativeAttempt(w io.Writer, orgID string, representative *civ1.RepresentativeAttempt, capabilities *civ1.FailureDiagnosisCommandCapabilities, renderer diagnosisCommandRenderer, indent string) {
+func printRepresentativeAttempt(w io.Writer, orgID string, representative *civ1.RepresentativeAttempt, capabilities *civ1.FailureDiagnosisCommandCapabilities, commandOrgID string, indent string) {
 	fmt.Fprintf(w, "%sAttempt #%d %s", indent, representative.GetAttempt(), representative.GetAttemptId())
 	if representative.GetJobKey() != "" || representative.GetJobDisplayName() != "" {
 		fmt.Fprintf(w, " for %s", firstNonEmpty(representative.GetJobDisplayName(), representative.GetJobKey()))
 	}
-	if representative.GetAttemptStatus() != "" {
-		fmt.Fprintf(w, " (%s)", representative.GetAttemptStatus())
+	if status := diagnosisResourceStatusDisplayString(representative.GetAttemptStatus()); status != "" {
+		fmt.Fprintf(w, " (%s)", status)
 	}
 	fmt.Fprintln(w)
 	if representative.GetErrorMessage() != "" {
@@ -413,8 +402,8 @@ func printRepresentativeAttempt(w io.Writer, orgID string, representative *civ1.
 			fmt.Fprintf(w, "%s    %s: %s%s\n", indent, prefix, line.GetContent(), truncatedSuffix(line.GetContentTruncated(), line.GetContentOriginalLength()))
 		}
 	}
-	for _, command := range renderer.commands(representative.GetNextCommands(), capabilities, true) {
-		fmt.Fprintf(w, "%s  %s: %s\n", indent, firstNonEmpty(command.Label, "Command"), command.Command)
+	for _, command := range buildDiagnoseCommandJSONs(representative.GetNextCommands(), capabilities, commandOrgID, true) {
+		fmt.Fprintf(w, "%s  %s: %s\n", indent, firstNonEmpty(command.Label, "Command"), command.Shell)
 	}
 	if orgID != "" && representative.GetWorkflowId() != "" && representative.GetJobId() != "" && representative.GetAttemptId() != "" {
 		fmt.Fprintf(w, "%s  View: %s\n", indent, statusAttemptViewURL(orgID, representative.GetWorkflowId(), representative.GetJobId(), representative.GetAttemptId()))
@@ -433,7 +422,7 @@ func printGroupEvidence(w io.Writer, group *civ1.FailureGroup, indent string) {
 	lines := make([]evidenceLine, 0, maxGroupEvidenceLines)
 	for _, representative := range group.GetRepresentatives() {
 		for _, line := range representative.GetRelevantLines() {
-			if isGenericEvidenceLine(line.GetContent()) {
+			if isHumanOutputWrapperEvidenceLine(line.GetContent()) {
 				continue
 			}
 			prefix := fmt.Sprintf("%d", line.GetLineNumber())
@@ -474,7 +463,9 @@ func normalizeEvidenceContent(content string) string {
 	return strings.Join(strings.Fields(content), " ")
 }
 
-func isGenericEvidenceLine(content string) bool {
+// Suppresses generic shell/package-manager wrapper lines from human group evidence only.
+// The API payload, grouping, and JSON output still preserve the original relevant lines.
+func isHumanOutputWrapperEvidenceLine(content string) bool {
 	normalized := strings.ToLower(normalizeEvidenceContent(content))
 	return strings.HasPrefix(normalized, "##[error]script exited with code ") ||
 		strings.Contains(normalized, "err_pnpm_recursive_run_first_fail") ||
@@ -488,7 +479,7 @@ func printNextCommands(w io.Writer, commands []diagnoseCommandJSON, title string
 	fmt.Fprintln(w)
 	fmt.Fprintf(w, "%s:\n", title)
 	for _, command := range commands {
-		fmt.Fprintf(w, "  %s: %s\n", firstNonEmpty(command.Label, "Command"), command.Command)
+		fmt.Fprintf(w, "  %s: %s\n", firstNonEmpty(command.Label, "Command"), command.Shell)
 	}
 }
 
@@ -500,7 +491,7 @@ func printSummaryUnavailableNote(w io.Writer, capabilities *civ1.FailureDiagnosi
 	fmt.Fprintln(w, "Summary drill-down commands are not available in this build.")
 }
 
-func printBoundsSummary(w io.Writer, resp *civ1.FailureDiagnosis) {
+func printBoundsSummary(w io.Writer, resp *civ1.GetFailureDiagnosisResponse) {
 	bounds := resp.GetBounds()
 	if bounds == nil {
 		return
@@ -697,7 +688,7 @@ type diagnoseCommandJSON struct {
 	TargetID          string   `json:"target_id"`
 	Label             string   `json:"label"`
 	Argv              []string `json:"argv"`
-	Command           string   `json:"command"`
+	Shell             string   `json:"-"`
 }
 
 type diagnoseOverLimitBreakdownJSON struct {
@@ -709,7 +700,7 @@ type diagnoseOverLimitBreakdownJSON struct {
 	NextCommands                []diagnoseCommandJSON `json:"next_commands"`
 }
 
-func buildDiagnoseJSON(resp *civ1.FailureDiagnosis, renderer diagnosisCommandRenderer) diagnoseJSONDocument {
+func buildDiagnoseJSON(resp *civ1.GetFailureDiagnosisResponse, commandOrgID string) diagnoseJSONDocument {
 	capabilities := resp.GetCommandCapabilities()
 	out := diagnoseJSONDocument{
 		OrgID:                  resp.GetOrgId(),
@@ -721,23 +712,23 @@ func buildDiagnoseJSON(resp *civ1.FailureDiagnosis, renderer diagnosisCommandRen
 		Bounds:                 buildDiagnoseBoundsJSON(resp.GetBounds()),
 		FailureGroups:          make([]diagnoseFailureGroupJSON, 0, len(resp.GetFailureGroups())),
 		RepresentativeAttempts: make([]diagnoseRepresentativeJSON, 0, len(resp.GetRepresentativeAttempts())),
-		NextCommands:           renderer.commands(resp.GetNextCommands(), capabilities, false),
+		NextCommands:           buildDiagnoseCommandJSONs(resp.GetNextCommands(), capabilities, commandOrgID, false),
 		OverLimitBreakdown:     make([]diagnoseOverLimitBreakdownJSON, 0, len(resp.GetOverLimitBreakdown())),
 	}
 	for _, group := range resp.GetFailureGroups() {
-		out.FailureGroups = append(out.FailureGroups, buildFailureGroupJSON(group, capabilities, renderer))
+		out.FailureGroups = append(out.FailureGroups, buildFailureGroupJSON(group, capabilities, commandOrgID))
 	}
 	for _, representative := range resp.GetRepresentativeAttempts() {
-		out.RepresentativeAttempts = append(out.RepresentativeAttempts, buildRepresentativeJSON(representative, capabilities, renderer))
+		out.RepresentativeAttempts = append(out.RepresentativeAttempts, buildRepresentativeJSON(representative, capabilities, commandOrgID))
 	}
 	for _, row := range resp.GetOverLimitBreakdown() {
 		out.OverLimitBreakdown = append(out.OverLimitBreakdown, diagnoseOverLimitBreakdownJSON{
 			TargetType:                  diagnosisTargetTypeString(row.GetTargetType()),
 			TargetID:                    row.GetTargetId(),
 			Label:                       row.GetLabel(),
-			Status:                      row.GetStatus(),
+			Status:                      diagnosisResourceStatusString(row.GetStatus()),
 			FailedProblemCandidateCount: row.GetFailedProblemCandidateCount(),
-			NextCommands:                renderer.commands(row.GetNextCommands(), capabilities, false),
+			NextCommands:                buildDiagnoseCommandJSONs(row.GetNextCommands(), capabilities, commandOrgID, false),
 		})
 	}
 	return out
@@ -750,7 +741,7 @@ func buildDiagnoseTargetJSON(target *civ1.FailureDiagnosisTarget) diagnoseTarget
 	return diagnoseTargetJSON{
 		TargetID:   target.GetTargetId(),
 		TargetType: diagnosisTargetTypeString(target.GetTargetType()),
-		Status:     target.GetStatus(),
+		Status:     diagnosisResourceStatusString(target.GetStatus()),
 	}
 }
 
@@ -765,20 +756,20 @@ func buildDiagnoseContextJSON(context *civ1.FailureDiagnosisContext) diagnoseCon
 		Sha:                    context.GetSha(),
 		HeadSha:                context.GetHeadSha(),
 		Trigger:                context.GetTrigger(),
-		RunStatus:              context.GetRunStatus(),
+		RunStatus:              diagnosisResourceStatusString(context.GetRunStatus()),
 		WorkflowID:             context.GetWorkflowId(),
 		WorkflowName:           context.GetWorkflowName(),
 		WorkflowPath:           context.GetWorkflowPath(),
-		WorkflowStatus:         context.GetWorkflowStatus(),
+		WorkflowStatus:         diagnosisResourceStatusString(context.GetWorkflowStatus()),
 		JobID:                  context.GetJobId(),
 		JobKey:                 context.GetJobKey(),
 		JobDisplayName:         context.GetJobDisplayName(),
-		JobStatus:              context.GetJobStatus(),
-		JobConclusion:          context.GetJobConclusion(),
+		JobStatus:              diagnosisResourceStatusString(context.GetJobStatus()),
+		JobConclusion:          diagnosisConclusionString(context.GetJobConclusion()),
 		AttemptID:              context.GetAttemptId(),
 		Attempt:                context.GetAttempt(),
-		AttemptStatus:          context.GetAttemptStatus(),
-		AttemptConclusion:      context.GetAttemptConclusion(),
+		AttemptStatus:          diagnosisResourceStatusString(context.GetAttemptStatus()),
+		AttemptConclusion:      diagnosisConclusionString(context.GetAttemptConclusion()),
 		TruncatedContextFields: append([]string(nil), context.GetTruncatedContextFields()...),
 	}
 }
@@ -811,7 +802,7 @@ func buildDiagnoseBoundsJSON(bounds *civ1.FailureDiagnosisBounds) diagnoseBounds
 	}
 }
 
-func buildFailureGroupJSON(group *civ1.FailureGroup, capabilities *civ1.FailureDiagnosisCommandCapabilities, renderer diagnosisCommandRenderer) diagnoseFailureGroupJSON {
+func buildFailureGroupJSON(group *civ1.FailureGroup, capabilities *civ1.FailureDiagnosisCommandCapabilities, commandOrgID string) diagnoseFailureGroupJSON {
 	out := diagnoseFailureGroupJSON{
 		Fingerprint:                group.GetFingerprint(),
 		Source:                     group.GetSource(),
@@ -825,12 +816,12 @@ func buildFailureGroupJSON(group *civ1.FailureGroup, capabilities *civ1.FailureD
 		OmittedRepresentativeCount: group.GetOmittedRepresentativeCount(),
 	}
 	for _, representative := range group.GetRepresentatives() {
-		out.Representatives = append(out.Representatives, buildRepresentativeJSON(representative, capabilities, renderer))
+		out.Representatives = append(out.Representatives, buildRepresentativeJSON(representative, capabilities, commandOrgID))
 	}
 	return out
 }
 
-func buildRepresentativeJSON(representative *civ1.RepresentativeAttempt, capabilities *civ1.FailureDiagnosisCommandCapabilities, renderer diagnosisCommandRenderer) diagnoseRepresentativeJSON {
+func buildRepresentativeJSON(representative *civ1.RepresentativeAttempt, capabilities *civ1.FailureDiagnosisCommandCapabilities, commandOrgID string) diagnoseRepresentativeJSON {
 	out := diagnoseRepresentativeJSON{
 		RunID:                      representative.GetRunId(),
 		WorkflowID:                 representative.GetWorkflowId(),
@@ -839,19 +830,19 @@ func buildRepresentativeJSON(representative *civ1.RepresentativeAttempt, capabil
 		JobID:                      representative.GetJobId(),
 		JobKey:                     representative.GetJobKey(),
 		JobDisplayName:             representative.GetJobDisplayName(),
-		JobStatus:                  representative.GetJobStatus(),
-		JobConclusion:              representative.GetJobConclusion(),
+		JobStatus:                  diagnosisResourceStatusString(representative.GetJobStatus()),
+		JobConclusion:              diagnosisConclusionString(representative.GetJobConclusion()),
 		AttemptID:                  representative.GetAttemptId(),
 		Attempt:                    representative.GetAttempt(),
-		AttemptStatus:              representative.GetAttemptStatus(),
-		AttemptConclusion:          representative.GetAttemptConclusion(),
+		AttemptStatus:              diagnosisResourceStatusString(representative.GetAttemptStatus()),
+		AttemptConclusion:          diagnosisConclusionString(representative.GetAttemptConclusion()),
 		ErrorMessage:               representative.GetErrorMessage(),
 		ErrorMessageTruncated:      representative.GetErrorMessageTruncated(),
 		ErrorMessageOriginalLength: representative.GetErrorMessageOriginalLength(),
 		Diagnosis:                  representative.GetDiagnosis(),
 		PossibleFix:                representative.GetPossibleFix(),
 		RelevantLines:              make([]diagnoseRelevantLineJSON, 0, len(representative.GetRelevantLines())),
-		NextCommands:               renderer.commands(representative.GetNextCommands(), capabilities, false),
+		NextCommands:               buildDiagnoseCommandJSONs(representative.GetNextCommands(), capabilities, commandOrgID, false),
 	}
 	for _, line := range representative.GetRelevantLines() {
 		out.RelevantLines = append(out.RelevantLines, diagnoseRelevantLineJSON{
@@ -893,6 +884,58 @@ func diagnosisStateString(value civ1.FailureDiagnosisState) string {
 	default:
 		return "unspecified"
 	}
+}
+
+func diagnosisResourceStatusString(value civ1.FailureDiagnosisResourceStatus) string {
+	switch value {
+	case civ1.FailureDiagnosisResourceStatus_FAILURE_DIAGNOSIS_RESOURCE_STATUS_QUEUED:
+		return "queued"
+	case civ1.FailureDiagnosisResourceStatus_FAILURE_DIAGNOSIS_RESOURCE_STATUS_WAITING:
+		return "waiting"
+	case civ1.FailureDiagnosisResourceStatus_FAILURE_DIAGNOSIS_RESOURCE_STATUS_RUNNING:
+		return "running"
+	case civ1.FailureDiagnosisResourceStatus_FAILURE_DIAGNOSIS_RESOURCE_STATUS_FINISHED:
+		return "finished"
+	case civ1.FailureDiagnosisResourceStatus_FAILURE_DIAGNOSIS_RESOURCE_STATUS_FAILED:
+		return "failed"
+	case civ1.FailureDiagnosisResourceStatus_FAILURE_DIAGNOSIS_RESOURCE_STATUS_CANCELLED:
+		return "cancelled"
+	case civ1.FailureDiagnosisResourceStatus_FAILURE_DIAGNOSIS_RESOURCE_STATUS_SKIPPED:
+		return "skipped"
+	default:
+		return "unspecified"
+	}
+}
+
+func diagnosisResourceStatusDisplayString(value civ1.FailureDiagnosisResourceStatus) string {
+	if value == civ1.FailureDiagnosisResourceStatus_FAILURE_DIAGNOSIS_RESOURCE_STATUS_UNSPECIFIED {
+		return ""
+	}
+	return diagnosisResourceStatusString(value)
+}
+
+func diagnosisConclusionString(value civ1.FailureDiagnosisConclusion) string {
+	switch value {
+	case civ1.FailureDiagnosisConclusion_FAILURE_DIAGNOSIS_CONCLUSION_SUCCESS:
+		return "success"
+	case civ1.FailureDiagnosisConclusion_FAILURE_DIAGNOSIS_CONCLUSION_FAILURE:
+		return "failure"
+	case civ1.FailureDiagnosisConclusion_FAILURE_DIAGNOSIS_CONCLUSION_CANCELLED:
+		return "cancelled"
+	case civ1.FailureDiagnosisConclusion_FAILURE_DIAGNOSIS_CONCLUSION_SKIPPED:
+		return "skipped"
+	case civ1.FailureDiagnosisConclusion_FAILURE_DIAGNOSIS_CONCLUSION_TIMED_OUT:
+		return "timed_out"
+	default:
+		return "unspecified"
+	}
+}
+
+func diagnosisConclusionDisplayString(value civ1.FailureDiagnosisConclusion) string {
+	if value == civ1.FailureDiagnosisConclusion_FAILURE_DIAGNOSIS_CONCLUSION_UNSPECIFIED {
+		return ""
+	}
+	return diagnosisConclusionString(value)
 }
 
 func diagnosisCommandKindString(value civ1.DrillDownCommandKind) string {
