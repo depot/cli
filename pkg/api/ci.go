@@ -525,6 +525,53 @@ func CIListWorkflows(ctx context.Context, token, orgID string, options CIListWor
 	return resp.Msg.Workflows, nil
 }
 
+type CIListArtifactsOptions struct {
+	WorkflowID string
+	JobID      string
+	AttemptID  string
+}
+
+// CIListArtifacts returns all artifact metadata for a CI run, paginating until
+// the API is exhausted. The CLI intentionally hides API pagination.
+func CIListArtifacts(ctx context.Context, token, orgID, runID string, options CIListArtifactsOptions) ([]*civ1.Artifact, error) {
+	client := newCIServiceClient()
+	var artifacts []*civ1.Artifact
+	var pageToken string
+
+	for {
+		req := &civ1.ListArtifactsRequest{
+			RunId:      runID,
+			WorkflowId: options.WorkflowID,
+			JobId:      options.JobID,
+			AttemptId:  options.AttemptID,
+			PageSize:   500,
+			PageToken:  pageToken,
+		}
+		resp, err := client.ListArtifacts(ctx, WithAuthenticationAndOrg(connect.NewRequest(req), token, orgID))
+		if err != nil {
+			return nil, err
+		}
+		artifacts = append(artifacts, resp.Msg.Artifacts...)
+		if resp.Msg.NextPageToken == "" {
+			break
+		}
+		pageToken = resp.Msg.NextPageToken
+	}
+
+	return artifacts, nil
+}
+
+// CIGetArtifactDownloadURL calls the CI RPC to return one 5 minute signed S3
+// HTTPS URL for an artifact ID. Depot does not expose a custom artifact REST endpoint.
+func CIGetArtifactDownloadURL(ctx context.Context, token, orgID, artifactID string) (*civ1.GetArtifactDownloadURLResponse, error) {
+	client := newCIServiceClient()
+	resp, err := client.GetArtifactDownloadURL(ctx, WithAuthenticationAndOrg(connect.NewRequest(&civ1.GetArtifactDownloadURLRequest{ArtifactId: artifactID}), token, orgID))
+	if err != nil {
+		return nil, err
+	}
+	return resp.Msg, nil
+}
+
 func newCISecretServiceV2Client() civ2connect.SecretServiceClient {
 	baseURL := baseURLFunc()
 	return civ2connect.NewSecretServiceClient(getHTTPClient(baseURL), baseURL, WithUserAgent())

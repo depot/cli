@@ -118,6 +118,55 @@ func (h ciServiceTestHandler) GetJobSummary(_ context.Context, req *connect.Requ
 	return connect.NewResponse(&civ1.GetJobSummaryResponse{JobId: req.Msg.JobId, AttemptId: "attempt-456", HasSummary: true, Markdown: "job summary"}), nil
 }
 
+func (h ciServiceTestHandler) ListArtifacts(_ context.Context, req *connect.Request[civ1.ListArtifactsRequest]) (*connect.Response[civ1.ListArtifactsResponse], error) {
+	assertAuthAndOrg(h.t, req.Header())
+	if req.Msg.GetRunId() != "run-artifacts" {
+		h.t.Fatalf("RunId = %q, want run-artifacts", req.Msg.GetRunId())
+	}
+	if req.Msg.GetWorkflowId() != "workflow-123" {
+		h.t.Fatalf("WorkflowId = %q, want workflow-123", req.Msg.GetWorkflowId())
+	}
+	if req.Msg.GetJobId() != "job-123" {
+		h.t.Fatalf("JobId = %q, want job-123", req.Msg.GetJobId())
+	}
+	if req.Msg.GetAttemptId() != "attempt-123" {
+		h.t.Fatalf("AttemptId = %q, want attempt-123", req.Msg.GetAttemptId())
+	}
+	if req.Msg.GetPageSize() != 500 {
+		h.t.Fatalf("PageSize = %d, want 500", req.Msg.GetPageSize())
+	}
+
+	switch req.Msg.GetPageToken() {
+	case "":
+		return connect.NewResponse(&civ1.ListArtifactsResponse{
+			Artifacts: []*civ1.Artifact{
+				{ArtifactId: "artifact-1", Name: "first.txt", SizeBytes: 10},
+			},
+			NextPageToken: "next",
+		}), nil
+	case "next":
+		return connect.NewResponse(&civ1.ListArtifactsResponse{
+			Artifacts: []*civ1.Artifact{
+				{ArtifactId: "artifact-2", Name: "second.txt", SizeBytes: 20},
+			},
+		}), nil
+	default:
+		h.t.Fatalf("PageToken = %q, want empty or next", req.Msg.GetPageToken())
+		return nil, nil
+	}
+}
+
+func (h ciServiceTestHandler) GetArtifactDownloadURL(_ context.Context, req *connect.Request[civ1.GetArtifactDownloadURLRequest]) (*connect.Response[civ1.GetArtifactDownloadURLResponse], error) {
+	assertAuthAndOrg(h.t, req.Header())
+	if req.Msg.GetArtifactId() != "artifact-123" {
+		h.t.Fatalf("ArtifactId = %q, want artifact-123", req.Msg.GetArtifactId())
+	}
+	return connect.NewResponse(&civ1.GetArtifactDownloadURLResponse{
+		Artifact: &civ1.Artifact{ArtifactId: req.Msg.GetArtifactId(), Name: "artifact.txt", SizeBytes: 12},
+		Url:      "https://example.test/artifact.txt",
+	}), nil
+}
+
 func (h ciServiceTestHandler) GetJobAttemptLogs(context.Context, *connect.Request[civ1.GetJobAttemptLogsRequest]) (*connect.Response[civ1.GetJobAttemptLogsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, nil)
 }
@@ -228,6 +277,36 @@ func TestCISummaryWrappers(t *testing.T) {
 		}
 		if jobResp.GetAttemptId() != "attempt-456" || jobResp.GetMarkdown() != "job summary" {
 			t.Fatalf("unexpected job summary: %+v", jobResp)
+		}
+	})
+}
+
+func TestCIArtifactsWrappers(t *testing.T) {
+	withTestCIService(t, func() {
+		artifacts, err := CIListArtifacts(context.Background(), "token-123", "org-123", "run-artifacts", CIListArtifactsOptions{
+			WorkflowID: "workflow-123",
+			JobID:      "job-123",
+			AttemptID:  "attempt-123",
+		})
+		if err != nil {
+			t.Fatalf("CIListArtifacts returned error: %v", err)
+		}
+		if len(artifacts) != 2 {
+			t.Fatalf("len(artifacts) = %d, want 2", len(artifacts))
+		}
+		if artifacts[0].GetArtifactId() != "artifact-1" || artifacts[1].GetArtifactId() != "artifact-2" {
+			t.Fatalf("unexpected artifacts: %+v", artifacts)
+		}
+
+		resp, err := CIGetArtifactDownloadURL(context.Background(), "token-123", "org-123", "artifact-123")
+		if err != nil {
+			t.Fatalf("CIGetArtifactDownloadURL returned error: %v", err)
+		}
+		if resp.GetUrl() != "https://example.test/artifact.txt" {
+			t.Fatalf("Url = %q, want signed URL", resp.GetUrl())
+		}
+		if resp.GetArtifact().GetArtifactId() != "artifact-123" {
+			t.Fatalf("ArtifactId = %q, want artifact-123", resp.GetArtifact().GetArtifactId())
 		}
 	})
 }
