@@ -139,6 +139,36 @@ func TestDiagnoseRepresentativeSamplingStillPrintsRealTruncationFooter(t *testin
 	}
 }
 
+func TestDiagnoseHumanEvidenceOnlySuppressesStableWrapperLine(t *testing.T) {
+	restoreDiagnoseAPI(t)
+
+	ciDiagnose = func(ctx context.Context, token, orgID string, req *civ1.GetFailureDiagnosisRequest) (*civ1.GetFailureDiagnosisResponse, error) {
+		resp := groupedDiagnosisResponse(true)
+		resp.FailureGroups[0].Representatives[0].RelevantLines = []*civ1.RelevantErrorLine{
+			{StepId: "test", LineNumber: 10, Content: "##[error]script exited with code 1"},
+			{StepId: "test", LineNumber: 11, Content: "ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL package failed"},
+			{StepId: "test", LineNumber: 12, Content: "ELIFECYCLE Command failed with exit code 1"},
+		}
+		return resp, nil
+	}
+
+	stdout, _, err := executeDiagnoseTextCommand([]string{"--org", "org-123", "--token", "token-123", "--run", "run-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(stdout, "script exited with code 1") {
+		t.Fatalf("stable wrapper line was not suppressed:\n%s", stdout)
+	}
+	for _, want := range []string{
+		"ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL package failed",
+		"ELIFECYCLE Command failed with exit code 1",
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("human evidence missing %q:\n%s", want, stdout)
+		}
+	}
+}
+
 func TestDiagnoseGroupedOutputDoesNotRepeatRepresentativeCommandsFooter(t *testing.T) {
 	restoreDiagnoseAPI(t)
 
@@ -595,6 +625,9 @@ func focusedDiagnosisResponse(summaryAvailable bool) *civ1.GetFailureDiagnosisRe
 		},
 		Context: &civ1.FailureDiagnosisContext{
 			RunId:          "run-1",
+			Repo:           "depot/cli",
+			Ref:            "refs/heads/main",
+			Sha:            "abc123",
 			WorkflowId:     "workflow-1",
 			WorkflowStatus: civ1.FailureDiagnosisResourceStatus_FAILURE_DIAGNOSIS_RESOURCE_STATUS_FAILED,
 			JobId:          "job-1",
@@ -634,14 +667,6 @@ func diagnoseRepresentative(summaryAvailable bool) *civ1.RepresentativeAttempt {
 	commands := []*civ1.DrillDownCommand{logsCommand("att-1")}
 	if summaryAvailable {
 		commands = append(commands, summaryCommand("att-1"))
-	} else {
-		commands = append(commands, &civ1.DrillDownCommand{
-			Kind:              civ1.DrillDownCommandKind_DRILL_DOWN_COMMAND_KIND_SUMMARY,
-			Available:         false,
-			UnavailableReason: "summary_command_unavailable",
-			TargetId:          "att-1",
-			Label:             "Summary",
-		})
 	}
 	return &civ1.RepresentativeAttempt{
 		RunId:                      "run-1",
@@ -681,6 +706,9 @@ func overLimitDiagnosisResponse() *civ1.GetFailureDiagnosisResponse {
 		},
 		Context: &civ1.FailureDiagnosisContext{
 			RunId:     "run-1",
+			Repo:      "depot/cli",
+			Ref:       "refs/heads/main",
+			Sha:       "abc123",
 			RunStatus: civ1.FailureDiagnosisResourceStatus_FAILURE_DIAGNOSIS_RESOURCE_STATUS_FAILED,
 		},
 		State: civ1.FailureDiagnosisState_FAILURE_DIAGNOSIS_STATE_OVER_LIMIT,
@@ -701,11 +729,10 @@ func overLimitDiagnosisResponse() *civ1.GetFailureDiagnosisResponse {
 				FailedProblemCandidateCount: 500,
 				NextCommands: []*civ1.DrillDownCommand{
 					{
-						Kind:      civ1.DrillDownCommandKind_DRILL_DOWN_COMMAND_KIND_DIAGNOSE_WORKFLOW,
-						Available: true,
-						Argv:      []string{"depot", "ci", "diagnose", "--workflow", "workflow-1"},
-						TargetId:  "workflow-1",
-						Label:     "Diagnose",
+						Kind:     civ1.DrillDownCommandKind_DRILL_DOWN_COMMAND_KIND_DIAGNOSE_WORKFLOW,
+						Argv:     []string{"depot", "ci", "diagnose", "--workflow", "workflow-1"},
+						TargetId: "workflow-1",
+						Label:    "Diagnose",
 					},
 				},
 			},
@@ -716,20 +743,18 @@ func overLimitDiagnosisResponse() *civ1.GetFailureDiagnosisResponse {
 
 func logsCommand(attemptID string) *civ1.DrillDownCommand {
 	return &civ1.DrillDownCommand{
-		Kind:      civ1.DrillDownCommandKind_DRILL_DOWN_COMMAND_KIND_LOGS,
-		Available: true,
-		Argv:      []string{"depot", "ci", "logs", attemptID},
-		TargetId:  attemptID,
-		Label:     "Logs",
+		Kind:     civ1.DrillDownCommandKind_DRILL_DOWN_COMMAND_KIND_LOGS,
+		Argv:     []string{"depot", "ci", "logs", attemptID},
+		TargetId: attemptID,
+		Label:    "Logs",
 	}
 }
 
 func summaryCommand(attemptID string) *civ1.DrillDownCommand {
 	return &civ1.DrillDownCommand{
-		Kind:      civ1.DrillDownCommandKind_DRILL_DOWN_COMMAND_KIND_SUMMARY,
-		Available: true,
-		Argv:      []string{"depot", "ci", "summary", attemptID},
-		TargetId:  attemptID,
-		Label:     "Summary",
+		Kind:     civ1.DrillDownCommandKind_DRILL_DOWN_COMMAND_KIND_SUMMARY,
+		Argv:     []string{"depot", "ci", "summary", attemptID},
+		TargetId: attemptID,
+		Label:    "Summary",
 	}
 }

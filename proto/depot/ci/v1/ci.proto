@@ -580,11 +580,9 @@ message FailureDiagnosisBounds {
 
 message DrillDownCommand {
   DrillDownCommandKind kind = 1;
-  bool available = 2;
-  string unavailable_reason = 3;
-  repeated string argv = 4;
-  string target_id = 5;
-  string label = 6;
+  repeated string argv = 2;
+  string target_id = 3;
+  string label = 4;
 }
 
 message FailureDiagnosisCommandCapabilities {

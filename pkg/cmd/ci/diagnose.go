@@ -119,13 +119,11 @@ func buildDiagnoseCommandJSON(cmd *civ1.DrillDownCommand, orgID string) diagnose
 		argv = append(argv, "--org", orgID)
 	}
 	return diagnoseCommandJSON{
-		Kind:              diagnosisCommandKindString(cmd.GetKind()),
-		Available:         cmd.GetAvailable(),
-		UnavailableReason: cmd.GetUnavailableReason(),
-		TargetID:          cmd.GetTargetId(),
-		Label:             cmd.GetLabel(),
-		Argv:              argv,
-		Shell:             shellJoin(argv),
+		Kind:     diagnosisCommandKindString(cmd.GetKind()),
+		TargetID: cmd.GetTargetId(),
+		Label:    cmd.GetLabel(),
+		Argv:     argv,
+		Shell:    shellJoin(argv),
 	}
 }
 
@@ -138,7 +136,7 @@ func buildDiagnoseCommandJSONs(commands []*civ1.DrillDownCommand, capabilities *
 		if command.GetKind() == civ1.DrillDownCommandKind_DRILL_DOWN_COMMAND_KIND_SUMMARY && !capabilities.GetSummaryCommandAvailable() {
 			continue
 		}
-		if textOnly && (!command.GetAvailable() || len(command.GetArgv()) == 0) {
+		if textOnly && len(command.GetArgv()) == 0 {
 			continue
 		}
 		out = append(out, buildDiagnoseCommandJSON(command, orgID))
@@ -170,23 +168,22 @@ func printDiagnoseResponse(w io.Writer, resp *civ1.GetFailureDiagnosisResponse, 
 }
 
 func printDiagnosisContext(w io.Writer, context *civ1.FailureDiagnosisContext) {
-	if context.GetRunId() != "" {
-		line := fmt.Sprintf("Run: %s", context.GetRunId())
-		if status := diagnosisResourceStatusDisplayString(context.GetRunStatus()); status != "" {
-			line += fmt.Sprintf(" (%s)", status)
-		}
-		fmt.Fprintln(w, line)
+	if context == nil {
+		return
 	}
-	if context.GetRepo() != "" || context.GetRef() != "" || context.GetSha() != "" {
-		fmt.Fprintf(w, "Source: %s", context.GetRepo())
-		if context.GetRef() != "" {
-			fmt.Fprintf(w, " @ %s", context.GetRef())
-		}
-		if context.GetSha() != "" && context.GetSha() != context.GetRef() {
-			fmt.Fprintf(w, " (%s)", context.GetSha())
-		}
-		fmt.Fprintln(w)
+
+	fmt.Fprintf(w, "Run: %s", context.GetRunId())
+	if status := diagnosisResourceStatusDisplayString(context.GetRunStatus()); status != "" {
+		fmt.Fprintf(w, " (%s)", status)
 	}
+	fmt.Fprintln(w)
+
+	fmt.Fprintf(w, "Source: %s @ %s", context.GetRepo(), context.GetRef())
+	if context.GetSha() != "" && context.GetSha() != context.GetRef() {
+		fmt.Fprintf(w, " (%s)", context.GetSha())
+	}
+	fmt.Fprintln(w)
+
 	if context.GetWorkflowId() != "" {
 		fmt.Fprintf(w, "Workflow: %s", firstNonEmpty(context.GetWorkflowName(), context.GetWorkflowPath(), context.GetWorkflowId()))
 		if context.GetWorkflowPath() != "" && context.GetWorkflowPath() != context.GetWorkflowName() {
@@ -467,9 +464,7 @@ func normalizeEvidenceContent(content string) string {
 // The API payload, grouping, and JSON output still preserve the original relevant lines.
 func isHumanOutputWrapperEvidenceLine(content string) bool {
 	normalized := strings.ToLower(normalizeEvidenceContent(content))
-	return strings.HasPrefix(normalized, "##[error]script exited with code ") ||
-		strings.Contains(normalized, "err_pnpm_recursive_run_first_fail") ||
-		strings.Contains(normalized, "elifecycle command failed")
+	return strings.HasPrefix(normalized, "##[error]script exited with code ")
 }
 
 func printNextCommands(w io.Writer, commands []diagnoseCommandJSON, title string) {
@@ -682,13 +677,11 @@ type diagnoseRelevantLineJSON struct {
 }
 
 type diagnoseCommandJSON struct {
-	Kind              string   `json:"kind"`
-	Available         bool     `json:"available"`
-	UnavailableReason string   `json:"unavailable_reason,omitempty"`
-	TargetID          string   `json:"target_id"`
-	Label             string   `json:"label"`
-	Argv              []string `json:"argv"`
-	Shell             string   `json:"-"`
+	Kind     string   `json:"kind"`
+	TargetID string   `json:"target_id"`
+	Label    string   `json:"label"`
+	Argv     []string `json:"argv"`
+	Shell    string   `json:"-"`
 }
 
 type diagnoseOverLimitBreakdownJSON struct {
