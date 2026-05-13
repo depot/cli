@@ -30,6 +30,9 @@ func NewCmdLoginDocker() *cobra.Command {
 			if org == "" {
 				org = config.GetCurrentOrganization()
 			}
+			if org == "" {
+				return fmt.Errorf("No organization configured; use the --org flag or verify your project configuration")
+			}
 
 			dockerCli, err := dockerclient.NewDockerCLI()
 			if err != nil {
