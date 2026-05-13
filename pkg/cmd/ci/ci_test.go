@@ -14,6 +14,7 @@ func TestCICommandRegistration(t *testing.T) {
 		// inspection / interactive
 		"run",
 		"status",
+		"diagnose",
 		"logs",
 		"summary",
 		"ssh",

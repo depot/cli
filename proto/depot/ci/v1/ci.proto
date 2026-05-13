@@ -38,6 +38,9 @@ service CIService {
   // GetWorkflow returns curated workflow, run, execution, job, and attempt metadata for single-workflow inspection
   rpc GetWorkflow(GetWorkflowRequest) returns (GetWorkflowResponse) {}
 
+  // GetFailureDiagnosis returns a bounded deterministic failure diagnosis for a run, workflow, job, or attempt.
+  rpc GetFailureDiagnosis(GetFailureDiagnosisRequest) returns (GetFailureDiagnosisResponse) {}
+
   // GetJobAttemptMetrics returns CPU and memory metrics for one concrete job attempt
   rpc GetJobAttemptMetrics(GetJobAttemptMetricsRequest) returns (GetJobAttemptMetricsResponse) {}
 
@@ -409,6 +412,195 @@ message GetWorkflowJobAttempt {
   string session_id = 5;
   string started_at = 6;
   string finished_at = 7;
+}
+
+// Failure diagnosis messages
+
+enum FailureDiagnosisTargetType {
+  FAILURE_DIAGNOSIS_TARGET_TYPE_UNSPECIFIED = 0;
+  FAILURE_DIAGNOSIS_TARGET_TYPE_RUN = 1;
+  FAILURE_DIAGNOSIS_TARGET_TYPE_WORKFLOW = 2;
+  FAILURE_DIAGNOSIS_TARGET_TYPE_JOB = 3;
+  FAILURE_DIAGNOSIS_TARGET_TYPE_ATTEMPT = 4;
+}
+
+enum FailureDiagnosisState {
+  FAILURE_DIAGNOSIS_STATE_UNSPECIFIED = 0;
+  FAILURE_DIAGNOSIS_STATE_EMPTY = 1;
+  FAILURE_DIAGNOSIS_STATE_GROUPED_FAILURES = 2;
+  FAILURE_DIAGNOSIS_STATE_FOCUSED_FAILURE = 3;
+  FAILURE_DIAGNOSIS_STATE_OVER_LIMIT = 4;
+}
+
+enum FailureDiagnosisEmptyReason {
+  FAILURE_DIAGNOSIS_EMPTY_REASON_UNSPECIFIED = 0;
+  FAILURE_DIAGNOSIS_EMPTY_REASON_NO_FAILURE_EVIDENCE = 1;
+}
+
+enum FailureDiagnosisResourceStatus {
+  FAILURE_DIAGNOSIS_RESOURCE_STATUS_UNSPECIFIED = 0;
+  FAILURE_DIAGNOSIS_RESOURCE_STATUS_QUEUED = 1;
+  FAILURE_DIAGNOSIS_RESOURCE_STATUS_WAITING = 2;
+  FAILURE_DIAGNOSIS_RESOURCE_STATUS_RUNNING = 3;
+  FAILURE_DIAGNOSIS_RESOURCE_STATUS_FINISHED = 4;
+  FAILURE_DIAGNOSIS_RESOURCE_STATUS_FAILED = 5;
+  FAILURE_DIAGNOSIS_RESOURCE_STATUS_CANCELLED = 6;
+  FAILURE_DIAGNOSIS_RESOURCE_STATUS_SKIPPED = 7;
+}
+
+enum FailureDiagnosisConclusion {
+  FAILURE_DIAGNOSIS_CONCLUSION_UNSPECIFIED = 0;
+  FAILURE_DIAGNOSIS_CONCLUSION_SUCCESS = 1;
+  FAILURE_DIAGNOSIS_CONCLUSION_FAILURE = 2;
+  FAILURE_DIAGNOSIS_CONCLUSION_CANCELLED = 3;
+  FAILURE_DIAGNOSIS_CONCLUSION_SKIPPED = 4;
+  FAILURE_DIAGNOSIS_CONCLUSION_TIMED_OUT = 5;
+}
+
+enum DrillDownCommandKind {
+  DRILL_DOWN_COMMAND_KIND_UNSPECIFIED = 0;
+  DRILL_DOWN_COMMAND_KIND_LOGS = 1;
+  DRILL_DOWN_COMMAND_KIND_SUMMARY = 2;
+  DRILL_DOWN_COMMAND_KIND_DIAGNOSE_WORKFLOW = 3;
+  DRILL_DOWN_COMMAND_KIND_DIAGNOSE_JOB = 4;
+}
+
+message GetFailureDiagnosisRequest {
+  // target_id identifies the requested CI run, workflow, job, or attempt.
+  string target_id = 1;
+  // target_type is required; clients should specify the resource type rather than relying on server probing.
+  FailureDiagnosisTargetType target_type = 2;
+}
+
+message GetFailureDiagnosisResponse {
+  string org_id = 1;
+  FailureDiagnosisTarget target = 2;
+  FailureDiagnosisContext context = 3;
+  FailureDiagnosisState state = 4;
+  FailureDiagnosisEmptyReason empty_reason = 5;
+  repeated FailureGroup failure_groups = 6;
+  repeated RepresentativeAttempt representative_attempts = 7;
+  FailureDiagnosisBounds bounds = 8;
+  repeated DrillDownCommand next_commands = 9;
+  FailureDiagnosisCommandCapabilities command_capabilities = 10;
+  repeated FailureDiagnosisBreakdownRow over_limit_breakdown = 11;
+}
+
+message FailureDiagnosisTarget {
+  string target_id = 1;
+  FailureDiagnosisTargetType target_type = 2;
+  FailureDiagnosisResourceStatus status = 3;
+}
+
+message FailureDiagnosisContext {
+  string run_id = 1;
+  string repo = 2;
+  string ref = 3;
+  string sha = 4;
+  string head_sha = 5;
+  string trigger = 6;
+  FailureDiagnosisResourceStatus run_status = 7;
+  string workflow_id = 8;
+  string workflow_name = 9;
+  string workflow_path = 10;
+  FailureDiagnosisResourceStatus workflow_status = 11;
+  string job_id = 12;
+  string job_key = 13;
+  string job_display_name = 14;
+  FailureDiagnosisResourceStatus job_status = 15;
+  FailureDiagnosisConclusion job_conclusion = 16;
+  string attempt_id = 17;
+  int32 attempt = 18;
+  FailureDiagnosisResourceStatus attempt_status = 19;
+  FailureDiagnosisConclusion attempt_conclusion = 20;
+  repeated string truncated_context_fields = 21;
+}
+
+message FailureGroup {
+  string fingerprint = 1;
+  string source = 2;
+  uint32 count = 3;
+  string error_message = 4;
+  bool error_message_truncated = 5;
+  uint32 error_message_original_length = 6;
+  string diagnosis = 7;
+  string possible_fix = 8;
+  repeated RepresentativeAttempt representatives = 9;
+  uint32 omitted_representative_count = 10;
+}
+
+message RepresentativeAttempt {
+  string run_id = 1;
+  string workflow_id = 2;
+  string workflow_name = 3;
+  string workflow_path = 4;
+  string job_id = 5;
+  string job_key = 6;
+  string job_display_name = 7;
+  FailureDiagnosisResourceStatus job_status = 8;
+  FailureDiagnosisConclusion job_conclusion = 9;
+  string attempt_id = 10;
+  int32 attempt = 11;
+  FailureDiagnosisResourceStatus attempt_status = 12;
+  FailureDiagnosisConclusion attempt_conclusion = 13;
+  string error_message = 14;
+  bool error_message_truncated = 15;
+  uint32 error_message_original_length = 16;
+  string diagnosis = 17;
+  string possible_fix = 18;
+  repeated RelevantErrorLine relevant_lines = 19;
+  repeated DrillDownCommand next_commands = 20;
+}
+
+message RelevantErrorLine {
+  string step_id = 1;
+  uint32 line_number = 2;
+  string content = 3;
+  bool content_truncated = 4;
+  uint32 content_original_length = 5;
+}
+
+message FailureDiagnosisBounds {
+  uint32 failed_problem_candidate_count = 1;
+  uint32 failed_problem_candidate_cap = 2;
+  uint32 total_problem_job_count = 3;
+  uint32 skipped_dependent_count = 4;
+  uint32 total_failure_group_count = 5;
+  uint32 omitted_failure_group_count = 6;
+  uint32 failure_group_limit = 7;
+  uint32 representatives_per_group_limit = 8;
+  uint32 recent_attempt_limit = 9;
+  uint32 total_attempt_count = 10;
+  uint32 omitted_attempt_count = 11;
+  uint32 relevant_line_limit = 12;
+  uint32 error_line_body_char_limit = 13;
+  uint32 error_message_char_limit = 14;
+  uint32 context_label_char_limit = 15;
+  uint32 over_limit_workflow_breakdown_limit = 16;
+  uint32 over_limit_job_breakdown_limit = 17;
+  uint32 omitted_workflow_breakdown_count = 18;
+  uint32 omitted_job_breakdown_count = 19;
+  bool truncated = 20;
+}
+
+message DrillDownCommand {
+  DrillDownCommandKind kind = 1;
+  repeated string argv = 2;
+  string target_id = 3;
+  string label = 4;
+}
+
+message FailureDiagnosisCommandCapabilities {
+  bool summary_command_available = 1;
+}
+
+message FailureDiagnosisBreakdownRow {
+  FailureDiagnosisTargetType target_type = 1;
+  string target_id = 2;
+  string label = 3;
+  FailureDiagnosisResourceStatus status = 4;
+  uint32 failed_problem_candidate_count = 5;
+  repeated DrillDownCommand next_commands = 6;
 }
 
 // CI metrics messages
