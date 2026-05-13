@@ -58,7 +58,7 @@ func NewCmdLoginDocker() *cobra.Command {
 				return err
 			}
 
-			fmt.Println("Successfully stored Docker credentials for" + serverAddress)
+			fmt.Println("Successfully stored Docker credentials for " + serverAddress)
 			return nil
 		},
 	}
