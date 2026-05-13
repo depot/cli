@@ -42,6 +42,16 @@ func CIGetRunStatus(ctx context.Context, token, orgID, runID string) (*civ1.GetR
 	return resp.Msg, nil
 }
 
+// CIGetFailureDiagnosis returns a bounded diagnosis for a run, workflow, job, or attempt.
+func CIGetFailureDiagnosis(ctx context.Context, token, orgID string, req *civ1.GetFailureDiagnosisRequest) (*civ1.GetFailureDiagnosisResponse, error) {
+	client := newCIServiceClient()
+	resp, err := client.GetFailureDiagnosis(ctx, WithAuthenticationAndOrg(connect.NewRequest(req), token, orgID))
+	if err != nil {
+		return nil, err
+	}
+	return resp.Msg, nil
+}
+
 // CIGetWorkflow returns curated run/workflow/execution/job/attempt metadata for a single workflow.
 func CIGetWorkflow(ctx context.Context, token, orgID, workflowID string) (*civ1.GetWorkflowResponse, error) {
 	client := newCIServiceClient()

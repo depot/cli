@@ -60,6 +60,9 @@ const (
 	CIServiceGetRunStatusProcedure = "/depot.ci.v1.CIService/GetRunStatus"
 	// CIServiceGetWorkflowProcedure is the fully-qualified name of the CIService's GetWorkflow RPC.
 	CIServiceGetWorkflowProcedure = "/depot.ci.v1.CIService/GetWorkflow"
+	// CIServiceGetFailureDiagnosisProcedure is the fully-qualified name of the CIService's
+	// GetFailureDiagnosis RPC.
+	CIServiceGetFailureDiagnosisProcedure = "/depot.ci.v1.CIService/GetFailureDiagnosis"
 	// CIServiceGetJobAttemptMetricsProcedure is the fully-qualified name of the CIService's
 	// GetJobAttemptMetrics RPC.
 	CIServiceGetJobAttemptMetricsProcedure = "/depot.ci.v1.CIService/GetJobAttemptMetrics"
@@ -119,6 +122,8 @@ type CIServiceClient interface {
 	GetRunStatus(context.Context, *connect.Request[v1.GetRunStatusRequest]) (*connect.Response[v1.GetRunStatusResponse], error)
 	// GetWorkflow returns curated workflow, run, execution, job, and attempt metadata for single-workflow inspection
 	GetWorkflow(context.Context, *connect.Request[v1.GetWorkflowRequest]) (*connect.Response[v1.GetWorkflowResponse], error)
+	// GetFailureDiagnosis returns a bounded deterministic failure diagnosis for a run, workflow, job, or attempt.
+	GetFailureDiagnosis(context.Context, *connect.Request[v1.GetFailureDiagnosisRequest]) (*connect.Response[v1.GetFailureDiagnosisResponse], error)
 	// GetJobAttemptMetrics returns CPU and memory metrics for one concrete job attempt
 	GetJobAttemptMetrics(context.Context, *connect.Request[v1.GetJobAttemptMetricsRequest]) (*connect.Response[v1.GetJobAttemptMetricsResponse], error)
 	// GetJobMetrics returns per-attempt CPU and memory metric summaries for one job
@@ -224,6 +229,11 @@ func NewCIServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...c
 			baseURL+CIServiceGetWorkflowProcedure,
 			opts...,
 		),
+		getFailureDiagnosis: connect.NewClient[v1.GetFailureDiagnosisRequest, v1.GetFailureDiagnosisResponse](
+			httpClient,
+			baseURL+CIServiceGetFailureDiagnosisProcedure,
+			opts...,
+		),
 		getJobAttemptMetrics: connect.NewClient[v1.GetJobAttemptMetricsRequest, v1.GetJobAttemptMetricsResponse](
 			httpClient,
 			baseURL+CIServiceGetJobAttemptMetricsProcedure,
@@ -295,6 +305,7 @@ type cIServiceClient struct {
 	cancelRun              *connect.Client[v1.CancelRunRequest, v1.CancelRunResponse]
 	getRunStatus           *connect.Client[v1.GetRunStatusRequest, v1.GetRunStatusResponse]
 	getWorkflow            *connect.Client[v1.GetWorkflowRequest, v1.GetWorkflowResponse]
+	getFailureDiagnosis    *connect.Client[v1.GetFailureDiagnosisRequest, v1.GetFailureDiagnosisResponse]
 	getJobAttemptMetrics   *connect.Client[v1.GetJobAttemptMetricsRequest, v1.GetJobAttemptMetricsResponse]
 	getJobMetrics          *connect.Client[v1.GetJobMetricsRequest, v1.GetJobMetricsResponse]
 	getRunMetrics          *connect.Client[v1.GetRunMetricsRequest, v1.GetRunMetricsResponse]
@@ -361,6 +372,11 @@ func (c *cIServiceClient) GetRunStatus(ctx context.Context, req *connect.Request
 // GetWorkflow calls depot.ci.v1.CIService.GetWorkflow.
 func (c *cIServiceClient) GetWorkflow(ctx context.Context, req *connect.Request[v1.GetWorkflowRequest]) (*connect.Response[v1.GetWorkflowResponse], error) {
 	return c.getWorkflow.CallUnary(ctx, req)
+}
+
+// GetFailureDiagnosis calls depot.ci.v1.CIService.GetFailureDiagnosis.
+func (c *cIServiceClient) GetFailureDiagnosis(ctx context.Context, req *connect.Request[v1.GetFailureDiagnosisRequest]) (*connect.Response[v1.GetFailureDiagnosisResponse], error) {
+	return c.getFailureDiagnosis.CallUnary(ctx, req)
 }
 
 // GetJobAttemptMetrics calls depot.ci.v1.CIService.GetJobAttemptMetrics.
@@ -442,6 +458,8 @@ type CIServiceHandler interface {
 	GetRunStatus(context.Context, *connect.Request[v1.GetRunStatusRequest]) (*connect.Response[v1.GetRunStatusResponse], error)
 	// GetWorkflow returns curated workflow, run, execution, job, and attempt metadata for single-workflow inspection
 	GetWorkflow(context.Context, *connect.Request[v1.GetWorkflowRequest]) (*connect.Response[v1.GetWorkflowResponse], error)
+	// GetFailureDiagnosis returns a bounded deterministic failure diagnosis for a run, workflow, job, or attempt.
+	GetFailureDiagnosis(context.Context, *connect.Request[v1.GetFailureDiagnosisRequest]) (*connect.Response[v1.GetFailureDiagnosisResponse], error)
 	// GetJobAttemptMetrics returns CPU and memory metrics for one concrete job attempt
 	GetJobAttemptMetrics(context.Context, *connect.Request[v1.GetJobAttemptMetricsRequest]) (*connect.Response[v1.GetJobAttemptMetricsResponse], error)
 	// GetJobMetrics returns per-attempt CPU and memory metric summaries for one job
@@ -543,6 +561,11 @@ func NewCIServiceHandler(svc CIServiceHandler, opts ...connect.HandlerOption) (s
 		svc.GetWorkflow,
 		opts...,
 	)
+	cIServiceGetFailureDiagnosisHandler := connect.NewUnaryHandler(
+		CIServiceGetFailureDiagnosisProcedure,
+		svc.GetFailureDiagnosis,
+		opts...,
+	)
 	cIServiceGetJobAttemptMetricsHandler := connect.NewUnaryHandler(
 		CIServiceGetJobAttemptMetricsProcedure,
 		svc.GetJobAttemptMetrics,
@@ -622,6 +645,8 @@ func NewCIServiceHandler(svc CIServiceHandler, opts ...connect.HandlerOption) (s
 			cIServiceGetRunStatusHandler.ServeHTTP(w, r)
 		case CIServiceGetWorkflowProcedure:
 			cIServiceGetWorkflowHandler.ServeHTTP(w, r)
+		case CIServiceGetFailureDiagnosisProcedure:
+			cIServiceGetFailureDiagnosisHandler.ServeHTTP(w, r)
 		case CIServiceGetJobAttemptMetricsProcedure:
 			cIServiceGetJobAttemptMetricsHandler.ServeHTTP(w, r)
 		case CIServiceGetJobMetricsProcedure:
@@ -695,6 +720,10 @@ func (UnimplementedCIServiceHandler) GetRunStatus(context.Context, *connect.Requ
 
 func (UnimplementedCIServiceHandler) GetWorkflow(context.Context, *connect.Request[v1.GetWorkflowRequest]) (*connect.Response[v1.GetWorkflowResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.ci.v1.CIService.GetWorkflow is not implemented"))
+}
+
+func (UnimplementedCIServiceHandler) GetFailureDiagnosis(context.Context, *connect.Request[v1.GetFailureDiagnosisRequest]) (*connect.Response[v1.GetFailureDiagnosisResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.ci.v1.CIService.GetFailureDiagnosis is not implemented"))
 }
 
 func (UnimplementedCIServiceHandler) GetJobAttemptMetrics(context.Context, *connect.Request[v1.GetJobAttemptMetricsRequest]) (*connect.Response[v1.GetJobAttemptMetricsResponse], error) {

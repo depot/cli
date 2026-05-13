@@ -15,6 +15,7 @@ func TestCICommandRegistration(t *testing.T) {
 		"artifacts",
 		"run",
 		"status",
+		"diagnose",
 		"logs",
 		"summary",
 		"ssh",
