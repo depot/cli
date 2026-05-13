@@ -53,7 +53,7 @@ service CIService {
   // ListArtifacts returns CI artifact metadata for one run. Signed download URLs are not included.
   rpc ListArtifacts(ListArtifactsRequest) returns (ListArtifactsResponse) {}
 
-  // GetArtifactDownloadURL returns a 5 minute curl/browser-compatible signed S3 URL for one artifact.
+  // GetArtifactDownloadURL returns a signed HTTPS URL for one artifact.
   // Depot exposes this through the RPC only; there is no custom Depot REST endpoint for artifact downloads.
   rpc GetArtifactDownloadURL(GetArtifactDownloadURLRequest) returns (GetArtifactDownloadURLResponse) {}
 
@@ -621,11 +621,11 @@ message ListArtifactsRequest {
   // run_id identifies the run whose artifact metadata should be listed.
   string run_id = 1;
   // workflow_id optionally narrows the list to artifacts from one workflow in the run.
-  string workflow_id = 2;
+  optional string workflow_id = 2;
   // job_id optionally narrows the list to artifacts from one job in the run.
-  string job_id = 3;
+  optional string job_id = 3;
   // attempt_id optionally narrows the list to artifacts from one job attempt in the run.
-  string attempt_id = 4;
+  optional string attempt_id = 4;
   // page_size defaults to 100 and is capped at 500.
   int32 page_size = 5;
   // page_token resumes cursor pagination from a previous response.
@@ -634,7 +634,7 @@ message ListArtifactsRequest {
 
 message ListArtifactsResponse {
   repeated Artifact artifacts = 1;
-  string next_page_token = 2;
+  optional string next_page_token = 2;
 }
 
 message GetArtifactDownloadURLRequest {
@@ -644,8 +644,8 @@ message GetArtifactDownloadURLRequest {
 
 message GetArtifactDownloadURLResponse {
   Artifact artifact = 1;
-  // url is a short-lived signed S3 HTTPS bearer URL for the artifact object.
-  // The signature is valid for 5 minutes; clients can use the URL with curl or a browser while the object remains available.
+  // url is a short-lived signed HTTPS bearer URL for the artifact object.
+  // Clients can use the URL with any standard HTTPS client while the object remains available.
   string url = 2;
   // expires_at is the signed URL expiration time, not artifact retention.
   string expires_at = 3;

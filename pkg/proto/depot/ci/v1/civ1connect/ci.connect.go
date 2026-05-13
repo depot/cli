@@ -129,7 +129,7 @@ type CIServiceClient interface {
 	GetJobSummary(context.Context, *connect.Request[v1.GetJobSummaryRequest]) (*connect.Response[v1.GetJobSummaryResponse], error)
 	// ListArtifacts returns CI artifact metadata for one run. Signed download URLs are not included.
 	ListArtifacts(context.Context, *connect.Request[v1.ListArtifactsRequest]) (*connect.Response[v1.ListArtifactsResponse], error)
-	// GetArtifactDownloadURL returns a 5 minute curl/browser-compatible signed S3 URL for one artifact.
+	// GetArtifactDownloadURL returns a signed HTTPS URL for one artifact.
 	// Depot exposes this through the RPC only; there is no custom Depot REST endpoint for artifact downloads.
 	GetArtifactDownloadURL(context.Context, *connect.Request[v1.GetArtifactDownloadURLRequest]) (*connect.Response[v1.GetArtifactDownloadURLResponse], error)
 	// GetJobAttemptLogs returns log lines for a job attempt
@@ -452,7 +452,7 @@ type CIServiceHandler interface {
 	GetJobSummary(context.Context, *connect.Request[v1.GetJobSummaryRequest]) (*connect.Response[v1.GetJobSummaryResponse], error)
 	// ListArtifacts returns CI artifact metadata for one run. Signed download URLs are not included.
 	ListArtifacts(context.Context, *connect.Request[v1.ListArtifactsRequest]) (*connect.Response[v1.ListArtifactsResponse], error)
-	// GetArtifactDownloadURL returns a 5 minute curl/browser-compatible signed S3 URL for one artifact.
+	// GetArtifactDownloadURL returns a signed HTTPS URL for one artifact.
 	// Depot exposes this through the RPC only; there is no custom Depot REST endpoint for artifact downloads.
 	GetArtifactDownloadURL(context.Context, *connect.Request[v1.GetArtifactDownloadURLRequest]) (*connect.Response[v1.GetArtifactDownloadURLResponse], error)
 	// GetJobAttemptLogs returns log lines for a job attempt

@@ -120,6 +120,12 @@ func (h ciServiceTestHandler) GetJobSummary(_ context.Context, req *connect.Requ
 
 func (h ciServiceTestHandler) ListArtifacts(_ context.Context, req *connect.Request[civ1.ListArtifactsRequest]) (*connect.Response[civ1.ListArtifactsResponse], error) {
 	assertAuthAndOrg(h.t, req.Header())
+	if req.Msg.GetRunId() == "run-artifacts-no-filters" {
+		if req.Msg.WorkflowId != nil || req.Msg.JobId != nil || req.Msg.AttemptId != nil {
+			h.t.Fatalf("artifact filters should be absent when not provided: %+v", req.Msg)
+		}
+		return connect.NewResponse(&civ1.ListArtifactsResponse{}), nil
+	}
 	if req.Msg.GetRunId() != "run-artifacts" {
 		h.t.Fatalf("RunId = %q, want run-artifacts", req.Msg.GetRunId())
 	}
@@ -138,11 +144,12 @@ func (h ciServiceTestHandler) ListArtifacts(_ context.Context, req *connect.Requ
 
 	switch req.Msg.GetPageToken() {
 	case "":
+		nextPageToken := "next"
 		return connect.NewResponse(&civ1.ListArtifactsResponse{
 			Artifacts: []*civ1.Artifact{
 				{ArtifactId: "artifact-1", Name: "first.txt", SizeBytes: 10},
 			},
-			NextPageToken: "next",
+			NextPageToken: &nextPageToken,
 		}), nil
 	case "next":
 		return connect.NewResponse(&civ1.ListArtifactsResponse{
@@ -296,6 +303,11 @@ func TestCIArtifactsWrappers(t *testing.T) {
 		}
 		if artifacts[0].GetArtifactId() != "artifact-1" || artifacts[1].GetArtifactId() != "artifact-2" {
 			t.Fatalf("unexpected artifacts: %+v", artifacts)
+		}
+
+		_, err = CIListArtifacts(context.Background(), "token-123", "org-123", "run-artifacts-no-filters", CIListArtifactsOptions{})
+		if err != nil {
+			t.Fatalf("CIListArtifacts without filters returned error: %v", err)
 		}
 
 		resp, err := CIGetArtifactDownloadURL(context.Background(), "token-123", "org-123", "artifact-123")

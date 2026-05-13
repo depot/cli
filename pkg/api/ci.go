@@ -541,9 +541,9 @@ func CIListArtifacts(ctx context.Context, token, orgID, runID string, options CI
 	for {
 		req := &civ1.ListArtifactsRequest{
 			RunId:      runID,
-			WorkflowId: options.WorkflowID,
-			JobId:      options.JobID,
-			AttemptId:  options.AttemptID,
+			WorkflowId: optionalArtifactFilter(options.WorkflowID),
+			JobId:      optionalArtifactFilter(options.JobID),
+			AttemptId:  optionalArtifactFilter(options.AttemptID),
 			PageSize:   500,
 			PageToken:  pageToken,
 		}
@@ -552,17 +552,25 @@ func CIListArtifacts(ctx context.Context, token, orgID, runID string, options CI
 			return nil, err
 		}
 		artifacts = append(artifacts, resp.Msg.Artifacts...)
-		if resp.Msg.NextPageToken == "" {
+		nextPageToken := resp.Msg.GetNextPageToken()
+		if nextPageToken == "" {
 			break
 		}
-		pageToken = resp.Msg.NextPageToken
+		pageToken = nextPageToken
 	}
 
 	return artifacts, nil
 }
 
-// CIGetArtifactDownloadURL calls the CI RPC to return one 5 minute signed S3
-// HTTPS URL for an artifact ID. Depot does not expose a custom artifact REST endpoint.
+func optionalArtifactFilter(value string) *string {
+	if value == "" {
+		return nil
+	}
+	return &value
+}
+
+// CIGetArtifactDownloadURL calls the CI RPC to return one signed HTTPS URL for
+// an artifact ID. Depot does not expose a custom artifact REST endpoint.
 func CIGetArtifactDownloadURL(ctx context.Context, token, orgID, artifactID string) (*civ1.GetArtifactDownloadURLResponse, error) {
 	client := newCIServiceClient()
 	resp, err := client.GetArtifactDownloadURL(ctx, WithAuthenticationAndOrg(connect.NewRequest(&civ1.GetArtifactDownloadURLRequest{ArtifactId: artifactID}), token, orgID))
