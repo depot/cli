@@ -5,6 +5,7 @@ import (
 
 	"github.com/depot/cli/pkg/config"
 	"github.com/depot/cli/pkg/dockerclient"
+	"github.com/depot/cli/pkg/helpers"
 	configtypes "github.com/docker/cli/cli/config/types"
 	registrytypes "github.com/docker/docker/api/types/registry"
 	"github.com/spf13/cobra"
@@ -20,8 +21,9 @@ func NewCmdLoginDocker() *cobra.Command {
 		Use:   "login-docker",
 		Short: "Log in Docker to the Depot registry with your user API token",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if token == "" {
-				token = config.GetApiToken()
+			token, err := helpers.ResolveProjectAuth(cmd.Context(), token)
+			if err != nil {
+				return err
 			}
 			if token == "" {
 				return fmt.Errorf("missing API token, please run `depot login`")
@@ -41,7 +43,7 @@ func NewCmdLoginDocker() *cobra.Command {
 
 			serverAddress := org + ".registry.depot.dev"
 			client := dockerCli.Client()
-			resp, err := client.RegistryLogin(cmd.Context(), registrytypes.AuthConfig{
+			_, err = client.RegistryLogin(cmd.Context(), registrytypes.AuthConfig{
 				Username:      "x-token",
 				Password:      token,
 				ServerAddress: serverAddress,
