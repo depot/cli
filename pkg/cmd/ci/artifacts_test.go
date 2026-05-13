@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/depot/cli/pkg/api"
 	civ1 "github.com/depot/cli/pkg/proto/depot/ci/v1"
@@ -117,7 +118,34 @@ func TestArtifactsListPrintsTableAndPassesFilters(t *testing.T) {
 	}
 }
 
-func TestArtifactsListRejectsTextOutputMode(t *testing.T) {
+func TestArtifactsListAcceptsExplicitTextOutputMode(t *testing.T) {
+	restoreArtifactAPIs(t)
+
+	called := false
+	ciListArtifacts = func(ctx context.Context, token, orgID, runID string, options api.CIListArtifactsOptions) ([]*civ1.Artifact, error) {
+		called = true
+		return []*civ1.Artifact{testArtifact("artifact-1", "coverage.txt")}, nil
+	}
+
+	cmd := NewCmdArtifactsList()
+	cmd.SetArgs([]string{"--org", "org-123", "--token", "token-123", "--output", "text", "run-123"})
+	var stdout strings.Builder
+	cmd.SetOut(&stdout)
+	cmd.SetErr(io.Discard)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	if !called {
+		t.Fatal("expected list API to be called")
+	}
+	if !strings.Contains(stdout.String(), "coverage.txt") {
+		t.Fatalf("table output missing artifact: %s", stdout.String())
+	}
+}
+
+func TestArtifactsListRejectsUnknownOutputMode(t *testing.T) {
 	restoreArtifactAPIs(t)
 
 	ciListArtifacts = func(ctx context.Context, token, orgID, runID string, options api.CIListArtifactsOptions) ([]*civ1.Artifact, error) {
@@ -125,7 +153,7 @@ func TestArtifactsListRejectsTextOutputMode(t *testing.T) {
 	}
 
 	cmd := NewCmdArtifactsList()
-	cmd.SetArgs([]string{"--org", "org-123", "--token", "token-123", "--output", "text", "run-123"})
+	cmd.SetArgs([]string{"--org", "org-123", "--token", "token-123", "--output", "yaml", "run-123"})
 	cmd.SetOut(io.Discard)
 	cmd.SetErr(io.Discard)
 
@@ -133,7 +161,7 @@ func TestArtifactsListRejectsTextOutputMode(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected unsupported output error")
 	}
-	if !strings.Contains(err.Error(), `unsupported output "text" (valid: json)`) {
+	if !strings.Contains(err.Error(), `unsupported output "yaml" (valid: text, json)`) {
 		t.Fatalf("error = %v", err)
 	}
 }
@@ -175,6 +203,30 @@ func TestArtifactsListSanitizesTextTableControlCharacters(t *testing.T) {
 	}
 	if !strings.Contains(output, "coverage_]52;c;secret_.txt") {
 		t.Fatalf("table output did not include sanitized artifact name: %q", output)
+	}
+}
+
+func TestArtifactsListTruncatesTextTableByRunes(t *testing.T) {
+	restoreArtifactAPIs(t)
+
+	ciListArtifacts = func(ctx context.Context, token, orgID, runID string, options api.CIListArtifactsOptions) ([]*civ1.Artifact, error) {
+		return []*civ1.Artifact{
+			testArtifact("artifact-1", "測試測試測試測試測試測試測試測試測試測試.txt"),
+		}, nil
+	}
+
+	cmd := NewCmdArtifactsList()
+	cmd.SetArgs([]string{"--org", "org-123", "--token", "token-123", "run-123"})
+	var stdout strings.Builder
+	cmd.SetOut(&stdout)
+	cmd.SetErr(io.Discard)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	if !utf8.ValidString(stdout.String()) {
+		t.Fatalf("table output is not valid UTF-8: %q", stdout.String())
 	}
 }
 

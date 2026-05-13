@@ -66,7 +66,7 @@ func NewCmdArtifactsList() *cobra.Command {
   depot ci artifacts list <run-id> --job <job-id> --output json`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := validateArtifactListOutput(output); err != nil {
+			if err := validateTextOrJSONOutput(output); err != nil {
 				return err
 			}
 
@@ -100,7 +100,7 @@ func NewCmdArtifactsList() *cobra.Command {
 
 	cmd.Flags().StringVar(&orgID, "org", "", "Organization ID (required when user is a member of multiple organizations)")
 	cmd.Flags().StringVar(&token, "token", "", "Depot API token")
-	cmd.Flags().StringVarP(&output, "output", "o", "", "Output format (json)")
+	cmd.Flags().StringVarP(&output, "output", "o", "", "Output format (text, json)")
 	cmd.Flags().StringVar(&workflowID, "workflow", "", "Workflow ID to filter artifacts")
 	cmd.Flags().StringVar(&jobID, "job", "", "Job ID to filter artifacts")
 	cmd.Flags().StringVar(&attemptID, "attempt", "", "Attempt ID to filter artifacts")
@@ -238,13 +238,6 @@ func printArtifactsTable(w io.Writer, artifacts []*civ1.Artifact) {
 	}
 }
 
-func validateArtifactListOutput(output string) error {
-	if output == "" || output == outputFormatJSON {
-		return nil
-	}
-	return fmt.Errorf("unsupported output %q (valid: json)", output)
-}
-
 func validateArtifactOutputDoesNotExist(destination string) error {
 	if _, err := os.Stat(destination); err == nil {
 		return fmt.Errorf("%s already exists", destination)
@@ -349,11 +342,12 @@ func formatArtifactSize(size int64) string {
 }
 
 func truncateForTable(value string, max int) string {
-	if len(value) <= max {
+	runes := []rune(value)
+	if len(runes) <= max {
 		return value
 	}
 	if max <= 3 {
-		return value[:max]
+		return string(runes[:max])
 	}
-	return value[:max-3] + "..."
+	return string(runes[:max-3]) + "..."
 }
