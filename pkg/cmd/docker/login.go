@@ -21,7 +21,7 @@ func NewCmdLoginDocker() *cobra.Command {
 		Use:   "login-docker",
 		Short: "Log in Docker to the Depot registry with your user API token",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			token, err := helpers.ResolveProjectAuth(cmd.Context(), token)
+			token, err := helpers.ResolveOrgAuth(cmd.Context(), token)
 			if err != nil {
 				return err
 			}
