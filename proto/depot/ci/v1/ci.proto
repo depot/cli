@@ -432,6 +432,11 @@ enum FailureDiagnosisState {
   FAILURE_DIAGNOSIS_STATE_OVER_LIMIT = 4;
 }
 
+enum FailureDiagnosisEmptyReason {
+  FAILURE_DIAGNOSIS_EMPTY_REASON_UNSPECIFIED = 0;
+  FAILURE_DIAGNOSIS_EMPTY_REASON_NO_FAILURE_EVIDENCE = 1;
+}
+
 enum FailureDiagnosisResourceStatus {
   FAILURE_DIAGNOSIS_RESOURCE_STATUS_UNSPECIFIED = 0;
   FAILURE_DIAGNOSIS_RESOURCE_STATUS_QUEUED = 1;
@@ -472,7 +477,7 @@ message GetFailureDiagnosisResponse {
   FailureDiagnosisTarget target = 2;
   FailureDiagnosisContext context = 3;
   FailureDiagnosisState state = 4;
-  string empty_reason = 5;
+  FailureDiagnosisEmptyReason empty_reason = 5;
   repeated FailureGroup failure_groups = 6;
   repeated RepresentativeAttempt representative_attempts = 7;
   FailureDiagnosisBounds bounds = 8;

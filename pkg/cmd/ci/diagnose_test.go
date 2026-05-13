@@ -169,6 +169,40 @@ func TestDiagnoseHumanEvidenceOnlySuppressesStableWrapperLine(t *testing.T) {
 	}
 }
 
+func TestDiagnoseHumanGroupedOutputShowsDifferingRepresentativeErrorsWhenGroupErrorIsEmpty(t *testing.T) {
+	restoreDiagnoseAPI(t)
+
+	ciDiagnose = func(ctx context.Context, token, orgID string, req *civ1.GetFailureDiagnosisRequest) (*civ1.GetFailureDiagnosisResponse, error) {
+		resp := groupedDiagnosisResponse(false)
+		first := diagnoseRepresentative(false)
+		first.AttemptId = "att-1"
+		first.Attempt = 1
+		first.ErrorMessage = "first representative failed"
+		second := diagnoseRepresentative(false)
+		second.AttemptId = "att-2"
+		second.Attempt = 2
+		second.ErrorMessage = "second representative failed"
+		resp.FailureGroups[0].ErrorMessage = ""
+		resp.FailureGroups[0].Representatives = []*civ1.RepresentativeAttempt{first, second}
+		resp.FailureGroups[0].Count = 2
+		resp.FailureGroups[0].OmittedRepresentativeCount = 0
+		return resp, nil
+	}
+
+	stdout, _, err := executeDiagnoseTextCommand([]string{"--org", "org-123", "--token", "token-123", "--run", "run-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"Error: first representative failed",
+		"Error: second representative failed",
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("diagnose output missing representative error %q:\n%s", want, stdout)
+		}
+	}
+}
+
 func TestDiagnoseGroupedOutputDoesNotRepeatRepresentativeCommandsFooter(t *testing.T) {
 	restoreDiagnoseAPI(t)
 
@@ -274,6 +308,9 @@ func TestDiagnoseJSONOutputIsCLINormalized(t *testing.T) {
 	}
 	if got.Target.Status != "failed" || got.Context.JobStatus != "failed" || got.Context.JobConclusion != "failure" {
 		t.Fatalf("unexpected status/conclusion JSON: %+v %+v", got.Target, got.Context)
+	}
+	if got.Context.TruncatedContextFields == nil {
+		t.Fatalf("truncated_context_fields should decode as a non-nil empty slice:\n%s", stdout)
 	}
 	if !got.CommandCapabilities.SummaryCommandAvailable {
 		t.Fatalf("summary capability = false, want true")
@@ -404,7 +441,7 @@ func TestDiagnoseEmptyStateIsNonError(t *testing.T) {
 			OrgId:       "org-123",
 			Target:      &civ1.FailureDiagnosisTarget{TargetId: "run-1", TargetType: civ1.FailureDiagnosisTargetType_FAILURE_DIAGNOSIS_TARGET_TYPE_RUN, Status: civ1.FailureDiagnosisResourceStatus_FAILURE_DIAGNOSIS_RESOURCE_STATUS_FINISHED},
 			State:       civ1.FailureDiagnosisState_FAILURE_DIAGNOSIS_STATE_EMPTY,
-			EmptyReason: "no_failed_jobs",
+			EmptyReason: civ1.FailureDiagnosisEmptyReason_FAILURE_DIAGNOSIS_EMPTY_REASON_NO_FAILURE_EVIDENCE,
 			Bounds:      &civ1.FailureDiagnosisBounds{TotalProblemJobCount: 0},
 		}, nil
 	}
@@ -416,7 +453,7 @@ func TestDiagnoseEmptyStateIsNonError(t *testing.T) {
 	if stderr != "" {
 		t.Fatalf("stderr = %q, want empty", stderr)
 	}
-	if !strings.Contains(stdout, "No CI failures found for this target.") || !strings.Contains(stdout, "Reason: no_failed_jobs") {
+	if !strings.Contains(stdout, "No CI failures found for this target.") || !strings.Contains(stdout, "Reason: no_failure_evidence") {
 		t.Fatalf("empty output missing expected message:\n%s", stdout)
 	}
 }

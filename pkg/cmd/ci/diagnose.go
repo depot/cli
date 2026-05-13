@@ -222,8 +222,8 @@ func printDiagnosisContext(w io.Writer, context *civ1.FailureDiagnosisContext) {
 func printEmptyDiagnosis(w io.Writer, resp *civ1.GetFailureDiagnosisResponse) {
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "No CI failures found for this target.")
-	if resp.GetEmptyReason() != "" {
-		fmt.Fprintf(w, "Reason: %s\n", resp.GetEmptyReason())
+	if reason := diagnosisEmptyReasonString(resp.GetEmptyReason()); reason != "" {
+		fmt.Fprintf(w, "Reason: %s\n", reason)
 	}
 	printBoundsSummary(w, resp)
 }
@@ -302,7 +302,7 @@ func printGroupedDiagnosis(w io.Writer, resp *civ1.GetFailureDiagnosisResponse, 
 		if representativeError != "" && representativeError != group.GetErrorMessage() {
 			fmt.Fprintf(w, "  Where: %s\n", representativeError)
 			showRepresentativeErrors = false
-		} else if representativeError == group.GetErrorMessage() {
+		} else if representativeError != "" && representativeError == group.GetErrorMessage() {
 			showRepresentativeErrors = false
 		}
 		if group.GetDiagnosis() != "" {
@@ -698,7 +698,7 @@ func buildDiagnoseJSON(resp *civ1.GetFailureDiagnosisResponse, commandOrgID stri
 	out := diagnoseJSONDocument{
 		OrgID:                  resp.GetOrgId(),
 		State:                  diagnosisStateString(resp.GetState()),
-		EmptyReason:            resp.GetEmptyReason(),
+		EmptyReason:            diagnosisEmptyReasonString(resp.GetEmptyReason()),
 		Target:                 buildDiagnoseTargetJSON(resp.GetTarget()),
 		Context:                buildDiagnoseContextJSON(resp.GetContext()),
 		CommandCapabilities:    diagnoseCommandCapabilitiesJSON{SummaryCommandAvailable: capabilities.GetSummaryCommandAvailable()},
@@ -742,6 +742,8 @@ func buildDiagnoseContextJSON(context *civ1.FailureDiagnosisContext) diagnoseCon
 	if context == nil {
 		return diagnoseContextJSON{TruncatedContextFields: []string{}}
 	}
+	truncatedFields := make([]string, 0, len(context.GetTruncatedContextFields()))
+	truncatedFields = append(truncatedFields, context.GetTruncatedContextFields()...)
 	return diagnoseContextJSON{
 		RunID:                  context.GetRunId(),
 		Repo:                   context.GetRepo(),
@@ -763,7 +765,7 @@ func buildDiagnoseContextJSON(context *civ1.FailureDiagnosisContext) diagnoseCon
 		Attempt:                context.GetAttempt(),
 		AttemptStatus:          diagnosisResourceStatusString(context.GetAttemptStatus()),
 		AttemptConclusion:      diagnosisConclusionString(context.GetAttemptConclusion()),
-		TruncatedContextFields: append([]string(nil), context.GetTruncatedContextFields()...),
+		TruncatedContextFields: truncatedFields,
 	}
 }
 
@@ -876,6 +878,15 @@ func diagnosisStateString(value civ1.FailureDiagnosisState) string {
 		return "over_limit"
 	default:
 		return "unspecified"
+	}
+}
+
+func diagnosisEmptyReasonString(value civ1.FailureDiagnosisEmptyReason) string {
+	switch value {
+	case civ1.FailureDiagnosisEmptyReason_FAILURE_DIAGNOSIS_EMPTY_REASON_NO_FAILURE_EVIDENCE:
+		return "no_failure_evidence"
+	default:
+		return ""
 	}
 }
 
