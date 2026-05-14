@@ -363,6 +363,94 @@ func TestCIArtifactsWrappers(t *testing.T) {
 	})
 }
 
+type getLogsTargetRecorder struct {
+	civ1connect.UnimplementedCIServiceHandler
+	t        *testing.T
+	want     CILogStreamTarget
+	requests []*civ1.GetJobAttemptLogsRequest
+}
+
+func (r *getLogsTargetRecorder) GetJobAttemptLogs(_ context.Context, req *connect.Request[civ1.GetJobAttemptLogsRequest]) (*connect.Response[civ1.GetJobAttemptLogsResponse], error) {
+	assertAuthAndOrg(r.t, req.Header())
+	r.requests = append(r.requests, proto.Clone(req.Msg).(*civ1.GetJobAttemptLogsRequest))
+
+	if got := req.Msg.GetAttemptId(); got != r.want.AttemptID {
+		r.t.Fatalf("AttemptId = %q, want %q", got, r.want.AttemptID)
+	}
+	if got := req.Msg.GetJobId(); got != r.want.JobID {
+		r.t.Fatalf("JobId = %q, want %q", got, r.want.JobID)
+	}
+	if r.want.JobID == "" && req.Msg.JobId != nil {
+		r.t.Fatalf("JobId pointer = %q, want nil", req.Msg.GetJobId())
+	}
+	if r.want.JobID != "" && req.Msg.JobId == nil {
+		r.t.Fatalf("JobId pointer = nil, want %q", r.want.JobID)
+	}
+
+	switch req.Msg.GetPageToken() {
+	case "":
+		return connect.NewResponse(&civ1.GetJobAttemptLogsResponse{
+			Lines:         []*civ1.LogLine{testLogLine("step-1", 1, "first")},
+			NextPageToken: "next",
+		}), nil
+	case "next":
+		return connect.NewResponse(&civ1.GetJobAttemptLogsResponse{
+			Lines: []*civ1.LogLine{testLogLine("step-1", 2, "second")},
+		}), nil
+	default:
+		r.t.Fatalf("PageToken = %q, want empty or next", req.Msg.GetPageToken())
+		return nil, nil
+	}
+}
+
+func TestCIGetJobAttemptLogsForTargetSendsSingleSelector(t *testing.T) {
+	tests := []struct {
+		name   string
+		target CILogStreamTarget
+	}{
+		{name: "attempt", target: CILogStreamTarget{AttemptID: "attempt-123"}},
+		{name: "job", target: CILogStreamTarget{JobID: "job-123"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			recorder := &getLogsTargetRecorder{t: t, want: tt.target}
+			_, handler := civ1connect.NewCIServiceHandler(recorder)
+			server := httptest.NewServer(h2c.NewHandler(handler, &http2.Server{}))
+			t.Cleanup(server.Close)
+
+			originalBaseURLFunc := baseURLFunc
+			baseURLFunc = func() string { return server.URL }
+			t.Cleanup(func() { baseURLFunc = originalBaseURLFunc })
+
+			lines, err := CIGetJobAttemptLogsForTarget(context.Background(), "token-123", "org-123", tt.target)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got, want := len(lines), 2; got != want {
+				t.Fatalf("lines = %d, want %d", got, want)
+			}
+			if got := lines[0].GetBody(); got != "first" {
+				t.Fatalf("first body = %q, want first", got)
+			}
+			if got := lines[1].GetBody(); got != "second" {
+				t.Fatalf("second body = %q, want second", got)
+			}
+			if got, want := len(recorder.requests), 2; got != want {
+				t.Fatalf("requests = %d, want %d", got, want)
+			}
+			for i, req := range recorder.requests {
+				if got := req.GetAttemptId(); got != tt.target.AttemptID {
+					t.Fatalf("request %d AttemptId = %q, want %q", i, got, tt.target.AttemptID)
+				}
+				if got := req.GetJobId(); got != tt.target.JobID {
+					t.Fatalf("request %d JobId = %q, want %q", i, got, tt.target.JobID)
+				}
+			}
+		})
+	}
+}
+
 func withTestCIService(t *testing.T, fn func()) {
 	t.Helper()
 

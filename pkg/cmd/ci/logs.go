@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"connectrpc.com/connect"
 	"github.com/briandowns/spinner"
 	"github.com/depot/cli/pkg/api"
 	"github.com/depot/cli/pkg/config"
@@ -29,11 +30,12 @@ const (
 )
 
 var (
-	ciGetRunStatus             = api.CIGetRunStatus
-	ciGetJobAttemptLogs        = api.CIGetJobAttemptLogs
-	ciExportJobAttemptLogs     = api.CIExportJobAttemptLogs
-	ciStreamJobAttemptLogs     = api.CIStreamJobAttemptLogs
-	ciStreamJobAttemptLogLines = api.CIStreamJobAttemptLogLines
+	ciGetRunStatus               = api.CIGetRunStatus
+	ciGetJobAttemptLogs          = api.CIGetJobAttemptLogs
+	ciGetJobAttemptLogsForTarget = api.CIGetJobAttemptLogsForTarget
+	ciExportJobAttemptLogs       = api.CIExportJobAttemptLogs
+	ciStreamJobAttemptLogs       = api.CIStreamJobAttemptLogs
+	ciStreamJobAttemptLogLines   = api.CIStreamJobAttemptLogLines
 )
 
 func NewCmdLogs() *cobra.Command {
@@ -201,10 +203,18 @@ ID, use --job and --workflow to disambiguate by workflow job key.`,
 					return fmt.Errorf("failed to stream logs: %w", err)
 				}
 			} else {
-				lines, err := ciGetJobAttemptLogs(ctx, tokenVal, orgID, id)
+				lines, err := getUnresolvedHistoricalLogs(ctx, tokenVal, orgID, id)
 				if err != nil {
-					// Both paths failed — show both errors so the user can
-					// distinguish "bad ID" from "auth/network failure".
+					if unresolvedErr, ok := err.(*unresolvedHistoricalLogsError); ok {
+						return fmt.Errorf(
+							"could not resolve %q as a run, job, or attempt ID:\n  as run/job: %v\n  as attempt: %v\n  as job: %v",
+							id,
+							runErr,
+							unresolvedErr.attemptErr,
+							unresolvedErr.jobErr,
+						)
+					}
+
 					return fmt.Errorf(
 						"could not resolve %q as a run, job, or attempt ID:\n  as run/job: %v\n  as attempt: %v",
 						id,
@@ -451,6 +461,32 @@ func exportUnresolvedLogsToFile(ctx context.Context, tokenVal string, orgID stri
 	}
 
 	return fmt.Errorf("as job: %v; as attempt: %v", jobErr, attemptErr)
+}
+
+type unresolvedHistoricalLogsError struct {
+	attemptErr error
+	jobErr     error
+}
+
+func (e *unresolvedHistoricalLogsError) Error() string {
+	return fmt.Sprintf("as attempt: %v; as job: %v", e.attemptErr, e.jobErr)
+}
+
+func getUnresolvedHistoricalLogs(ctx context.Context, tokenVal string, orgID string, id string) ([]*civ1.LogLine, error) {
+	lines, attemptErr := ciGetJobAttemptLogs(ctx, tokenVal, orgID, id)
+	if attemptErr == nil || isContextDoneError(attemptErr) {
+		return lines, attemptErr
+	}
+	if connect.CodeOf(attemptErr) != connect.CodeNotFound {
+		return nil, attemptErr
+	}
+
+	lines, jobErr := ciGetJobAttemptLogsForTarget(ctx, tokenVal, orgID, api.CILogStreamTarget{JobID: id})
+	if jobErr == nil || isContextDoneError(jobErr) {
+		return lines, jobErr
+	}
+
+	return nil, &unresolvedHistoricalLogsError{attemptErr: attemptErr, jobErr: jobErr}
 }
 
 type logTarget struct {
