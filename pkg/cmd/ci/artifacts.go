@@ -18,12 +18,18 @@ import (
 )
 
 var (
-	ciListArtifacts          = api.CIListArtifacts
-	ciGetArtifactDownloadURL = api.CIGetArtifactDownloadURL
-	ciArtifactDownloadClient = newArtifactDownloadHTTPClient()
+	ciListArtifacts                       = api.CIListArtifacts
+	ciGetArtifactDownloadURL              = api.CIGetArtifactDownloadURL
+	ciArtifactDownloadClient              = newArtifactDownloadHTTPClient()
+	ciArtifactDownloadProgressInteractive = helpers.IsTerminal
 )
 
-const artifactDownloadHTTPTimeout = 30 * time.Minute
+const (
+	artifactDownloadHTTPTimeout    = 30 * time.Minute
+	artifactDownloadUpdateInterval = 250 * time.Millisecond
+	artifactIDTableHeader          = "ARTIFACT ID"
+	artifactIDTableMaxWidth        = 40
+)
 
 func NewCmdArtifacts() *cobra.Command {
 	cmd := &cobra.Command{
@@ -159,7 +165,7 @@ func NewCmdArtifactsDownload() *cobra.Command {
 			if destination == "" {
 				destination = artifactLocalFilename(artifact.GetName(), artifact.GetArtifactId())
 			}
-			written, err := downloadArtifactToFile(ctx, resp.GetUrl(), destination)
+			written, err := downloadArtifactToFile(ctx, resp.GetUrl(), destination, cmd.ErrOrStderr())
 			if err != nil {
 				return err
 			}
@@ -222,12 +228,14 @@ func printArtifactsTable(w io.Writer, artifacts []*civ1.Artifact) {
 		return
 	}
 
-	fmt.Fprintf(w, "%-22s  %-28s  %-9s  %-28s  %-20s  %-7s  %s\n", "ARTIFACT ID", "NAME", "SIZE", "WORKFLOW", "JOB", "ATTEMPT", "CREATED")
+	artifactIDWidth := artifactIDTableWidth(artifacts)
+	fmt.Fprintf(w, "%-*s  %-28s  %-9s  %-28s  %-20s  %-7s  %s\n", artifactIDWidth, artifactIDTableHeader, "NAME", "SIZE", "WORKFLOW", "JOB", "ATTEMPT", "CREATED")
 	for _, artifact := range artifacts {
 		fmt.Fprintf(
 			w,
-			"%-22s  %-28s  %-9s  %-28s  %-20s  %-7d  %s\n",
-			safeArtifactTableCell(artifact.GetArtifactId()),
+			"%-*s  %-28s  %-9s  %-28s  %-20s  %-7d  %s\n",
+			artifactIDWidth,
+			truncateForTable(safeArtifactTableCell(artifact.GetArtifactId()), artifactIDWidth),
 			truncateForTable(safeArtifactTableCell(artifact.GetName()), 28),
 			formatArtifactSize(artifact.GetSizeBytes()),
 			truncateForTable(safeArtifactTableCell(artifact.GetWorkflowPath()), 28),
@@ -236,6 +244,20 @@ func printArtifactsTable(w io.Writer, artifacts []*civ1.Artifact) {
 			safeArtifactTableCell(artifact.GetCreatedAt()),
 		)
 	}
+}
+
+func artifactIDTableWidth(artifacts []*civ1.Artifact) int {
+	width := len(artifactIDTableHeader)
+	for _, artifact := range artifacts {
+		idWidth := len([]rune(safeArtifactTableCell(artifact.GetArtifactId())))
+		if idWidth > width {
+			width = idWidth
+		}
+	}
+	if width > artifactIDTableMaxWidth {
+		return artifactIDTableMaxWidth
+	}
+	return width
 }
 
 func validateArtifactOutputDoesNotExist(destination string) error {
@@ -247,7 +269,7 @@ func validateArtifactOutputDoesNotExist(destination string) error {
 	return nil
 }
 
-func downloadArtifactToFile(ctx context.Context, url, destination string) (int64, error) {
+func downloadArtifactToFile(ctx context.Context, url, destination string, progressOutput io.Writer) (int64, error) {
 	file, err := os.OpenFile(destination, os.O_CREATE|os.O_WRONLY|os.O_EXCL, 0o644)
 	if err != nil {
 		if os.IsExist(err) {
@@ -269,7 +291,11 @@ func downloadArtifactToFile(ctx context.Context, url, destination string) (int64
 		return 0, fmt.Errorf("artifact download failed with HTTP %d", resp.StatusCode)
 	}
 
-	written, copyErr := io.Copy(file, resp.Body)
+	progress := newArtifactDownloadProgress(progressOutput, resp.ContentLength)
+	progress.Start()
+	defer progress.Finish()
+
+	written, copyErr := io.Copy(io.MultiWriter(file, progress), resp.Body)
 	closeErr := file.Close()
 	if copyErr != nil {
 		_ = os.Remove(destination)
@@ -294,6 +320,78 @@ func newArtifactDownloadHTTPClient() *http.Client {
 	return &http.Client{
 		Timeout: artifactDownloadHTTPTimeout,
 	}
+}
+
+type artifactDownloadProgress struct {
+	w                   io.Writer
+	total               int64
+	written             int64
+	interactive         bool
+	rendered            bool
+	lastRenderedWritten int64
+	lastRender          time.Time
+}
+
+func newArtifactDownloadProgress(w io.Writer, total int64) *artifactDownloadProgress {
+	return &artifactDownloadProgress{
+		w:           w,
+		total:       total,
+		interactive: w != nil && ciArtifactDownloadProgressInteractive(),
+	}
+}
+
+func (p *artifactDownloadProgress) Start() {
+	p.render()
+}
+
+func (p *artifactDownloadProgress) Write(data []byte) (int, error) {
+	p.written += int64(len(data))
+	if p.shouldRender() {
+		p.render()
+	}
+	return len(data), nil
+}
+
+func (p *artifactDownloadProgress) Finish() {
+	if !p.interactive {
+		return
+	}
+	if !p.rendered || p.lastRenderedWritten != p.written {
+		p.render()
+	}
+	fmt.Fprintln(p.w)
+}
+
+func (p *artifactDownloadProgress) shouldRender() bool {
+	if !p.interactive {
+		return false
+	}
+	if p.lastRender.IsZero() {
+		return true
+	}
+	if p.total > 0 && p.written >= p.total {
+		return true
+	}
+	return time.Since(p.lastRender) >= artifactDownloadUpdateInterval
+}
+
+func (p *artifactDownloadProgress) render() {
+	if !p.interactive {
+		return
+	}
+
+	if p.total > 0 {
+		percent := float64(p.written) / float64(p.total) * 100
+		if percent > 100 {
+			percent = 100
+		}
+		fmt.Fprintf(p.w, "\rDownloading %s / %s (%.0f%%)", formatArtifactSize(p.written), formatArtifactSize(p.total), percent)
+	} else {
+		fmt.Fprintf(p.w, "\rDownloading %s", formatArtifactSize(p.written))
+	}
+	p.rendered = true
+	p.lastRenderedWritten = p.written
+	p.lastRender = time.Now()
 }
 
 func artifactLocalFilename(name, artifactID string) string {

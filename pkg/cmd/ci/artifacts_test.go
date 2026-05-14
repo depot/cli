@@ -23,11 +23,13 @@ func restoreArtifactAPIs(t *testing.T) {
 	originalList := ciListArtifacts
 	originalDownloadURL := ciGetArtifactDownloadURL
 	originalClient := ciArtifactDownloadClient
+	originalProgressInteractive := ciArtifactDownloadProgressInteractive
 
 	t.Cleanup(func() {
 		ciListArtifacts = originalList
 		ciGetArtifactDownloadURL = originalDownloadURL
 		ciArtifactDownloadClient = originalClient
+		ciArtifactDownloadProgressInteractive = originalProgressInteractive
 	})
 }
 
@@ -115,6 +117,39 @@ func TestArtifactsListPrintsTableAndPassesFilters(t *testing.T) {
 		if !strings.Contains(output, want) {
 			t.Fatalf("table output missing %q:\n%s", want, output)
 		}
+	}
+}
+
+func TestArtifactsListAlignsLongArtifactIDColumn(t *testing.T) {
+	restoreArtifactAPIs(t)
+
+	id := "019e2677-f3d6-7d66-9997-f31f7110a0a9"
+	name := "regression-test-artifact"
+	ciListArtifacts = func(ctx context.Context, token, orgID, runID string, options api.CIListArtifactsOptions) ([]*civ1.Artifact, error) {
+		return []*civ1.Artifact{testArtifact(id, name)}, nil
+	}
+
+	cmd := NewCmdArtifactsList()
+	cmd.SetArgs([]string{"--org", "org-123", "--token", "token-123", "run-123"})
+	var stdout strings.Builder
+	cmd.SetOut(&stdout)
+	cmd.SetErr(io.Discard)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	lines := strings.Split(strings.TrimSpace(stdout.String()), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("table output lines = %d, want 2:\n%s", len(lines), stdout.String())
+	}
+	headerNameColumn := strings.Index(lines[0], "NAME")
+	rowNameColumn := strings.Index(lines[1], name)
+	if headerNameColumn == -1 || rowNameColumn == -1 {
+		t.Fatalf("table output missing name column:\n%s", stdout.String())
+	}
+	if rowNameColumn != headerNameColumn {
+		t.Fatalf("artifact name column = %d, want header name column %d:\n%s", rowNameColumn, headerNameColumn, stdout.String())
 	}
 }
 
@@ -321,6 +356,66 @@ func TestArtifactsDownloadStreamsToOutputPath(t *testing.T) {
 	}
 	if string(content) != "artifact bytes" {
 		t.Fatalf("downloaded content = %q", content)
+	}
+}
+
+func TestArtifactsDownloadReportsProgressForKnownSize(t *testing.T) {
+	restoreArtifactAPIs(t)
+
+	ciArtifactDownloadProgressInteractive = func() bool { return true }
+
+	body := strings.Repeat("x", 1024)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", "1024")
+		_, _ = io.WriteString(w, body)
+	}))
+	t.Cleanup(server.Close)
+
+	ciGetArtifactDownloadURL = func(ctx context.Context, token, orgID, artifactID string) (*civ1.GetArtifactDownloadURLResponse, error) {
+		return &civ1.GetArtifactDownloadURLResponse{
+			Artifact: &civ1.Artifact{ArtifactId: artifactID, Name: "coverage.txt", SizeBytes: int64(len(body))},
+			Url:      server.URL,
+		}, nil
+	}
+
+	destination := filepath.Join(t.TempDir(), "coverage.txt")
+	cmd := NewCmdArtifactsDownload()
+	cmd.SetArgs([]string{"--org", "org-123", "--token", "token-123", "--output-file", destination, "artifact-1"})
+	cmd.SetOut(io.Discard)
+	var stderr strings.Builder
+	cmd.SetErr(&stderr)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	output := stderr.String()
+	for _, want := range []string{"Downloading", "1.0 KB / 1.0 KB", "100%", "Downloaded artifact-1"} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("stderr missing %q:\n%s", want, output)
+		}
+	}
+}
+
+func TestArtifactDownloadProgressReportsUnknownSize(t *testing.T) {
+	restoreArtifactAPIs(t)
+
+	ciArtifactDownloadProgressInteractive = func() bool { return true }
+
+	var stderr strings.Builder
+	progress := newArtifactDownloadProgress(&stderr, -1)
+	progress.Start()
+	if _, err := progress.Write([]byte(strings.Repeat("x", 1536))); err != nil {
+		t.Fatal(err)
+	}
+	progress.Finish()
+
+	output := stderr.String()
+	if !strings.Contains(output, "Downloading 1.5 KB") {
+		t.Fatalf("progress output missing downloaded size:\n%s", output)
+	}
+	if strings.Contains(output, " / ") {
+		t.Fatalf("unknown-size progress should not show total:\n%s", output)
 	}
 }
 
