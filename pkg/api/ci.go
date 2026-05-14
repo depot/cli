@@ -114,12 +114,34 @@ func CIGetJobSummary(ctx context.Context, token, orgID string, req *civ1.GetJobS
 
 // CIGetJobAttemptLogs returns all log lines for a job attempt, paginating through all pages.
 func CIGetJobAttemptLogs(ctx context.Context, token, orgID, attemptID string) ([]*civ1.LogLine, error) {
+	return CIGetJobAttemptLogsForTarget(ctx, token, orgID, CILogStreamTarget{AttemptID: attemptID})
+}
+
+type CILogStreamTarget struct {
+	AttemptID string
+	JobID     string
+}
+
+// CIGetJobAttemptLogsForTarget returns all log lines for a job attempt or the
+// latest attempt of a job, paginating through all pages.
+func CIGetJobAttemptLogsForTarget(ctx context.Context, token, orgID string, target CILogStreamTarget) ([]*civ1.LogLine, error) {
+	if target.AttemptID == "" && target.JobID == "" {
+		return nil, fmt.Errorf("exactly one of attempt ID or job ID is required")
+	}
+	if target.AttemptID != "" && target.JobID != "" {
+		return nil, fmt.Errorf("exactly one of attempt ID or job ID is required")
+	}
+
 	client := newCIServiceClient()
 	var allLines []*civ1.LogLine
 	var pageToken string
 
 	for {
-		req := &civ1.GetJobAttemptLogsRequest{AttemptId: attemptID, PageToken: pageToken}
+		req := &civ1.GetJobAttemptLogsRequest{
+			AttemptId: target.AttemptID,
+			JobId:     optionalString(target.JobID),
+			PageToken: pageToken,
+		}
 		resp, err := client.GetJobAttemptLogs(ctx, WithAuthenticationAndOrg(connect.NewRequest(req), token, orgID))
 		if err != nil {
 			return nil, err
@@ -132,11 +154,6 @@ func CIGetJobAttemptLogs(ctx context.Context, token, orgID, attemptID string) ([
 	}
 
 	return allLines, nil
-}
-
-type CILogStreamTarget struct {
-	AttemptID string
-	JobID     string
 }
 
 // CIExportJobAttemptLogs streams a finite exported log snapshot for a job
@@ -551,9 +568,9 @@ func CIListArtifacts(ctx context.Context, token, orgID, runID string, options CI
 	for {
 		req := &civ1.ListArtifactsRequest{
 			RunId:      runID,
-			WorkflowId: optionalArtifactFilter(options.WorkflowID),
-			JobId:      optionalArtifactFilter(options.JobID),
-			AttemptId:  optionalArtifactFilter(options.AttemptID),
+			WorkflowId: optionalString(options.WorkflowID),
+			JobId:      optionalString(options.JobID),
+			AttemptId:  optionalString(options.AttemptID),
 			PageSize:   500,
 			PageToken:  pageToken,
 		}
@@ -572,7 +589,7 @@ func CIListArtifacts(ctx context.Context, token, orgID, runID string, options CI
 	return artifacts, nil
 }
 
-func optionalArtifactFilter(value string) *string {
+func optionalString(value string) *string {
 	if value == "" {
 		return nil
 	}
