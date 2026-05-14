@@ -53,6 +53,13 @@ service CIService {
   // GetJobSummary returns authored step summary markdown for a job, a concrete attempt, or both.
   rpc GetJobSummary(GetJobSummaryRequest) returns (GetJobSummaryResponse) {}
 
+  // ListArtifacts returns CI artifact metadata for one run. Signed download URLs are not included.
+  rpc ListArtifacts(ListArtifactsRequest) returns (ListArtifactsResponse) {}
+
+  // GetArtifactDownloadURL returns a signed HTTPS URL for one artifact.
+  // Depot exposes this through the RPC only; there is no custom Depot REST endpoint for artifact downloads.
+  rpc GetArtifactDownloadURL(GetArtifactDownloadURLRequest) returns (GetArtifactDownloadURLResponse) {}
+
   // GetJobAttemptLogs returns log lines for a job attempt
   rpc GetJobAttemptLogs(GetJobAttemptLogsRequest) returns (GetJobAttemptLogsResponse) {}
 
@@ -783,6 +790,57 @@ message GetJobSummaryResponse {
   uint32 step_count = 11;
   // markdown contains the authored step summary markdown joined in step order.
   string markdown = 12;
+}
+
+// CI artifact messages
+
+message Artifact {
+  // artifact_id is the opaque ID used to request a download URL.
+  string artifact_id = 1;
+  string run_id = 2;
+  string workflow_id = 3;
+  string workflow_path = 4;
+  string job_id = 5;
+  string job_key = 6;
+  string attempt_id = 7;
+  int32 attempt = 8;
+  string name = 9;
+  int64 size_bytes = 10;
+  string created_at = 11;
+}
+
+message ListArtifactsRequest {
+  // run_id identifies the run whose artifact metadata should be listed.
+  string run_id = 1;
+  // workflow_id optionally narrows the list to artifacts from one workflow in the run.
+  optional string workflow_id = 2;
+  // job_id optionally narrows the list to artifacts from one job in the run.
+  optional string job_id = 3;
+  // attempt_id optionally narrows the list to artifacts from one job attempt in the run.
+  optional string attempt_id = 4;
+  // page_size defaults to 100 and is capped at 500.
+  int32 page_size = 5;
+  // page_token resumes cursor pagination from a previous response.
+  string page_token = 6;
+}
+
+message ListArtifactsResponse {
+  repeated Artifact artifacts = 1;
+  optional string next_page_token = 2;
+}
+
+message GetArtifactDownloadURLRequest {
+  // artifact_id is the opaque artifact ID returned by ListArtifacts.
+  string artifact_id = 1;
+}
+
+message GetArtifactDownloadURLResponse {
+  Artifact artifact = 1;
+  // url is a short-lived signed HTTPS bearer URL for the artifact object.
+  // Clients can use the URL with any standard HTTPS client while the object remains available.
+  string url = 2;
+  // expires_at is the signed URL expiration time, not artifact retention.
+  string expires_at = 3;
 }
 
 // GetJobAttemptLogs messages
