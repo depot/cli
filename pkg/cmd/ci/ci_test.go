@@ -17,8 +17,10 @@ func TestCICommandRegistration(t *testing.T) {
 
 	wanted := []string{
 		// inspection / interactive
+		"artifacts",
 		"run",
 		"status",
+		"diagnose",
 		"logs",
 		"summary",
 		"ssh",
