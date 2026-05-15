@@ -9,6 +9,25 @@ message Attribute {
   string value = 2; // exact value or pattern, depending on key
 }
 
+message AttributeLinkCount {
+  Attribute attribute = 1;
+  uint32 link_count = 2; // Number of variants linked to this attribute.
+}
+
+enum VariantResolution {
+  VARIANT_RESOLUTION_UNSPECIFIED = 0;
+
+  // This variant is the definite winner for the supplied context.
+  VARIANT_RESOLUTION_RESOLVED = 1;
+
+  // This variant could still win, but more context or a tie-break is needed.
+  VARIANT_RESOLUTION_INDETERMINATE = 2;
+
+  // This variant cannot win for the supplied partial context because a higher-priority variant matches
+  // or could match as additional context is provided.
+  VARIANT_RESOLUTION_LOWER_PRIORITY = 3;
+}
+
 message PageRequest {
   uint32 page = 1; // 1-based page number. Defaults to 1.
   uint32 page_size = 2; // Number of parent resources per page.
