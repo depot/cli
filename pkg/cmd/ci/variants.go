@@ -28,16 +28,6 @@ func formatVariantAttributes(attrs []api.CIVariantAttribute) string {
 	return strings.Join(parts, ",")
 }
 
-func truncateForTable(value string, width int) string {
-	if len(value) <= width {
-		return value
-	}
-	if width <= 3 {
-		return value[:width]
-	}
-	return value[:width-3] + "..."
-}
-
 func variantScope(repos []string) string {
 	if len(repos) == 0 {
 		return "org-wide"
