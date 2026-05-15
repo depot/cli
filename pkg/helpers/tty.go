@@ -12,6 +12,11 @@ func IsTerminal() bool {
 	return !isCI && isTerminal(os.Stdout) && isTerminal(os.Stderr)
 }
 
+func IsStdinTerminal() bool {
+	_, isCI := ci.Provider()
+	return !isCI && isTerminal(os.Stdin)
+}
+
 func isTerminal(f *os.File) bool {
 	return isatty.IsTerminal(f.Fd()) || isatty.IsCygwinTerminal(f.Fd())
 }

@@ -15,11 +15,20 @@ import (
 	"github.com/depot/cli/pkg/proto/depot/ci/v1/civ1connect"
 	civ2 "github.com/depot/cli/pkg/proto/depot/ci/v2"
 	"github.com/depot/cli/pkg/proto/depot/ci/v2/civ2connect"
+	civ3beta2 "github.com/depot/cli/pkg/proto/depot/ci/v3beta2"
+	"github.com/depot/cli/pkg/proto/depot/ci/v3beta2/civ3beta2connect"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 var baseURLFunc = getBaseURL
 
 const ciStreamLogDedupeSize = 4096
+
+const (
+	ciDefaultVariantName = "default"
+	ciDefaultPage        = 1
+	ciMaxPageSize        = 100
+)
 
 var (
 	ciStreamInitialBackoff = 250 * time.Millisecond
@@ -688,6 +697,153 @@ func CIDeleteSecret(ctx context.Context, token, orgID, name, repo string) error 
 	return err
 }
 
+func newCISecretServiceV3Beta2Client() civ3beta2connect.SecretServiceClient {
+	baseURL := baseURLFunc()
+	return civ3beta2connect.NewSecretServiceClient(getHTTPClient(baseURL), baseURL, WithUserAgent())
+}
+
+// CIVariantAttribute describes a condition that controls where a secret or variable variant applies.
+type CIVariantAttribute struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
+}
+
+// CISecretGroup contains a logical CI secret and its variants.
+type CISecretGroup struct {
+	ID           string            `json:"id"`
+	Name         string            `json:"name"`
+	Variants     []CISecretVariant `json:"variants"`
+	VariantCount uint32            `json:"variantCount"`
+	LastModified string            `json:"lastModified,omitempty"`
+}
+
+// CISecretVariant contains metadata for one named CI secret variant. Secret values are never returned.
+type CISecretVariant struct {
+	ID              string               `json:"id"`
+	SecretID        string               `json:"secretId"`
+	Name            string               `json:"name"`
+	Description     string               `json:"description,omitempty"`
+	Attributes      []CIVariantAttribute `json:"attributes,omitempty"`
+	LastModified    string               `json:"lastModified,omitempty"`
+	ValueGroupIndex *uint32              `json:"valueGroupIndex,omitempty"`
+}
+
+type CIListSecretVariantsOptions struct {
+	Query       string
+	Repo        []string
+	Environment []string
+	Branch      []string
+	Workflow    []string
+}
+
+type CIListSecretVariantsResult struct {
+	Secrets []CISecretGroup `json:"secrets"`
+}
+
+type CISetSecretVariantOptions struct {
+	Name        string
+	Variant     string
+	Value       string
+	Description string
+	Repo        []string
+	Environment []string
+	Branch      []string
+	Workflow    []string
+}
+
+type CISetSecretVariantResult struct {
+	Secret         CISecretGroup   `json:"secret"`
+	Variant        CISecretVariant `json:"variant"`
+	CreatedSecret  bool            `json:"createdSecret"`
+	CreatedVariant bool            `json:"createdVariant"`
+}
+
+func CIListSecretVariants(ctx context.Context, token, orgID string, opts CIListSecretVariantsOptions) (CIListSecretVariantsResult, error) {
+	client := newCISecretServiceV3Beta2Client()
+
+	attrs := ciAttributes(opts.Repo, opts.Environment, opts.Branch, opts.Workflow)
+	result := CIListSecretVariantsResult{Secrets: []CISecretGroup{}}
+	for page := uint32(ciDefaultPage); ; page++ {
+		resp, err := client.ListSecrets(ctx, WithAuthenticationAndOrg(connect.NewRequest(&civ3beta2.ListSecretsRequest{
+			Page:       ciPageRequest(page),
+			Query:      opts.Query,
+			Attributes: attrs,
+		}), token, orgID))
+		if err != nil {
+			return CIListSecretVariantsResult{}, err
+		}
+
+		result.Secrets = append(result.Secrets, secretGroupsFromProto(resp.Msg.GetSecrets())...)
+		if !resp.Msg.GetPage().GetHasMore() {
+			return result, nil
+		}
+	}
+}
+
+func CIGetSecretVariantGroup(ctx context.Context, token, orgID, name string) (CISecretGroup, error) {
+	client := newCISecretServiceV3Beta2Client()
+	resp, err := client.GetSecret(ctx, WithAuthenticationAndOrg(connect.NewRequest(&civ3beta2.GetSecretRequest{
+		Lookup: &civ3beta2.GetSecretRequest_Name{Name: name},
+	}), token, orgID))
+	if err != nil {
+		return CISecretGroup{}, err
+	}
+	return secretGroupFromProto(resp.Msg.GetSecret()), nil
+}
+
+func CIGetSecretVariant(ctx context.Context, token, orgID, variantID string) (CISecretVariant, error) {
+	client := newCISecretServiceV3Beta2Client()
+	resp, err := client.GetSecretVariant(ctx, WithAuthenticationAndOrg(connect.NewRequest(&civ3beta2.GetSecretVariantRequest{
+		Id: variantID,
+	}), token, orgID))
+	if err != nil {
+		return CISecretVariant{}, err
+	}
+	return secretVariantFromProto(resp.Msg.GetVariant()), nil
+}
+
+func CISetSecretVariant(ctx context.Context, token, orgID string, opts CISetSecretVariantOptions) (CISetSecretVariantResult, error) {
+	client := newCISecretServiceV3Beta2Client()
+	req := &civ3beta2.SetSecretVariantRequest{
+		SecretName:  opts.Name,
+		VariantName: ciVariantName(opts.Variant),
+		Value:       opts.Value,
+		Attributes:  ciAttributes(opts.Repo, opts.Environment, opts.Branch, opts.Workflow),
+	}
+	if opts.Description != "" {
+		req.Description = &opts.Description
+	}
+
+	resp, err := client.SetSecretVariant(ctx, WithAuthenticationAndOrg(connect.NewRequest(req), token, orgID))
+	if err != nil {
+		return CISetSecretVariantResult{}, err
+	}
+
+	return CISetSecretVariantResult{
+		Secret:         secretGroupFromProto(resp.Msg.GetSecret()),
+		Variant:        secretVariantFromProto(resp.Msg.GetVariant()),
+		CreatedSecret:  resp.Msg.GetCreatedSecret(),
+		CreatedVariant: resp.Msg.GetCreatedVariant(),
+	}, nil
+}
+
+func CIDeleteSecretVariant(ctx context.Context, token, orgID, variantID string) (bool, error) {
+	client := newCISecretServiceV3Beta2Client()
+	resp, err := client.DeleteSecretVariant(ctx, WithAuthenticationAndOrg(connect.NewRequest(&civ3beta2.DeleteSecretVariantRequest{VariantId: variantID}), token, orgID))
+	if err != nil {
+		return false, err
+	}
+	return resp.Msg.GetDeletedSecret(), nil
+}
+
+func CIDeleteSecretGroup(ctx context.Context, token, orgID, name string) error {
+	client := newCISecretServiceV3Beta2Client()
+	_, err := client.DeleteSecret(ctx, WithAuthenticationAndOrg(connect.NewRequest(&civ3beta2.DeleteSecretRequest{
+		Lookup: &civ3beta2.DeleteSecretRequest_Name{Name: name},
+	}), token, orgID))
+	return err
+}
+
 func newCIVariableServiceV2Client() civ2connect.VariableServiceClient {
 	baseURL := baseURLFunc()
 	return civ2connect.NewVariableServiceClient(getHTTPClient(baseURL), baseURL, WithUserAgent())
@@ -771,4 +927,276 @@ func CIDeleteVariable(ctx context.Context, token, orgID, name, repo string) erro
 	}
 	_, err := client.RemoveOrgVariable(ctx, WithAuthenticationAndOrg(connect.NewRequest(&civ2.RemoveOrgVariableRequest{Name: name}), token, orgID))
 	return err
+}
+
+func newCIVariableServiceV3Beta2Client() civ3beta2connect.VariableServiceClient {
+	baseURL := baseURLFunc()
+	return civ3beta2connect.NewVariableServiceClient(getHTTPClient(baseURL), baseURL, WithUserAgent())
+}
+
+// CIVariableGroup contains a logical CI variable and its variants.
+type CIVariableGroup struct {
+	ID           string              `json:"id"`
+	Name         string              `json:"name"`
+	Variants     []CIVariableVariant `json:"variants"`
+	VariantCount uint32              `json:"variantCount"`
+	LastModified string              `json:"lastModified,omitempty"`
+}
+
+// CIVariableVariant contains metadata and value for one named CI variable variant.
+type CIVariableVariant struct {
+	ID           string               `json:"id"`
+	VariableID   string               `json:"variableId"`
+	Name         string               `json:"name"`
+	Value        string               `json:"value"`
+	Description  string               `json:"description,omitempty"`
+	Attributes   []CIVariantAttribute `json:"attributes,omitempty"`
+	LastModified string               `json:"lastModified,omitempty"`
+}
+
+type CIListVariableVariantsOptions struct {
+	Query       string
+	Repo        []string
+	Environment []string
+	Branch      []string
+	Workflow    []string
+}
+
+type CIListVariableVariantsResult struct {
+	Variables []CIVariableGroup `json:"variables"`
+}
+
+type CISetVariableVariantOptions struct {
+	Name        string
+	Variant     string
+	Value       string
+	Description string
+	Repo        []string
+	Environment []string
+	Branch      []string
+	Workflow    []string
+}
+
+type CISetVariableVariantResult struct {
+	Variable        CIVariableGroup   `json:"variable"`
+	Variant         CIVariableVariant `json:"variant"`
+	CreatedVariable bool              `json:"createdVariable"`
+	CreatedVariant  bool              `json:"createdVariant"`
+}
+
+func CIListVariableVariants(ctx context.Context, token, orgID string, opts CIListVariableVariantsOptions) (CIListVariableVariantsResult, error) {
+	client := newCIVariableServiceV3Beta2Client()
+
+	attrs := ciAttributes(opts.Repo, opts.Environment, opts.Branch, opts.Workflow)
+	result := CIListVariableVariantsResult{Variables: []CIVariableGroup{}}
+	for page := uint32(ciDefaultPage); ; page++ {
+		resp, err := client.ListVariables(ctx, WithAuthenticationAndOrg(connect.NewRequest(&civ3beta2.ListVariablesRequest{
+			Page:       ciPageRequest(page),
+			Query:      opts.Query,
+			Attributes: attrs,
+		}), token, orgID))
+		if err != nil {
+			return CIListVariableVariantsResult{}, err
+		}
+
+		result.Variables = append(result.Variables, variableGroupsFromProto(resp.Msg.GetVariables())...)
+		if !resp.Msg.GetPage().GetHasMore() {
+			return result, nil
+		}
+	}
+}
+
+func CIGetVariableVariantGroup(ctx context.Context, token, orgID, name string) (CIVariableGroup, error) {
+	client := newCIVariableServiceV3Beta2Client()
+	resp, err := client.GetVariable(ctx, WithAuthenticationAndOrg(connect.NewRequest(&civ3beta2.GetVariableRequest{
+		Lookup: &civ3beta2.GetVariableRequest_Name{Name: name},
+	}), token, orgID))
+	if err != nil {
+		return CIVariableGroup{}, err
+	}
+	return variableGroupFromProto(resp.Msg.GetVariable()), nil
+}
+
+func CISetVariableVariant(ctx context.Context, token, orgID string, opts CISetVariableVariantOptions) (CISetVariableVariantResult, error) {
+	client := newCIVariableServiceV3Beta2Client()
+	req := &civ3beta2.SetVariableVariantRequest{
+		VariableName: opts.Name,
+		VariantName:  ciVariantName(opts.Variant),
+		Value:        opts.Value,
+		Attributes:   ciAttributes(opts.Repo, opts.Environment, opts.Branch, opts.Workflow),
+	}
+	if opts.Description != "" {
+		req.Description = &opts.Description
+	}
+
+	resp, err := client.SetVariableVariant(ctx, WithAuthenticationAndOrg(connect.NewRequest(req), token, orgID))
+	if err != nil {
+		return CISetVariableVariantResult{}, err
+	}
+
+	return CISetVariableVariantResult{
+		Variable:        variableGroupFromProto(resp.Msg.GetVariable()),
+		Variant:         variableVariantFromProto(resp.Msg.GetVariant()),
+		CreatedVariable: resp.Msg.GetCreatedVariable(),
+		CreatedVariant:  resp.Msg.GetCreatedVariant(),
+	}, nil
+}
+
+func CIDeleteVariableVariant(ctx context.Context, token, orgID, variantID string) (bool, error) {
+	client := newCIVariableServiceV3Beta2Client()
+	resp, err := client.DeleteVariableVariant(ctx, WithAuthenticationAndOrg(connect.NewRequest(&civ3beta2.DeleteVariableVariantRequest{VariantId: variantID}), token, orgID))
+	if err != nil {
+		return false, err
+	}
+	return resp.Msg.GetDeletedVariable(), nil
+}
+
+func CIDeleteVariableGroup(ctx context.Context, token, orgID, name string) error {
+	client := newCIVariableServiceV3Beta2Client()
+	_, err := client.DeleteVariable(ctx, WithAuthenticationAndOrg(connect.NewRequest(&civ3beta2.DeleteVariableRequest{
+		Lookup: &civ3beta2.DeleteVariableRequest_Name{Name: name},
+	}), token, orgID))
+	return err
+}
+
+func ciVariantName(name string) string {
+	if name == "" {
+		return ciDefaultVariantName
+	}
+	return name
+}
+
+func ciPageRequest(page uint32) *civ3beta2.PageRequest {
+	if page == 0 {
+		page = ciDefaultPage
+	}
+	return &civ3beta2.PageRequest{Page: page, PageSize: ciMaxPageSize}
+}
+
+func ciAttributes(repos, environments, branches, workflows []string) []*civ3beta2.Attribute {
+	attrs := make([]*civ3beta2.Attribute, 0, len(repos)+len(environments)+len(branches)+len(workflows))
+	for _, repo := range repos {
+		if repo != "" {
+			attrs = append(attrs, &civ3beta2.Attribute{Key: "repository", Value: repo})
+		}
+	}
+	for _, environment := range environments {
+		if environment != "" {
+			attrs = append(attrs, &civ3beta2.Attribute{Key: "environment", Value: environment})
+		}
+	}
+	for _, branch := range branches {
+		if branch != "" {
+			attrs = append(attrs, &civ3beta2.Attribute{Key: "branch", Value: branch})
+		}
+	}
+	for _, workflow := range workflows {
+		if workflow != "" {
+			attrs = append(attrs, &civ3beta2.Attribute{Key: "workflow", Value: workflow})
+		}
+	}
+	return attrs
+}
+
+func ciAttributesFromProto(attrs []*civ3beta2.Attribute) []CIVariantAttribute {
+	result := make([]CIVariantAttribute, 0, len(attrs))
+	for _, attr := range attrs {
+		result = append(result, CIVariantAttribute{Key: attr.GetKey(), Value: attr.GetValue()})
+	}
+	return result
+}
+
+func ciTimeString(ts *timestamppb.Timestamp) string {
+	if ts == nil {
+		return ""
+	}
+	return ts.AsTime().Format(time.RFC3339)
+}
+
+func secretGroupsFromProto(secrets []*civ3beta2.Secret) []CISecretGroup {
+	result := make([]CISecretGroup, 0, len(secrets))
+	for _, secret := range secrets {
+		result = append(result, secretGroupFromProto(secret))
+	}
+	return result
+}
+
+func secretGroupFromProto(secret *civ3beta2.Secret) CISecretGroup {
+	if secret == nil {
+		return CISecretGroup{}
+	}
+	return CISecretGroup{
+		ID:           secret.GetId(),
+		Name:         secret.GetName(),
+		Variants:     secretVariantsFromProto(secret.GetVariants()),
+		VariantCount: secret.GetVariantCount(),
+		LastModified: ciTimeString(secret.GetLastModified()),
+	}
+}
+
+func secretVariantsFromProto(variants []*civ3beta2.SecretVariant) []CISecretVariant {
+	result := make([]CISecretVariant, 0, len(variants))
+	for _, variant := range variants {
+		result = append(result, secretVariantFromProto(variant))
+	}
+	return result
+}
+
+func secretVariantFromProto(variant *civ3beta2.SecretVariant) CISecretVariant {
+	if variant == nil {
+		return CISecretVariant{}
+	}
+	return CISecretVariant{
+		ID:              variant.GetId(),
+		SecretID:        variant.GetSecretId(),
+		Name:            variant.GetName(),
+		Description:     variant.GetDescription(),
+		Attributes:      ciAttributesFromProto(variant.GetAttributes()),
+		LastModified:    ciTimeString(variant.GetLastModified()),
+		ValueGroupIndex: variant.ValueGroupIndex,
+	}
+}
+
+func variableGroupsFromProto(variables []*civ3beta2.Variable) []CIVariableGroup {
+	result := make([]CIVariableGroup, 0, len(variables))
+	for _, variable := range variables {
+		result = append(result, variableGroupFromProto(variable))
+	}
+	return result
+}
+
+func variableGroupFromProto(variable *civ3beta2.Variable) CIVariableGroup {
+	if variable == nil {
+		return CIVariableGroup{}
+	}
+	return CIVariableGroup{
+		ID:           variable.GetId(),
+		Name:         variable.GetName(),
+		Variants:     variableVariantsFromProto(variable.GetVariants()),
+		VariantCount: variable.GetVariantCount(),
+		LastModified: ciTimeString(variable.GetLastModified()),
+	}
+}
+
+func variableVariantsFromProto(variants []*civ3beta2.VariableVariant) []CIVariableVariant {
+	result := make([]CIVariableVariant, 0, len(variants))
+	for _, variant := range variants {
+		result = append(result, variableVariantFromProto(variant))
+	}
+	return result
+}
+
+func variableVariantFromProto(variant *civ3beta2.VariableVariant) CIVariableVariant {
+	if variant == nil {
+		return CIVariableVariant{}
+	}
+	return CIVariableVariant{
+		ID:           variant.GetId(),
+		VariableID:   variant.GetVariableId(),
+		Name:         variant.GetName(),
+		Value:        variant.GetValue(),
+		Description:  variant.GetDescription(),
+		Attributes:   ciAttributesFromProto(variant.GetAttributes()),
+		LastModified: ciTimeString(variant.GetLastModified()),
+	}
 }

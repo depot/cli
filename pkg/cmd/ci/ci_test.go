@@ -1,7 +1,12 @@
 package ci
 
 import (
+	"strings"
 	"testing"
+
+	"github.com/depot/cli/pkg/api"
+	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 )
 
 // TestCICommandRegistration guards `depot ci`'s subcommand surface so a future
@@ -41,4 +46,236 @@ func TestCICommandRegistration(t *testing.T) {
 			t.Errorf("subcommand %q not registered under `depot ci`", name)
 		}
 	}
+}
+
+func TestSecretsAddKeepsHiddenValueFlagForCompatibility(t *testing.T) {
+	cmd := NewCmdSecretsAdd()
+
+	valueFlag := cmd.Flags().Lookup("value")
+	if valueFlag == nil {
+		t.Fatal("expected hidden --value compatibility flag")
+	}
+	if !valueFlag.Hidden {
+		t.Fatal("expected --value to stay hidden from help")
+	}
+}
+
+func TestSecretsSetRequiresExplicitStdinInNonInteractiveMode(t *testing.T) {
+	cmd := NewCmdSecretsSet()
+	cmd.SilenceUsage = true
+	cmd.SilenceErrors = true
+	cmd.SetArgs([]string{"MY_SECRET"})
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "pass --from-stdin") {
+		t.Fatalf("error = %q", err)
+	}
+}
+
+func TestVarsSetRequiresValueInNonInteractiveMode(t *testing.T) {
+	cmd := NewCmdVarsSet()
+	cmd.SilenceUsage = true
+	cmd.SilenceErrors = true
+	cmd.SetArgs([]string{"MY_VAR"})
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "pass --value") {
+		t.Fatalf("error = %q", err)
+	}
+}
+
+func TestVariantSelectorFlagsAreRepeatable(t *testing.T) {
+	for name, cmd := range map[string]commandWithFlags{
+		"secrets set":    {flags: NewCmdSecretsSet().Flags()},
+		"secrets add":    {flags: NewCmdSecretsAdd().Flags()},
+		"secrets bulk":   {flags: NewCmdSecretsBulk().Flags()},
+		"secrets get":    {flags: NewCmdSecretsGet().Flags()},
+		"secrets list":   {flags: NewCmdSecretsList().Flags()},
+		"secrets remove": {flags: NewCmdSecretsRemove().Flags()},
+		"vars set":       {flags: NewCmdVarsSet().Flags()},
+		"vars add":       {flags: NewCmdVarsAdd().Flags()},
+		"vars list":      {flags: NewCmdVarsList().Flags()},
+		"vars remove":    {flags: NewCmdVarsRemove().Flags()},
+	} {
+		t.Run(name, func(t *testing.T) {
+			repo := cmd.flags.Lookup("repo")
+			if repo == nil {
+				t.Fatal("expected --repo flag")
+			}
+			if repo.Value.Type() != "stringArray" {
+				t.Fatalf("--repo type = %q, want stringArray", repo.Value.Type())
+			}
+		})
+	}
+}
+
+func TestVariantNameIsPositionalNotFlag(t *testing.T) {
+	for name, cmd := range map[string]commandWithFlags{
+		"secrets set":  {flags: NewCmdSecretsSet().Flags()},
+		"secrets add":  {flags: NewCmdSecretsAdd().Flags()},
+		"secrets bulk": {flags: NewCmdSecretsBulk().Flags()},
+		"secrets get":  {flags: NewCmdSecretsGet().Flags()},
+		"vars set":     {flags: NewCmdVarsSet().Flags()},
+		"vars add":     {flags: NewCmdVarsAdd().Flags()},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if flag := cmd.flags.Lookup("variant"); flag != nil {
+				t.Fatalf("did not expect --variant flag: %#v", flag)
+			}
+		})
+	}
+}
+
+func TestRemoveCommandsUseVariantFlagForVariantDeletion(t *testing.T) {
+	for name, cmd := range map[string]commandWithFlags{
+		"secrets remove": {flags: NewCmdSecretsRemove().Flags()},
+		"vars remove":    {flags: NewCmdVarsRemove().Flags()},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if flag := cmd.flags.Lookup("variant"); flag == nil {
+				t.Fatal("expected --variant flag")
+			}
+		})
+	}
+}
+
+func TestRemoveCommandsKeepLegacyMultiNameUse(t *testing.T) {
+	for name, tc := range map[string]struct {
+		use  string
+		want string
+	}{
+		"secrets remove": {use: NewCmdSecretsRemove().Use, want: "remove <secret-name> [<secret-name>...]"},
+		"vars remove":    {use: NewCmdVarsRemove().Use, want: "remove <variable-name> [<variable-name>...]"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if tc.use != tc.want {
+				t.Fatalf("Use = %q, want %q", tc.use, tc.want)
+			}
+		})
+	}
+}
+
+func TestRemoveAllRejectsVariantSelectors(t *testing.T) {
+	for name, cmd := range map[string]*cobra.Command{
+		"secrets remove": NewCmdSecretsRemove(),
+		"vars remove":    NewCmdVarsRemove(),
+	} {
+		t.Run(name, func(t *testing.T) {
+			cmd.SilenceUsage = true
+			cmd.SilenceErrors = true
+			cmd.SetArgs([]string{"NAME", "--all", "--repo", "owner/repo", "--force"})
+
+			err := cmd.Execute()
+			if err == nil {
+				t.Fatal("expected error")
+			}
+			if !strings.Contains(err.Error(), "--all cannot be used with --variant, --repo, --env, --branch, or --workflow") {
+				t.Fatalf("error = %q", err)
+			}
+		})
+	}
+}
+
+func TestLegacyListRepoSelectorOnlyAcceptsLegacySelectors(t *testing.T) {
+	if repo, ok := legacyListRepoSelector([]string{"owner/repo"}, nil, nil, nil); !ok || repo != "owner/repo" {
+		t.Fatalf("legacyListRepoSelector() = %q, %v; want owner/repo, true", repo, ok)
+	}
+	if _, ok := legacyListRepoSelector([]string{"one", "two"}, nil, nil, nil); ok {
+		t.Fatal("expected multiple repos to use variant JSON")
+	}
+	if _, ok := legacyListRepoSelector([]string{"owner/repo"}, []string{"prod"}, nil, nil); ok {
+		t.Fatal("expected new selectors to use variant JSON")
+	}
+}
+
+func TestListFilteringIncludesUnscopedVariantsForRepo(t *testing.T) {
+	group := api.CISecretGroup{
+		Name: "TOKEN",
+		Variants: []api.CISecretVariant{
+			{Name: "default"},
+			{Name: "matching", Attributes: []api.CIVariantAttribute{{Key: "repository", Value: "Owner/Repo"}}},
+			{Name: "other", Attributes: []api.CIVariantAttribute{{Key: "repository", Value: "other/repo"}}},
+		},
+	}
+
+	filtered := filterSecretVariantsForList(group, []string{"owner/repo"}, nil, nil, nil)
+
+	if len(filtered.Variants) != 2 {
+		t.Fatalf("len(filtered.Variants) = %d, want 2: %#v", len(filtered.Variants), filtered.Variants)
+	}
+	if filtered.Variants[0].Name != "default" || filtered.Variants[1].Name != "matching" {
+		t.Fatalf("filtered variants = %#v", filtered.Variants)
+	}
+}
+
+func TestStrictVariantMatchingStillRequiresRepoAttribute(t *testing.T) {
+	group := api.CISecretGroup{
+		Name: "TOKEN",
+		Variants: []api.CISecretVariant{
+			{Name: "default"},
+			{Name: "matching", Attributes: []api.CIVariantAttribute{{Key: "repository", Value: "owner/repo"}}},
+		},
+	}
+
+	matches, err := resolveSecretVariant(group, "", []string{"owner/repo"}, nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(matches) != 1 || matches[0].Name != "matching" {
+		t.Fatalf("matches = %#v, want only matching", matches)
+	}
+}
+
+func TestSecretsBulkUsesFileFlagAndPositionalVariant(t *testing.T) {
+	cmd := NewCmdSecretsBulk()
+
+	if cmd.Use != "bulk [variant]" {
+		t.Fatalf("Use = %q, want %q", cmd.Use, "bulk [variant]")
+	}
+	if flag := cmd.Flags().Lookup("file"); flag == nil {
+		t.Fatal("expected --file flag")
+	}
+	if flag := cmd.Flags().Lookup("variant"); flag != nil {
+		t.Fatalf("did not expect --variant flag: %#v", flag)
+	}
+}
+
+func TestParseSecretBulkEnv(t *testing.T) {
+	secrets, err := parseSecretBulkEnv([]byte(`
+# comment
+PLAIN=value
+QUOTED="two words"
+EMPTY=
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := []secretInput{
+		{name: "EMPTY", value: ""},
+		{name: "PLAIN", value: "value"},
+		{name: "QUOTED", value: "two words"},
+	}
+	if len(secrets) != len(want) {
+		t.Fatalf("len(secrets) = %d, want %d: %#v", len(secrets), len(want), secrets)
+	}
+	for i := range want {
+		if secrets[i] != want[i] {
+			t.Fatalf("secrets[%d] = %#v, want %#v", i, secrets[i], want[i])
+		}
+	}
+}
+
+type commandWithFlags struct {
+	flags flagSet
+}
+
+type flagSet interface {
+	Lookup(string) *pflag.Flag
 }
