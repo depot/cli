@@ -15,6 +15,8 @@ import (
 	"connectrpc.com/connect"
 	civ1 "github.com/depot/cli/pkg/proto/depot/ci/v1"
 	"github.com/depot/cli/pkg/proto/depot/ci/v1/civ1connect"
+	civ3beta2 "github.com/depot/cli/pkg/proto/depot/ci/v3beta2"
+	"github.com/depot/cli/pkg/proto/depot/ci/v3beta2/civ3beta2connect"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
 	"google.golang.org/protobuf/proto"
@@ -388,6 +390,321 @@ func assertAuthAndOrg(t *testing.T, header http.Header) {
 	}
 	if got := header.Get("x-depot-org"); got != "org-123" {
 		t.Fatalf("x-depot-org = %q, want org-123", got)
+	}
+}
+
+type secretVariantsRecorder struct {
+	civ3beta2connect.UnimplementedSecretServiceHandler
+	t            *testing.T
+	getRequests  []*civ3beta2.GetSecretVariantRequest
+	setRequests  []*civ3beta2.SetSecretVariantRequest
+	listRequests []*civ3beta2.ListSecretsRequest
+}
+
+func (r *secretVariantsRecorder) GetSecretVariant(_ context.Context, req *connect.Request[civ3beta2.GetSecretVariantRequest]) (*connect.Response[civ3beta2.GetSecretVariantResponse], error) {
+	assertAuthAndOrg(r.t, req.Header())
+	r.getRequests = append(r.getRequests, proto.Clone(req.Msg).(*civ3beta2.GetSecretVariantRequest))
+	return connect.NewResponse(&civ3beta2.GetSecretVariantResponse{
+		Variant: &civ3beta2.SecretVariant{
+			Id:       req.Msg.GetId(),
+			SecretId: "secret-1",
+			Name:     "production",
+			Attributes: []*civ3beta2.Attribute{
+				{Key: "repository", Value: "depot/api"},
+				{Key: "branch", Value: "main"},
+			},
+		},
+	}), nil
+}
+
+func (r *secretVariantsRecorder) SetSecretVariant(_ context.Context, req *connect.Request[civ3beta2.SetSecretVariantRequest]) (*connect.Response[civ3beta2.SetSecretVariantResponse], error) {
+	assertAuthAndOrg(r.t, req.Header())
+	r.setRequests = append(r.setRequests, proto.Clone(req.Msg).(*civ3beta2.SetSecretVariantRequest))
+	return connect.NewResponse(&civ3beta2.SetSecretVariantResponse{
+		Secret: &civ3beta2.Secret{
+			Id:   "secret-1",
+			Name: req.Msg.GetSecretName(),
+		},
+		Variant: &civ3beta2.SecretVariant{
+			Id:          "variant-1",
+			SecretId:    "secret-1",
+			Name:        req.Msg.GetVariantName(),
+			Description: req.Msg.Description,
+			Attributes:  req.Msg.GetAttributes(),
+		},
+		CreatedSecret:  true,
+		CreatedVariant: true,
+	}), nil
+}
+
+func (r *secretVariantsRecorder) ListSecrets(_ context.Context, req *connect.Request[civ3beta2.ListSecretsRequest]) (*connect.Response[civ3beta2.ListSecretsResponse], error) {
+	assertAuthAndOrg(r.t, req.Header())
+	r.listRequests = append(r.listRequests, proto.Clone(req.Msg).(*civ3beta2.ListSecretsRequest))
+	valueGroupIndex := uint32(2)
+	name := "TOKEN"
+	if req.Msg.GetPage().GetPage() > 1 {
+		name = "TOKEN_TWO"
+	}
+	return connect.NewResponse(&civ3beta2.ListSecretsResponse{
+		Secrets: []*civ3beta2.Secret{
+			{
+				Id:           "secret-1",
+				Name:         name,
+				VariantCount: 1,
+				Variants: []*civ3beta2.SecretVariant{
+					{
+						Id:              "variant-1",
+						SecretId:        "secret-1",
+						Name:            "default",
+						Attributes:      []*civ3beta2.Attribute{{Key: "repository", Value: "depot/api"}},
+						ValueGroupIndex: &valueGroupIndex,
+					},
+				},
+			},
+		},
+		Page: &civ3beta2.PageResponse{Page: req.Msg.GetPage().GetPage(), PageSize: 100, HasMore: req.Msg.GetPage().GetPage() == 1},
+	}), nil
+}
+
+func TestCISetSecretVariantMapsDefaultVariantAndAttributes(t *testing.T) {
+	recorder := &secretVariantsRecorder{t: t}
+	withTestSecretVariantsService(t, recorder, func() {
+		result, err := CISetSecretVariant(context.Background(), "token-123", "org-123", CISetSecretVariantOptions{
+			Name:        "TOKEN",
+			Value:       "secret-value",
+			Description: "deploy token",
+			Repo:        []string{"depot/api"},
+			Environment: []string{"production"},
+			Branch:      []string{"main", "release/*"},
+			Workflow:    []string{"deploy.yml"},
+		})
+		if err != nil {
+			t.Fatalf("CISetSecretVariant returned error: %v", err)
+		}
+		if !result.CreatedSecret || !result.CreatedVariant {
+			t.Fatalf("expected created flags, got %+v", result)
+		}
+		if result.Variant.Name != "default" {
+			t.Fatalf("variant name = %q, want default", result.Variant.Name)
+		}
+	})
+
+	if len(recorder.setRequests) != 1 {
+		t.Fatalf("expected 1 SetSecretVariant request, got %d", len(recorder.setRequests))
+	}
+	req := recorder.setRequests[0]
+	if req.GetSecretName() != "TOKEN" || req.GetVariantName() != "default" || req.GetValue() != "secret-value" {
+		t.Fatalf("unexpected request: %+v", req)
+	}
+	if req.GetDescription() != "deploy token" {
+		t.Fatalf("description = %q, want deploy token", req.GetDescription())
+	}
+	assertProtoAttributes(t, req.GetAttributes(), []CIVariantAttribute{
+		{Key: "repository", Value: "depot/api"},
+		{Key: "environment", Value: "production"},
+		{Key: "branch", Value: "main"},
+		{Key: "branch", Value: "release/*"},
+		{Key: "workflow", Value: "deploy.yml"},
+	})
+}
+
+func TestCIGetSecretVariantByID(t *testing.T) {
+	recorder := &secretVariantsRecorder{t: t}
+	withTestSecretVariantsService(t, recorder, func() {
+		variant, err := CIGetSecretVariant(context.Background(), "token-123", "org-123", "variant-123")
+		if err != nil {
+			t.Fatalf("CIGetSecretVariant returned error: %v", err)
+		}
+		if variant.ID != "variant-123" || variant.Name != "production" || len(variant.Attributes) != 2 {
+			t.Fatalf("unexpected variant: %+v", variant)
+		}
+	})
+
+	if len(recorder.getRequests) != 1 {
+		t.Fatalf("expected 1 GetSecretVariant request, got %d", len(recorder.getRequests))
+	}
+	if got := recorder.getRequests[0].GetId(); got != "variant-123" {
+		t.Fatalf("id = %q, want variant-123", got)
+	}
+}
+
+func TestCIListSecretVariantsFetchesAllPagesAndMapsResponse(t *testing.T) {
+	recorder := &secretVariantsRecorder{t: t}
+	withTestSecretVariantsService(t, recorder, func() {
+		result, err := CIListSecretVariants(context.Background(), "token-123", "org-123", CIListSecretVariantsOptions{
+			Repo: []string{"depot/api"},
+		})
+		if err != nil {
+			t.Fatalf("CIListSecretVariants returned error: %v", err)
+		}
+		if len(result.Secrets) != 2 || result.Secrets[0].Name != "TOKEN" || result.Secrets[1].Name != "TOKEN_TWO" {
+			t.Fatalf("unexpected secrets: %+v", result.Secrets)
+		}
+		if result.Secrets[0].Variants[0].ValueGroupIndex == nil || *result.Secrets[0].Variants[0].ValueGroupIndex != 2 {
+			t.Fatalf("value group index = %v, want 2", result.Secrets[0].Variants[0].ValueGroupIndex)
+		}
+	})
+
+	if len(recorder.listRequests) != 2 {
+		t.Fatalf("expected 2 ListSecrets requests, got %d", len(recorder.listRequests))
+	}
+	req := recorder.listRequests[0]
+	if req.GetPage().GetPage() != 1 || req.GetPage().GetPageSize() != 100 {
+		t.Fatalf("page request = %+v, want page=1 page_size=100", req.GetPage())
+	}
+	if got := recorder.listRequests[1].GetPage().GetPage(); got != 2 {
+		t.Fatalf("second page = %d, want 2", got)
+	}
+	assertProtoAttributes(t, req.GetAttributes(), []CIVariantAttribute{{Key: "repository", Value: "depot/api"}})
+}
+
+func withTestSecretVariantsService(t *testing.T, handler civ3beta2connect.SecretServiceHandler, fn func()) {
+	t.Helper()
+
+	_, httpHandler := civ3beta2connect.NewSecretServiceHandler(handler)
+	server := httptest.NewServer(h2c.NewHandler(httpHandler, &http2.Server{}))
+	defer server.Close()
+
+	originalBaseURLFunc := baseURLFunc
+	baseURLFunc = func() string { return server.URL }
+	t.Cleanup(func() { baseURLFunc = originalBaseURLFunc })
+
+	fn()
+}
+
+type variableVariantsRecorder struct {
+	civ3beta2connect.UnimplementedVariableServiceHandler
+	t            *testing.T
+	setRequests  []*civ3beta2.SetVariableVariantRequest
+	listRequests []*civ3beta2.ListVariablesRequest
+}
+
+func (r *variableVariantsRecorder) SetVariableVariant(_ context.Context, req *connect.Request[civ3beta2.SetVariableVariantRequest]) (*connect.Response[civ3beta2.SetVariableVariantResponse], error) {
+	assertAuthAndOrg(r.t, req.Header())
+	r.setRequests = append(r.setRequests, proto.Clone(req.Msg).(*civ3beta2.SetVariableVariantRequest))
+	return connect.NewResponse(&civ3beta2.SetVariableVariantResponse{
+		Variable: &civ3beta2.Variable{
+			Id:   "variable-1",
+			Name: req.Msg.GetVariableName(),
+		},
+		Variant: &civ3beta2.VariableVariant{
+			Id:         "variant-1",
+			VariableId: "variable-1",
+			Name:       req.Msg.GetVariantName(),
+			Value:      req.Msg.GetValue(),
+			Attributes: req.Msg.GetAttributes(),
+		},
+		CreatedVariable: true,
+		CreatedVariant:  true,
+	}), nil
+}
+
+func (r *variableVariantsRecorder) ListVariables(_ context.Context, req *connect.Request[civ3beta2.ListVariablesRequest]) (*connect.Response[civ3beta2.ListVariablesResponse], error) {
+	assertAuthAndOrg(r.t, req.Header())
+	r.listRequests = append(r.listRequests, proto.Clone(req.Msg).(*civ3beta2.ListVariablesRequest))
+	name := "REGION"
+	if req.Msg.GetPage().GetPage() > 1 {
+		name = "ENV"
+	}
+	return connect.NewResponse(&civ3beta2.ListVariablesResponse{
+		Variables: []*civ3beta2.Variable{
+			{
+				Id:           "variable-1",
+				Name:         name,
+				VariantCount: 1,
+				Variants: []*civ3beta2.VariableVariant{
+					{
+						Id:         "variant-1",
+						VariableId: "variable-1",
+						Name:       "default",
+						Value:      "production",
+						Attributes: []*civ3beta2.Attribute{{Key: "repository", Value: "depot/api"}},
+					},
+				},
+			},
+		},
+		Page: &civ3beta2.PageResponse{Page: req.Msg.GetPage().GetPage(), PageSize: 100, HasMore: req.Msg.GetPage().GetPage() == 1},
+	}), nil
+}
+
+func TestCISetVariableVariantMapsNamedVariantAndAttributes(t *testing.T) {
+	recorder := &variableVariantsRecorder{t: t}
+	withTestVariableVariantsService(t, recorder, func() {
+		result, err := CISetVariableVariant(context.Background(), "token-123", "org-123", CISetVariableVariantOptions{
+			Name:    "REGION",
+			Variant: "production",
+			Value:   "us-east-1",
+			Repo:    []string{"depot/api"},
+		})
+		if err != nil {
+			t.Fatalf("CISetVariableVariant returned error: %v", err)
+		}
+		if result.Variant.Name != "production" || result.Variant.Value != "us-east-1" {
+			t.Fatalf("unexpected variant: %+v", result.Variant)
+		}
+	})
+
+	if len(recorder.setRequests) != 1 {
+		t.Fatalf("expected 1 SetVariableVariant request, got %d", len(recorder.setRequests))
+	}
+	req := recorder.setRequests[0]
+	if req.GetVariableName() != "REGION" || req.GetVariantName() != "production" || req.GetValue() != "us-east-1" {
+		t.Fatalf("unexpected request: %+v", req)
+	}
+	assertProtoAttributes(t, req.GetAttributes(), []CIVariantAttribute{{Key: "repository", Value: "depot/api"}})
+}
+
+func TestCIListVariableVariantsFetchesAllPagesAndMapsResponse(t *testing.T) {
+	recorder := &variableVariantsRecorder{t: t}
+	withTestVariableVariantsService(t, recorder, func() {
+		result, err := CIListVariableVariants(context.Background(), "token-123", "org-123", CIListVariableVariantsOptions{
+			Repo: []string{"depot/api"},
+		})
+		if err != nil {
+			t.Fatalf("CIListVariableVariants returned error: %v", err)
+		}
+		if len(result.Variables) != 2 || result.Variables[0].Name != "REGION" || result.Variables[1].Name != "ENV" {
+			t.Fatalf("unexpected variables: %+v", result.Variables)
+		}
+	})
+
+	if len(recorder.listRequests) != 2 {
+		t.Fatalf("expected 2 ListVariables requests, got %d", len(recorder.listRequests))
+	}
+	first := recorder.listRequests[0]
+	if first.GetPage().GetPage() != 1 || first.GetPage().GetPageSize() != 100 {
+		t.Fatalf("first page request = %+v, want page=1 page_size=100", first.GetPage())
+	}
+	if got := recorder.listRequests[1].GetPage().GetPage(); got != 2 {
+		t.Fatalf("second page = %d, want 2", got)
+	}
+	assertProtoAttributes(t, first.GetAttributes(), []CIVariantAttribute{{Key: "repository", Value: "depot/api"}})
+}
+
+func withTestVariableVariantsService(t *testing.T, handler civ3beta2connect.VariableServiceHandler, fn func()) {
+	t.Helper()
+
+	_, httpHandler := civ3beta2connect.NewVariableServiceHandler(handler)
+	server := httptest.NewServer(h2c.NewHandler(httpHandler, &http2.Server{}))
+	defer server.Close()
+
+	originalBaseURLFunc := baseURLFunc
+	baseURLFunc = func() string { return server.URL }
+	t.Cleanup(func() { baseURLFunc = originalBaseURLFunc })
+
+	fn()
+}
+
+func assertProtoAttributes(t *testing.T, got []*civ3beta2.Attribute, want []CIVariantAttribute) {
+	t.Helper()
+
+	if len(got) != len(want) {
+		t.Fatalf("attributes length = %d, want %d: %+v", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i].GetKey() != want[i].Key || got[i].GetValue() != want[i].Value {
+			t.Fatalf("attribute %d = %s=%s, want %s=%s", i, got[i].GetKey(), got[i].GetValue(), want[i].Key, want[i].Value)
+		}
 	}
 }
 
