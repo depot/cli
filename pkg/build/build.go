@@ -28,6 +28,7 @@ type Build struct {
 
 	Response  *connect.Response[cliv1.CreateBuildResponse]
 	projectID string
+	saveTags  []string
 }
 
 type Credential struct {
@@ -43,7 +44,24 @@ type PullInfo struct {
 
 func (b *Build) AdditionalTags() []string {
 	if b.Response == nil || b.Response.Msg == nil {
-		return []string{fmt.Sprintf("registry.depot.dev/%s:%s", b.projectID, b.ID)}
+		tags := []string{fmt.Sprintf("registry.depot.dev/%s:%s", b.projectID, b.ID)}
+		seenTags := map[string]struct{}{tags[0]: {}}
+
+		for _, saveTag := range b.saveTags {
+			if saveTag == "" {
+				continue
+			}
+
+			tag := fmt.Sprintf("registry.depot.dev/%s:%s", b.projectID, saveTag)
+			if _, ok := seenTags[tag]; ok {
+				continue
+			}
+
+			seenTags[tag] = struct{}{}
+			tags = append(tags, tag)
+		}
+
+		return tags
 	}
 
 	tags := make([]string, 0, len(b.Response.Msg.AdditionalTags))
@@ -126,8 +144,9 @@ func NewBuild(ctx context.Context, req *cliv1.CreateBuildRequest, token string) 
 	return build, nil
 }
 
-func FromExistingBuild(ctx context.Context, buildID, token string, buildRes *connect.Response[cliv1.CreateBuildResponse]) (Build, error) {
+func FromExistingBuild(ctx context.Context, buildID, token string, buildRes *connect.Response[cliv1.CreateBuildResponse], saveTags ...string) (Build, error) {
 	client := depotapi.NewBuildClient()
+	saveTags = append([]string(nil), saveTags...)
 
 	finish := func(buildErr error) {
 		req := cliv1.FinishBuildRequest{BuildId: buildID}
@@ -163,6 +182,7 @@ func FromExistingBuild(ctx context.Context, buildID, token string, buildRes *con
 			Finish:    finish,
 			BuildURL:  res.Msg.BuildUrl,
 			projectID: res.Msg.ProjectId,
+			saveTags:  saveTags,
 		}, nil
 	} else {
 		return Build{
@@ -171,6 +191,7 @@ func FromExistingBuild(ctx context.Context, buildID, token string, buildRes *con
 			Finish:   finish,
 			BuildURL: buildRes.Msg.BuildUrl,
 			Response: buildRes,
+			saveTags: saveTags,
 		}, nil
 	}
 
