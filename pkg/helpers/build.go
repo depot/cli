@@ -15,7 +15,7 @@ func BeginBuild(ctx context.Context, req *cliv1.CreateBuildRequest, token string
 	var build depotbuild.Build
 	var err error
 	if id := os.Getenv("DEPOT_BUILD_ID"); id != "" {
-		build, err = depotbuild.FromExistingBuild(ctx, id, token, nil)
+		build, err = depotbuild.FromExistingBuild(ctx, id, token, nil, saveTagsFromRequest(req)...)
 	} else {
 		build, err = depotbuild.NewBuild(ctx, req, token)
 	}
@@ -36,6 +36,34 @@ func BeginBuild(ctx context.Context, req *cliv1.CreateBuildRequest, token string
 	}
 
 	return build, err
+}
+
+func saveTagsFromRequest(req *cliv1.CreateBuildRequest) []string {
+	if req == nil {
+		return nil
+	}
+
+	saveTags := []string{}
+	seenTags := map[string]struct{}{}
+	for _, opts := range req.Options {
+		if opts == nil {
+			continue
+		}
+
+		for _, saveTag := range opts.SaveTags {
+			if saveTag == "" {
+				continue
+			}
+			if _, ok := seenTags[saveTag]; ok {
+				continue
+			}
+
+			seenTags[saveTag] = struct{}{}
+			saveTags = append(saveTags, saveTag)
+		}
+	}
+
+	return saveTags
 }
 
 type UsingDepotFeatures struct {
