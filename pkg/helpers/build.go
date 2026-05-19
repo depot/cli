@@ -11,12 +11,21 @@ import (
 	buildx "github.com/docker/buildx/build"
 )
 
+// ErrMissingProjectID is returned by BeginBuild when no project ID can be
+// resolved from the command line, environment, or depot.json. The message is
+// surfaced to users (including via depot/build-push-action) and is intended to
+// be actionable so they don't have to debug a misleading authentication error.
+var ErrMissingProjectID = errors.New(`no project ID specified. Please provide a project ID via the --project flag, the DEPOT_PROJECT_ID environment variable (the build-push-action sets this from its "project" input), or by adding a depot.json file to your project root (run "depot init")`)
+
 func BeginBuild(ctx context.Context, req *cliv1.CreateBuildRequest, token string) (depotbuild.Build, error) {
 	var build depotbuild.Build
 	var err error
 	if id := os.Getenv("DEPOT_BUILD_ID"); id != "" {
 		build, err = depotbuild.FromExistingBuild(ctx, id, token, nil)
 	} else {
+		if req.GetProjectId() == "" {
+			return depotbuild.Build{}, ErrMissingProjectID
+		}
 		build, err = depotbuild.NewBuild(ctx, req, token)
 	}
 	if err != nil {
