@@ -22,6 +22,12 @@ type SessionOptions struct {
 	SessionID string
 	Cwd       string
 	Env       map[string]string
+
+	// StdinPrefix is sent as the first stdin chunk after the pty session is
+	// open, before forwarding os.Stdin. Used by `depot sandbox shell` to
+	// inject on.shell entries into the login shell. Must be terminated with
+	// "\n" so the shell's line discipline flushes it.
+	StdinPrefix []byte
 }
 
 // Run opens an interactive PTY session to the given sandbox.
@@ -90,6 +96,18 @@ func Run(ctx context.Context, opts SessionOptions) error {
 
 	stopResize := watchTerminalResize(ctx, fd, sendCh)
 	defer stopResize()
+
+	// on.shell entrypoint: send before user keystrokes so the login shell
+	// reads it from its stdin buffer the moment it's ready. Skipping the
+	// sendCh hop here is intentional — Send is concurrent-safe under the
+	// connectrpc client and we want this to land before any os.Stdin byte.
+	if len(opts.StdinPrefix) > 0 {
+		if err := stream.Send(&civ1.OpenPtySessionRequest{
+			Message: &civ1.OpenPtySessionRequest_Stdin{Stdin: opts.StdinPrefix},
+		}); err != nil {
+			return fmt.Errorf("send on.shell prefix: %w", err)
+		}
+	}
 
 	// Forward stdin to the stream.
 	go func() {

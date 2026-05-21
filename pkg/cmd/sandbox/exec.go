@@ -6,9 +6,8 @@ import (
 
 	"connectrpc.com/connect"
 	"github.com/depot/cli/pkg/api"
-	"github.com/depot/cli/pkg/config"
-	"github.com/depot/cli/pkg/helpers"
 	civ1 "github.com/depot/cli/pkg/proto/depot/ci/v1"
+	"github.com/depot/cli/pkg/sandbox"
 	"github.com/spf13/cobra"
 )
 
@@ -31,39 +30,30 @@ func newSandboxExec() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
 
-			token, err := cmd.Flags().GetString("token")
-			cobra.CheckErr(err)
-
-			token, err = helpers.ResolveOrgAuth(ctx, token)
+			token, orgID, err := resolveAuthAndOrg(ctx, cmd)
 			if err != nil {
-				return fmt.Errorf("failed to resolve token: %w", err)
+				return err
 			}
 
-			orgID, err := cmd.Flags().GetString("org")
-			cobra.CheckErr(err)
-
-			if orgID == "" {
-				orgID = config.GetCurrentOrganization()
-			}
-
-			sandboxID, err := cmd.Flags().GetString("sandbox-id")
-			cobra.CheckErr(err)
-
+			sandboxID, _ := cmd.Flags().GetString("sandbox-id")
 			if sandboxID == "" {
 				return fmt.Errorf("sandbox-id is required")
 			}
-
-			sessionID, err := cmd.Flags().GetString("session-id")
-			cobra.CheckErr(err)
-
+			sessionID, _ := cmd.Flags().GetString("session-id")
 			if sessionID == "" {
-				return fmt.Errorf("session-id is required")
+				sessionID, err = resolveSession(ctx, sandboxID, token, orgID)
+				if err != nil {
+					return err
+				}
 			}
 
-			timeout, err := cmd.Flags().GetInt("timeout")
-			cobra.CheckErr(err)
-
+			timeout, _ := cmd.Flags().GetInt("timeout")
 			client := api.NewComputeClient()
+
+			if err := runHookStage(ctx, cmd, client, token, orgID, sandboxID, sessionID, "on.exec",
+				func(h sandbox.HooksSpec) []sandbox.HookSpec { return h.Exec }, os.Stdout, os.Stderr); err != nil {
+				return err
+			}
 
 			stream, err := client.RemoteExec(ctx, api.WithAuthenticationAndOrg(connect.NewRequest(&civ1.ExecuteCommandRequest{
 				SandboxId: sandboxID,
@@ -78,24 +68,13 @@ func newSandboxExec() *cobra.Command {
 				return err
 			}
 
-			for stream.Receive() {
-				msg := stream.Msg()
-				switch v := msg.Message.(type) {
-				case *civ1.ExecuteCommandResponse_Stdout:
-					fmt.Fprint(os.Stdout, v.Stdout)
-				case *civ1.ExecuteCommandResponse_Stderr:
-					fmt.Fprint(os.Stderr, v.Stderr)
-				case *civ1.ExecuteCommandResponse_ExitCode:
-					if v.ExitCode != 0 {
-						os.Exit(int(v.ExitCode))
-					}
-					return nil
-				}
+			exit, err := consumeRemoteExec(stream, os.Stdout, os.Stderr)
+			if err != nil {
+				return err
 			}
-			if err := stream.Err(); err != nil {
-				return fmt.Errorf("stream error: %w", err)
+			if exit != 0 {
+				os.Exit(int(exit))
 			}
-
 			return nil
 		},
 	}
@@ -103,6 +82,7 @@ func newSandboxExec() *cobra.Command {
 	cmd.Flags().String("sandbox-id", "", "ID of the compute to execute the command against")
 	cmd.Flags().String("session-id", "", "The session the compute belongs to")
 	cmd.Flags().Int("timeout", 0, "The execution timeout in milliseconds")
+	addHookFlags(cmd, "on.exec")
 
 	return cmd
 }
