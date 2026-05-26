@@ -613,12 +613,12 @@ func (dc *DiskCache) Put(ctx context.Context, actionID, objectID string, size in
 		}
 		zf.Close()
 	} else {
-		wrote, err := writeAtomic(file, body)
+		bytesWritten, err := writeAtomic(file, body)
 		if err != nil {
 			return "", false, fmt.Errorf("unable to write to disk: %w", err)
 		}
-		if wrote != size {
-			return "", false, fmt.Errorf("wrote %d bytes, expected %d", wrote, size)
+		if bytesWritten != size {
+			return "", false, fmt.Errorf("wrote %d bytes, expected %d", bytesWritten, size)
 		}
 	}
 
