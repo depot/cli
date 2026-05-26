@@ -1,0 +1,58 @@
+syntax = "proto3";
+
+package depot.sandbox.v1;
+
+import "depot/sandbox/v1/refs.proto";
+
+// Pty surface for depot.sandbox.v1 (DEP-4527 / P18).
+//
+// Single bidi RPC: SandboxService.OpenPty. The first request on the stream
+// MUST carry `start`; subsequent requests carry `stdin` bytes or `resize`
+// window changes. Response stream is `data` byte chunks terminated by an
+// `Exit` carrying the exit code.
+//
+// Implementation passes through to vm3 ProxyService.PtySession (same wire path
+// as the legacy ci.v1.OpenPtySession); vm3 hardcodes /bin/sh, so no `shell`
+// selector exists at the wire layer. Architecture §13: no reattach in v0;
+// closing the stream ends the pty.
+//
+// Bytes-everywhere on the wire: pty output is binary-safe (often includes
+// ANSI control sequences and other non-UTF-8 bytes); the SDK exposes it as
+// Buffer rather than decoding to string at the adapter.
+
+message OpenPtyRequest {
+  oneof input {
+    Start start = 1;
+    bytes stdin = 2;
+    Resize resize = 3;
+  }
+
+  // Start carries the per-session init parameters. Sent as the first message
+  // on the stream. Subsequent `start` messages on the same stream are a
+  // protocol violation and ignored by the handler.
+  message Start {
+    SandboxRef sandbox = 1;
+    map<string, string> env = 2;
+    optional uint32 rows = 3;
+    optional uint32 cols = 4;
+    optional string cwd = 5;
+  }
+
+  // Resize is a window-size change. vm3 maps it to the OS pty Setsize ioctl
+  // which clamps out-of-range values; bounds are intentionally pass-through.
+  message Resize {
+    uint32 rows = 1;
+    uint32 cols = 2;
+  }
+}
+
+message OpenPtyResponse {
+  oneof output {
+    bytes data = 1;
+    Exit exit = 2;
+  }
+
+  message Exit {
+    int32 exit_code = 1;
+  }
+}

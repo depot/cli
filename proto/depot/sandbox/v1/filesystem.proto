@@ -1,0 +1,219 @@
+// depot.sandbox.v1 — FileSystem surface (DEP-4524).
+//
+// Covers the exec-first server-side first slice (P15) and the native vm3 swap
+// (DEP-4525 / P17). Same proto surface across implementations; the server
+// picks the active implementation per-org.
+//
+// Errors travel as Connect errors with a `FileSystemErrorDetail` attached.
+// The SDK adapter (sdk-sandbox/src/errors.ts) converts that into a Node-shape
+// Error object carrying `{code, syscall, path, errno}` so customers can keep
+// coding against node:fs/promises shape.
+//
+// The RPC declarations live on `service SandboxService` in sandbox.proto;
+// this file only carries messages + enums.
+
+syntax = "proto3";
+
+package depot.sandbox.v1;
+
+import "depot/sandbox/v1/refs.proto";
+
+// FileSystemErrorCode mirrors the Node fs error codes the SDK exposes.
+// Server attaches one of these on a Connect error; client maps to Error.code.
+//
+// `OTHER` is the catch-all when the exec-first classifier cannot pin a
+// specific Node code (e.g. busybox-stderr phrasing the regex doesn't match);
+// callers surface it as a generic FileSystemError without losing the syscall
+// + path context.
+enum FileSystemErrorCode {
+  FILESYSTEM_ERROR_CODE_UNSPECIFIED = 0;
+  FILESYSTEM_ERROR_CODE_ENOENT = 1;
+  FILESYSTEM_ERROR_CODE_EEXIST = 2;
+  FILESYSTEM_ERROR_CODE_EACCES = 3;
+  FILESYSTEM_ERROR_CODE_EISDIR = 4;
+  FILESYSTEM_ERROR_CODE_ENOTDIR = 5;
+  FILESYSTEM_ERROR_CODE_ENOTEMPTY = 6;
+  FILESYSTEM_ERROR_CODE_EROFS = 7;
+  FILESYSTEM_ERROR_CODE_EBADF = 8;
+  FILESYSTEM_ERROR_CODE_EIO = 9;
+  FILESYSTEM_ERROR_CODE_EINVAL = 10;
+  FILESYSTEM_ERROR_CODE_ENAMETOOLONG = 11;
+  FILESYSTEM_ERROR_CODE_ELOOP = 12;
+  FILESYSTEM_ERROR_CODE_OTHER = 99;
+}
+
+// FileSystemErrorDetail is the proto message the server attaches to the
+// Connect error (`ConnectError.details`). The SDK reads it back via
+// `findDetails(FileSystemErrorDetailSchema)` and synthesizes a Node-shape
+// `FileSystemError`.
+message FileSystemErrorDetail {
+  FileSystemErrorCode code = 1;
+  string syscall = 2;
+  string path = 3;
+  optional string message = 4;
+}
+
+// FileType is the discriminator returned by Stat. SDK uses it to back
+// `.isDirectory()`/`.isFile()`/... on a node:fs/promises-shape Stats object.
+enum FileType {
+  FILE_TYPE_UNSPECIFIED = 0;
+  FILE_TYPE_FILE = 1;
+  FILE_TYPE_DIRECTORY = 2;
+  FILE_TYPE_SYMLINK = 3;
+  FILE_TYPE_BLOCK_DEVICE = 4;
+  FILE_TYPE_CHARACTER_DEVICE = 5;
+  FILE_TYPE_FIFO = 6;
+  FILE_TYPE_SOCKET = 7;
+}
+
+// ─── Unary RPCs ──────────────────────────────────────────────────────────
+
+message MkdirRequest {
+  SandboxRef sandbox = 1;
+  string path = 2;
+  // mkdir -p semantics; default false → ENOENT on a missing parent.
+  optional bool recursive = 3;
+  // Octal mode (e.g. 0o755 = 0x1ED). Server applies the umask when unset.
+  optional uint32 mode = 4;
+}
+message MkdirResponse {}
+
+message StatRequest {
+  SandboxRef sandbox = 1;
+  string path = 2;
+  // Follow symlinks (stat) vs not (lstat). Default true.
+  optional bool follow_symlinks = 3;
+}
+message StatResponse {
+  string path = 1;
+  int64 size = 2;
+  uint32 mode = 3;
+  FileType type = 4;
+  string uname = 5;
+  string gname = 6;
+  int64 mtime_unix_seconds = 7;
+}
+
+message ReadDirRequest {
+  SandboxRef sandbox = 1;
+  string path = 2;
+  // node:fs/promises.readdir({withFileTypes}) parity: when false the entries
+  // still carry name + type, but the SDK exposes a string[] surface.
+  optional bool with_file_types = 3;
+}
+message ReadDirResponse {
+  repeated DirEntry entries = 1;
+}
+message DirEntry {
+  string name = 1;
+  FileType type = 2;
+}
+
+message RemoveRequest {
+  SandboxRef sandbox = 1;
+  string path = 2;
+  // rm -rf when true.
+  optional bool recursive = 3;
+  // node fs.rm({force: true}) parity — ENOENT is swallowed.
+  optional bool ignore_missing = 4;
+}
+message RemoveResponse {}
+
+message RenameRequest {
+  SandboxRef sandbox = 1;
+  string from_path = 2;
+  string to_path = 3;
+}
+message RenameResponse {}
+
+message CopyFileRequest {
+  SandboxRef sandbox = 1;
+  string from_path = 2;
+  string to_path = 3;
+  // cp -p — preserve mode/owner/timestamps where the server can.
+  optional bool preserve_metadata = 4;
+}
+message CopyFileResponse {}
+
+message TruncateRequest {
+  SandboxRef sandbox = 1;
+  string path = 2;
+  int64 size = 3;
+}
+message TruncateResponse {}
+
+message ChmodRequest {
+  SandboxRef sandbox = 1;
+  string path = 2;
+  // Octal int; the SDK accepts string ("755") or number (0o755) and converts.
+  uint32 mode = 3;
+}
+message ChmodResponse {}
+
+message ChownRequest {
+  SandboxRef sandbox = 1;
+  string path = 2;
+  optional uint32 uid = 3;
+  optional uint32 gid = 4;
+}
+message ChownResponse {}
+
+message SymlinkRequest {
+  SandboxRef sandbox = 1;
+  // ln -s target link_path
+  string target = 2;
+  string link_path = 3;
+}
+message SymlinkResponse {}
+
+message ReadlinkRequest {
+  SandboxRef sandbox = 1;
+  string path = 2;
+}
+message ReadlinkResponse {
+  string target = 1;
+}
+
+message AccessRequest {
+  SandboxRef sandbox = 1;
+  string path = 2;
+  // F_OK / R_OK / W_OK / X_OK bitmask. Server defaults to F_OK when unset.
+  optional uint32 mode = 3;
+}
+message AccessResponse {}
+
+// ─── Streaming RPCs ──────────────────────────────────────────────────────
+
+message ReadFileRequest {
+  SandboxRef sandbox = 1;
+  string path = 2;
+}
+
+// FileChunk is the streamed shape for ReadFile — chunks land in order, with
+// the last carrying `eof = true` when the implementation knows. The stream
+// closing also signals EOF.
+message FileChunk {
+  bytes data = 1;
+  optional bool eof = 2;
+}
+
+// WriteFile — first request on the stream MUST carry `init`; subsequent
+// requests carry `data` bytes. `append` selects O_APPEND semantics. `mode`
+// is applied if the file is created.
+message WriteFileRequest {
+  oneof input {
+    Init init = 1;
+    bytes data = 2;
+  }
+  message Init {
+    SandboxRef sandbox = 1;
+    string path = 2;
+    optional uint32 mode = 3;
+    optional bool append = 4;
+    // mkdir -p the parent path before opening the file.
+    optional bool create_directories = 5;
+  }
+}
+message WriteFileResponse {
+  int64 bytes_written = 1;
+}

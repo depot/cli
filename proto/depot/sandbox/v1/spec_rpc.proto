@@ -1,0 +1,87 @@
+// depot.sandbox.v1 — CreateSandboxFromSpec RPC envelope + service
+// (DEP-4534 / P25b, Spec Cluster CLOSING).
+//
+// This file hosts the RPC for declarative sandbox creation from a SandboxSpec.
+// It lives in its own service (SandboxSpecService) rather than on the existing
+// SandboxService — the request/event types reference BOTH Sandbox (from
+// sandbox.proto) AND SandboxSpec (from spec.proto), which sets up an import
+// cycle if those types are added to sandbox.proto and sandbox.proto then has
+// to import spec.proto in turn. Carving the RPC + envelope into a separate
+// file with a separate service breaks that cycle cleanly (mirrors the
+// hook.proto split-out done at P23 for the same kind of cycle).
+//
+// SDK consumes SandboxSpecService alongside SandboxService — same Connect
+// transport, same auth surface. The orchestrator implementation lives in
+// src/sandbox/spec-orchestrator.ts; the handler is a thin tokenAuth +
+// authorizeAndEnterOrg + delegate.
+
+syntax = "proto3";
+
+package depot.sandbox.v1;
+
+import "depot/sandbox/v1/command.proto";
+import "depot/sandbox/v1/hook.proto";
+import "depot/sandbox/v1/sandbox.proto";
+import "depot/sandbox/v1/spec.proto";
+
+// SandboxSpecService — DEP-4534 / P25b. Single RPC for now;
+// CreateSandboxFromSpec is the closing slice of the Spec Cluster and
+// composes the dormant helpers (parse, source resolution, createComputeSandbox,
+// boot-delivery, hook-runner) into one server-streamed flow.
+service SandboxSpecService {
+  rpc CreateSandboxFromSpec(CreateSandboxFromSpecRequest) returns (stream CreateSandboxFromSpecEvent);
+}
+
+// CreateSandboxFromSpecRequest — carries a SandboxSpec (either pre-parsed
+// proto or YAML string) plus the ${input.KEY} inputs map. The orchestrator
+// applies inputs substitution, validates, then runs the create flow.
+message CreateSandboxFromSpecRequest {
+  oneof spec {
+    string spec_yaml = 1;
+    SandboxSpec sandbox_spec = 2;
+  }
+  map<string, string> inputs = 3;
+}
+
+// CreateSandboxFromSpecEvent — server-streamed event frames. The orchestrator
+// yields SandboxStarted once the VM reaches running state and any post-boot
+// source delivery completes; then HookEvent frames per CREATE-stage hook;
+// the stream ends with exactly one terminal frame (Done OR Error).
+message CreateSandboxFromSpecEvent {
+  oneof event {
+    SandboxStarted sandbox_started = 1;
+    HookEvent hook_event = 2;
+    Done done = 3;
+    Error error = 4;
+    // Numbers 5,6 reserved for BuildLog / ConvertLog when TIER 1 of the
+    // build helper unlocks; see src/sandbox/build.ts header (TIER LADDER).
+  }
+
+  message SandboxStarted {
+    Sandbox sandbox = 1;
+  }
+
+  message HookEvent {
+    HookStage stage = 1;
+    string hook_name = 2;
+    CommandEvent inner = 3;
+  }
+
+  message Done {
+    Sandbox sandbox = 1;
+  }
+
+  message Error {
+    string reason = 1;
+    Stage stage = 2;
+
+    enum Stage {
+      STAGE_UNSPECIFIED = 0;
+      STAGE_PARSE = 1;
+      STAGE_BUILD = 2;
+      STAGE_CONVERT = 3;
+      STAGE_CREATE = 4;
+      STAGE_HOOKS_CREATE = 5;
+    }
+  }
+}

@@ -1,0 +1,101 @@
+syntax = "proto3";
+
+package depot.sandbox.v1;
+
+import "depot/sandbox/v1/refs.proto";
+import "google/protobuf/timestamp.proto";
+
+// Logs surface for depot.sandbox.v1 (DEP-4532, M33 — Logs Cluster CLOSING).
+//
+// StreamSandboxLogs is the customer-facing read surface that fans the
+// per-sandbox boot-output BufferedEventLog<BootLogEvent> (P27a, capture-side
+// internal TS type) out to subscribers as proto SandboxLogEvent messages.
+//
+// v0 scope (MD-33-1): the four boot-output kinds — `boot_stdout`, `boot_stderr`,
+// `boot_finished`, `evicted_early_data`. Wire tags 5..15 are reserved-by-comment
+// for follow-on event kinds (metrics, lifecycle, hook_event, command_event_relay
+// per Logs Cluster meta-pattern #11) so adding them in subsequent slices does
+// not force a wire-shape bump on this oneof.
+//
+// Replay rail OUT OF SCOPE for v0 (MD-33-3): the per-sandbox buffer is
+// process-local on the replica that hosts the CreateSandboxFromSpec
+// orchestrator. If StreamSandboxLogs lands on a different replica than the
+// one that minted the buffer, the lookup misses and the stream closes
+// cleanly with no events. Persistence + cross-replica replay land via a
+// follow-on slice (CRR-013 candidate).
+
+// SandboxLogEvent is the streamed event the StreamSandboxLogs RPC emits.
+// Bytes everywhere on the stdout/stderr rails (DEP-4404); the SDK decodes
+// UTF-8 at the adapter layer.
+//
+// EvictedEarlyData fires when the K-Streaming ring (architecture §10) had to
+// drop head data before this consumer subscribed — analogous to
+// CommandEvent.EvictedEarlyData. The dropped-bytes counter is single-rail
+// here (no per-stream split) because the boot-output buffer is keyed by
+// arrival across both stdout/stderr.
+message SandboxLogEvent {
+  oneof event {
+    BootStdout boot_stdout = 1;
+    BootStderr boot_stderr = 2;
+    BootFinished boot_finished = 3;
+    EvictedEarlyData evicted_early_data = 4;
+  }
+
+  // Tags 5..15 reserved for future event kinds (metrics, lifecycle,
+  // hook_event, command_event_relay) so adding them does not force a wire
+  // bump on this oneof. Logs Cluster meta-pattern #11.
+  reserved 5 to 15;
+
+  message BootStdout {
+    bytes data = 1;
+    // Cumulative byte index for the stdout rail as of the END of `data`
+    // (end-of-chunk semantics, mirroring CommandEvent.StdoutBytes.byte_offset
+    // from command.proto). Useful for consumers that want to dedup across
+    // resubscribes that they themselves coordinate at the byte rail; the
+    // server-side replay watermark is the request's `since_offset`, which
+    // is a BufferedEventLog ring offset rather than a per-stream byte
+    // index (MD-33-4).
+    int64 byte_offset = 2;
+    google.protobuf.Timestamp timestamp = 3;
+  }
+  message BootStderr {
+    bytes data = 1;
+    // Cumulative byte index for the stderr rail; see BootStdout.byte_offset.
+    int64 byte_offset = 2;
+    google.protobuf.Timestamp timestamp = 3;
+  }
+  message BootFinished {
+    int32 exit_code = 1;
+    google.protobuf.Timestamp finished_at = 2;
+  }
+  // K-Streaming evicted head data before this consumer subscribed. Carries
+  // the byte count that was dropped so the consumer can reason about the
+  // gap. Architecture §10.
+  message EvictedEarlyData {
+    int64 dropped_bytes = 1;
+  }
+}
+
+// StreamSandboxLogs — DEP-4532. Server-streaming RPC; the response stream is
+// a sequence of SandboxLogEvents drained from the per-sandbox boot-output
+// BufferedEventLog (P27a). Terminates when the buffer ends (boot finished)
+// or with a Connect error.
+//
+// `since_offset` is a BufferedEventLog ring offset (NOT a per-stream byte
+// index). The server replays events whose ring offset is >= the supplied
+// value, and any subscription that requests an offset older than the live
+// ring head receives an EvictedEarlyData prefix once before the replay
+// starts.
+//
+// Cross-replica caveat (MD-33-3 / Risk R1): if this RPC lands on a different
+// replica than the CreateSandboxFromSpec orchestrator that minted the
+// sandbox, the buffer lookup misses and — for non-terminal sandboxes — the
+// stream closes cleanly with no events. The handler also surfaces
+// FailedPrecondition for terminal sandboxes (no past-replay rail in v0).
+message StreamSandboxLogsRequest {
+  SandboxRef sandbox = 1;
+  // BufferedEventLog ring offset to start from. Replay events whose offset
+  // is >= since_offset. Unset (or 0) means "from the beginning of the
+  // resident buffer".
+  optional int64 since_offset = 2;
+}
