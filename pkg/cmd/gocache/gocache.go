@@ -425,7 +425,7 @@ func (c *RemoteCache) Get(ctx context.Context, actionID string) (outputID, diskP
 		return "", "", nil
 	}
 
-	diskPath, err = c.Disk.Put(ctx, actionID, outputID, int64(size), bytes.NewReader(buf))
+	diskPath, _, err = c.Disk.Put(ctx, actionID, outputID, int64(size), bytes.NewReader(buf))
 	if err != nil {
 		if c.Verbose {
 			log.Printf("unable to cache actionID %s to disk: %v", actionID, err)
@@ -475,12 +475,12 @@ func (c *RemoteCache) Put(ctx context.Context, actionID, outputID string, size i
 	}
 	buf := b.Bytes()
 
-	diskPath, err = c.Disk.Put(ctx, actionID, outputID, size, bytes.NewReader(buf[headerSize:]))
+	diskPath, wrote, err := c.Disk.Put(ctx, actionID, outputID, size, bytes.NewReader(buf[headerSize:]))
 	if err != nil {
 		return "", fmt.Errorf("unable to write actionID %s to disk: %w", actionID, err)
 	}
 
-	if len(outputID) == 0 {
+	if len(outputID) == 0 || !wrote {
 		return diskPath, nil
 	}
 
@@ -586,16 +586,22 @@ func (dc *DiskCache) OutputFilename(objectID string) string {
 	return fileNameOutput(dc.Dir, objectID)
 }
 
-func (dc *DiskCache) Put(ctx context.Context, actionID, objectID string, size int64, body io.Reader) (diskPath string, _ error) {
+func (dc *DiskCache) Put(ctx context.Context, actionID, objectID string, size int64, body io.Reader) (diskPath string, wrote bool, _ error) {
 	file := fileNameOutput(dc.Dir, objectID)
 	actionFile := fileNameAction(dc.Dir, actionID)
+	if err := os.MkdirAll(filepath.Dir(file), 0755); err != nil {
+		return "", false, err
+	}
+	if err := os.MkdirAll(filepath.Dir(actionFile), 0755); err != nil {
+		return "", false, err
+	}
 
 	// Skip writing the file if it already exists and is the right size.
 	stat, err := os.Stat(file)
 	if err == nil && stat.Size() == size {
 		_, err = os.Stat(actionFile)
 		if err == nil {
-			return file, nil
+			return file, false, nil
 		}
 	}
 
@@ -603,16 +609,16 @@ func (dc *DiskCache) Put(ctx context.Context, actionID, objectID string, size in
 	if size == 0 {
 		zf, err := os.OpenFile(file, os.O_CREATE|os.O_RDWR, 0644)
 		if err != nil {
-			return "", err
+			return "", false, err
 		}
 		zf.Close()
 	} else {
 		wrote, err := writeAtomic(file, body)
 		if err != nil {
-			return "", fmt.Errorf("unable to write to disk: %w", err)
+			return "", false, fmt.Errorf("unable to write to disk: %w", err)
 		}
 		if wrote != size {
-			return "", fmt.Errorf("wrote %d bytes, expected %d", wrote, size)
+			return "", false, fmt.Errorf("wrote %d bytes, expected %d", wrote, size)
 		}
 	}
 
@@ -623,13 +629,13 @@ func (dc *DiskCache) Put(ctx context.Context, actionID, objectID string, size in
 		TimeNanos: time.Now().UnixNano(),
 	})
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 
 	if _, err := writeAtomic(actionFile, bytes.NewReader(ij)); err != nil {
-		return "", err
+		return "", false, err
 	}
-	return file, nil
+	return file, true, nil
 }
 
 func writeAtomic(dest string, r io.Reader) (int64, error) {
