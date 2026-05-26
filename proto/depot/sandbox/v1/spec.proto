@@ -1,0 +1,114 @@
+// depot.sandbox.v1.SandboxSpec — declarative spec messages (DEP-4534 / P22).
+//
+// Spec Cluster INTERIOR (step 1 of 5). This file lands ONLY the message types
+// that describe a sandbox spec: SandboxSpec + nested SSHSpec / ContainerSpec /
+// BuildSpec / Hooks. HookSpec + HookStage live in hook.proto (P23). The
+// CreateSandboxFromSpec RPC + its request/event types live in spec_rpc.proto
+// (M29 / P25b) — moved there to break the sandbox.proto <-> spec.proto cycle
+// that would otherwise form.
+//
+// MCP support was removed from v0 in M30 (separate roadmap item); MCPSpec /
+// MCPServer message types + SandboxSpec.mcp field are intentionally absent.
+//
+// SandboxSpec mirrors the YAML schema field-for-field per architecture §15.
+// CLI shapes carry verbatim into the proto; the SDK adapter does any cosmetic
+// renaming on the way out. Reference for the YAML schema: cli/pkg/sandbox/
+// spec.go on the unmerged rob/dep-4395 branch — read-only context, NOT a
+// dependency. The server-side YAML parser lives in src/sandbox/spec.ts and is
+// dormant in v0 (no RPC consumes it until the closing Spec Cluster slice).
+//
+// Cluster boundary note: SandboxSpec does NOT embed SandboxRef directly
+// (only value-shapes — Source, Resources, Runtime — drawn from sibling proto
+// files). This file therefore does NOT import refs.proto, matching the
+// dependency rule established by source.proto.
+
+syntax = "proto3";
+
+package depot.sandbox.v1;
+
+import "depot/sandbox/v1/hook.proto";
+import "depot/sandbox/v1/runtime.proto";
+import "depot/sandbox/v1/source.proto";
+
+// SandboxSpec mirrors the YAML schema field-for-field. Architecture §15: CLI
+// shapes carry verbatim into the proto; the SDK adapter does any cosmetic
+// renaming on the way out.
+message SandboxSpec {
+  // Identity / lifecycle knobs.
+  optional string name = 1;
+  optional string argv = 2;
+  optional string command = 3;
+  optional bool detach = 4;
+  optional string template = 5;
+
+  // Source / image. Either `source` or `container.build` may be set; not both.
+  // v0 parser enforces this mutual exclusion. (The DEP-4526 ticket leaves open
+  // whether build-then-mount should also be allowed; the conservative v0
+  // interpretation is "not both" — revisited in a later slice if customer
+  // demand emerges.)
+  optional Source source = 6;
+  optional ContainerSpec container = 7;
+  // Pre-built image ref; bypasses `container.build`.
+  optional string image = 8;
+
+  // Runtime.
+  optional Resources resources = 9;
+  optional Runtime runtime = 10;
+  map<string, string> env = 11;
+
+  // SSH config — retained for CLI parity even though the SDK does not surface
+  // SSH details directly. The legacy v1 ssh_config maps here.
+  optional SSHSpec ssh = 12;
+
+  // Field tag 13 was previously MCPSpec mcp; MCP support removed from v0 in
+  // M30 (separate roadmap item). Tag remains reserved so a follow-on slice
+  // can reintroduce the field without wire-shape ambiguity.
+  reserved 13;
+  reserved "mcp";
+
+  // Hook lifecycle stages — `on.create`, `on.start`, etc.
+  optional Hooks on = 14;
+}
+
+message SSHSpec {
+  bool enabled = 1;
+  optional int32 timeout_minutes = 2;
+}
+
+message ContainerSpec {
+  optional BuildSpec build = 1;
+}
+
+message BuildSpec {
+  // Path or URL to the build context.
+  optional string context = 1;
+  optional string dockerfile = 2;
+  optional string target = 3;
+  map<string, string> build_args = 4;
+  optional bool push = 5;
+  optional bool no_cache = 6;
+}
+
+// Hooks per stage. Each stage holds an ordered list of HookSpec entries.
+// Bare-string YAML form ("echo hi") parses into HookSpec{command: "echo hi"}
+// — see src/sandbox/spec.ts for normalization.
+message Hooks {
+  repeated HookSpec create = 1;
+  repeated HookSpec start = 2;
+  repeated HookSpec exec = 3;
+  repeated HookSpec shell = 4;
+  repeated HookSpec snapshot = 5;
+  repeated HookSpec down = 6;
+}
+
+// HookSpec + HookStage moved to hook.proto in P23 to break the import cycle
+// that would otherwise form when sandbox.proto adopts the RunHook RPC
+// (sandbox.proto -> hook.proto -> spec.proto -> sandbox.proto). The wire
+// shapes are unchanged — both remain in the depot.sandbox.v1 package — and
+// spec.proto now imports hook.proto for the Hooks{HookSpec[]} fields above.
+//
+// CreateSandboxFromSpec request/event envelopes live in spec_rpc.proto (not
+// here). spec_rpc.proto imports both sandbox.proto (for Sandbox in the
+// SandboxStarted/Done events) and this file (for SandboxSpec). Resources +
+// Runtime moved out of sandbox.proto into runtime.proto in M29 so spec.proto
+// no longer needs to import sandbox.proto.

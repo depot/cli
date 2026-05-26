@@ -1,0 +1,63 @@
+// depot.sandbox.v1.Snapshot — durable filesystem snapshot of a sandbox.
+//
+// DEP-4529 — Snapshot Cluster CRUD surface. The cluster ships the wire surface
+// + the SDK ergonomics; the vm3-side snapshot/restore pipeline that backs the
+// handlers is a follow-on. v0 handlers return Unimplemented until that lands.
+//
+// Storage reuses the legacy SandboxTemplate registry (one row per snapshot,
+// soft-deleted via deletedAt). The cross-package selector SnapshotRef lives in
+// refs.proto.
+
+syntax = "proto3";
+
+package depot.sandbox.v1;
+
+import "depot/sandbox/v1/refs.proto";
+import "google/protobuf/duration.proto";
+import "google/protobuf/timestamp.proto";
+
+// Snapshot is the canonical message returned by the Snapshot CRUD RPCs.
+//
+// `expires_at` is reserved for a future TTL surface; v0 leaves it unset.
+message Snapshot {
+  string snapshot_id = 1;
+  string source_sandbox_id = 2;
+  google.protobuf.Timestamp created_at = 3;
+  optional google.protobuf.Timestamp expires_at = 4;
+}
+
+message CreateSnapshotRequest {
+  SandboxRef sandbox = 1;
+  // Forward-compat TTL hint. The v0 server IGNORES this value; the field is
+  // reserved on the wire so the SDK option lands today and a future slice
+  // can wire it without a wire break.
+  optional google.protobuf.Duration expiration = 2;
+}
+
+message CreateSnapshotResponse {
+  Snapshot snapshot = 1;
+}
+
+message GetSnapshotRequest {
+  SnapshotRef snapshot = 1;
+}
+
+message GetSnapshotResponse {
+  Snapshot snapshot = 1;
+}
+
+message ListSnapshotsRequest {
+  optional int32 page_size = 1;
+  optional string page_token = 2;
+}
+
+message ListSnapshotsResponse {
+  repeated Snapshot snapshots = 1;
+  optional string next_page_token = 2;
+}
+
+message DeleteSnapshotRequest {
+  SnapshotRef snapshot = 1;
+}
+
+message DeleteSnapshotResponse {}
