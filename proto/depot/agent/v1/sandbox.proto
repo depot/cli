@@ -7,6 +7,7 @@ import "google/protobuf/timestamp.proto";
 
 service SandboxService {
   rpc StartSandbox(StartSandboxRequest) returns (StartSandboxResponse);
+  rpc ExecInSandbox(ExecInSandboxRequest) returns (ExecInSandboxResponse);
   rpc GetSandbox(GetSandboxRequest) returns (GetSandboxResponse);
   rpc ListSandboxs(ListSandboxsRequest) returns (ListSandboxsResponse);
   rpc KillSandbox(KillSandboxRequest) returns (KillSandboxResponse);
@@ -15,9 +16,18 @@ service SandboxService {
   rpc AddSecret(AddSecretRequest) returns (AddSecretResponse);
   rpc RemoveSecret(RemoveSecretRequest) returns (RemoveSecretResponse);
   rpc ListSecrets(ListSecretsRequest) returns (ListSecretsResponse);
-  
+
   // Shutdown is called from within the sandbox to gracefully terminate
   rpc Shutdown(ShutdownRequest) returns (ShutdownResponse);
+
+  // GetSSHConnection returns the SSH connection info for a running sandbox
+  rpc GetSSHConnection(GetSSHConnectionRequest) returns (GetSSHConnectionResponse);
+
+  // Template management - save and reuse pre-configured sandbox filesystems
+  rpc CreateSandboxTemplate(CreateSandboxTemplateRequest) returns (CreateSandboxTemplateResponse);
+  rpc GetSandboxTemplate(GetSandboxTemplateRequest) returns (GetSandboxTemplateResponse);
+  rpc ListSandboxTemplates(ListSandboxTemplatesRequest) returns (ListSandboxTemplatesResponse);
+  rpc DeleteSandboxTemplate(DeleteSandboxTemplateRequest) returns (DeleteSandboxTemplateResponse);
 }
 
 message StartSandboxRequest {
@@ -27,6 +37,22 @@ message StartSandboxRequest {
   string argv = 4;
   map<string, string> environment_variables = 5;
   Context context = 6;
+  optional SSHConfig ssh_config = 7;
+  // Start sandbox from a saved template (pre-configured filesystem)
+  // When set, creates a fresh session with the template's filesystem state
+  optional string template_id = 8;
+
+  // Optional command to execute inside the sandbox after it starts.
+  // If not provided, the sandbox starts as usual.
+  optional string command = 9;
+  // When true, wait for the command to finish and return its exit code,
+  // stdout, and stderr in command_result. When false (default), the command
+  // is started but the response returns immediately without waiting.
+  optional bool wait_for_command = 10;
+
+  // Optional image reference used as the sandbox base image.
+  // When omitted, the default Depot sandbox image is used.
+  optional string image = 11;
 
   message Context {
     oneof context {
@@ -39,12 +65,55 @@ message StartSandboxRequest {
       optional string commit_hash = 4;
     }
   }
+
+  message SSHConfig {
+    bool enabled = 1;
+    optional int32 timeout_minutes = 2;
+  }
 }
 
 message StartSandboxResponse {
   string sandbox_id = 1;
   string session_id = 2;
   string organization_id = 3;
+  optional SSHConnection ssh_connection = 4;
+  // Result of the command execution, if a command was provided in the request
+  optional CommandResult command_result = 5;
+}
+
+message ExecInSandboxRequest {
+  string sandbox_id = 1;
+  string command = 2;
+  // When true (default), wait for command completion and return output.
+  // When false, start command and return immediately.
+  optional bool wait_for_command = 3;
+}
+
+message ExecInSandboxResponse {
+  optional CommandResult command_result = 1;
+}
+
+// CommandResult contains the output from executing a command inside a sandbox
+message CommandResult {
+  int32 exit_code = 1;
+  string stdout = 2;
+  string stderr = 3;
+}
+
+// SSHConnection contains the connection details for direct SSH access to a sandbox
+message SSHConnection {
+  string host = 1;
+  int32 port = 2;
+  string username = 3;           // Always "depot"
+  string private_key = 4;        // PEM format, base64 encoded
+}
+
+message GetSSHConnectionRequest {
+  string session_id = 1;
+}
+
+message GetSSHConnectionResponse {
+  SSHConnection ssh_connection = 1;
 }
 
 message GetSandboxRequest {
@@ -107,6 +176,9 @@ message Sandbox {
   optional int32 exit_code = 8;
   optional double duration_seconds = 9;
   optional string error_message = 10;
+  optional bool ssh_enabled = 11;
+  optional string ssh_host = 12;
+  optional int32 ssh_port = 13;
 }
 
 message KillSandboxRequest {
@@ -140,3 +212,67 @@ message ShutdownRequest {
 }
 
 message ShutdownResponse {}
+
+// ============================================================================
+// Sandbox Template Messages
+// ============================================================================
+
+// SandboxTemplate represents a saved filesystem state that can be used to create new sandboxes
+message SandboxTemplate {
+  string id = 1;
+  string organization_id = 2;
+  string name = 3;
+  optional string description = 4;
+
+  // Source information (from the sandbox that was used to create this template)
+  optional string source_repository = 5;
+  optional string source_branch = 6;
+  optional string source_commit_hash = 7;
+
+  // Whether this template can be used with SSH mode
+  // Only templates created from SSH-enabled sandboxes have tmate installed
+  bool ssh_compatible = 8;
+
+  google.protobuf.Timestamp created_at = 9;
+}
+
+// CreateSandboxTemplate creates a new template from a running sandbox's filesystem
+message CreateSandboxTemplateRequest {
+  // The running sandbox to snapshot
+  string sandbox_id = 1;
+  // Unique name for the template within the organization
+  string name = 2;
+  // Optional description
+  optional string description = 3;
+}
+
+message CreateSandboxTemplateResponse {
+  SandboxTemplate template = 1;
+}
+
+// GetSandboxTemplate retrieves a template by ID
+message GetSandboxTemplateRequest {
+  string template_id = 1;
+}
+
+message GetSandboxTemplateResponse {
+  SandboxTemplate template = 1;
+}
+
+// ListSandboxTemplates lists all templates for an organization
+message ListSandboxTemplatesRequest {
+  optional int32 page_size = 1;
+  optional string page_token = 2;
+}
+
+message ListSandboxTemplatesResponse {
+  repeated SandboxTemplate templates = 1;
+  optional string next_page_token = 2;
+}
+
+// DeleteSandboxTemplate soft-deletes a template
+message DeleteSandboxTemplateRequest {
+  string template_id = 1;
+}
+
+message DeleteSandboxTemplateResponse {}
