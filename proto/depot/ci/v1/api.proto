@@ -69,10 +69,16 @@ message Command {
 }
 
 // ExecuteCommandResponse returns the command execution results.
+//
+// Legacy line-framed rail (oneof) and binary-safe raw rail (flat fields)
+// are populated on the same message when applicable. Old clients switch
+// on the oneof variant; new clients concatenate the raw fields.
 message ExecuteCommandResponse {
   oneof message {
     string stdout = 1;
     string stderr = 2;
     int32 exit_code = 3;
   }
+  bytes stdout_raw = 4;
+  bytes stderr_raw = 5;
 }

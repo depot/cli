@@ -15,18 +15,36 @@ import (
 )
 
 // SessionOptions configures an interactive PTY session.
+//
+// Two wires share this struct:
+//   - pty.Run (legacy): civ1.DepotComputeService.OpenPtySession — the CI
+//     bastion path used by `depot run --ssh` / `depot ssh`. Carries
+//     SessionID + SandboxID.
+//   - pty.RunSandboxV0 (M34): depot.sandbox.v1.SandboxService.OpenPty —
+//     the new sandboxv1 wire used by `depot sandbox shell`. Session-id is
+//     gone (D-M34-M); RunSandboxV0 ignores it.
+//
+// Once the CI bastion verbs migrate to sandboxv1 (Theme 3 follow-on), the
+// legacy Run can be retired and SessionID dropped from this struct.
 type SessionOptions struct {
 	Token     string
 	OrgID     string // sent as x-depot-org header for multi-org users
 	SandboxID string
-	SessionID string
+	SessionID string // legacy CI bastion only; ignored by RunSandboxV0 (D-M34-M)
 	Cwd       string
 	Env       map[string]string
+
+	// StdinPrefix is sent as the first stdin chunk after the pty session is
+	// open, before forwarding os.Stdin. Used by `depot sandbox shell` to
+	// inject on.shell entries into the login shell. Must be terminated with
+	// "\n" so the shell's line discipline flushes it.
+	StdinPrefix []byte
 }
 
-// Run opens an interactive PTY session to the given sandbox.
-// It puts the terminal in raw mode, forwards stdin/stdout, handles resize,
-// and blocks until the session exits or ctx is cancelled.
+// Run opens an interactive PTY session against the legacy CI bastion wire
+// (civ1.DepotComputeService.OpenPtySession). Consumed by `depot run --ssh`
+// and `depot ssh`. Sandbox v0 callers (`depot sandbox shell`) use
+// RunSandboxV0 instead.
 func Run(ctx context.Context, opts SessionOptions) error {
 	fd := int(os.Stdin.Fd())
 	rows, cols := 24, 80 //nolint:mnd
@@ -91,7 +109,14 @@ func Run(ctx context.Context, opts SessionOptions) error {
 	stopResize := watchTerminalResize(ctx, fd, sendCh)
 	defer stopResize()
 
-	// Forward stdin to the stream.
+	if len(opts.StdinPrefix) > 0 {
+		if err := stream.Send(&civ1.OpenPtySessionRequest{
+			Message: &civ1.OpenPtySessionRequest_Stdin{Stdin: opts.StdinPrefix},
+		}); err != nil {
+			return fmt.Errorf("send on.shell prefix: %w", err)
+		}
+	}
+
 	go func() {
 		buf := make([]byte, 4096) //nolint:mnd
 		for {
@@ -113,7 +138,6 @@ func Run(ctx context.Context, opts SessionOptions) error {
 		}
 	}()
 
-	// Read stdout and exit code from the stream.
 	for {
 		resp, err := stream.Receive()
 		if err != nil {
@@ -124,7 +148,7 @@ func Run(ctx context.Context, opts SessionOptions) error {
 		}
 		switch m := resp.GetMessage().(type) {
 		case *civ1.OpenPtySessionResponse_Stdout:
-			os.Stdout.Write(m.Stdout) //nolint:errcheck
+			_, _ = os.Stdout.Write(m.Stdout)
 		case *civ1.OpenPtySessionResponse_ExitCode:
 			fmt.Fprintf(os.Stderr, "\r\n[exit %d]\r\n", m.ExitCode)
 			if m.ExitCode != 0 {
