@@ -55,9 +55,9 @@ func snapshotRef(id string) *sandboxv1.SnapshotRef {
 }
 
 // consumeCommandEventStream drains a depot.sandbox.v1 CommandEvent stream
-// into stdout/stderr and returns the final exit code from Finished. The
-// stream shape mirrors RunCommand / RunCommandPipe / AttachCommand /
-// RunHook: Started -> Stdout/Stderr/Error/EvictedEarlyData* -> Finished.
+// into stdout/stderr and returns the final exit code from Finished. The stream
+// shape is generally Started -> Stdout/Stderr/Error/EvictedEarlyData* ->
+// Finished; detached RunCommand streams end cleanly after Started.
 //
 // EvictedEarlyData is reported on stderr as a single line so log consumers
 // see the gap; the stream continues afterward. Error frames are surfaced the
@@ -66,13 +66,16 @@ func snapshotRef(id string) *sandboxv1.SnapshotRef {
 func consumeCommandEventStream(
 	stream *connect.ServerStreamForClient[sandboxv1.CommandEvent],
 	stdout, stderr io.Writer,
+	allowMissingFinished bool,
 ) (exitCode int32, err error) {
 	defer func() { _ = stream.Close() }()
+	sawStarted := false
 	for stream.Receive() {
 		msg := stream.Msg()
 		switch ev := msg.Event.(type) {
 		case *sandboxv1.CommandEvent_Started_:
 			// metadata only — nothing to print
+			sawStarted = true
 		case *sandboxv1.CommandEvent_Stdout:
 			if ev.Stdout != nil && len(ev.Stdout.Data) > 0 {
 				_, _ = stdout.Write(ev.Stdout.Data)
@@ -98,6 +101,9 @@ func consumeCommandEventStream(
 	}
 	if err := stream.Err(); err != nil && !errors.Is(err, io.EOF) {
 		return 0, fmt.Errorf("command stream: %w", err)
+	}
+	if allowMissingFinished && sawStarted {
+		return 0, nil
 	}
 	// Stream closed without a Finished event. Treat this as an error rather
 	// than silently reporting exit 0 — a clean disconnect mid-command is

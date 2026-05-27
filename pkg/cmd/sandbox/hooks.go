@@ -149,7 +149,7 @@ func runHook(ctx context.Context, client sandboxv1connect.SandboxServiceClient, 
 		return fmt.Errorf("exec: %w", err)
 	}
 
-	exit, err := consumeCommandEventStream(stream, stdout, stderr)
+	exit, err := consumeCommandEventStream(stream, stdout, stderr, false)
 	if err != nil {
 		return err
 	}

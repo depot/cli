@@ -3,6 +3,7 @@ package sandbox
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"connectrpc.com/connect"
 	"github.com/depot/cli/pkg/api"
@@ -88,7 +89,7 @@ parsing stops there.`,
 				return fmt.Errorf("run command: %w", err)
 			}
 
-			exit, err := consumeCommandEventStream(stream, os.Stdout, os.Stderr)
+			exit, err := consumeCommandEventStream(stream, os.Stdout, os.Stderr, detached)
 			if err != nil {
 				return err
 			}
@@ -119,20 +120,11 @@ func parseEnvSlice(in []string) (map[string]string, error) {
 	}
 	out := make(map[string]string, len(in))
 	for _, e := range in {
-		k, v, ok := splitKV(e)
+		k, v, ok := strings.Cut(e, "=")
 		if !ok {
 			return nil, fmt.Errorf("invalid env format %q, expected KEY=VALUE", e)
 		}
 		out[k] = v
 	}
 	return out, nil
-}
-
-func splitKV(s string) (string, string, bool) {
-	for i := 0; i < len(s); i++ {
-		if s[i] == '=' {
-			return s[:i], s[i+1:], true
-		}
-	}
-	return "", "", false
 }
