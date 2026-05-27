@@ -99,5 +99,5 @@ func consumeCommandEventStream(
 	if err := stream.Err(); err != nil && !errors.Is(err, io.EOF) {
 		return 0, fmt.Errorf("command stream: %w", err)
 	}
-	return 0, nil
+	return 0, fmt.Errorf("command stream ended without Finished event")
 }

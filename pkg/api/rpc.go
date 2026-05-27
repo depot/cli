@@ -64,13 +64,6 @@ func NewSandboxV0Client() sandboxv1connect.SandboxServiceClient {
 	return sandboxv1connect.NewSandboxServiceClient(getHTTPClient(getBaseURL()), getBaseURL(), WithUserAgent())
 }
 
-// NewSandboxSpecV0Client returns a connect client for the depot.sandbox.v1
-// SandboxSpecService. The single RPC CreateSandboxFromSpec is the server-side
-// orchestrator backing `depot sandbox from-spec` (the M34 rename of `up`).
-func NewSandboxSpecV0Client() sandboxv1connect.SandboxSpecServiceClient {
-	return sandboxv1connect.NewSandboxSpecServiceClient(getHTTPClient(getBaseURL()), getBaseURL(), WithUserAgent())
-}
-
 func NewRegistryClient() buildv1connect.RegistryServiceClient {
 	return buildv1connect.NewRegistryServiceClient(getHTTPClient(getBaseURL()), getBaseURL(), WithUserAgent())
 }
