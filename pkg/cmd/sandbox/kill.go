@@ -3,6 +3,7 @@ package sandbox
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"connectrpc.com/connect"
 	"github.com/depot/cli/pkg/api"
@@ -59,7 +60,7 @@ For a graceful shutdown that fires on.down hooks first, use 'depot sandbox stop'
 				fmt.Fprintf(cmd.OutOrStdout(), "killed %s\n", id)
 			}
 			if len(failures) > 0 {
-				return fmt.Errorf("kill failed:\n  %s", failures)
+				return fmt.Errorf("kill failed:\n  %s", strings.Join(failures, "\n  "))
 			}
 			return nil
 		},

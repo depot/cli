@@ -3,6 +3,7 @@ package sandbox
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"connectrpc.com/connect"
 	"github.com/depot/cli/pkg/api"
@@ -90,7 +91,7 @@ hooks and stop immediately.`,
 				fmt.Fprintf(cmd.OutOrStdout(), "stopped %s\n", id)
 			}
 			if len(failures) > 0 {
-				return fmt.Errorf("stop failed:\n  %s", failures)
+				return fmt.Errorf("stop failed:\n  %s", strings.Join(failures, "\n  "))
 			}
 			return nil
 		},
