@@ -87,19 +87,19 @@ type SandboxRef_Id struct {
 
 func (*SandboxRef_Id) isSandboxRef_Selector() {}
 
-type CommandRef struct {
+type SandboxCommandExecutionRef struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
 	// Types that are assignable to Selector:
 	//
-	//	*CommandRef_Id
-	Selector isCommandRef_Selector `protobuf_oneof:"selector"`
+	//	*SandboxCommandExecutionRef_Id
+	Selector isSandboxCommandExecutionRef_Selector `protobuf_oneof:"selector"`
 }
 
-func (x *CommandRef) Reset() {
-	*x = CommandRef{}
+func (x *SandboxCommandExecutionRef) Reset() {
+	*x = SandboxCommandExecutionRef{}
 	if protoimpl.UnsafeEnabled {
 		mi := &file_depot_sandbox_v1_refs_proto_msgTypes[1]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -107,13 +107,13 @@ func (x *CommandRef) Reset() {
 	}
 }
 
-func (x *CommandRef) String() string {
+func (x *SandboxCommandExecutionRef) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*CommandRef) ProtoMessage() {}
+func (*SandboxCommandExecutionRef) ProtoMessage() {}
 
-func (x *CommandRef) ProtoReflect() protoreflect.Message {
+func (x *SandboxCommandExecutionRef) ProtoReflect() protoreflect.Message {
 	mi := &file_depot_sandbox_v1_refs_proto_msgTypes[1]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -125,34 +125,34 @@ func (x *CommandRef) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use CommandRef.ProtoReflect.Descriptor instead.
-func (*CommandRef) Descriptor() ([]byte, []int) {
+// Deprecated: Use SandboxCommandExecutionRef.ProtoReflect.Descriptor instead.
+func (*SandboxCommandExecutionRef) Descriptor() ([]byte, []int) {
 	return file_depot_sandbox_v1_refs_proto_rawDescGZIP(), []int{1}
 }
 
-func (m *CommandRef) GetSelector() isCommandRef_Selector {
+func (m *SandboxCommandExecutionRef) GetSelector() isSandboxCommandExecutionRef_Selector {
 	if m != nil {
 		return m.Selector
 	}
 	return nil
 }
 
-func (x *CommandRef) GetId() string {
-	if x, ok := x.GetSelector().(*CommandRef_Id); ok {
+func (x *SandboxCommandExecutionRef) GetId() string {
+	if x, ok := x.GetSelector().(*SandboxCommandExecutionRef_Id); ok {
 		return x.Id
 	}
 	return ""
 }
 
-type isCommandRef_Selector interface {
-	isCommandRef_Selector()
+type isSandboxCommandExecutionRef_Selector interface {
+	isSandboxCommandExecutionRef_Selector()
 }
 
-type CommandRef_Id struct {
+type SandboxCommandExecutionRef_Id struct {
 	Id string `protobuf:"bytes,1,opt,name=id,proto3,oneof"`
 }
 
-func (*CommandRef_Id) isCommandRef_Selector() {}
+func (*SandboxCommandExecutionRef_Id) isSandboxCommandExecutionRef_Selector() {}
 
 type SnapshotRef struct {
 	state         protoimpl.MessageState
@@ -229,8 +229,9 @@ var file_depot_sandbox_v1_refs_proto_rawDesc = []byte{
 	0x65, 0x70, 0x6f, 0x74, 0x2e, 0x73, 0x61, 0x6e, 0x64, 0x62, 0x6f, 0x78, 0x2e, 0x76, 0x31, 0x22,
 	0x2a, 0x0a, 0x0a, 0x53, 0x61, 0x6e, 0x64, 0x62, 0x6f, 0x78, 0x52, 0x65, 0x66, 0x12, 0x10, 0x0a,
 	0x02, 0x69, 0x64, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x48, 0x00, 0x52, 0x02, 0x69, 0x64, 0x42,
-	0x0a, 0x0a, 0x08, 0x73, 0x65, 0x6c, 0x65, 0x63, 0x74, 0x6f, 0x72, 0x22, 0x2a, 0x0a, 0x0a, 0x43,
-	0x6f, 0x6d, 0x6d, 0x61, 0x6e, 0x64, 0x52, 0x65, 0x66, 0x12, 0x10, 0x0a, 0x02, 0x69, 0x64, 0x18,
+	0x0a, 0x0a, 0x08, 0x73, 0x65, 0x6c, 0x65, 0x63, 0x74, 0x6f, 0x72, 0x22, 0x3a, 0x0a, 0x1a, 0x53,
+	0x61, 0x6e, 0x64, 0x62, 0x6f, 0x78, 0x43, 0x6f, 0x6d, 0x6d, 0x61, 0x6e, 0x64, 0x45, 0x78, 0x65,
+	0x63, 0x75, 0x74, 0x69, 0x6f, 0x6e, 0x52, 0x65, 0x66, 0x12, 0x10, 0x0a, 0x02, 0x69, 0x64, 0x18,
 	0x01, 0x20, 0x01, 0x28, 0x09, 0x48, 0x00, 0x52, 0x02, 0x69, 0x64, 0x42, 0x0a, 0x0a, 0x08, 0x73,
 	0x65, 0x6c, 0x65, 0x63, 0x74, 0x6f, 0x72, 0x22, 0x2b, 0x0a, 0x0b, 0x53, 0x6e, 0x61, 0x70, 0x73,
 	0x68, 0x6f, 0x74, 0x52, 0x65, 0x66, 0x12, 0x10, 0x0a, 0x02, 0x69, 0x64, 0x18, 0x01, 0x20, 0x01,
@@ -264,9 +265,9 @@ func file_depot_sandbox_v1_refs_proto_rawDescGZIP() []byte {
 
 var file_depot_sandbox_v1_refs_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
 var file_depot_sandbox_v1_refs_proto_goTypes = []interface{}{
-	(*SandboxRef)(nil),  // 0: depot.sandbox.v1.SandboxRef
-	(*CommandRef)(nil),  // 1: depot.sandbox.v1.CommandRef
-	(*SnapshotRef)(nil), // 2: depot.sandbox.v1.SnapshotRef
+	(*SandboxRef)(nil),                 // 0: depot.sandbox.v1.SandboxRef
+	(*SandboxCommandExecutionRef)(nil), // 1: depot.sandbox.v1.SandboxCommandExecutionRef
+	(*SnapshotRef)(nil),                // 2: depot.sandbox.v1.SnapshotRef
 }
 var file_depot_sandbox_v1_refs_proto_depIdxs = []int32{
 	0, // [0:0] is the sub-list for method output_type
@@ -295,7 +296,7 @@ func file_depot_sandbox_v1_refs_proto_init() {
 			}
 		}
 		file_depot_sandbox_v1_refs_proto_msgTypes[1].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*CommandRef); i {
+			switch v := v.(*SandboxCommandExecutionRef); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -323,7 +324,7 @@ func file_depot_sandbox_v1_refs_proto_init() {
 		(*SandboxRef_Id)(nil),
 	}
 	file_depot_sandbox_v1_refs_proto_msgTypes[1].OneofWrappers = []interface{}{
-		(*CommandRef_Id)(nil),
+		(*SandboxCommandExecutionRef_Id)(nil),
 	}
 	file_depot_sandbox_v1_refs_proto_msgTypes[2].OneofWrappers = []interface{}{
 		(*SnapshotRef_Id)(nil),

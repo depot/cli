@@ -131,12 +131,12 @@ type SandboxServiceClient interface {
 	// error). Persistence + the K-Streaming buffered-event-log + the vm3
 	// Execute proxy land with the next two slices (P10b/P10c); this RPC is
 	// wire-reachable today but returns Unimplemented until those land.
-	RunCommand(context.Context, *connect.Request[v1.RunCommandRequest]) (*connect.ServerStreamForClient[v1.CommandEvent], error)
+	RunCommand(context.Context, *connect.Request[v1.RunCommandRequest]) (*connect.ServerStreamForClient[v1.SandboxCommandExecutionEvent], error)
 	// DEP-4519 — bidirectional-streaming command execution with stdin. The
 	// first request on the stream MUST carry `init`; subsequent requests carry
 	// `stdin` bytes. The response stream shape is identical to RunCommand.
 	// stdin bytes flow through to the guest process and are NOT persisted.
-	RunCommandPipe(context.Context) *connect.BidiStreamForClient[v1.RunCommandPipeRequest, v1.CommandEvent]
+	RunCommandPipe(context.Context) *connect.BidiStreamForClient[v1.RunCommandPipeRequest, v1.SandboxCommandExecutionEvent]
 	// DEP-4534 / P23 — execute a lifecycle hook. Hidden / pattern F: surfaced
 	// for non-TS callers and consumed by the CreateSandboxFromSpec orchestrator
 	// (P25b). NOT exposed as an SDK method. Wraps the hook command in
@@ -146,14 +146,14 @@ type SandboxServiceClient interface {
 	// /var/log/depot/hook-<stage>-<name>.log (detached). Stage label is
 	// metadata-only — execution shape does NOT vary across the six HookStage
 	// values. Architecture §12. Spec Cluster INTERIOR step 2/5.
-	RunHook(context.Context, *connect.Request[v1.RunHookRequest]) (*connect.ServerStreamForClient[v1.CommandEvent], error)
-	// DEP-4520 — read side of the Command surface. Get and List return persisted
+	RunHook(context.Context, *connect.Request[v1.RunHookRequest]) (*connect.ServerStreamForClient[v1.SandboxCommandExecutionEvent], error)
+	// DEP-4520 — read side of the SandboxCommandExecution surface. Get and List return persisted
 	// metadata. Attach replays persisted stdout/stderr from ClickHouse and (when
 	// the command is still running on the same replica) tails live output via
 	// the process-local per-cmd BufferedEventLog.
-	GetCommand(context.Context, *connect.Request[v1.CommandRef]) (*connect.Response[v1.GetCommandResponse], error)
+	GetCommand(context.Context, *connect.Request[v1.SandboxCommandExecutionRef]) (*connect.Response[v1.GetCommandResponse], error)
 	ListCommands(context.Context, *connect.Request[v1.ListCommandsRequest]) (*connect.Response[v1.ListCommandsResponse], error)
-	AttachCommand(context.Context, *connect.Request[v1.AttachCommandRequest]) (*connect.ServerStreamForClient[v1.CommandEvent], error)
+	AttachCommand(context.Context, *connect.Request[v1.AttachCommandRequest]) (*connect.ServerStreamForClient[v1.SandboxCommandExecutionEvent], error)
 	// DEP-4532 — server-streaming sandbox-scoped log surface. Drains the
 	// per-sandbox boot-output BufferedEventLog (P27a capture-side) and emits
 	// SandboxLogEvent messages to the subscriber. v0 emits the four
@@ -244,22 +244,22 @@ func NewSandboxServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 			baseURL+SandboxServiceKillSandboxProcedure,
 			opts...,
 		),
-		runCommand: connect.NewClient[v1.RunCommandRequest, v1.CommandEvent](
+		runCommand: connect.NewClient[v1.RunCommandRequest, v1.SandboxCommandExecutionEvent](
 			httpClient,
 			baseURL+SandboxServiceRunCommandProcedure,
 			opts...,
 		),
-		runCommandPipe: connect.NewClient[v1.RunCommandPipeRequest, v1.CommandEvent](
+		runCommandPipe: connect.NewClient[v1.RunCommandPipeRequest, v1.SandboxCommandExecutionEvent](
 			httpClient,
 			baseURL+SandboxServiceRunCommandPipeProcedure,
 			opts...,
 		),
-		runHook: connect.NewClient[v1.RunHookRequest, v1.CommandEvent](
+		runHook: connect.NewClient[v1.RunHookRequest, v1.SandboxCommandExecutionEvent](
 			httpClient,
 			baseURL+SandboxServiceRunHookProcedure,
 			opts...,
 		),
-		getCommand: connect.NewClient[v1.CommandRef, v1.GetCommandResponse](
+		getCommand: connect.NewClient[v1.SandboxCommandExecutionRef, v1.GetCommandResponse](
 			httpClient,
 			baseURL+SandboxServiceGetCommandProcedure,
 			opts...,
@@ -269,7 +269,7 @@ func NewSandboxServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 			baseURL+SandboxServiceListCommandsProcedure,
 			opts...,
 		),
-		attachCommand: connect.NewClient[v1.AttachCommandRequest, v1.CommandEvent](
+		attachCommand: connect.NewClient[v1.AttachCommandRequest, v1.SandboxCommandExecutionEvent](
 			httpClient,
 			baseURL+SandboxServiceAttachCommandProcedure,
 			opts...,
@@ -389,12 +389,12 @@ type sandboxServiceClient struct {
 	listSandboxes     *connect.Client[v1.ListSandboxesRequest, v1.ListSandboxesResponse]
 	stopSandbox       *connect.Client[v1.StopSandboxRequest, v1.StopSandboxResponse]
 	killSandbox       *connect.Client[v1.KillSandboxRequest, v1.KillSandboxResponse]
-	runCommand        *connect.Client[v1.RunCommandRequest, v1.CommandEvent]
-	runCommandPipe    *connect.Client[v1.RunCommandPipeRequest, v1.CommandEvent]
-	runHook           *connect.Client[v1.RunHookRequest, v1.CommandEvent]
-	getCommand        *connect.Client[v1.CommandRef, v1.GetCommandResponse]
+	runCommand        *connect.Client[v1.RunCommandRequest, v1.SandboxCommandExecutionEvent]
+	runCommandPipe    *connect.Client[v1.RunCommandPipeRequest, v1.SandboxCommandExecutionEvent]
+	runHook           *connect.Client[v1.RunHookRequest, v1.SandboxCommandExecutionEvent]
+	getCommand        *connect.Client[v1.SandboxCommandExecutionRef, v1.GetCommandResponse]
 	listCommands      *connect.Client[v1.ListCommandsRequest, v1.ListCommandsResponse]
-	attachCommand     *connect.Client[v1.AttachCommandRequest, v1.CommandEvent]
+	attachCommand     *connect.Client[v1.AttachCommandRequest, v1.SandboxCommandExecutionEvent]
 	streamSandboxLogs *connect.Client[v1.StreamSandboxLogsRequest, v1.SandboxLogEvent]
 	killCommand       *connect.Client[v1.KillCommandRequest, v1.KillCommandResponse]
 	openPty           *connect.Client[v1.OpenPtyRequest, v1.OpenPtyResponse]
@@ -444,22 +444,22 @@ func (c *sandboxServiceClient) KillSandbox(ctx context.Context, req *connect.Req
 }
 
 // RunCommand calls depot.sandbox.v1.SandboxService.RunCommand.
-func (c *sandboxServiceClient) RunCommand(ctx context.Context, req *connect.Request[v1.RunCommandRequest]) (*connect.ServerStreamForClient[v1.CommandEvent], error) {
+func (c *sandboxServiceClient) RunCommand(ctx context.Context, req *connect.Request[v1.RunCommandRequest]) (*connect.ServerStreamForClient[v1.SandboxCommandExecutionEvent], error) {
 	return c.runCommand.CallServerStream(ctx, req)
 }
 
 // RunCommandPipe calls depot.sandbox.v1.SandboxService.RunCommandPipe.
-func (c *sandboxServiceClient) RunCommandPipe(ctx context.Context) *connect.BidiStreamForClient[v1.RunCommandPipeRequest, v1.CommandEvent] {
+func (c *sandboxServiceClient) RunCommandPipe(ctx context.Context) *connect.BidiStreamForClient[v1.RunCommandPipeRequest, v1.SandboxCommandExecutionEvent] {
 	return c.runCommandPipe.CallBidiStream(ctx)
 }
 
 // RunHook calls depot.sandbox.v1.SandboxService.RunHook.
-func (c *sandboxServiceClient) RunHook(ctx context.Context, req *connect.Request[v1.RunHookRequest]) (*connect.ServerStreamForClient[v1.CommandEvent], error) {
+func (c *sandboxServiceClient) RunHook(ctx context.Context, req *connect.Request[v1.RunHookRequest]) (*connect.ServerStreamForClient[v1.SandboxCommandExecutionEvent], error) {
 	return c.runHook.CallServerStream(ctx, req)
 }
 
 // GetCommand calls depot.sandbox.v1.SandboxService.GetCommand.
-func (c *sandboxServiceClient) GetCommand(ctx context.Context, req *connect.Request[v1.CommandRef]) (*connect.Response[v1.GetCommandResponse], error) {
+func (c *sandboxServiceClient) GetCommand(ctx context.Context, req *connect.Request[v1.SandboxCommandExecutionRef]) (*connect.Response[v1.GetCommandResponse], error) {
 	return c.getCommand.CallUnary(ctx, req)
 }
 
@@ -469,7 +469,7 @@ func (c *sandboxServiceClient) ListCommands(ctx context.Context, req *connect.Re
 }
 
 // AttachCommand calls depot.sandbox.v1.SandboxService.AttachCommand.
-func (c *sandboxServiceClient) AttachCommand(ctx context.Context, req *connect.Request[v1.AttachCommandRequest]) (*connect.ServerStreamForClient[v1.CommandEvent], error) {
+func (c *sandboxServiceClient) AttachCommand(ctx context.Context, req *connect.Request[v1.AttachCommandRequest]) (*connect.ServerStreamForClient[v1.SandboxCommandExecutionEvent], error) {
 	return c.attachCommand.CallServerStream(ctx, req)
 }
 
@@ -593,12 +593,12 @@ type SandboxServiceHandler interface {
 	// error). Persistence + the K-Streaming buffered-event-log + the vm3
 	// Execute proxy land with the next two slices (P10b/P10c); this RPC is
 	// wire-reachable today but returns Unimplemented until those land.
-	RunCommand(context.Context, *connect.Request[v1.RunCommandRequest], *connect.ServerStream[v1.CommandEvent]) error
+	RunCommand(context.Context, *connect.Request[v1.RunCommandRequest], *connect.ServerStream[v1.SandboxCommandExecutionEvent]) error
 	// DEP-4519 — bidirectional-streaming command execution with stdin. The
 	// first request on the stream MUST carry `init`; subsequent requests carry
 	// `stdin` bytes. The response stream shape is identical to RunCommand.
 	// stdin bytes flow through to the guest process and are NOT persisted.
-	RunCommandPipe(context.Context, *connect.BidiStream[v1.RunCommandPipeRequest, v1.CommandEvent]) error
+	RunCommandPipe(context.Context, *connect.BidiStream[v1.RunCommandPipeRequest, v1.SandboxCommandExecutionEvent]) error
 	// DEP-4534 / P23 — execute a lifecycle hook. Hidden / pattern F: surfaced
 	// for non-TS callers and consumed by the CreateSandboxFromSpec orchestrator
 	// (P25b). NOT exposed as an SDK method. Wraps the hook command in
@@ -608,14 +608,14 @@ type SandboxServiceHandler interface {
 	// /var/log/depot/hook-<stage>-<name>.log (detached). Stage label is
 	// metadata-only — execution shape does NOT vary across the six HookStage
 	// values. Architecture §12. Spec Cluster INTERIOR step 2/5.
-	RunHook(context.Context, *connect.Request[v1.RunHookRequest], *connect.ServerStream[v1.CommandEvent]) error
-	// DEP-4520 — read side of the Command surface. Get and List return persisted
+	RunHook(context.Context, *connect.Request[v1.RunHookRequest], *connect.ServerStream[v1.SandboxCommandExecutionEvent]) error
+	// DEP-4520 — read side of the SandboxCommandExecution surface. Get and List return persisted
 	// metadata. Attach replays persisted stdout/stderr from ClickHouse and (when
 	// the command is still running on the same replica) tails live output via
 	// the process-local per-cmd BufferedEventLog.
-	GetCommand(context.Context, *connect.Request[v1.CommandRef]) (*connect.Response[v1.GetCommandResponse], error)
+	GetCommand(context.Context, *connect.Request[v1.SandboxCommandExecutionRef]) (*connect.Response[v1.GetCommandResponse], error)
 	ListCommands(context.Context, *connect.Request[v1.ListCommandsRequest]) (*connect.Response[v1.ListCommandsResponse], error)
-	AttachCommand(context.Context, *connect.Request[v1.AttachCommandRequest], *connect.ServerStream[v1.CommandEvent]) error
+	AttachCommand(context.Context, *connect.Request[v1.AttachCommandRequest], *connect.ServerStream[v1.SandboxCommandExecutionEvent]) error
 	// DEP-4532 — server-streaming sandbox-scoped log surface. Drains the
 	// per-sandbox boot-output BufferedEventLog (P27a capture-side) and emits
 	// SandboxLogEvent messages to the subscriber. v0 emits the four
@@ -932,19 +932,19 @@ func (UnimplementedSandboxServiceHandler) KillSandbox(context.Context, *connect.
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.sandbox.v1.SandboxService.KillSandbox is not implemented"))
 }
 
-func (UnimplementedSandboxServiceHandler) RunCommand(context.Context, *connect.Request[v1.RunCommandRequest], *connect.ServerStream[v1.CommandEvent]) error {
+func (UnimplementedSandboxServiceHandler) RunCommand(context.Context, *connect.Request[v1.RunCommandRequest], *connect.ServerStream[v1.SandboxCommandExecutionEvent]) error {
 	return connect.NewError(connect.CodeUnimplemented, errors.New("depot.sandbox.v1.SandboxService.RunCommand is not implemented"))
 }
 
-func (UnimplementedSandboxServiceHandler) RunCommandPipe(context.Context, *connect.BidiStream[v1.RunCommandPipeRequest, v1.CommandEvent]) error {
+func (UnimplementedSandboxServiceHandler) RunCommandPipe(context.Context, *connect.BidiStream[v1.RunCommandPipeRequest, v1.SandboxCommandExecutionEvent]) error {
 	return connect.NewError(connect.CodeUnimplemented, errors.New("depot.sandbox.v1.SandboxService.RunCommandPipe is not implemented"))
 }
 
-func (UnimplementedSandboxServiceHandler) RunHook(context.Context, *connect.Request[v1.RunHookRequest], *connect.ServerStream[v1.CommandEvent]) error {
+func (UnimplementedSandboxServiceHandler) RunHook(context.Context, *connect.Request[v1.RunHookRequest], *connect.ServerStream[v1.SandboxCommandExecutionEvent]) error {
 	return connect.NewError(connect.CodeUnimplemented, errors.New("depot.sandbox.v1.SandboxService.RunHook is not implemented"))
 }
 
-func (UnimplementedSandboxServiceHandler) GetCommand(context.Context, *connect.Request[v1.CommandRef]) (*connect.Response[v1.GetCommandResponse], error) {
+func (UnimplementedSandboxServiceHandler) GetCommand(context.Context, *connect.Request[v1.SandboxCommandExecutionRef]) (*connect.Response[v1.GetCommandResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.sandbox.v1.SandboxService.GetCommand is not implemented"))
 }
 
@@ -952,7 +952,7 @@ func (UnimplementedSandboxServiceHandler) ListCommands(context.Context, *connect
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.sandbox.v1.SandboxService.ListCommands is not implemented"))
 }
 
-func (UnimplementedSandboxServiceHandler) AttachCommand(context.Context, *connect.Request[v1.AttachCommandRequest], *connect.ServerStream[v1.CommandEvent]) error {
+func (UnimplementedSandboxServiceHandler) AttachCommand(context.Context, *connect.Request[v1.AttachCommandRequest], *connect.ServerStream[v1.SandboxCommandExecutionEvent]) error {
 	return connect.NewError(connect.CodeUnimplemented, errors.New("depot.sandbox.v1.SandboxService.AttachCommand is not implemented"))
 }
 

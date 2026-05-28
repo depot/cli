@@ -28,7 +28,7 @@ func TestCommandRef_PinnedShape(t *testing.T) {
 	if r == nil {
 		t.Fatal("commandRef returned nil")
 	}
-	sel, ok := r.Selector.(*sandboxv1.CommandRef_Id)
+	sel, ok := r.Selector.(*sandboxv1.SandboxCommandExecutionRef_Id)
 	if !ok {
 		t.Fatalf("expected CommandRef_Id selector, got %T", r.Selector)
 	}

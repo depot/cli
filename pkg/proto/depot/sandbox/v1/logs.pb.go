@@ -27,7 +27,7 @@ const (
 //
 // EvictedEarlyData fires when the K-Streaming ring (architecture §10) had to
 // drop head data before this consumer subscribed — analogous to
-// CommandEvent.EvictedEarlyData. The dropped-bytes counter is single-rail
+// SandboxCommandExecutionEvent.EvictedEarlyData. The dropped-bytes counter is single-rail
 // here (no per-stream split) because the boot-output buffer is keyed by
 // arrival across both stdout/stderr.
 type SandboxLogEvent struct {
@@ -220,7 +220,7 @@ type SandboxLogEvent_BootStdout struct {
 
 	Data []byte `protobuf:"bytes,1,opt,name=data,proto3" json:"data,omitempty"`
 	// Cumulative byte index for the stdout rail as of the END of `data`
-	// (end-of-chunk semantics, mirroring CommandEvent.StdoutBytes.byte_offset
+	// (end-of-chunk semantics, mirroring SandboxCommandExecutionEvent.StdoutBytes.byte_offset
 	// from command.proto). Useful for consumers that want to dedup across
 	// resubscribes that they themselves coordinate at the byte rail; the
 	// server-side replay watermark is the request's `since_offset`, which

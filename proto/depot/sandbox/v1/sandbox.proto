@@ -45,13 +45,13 @@ service SandboxService {
   // error). Persistence + the K-Streaming buffered-event-log + the vm3
   // Execute proxy land with the next two slices (P10b/P10c); this RPC is
   // wire-reachable today but returns Unimplemented until those land.
-  rpc RunCommand(RunCommandRequest) returns (stream CommandEvent);
+  rpc RunCommand(RunCommandRequest) returns (stream SandboxCommandExecutionEvent);
 
   // DEP-4519 — bidirectional-streaming command execution with stdin. The
   // first request on the stream MUST carry `init`; subsequent requests carry
   // `stdin` bytes. The response stream shape is identical to RunCommand.
   // stdin bytes flow through to the guest process and are NOT persisted.
-  rpc RunCommandPipe(stream RunCommandPipeRequest) returns (stream CommandEvent);
+  rpc RunCommandPipe(stream RunCommandPipeRequest) returns (stream SandboxCommandExecutionEvent);
 
   // DEP-4534 / P23 — execute a lifecycle hook. Hidden / pattern F: surfaced
   // for non-TS callers and consumed by the CreateSandboxFromSpec orchestrator
@@ -62,15 +62,15 @@ service SandboxService {
   // /var/log/depot/hook-<stage>-<name>.log (detached). Stage label is
   // metadata-only — execution shape does NOT vary across the six HookStage
   // values. Architecture §12. Spec Cluster INTERIOR step 2/5.
-  rpc RunHook(RunHookRequest) returns (stream CommandEvent);
+  rpc RunHook(RunHookRequest) returns (stream SandboxCommandExecutionEvent);
 
-  // DEP-4520 — read side of the Command surface. Get and List return persisted
+  // DEP-4520 — read side of the SandboxCommandExecution surface. Get and List return persisted
   // metadata. Attach replays persisted stdout/stderr from ClickHouse and (when
   // the command is still running on the same replica) tails live output via
   // the process-local per-cmd BufferedEventLog.
-  rpc GetCommand(CommandRef) returns (GetCommandResponse);
+  rpc GetCommand(SandboxCommandExecutionRef) returns (GetCommandResponse);
   rpc ListCommands(ListCommandsRequest) returns (ListCommandsResponse);
-  rpc AttachCommand(AttachCommandRequest) returns (stream CommandEvent);
+  rpc AttachCommand(AttachCommandRequest) returns (stream SandboxCommandExecutionEvent);
 
   // DEP-4532 — server-streaming sandbox-scoped log surface. Drains the
   // per-sandbox boot-output BufferedEventLog (P27a capture-side) and emits
@@ -132,7 +132,7 @@ service SandboxService {
 }
 
 // SandboxRef lives in refs.proto alongside the other cross-cutting selector
-// messages (CommandRef, SnapshotRef). See the comment at the top of
+// messages (SandboxCommandExecutionRef, SnapshotRef). See the comment at the top of
 // refs.proto for the selector-pattern rationale.
 
 // SandboxStatus is the lifecycle enum for a sandbox.

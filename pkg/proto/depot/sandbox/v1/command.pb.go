@@ -21,99 +21,99 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-// CommandStatus mirrors the lifecycle stages a command transitions through.
+// SandboxCommandExecutionStatus mirrors the lifecycle stages a command transitions through.
 //
 //	PENDING:  queued, not yet started in the guest.
 //	RUNNING:  started; bytes can be streaming.
 //	FINISHED: process exited; exit_code populated.
 //	FAILED:   process never started, or the guest reported an error path.
 //	KILLED:   signaled mid-run (DEP-4522).
-type CommandStatus int32
+type SandboxCommandExecutionStatus int32
 
 const (
-	CommandStatus_COMMAND_STATUS_UNSPECIFIED CommandStatus = 0
-	CommandStatus_COMMAND_STATUS_PENDING     CommandStatus = 1
-	CommandStatus_COMMAND_STATUS_RUNNING     CommandStatus = 2
-	CommandStatus_COMMAND_STATUS_FINISHED    CommandStatus = 3
-	CommandStatus_COMMAND_STATUS_FAILED      CommandStatus = 4
-	CommandStatus_COMMAND_STATUS_KILLED      CommandStatus = 5
+	SandboxCommandExecutionStatus_SANDBOX_COMMAND_EXECUTION_STATUS_UNSPECIFIED SandboxCommandExecutionStatus = 0
+	SandboxCommandExecutionStatus_SANDBOX_COMMAND_EXECUTION_STATUS_PENDING     SandboxCommandExecutionStatus = 1
+	SandboxCommandExecutionStatus_SANDBOX_COMMAND_EXECUTION_STATUS_RUNNING     SandboxCommandExecutionStatus = 2
+	SandboxCommandExecutionStatus_SANDBOX_COMMAND_EXECUTION_STATUS_FINISHED    SandboxCommandExecutionStatus = 3
+	SandboxCommandExecutionStatus_SANDBOX_COMMAND_EXECUTION_STATUS_FAILED      SandboxCommandExecutionStatus = 4
+	SandboxCommandExecutionStatus_SANDBOX_COMMAND_EXECUTION_STATUS_KILLED      SandboxCommandExecutionStatus = 5
 )
 
-// Enum value maps for CommandStatus.
+// Enum value maps for SandboxCommandExecutionStatus.
 var (
-	CommandStatus_name = map[int32]string{
-		0: "COMMAND_STATUS_UNSPECIFIED",
-		1: "COMMAND_STATUS_PENDING",
-		2: "COMMAND_STATUS_RUNNING",
-		3: "COMMAND_STATUS_FINISHED",
-		4: "COMMAND_STATUS_FAILED",
-		5: "COMMAND_STATUS_KILLED",
+	SandboxCommandExecutionStatus_name = map[int32]string{
+		0: "SANDBOX_COMMAND_EXECUTION_STATUS_UNSPECIFIED",
+		1: "SANDBOX_COMMAND_EXECUTION_STATUS_PENDING",
+		2: "SANDBOX_COMMAND_EXECUTION_STATUS_RUNNING",
+		3: "SANDBOX_COMMAND_EXECUTION_STATUS_FINISHED",
+		4: "SANDBOX_COMMAND_EXECUTION_STATUS_FAILED",
+		5: "SANDBOX_COMMAND_EXECUTION_STATUS_KILLED",
 	}
-	CommandStatus_value = map[string]int32{
-		"COMMAND_STATUS_UNSPECIFIED": 0,
-		"COMMAND_STATUS_PENDING":     1,
-		"COMMAND_STATUS_RUNNING":     2,
-		"COMMAND_STATUS_FINISHED":    3,
-		"COMMAND_STATUS_FAILED":      4,
-		"COMMAND_STATUS_KILLED":      5,
+	SandboxCommandExecutionStatus_value = map[string]int32{
+		"SANDBOX_COMMAND_EXECUTION_STATUS_UNSPECIFIED": 0,
+		"SANDBOX_COMMAND_EXECUTION_STATUS_PENDING":     1,
+		"SANDBOX_COMMAND_EXECUTION_STATUS_RUNNING":     2,
+		"SANDBOX_COMMAND_EXECUTION_STATUS_FINISHED":    3,
+		"SANDBOX_COMMAND_EXECUTION_STATUS_FAILED":      4,
+		"SANDBOX_COMMAND_EXECUTION_STATUS_KILLED":      5,
 	}
 )
 
-func (x CommandStatus) Enum() *CommandStatus {
-	p := new(CommandStatus)
+func (x SandboxCommandExecutionStatus) Enum() *SandboxCommandExecutionStatus {
+	p := new(SandboxCommandExecutionStatus)
 	*p = x
 	return p
 }
 
-func (x CommandStatus) String() string {
+func (x SandboxCommandExecutionStatus) String() string {
 	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
 }
 
-func (CommandStatus) Descriptor() protoreflect.EnumDescriptor {
+func (SandboxCommandExecutionStatus) Descriptor() protoreflect.EnumDescriptor {
 	return file_depot_sandbox_v1_command_proto_enumTypes[0].Descriptor()
 }
 
-func (CommandStatus) Type() protoreflect.EnumType {
+func (SandboxCommandExecutionStatus) Type() protoreflect.EnumType {
 	return &file_depot_sandbox_v1_command_proto_enumTypes[0]
 }
 
-func (x CommandStatus) Number() protoreflect.EnumNumber {
+func (x SandboxCommandExecutionStatus) Number() protoreflect.EnumNumber {
 	return protoreflect.EnumNumber(x)
 }
 
-// Deprecated: Use CommandStatus.Descriptor instead.
-func (CommandStatus) EnumDescriptor() ([]byte, []int) {
+// Deprecated: Use SandboxCommandExecutionStatus.Descriptor instead.
+func (SandboxCommandExecutionStatus) EnumDescriptor() ([]byte, []int) {
 	return file_depot_sandbox_v1_command_proto_rawDescGZIP(), []int{0}
 }
 
-// Command is the persisted metadata for a single RunCommand invocation. The
+// SandboxCommandExecution is the persisted metadata for a single RunCommand invocation. The
 // row shape lives in src/sandbox/schema-additions.ts (CommandRow); this is its
 // wire projection. Populated by Get/List/Attach RPCs in follow-up slices.
-type Command struct {
+type SandboxCommandExecution struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
 	// Server-minted ULID. Architecture §7.
-	CmdId      string                 `protobuf:"bytes,1,opt,name=cmd_id,json=cmdId,proto3" json:"cmd_id,omitempty"`
-	SandboxId  string                 `protobuf:"bytes,2,opt,name=sandbox_id,json=sandboxId,proto3" json:"sandbox_id,omitempty"`
-	Cmd        string                 `protobuf:"bytes,3,opt,name=cmd,proto3" json:"cmd,omitempty"`
-	Args       []string               `protobuf:"bytes,4,rep,name=args,proto3" json:"args,omitempty"`
-	Cwd        *string                `protobuf:"bytes,5,opt,name=cwd,proto3,oneof" json:"cwd,omitempty"`
-	Env        map[string]string      `protobuf:"bytes,6,rep,name=env,proto3" json:"env,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
-	Sudo       bool                   `protobuf:"varint,7,opt,name=sudo,proto3" json:"sudo,omitempty"`
-	Detached   bool                   `protobuf:"varint,8,opt,name=detached,proto3" json:"detached,omitempty"`
-	Status     CommandStatus          `protobuf:"varint,9,opt,name=status,proto3,enum=depot.sandbox.v1.CommandStatus" json:"status,omitempty"`
-	StartedAt  *timestamppb.Timestamp `protobuf:"bytes,10,opt,name=started_at,json=startedAt,proto3" json:"started_at,omitempty"`
-	FinishedAt *timestamppb.Timestamp `protobuf:"bytes,11,opt,name=finished_at,json=finishedAt,proto3,oneof" json:"finished_at,omitempty"`
-	ExitCode   *int32                 `protobuf:"varint,12,opt,name=exit_code,json=exitCode,proto3,oneof" json:"exit_code,omitempty"`
+	CmdId      string                        `protobuf:"bytes,1,opt,name=cmd_id,json=cmdId,proto3" json:"cmd_id,omitempty"`
+	SandboxId  string                        `protobuf:"bytes,2,opt,name=sandbox_id,json=sandboxId,proto3" json:"sandbox_id,omitempty"`
+	Cmd        string                        `protobuf:"bytes,3,opt,name=cmd,proto3" json:"cmd,omitempty"`
+	Args       []string                      `protobuf:"bytes,4,rep,name=args,proto3" json:"args,omitempty"`
+	Cwd        *string                       `protobuf:"bytes,5,opt,name=cwd,proto3,oneof" json:"cwd,omitempty"`
+	Env        map[string]string             `protobuf:"bytes,6,rep,name=env,proto3" json:"env,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
+	Sudo       bool                          `protobuf:"varint,7,opt,name=sudo,proto3" json:"sudo,omitempty"`
+	Detached   bool                          `protobuf:"varint,8,opt,name=detached,proto3" json:"detached,omitempty"`
+	Status     SandboxCommandExecutionStatus `protobuf:"varint,9,opt,name=status,proto3,enum=depot.sandbox.v1.SandboxCommandExecutionStatus" json:"status,omitempty"`
+	StartedAt  *timestamppb.Timestamp        `protobuf:"bytes,10,opt,name=started_at,json=startedAt,proto3" json:"started_at,omitempty"`
+	FinishedAt *timestamppb.Timestamp        `protobuf:"bytes,11,opt,name=finished_at,json=finishedAt,proto3,oneof" json:"finished_at,omitempty"`
+	ExitCode   *int32                        `protobuf:"varint,12,opt,name=exit_code,json=exitCode,proto3,oneof" json:"exit_code,omitempty"`
 	// Per-stream cumulative byte counts. Split per architecture §8.
 	StdoutBytesEmitted int64 `protobuf:"varint,13,opt,name=stdout_bytes_emitted,json=stdoutBytesEmitted,proto3" json:"stdout_bytes_emitted,omitempty"`
 	StderrBytesEmitted int64 `protobuf:"varint,14,opt,name=stderr_bytes_emitted,json=stderrBytesEmitted,proto3" json:"stderr_bytes_emitted,omitempty"`
 }
 
-func (x *Command) Reset() {
-	*x = Command{}
+func (x *SandboxCommandExecution) Reset() {
+	*x = SandboxCommandExecution{}
 	if protoimpl.UnsafeEnabled {
 		mi := &file_depot_sandbox_v1_command_proto_msgTypes[0]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -121,13 +121,13 @@ func (x *Command) Reset() {
 	}
 }
 
-func (x *Command) String() string {
+func (x *SandboxCommandExecution) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*Command) ProtoMessage() {}
+func (*SandboxCommandExecution) ProtoMessage() {}
 
-func (x *Command) ProtoReflect() protoreflect.Message {
+func (x *SandboxCommandExecution) ProtoReflect() protoreflect.Message {
 	mi := &file_depot_sandbox_v1_command_proto_msgTypes[0]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -139,134 +139,134 @@ func (x *Command) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use Command.ProtoReflect.Descriptor instead.
-func (*Command) Descriptor() ([]byte, []int) {
+// Deprecated: Use SandboxCommandExecution.ProtoReflect.Descriptor instead.
+func (*SandboxCommandExecution) Descriptor() ([]byte, []int) {
 	return file_depot_sandbox_v1_command_proto_rawDescGZIP(), []int{0}
 }
 
-func (x *Command) GetCmdId() string {
+func (x *SandboxCommandExecution) GetCmdId() string {
 	if x != nil {
 		return x.CmdId
 	}
 	return ""
 }
 
-func (x *Command) GetSandboxId() string {
+func (x *SandboxCommandExecution) GetSandboxId() string {
 	if x != nil {
 		return x.SandboxId
 	}
 	return ""
 }
 
-func (x *Command) GetCmd() string {
+func (x *SandboxCommandExecution) GetCmd() string {
 	if x != nil {
 		return x.Cmd
 	}
 	return ""
 }
 
-func (x *Command) GetArgs() []string {
+func (x *SandboxCommandExecution) GetArgs() []string {
 	if x != nil {
 		return x.Args
 	}
 	return nil
 }
 
-func (x *Command) GetCwd() string {
+func (x *SandboxCommandExecution) GetCwd() string {
 	if x != nil && x.Cwd != nil {
 		return *x.Cwd
 	}
 	return ""
 }
 
-func (x *Command) GetEnv() map[string]string {
+func (x *SandboxCommandExecution) GetEnv() map[string]string {
 	if x != nil {
 		return x.Env
 	}
 	return nil
 }
 
-func (x *Command) GetSudo() bool {
+func (x *SandboxCommandExecution) GetSudo() bool {
 	if x != nil {
 		return x.Sudo
 	}
 	return false
 }
 
-func (x *Command) GetDetached() bool {
+func (x *SandboxCommandExecution) GetDetached() bool {
 	if x != nil {
 		return x.Detached
 	}
 	return false
 }
 
-func (x *Command) GetStatus() CommandStatus {
+func (x *SandboxCommandExecution) GetStatus() SandboxCommandExecutionStatus {
 	if x != nil {
 		return x.Status
 	}
-	return CommandStatus_COMMAND_STATUS_UNSPECIFIED
+	return SandboxCommandExecutionStatus_SANDBOX_COMMAND_EXECUTION_STATUS_UNSPECIFIED
 }
 
-func (x *Command) GetStartedAt() *timestamppb.Timestamp {
+func (x *SandboxCommandExecution) GetStartedAt() *timestamppb.Timestamp {
 	if x != nil {
 		return x.StartedAt
 	}
 	return nil
 }
 
-func (x *Command) GetFinishedAt() *timestamppb.Timestamp {
+func (x *SandboxCommandExecution) GetFinishedAt() *timestamppb.Timestamp {
 	if x != nil {
 		return x.FinishedAt
 	}
 	return nil
 }
 
-func (x *Command) GetExitCode() int32 {
+func (x *SandboxCommandExecution) GetExitCode() int32 {
 	if x != nil && x.ExitCode != nil {
 		return *x.ExitCode
 	}
 	return 0
 }
 
-func (x *Command) GetStdoutBytesEmitted() int64 {
+func (x *SandboxCommandExecution) GetStdoutBytesEmitted() int64 {
 	if x != nil {
 		return x.StdoutBytesEmitted
 	}
 	return 0
 }
 
-func (x *Command) GetStderrBytesEmitted() int64 {
+func (x *SandboxCommandExecution) GetStderrBytesEmitted() int64 {
 	if x != nil {
 		return x.StderrBytesEmitted
 	}
 	return 0
 }
 
-// CommandEvent is the streamed event during RunCommand / RunCommandPipe /
+// SandboxCommandExecutionEvent is the streamed event during RunCommand / RunCommandPipe /
 // AttachCommand. Bytes everywhere; the SDK decodes UTF-8 at the adapter layer.
 //
 // EvictedEarlyData fires only on reattach scenarios where the K-Streaming ring
 // (architecture §10) had to drop head data before the consumer subscribed.
 // It is part of the oneof from day one so the wire shape doesn't need a
 // reserved slot retrofit when the BufferedEventLog impl lands with P10b.
-type CommandEvent struct {
+type SandboxCommandExecutionEvent struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
 	// Types that are assignable to Event:
 	//
-	//	*CommandEvent_Started_
-	//	*CommandEvent_Stdout
-	//	*CommandEvent_Stderr
-	//	*CommandEvent_Finished_
-	//	*CommandEvent_Error_
-	//	*CommandEvent_Evicted
-	Event isCommandEvent_Event `protobuf_oneof:"event"`
+	//	*SandboxCommandExecutionEvent_Started_
+	//	*SandboxCommandExecutionEvent_Stdout
+	//	*SandboxCommandExecutionEvent_Stderr
+	//	*SandboxCommandExecutionEvent_Finished_
+	//	*SandboxCommandExecutionEvent_Error_
+	//	*SandboxCommandExecutionEvent_Evicted
+	Event isSandboxCommandExecutionEvent_Event `protobuf_oneof:"event"`
 }
 
-func (x *CommandEvent) Reset() {
-	*x = CommandEvent{}
+func (x *SandboxCommandExecutionEvent) Reset() {
+	*x = SandboxCommandExecutionEvent{}
 	if protoimpl.UnsafeEnabled {
 		mi := &file_depot_sandbox_v1_command_proto_msgTypes[1]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -274,13 +274,13 @@ func (x *CommandEvent) Reset() {
 	}
 }
 
-func (x *CommandEvent) String() string {
+func (x *SandboxCommandExecutionEvent) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*CommandEvent) ProtoMessage() {}
+func (*SandboxCommandExecutionEvent) ProtoMessage() {}
 
-func (x *CommandEvent) ProtoReflect() protoreflect.Message {
+func (x *SandboxCommandExecutionEvent) ProtoReflect() protoreflect.Message {
 	mi := &file_depot_sandbox_v1_command_proto_msgTypes[1]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -292,99 +292,99 @@ func (x *CommandEvent) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use CommandEvent.ProtoReflect.Descriptor instead.
-func (*CommandEvent) Descriptor() ([]byte, []int) {
+// Deprecated: Use SandboxCommandExecutionEvent.ProtoReflect.Descriptor instead.
+func (*SandboxCommandExecutionEvent) Descriptor() ([]byte, []int) {
 	return file_depot_sandbox_v1_command_proto_rawDescGZIP(), []int{1}
 }
 
-func (m *CommandEvent) GetEvent() isCommandEvent_Event {
+func (m *SandboxCommandExecutionEvent) GetEvent() isSandboxCommandExecutionEvent_Event {
 	if m != nil {
 		return m.Event
 	}
 	return nil
 }
 
-func (x *CommandEvent) GetStarted() *CommandEvent_Started {
-	if x, ok := x.GetEvent().(*CommandEvent_Started_); ok {
+func (x *SandboxCommandExecutionEvent) GetStarted() *SandboxCommandExecutionEvent_Started {
+	if x, ok := x.GetEvent().(*SandboxCommandExecutionEvent_Started_); ok {
 		return x.Started
 	}
 	return nil
 }
 
-func (x *CommandEvent) GetStdout() *CommandEvent_StdoutBytes {
-	if x, ok := x.GetEvent().(*CommandEvent_Stdout); ok {
+func (x *SandboxCommandExecutionEvent) GetStdout() *SandboxCommandExecutionEvent_StdoutBytes {
+	if x, ok := x.GetEvent().(*SandboxCommandExecutionEvent_Stdout); ok {
 		return x.Stdout
 	}
 	return nil
 }
 
-func (x *CommandEvent) GetStderr() *CommandEvent_StderrBytes {
-	if x, ok := x.GetEvent().(*CommandEvent_Stderr); ok {
+func (x *SandboxCommandExecutionEvent) GetStderr() *SandboxCommandExecutionEvent_StderrBytes {
+	if x, ok := x.GetEvent().(*SandboxCommandExecutionEvent_Stderr); ok {
 		return x.Stderr
 	}
 	return nil
 }
 
-func (x *CommandEvent) GetFinished() *CommandEvent_Finished {
-	if x, ok := x.GetEvent().(*CommandEvent_Finished_); ok {
+func (x *SandboxCommandExecutionEvent) GetFinished() *SandboxCommandExecutionEvent_Finished {
+	if x, ok := x.GetEvent().(*SandboxCommandExecutionEvent_Finished_); ok {
 		return x.Finished
 	}
 	return nil
 }
 
-func (x *CommandEvent) GetError() *CommandEvent_Error {
-	if x, ok := x.GetEvent().(*CommandEvent_Error_); ok {
+func (x *SandboxCommandExecutionEvent) GetError() *SandboxCommandExecutionEvent_Error {
+	if x, ok := x.GetEvent().(*SandboxCommandExecutionEvent_Error_); ok {
 		return x.Error
 	}
 	return nil
 }
 
-func (x *CommandEvent) GetEvicted() *CommandEvent_EvictedEarlyData {
-	if x, ok := x.GetEvent().(*CommandEvent_Evicted); ok {
+func (x *SandboxCommandExecutionEvent) GetEvicted() *SandboxCommandExecutionEvent_EvictedEarlyData {
+	if x, ok := x.GetEvent().(*SandboxCommandExecutionEvent_Evicted); ok {
 		return x.Evicted
 	}
 	return nil
 }
 
-type isCommandEvent_Event interface {
-	isCommandEvent_Event()
+type isSandboxCommandExecutionEvent_Event interface {
+	isSandboxCommandExecutionEvent_Event()
 }
 
-type CommandEvent_Started_ struct {
-	Started *CommandEvent_Started `protobuf:"bytes,1,opt,name=started,proto3,oneof"`
+type SandboxCommandExecutionEvent_Started_ struct {
+	Started *SandboxCommandExecutionEvent_Started `protobuf:"bytes,1,opt,name=started,proto3,oneof"`
 }
 
-type CommandEvent_Stdout struct {
-	Stdout *CommandEvent_StdoutBytes `protobuf:"bytes,2,opt,name=stdout,proto3,oneof"`
+type SandboxCommandExecutionEvent_Stdout struct {
+	Stdout *SandboxCommandExecutionEvent_StdoutBytes `protobuf:"bytes,2,opt,name=stdout,proto3,oneof"`
 }
 
-type CommandEvent_Stderr struct {
-	Stderr *CommandEvent_StderrBytes `protobuf:"bytes,3,opt,name=stderr,proto3,oneof"`
+type SandboxCommandExecutionEvent_Stderr struct {
+	Stderr *SandboxCommandExecutionEvent_StderrBytes `protobuf:"bytes,3,opt,name=stderr,proto3,oneof"`
 }
 
-type CommandEvent_Finished_ struct {
-	Finished *CommandEvent_Finished `protobuf:"bytes,4,opt,name=finished,proto3,oneof"`
+type SandboxCommandExecutionEvent_Finished_ struct {
+	Finished *SandboxCommandExecutionEvent_Finished `protobuf:"bytes,4,opt,name=finished,proto3,oneof"`
 }
 
-type CommandEvent_Error_ struct {
-	Error *CommandEvent_Error `protobuf:"bytes,5,opt,name=error,proto3,oneof"`
+type SandboxCommandExecutionEvent_Error_ struct {
+	Error *SandboxCommandExecutionEvent_Error `protobuf:"bytes,5,opt,name=error,proto3,oneof"`
 }
 
-type CommandEvent_Evicted struct {
-	Evicted *CommandEvent_EvictedEarlyData `protobuf:"bytes,6,opt,name=evicted,proto3,oneof"`
+type SandboxCommandExecutionEvent_Evicted struct {
+	Evicted *SandboxCommandExecutionEvent_EvictedEarlyData `protobuf:"bytes,6,opt,name=evicted,proto3,oneof"`
 }
 
-func (*CommandEvent_Started_) isCommandEvent_Event() {}
+func (*SandboxCommandExecutionEvent_Started_) isSandboxCommandExecutionEvent_Event() {}
 
-func (*CommandEvent_Stdout) isCommandEvent_Event() {}
+func (*SandboxCommandExecutionEvent_Stdout) isSandboxCommandExecutionEvent_Event() {}
 
-func (*CommandEvent_Stderr) isCommandEvent_Event() {}
+func (*SandboxCommandExecutionEvent_Stderr) isSandboxCommandExecutionEvent_Event() {}
 
-func (*CommandEvent_Finished_) isCommandEvent_Event() {}
+func (*SandboxCommandExecutionEvent_Finished_) isSandboxCommandExecutionEvent_Event() {}
 
-func (*CommandEvent_Error_) isCommandEvent_Event() {}
+func (*SandboxCommandExecutionEvent_Error_) isSandboxCommandExecutionEvent_Event() {}
 
-func (*CommandEvent_Evicted) isCommandEvent_Event() {}
+func (*SandboxCommandExecutionEvent_Evicted) isSandboxCommandExecutionEvent_Event() {}
 
 // RunCommand — DEP-4517. Server-streaming RPC; the response stream is a
 // sequence of CommandEvents starting with Started and ending with Finished
@@ -592,7 +592,7 @@ type GetCommandResponse struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	Command *Command `protobuf:"bytes,1,opt,name=command,proto3" json:"command,omitempty"`
+	Command *SandboxCommandExecution `protobuf:"bytes,1,opt,name=command,proto3" json:"command,omitempty"`
 }
 
 func (x *GetCommandResponse) Reset() {
@@ -627,7 +627,7 @@ func (*GetCommandResponse) Descriptor() ([]byte, []int) {
 	return file_depot_sandbox_v1_command_proto_rawDescGZIP(), []int{4}
 }
 
-func (x *GetCommandResponse) GetCommand() *Command {
+func (x *GetCommandResponse) GetCommand() *SandboxCommandExecution {
 	if x != nil {
 		return x.Command
 	}
@@ -647,8 +647,8 @@ type ListCommandsRequest struct {
 	PageSize  *int32      `protobuf:"varint,2,opt,name=page_size,json=pageSize,proto3,oneof" json:"page_size,omitempty"`
 	PageToken *string     `protobuf:"bytes,3,opt,name=page_token,json=pageToken,proto3,oneof" json:"page_token,omitempty"`
 	// If non-empty, only commands whose status is in this set are returned.
-	// UNSPECIFIED entries are ignored. The full CommandStatus enum is accepted.
-	StatusFilter []CommandStatus `protobuf:"varint,4,rep,packed,name=status_filter,json=statusFilter,proto3,enum=depot.sandbox.v1.CommandStatus" json:"status_filter,omitempty"`
+	// UNSPECIFIED entries are ignored. The full SandboxCommandExecutionStatus enum is accepted.
+	StatusFilter []SandboxCommandExecutionStatus `protobuf:"varint,4,rep,packed,name=status_filter,json=statusFilter,proto3,enum=depot.sandbox.v1.SandboxCommandExecutionStatus" json:"status_filter,omitempty"`
 }
 
 func (x *ListCommandsRequest) Reset() {
@@ -704,7 +704,7 @@ func (x *ListCommandsRequest) GetPageToken() string {
 	return ""
 }
 
-func (x *ListCommandsRequest) GetStatusFilter() []CommandStatus {
+func (x *ListCommandsRequest) GetStatusFilter() []SandboxCommandExecutionStatus {
 	if x != nil {
 		return x.StatusFilter
 	}
@@ -716,8 +716,8 @@ type ListCommandsResponse struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	Commands      []*Command `protobuf:"bytes,1,rep,name=commands,proto3" json:"commands,omitempty"`
-	NextPageToken *string    `protobuf:"bytes,2,opt,name=next_page_token,json=nextPageToken,proto3,oneof" json:"next_page_token,omitempty"`
+	Commands      []*SandboxCommandExecution `protobuf:"bytes,1,rep,name=commands,proto3" json:"commands,omitempty"`
+	NextPageToken *string                    `protobuf:"bytes,2,opt,name=next_page_token,json=nextPageToken,proto3,oneof" json:"next_page_token,omitempty"`
 }
 
 func (x *ListCommandsResponse) Reset() {
@@ -752,7 +752,7 @@ func (*ListCommandsResponse) Descriptor() ([]byte, []int) {
 	return file_depot_sandbox_v1_command_proto_rawDescGZIP(), []int{6}
 }
 
-func (x *ListCommandsResponse) GetCommands() []*Command {
+func (x *ListCommandsResponse) GetCommands() []*SandboxCommandExecution {
 	if x != nil {
 		return x.Commands
 	}
@@ -767,12 +767,12 @@ func (x *ListCommandsResponse) GetNextPageToken() string {
 }
 
 // AttachCommand re-subscribes to the output of a previously-issued
-// RunCommand / RunCommandPipe. The response stream is the same CommandEvent
+// RunCommand / RunCommandPipe. The response stream is the same SandboxCommandExecutionEvent
 // sequence those RPCs emit live: replay of persisted Stdout/Stderr chunks
 // followed (if the command is still running on the same replica) by live tail.
 //
 // Sandbox-level authz: cmd_id is resolved to its sandbox_id server-side, then
-// the standard sandbox-row org check applies. CommandRef carries only the
+// the standard sandbox-row org check applies. SandboxCommandExecutionRef carries only the
 // cmd_id today (refs.proto's selector pattern); a future sandbox-qualified
 // selector form can be added without a wire break.
 type AttachCommandRequest struct {
@@ -780,7 +780,7 @@ type AttachCommandRequest struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	Command *CommandRef `protobuf:"bytes,1,opt,name=command,proto3" json:"command,omitempty"`
+	Command *SandboxCommandExecutionRef `protobuf:"bytes,1,opt,name=command,proto3" json:"command,omitempty"`
 	// Per-stream WATERMARK: replay events whose byte_offset is STRICTLY GREATER
 	// than the supplied offset. The wire field byte_offset is end-of-chunk
 	// (cumulative bytes through the END of `data`), so a caller that replayed
@@ -822,7 +822,7 @@ func (*AttachCommandRequest) Descriptor() ([]byte, []int) {
 	return file_depot_sandbox_v1_command_proto_rawDescGZIP(), []int{7}
 }
 
-func (x *AttachCommandRequest) GetCommand() *CommandRef {
+func (x *AttachCommandRequest) GetCommand() *SandboxCommandExecutionRef {
 	if x != nil {
 		return x.Command
 	}
@@ -998,7 +998,7 @@ func (*KillCommandResponse) Descriptor() ([]byte, []int) {
 	return file_depot_sandbox_v1_command_proto_rawDescGZIP(), []int{10}
 }
 
-type CommandEvent_Started struct {
+type SandboxCommandExecutionEvent_Started struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
@@ -1007,8 +1007,8 @@ type CommandEvent_Started struct {
 	StartedAt *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=started_at,json=startedAt,proto3" json:"started_at,omitempty"`
 }
 
-func (x *CommandEvent_Started) Reset() {
-	*x = CommandEvent_Started{}
+func (x *SandboxCommandExecutionEvent_Started) Reset() {
+	*x = SandboxCommandExecutionEvent_Started{}
 	if protoimpl.UnsafeEnabled {
 		mi := &file_depot_sandbox_v1_command_proto_msgTypes[12]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -1016,13 +1016,13 @@ func (x *CommandEvent_Started) Reset() {
 	}
 }
 
-func (x *CommandEvent_Started) String() string {
+func (x *SandboxCommandExecutionEvent_Started) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*CommandEvent_Started) ProtoMessage() {}
+func (*SandboxCommandExecutionEvent_Started) ProtoMessage() {}
 
-func (x *CommandEvent_Started) ProtoReflect() protoreflect.Message {
+func (x *SandboxCommandExecutionEvent_Started) ProtoReflect() protoreflect.Message {
 	mi := &file_depot_sandbox_v1_command_proto_msgTypes[12]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -1034,26 +1034,26 @@ func (x *CommandEvent_Started) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use CommandEvent_Started.ProtoReflect.Descriptor instead.
-func (*CommandEvent_Started) Descriptor() ([]byte, []int) {
+// Deprecated: Use SandboxCommandExecutionEvent_Started.ProtoReflect.Descriptor instead.
+func (*SandboxCommandExecutionEvent_Started) Descriptor() ([]byte, []int) {
 	return file_depot_sandbox_v1_command_proto_rawDescGZIP(), []int{1, 0}
 }
 
-func (x *CommandEvent_Started) GetCmdId() string {
+func (x *SandboxCommandExecutionEvent_Started) GetCmdId() string {
 	if x != nil {
 		return x.CmdId
 	}
 	return ""
 }
 
-func (x *CommandEvent_Started) GetStartedAt() *timestamppb.Timestamp {
+func (x *SandboxCommandExecutionEvent_Started) GetStartedAt() *timestamppb.Timestamp {
 	if x != nil {
 		return x.StartedAt
 	}
 	return nil
 }
 
-type CommandEvent_StdoutBytes struct {
+type SandboxCommandExecutionEvent_StdoutBytes struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
@@ -1064,8 +1064,8 @@ type CommandEvent_StdoutBytes struct {
 	Timestamp  *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
 }
 
-func (x *CommandEvent_StdoutBytes) Reset() {
-	*x = CommandEvent_StdoutBytes{}
+func (x *SandboxCommandExecutionEvent_StdoutBytes) Reset() {
+	*x = SandboxCommandExecutionEvent_StdoutBytes{}
 	if protoimpl.UnsafeEnabled {
 		mi := &file_depot_sandbox_v1_command_proto_msgTypes[13]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -1073,13 +1073,13 @@ func (x *CommandEvent_StdoutBytes) Reset() {
 	}
 }
 
-func (x *CommandEvent_StdoutBytes) String() string {
+func (x *SandboxCommandExecutionEvent_StdoutBytes) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*CommandEvent_StdoutBytes) ProtoMessage() {}
+func (*SandboxCommandExecutionEvent_StdoutBytes) ProtoMessage() {}
 
-func (x *CommandEvent_StdoutBytes) ProtoReflect() protoreflect.Message {
+func (x *SandboxCommandExecutionEvent_StdoutBytes) ProtoReflect() protoreflect.Message {
 	mi := &file_depot_sandbox_v1_command_proto_msgTypes[13]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -1091,33 +1091,33 @@ func (x *CommandEvent_StdoutBytes) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use CommandEvent_StdoutBytes.ProtoReflect.Descriptor instead.
-func (*CommandEvent_StdoutBytes) Descriptor() ([]byte, []int) {
+// Deprecated: Use SandboxCommandExecutionEvent_StdoutBytes.ProtoReflect.Descriptor instead.
+func (*SandboxCommandExecutionEvent_StdoutBytes) Descriptor() ([]byte, []int) {
 	return file_depot_sandbox_v1_command_proto_rawDescGZIP(), []int{1, 1}
 }
 
-func (x *CommandEvent_StdoutBytes) GetData() []byte {
+func (x *SandboxCommandExecutionEvent_StdoutBytes) GetData() []byte {
 	if x != nil {
 		return x.Data
 	}
 	return nil
 }
 
-func (x *CommandEvent_StdoutBytes) GetByteOffset() int64 {
+func (x *SandboxCommandExecutionEvent_StdoutBytes) GetByteOffset() int64 {
 	if x != nil {
 		return x.ByteOffset
 	}
 	return 0
 }
 
-func (x *CommandEvent_StdoutBytes) GetTimestamp() *timestamppb.Timestamp {
+func (x *SandboxCommandExecutionEvent_StdoutBytes) GetTimestamp() *timestamppb.Timestamp {
 	if x != nil {
 		return x.Timestamp
 	}
 	return nil
 }
 
-type CommandEvent_StderrBytes struct {
+type SandboxCommandExecutionEvent_StderrBytes struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
@@ -1127,8 +1127,8 @@ type CommandEvent_StderrBytes struct {
 	Timestamp  *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
 }
 
-func (x *CommandEvent_StderrBytes) Reset() {
-	*x = CommandEvent_StderrBytes{}
+func (x *SandboxCommandExecutionEvent_StderrBytes) Reset() {
+	*x = SandboxCommandExecutionEvent_StderrBytes{}
 	if protoimpl.UnsafeEnabled {
 		mi := &file_depot_sandbox_v1_command_proto_msgTypes[14]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -1136,13 +1136,13 @@ func (x *CommandEvent_StderrBytes) Reset() {
 	}
 }
 
-func (x *CommandEvent_StderrBytes) String() string {
+func (x *SandboxCommandExecutionEvent_StderrBytes) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*CommandEvent_StderrBytes) ProtoMessage() {}
+func (*SandboxCommandExecutionEvent_StderrBytes) ProtoMessage() {}
 
-func (x *CommandEvent_StderrBytes) ProtoReflect() protoreflect.Message {
+func (x *SandboxCommandExecutionEvent_StderrBytes) ProtoReflect() protoreflect.Message {
 	mi := &file_depot_sandbox_v1_command_proto_msgTypes[14]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -1154,33 +1154,33 @@ func (x *CommandEvent_StderrBytes) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use CommandEvent_StderrBytes.ProtoReflect.Descriptor instead.
-func (*CommandEvent_StderrBytes) Descriptor() ([]byte, []int) {
+// Deprecated: Use SandboxCommandExecutionEvent_StderrBytes.ProtoReflect.Descriptor instead.
+func (*SandboxCommandExecutionEvent_StderrBytes) Descriptor() ([]byte, []int) {
 	return file_depot_sandbox_v1_command_proto_rawDescGZIP(), []int{1, 2}
 }
 
-func (x *CommandEvent_StderrBytes) GetData() []byte {
+func (x *SandboxCommandExecutionEvent_StderrBytes) GetData() []byte {
 	if x != nil {
 		return x.Data
 	}
 	return nil
 }
 
-func (x *CommandEvent_StderrBytes) GetByteOffset() int64 {
+func (x *SandboxCommandExecutionEvent_StderrBytes) GetByteOffset() int64 {
 	if x != nil {
 		return x.ByteOffset
 	}
 	return 0
 }
 
-func (x *CommandEvent_StderrBytes) GetTimestamp() *timestamppb.Timestamp {
+func (x *SandboxCommandExecutionEvent_StderrBytes) GetTimestamp() *timestamppb.Timestamp {
 	if x != nil {
 		return x.Timestamp
 	}
 	return nil
 }
 
-type CommandEvent_Finished struct {
+type SandboxCommandExecutionEvent_Finished struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
@@ -1189,8 +1189,8 @@ type CommandEvent_Finished struct {
 	FinishedAt *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=finished_at,json=finishedAt,proto3" json:"finished_at,omitempty"`
 }
 
-func (x *CommandEvent_Finished) Reset() {
-	*x = CommandEvent_Finished{}
+func (x *SandboxCommandExecutionEvent_Finished) Reset() {
+	*x = SandboxCommandExecutionEvent_Finished{}
 	if protoimpl.UnsafeEnabled {
 		mi := &file_depot_sandbox_v1_command_proto_msgTypes[15]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -1198,13 +1198,13 @@ func (x *CommandEvent_Finished) Reset() {
 	}
 }
 
-func (x *CommandEvent_Finished) String() string {
+func (x *SandboxCommandExecutionEvent_Finished) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*CommandEvent_Finished) ProtoMessage() {}
+func (*SandboxCommandExecutionEvent_Finished) ProtoMessage() {}
 
-func (x *CommandEvent_Finished) ProtoReflect() protoreflect.Message {
+func (x *SandboxCommandExecutionEvent_Finished) ProtoReflect() protoreflect.Message {
 	mi := &file_depot_sandbox_v1_command_proto_msgTypes[15]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -1216,19 +1216,19 @@ func (x *CommandEvent_Finished) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use CommandEvent_Finished.ProtoReflect.Descriptor instead.
-func (*CommandEvent_Finished) Descriptor() ([]byte, []int) {
+// Deprecated: Use SandboxCommandExecutionEvent_Finished.ProtoReflect.Descriptor instead.
+func (*SandboxCommandExecutionEvent_Finished) Descriptor() ([]byte, []int) {
 	return file_depot_sandbox_v1_command_proto_rawDescGZIP(), []int{1, 3}
 }
 
-func (x *CommandEvent_Finished) GetExitCode() int32 {
+func (x *SandboxCommandExecutionEvent_Finished) GetExitCode() int32 {
 	if x != nil {
 		return x.ExitCode
 	}
 	return 0
 }
 
-func (x *CommandEvent_Finished) GetFinishedAt() *timestamppb.Timestamp {
+func (x *SandboxCommandExecutionEvent_Finished) GetFinishedAt() *timestamppb.Timestamp {
 	if x != nil {
 		return x.FinishedAt
 	}
@@ -1239,7 +1239,7 @@ func (x *CommandEvent_Finished) GetFinishedAt() *timestamppb.Timestamp {
 // but more coming). Connect errors remain the primary error channel; this
 // payload is for partial-degradation cases. Bare string for v0; structured
 // codes are a follow-on if call sites need to discriminate.
-type CommandEvent_Error struct {
+type SandboxCommandExecutionEvent_Error struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
@@ -1247,8 +1247,8 @@ type CommandEvent_Error struct {
 	Reason string `protobuf:"bytes,1,opt,name=reason,proto3" json:"reason,omitempty"`
 }
 
-func (x *CommandEvent_Error) Reset() {
-	*x = CommandEvent_Error{}
+func (x *SandboxCommandExecutionEvent_Error) Reset() {
+	*x = SandboxCommandExecutionEvent_Error{}
 	if protoimpl.UnsafeEnabled {
 		mi := &file_depot_sandbox_v1_command_proto_msgTypes[16]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -1256,13 +1256,13 @@ func (x *CommandEvent_Error) Reset() {
 	}
 }
 
-func (x *CommandEvent_Error) String() string {
+func (x *SandboxCommandExecutionEvent_Error) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*CommandEvent_Error) ProtoMessage() {}
+func (*SandboxCommandExecutionEvent_Error) ProtoMessage() {}
 
-func (x *CommandEvent_Error) ProtoReflect() protoreflect.Message {
+func (x *SandboxCommandExecutionEvent_Error) ProtoReflect() protoreflect.Message {
 	mi := &file_depot_sandbox_v1_command_proto_msgTypes[16]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -1274,12 +1274,12 @@ func (x *CommandEvent_Error) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use CommandEvent_Error.ProtoReflect.Descriptor instead.
-func (*CommandEvent_Error) Descriptor() ([]byte, []int) {
+// Deprecated: Use SandboxCommandExecutionEvent_Error.ProtoReflect.Descriptor instead.
+func (*SandboxCommandExecutionEvent_Error) Descriptor() ([]byte, []int) {
 	return file_depot_sandbox_v1_command_proto_rawDescGZIP(), []int{1, 4}
 }
 
-func (x *CommandEvent_Error) GetReason() string {
+func (x *SandboxCommandExecutionEvent_Error) GetReason() string {
 	if x != nil {
 		return x.Reason
 	}
@@ -1289,7 +1289,7 @@ func (x *CommandEvent_Error) GetReason() string {
 // K-Streaming evicted head data before this consumer subscribed. Carries the
 // per-stream byte counts that were dropped so the consumer can reason about
 // the gap. Architecture §10.
-type CommandEvent_EvictedEarlyData struct {
+type SandboxCommandExecutionEvent_EvictedEarlyData struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
@@ -1298,8 +1298,8 @@ type CommandEvent_EvictedEarlyData struct {
 	DroppedBytesStderr int64 `protobuf:"varint,2,opt,name=dropped_bytes_stderr,json=droppedBytesStderr,proto3" json:"dropped_bytes_stderr,omitempty"`
 }
 
-func (x *CommandEvent_EvictedEarlyData) Reset() {
-	*x = CommandEvent_EvictedEarlyData{}
+func (x *SandboxCommandExecutionEvent_EvictedEarlyData) Reset() {
+	*x = SandboxCommandExecutionEvent_EvictedEarlyData{}
 	if protoimpl.UnsafeEnabled {
 		mi := &file_depot_sandbox_v1_command_proto_msgTypes[17]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -1307,13 +1307,13 @@ func (x *CommandEvent_EvictedEarlyData) Reset() {
 	}
 }
 
-func (x *CommandEvent_EvictedEarlyData) String() string {
+func (x *SandboxCommandExecutionEvent_EvictedEarlyData) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*CommandEvent_EvictedEarlyData) ProtoMessage() {}
+func (*SandboxCommandExecutionEvent_EvictedEarlyData) ProtoMessage() {}
 
-func (x *CommandEvent_EvictedEarlyData) ProtoReflect() protoreflect.Message {
+func (x *SandboxCommandExecutionEvent_EvictedEarlyData) ProtoReflect() protoreflect.Message {
 	mi := &file_depot_sandbox_v1_command_proto_msgTypes[17]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -1325,19 +1325,19 @@ func (x *CommandEvent_EvictedEarlyData) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use CommandEvent_EvictedEarlyData.ProtoReflect.Descriptor instead.
-func (*CommandEvent_EvictedEarlyData) Descriptor() ([]byte, []int) {
+// Deprecated: Use SandboxCommandExecutionEvent_EvictedEarlyData.ProtoReflect.Descriptor instead.
+func (*SandboxCommandExecutionEvent_EvictedEarlyData) Descriptor() ([]byte, []int) {
 	return file_depot_sandbox_v1_command_proto_rawDescGZIP(), []int{1, 5}
 }
 
-func (x *CommandEvent_EvictedEarlyData) GetDroppedBytesStdout() int64 {
+func (x *SandboxCommandExecutionEvent_EvictedEarlyData) GetDroppedBytesStdout() int64 {
 	if x != nil {
 		return x.DroppedBytesStdout
 	}
 	return 0
 }
 
-func (x *CommandEvent_EvictedEarlyData) GetDroppedBytesStderr() int64 {
+func (x *SandboxCommandExecutionEvent_EvictedEarlyData) GetDroppedBytesStderr() int64 {
 	if x != nil {
 		return x.DroppedBytesStderr
 	}
@@ -1354,7 +1354,8 @@ var file_depot_sandbox_v1_command_proto_rawDesc = []byte{
 	0x78, 0x2f, 0x76, 0x31, 0x2f, 0x72, 0x65, 0x66, 0x73, 0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x1a,
 	0x1f, 0x67, 0x6f, 0x6f, 0x67, 0x6c, 0x65, 0x2f, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x62, 0x75, 0x66,
 	0x2f, 0x74, 0x69, 0x6d, 0x65, 0x73, 0x74, 0x61, 0x6d, 0x70, 0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f,
-	0x22, 0xfc, 0x04, 0x0a, 0x07, 0x43, 0x6f, 0x6d, 0x6d, 0x61, 0x6e, 0x64, 0x12, 0x15, 0x0a, 0x06,
+	0x22, 0xac, 0x05, 0x0a, 0x17, 0x53, 0x61, 0x6e, 0x64, 0x62, 0x6f, 0x78, 0x43, 0x6f, 0x6d, 0x6d,
+	0x61, 0x6e, 0x64, 0x45, 0x78, 0x65, 0x63, 0x75, 0x74, 0x69, 0x6f, 0x6e, 0x12, 0x15, 0x0a, 0x06,
 	0x63, 0x6d, 0x64, 0x5f, 0x69, 0x64, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x05, 0x63, 0x6d,
 	0x64, 0x49, 0x64, 0x12, 0x1d, 0x0a, 0x0a, 0x73, 0x61, 0x6e, 0x64, 0x62, 0x6f, 0x78, 0x5f, 0x69,
 	0x64, 0x18, 0x02, 0x20, 0x01, 0x28, 0x09, 0x52, 0x09, 0x73, 0x61, 0x6e, 0x64, 0x62, 0x6f, 0x78,
@@ -1362,15 +1363,17 @@ var file_depot_sandbox_v1_command_proto_rawDesc = []byte{
 	0x03, 0x63, 0x6d, 0x64, 0x12, 0x12, 0x0a, 0x04, 0x61, 0x72, 0x67, 0x73, 0x18, 0x04, 0x20, 0x03,
 	0x28, 0x09, 0x52, 0x04, 0x61, 0x72, 0x67, 0x73, 0x12, 0x15, 0x0a, 0x03, 0x63, 0x77, 0x64, 0x18,
 	0x05, 0x20, 0x01, 0x28, 0x09, 0x48, 0x00, 0x52, 0x03, 0x63, 0x77, 0x64, 0x88, 0x01, 0x01, 0x12,
-	0x34, 0x0a, 0x03, 0x65, 0x6e, 0x76, 0x18, 0x06, 0x20, 0x03, 0x28, 0x0b, 0x32, 0x22, 0x2e, 0x64,
+	0x44, 0x0a, 0x03, 0x65, 0x6e, 0x76, 0x18, 0x06, 0x20, 0x03, 0x28, 0x0b, 0x32, 0x32, 0x2e, 0x64,
 	0x65, 0x70, 0x6f, 0x74, 0x2e, 0x73, 0x61, 0x6e, 0x64, 0x62, 0x6f, 0x78, 0x2e, 0x76, 0x31, 0x2e,
-	0x43, 0x6f, 0x6d, 0x6d, 0x61, 0x6e, 0x64, 0x2e, 0x45, 0x6e, 0x76, 0x45, 0x6e, 0x74, 0x72, 0x79,
+	0x53, 0x61, 0x6e, 0x64, 0x62, 0x6f, 0x78, 0x43, 0x6f, 0x6d, 0x6d, 0x61, 0x6e, 0x64, 0x45, 0x78,
+	0x65, 0x63, 0x75, 0x74, 0x69, 0x6f, 0x6e, 0x2e, 0x45, 0x6e, 0x76, 0x45, 0x6e, 0x74, 0x72, 0x79,
 	0x52, 0x03, 0x65, 0x6e, 0x76, 0x12, 0x12, 0x0a, 0x04, 0x73, 0x75, 0x64, 0x6f, 0x18, 0x07, 0x20,
 	0x01, 0x28, 0x08, 0x52, 0x04, 0x73, 0x75, 0x64, 0x6f, 0x12, 0x1a, 0x0a, 0x08, 0x64, 0x65, 0x74,
 	0x61, 0x63, 0x68, 0x65, 0x64, 0x18, 0x08, 0x20, 0x01, 0x28, 0x08, 0x52, 0x08, 0x64, 0x65, 0x74,
-	0x61, 0x63, 0x68, 0x65, 0x64, 0x12, 0x37, 0x0a, 0x06, 0x73, 0x74, 0x61, 0x74, 0x75, 0x73, 0x18,
-	0x09, 0x20, 0x01, 0x28, 0x0e, 0x32, 0x1f, 0x2e, 0x64, 0x65, 0x70, 0x6f, 0x74, 0x2e, 0x73, 0x61,
-	0x6e, 0x64, 0x62, 0x6f, 0x78, 0x2e, 0x76, 0x31, 0x2e, 0x43, 0x6f, 0x6d, 0x6d, 0x61, 0x6e, 0x64,
+	0x61, 0x63, 0x68, 0x65, 0x64, 0x12, 0x47, 0x0a, 0x06, 0x73, 0x74, 0x61, 0x74, 0x75, 0x73, 0x18,
+	0x09, 0x20, 0x01, 0x28, 0x0e, 0x32, 0x2f, 0x2e, 0x64, 0x65, 0x70, 0x6f, 0x74, 0x2e, 0x73, 0x61,
+	0x6e, 0x64, 0x62, 0x6f, 0x78, 0x2e, 0x76, 0x31, 0x2e, 0x53, 0x61, 0x6e, 0x64, 0x62, 0x6f, 0x78,
+	0x43, 0x6f, 0x6d, 0x6d, 0x61, 0x6e, 0x64, 0x45, 0x78, 0x65, 0x63, 0x75, 0x74, 0x69, 0x6f, 0x6e,
 	0x53, 0x74, 0x61, 0x74, 0x75, 0x73, 0x52, 0x06, 0x73, 0x74, 0x61, 0x74, 0x75, 0x73, 0x12, 0x39,
 	0x0a, 0x0a, 0x73, 0x74, 0x61, 0x72, 0x74, 0x65, 0x64, 0x5f, 0x61, 0x74, 0x18, 0x0a, 0x20, 0x01,
 	0x28, 0x0b, 0x32, 0x1a, 0x2e, 0x67, 0x6f, 0x6f, 0x67, 0x6c, 0x65, 0x2e, 0x70, 0x72, 0x6f, 0x74,
@@ -1394,32 +1397,39 @@ var file_depot_sandbox_v1_command_proto_rawDesc = []byte{
 	0x76, 0x61, 0x6c, 0x75, 0x65, 0x3a, 0x02, 0x38, 0x01, 0x42, 0x06, 0x0a, 0x04, 0x5f, 0x63, 0x77,
 	0x64, 0x42, 0x0e, 0x0a, 0x0c, 0x5f, 0x66, 0x69, 0x6e, 0x69, 0x73, 0x68, 0x65, 0x64, 0x5f, 0x61,
 	0x74, 0x42, 0x0c, 0x0a, 0x0a, 0x5f, 0x65, 0x78, 0x69, 0x74, 0x5f, 0x63, 0x6f, 0x64, 0x65, 0x22,
-	0x91, 0x08, 0x0a, 0x0c, 0x43, 0x6f, 0x6d, 0x6d, 0x61, 0x6e, 0x64, 0x45, 0x76, 0x65, 0x6e, 0x74,
-	0x12, 0x42, 0x0a, 0x07, 0x73, 0x74, 0x61, 0x72, 0x74, 0x65, 0x64, 0x18, 0x01, 0x20, 0x01, 0x28,
-	0x0b, 0x32, 0x26, 0x2e, 0x64, 0x65, 0x70, 0x6f, 0x74, 0x2e, 0x73, 0x61, 0x6e, 0x64, 0x62, 0x6f,
-	0x78, 0x2e, 0x76, 0x31, 0x2e, 0x43, 0x6f, 0x6d, 0x6d, 0x61, 0x6e, 0x64, 0x45, 0x76, 0x65, 0x6e,
+	0x81, 0x09, 0x0a, 0x1c, 0x53, 0x61, 0x6e, 0x64, 0x62, 0x6f, 0x78, 0x43, 0x6f, 0x6d, 0x6d, 0x61,
+	0x6e, 0x64, 0x45, 0x78, 0x65, 0x63, 0x75, 0x74, 0x69, 0x6f, 0x6e, 0x45, 0x76, 0x65, 0x6e, 0x74,
+	0x12, 0x52, 0x0a, 0x07, 0x73, 0x74, 0x61, 0x72, 0x74, 0x65, 0x64, 0x18, 0x01, 0x20, 0x01, 0x28,
+	0x0b, 0x32, 0x36, 0x2e, 0x64, 0x65, 0x70, 0x6f, 0x74, 0x2e, 0x73, 0x61, 0x6e, 0x64, 0x62, 0x6f,
+	0x78, 0x2e, 0x76, 0x31, 0x2e, 0x53, 0x61, 0x6e, 0x64, 0x62, 0x6f, 0x78, 0x43, 0x6f, 0x6d, 0x6d,
+	0x61, 0x6e, 0x64, 0x45, 0x78, 0x65, 0x63, 0x75, 0x74, 0x69, 0x6f, 0x6e, 0x45, 0x76, 0x65, 0x6e,
 	0x74, 0x2e, 0x53, 0x74, 0x61, 0x72, 0x74, 0x65, 0x64, 0x48, 0x00, 0x52, 0x07, 0x73, 0x74, 0x61,
-	0x72, 0x74, 0x65, 0x64, 0x12, 0x44, 0x0a, 0x06, 0x73, 0x74, 0x64, 0x6f, 0x75, 0x74, 0x18, 0x02,
-	0x20, 0x01, 0x28, 0x0b, 0x32, 0x2a, 0x2e, 0x64, 0x65, 0x70, 0x6f, 0x74, 0x2e, 0x73, 0x61, 0x6e,
-	0x64, 0x62, 0x6f, 0x78, 0x2e, 0x76, 0x31, 0x2e, 0x43, 0x6f, 0x6d, 0x6d, 0x61, 0x6e, 0x64, 0x45,
+	0x72, 0x74, 0x65, 0x64, 0x12, 0x54, 0x0a, 0x06, 0x73, 0x74, 0x64, 0x6f, 0x75, 0x74, 0x18, 0x02,
+	0x20, 0x01, 0x28, 0x0b, 0x32, 0x3a, 0x2e, 0x64, 0x65, 0x70, 0x6f, 0x74, 0x2e, 0x73, 0x61, 0x6e,
+	0x64, 0x62, 0x6f, 0x78, 0x2e, 0x76, 0x31, 0x2e, 0x53, 0x61, 0x6e, 0x64, 0x62, 0x6f, 0x78, 0x43,
+	0x6f, 0x6d, 0x6d, 0x61, 0x6e, 0x64, 0x45, 0x78, 0x65, 0x63, 0x75, 0x74, 0x69, 0x6f, 0x6e, 0x45,
 	0x76, 0x65, 0x6e, 0x74, 0x2e, 0x53, 0x74, 0x64, 0x6f, 0x75, 0x74, 0x42, 0x79, 0x74, 0x65, 0x73,
-	0x48, 0x00, 0x52, 0x06, 0x73, 0x74, 0x64, 0x6f, 0x75, 0x74, 0x12, 0x44, 0x0a, 0x06, 0x73, 0x74,
-	0x64, 0x65, 0x72, 0x72, 0x18, 0x03, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x2a, 0x2e, 0x64, 0x65, 0x70,
-	0x6f, 0x74, 0x2e, 0x73, 0x61, 0x6e, 0x64, 0x62, 0x6f, 0x78, 0x2e, 0x76, 0x31, 0x2e, 0x43, 0x6f,
-	0x6d, 0x6d, 0x61, 0x6e, 0x64, 0x45, 0x76, 0x65, 0x6e, 0x74, 0x2e, 0x53, 0x74, 0x64, 0x65, 0x72,
+	0x48, 0x00, 0x52, 0x06, 0x73, 0x74, 0x64, 0x6f, 0x75, 0x74, 0x12, 0x54, 0x0a, 0x06, 0x73, 0x74,
+	0x64, 0x65, 0x72, 0x72, 0x18, 0x03, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x3a, 0x2e, 0x64, 0x65, 0x70,
+	0x6f, 0x74, 0x2e, 0x73, 0x61, 0x6e, 0x64, 0x62, 0x6f, 0x78, 0x2e, 0x76, 0x31, 0x2e, 0x53, 0x61,
+	0x6e, 0x64, 0x62, 0x6f, 0x78, 0x43, 0x6f, 0x6d, 0x6d, 0x61, 0x6e, 0x64, 0x45, 0x78, 0x65, 0x63,
+	0x75, 0x74, 0x69, 0x6f, 0x6e, 0x45, 0x76, 0x65, 0x6e, 0x74, 0x2e, 0x53, 0x74, 0x64, 0x65, 0x72,
 	0x72, 0x42, 0x79, 0x74, 0x65, 0x73, 0x48, 0x00, 0x52, 0x06, 0x73, 0x74, 0x64, 0x65, 0x72, 0x72,
-	0x12, 0x45, 0x0a, 0x08, 0x66, 0x69, 0x6e, 0x69, 0x73, 0x68, 0x65, 0x64, 0x18, 0x04, 0x20, 0x01,
-	0x28, 0x0b, 0x32, 0x27, 0x2e, 0x64, 0x65, 0x70, 0x6f, 0x74, 0x2e, 0x73, 0x61, 0x6e, 0x64, 0x62,
-	0x6f, 0x78, 0x2e, 0x76, 0x31, 0x2e, 0x43, 0x6f, 0x6d, 0x6d, 0x61, 0x6e, 0x64, 0x45, 0x76, 0x65,
+	0x12, 0x55, 0x0a, 0x08, 0x66, 0x69, 0x6e, 0x69, 0x73, 0x68, 0x65, 0x64, 0x18, 0x04, 0x20, 0x01,
+	0x28, 0x0b, 0x32, 0x37, 0x2e, 0x64, 0x65, 0x70, 0x6f, 0x74, 0x2e, 0x73, 0x61, 0x6e, 0x64, 0x62,
+	0x6f, 0x78, 0x2e, 0x76, 0x31, 0x2e, 0x53, 0x61, 0x6e, 0x64, 0x62, 0x6f, 0x78, 0x43, 0x6f, 0x6d,
+	0x6d, 0x61, 0x6e, 0x64, 0x45, 0x78, 0x65, 0x63, 0x75, 0x74, 0x69, 0x6f, 0x6e, 0x45, 0x76, 0x65,
 	0x6e, 0x74, 0x2e, 0x46, 0x69, 0x6e, 0x69, 0x73, 0x68, 0x65, 0x64, 0x48, 0x00, 0x52, 0x08, 0x66,
-	0x69, 0x6e, 0x69, 0x73, 0x68, 0x65, 0x64, 0x12, 0x3c, 0x0a, 0x05, 0x65, 0x72, 0x72, 0x6f, 0x72,
-	0x18, 0x05, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x24, 0x2e, 0x64, 0x65, 0x70, 0x6f, 0x74, 0x2e, 0x73,
-	0x61, 0x6e, 0x64, 0x62, 0x6f, 0x78, 0x2e, 0x76, 0x31, 0x2e, 0x43, 0x6f, 0x6d, 0x6d, 0x61, 0x6e,
-	0x64, 0x45, 0x76, 0x65, 0x6e, 0x74, 0x2e, 0x45, 0x72, 0x72, 0x6f, 0x72, 0x48, 0x00, 0x52, 0x05,
-	0x65, 0x72, 0x72, 0x6f, 0x72, 0x12, 0x4b, 0x0a, 0x07, 0x65, 0x76, 0x69, 0x63, 0x74, 0x65, 0x64,
-	0x18, 0x06, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x2f, 0x2e, 0x64, 0x65, 0x70, 0x6f, 0x74, 0x2e, 0x73,
-	0x61, 0x6e, 0x64, 0x62, 0x6f, 0x78, 0x2e, 0x76, 0x31, 0x2e, 0x43, 0x6f, 0x6d, 0x6d, 0x61, 0x6e,
-	0x64, 0x45, 0x76, 0x65, 0x6e, 0x74, 0x2e, 0x45, 0x76, 0x69, 0x63, 0x74, 0x65, 0x64, 0x45, 0x61,
+	0x69, 0x6e, 0x69, 0x73, 0x68, 0x65, 0x64, 0x12, 0x4c, 0x0a, 0x05, 0x65, 0x72, 0x72, 0x6f, 0x72,
+	0x18, 0x05, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x34, 0x2e, 0x64, 0x65, 0x70, 0x6f, 0x74, 0x2e, 0x73,
+	0x61, 0x6e, 0x64, 0x62, 0x6f, 0x78, 0x2e, 0x76, 0x31, 0x2e, 0x53, 0x61, 0x6e, 0x64, 0x62, 0x6f,
+	0x78, 0x43, 0x6f, 0x6d, 0x6d, 0x61, 0x6e, 0x64, 0x45, 0x78, 0x65, 0x63, 0x75, 0x74, 0x69, 0x6f,
+	0x6e, 0x45, 0x76, 0x65, 0x6e, 0x74, 0x2e, 0x45, 0x72, 0x72, 0x6f, 0x72, 0x48, 0x00, 0x52, 0x05,
+	0x65, 0x72, 0x72, 0x6f, 0x72, 0x12, 0x5b, 0x0a, 0x07, 0x65, 0x76, 0x69, 0x63, 0x74, 0x65, 0x64,
+	0x18, 0x06, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x3f, 0x2e, 0x64, 0x65, 0x70, 0x6f, 0x74, 0x2e, 0x73,
+	0x61, 0x6e, 0x64, 0x62, 0x6f, 0x78, 0x2e, 0x76, 0x31, 0x2e, 0x53, 0x61, 0x6e, 0x64, 0x62, 0x6f,
+	0x78, 0x43, 0x6f, 0x6d, 0x6d, 0x61, 0x6e, 0x64, 0x45, 0x78, 0x65, 0x63, 0x75, 0x74, 0x69, 0x6f,
+	0x6e, 0x45, 0x76, 0x65, 0x6e, 0x74, 0x2e, 0x45, 0x76, 0x69, 0x63, 0x74, 0x65, 0x64, 0x45, 0x61,
 	0x72, 0x6c, 0x79, 0x44, 0x61, 0x74, 0x61, 0x48, 0x00, 0x52, 0x07, 0x65, 0x76, 0x69, 0x63, 0x74,
 	0x65, 0x64, 0x1a, 0x5b, 0x0a, 0x07, 0x53, 0x74, 0x61, 0x72, 0x74, 0x65, 0x64, 0x12, 0x15, 0x0a,
 	0x06, 0x63, 0x6d, 0x64, 0x5f, 0x69, 0x64, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x05, 0x63,
@@ -1488,12 +1498,13 @@ var file_depot_sandbox_v1_command_proto_rawDesc = []byte{
 	0x61, 0x6e, 0x64, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x48, 0x00, 0x52, 0x04, 0x69, 0x6e,
 	0x69, 0x74, 0x12, 0x16, 0x0a, 0x05, 0x73, 0x74, 0x64, 0x69, 0x6e, 0x18, 0x02, 0x20, 0x01, 0x28,
 	0x0c, 0x48, 0x00, 0x52, 0x05, 0x73, 0x74, 0x64, 0x69, 0x6e, 0x42, 0x07, 0x0a, 0x05, 0x69, 0x6e,
-	0x70, 0x75, 0x74, 0x22, 0x49, 0x0a, 0x12, 0x47, 0x65, 0x74, 0x43, 0x6f, 0x6d, 0x6d, 0x61, 0x6e,
-	0x64, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x33, 0x0a, 0x07, 0x63, 0x6f, 0x6d,
-	0x6d, 0x61, 0x6e, 0x64, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x19, 0x2e, 0x64, 0x65, 0x70,
-	0x6f, 0x74, 0x2e, 0x73, 0x61, 0x6e, 0x64, 0x62, 0x6f, 0x78, 0x2e, 0x76, 0x31, 0x2e, 0x43, 0x6f,
-	0x6d, 0x6d, 0x61, 0x6e, 0x64, 0x52, 0x07, 0x63, 0x6f, 0x6d, 0x6d, 0x61, 0x6e, 0x64, 0x22, 0xf6,
-	0x01, 0x0a, 0x13, 0x4c, 0x69, 0x73, 0x74, 0x43, 0x6f, 0x6d, 0x6d, 0x61, 0x6e, 0x64, 0x73, 0x52,
+	0x70, 0x75, 0x74, 0x22, 0x59, 0x0a, 0x12, 0x47, 0x65, 0x74, 0x43, 0x6f, 0x6d, 0x6d, 0x61, 0x6e,
+	0x64, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x43, 0x0a, 0x07, 0x63, 0x6f, 0x6d,
+	0x6d, 0x61, 0x6e, 0x64, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x29, 0x2e, 0x64, 0x65, 0x70,
+	0x6f, 0x74, 0x2e, 0x73, 0x61, 0x6e, 0x64, 0x62, 0x6f, 0x78, 0x2e, 0x76, 0x31, 0x2e, 0x53, 0x61,
+	0x6e, 0x64, 0x62, 0x6f, 0x78, 0x43, 0x6f, 0x6d, 0x6d, 0x61, 0x6e, 0x64, 0x45, 0x78, 0x65, 0x63,
+	0x75, 0x74, 0x69, 0x6f, 0x6e, 0x52, 0x07, 0x63, 0x6f, 0x6d, 0x6d, 0x61, 0x6e, 0x64, 0x22, 0x86,
+	0x02, 0x0a, 0x13, 0x4c, 0x69, 0x73, 0x74, 0x43, 0x6f, 0x6d, 0x6d, 0x61, 0x6e, 0x64, 0x73, 0x52,
 	0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x12, 0x36, 0x0a, 0x07, 0x73, 0x61, 0x6e, 0x64, 0x62, 0x6f,
 	0x78, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x1c, 0x2e, 0x64, 0x65, 0x70, 0x6f, 0x74, 0x2e,
 	0x73, 0x61, 0x6e, 0x64, 0x62, 0x6f, 0x78, 0x2e, 0x76, 0x31, 0x2e, 0x53, 0x61, 0x6e, 0x64, 0x62,
@@ -1502,26 +1513,29 @@ var file_depot_sandbox_v1_command_proto_rawDesc = []byte{
 	0x05, 0x48, 0x00, 0x52, 0x08, 0x70, 0x61, 0x67, 0x65, 0x53, 0x69, 0x7a, 0x65, 0x88, 0x01, 0x01,
 	0x12, 0x22, 0x0a, 0x0a, 0x70, 0x61, 0x67, 0x65, 0x5f, 0x74, 0x6f, 0x6b, 0x65, 0x6e, 0x18, 0x03,
 	0x20, 0x01, 0x28, 0x09, 0x48, 0x01, 0x52, 0x09, 0x70, 0x61, 0x67, 0x65, 0x54, 0x6f, 0x6b, 0x65,
-	0x6e, 0x88, 0x01, 0x01, 0x12, 0x44, 0x0a, 0x0d, 0x73, 0x74, 0x61, 0x74, 0x75, 0x73, 0x5f, 0x66,
-	0x69, 0x6c, 0x74, 0x65, 0x72, 0x18, 0x04, 0x20, 0x03, 0x28, 0x0e, 0x32, 0x1f, 0x2e, 0x64, 0x65,
-	0x70, 0x6f, 0x74, 0x2e, 0x73, 0x61, 0x6e, 0x64, 0x62, 0x6f, 0x78, 0x2e, 0x76, 0x31, 0x2e, 0x43,
-	0x6f, 0x6d, 0x6d, 0x61, 0x6e, 0x64, 0x53, 0x74, 0x61, 0x74, 0x75, 0x73, 0x52, 0x0c, 0x73, 0x74,
+	0x6e, 0x88, 0x01, 0x01, 0x12, 0x54, 0x0a, 0x0d, 0x73, 0x74, 0x61, 0x74, 0x75, 0x73, 0x5f, 0x66,
+	0x69, 0x6c, 0x74, 0x65, 0x72, 0x18, 0x04, 0x20, 0x03, 0x28, 0x0e, 0x32, 0x2f, 0x2e, 0x64, 0x65,
+	0x70, 0x6f, 0x74, 0x2e, 0x73, 0x61, 0x6e, 0x64, 0x62, 0x6f, 0x78, 0x2e, 0x76, 0x31, 0x2e, 0x53,
+	0x61, 0x6e, 0x64, 0x62, 0x6f, 0x78, 0x43, 0x6f, 0x6d, 0x6d, 0x61, 0x6e, 0x64, 0x45, 0x78, 0x65,
+	0x63, 0x75, 0x74, 0x69, 0x6f, 0x6e, 0x53, 0x74, 0x61, 0x74, 0x75, 0x73, 0x52, 0x0c, 0x73, 0x74,
 	0x61, 0x74, 0x75, 0x73, 0x46, 0x69, 0x6c, 0x74, 0x65, 0x72, 0x42, 0x0c, 0x0a, 0x0a, 0x5f, 0x70,
 	0x61, 0x67, 0x65, 0x5f, 0x73, 0x69, 0x7a, 0x65, 0x42, 0x0d, 0x0a, 0x0b, 0x5f, 0x70, 0x61, 0x67,
-	0x65, 0x5f, 0x74, 0x6f, 0x6b, 0x65, 0x6e, 0x22, 0x8e, 0x01, 0x0a, 0x14, 0x4c, 0x69, 0x73, 0x74,
+	0x65, 0x5f, 0x74, 0x6f, 0x6b, 0x65, 0x6e, 0x22, 0x9e, 0x01, 0x0a, 0x14, 0x4c, 0x69, 0x73, 0x74,
 	0x43, 0x6f, 0x6d, 0x6d, 0x61, 0x6e, 0x64, 0x73, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65,
-	0x12, 0x35, 0x0a, 0x08, 0x63, 0x6f, 0x6d, 0x6d, 0x61, 0x6e, 0x64, 0x73, 0x18, 0x01, 0x20, 0x03,
-	0x28, 0x0b, 0x32, 0x19, 0x2e, 0x64, 0x65, 0x70, 0x6f, 0x74, 0x2e, 0x73, 0x61, 0x6e, 0x64, 0x62,
-	0x6f, 0x78, 0x2e, 0x76, 0x31, 0x2e, 0x43, 0x6f, 0x6d, 0x6d, 0x61, 0x6e, 0x64, 0x52, 0x08, 0x63,
+	0x12, 0x45, 0x0a, 0x08, 0x63, 0x6f, 0x6d, 0x6d, 0x61, 0x6e, 0x64, 0x73, 0x18, 0x01, 0x20, 0x03,
+	0x28, 0x0b, 0x32, 0x29, 0x2e, 0x64, 0x65, 0x70, 0x6f, 0x74, 0x2e, 0x73, 0x61, 0x6e, 0x64, 0x62,
+	0x6f, 0x78, 0x2e, 0x76, 0x31, 0x2e, 0x53, 0x61, 0x6e, 0x64, 0x62, 0x6f, 0x78, 0x43, 0x6f, 0x6d,
+	0x6d, 0x61, 0x6e, 0x64, 0x45, 0x78, 0x65, 0x63, 0x75, 0x74, 0x69, 0x6f, 0x6e, 0x52, 0x08, 0x63,
 	0x6f, 0x6d, 0x6d, 0x61, 0x6e, 0x64, 0x73, 0x12, 0x2b, 0x0a, 0x0f, 0x6e, 0x65, 0x78, 0x74, 0x5f,
 	0x70, 0x61, 0x67, 0x65, 0x5f, 0x74, 0x6f, 0x6b, 0x65, 0x6e, 0x18, 0x02, 0x20, 0x01, 0x28, 0x09,
 	0x48, 0x00, 0x52, 0x0d, 0x6e, 0x65, 0x78, 0x74, 0x50, 0x61, 0x67, 0x65, 0x54, 0x6f, 0x6b, 0x65,
 	0x6e, 0x88, 0x01, 0x01, 0x42, 0x12, 0x0a, 0x10, 0x5f, 0x6e, 0x65, 0x78, 0x74, 0x5f, 0x70, 0x61,
-	0x67, 0x65, 0x5f, 0x74, 0x6f, 0x6b, 0x65, 0x6e, 0x22, 0xa7, 0x01, 0x0a, 0x14, 0x41, 0x74, 0x74,
+	0x67, 0x65, 0x5f, 0x74, 0x6f, 0x6b, 0x65, 0x6e, 0x22, 0xb7, 0x01, 0x0a, 0x14, 0x41, 0x74, 0x74,
 	0x61, 0x63, 0x68, 0x43, 0x6f, 0x6d, 0x6d, 0x61, 0x6e, 0x64, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73,
-	0x74, 0x12, 0x36, 0x0a, 0x07, 0x63, 0x6f, 0x6d, 0x6d, 0x61, 0x6e, 0x64, 0x18, 0x01, 0x20, 0x01,
-	0x28, 0x0b, 0x32, 0x1c, 0x2e, 0x64, 0x65, 0x70, 0x6f, 0x74, 0x2e, 0x73, 0x61, 0x6e, 0x64, 0x62,
-	0x6f, 0x78, 0x2e, 0x76, 0x31, 0x2e, 0x43, 0x6f, 0x6d, 0x6d, 0x61, 0x6e, 0x64, 0x52, 0x65, 0x66,
+	0x74, 0x12, 0x46, 0x0a, 0x07, 0x63, 0x6f, 0x6d, 0x6d, 0x61, 0x6e, 0x64, 0x18, 0x01, 0x20, 0x01,
+	0x28, 0x0b, 0x32, 0x2c, 0x2e, 0x64, 0x65, 0x70, 0x6f, 0x74, 0x2e, 0x73, 0x61, 0x6e, 0x64, 0x62,
+	0x6f, 0x78, 0x2e, 0x76, 0x31, 0x2e, 0x53, 0x61, 0x6e, 0x64, 0x62, 0x6f, 0x78, 0x43, 0x6f, 0x6d,
+	0x6d, 0x61, 0x6e, 0x64, 0x45, 0x78, 0x65, 0x63, 0x75, 0x74, 0x69, 0x6f, 0x6e, 0x52, 0x65, 0x66,
 	0x52, 0x07, 0x63, 0x6f, 0x6d, 0x6d, 0x61, 0x6e, 0x64, 0x12, 0x46, 0x0a, 0x0c, 0x73, 0x69, 0x6e,
 	0x63, 0x65, 0x5f, 0x6f, 0x66, 0x66, 0x73, 0x65, 0x74, 0x18, 0x02, 0x20, 0x01, 0x28, 0x0b, 0x32,
 	0x1e, 0x2e, 0x64, 0x65, 0x70, 0x6f, 0x74, 0x2e, 0x73, 0x61, 0x6e, 0x64, 0x62, 0x6f, 0x78, 0x2e,
@@ -1543,31 +1557,39 @@ var file_depot_sandbox_v1_command_proto_rawDesc = []byte{
 	0x61, 0x6c, 0x18, 0x02, 0x20, 0x01, 0x28, 0x09, 0x48, 0x00, 0x52, 0x06, 0x73, 0x69, 0x67, 0x6e,
 	0x61, 0x6c, 0x88, 0x01, 0x01, 0x42, 0x09, 0x0a, 0x07, 0x5f, 0x73, 0x69, 0x67, 0x6e, 0x61, 0x6c,
 	0x22, 0x15, 0x0a, 0x13, 0x4b, 0x69, 0x6c, 0x6c, 0x43, 0x6f, 0x6d, 0x6d, 0x61, 0x6e, 0x64, 0x52,
-	0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x2a, 0xba, 0x01, 0x0a, 0x0d, 0x43, 0x6f, 0x6d, 0x6d,
-	0x61, 0x6e, 0x64, 0x53, 0x74, 0x61, 0x74, 0x75, 0x73, 0x12, 0x1e, 0x0a, 0x1a, 0x43, 0x4f, 0x4d,
-	0x4d, 0x41, 0x4e, 0x44, 0x5f, 0x53, 0x54, 0x41, 0x54, 0x55, 0x53, 0x5f, 0x55, 0x4e, 0x53, 0x50,
-	0x45, 0x43, 0x49, 0x46, 0x49, 0x45, 0x44, 0x10, 0x00, 0x12, 0x1a, 0x0a, 0x16, 0x43, 0x4f, 0x4d,
-	0x4d, 0x41, 0x4e, 0x44, 0x5f, 0x53, 0x54, 0x41, 0x54, 0x55, 0x53, 0x5f, 0x50, 0x45, 0x4e, 0x44,
-	0x49, 0x4e, 0x47, 0x10, 0x01, 0x12, 0x1a, 0x0a, 0x16, 0x43, 0x4f, 0x4d, 0x4d, 0x41, 0x4e, 0x44,
-	0x5f, 0x53, 0x54, 0x41, 0x54, 0x55, 0x53, 0x5f, 0x52, 0x55, 0x4e, 0x4e, 0x49, 0x4e, 0x47, 0x10,
-	0x02, 0x12, 0x1b, 0x0a, 0x17, 0x43, 0x4f, 0x4d, 0x4d, 0x41, 0x4e, 0x44, 0x5f, 0x53, 0x54, 0x41,
-	0x54, 0x55, 0x53, 0x5f, 0x46, 0x49, 0x4e, 0x49, 0x53, 0x48, 0x45, 0x44, 0x10, 0x03, 0x12, 0x19,
-	0x0a, 0x15, 0x43, 0x4f, 0x4d, 0x4d, 0x41, 0x4e, 0x44, 0x5f, 0x53, 0x54, 0x41, 0x54, 0x55, 0x53,
-	0x5f, 0x46, 0x41, 0x49, 0x4c, 0x45, 0x44, 0x10, 0x04, 0x12, 0x19, 0x0a, 0x15, 0x43, 0x4f, 0x4d,
-	0x4d, 0x41, 0x4e, 0x44, 0x5f, 0x53, 0x54, 0x41, 0x54, 0x55, 0x53, 0x5f, 0x4b, 0x49, 0x4c, 0x4c,
-	0x45, 0x44, 0x10, 0x05, 0x42, 0xc1, 0x01, 0x0a, 0x14, 0x63, 0x6f, 0x6d, 0x2e, 0x64, 0x65, 0x70,
-	0x6f, 0x74, 0x2e, 0x73, 0x61, 0x6e, 0x64, 0x62, 0x6f, 0x78, 0x2e, 0x76, 0x31, 0x42, 0x0c, 0x43,
-	0x6f, 0x6d, 0x6d, 0x61, 0x6e, 0x64, 0x50, 0x72, 0x6f, 0x74, 0x6f, 0x50, 0x01, 0x5a, 0x39, 0x67,
-	0x69, 0x74, 0x68, 0x75, 0x62, 0x2e, 0x63, 0x6f, 0x6d, 0x2f, 0x64, 0x65, 0x70, 0x6f, 0x74, 0x2f,
-	0x63, 0x6c, 0x69, 0x2f, 0x70, 0x6b, 0x67, 0x2f, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x2f, 0x64, 0x65,
-	0x70, 0x6f, 0x74, 0x2f, 0x73, 0x61, 0x6e, 0x64, 0x62, 0x6f, 0x78, 0x2f, 0x76, 0x31, 0x3b, 0x73,
-	0x61, 0x6e, 0x64, 0x62, 0x6f, 0x78, 0x76, 0x31, 0xa2, 0x02, 0x03, 0x44, 0x53, 0x58, 0xaa, 0x02,
-	0x10, 0x44, 0x65, 0x70, 0x6f, 0x74, 0x2e, 0x53, 0x61, 0x6e, 0x64, 0x62, 0x6f, 0x78, 0x2e, 0x56,
-	0x31, 0xca, 0x02, 0x10, 0x44, 0x65, 0x70, 0x6f, 0x74, 0x5c, 0x53, 0x61, 0x6e, 0x64, 0x62, 0x6f,
-	0x78, 0x5c, 0x56, 0x31, 0xe2, 0x02, 0x1c, 0x44, 0x65, 0x70, 0x6f, 0x74, 0x5c, 0x53, 0x61, 0x6e,
-	0x64, 0x62, 0x6f, 0x78, 0x5c, 0x56, 0x31, 0x5c, 0x47, 0x50, 0x42, 0x4d, 0x65, 0x74, 0x61, 0x64,
-	0x61, 0x74, 0x61, 0xea, 0x02, 0x12, 0x44, 0x65, 0x70, 0x6f, 0x74, 0x3a, 0x3a, 0x53, 0x61, 0x6e,
-	0x64, 0x62, 0x6f, 0x78, 0x3a, 0x3a, 0x56, 0x31, 0x62, 0x06, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x33,
+	0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x2a, 0xb6, 0x02, 0x0a, 0x1d, 0x53, 0x61, 0x6e, 0x64,
+	0x62, 0x6f, 0x78, 0x43, 0x6f, 0x6d, 0x6d, 0x61, 0x6e, 0x64, 0x45, 0x78, 0x65, 0x63, 0x75, 0x74,
+	0x69, 0x6f, 0x6e, 0x53, 0x74, 0x61, 0x74, 0x75, 0x73, 0x12, 0x30, 0x0a, 0x2c, 0x53, 0x41, 0x4e,
+	0x44, 0x42, 0x4f, 0x58, 0x5f, 0x43, 0x4f, 0x4d, 0x4d, 0x41, 0x4e, 0x44, 0x5f, 0x45, 0x58, 0x45,
+	0x43, 0x55, 0x54, 0x49, 0x4f, 0x4e, 0x5f, 0x53, 0x54, 0x41, 0x54, 0x55, 0x53, 0x5f, 0x55, 0x4e,
+	0x53, 0x50, 0x45, 0x43, 0x49, 0x46, 0x49, 0x45, 0x44, 0x10, 0x00, 0x12, 0x2c, 0x0a, 0x28, 0x53,
+	0x41, 0x4e, 0x44, 0x42, 0x4f, 0x58, 0x5f, 0x43, 0x4f, 0x4d, 0x4d, 0x41, 0x4e, 0x44, 0x5f, 0x45,
+	0x58, 0x45, 0x43, 0x55, 0x54, 0x49, 0x4f, 0x4e, 0x5f, 0x53, 0x54, 0x41, 0x54, 0x55, 0x53, 0x5f,
+	0x50, 0x45, 0x4e, 0x44, 0x49, 0x4e, 0x47, 0x10, 0x01, 0x12, 0x2c, 0x0a, 0x28, 0x53, 0x41, 0x4e,
+	0x44, 0x42, 0x4f, 0x58, 0x5f, 0x43, 0x4f, 0x4d, 0x4d, 0x41, 0x4e, 0x44, 0x5f, 0x45, 0x58, 0x45,
+	0x43, 0x55, 0x54, 0x49, 0x4f, 0x4e, 0x5f, 0x53, 0x54, 0x41, 0x54, 0x55, 0x53, 0x5f, 0x52, 0x55,
+	0x4e, 0x4e, 0x49, 0x4e, 0x47, 0x10, 0x02, 0x12, 0x2d, 0x0a, 0x29, 0x53, 0x41, 0x4e, 0x44, 0x42,
+	0x4f, 0x58, 0x5f, 0x43, 0x4f, 0x4d, 0x4d, 0x41, 0x4e, 0x44, 0x5f, 0x45, 0x58, 0x45, 0x43, 0x55,
+	0x54, 0x49, 0x4f, 0x4e, 0x5f, 0x53, 0x54, 0x41, 0x54, 0x55, 0x53, 0x5f, 0x46, 0x49, 0x4e, 0x49,
+	0x53, 0x48, 0x45, 0x44, 0x10, 0x03, 0x12, 0x2b, 0x0a, 0x27, 0x53, 0x41, 0x4e, 0x44, 0x42, 0x4f,
+	0x58, 0x5f, 0x43, 0x4f, 0x4d, 0x4d, 0x41, 0x4e, 0x44, 0x5f, 0x45, 0x58, 0x45, 0x43, 0x55, 0x54,
+	0x49, 0x4f, 0x4e, 0x5f, 0x53, 0x54, 0x41, 0x54, 0x55, 0x53, 0x5f, 0x46, 0x41, 0x49, 0x4c, 0x45,
+	0x44, 0x10, 0x04, 0x12, 0x2b, 0x0a, 0x27, 0x53, 0x41, 0x4e, 0x44, 0x42, 0x4f, 0x58, 0x5f, 0x43,
+	0x4f, 0x4d, 0x4d, 0x41, 0x4e, 0x44, 0x5f, 0x45, 0x58, 0x45, 0x43, 0x55, 0x54, 0x49, 0x4f, 0x4e,
+	0x5f, 0x53, 0x54, 0x41, 0x54, 0x55, 0x53, 0x5f, 0x4b, 0x49, 0x4c, 0x4c, 0x45, 0x44, 0x10, 0x05,
+	0x42, 0xc1, 0x01, 0x0a, 0x14, 0x63, 0x6f, 0x6d, 0x2e, 0x64, 0x65, 0x70, 0x6f, 0x74, 0x2e, 0x73,
+	0x61, 0x6e, 0x64, 0x62, 0x6f, 0x78, 0x2e, 0x76, 0x31, 0x42, 0x0c, 0x43, 0x6f, 0x6d, 0x6d, 0x61,
+	0x6e, 0x64, 0x50, 0x72, 0x6f, 0x74, 0x6f, 0x50, 0x01, 0x5a, 0x39, 0x67, 0x69, 0x74, 0x68, 0x75,
+	0x62, 0x2e, 0x63, 0x6f, 0x6d, 0x2f, 0x64, 0x65, 0x70, 0x6f, 0x74, 0x2f, 0x63, 0x6c, 0x69, 0x2f,
+	0x70, 0x6b, 0x67, 0x2f, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x2f, 0x64, 0x65, 0x70, 0x6f, 0x74, 0x2f,
+	0x73, 0x61, 0x6e, 0x64, 0x62, 0x6f, 0x78, 0x2f, 0x76, 0x31, 0x3b, 0x73, 0x61, 0x6e, 0x64, 0x62,
+	0x6f, 0x78, 0x76, 0x31, 0xa2, 0x02, 0x03, 0x44, 0x53, 0x58, 0xaa, 0x02, 0x10, 0x44, 0x65, 0x70,
+	0x6f, 0x74, 0x2e, 0x53, 0x61, 0x6e, 0x64, 0x62, 0x6f, 0x78, 0x2e, 0x56, 0x31, 0xca, 0x02, 0x10,
+	0x44, 0x65, 0x70, 0x6f, 0x74, 0x5c, 0x53, 0x61, 0x6e, 0x64, 0x62, 0x6f, 0x78, 0x5c, 0x56, 0x31,
+	0xe2, 0x02, 0x1c, 0x44, 0x65, 0x70, 0x6f, 0x74, 0x5c, 0x53, 0x61, 0x6e, 0x64, 0x62, 0x6f, 0x78,
+	0x5c, 0x56, 0x31, 0x5c, 0x47, 0x50, 0x42, 0x4d, 0x65, 0x74, 0x61, 0x64, 0x61, 0x74, 0x61, 0xea,
+	0x02, 0x12, 0x44, 0x65, 0x70, 0x6f, 0x74, 0x3a, 0x3a, 0x53, 0x61, 0x6e, 0x64, 0x62, 0x6f, 0x78,
+	0x3a, 0x3a, 0x56, 0x31, 0x62, 0x06, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x33,
 }
 
 var (
@@ -1585,54 +1607,54 @@ func file_depot_sandbox_v1_command_proto_rawDescGZIP() []byte {
 var file_depot_sandbox_v1_command_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
 var file_depot_sandbox_v1_command_proto_msgTypes = make([]protoimpl.MessageInfo, 19)
 var file_depot_sandbox_v1_command_proto_goTypes = []interface{}{
-	(CommandStatus)(0),                    // 0: depot.sandbox.v1.CommandStatus
-	(*Command)(nil),                       // 1: depot.sandbox.v1.Command
-	(*CommandEvent)(nil),                  // 2: depot.sandbox.v1.CommandEvent
-	(*RunCommandRequest)(nil),             // 3: depot.sandbox.v1.RunCommandRequest
-	(*RunCommandPipeRequest)(nil),         // 4: depot.sandbox.v1.RunCommandPipeRequest
-	(*GetCommandResponse)(nil),            // 5: depot.sandbox.v1.GetCommandResponse
-	(*ListCommandsRequest)(nil),           // 6: depot.sandbox.v1.ListCommandsRequest
-	(*ListCommandsResponse)(nil),          // 7: depot.sandbox.v1.ListCommandsResponse
-	(*AttachCommandRequest)(nil),          // 8: depot.sandbox.v1.AttachCommandRequest
-	(*AttachOffset)(nil),                  // 9: depot.sandbox.v1.AttachOffset
-	(*KillCommandRequest)(nil),            // 10: depot.sandbox.v1.KillCommandRequest
-	(*KillCommandResponse)(nil),           // 11: depot.sandbox.v1.KillCommandResponse
-	nil,                                   // 12: depot.sandbox.v1.Command.EnvEntry
-	(*CommandEvent_Started)(nil),          // 13: depot.sandbox.v1.CommandEvent.Started
-	(*CommandEvent_StdoutBytes)(nil),      // 14: depot.sandbox.v1.CommandEvent.StdoutBytes
-	(*CommandEvent_StderrBytes)(nil),      // 15: depot.sandbox.v1.CommandEvent.StderrBytes
-	(*CommandEvent_Finished)(nil),         // 16: depot.sandbox.v1.CommandEvent.Finished
-	(*CommandEvent_Error)(nil),            // 17: depot.sandbox.v1.CommandEvent.Error
-	(*CommandEvent_EvictedEarlyData)(nil), // 18: depot.sandbox.v1.CommandEvent.EvictedEarlyData
-	nil,                                   // 19: depot.sandbox.v1.RunCommandRequest.EnvEntry
-	(*timestamppb.Timestamp)(nil),         // 20: google.protobuf.Timestamp
-	(*SandboxRef)(nil),                    // 21: depot.sandbox.v1.SandboxRef
-	(*CommandRef)(nil),                    // 22: depot.sandbox.v1.CommandRef
+	(SandboxCommandExecutionStatus)(0),                    // 0: depot.sandbox.v1.SandboxCommandExecutionStatus
+	(*SandboxCommandExecution)(nil),                       // 1: depot.sandbox.v1.SandboxCommandExecution
+	(*SandboxCommandExecutionEvent)(nil),                  // 2: depot.sandbox.v1.SandboxCommandExecutionEvent
+	(*RunCommandRequest)(nil),                             // 3: depot.sandbox.v1.RunCommandRequest
+	(*RunCommandPipeRequest)(nil),                         // 4: depot.sandbox.v1.RunCommandPipeRequest
+	(*GetCommandResponse)(nil),                            // 5: depot.sandbox.v1.GetCommandResponse
+	(*ListCommandsRequest)(nil),                           // 6: depot.sandbox.v1.ListCommandsRequest
+	(*ListCommandsResponse)(nil),                          // 7: depot.sandbox.v1.ListCommandsResponse
+	(*AttachCommandRequest)(nil),                          // 8: depot.sandbox.v1.AttachCommandRequest
+	(*AttachOffset)(nil),                                  // 9: depot.sandbox.v1.AttachOffset
+	(*KillCommandRequest)(nil),                            // 10: depot.sandbox.v1.KillCommandRequest
+	(*KillCommandResponse)(nil),                           // 11: depot.sandbox.v1.KillCommandResponse
+	nil,                                                   // 12: depot.sandbox.v1.SandboxCommandExecution.EnvEntry
+	(*SandboxCommandExecutionEvent_Started)(nil),          // 13: depot.sandbox.v1.SandboxCommandExecutionEvent.Started
+	(*SandboxCommandExecutionEvent_StdoutBytes)(nil),      // 14: depot.sandbox.v1.SandboxCommandExecutionEvent.StdoutBytes
+	(*SandboxCommandExecutionEvent_StderrBytes)(nil),      // 15: depot.sandbox.v1.SandboxCommandExecutionEvent.StderrBytes
+	(*SandboxCommandExecutionEvent_Finished)(nil),         // 16: depot.sandbox.v1.SandboxCommandExecutionEvent.Finished
+	(*SandboxCommandExecutionEvent_Error)(nil),            // 17: depot.sandbox.v1.SandboxCommandExecutionEvent.Error
+	(*SandboxCommandExecutionEvent_EvictedEarlyData)(nil), // 18: depot.sandbox.v1.SandboxCommandExecutionEvent.EvictedEarlyData
+	nil,                                // 19: depot.sandbox.v1.RunCommandRequest.EnvEntry
+	(*timestamppb.Timestamp)(nil),      // 20: google.protobuf.Timestamp
+	(*SandboxRef)(nil),                 // 21: depot.sandbox.v1.SandboxRef
+	(*SandboxCommandExecutionRef)(nil), // 22: depot.sandbox.v1.SandboxCommandExecutionRef
 }
 var file_depot_sandbox_v1_command_proto_depIdxs = []int32{
-	12, // 0: depot.sandbox.v1.Command.env:type_name -> depot.sandbox.v1.Command.EnvEntry
-	0,  // 1: depot.sandbox.v1.Command.status:type_name -> depot.sandbox.v1.CommandStatus
-	20, // 2: depot.sandbox.v1.Command.started_at:type_name -> google.protobuf.Timestamp
-	20, // 3: depot.sandbox.v1.Command.finished_at:type_name -> google.protobuf.Timestamp
-	13, // 4: depot.sandbox.v1.CommandEvent.started:type_name -> depot.sandbox.v1.CommandEvent.Started
-	14, // 5: depot.sandbox.v1.CommandEvent.stdout:type_name -> depot.sandbox.v1.CommandEvent.StdoutBytes
-	15, // 6: depot.sandbox.v1.CommandEvent.stderr:type_name -> depot.sandbox.v1.CommandEvent.StderrBytes
-	16, // 7: depot.sandbox.v1.CommandEvent.finished:type_name -> depot.sandbox.v1.CommandEvent.Finished
-	17, // 8: depot.sandbox.v1.CommandEvent.error:type_name -> depot.sandbox.v1.CommandEvent.Error
-	18, // 9: depot.sandbox.v1.CommandEvent.evicted:type_name -> depot.sandbox.v1.CommandEvent.EvictedEarlyData
+	12, // 0: depot.sandbox.v1.SandboxCommandExecution.env:type_name -> depot.sandbox.v1.SandboxCommandExecution.EnvEntry
+	0,  // 1: depot.sandbox.v1.SandboxCommandExecution.status:type_name -> depot.sandbox.v1.SandboxCommandExecutionStatus
+	20, // 2: depot.sandbox.v1.SandboxCommandExecution.started_at:type_name -> google.protobuf.Timestamp
+	20, // 3: depot.sandbox.v1.SandboxCommandExecution.finished_at:type_name -> google.protobuf.Timestamp
+	13, // 4: depot.sandbox.v1.SandboxCommandExecutionEvent.started:type_name -> depot.sandbox.v1.SandboxCommandExecutionEvent.Started
+	14, // 5: depot.sandbox.v1.SandboxCommandExecutionEvent.stdout:type_name -> depot.sandbox.v1.SandboxCommandExecutionEvent.StdoutBytes
+	15, // 6: depot.sandbox.v1.SandboxCommandExecutionEvent.stderr:type_name -> depot.sandbox.v1.SandboxCommandExecutionEvent.StderrBytes
+	16, // 7: depot.sandbox.v1.SandboxCommandExecutionEvent.finished:type_name -> depot.sandbox.v1.SandboxCommandExecutionEvent.Finished
+	17, // 8: depot.sandbox.v1.SandboxCommandExecutionEvent.error:type_name -> depot.sandbox.v1.SandboxCommandExecutionEvent.Error
+	18, // 9: depot.sandbox.v1.SandboxCommandExecutionEvent.evicted:type_name -> depot.sandbox.v1.SandboxCommandExecutionEvent.EvictedEarlyData
 	21, // 10: depot.sandbox.v1.RunCommandRequest.sandbox:type_name -> depot.sandbox.v1.SandboxRef
 	19, // 11: depot.sandbox.v1.RunCommandRequest.env:type_name -> depot.sandbox.v1.RunCommandRequest.EnvEntry
 	3,  // 12: depot.sandbox.v1.RunCommandPipeRequest.init:type_name -> depot.sandbox.v1.RunCommandRequest
-	1,  // 13: depot.sandbox.v1.GetCommandResponse.command:type_name -> depot.sandbox.v1.Command
+	1,  // 13: depot.sandbox.v1.GetCommandResponse.command:type_name -> depot.sandbox.v1.SandboxCommandExecution
 	21, // 14: depot.sandbox.v1.ListCommandsRequest.sandbox:type_name -> depot.sandbox.v1.SandboxRef
-	0,  // 15: depot.sandbox.v1.ListCommandsRequest.status_filter:type_name -> depot.sandbox.v1.CommandStatus
-	1,  // 16: depot.sandbox.v1.ListCommandsResponse.commands:type_name -> depot.sandbox.v1.Command
-	22, // 17: depot.sandbox.v1.AttachCommandRequest.command:type_name -> depot.sandbox.v1.CommandRef
+	0,  // 15: depot.sandbox.v1.ListCommandsRequest.status_filter:type_name -> depot.sandbox.v1.SandboxCommandExecutionStatus
+	1,  // 16: depot.sandbox.v1.ListCommandsResponse.commands:type_name -> depot.sandbox.v1.SandboxCommandExecution
+	22, // 17: depot.sandbox.v1.AttachCommandRequest.command:type_name -> depot.sandbox.v1.SandboxCommandExecutionRef
 	9,  // 18: depot.sandbox.v1.AttachCommandRequest.since_offset:type_name -> depot.sandbox.v1.AttachOffset
-	20, // 19: depot.sandbox.v1.CommandEvent.Started.started_at:type_name -> google.protobuf.Timestamp
-	20, // 20: depot.sandbox.v1.CommandEvent.StdoutBytes.timestamp:type_name -> google.protobuf.Timestamp
-	20, // 21: depot.sandbox.v1.CommandEvent.StderrBytes.timestamp:type_name -> google.protobuf.Timestamp
-	20, // 22: depot.sandbox.v1.CommandEvent.Finished.finished_at:type_name -> google.protobuf.Timestamp
+	20, // 19: depot.sandbox.v1.SandboxCommandExecutionEvent.Started.started_at:type_name -> google.protobuf.Timestamp
+	20, // 20: depot.sandbox.v1.SandboxCommandExecutionEvent.StdoutBytes.timestamp:type_name -> google.protobuf.Timestamp
+	20, // 21: depot.sandbox.v1.SandboxCommandExecutionEvent.StderrBytes.timestamp:type_name -> google.protobuf.Timestamp
+	20, // 22: depot.sandbox.v1.SandboxCommandExecutionEvent.Finished.finished_at:type_name -> google.protobuf.Timestamp
 	23, // [23:23] is the sub-list for method output_type
 	23, // [23:23] is the sub-list for method input_type
 	23, // [23:23] is the sub-list for extension type_name
@@ -1648,7 +1670,7 @@ func file_depot_sandbox_v1_command_proto_init() {
 	file_depot_sandbox_v1_refs_proto_init()
 	if !protoimpl.UnsafeEnabled {
 		file_depot_sandbox_v1_command_proto_msgTypes[0].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*Command); i {
+			switch v := v.(*SandboxCommandExecution); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -1660,7 +1682,7 @@ func file_depot_sandbox_v1_command_proto_init() {
 			}
 		}
 		file_depot_sandbox_v1_command_proto_msgTypes[1].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*CommandEvent); i {
+			switch v := v.(*SandboxCommandExecutionEvent); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -1780,7 +1802,7 @@ func file_depot_sandbox_v1_command_proto_init() {
 			}
 		}
 		file_depot_sandbox_v1_command_proto_msgTypes[12].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*CommandEvent_Started); i {
+			switch v := v.(*SandboxCommandExecutionEvent_Started); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -1792,7 +1814,7 @@ func file_depot_sandbox_v1_command_proto_init() {
 			}
 		}
 		file_depot_sandbox_v1_command_proto_msgTypes[13].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*CommandEvent_StdoutBytes); i {
+			switch v := v.(*SandboxCommandExecutionEvent_StdoutBytes); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -1804,7 +1826,7 @@ func file_depot_sandbox_v1_command_proto_init() {
 			}
 		}
 		file_depot_sandbox_v1_command_proto_msgTypes[14].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*CommandEvent_StderrBytes); i {
+			switch v := v.(*SandboxCommandExecutionEvent_StderrBytes); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -1816,7 +1838,7 @@ func file_depot_sandbox_v1_command_proto_init() {
 			}
 		}
 		file_depot_sandbox_v1_command_proto_msgTypes[15].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*CommandEvent_Finished); i {
+			switch v := v.(*SandboxCommandExecutionEvent_Finished); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -1828,7 +1850,7 @@ func file_depot_sandbox_v1_command_proto_init() {
 			}
 		}
 		file_depot_sandbox_v1_command_proto_msgTypes[16].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*CommandEvent_Error); i {
+			switch v := v.(*SandboxCommandExecutionEvent_Error); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -1840,7 +1862,7 @@ func file_depot_sandbox_v1_command_proto_init() {
 			}
 		}
 		file_depot_sandbox_v1_command_proto_msgTypes[17].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*CommandEvent_EvictedEarlyData); i {
+			switch v := v.(*SandboxCommandExecutionEvent_EvictedEarlyData); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -1854,12 +1876,12 @@ func file_depot_sandbox_v1_command_proto_init() {
 	}
 	file_depot_sandbox_v1_command_proto_msgTypes[0].OneofWrappers = []interface{}{}
 	file_depot_sandbox_v1_command_proto_msgTypes[1].OneofWrappers = []interface{}{
-		(*CommandEvent_Started_)(nil),
-		(*CommandEvent_Stdout)(nil),
-		(*CommandEvent_Stderr)(nil),
-		(*CommandEvent_Finished_)(nil),
-		(*CommandEvent_Error_)(nil),
-		(*CommandEvent_Evicted)(nil),
+		(*SandboxCommandExecutionEvent_Started_)(nil),
+		(*SandboxCommandExecutionEvent_Stdout)(nil),
+		(*SandboxCommandExecutionEvent_Stderr)(nil),
+		(*SandboxCommandExecutionEvent_Finished_)(nil),
+		(*SandboxCommandExecutionEvent_Error_)(nil),
+		(*SandboxCommandExecutionEvent_Evicted)(nil),
 	}
 	file_depot_sandbox_v1_command_proto_msgTypes[2].OneofWrappers = []interface{}{}
 	file_depot_sandbox_v1_command_proto_msgTypes[3].OneofWrappers = []interface{}{

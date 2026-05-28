@@ -64,7 +64,7 @@ message CreateSandboxFromSpecEvent {
   message HookEvent {
     HookStage stage = 1;
     string hook_name = 2;
-    CommandEvent inner = 3;
+    SandboxCommandExecutionEvent inner = 3;
   }
 
   message Done {
