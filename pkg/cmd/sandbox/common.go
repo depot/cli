@@ -40,9 +40,9 @@ func sandboxRef(id string) *sandboxv1.SandboxRef {
 
 // commandRef wraps a command id in the depot.sandbox.v1 selector oneof.
 // Used by AttachCommand / KillCommand callers.
-func commandRef(id string) *sandboxv1.CommandRef {
-	return &sandboxv1.CommandRef{
-		Selector: &sandboxv1.CommandRef_Id{Id: id},
+func commandRef(id string) *sandboxv1.SandboxCommandExecutionRef {
+	return &sandboxv1.SandboxCommandExecutionRef{
+		Selector: &sandboxv1.SandboxCommandExecutionRef_Id{Id: id},
 	}
 }
 
@@ -73,7 +73,7 @@ const (
 )
 
 func consumeCommandEventStream(
-	stream *connect.ServerStreamForClient[sandboxv1.CommandEvent],
+	stream *connect.ServerStreamForClient[sandboxv1.SandboxCommandExecutionEvent],
 	stdout, stderr io.Writer,
 	mode detachedMode,
 ) (exitCode int32, err error) {
@@ -81,25 +81,25 @@ func consumeCommandEventStream(
 	for stream.Receive() {
 		msg := stream.Msg()
 		switch ev := msg.Event.(type) {
-		case *sandboxv1.CommandEvent_Started_:
+		case *sandboxv1.SandboxCommandExecutionEvent_Started_:
 			// metadata only — nothing to print
-		case *sandboxv1.CommandEvent_Stdout:
+		case *sandboxv1.SandboxCommandExecutionEvent_Stdout:
 			if ev.Stdout != nil && len(ev.Stdout.Data) > 0 {
 				_, _ = stdout.Write(ev.Stdout.Data)
 			}
-		case *sandboxv1.CommandEvent_Stderr:
+		case *sandboxv1.SandboxCommandExecutionEvent_Stderr:
 			if ev.Stderr != nil && len(ev.Stderr.Data) > 0 {
 				_, _ = stderr.Write(ev.Stderr.Data)
 			}
-		case *sandboxv1.CommandEvent_Finished_:
+		case *sandboxv1.SandboxCommandExecutionEvent_Finished_:
 			if ev.Finished != nil {
 				return ev.Finished.ExitCode, nil
 			}
-		case *sandboxv1.CommandEvent_Error_:
+		case *sandboxv1.SandboxCommandExecutionEvent_Error_:
 			if ev.Error != nil {
 				fmt.Fprintf(stderr, "[command-error] %s\n", ev.Error.Reason)
 			}
-		case *sandboxv1.CommandEvent_Evicted:
+		case *sandboxv1.SandboxCommandExecutionEvent_Evicted:
 			if ev.Evicted != nil {
 				fmt.Fprintf(stderr, "[evicted-early-data] dropped %d bytes stdout / %d bytes stderr\n",
 					ev.Evicted.DroppedBytesStdout, ev.Evicted.DroppedBytesStderr)

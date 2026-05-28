@@ -182,7 +182,7 @@ func (x *HookSpec) GetTimeoutSeconds() int32 {
 }
 
 // RunHookRequest — DEP-4534 / P23. Server-streaming response is the same
-// CommandEvent shape RunCommand emits: Started -> Stdout/Stderr bytes ->
+// SandboxCommandExecutionEvent shape RunCommand emits: Started -> Stdout/Stderr bytes ->
 // Finished. Detached hooks (hook.detach=true) emit only Started +
 // Finished{exit_code=0} on the wire; the actual hook output lands in
 // /var/log/depot/hook-<stage>-<name>.log inside the sandbox (architecture

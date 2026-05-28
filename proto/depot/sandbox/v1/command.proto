@@ -5,7 +5,7 @@ package depot.sandbox.v1;
 import "depot/sandbox/v1/refs.proto";
 import "google/protobuf/timestamp.proto";
 
-// Command surface for depot.sandbox.v1 (DEP-4517, DEP-4519, DEP-4520).
+// SandboxCommandExecution surface for depot.sandbox.v1 (DEP-4517, DEP-4519, DEP-4520).
 //
 // RunCommand (DEP-4517) and RunCommandPipe (DEP-4519) shipped first.
 // GetCommand, ListCommands, and AttachCommand (DEP-4520) ship next.
@@ -18,26 +18,26 @@ import "google/protobuf/timestamp.proto";
 // Bytes-everywhere on the wire (DEP-4404): stdout/stderr chunks are `bytes`,
 // not `string`. UTF-8 decoding happens in the SDK adapter, not in the proto.
 
-// CommandStatus mirrors the lifecycle stages a command transitions through.
+// SandboxCommandExecutionStatus mirrors the lifecycle stages a command transitions through.
 //
 //   PENDING:  queued, not yet started in the guest.
 //   RUNNING:  started; bytes can be streaming.
 //   FINISHED: process exited; exit_code populated.
 //   FAILED:   process never started, or the guest reported an error path.
 //   KILLED:   signaled mid-run (DEP-4522).
-enum CommandStatus {
-  COMMAND_STATUS_UNSPECIFIED = 0;
-  COMMAND_STATUS_PENDING = 1;
-  COMMAND_STATUS_RUNNING = 2;
-  COMMAND_STATUS_FINISHED = 3;
-  COMMAND_STATUS_FAILED = 4;
-  COMMAND_STATUS_KILLED = 5;
+enum SandboxCommandExecutionStatus {
+  SANDBOX_COMMAND_EXECUTION_STATUS_UNSPECIFIED = 0;
+  SANDBOX_COMMAND_EXECUTION_STATUS_PENDING = 1;
+  SANDBOX_COMMAND_EXECUTION_STATUS_RUNNING = 2;
+  SANDBOX_COMMAND_EXECUTION_STATUS_FINISHED = 3;
+  SANDBOX_COMMAND_EXECUTION_STATUS_FAILED = 4;
+  SANDBOX_COMMAND_EXECUTION_STATUS_KILLED = 5;
 }
 
-// Command is the persisted metadata for a single RunCommand invocation. The
+// SandboxCommandExecution is the persisted metadata for a single RunCommand invocation. The
 // row shape lives in src/sandbox/schema-additions.ts (CommandRow); this is its
 // wire projection. Populated by Get/List/Attach RPCs in follow-up slices.
-message Command {
+message SandboxCommandExecution {
   // Server-minted ULID. Architecture §7.
   string cmd_id = 1;
   string sandbox_id = 2;
@@ -47,7 +47,7 @@ message Command {
   map<string, string> env = 6;
   bool sudo = 7;
   bool detached = 8;
-  CommandStatus status = 9;
+  SandboxCommandExecutionStatus status = 9;
   google.protobuf.Timestamp started_at = 10;
   optional google.protobuf.Timestamp finished_at = 11;
   optional int32 exit_code = 12;
@@ -56,14 +56,14 @@ message Command {
   int64 stderr_bytes_emitted = 14;
 }
 
-// CommandEvent is the streamed event during RunCommand / RunCommandPipe /
+// SandboxCommandExecutionEvent is the streamed event during RunCommand / RunCommandPipe /
 // AttachCommand. Bytes everywhere; the SDK decodes UTF-8 at the adapter layer.
 //
 // EvictedEarlyData fires only on reattach scenarios where the K-Streaming ring
 // (architecture §10) had to drop head data before the consumer subscribed.
 // It is part of the oneof from day one so the wire shape doesn't need a
 // reserved slot retrofit when the BufferedEventLog impl lands with P10b.
-message CommandEvent {
+message SandboxCommandExecutionEvent {
   oneof event {
     Started started = 1;
     StdoutBytes stdout = 2;
@@ -153,7 +153,7 @@ message RunCommandPipeRequest {
 // by the caller's orgId, then enforces sandbox-level access on the resolved
 // sandbox row (api/CLAUDE.md authz convention).
 message GetCommandResponse {
-  Command command = 1;
+  SandboxCommandExecution command = 1;
 }
 
 // ListCommands enumerates commands within a single sandbox, newest first.
@@ -165,25 +165,25 @@ message ListCommandsRequest {
   optional int32 page_size = 2;
   optional string page_token = 3;
   // If non-empty, only commands whose status is in this set are returned.
-  // UNSPECIFIED entries are ignored. The full CommandStatus enum is accepted.
-  repeated CommandStatus status_filter = 4;
+  // UNSPECIFIED entries are ignored. The full SandboxCommandExecutionStatus enum is accepted.
+  repeated SandboxCommandExecutionStatus status_filter = 4;
 }
 message ListCommandsResponse {
-  repeated Command commands = 1;
+  repeated SandboxCommandExecution commands = 1;
   optional string next_page_token = 2;
 }
 
 // AttachCommand re-subscribes to the output of a previously-issued
-// RunCommand / RunCommandPipe. The response stream is the same CommandEvent
+// RunCommand / RunCommandPipe. The response stream is the same SandboxCommandExecutionEvent
 // sequence those RPCs emit live: replay of persisted Stdout/Stderr chunks
 // followed (if the command is still running on the same replica) by live tail.
 //
 // Sandbox-level authz: cmd_id is resolved to its sandbox_id server-side, then
-// the standard sandbox-row org check applies. CommandRef carries only the
+// the standard sandbox-row org check applies. SandboxCommandExecutionRef carries only the
 // cmd_id today (refs.proto's selector pattern); a future sandbox-qualified
 // selector form can be added without a wire break.
 message AttachCommandRequest {
-  CommandRef command = 1;
+  SandboxCommandExecutionRef command = 1;
   // Per-stream WATERMARK: replay events whose byte_offset is STRICTLY GREATER
   // than the supplied offset. The wire field byte_offset is end-of-chunk
   // (cumulative bytes through the END of `data`), so a caller that replayed

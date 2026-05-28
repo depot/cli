@@ -20,7 +20,7 @@ message SandboxRef {
   }
 }
 
-message CommandRef {
+message SandboxCommandExecutionRef {
   oneof selector {
     string id = 1;
   }
