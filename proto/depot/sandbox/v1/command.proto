@@ -5,26 +5,23 @@ package depot.sandbox.v1;
 import "depot/sandbox/v1/refs.proto";
 import "google/protobuf/timestamp.proto";
 
-// SandboxCommandExecution surface for depot.sandbox.v1 (DEP-4517, DEP-4519, DEP-4520).
+// Service surface for running and inspecting commands inside a sandbox. It
+// covers starting a command and streaming its output, feeding it input over a
+// pipe, looking up and listing past commands, reattaching to a running or
+// finished command's output, and signaling a command to stop.
 //
-// RunCommand (DEP-4517) and RunCommandPipe (DEP-4519) shipped first.
-// GetCommand, ListCommands, and AttachCommand (DEP-4520) ship next.
-// KillCommand (DEP-4522) lands in this slice.
-//
-// SandboxRef is imported from refs.proto (introduced in M7). The previous
-// import-cycle workaround — passing `string sandbox_id` on RunCommandRequest —
-// is gone now that refs.proto exists as a neutral home for the Ref types.
-//
-// Bytes-everywhere on the wire (DEP-4404): stdout/stderr chunks are `bytes`,
-// not `string`. UTF-8 decoding happens in the SDK adapter, not in the proto.
+// Command output travels on the wire as raw bytes rather than strings, because
+// process output is not guaranteed to be valid UTF-8. Clients decode it
+// themselves.
 
-// SandboxCommandExecutionStatus mirrors the lifecycle stages a command transitions through.
+// Lifecycle stages a command moves through. The status reflects where the
+// command is in its lifecycle and is independent of the process exit code.
 //
-//   PENDING:  queued, not yet started in the guest.
-//   RUNNING:  started; bytes can be streaming.
-//   FINISHED: process exited; exit_code populated.
-//   FAILED:   process never started, or the guest reported an error path.
-//   KILLED:   signaled mid-run (DEP-4522).
+//   PENDING:  accepted but not yet started inside the sandbox.
+//   RUNNING:  started and may be producing output.
+//   FINISHED: the process exited; exit_code is populated.
+//   FAILED:   the process never started, or the sandbox reported an error.
+//   KILLED:   the command was signaled to stop while running.
 enum SandboxCommandExecutionStatus {
   SANDBOX_COMMAND_EXECUTION_STATUS_UNSPECIFIED = 0;
   SANDBOX_COMMAND_EXECUTION_STATUS_PENDING = 1;
@@ -34,35 +31,43 @@ enum SandboxCommandExecutionStatus {
   SANDBOX_COMMAND_EXECUTION_STATUS_KILLED = 5;
 }
 
-// SandboxCommandExecution is the persisted metadata for a single RunCommand invocation. The
-// row shape lives in src/sandbox/schema-additions.ts (CommandRow); this is its
-// wire projection. Populated by Get/List/Attach RPCs in follow-up slices.
+// Metadata describing a single command that was run in a sandbox. Returned by
+// the lookup, list, and attach calls.
 message SandboxCommandExecution {
-  // Server-minted ULID. Architecture §7.
+  // Unique command identifier assigned by the server.
   string cmd_id = 1;
+  // Identifier of the sandbox the command ran in.
   string sandbox_id = 2;
+  // The program that was executed.
   string cmd = 3;
+  // Arguments passed to the program.
   repeated string args = 4;
+  // Working directory the command ran in, if one was specified.
   optional string cwd = 5;
+  // Environment variables that were set for the command.
   map<string, string> env = 6;
+  // Whether the command ran with elevated privileges.
   bool sudo = 7;
+  // Whether the command was requested to run detached from the output stream.
   bool detached = 8;
+  // Current lifecycle stage of the command.
   SandboxCommandExecutionStatus status = 9;
+  // When the command started running.
   google.protobuf.Timestamp started_at = 10;
+  // When the command finished, once it has exited.
   optional google.protobuf.Timestamp finished_at = 11;
+  // Exit code of the process, once it has exited.
   optional int32 exit_code = 12;
-  // Per-stream cumulative byte counts. Split per architecture §8.
+  // Total number of bytes emitted on stdout so far.
   int64 stdout_bytes_emitted = 13;
+  // Total number of bytes emitted on stderr so far.
   int64 stderr_bytes_emitted = 14;
 }
 
-// SandboxCommandExecutionEvent is the streamed event during RunCommand / RunCommandPipe /
-// AttachCommand. Bytes everywhere; the SDK decodes UTF-8 at the adapter layer.
-//
-// EvictedEarlyData fires only on reattach scenarios where the K-Streaming ring
-// (architecture §10) had to drop head data before the consumer subscribed.
-// It is part of the oneof from day one so the wire shape doesn't need a
-// reserved slot retrofit when the BufferedEventLog impl lands with P10b.
+// A single event in a command's output stream. Output data is carried as raw
+// bytes, which clients decode themselves. The stream normally begins with a
+// Started event, carries interleaved stdout and stderr chunks, and ends with a
+// Finished event.
 message SandboxCommandExecutionEvent {
   oneof event {
     Started started = 1;
@@ -73,146 +78,159 @@ message SandboxCommandExecutionEvent {
     EvictedEarlyData evicted = 6;
   }
 
+  // Emitted once when the command begins running.
   message Started {
+    // Identifier of the command that started.
     string cmd_id = 1;
+    // When the command started running.
     google.protobuf.Timestamp started_at = 2;
   }
+  // A chunk of standard output.
   message StdoutBytes {
+    // The raw output bytes in this chunk.
     bytes data = 1;
-    // Cumulative byte index for this stream as of the END of `data`.
+    // Cumulative number of stdout bytes through the end of this chunk.
     int64 byte_offset = 2;
+    // When this chunk was produced.
     google.protobuf.Timestamp timestamp = 3;
   }
+  // A chunk of standard error.
   message StderrBytes {
+    // The raw output bytes in this chunk.
     bytes data = 1;
+    // Cumulative number of stderr bytes through the end of this chunk.
     int64 byte_offset = 2;
+    // When this chunk was produced.
     google.protobuf.Timestamp timestamp = 3;
   }
+  // Emitted once when the command exits.
   message Finished {
+    // The process exit code.
     int32 exit_code = 1;
+    // When the command finished.
     google.protobuf.Timestamp finished_at = 2;
   }
-  // Mid-stream failure where the stream itself continues (e.g. one chunk lost
-  // but more coming). Connect errors remain the primary error channel; this
-  // payload is for partial-degradation cases. Bare string for v0; structured
-  // codes are a follow-on if call sites need to discriminate.
+  // Reports a problem with the output stream while it remains open, for example
+  // a dropped chunk when more output is still expected. Most failures are
+  // surfaced as transport-level errors instead; this event is for partial
+  // problems where the stream continues.
   message Error {
+    // A human-readable description of the problem.
     string reason = 1;
   }
-  // K-Streaming evicted head data before this consumer subscribed. Carries the
-  // per-stream byte counts that were dropped so the consumer can reason about
-  // the gap. Architecture §10.
+  // Reports that some early output was discarded before this consumer began
+  // reading, which can happen when reattaching to a command whose buffered
+  // output had already rolled over. The counts let the consumer understand how
+  // much output is missing.
   message EvictedEarlyData {
+    // Number of stdout bytes that were dropped.
     int64 dropped_bytes_stdout = 1;
+    // Number of stderr bytes that were dropped.
     int64 dropped_bytes_stderr = 2;
   }
 }
 
-// RunCommand — DEP-4517. Server-streaming RPC; the response stream is a
-// sequence of CommandEvents starting with Started and ending with Finished
-// (or terminating with a Connect error).
+// Request to run a command in a sandbox. The response is a stream of output
+// events that begins with Started and ends with Finished, or terminates with a
+// transport-level error.
 message RunCommandRequest {
-  // Sandbox to run the command in. Tag 1 was `string sandbox_id` in M6 (a
-  // workaround for the proto import cycle that refs.proto now resolves) — see
-  // the commit body for the wire-break audit. Safe to reuse tag 1 here because
-  // RunCommand is shipped Unimplemented; no client depends on the prior shape.
+  // The sandbox to run the command in.
   SandboxRef sandbox = 1;
+  // The program to execute.
   string cmd = 2;
+  // Arguments to pass to the program.
   repeated string args = 3;
+  // Working directory to run the command in. Defaults to the sandbox default.
   optional string cwd = 4;
+  // Environment variables for the command. These are merged on top of the
+  // sandbox environment, and values given here take precedence on conflict.
   map<string, string> env = 5;
+  // Run the command with elevated privileges.
   optional bool sudo = 6;
-  // When true, the server returns the Started event and disconnects the
-  // stream; the command runs in the background and can be reattached via
-  // AttachCommand (DEP-4520).
+  // Reserved for running a command detached from the output stream. Detached
+  // mode is not yet supported and requests that set it are rejected.
   optional bool detached = 7;
 }
 
-// RunCommandPipe — DEP-4519. Client-side bidirectional streaming. The first
-// request on the stream MUST carry `init` (the same RunCommandRequest the
-// blocking RunCommand RPC uses). Every subsequent request carries `stdin`
-// bytes; closing the request stream signals EOF on the command's stdin.
-//
-// The response stream is a sequence of CommandEvents identical in shape to
-// RunCommand's: Started → Stdout/Stderr bytes → Finished (or Connect error).
-//
-// stdin bytes are NOT persisted in v0 — only stdout and stderr land in the
-// ClickHouse log table. AttachCommand replay shows command OUTPUT regardless
-// of whether the original command was Run or RunCommandPipe.
+// A message on the bidirectional pipe stream used to run a command while
+// feeding it standard input. The first message on the stream must carry init,
+// which describes the command to run, using the same fields as RunCommand.
+// Every later message carries a chunk of stdin bytes, and closing the request
+// stream signals end of input. The response is the same output event stream
+// that RunCommand produces. Input bytes are not retained, so reattaching to a
+// command shows only its output, not the input it was given.
 message RunCommandPipeRequest {
   oneof input {
+    // Describes the command to run. Required as the first message.
     RunCommandRequest init = 1;
+    // A chunk of bytes to write to the command's standard input.
     bytes stdin = 2;
   }
 }
 
-// GetCommand / ListCommands / AttachCommand — DEP-4520.
-
-// GetCommand looks up command metadata by cmd_id. Authorization is sandbox-
-// scoped: the server resolves cmd_id → sandbox_id via a Kysely select filtered
-// by the caller's orgId, then enforces sandbox-level access on the resolved
-// sandbox row (api/CLAUDE.md authz convention).
+// Response containing the metadata for a single command looked up by its id.
 message GetCommandResponse {
+  // The command's metadata.
   SandboxCommandExecution command = 1;
 }
 
-// ListCommands enumerates commands within a single sandbox, newest first.
-// Pagination follows the ListSandboxes cursor convention: page_token is an
-// opaque server-minted string that clients pass back verbatim to fetch the
-// next page.
+// Request to list the commands run in a sandbox, ordered newest first and
+// returned a page at a time.
 message ListCommandsRequest {
+  // The sandbox whose commands to list.
   SandboxRef sandbox = 1;
+  // Maximum number of commands to return in one page.
   optional int32 page_size = 2;
+  // Opaque token from a previous response used to fetch the next page. Pass it
+  // back unchanged.
   optional string page_token = 3;
-  // If non-empty, only commands whose status is in this set are returned.
-  // UNSPECIFIED entries are ignored. The full SandboxCommandExecutionStatus enum is accepted.
+  // If non-empty, only commands whose status appears in this set are returned.
+  // Unspecified entries are ignored.
   repeated SandboxCommandExecutionStatus status_filter = 4;
 }
+// A page of command metadata.
 message ListCommandsResponse {
+  // The commands in this page.
   repeated SandboxCommandExecution commands = 1;
+  // Token to pass on a later request to fetch the next page, absent when there
+  // are no more results.
   optional string next_page_token = 2;
 }
 
-// AttachCommand re-subscribes to the output of a previously-issued
-// RunCommand / RunCommandPipe. The response stream is the same SandboxCommandExecutionEvent
-// sequence those RPCs emit live: replay of persisted Stdout/Stderr chunks
-// followed (if the command is still running on the same replica) by live tail.
-//
-// Sandbox-level authz: cmd_id is resolved to its sandbox_id server-side, then
-// the standard sandbox-row org check applies. SandboxCommandExecutionRef carries only the
-// cmd_id today (refs.proto's selector pattern); a future sandbox-qualified
-// selector form can be added without a wire break.
+// Request to reattach to the output of a command that was already started. The
+// response is the same output event stream the run calls produce: a replay of
+// the command's stored output, followed by live output if the command is still
+// running.
 message AttachCommandRequest {
+  // The command to reattach to.
   SandboxCommandExecutionRef command = 1;
-  // Per-stream WATERMARK: replay events whose byte_offset is STRICTLY GREATER
-  // than the supplied offset. The wire field byte_offset is end-of-chunk
-  // (cumulative bytes through the END of `data`), so a caller that replayed
-  // up through "I last received stdout byteOffset = 100" supplies
-  // stdout_offset = 100 and receives the next event starting at >100. Unset
-  // fields default to 0 — start replay from the beginning of that stream.
+  // Optional starting point for the replay. When set, only output past the
+  // given offsets is replayed, which lets a caller resume without seeing output
+  // it already received.
   optional AttachOffset since_offset = 2;
 }
+// Per-stream starting offsets for an attach replay. Each offset is compared
+// against the cumulative end-of-chunk byte count, so only events strictly past
+// the given offset are replayed. An unset offset defaults to zero, replaying
+// that stream from the beginning.
 message AttachOffset {
-  // Watermark on stdout: yield events whose byte_offset > stdout_offset.
+  // Replay only stdout past this cumulative byte offset.
   optional int64 stdout_offset = 1;
-  // Watermark on stderr: yield events whose byte_offset > stderr_offset.
+  // Replay only stderr past this cumulative byte offset.
   optional int64 stderr_offset = 2;
 }
 
-// KillCommand — DEP-4522. Targets a previously-issued command by cmd_id and
-// asks the host to deliver `signal` (default SIGTERM) to the running process.
-// Two-step authorization mirrors AttachCommand: resolve cmd_id → sandbox_id
-// scoped to the caller's org, then enforce sandbox-level access on the
-// resolved sandbox row. Signal is a string passthrough to vm3 SendSignal;
-// unknown signal names propagate vm3's InvalidArgument. Killing a command
-// the host registry no longer knows about (already-finished or never-
-// registered) returns NotFound — this covers the kill-on-finished race
-// without a separate code path.
+// Request to signal a running command identified by its id. An unknown signal
+// name is rejected with an invalid-argument error, and a command that is no
+// longer running (already finished or never registered) is reported as not
+// found.
 message KillCommandRequest {
+  // Identifier of the command to signal.
   string cmd_id = 1;
-  // Signal name (e.g. "SIGTERM", "SIGINT"). Omit for SIGTERM. SIGKILL is
-  // rejected by vm3 in v0 to keep the abort path SIGKILL-free; that
-  // rejection surfaces here as a Connect InvalidArgument.
+  // Signal to send, such as "SIGTERM" or "SIGINT". Defaults to SIGTERM when
+  // omitted. SIGKILL is not supported and is rejected with an invalid-argument
+  // error.
   optional string signal = 2;
 }
+// Empty response returned when a command is successfully signaled.
 message KillCommandResponse {}

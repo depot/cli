@@ -196,9 +196,9 @@ func (*OpenPtyResponse_Data) isOpenPtyResponse_Output() {}
 
 func (*OpenPtyResponse_Exit_) isOpenPtyResponse_Output() {}
 
-// Start carries the per-session init parameters. Sent as the first message
-// on the stream. Subsequent `start` messages on the same stream are a
-// protocol violation and ignored by the handler.
+// Carries the parameters that open the session. It must be the first message
+// on the stream. Any later start message on the same stream is invalid and is
+// ignored by the handler.
 type OpenPtyRequest_Start struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
@@ -278,8 +278,8 @@ func (x *OpenPtyRequest_Start) GetCwd() string {
 	return ""
 }
 
-// Resize is a window-size change. vm3 maps it to the OS pty Setsize ioctl
-// which clamps out-of-range values; bounds are intentionally pass-through.
+// Changes the terminal window size. Values are passed through to the
+// operating system, which clamps any that are out of range.
 type OpenPtyRequest_Resize struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache

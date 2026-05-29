@@ -1,24 +1,17 @@
-// depot.sandbox.v1 — Hook value-shapes + RunHook wire envelope (DEP-4534 / P23).
+// Hook definitions and the request envelope for the RunHook RPC.
 //
-// Spec Cluster INTERIOR (step 2 of 5). This file holds the hook-related
-// messages: the value-shapes (HookSpec + HookStage) that the YAML spec uses
-// and the wire envelope (RunHookRequest) that the RunHook RPC takes.
+// This file holds the messages a hook needs: the value shapes (HookSpec and
+// HookStage) that a sandbox spec uses to declare hooks, plus RunHookRequest,
+// which the RunHook RPC takes.
 //
-// HookSpec and HookStage originally shipped in spec.proto at S24 (P22).
-// They moved here at P23 to break an import cycle that would otherwise form
-// once sandbox.proto adopts the RunHook RPC:
+// These messages live here rather than alongside the spec messages so that the
+// service definition can import them without creating an import cycle. The
+// service's proto imports this file for RunHookRequest, and the spec proto
+// imports the service's proto for shared types, so the hook messages must sit
+// in a file that does not depend on either of those.
 //
-//   sandbox.proto -> hook.proto -> spec.proto -> sandbox.proto
-//
-// (spec.proto imports sandbox.proto for Resources + Runtime; sandbox.proto
-// must import hook.proto for RunHookRequest; so hook.proto cannot transitively
-// import sandbox.proto.) Wire shapes are unchanged — both messages remain in
-// the depot.sandbox.v1 package; only their `.proto` home is different.
-//
-// RunHook is wire-reachable today but hidden from the public SDK surface
-// (pattern F per architecture §15). The canonical consumer is the
-// CreateSandboxFromSpec orchestrator that lands in P25b — no caller exists
-// in trunk today.
+// RunHook is reachable on the wire but is not exposed on the public SDK
+// surface; it is invoked internally when a sandbox is created from a spec.
 
 syntax = "proto3";
 
@@ -26,9 +19,9 @@ package depot.sandbox.v1;
 
 import "depot/sandbox/v1/refs.proto";
 
-// HookSpec — a single hook command within one lifecycle stage. The YAML
-// bare-string form ("echo hi") parses into HookSpec{command: "echo hi"};
-// see src/sandbox/spec.ts for normalization.
+// A single hook command that runs during one lifecycle stage. A spec may
+// declare a hook as a bare string ("echo hi"), which is normalized into a
+// HookSpec with that string as its command.
 message HookSpec {
   string command = 1;
   optional bool detach = 2;
@@ -36,10 +29,9 @@ message HookSpec {
   optional int32 timeout_seconds = 4;
 }
 
-// HookStage names a lifecycle stage. Used by the RunHook RPC + the future
-// Hooks-replay surface (architecture §12). Stage label is metadata-only
-// from the daemon's perspective — execution shape does NOT vary across the
-// six stages; orchestrators decide which stages they fire.
+// Names a sandbox lifecycle stage that a hook can run in. The stage is
+// metadata: a hook runs the same way regardless of which stage it belongs to,
+// and the caller decides which stages it fires.
 enum HookStage {
   HOOK_STAGE_UNSPECIFIED = 0;
   HOOK_STAGE_CREATE = 1;
@@ -50,12 +42,11 @@ enum HookStage {
   HOOK_STAGE_DOWN = 6;
 }
 
-// RunHookRequest — DEP-4534 / P23. Server-streaming response is the same
-// SandboxCommandExecutionEvent shape RunCommand emits: Started -> Stdout/Stderr bytes ->
-// Finished. Detached hooks (hook.detach=true) emit only Started +
-// Finished{exit_code=0} on the wire; the actual hook output lands in
-// /var/log/depot/hook-<stage>-<name>.log inside the sandbox (architecture
-// §12).
+// Request to run a single hook. RunHook is server-streaming and emits the same
+// event shape as RunCommand: a Started event, then stdout/stderr byte chunks,
+// then a Finished event. A detached hook (detach = true) only emits Started and
+// a Finished event with exit code 0; its output is written to a log file under
+// /var/log/depot inside the sandbox instead of streaming back.
 message RunHookRequest {
   SandboxRef sandbox = 1;
   HookStage stage = 2;

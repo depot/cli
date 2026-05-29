@@ -16,13 +16,12 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// hookWrapperScript is the shell stub that runs every CLI-side hook command
-// (on.exec / on.shell / on.snapshot / on.down). The on.create / on.start
-// stages run server-side now via CreateSandboxFromSpec's HookEvents (M34 /
-// D-M34-I) so the wrapper here only covers the four stages that still wrap
-// around the user's command on the client.
+// hookWrapperScript is the shell stub that runs every hook command executed by
+// the CLI (on.exec, on.shell, on.snapshot, on.down). The on.create and on.start
+// stages run server-side, so this wrapper only covers the stages the CLI runs
+// directly against a sandbox.
 //
-// Positional args (filled in by hook caller):
+// Positional args (filled in by the hook caller):
 //
 //	$0 = "depot-hook" (script-name placeholder)
 //	$1 = the user's hook command (single string, run via bash -lc)
@@ -40,22 +39,19 @@ fi
 exec /bin/bash -lc "$1"
 `
 
-// addHookFlags declares the --file / --set / --no-hook triple every hook-aware
-// command shares. stageLabel ("on.exec", "on.shell", …) is interpolated into
-// the help text so `--help` reads naturally.
+// addHookFlags declares the --file, --set, and --no-hook flags that every
+// hook-aware command shares. stageLabel (such as "on.exec" or "on.shell") is
+// interpolated into the help text.
 func addHookFlags(cmd *cobra.Command, stageLabel string) {
 	cmd.Flags().StringP("file", "f", "", fmt.Sprintf("Path to a sandbox.depot.yml file for %s resolution (default: walk up from cwd)", stageLabel))
 	cmd.Flags().StringArray("set", nil, fmt.Sprintf("Inputs as KEY=VALUE for %s ${input.KEY} substitution; repeatable", stageLabel))
 	cmd.Flags().Bool("no-hook", false, fmt.Sprintf("Skip %s hooks declared in the spec", stageLabel))
 }
 
-// runHookStage reads the standard --file/--set/--no-hook flags, resolves the
-// named stage from the local spec, and runs it against sandboxID. A --no-hook
-// flag short-circuits to a no-op. pick selects which stage's hooks to fire
-// out of the resolved HooksSpec.
-//
-// Sessions are gone in v0 (D-M34-M) — RunCommand on sandboxv1 takes a
-// SandboxRef only.
+// runHookStage reads the --file, --set, and --no-hook flags, resolves the named
+// stage from the local spec, and runs its hooks against sandboxID. The --no-hook
+// flag short-circuits to a no-op. pick selects which stage's hooks to run from
+// the resolved HooksSpec.
 func runHookStage(
 	ctx context.Context,
 	cmd *cobra.Command,
@@ -77,11 +73,10 @@ func runHookStage(
 	return runHooks(ctx, client, token, orgID, sandboxID, label, pick(hooks), stdout, stderr)
 }
 
-// resolveStageHooks loads the nearest sandbox.depot.yml (walking up from
-// cwd, or honoring --file if non-empty) and returns the resolved hooks for
-// every stage. Returns a zero-valued HooksSpec if no spec is found — that
-// matches the behavior of `exec`/`shell`/`snapshot` against a raw sandbox
-// id outside any project tree.
+// resolveStageHooks loads the nearest sandbox.depot.yml (walking up from cwd, or
+// using --file when it is set) and returns the resolved hooks for every stage.
+// It returns a zero-valued HooksSpec when no spec is found, which lets commands
+// run against a raw sandbox id outside any project directory.
 func resolveStageHooks(file string, setPairs []string) (sandbox.HooksSpec, error) {
 	var path string
 	if file != "" {
@@ -108,11 +103,10 @@ func resolveStageHooks(file string, setPairs []string) (sandbox.HooksSpec, error
 	return spec.ResolveHooks(inputs)
 }
 
-// runHooks runs each hook sequentially against the given sandbox via
-// RunCommand on the sandboxv1 wire. label is used in CLI output
-// ("on.exec" / "on.shell" / "on.snapshot" / "on.down"). A non-zero exit
-// from any foreground hook aborts and returns immediately. Detached hooks
-// only fail if the spawn itself fails.
+// runHooks runs each hook in turn against the given sandbox. label identifies
+// the stage in CLI output (such as "on.exec" or "on.down"). A non-zero exit from
+// any foreground hook aborts and returns immediately. A detached hook fails only
+// if the spawn itself fails.
 func runHooks(ctx context.Context, client sandboxv1connect.SandboxServiceClient, token, orgID, sandboxID, label string, hooks []sandbox.HookSpec, stdout, stderr io.Writer) error {
 	if len(hooks) == 0 {
 		return nil
@@ -149,9 +143,10 @@ func runHook(ctx context.Context, client sandboxv1connect.SandboxServiceClient, 
 		return fmt.Errorf("exec: %w", err)
 	}
 
-	// Detached hooks finish at Started — the wrapper script forks the user
-	// command via setsid and exits 0, so the foreground hook stream sees a
-	// quick Finished too; either way, "until finished" semantics hold.
+	// A detached hook returns quickly: the wrapper script forks the user's
+	// command with setsid and exits 0, so the stream reaches Finished right
+	// away. Waiting until finished is correct for both detached and
+	// foreground hooks.
 	exit, err := consumeCommandEventStream(stream, stdout, stderr, streamUntilFinished)
 	if err != nil {
 		return err

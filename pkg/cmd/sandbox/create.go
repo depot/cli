@@ -9,13 +9,12 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// newSandboxCreate wraps depot.sandbox.v1.SandboxService.CreateSandbox — the
-// v0 customer-surface lifecycle entry point. Mirrors the @depot/sandbox TS
-// SDK's `Sandbox.create({...})`: optional name + image ref, server-side
-// defaults otherwise.
+// newSandboxCreate builds the `create` command, which creates a new sandbox.
+// Both the name and the image ref are optional; the server fills in defaults
+// when they are omitted.
 //
-// For a declarative `sandbox.depot.yml`-driven flow, use `depot sandbox
-// from-spec` (the M34 rename of `up`).
+// For a declarative flow driven by a sandbox.depot.yml file, use
+// `depot sandbox from-spec`.
 func newSandboxCreate() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "create [flags]",

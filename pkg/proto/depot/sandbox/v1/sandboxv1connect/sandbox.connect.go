@@ -121,67 +121,53 @@ type SandboxServiceClient interface {
 	CreateSandbox(context.Context, *connect.Request[v1.CreateSandboxRequest]) (*connect.Response[v1.CreateSandboxResponse], error)
 	GetSandbox(context.Context, *connect.Request[v1.SandboxRef]) (*connect.Response[v1.GetSandboxResponse], error)
 	ListSandboxes(context.Context, *connect.Request[v1.ListSandboxesRequest]) (*connect.Response[v1.ListSandboxesResponse], error)
-	// DEP-4515 — stop is graceful (terminated_by=GRACEFUL); kill is forced
-	// (terminated_by=FORCED). Both are idempotent on already-terminal sandboxes
-	// in the sense that they return FailedPrecondition rather than re-running.
+	// StopSandbox shuts a sandbox down gracefully (terminated_by=GRACEFUL);
+	// KillSandbox forces it to stop (terminated_by=FORCED). Calling either on a
+	// sandbox that is already in a terminal state returns FailedPrecondition
+	// rather than acting again.
 	StopSandbox(context.Context, *connect.Request[v1.StopSandboxRequest]) (*connect.Response[v1.StopSandboxResponse], error)
 	KillSandbox(context.Context, *connect.Request[v1.KillSandboxRequest]) (*connect.Response[v1.KillSandboxResponse], error)
-	// DEP-4517 — server-streaming command execution. The response stream begins
-	// with a Started event and ends with Finished (or terminates with a Connect
-	// error). Persistence + the K-Streaming buffered-event-log + the vm3
-	// Execute proxy land with the next two slices (P10b/P10c); this RPC is
-	// wire-reachable today but returns Unimplemented until those land.
+	// RunCommand runs a command in the sandbox and streams its output. The
+	// response stream begins with a Started event and ends with a Finished
+	// event, or terminates with an error.
 	RunCommand(context.Context, *connect.Request[v1.RunCommandRequest]) (*connect.ServerStreamForClient[v1.SandboxCommandExecutionEvent], error)
-	// DEP-4519 — bidirectional-streaming command execution with stdin. The
-	// first request on the stream MUST carry `init`; subsequent requests carry
-	// `stdin` bytes. The response stream shape is identical to RunCommand.
-	// stdin bytes flow through to the guest process and are NOT persisted.
+	// RunCommandPipe runs a command and lets you stream input to it while it
+	// runs. The first request on the stream must carry `init`; later requests
+	// carry `stdin` bytes. The response stream has the same shape as RunCommand.
+	// stdin bytes are delivered to the process but are not persisted.
 	RunCommandPipe(context.Context) *connect.BidiStreamForClient[v1.RunCommandPipeRequest, v1.SandboxCommandExecutionEvent]
-	// DEP-4534 / P23 — execute a lifecycle hook. Hidden / pattern F: surfaced
-	// for non-TS callers and consumed by the CreateSandboxFromSpec orchestrator
-	// (P25b). NOT exposed as an SDK method. Wraps the hook command in
-	// /bin/sh -lc, prepends /tmp/.depot-env sourcing, exports merged env,
-	// cd's to /workspace, and either streams CommandEvents (foreground) or
-	// detaches via setsid with log redirect to
-	// /var/log/depot/hook-<stage>-<name>.log (detached). Stage label is
-	// metadata-only — execution shape does NOT vary across the six HookStage
-	// values. Architecture §12. Spec Cluster INTERIOR step 2/5.
+	// RunHook runs a lifecycle hook command inside the sandbox. The hook runs
+	// through /bin/sh, with the merged environment exported and the working
+	// directory set to the workspace. It either streams command output in the
+	// foreground or runs detached with output written to a log file. The hook's
+	// stage is a label only and does not change how the command runs.
 	RunHook(context.Context, *connect.Request[v1.RunHookRequest]) (*connect.ServerStreamForClient[v1.SandboxCommandExecutionEvent], error)
-	// DEP-4520 — read side of the SandboxCommandExecution surface. Get and List return persisted
-	// metadata. Attach replays persisted stdout/stderr from ClickHouse and (when
-	// the command is still running on the same replica) tails live output via
-	// the process-local per-cmd BufferedEventLog.
+	// GetCommand and ListCommands return persisted metadata about commands that
+	// have run in the sandbox. AttachCommand replays a command's stored
+	// stdout/stderr and, when the command is still running, tails its live
+	// output.
 	GetCommand(context.Context, *connect.Request[v1.SandboxCommandExecutionRef]) (*connect.Response[v1.GetCommandResponse], error)
 	ListCommands(context.Context, *connect.Request[v1.ListCommandsRequest]) (*connect.Response[v1.ListCommandsResponse], error)
 	AttachCommand(context.Context, *connect.Request[v1.AttachCommandRequest]) (*connect.ServerStreamForClient[v1.SandboxCommandExecutionEvent], error)
-	// DEP-4532 — server-streaming sandbox-scoped log surface. Drains the
-	// per-sandbox boot-output BufferedEventLog (P27a capture-side) and emits
-	// SandboxLogEvent messages to the subscriber. v0 emits the four
-	// boot-output kinds only (boot_stdout / boot_stderr / boot_finished /
-	// evicted_early_data); future event kinds use the reserved tags 5..15 on
-	// the SandboxLogEvent oneof. Cross-replica caveat (MD-33-3): if the
-	// sandbox's boot buffer is hosted on a different replica, the stream
-	// closes cleanly with no events. No past-replay rail in v0 — terminal
-	// sandboxes return FailedPrecondition. See logs.proto.
+	// StreamSandboxLogs streams a sandbox's logs to the caller. Today it emits
+	// the four boot-output event kinds (boot_stdout, boot_stderr,
+	// boot_finished, evicted_early_data). There is no replay of past output:
+	// terminal sandboxes return FailedPrecondition. See logs.proto.
 	StreamSandboxLogs(context.Context, *connect.Request[v1.StreamSandboxLogsRequest]) (*connect.ServerStreamForClient[v1.SandboxLogEvent], error)
-	// DEP-4522 — deliver a signal to a running command. Default signal is
+	// KillCommand delivers a signal to a running command. The default signal is
 	// SIGTERM; SIGINT is also accepted. SIGKILL is rejected with
-	// InvalidArgument in v0 (the abort path stays SIGKILL-free). Kills of
-	// commands that have already finished (or were never registered) return
-	// NotFound, which the SDK surfaces as Code.NotFound.
+	// InvalidArgument. If the command has already finished or was never
+	// registered, this returns NotFound.
 	KillCommand(context.Context, *connect.Request[v1.KillCommandRequest]) (*connect.Response[v1.KillCommandResponse], error)
-	// DEP-4527 — interactive pseudo-terminal. Bidi-streaming RPC; the first
-	// request carries `start`, subsequent requests carry stdin bytes or window
+	// OpenPty opens an interactive pseudo-terminal in the sandbox. The first
+	// request carries `start`; later requests carry stdin bytes or window
 	// resize messages. The response stream emits `data` byte chunks until the
-	// shell exits, then a single `exit` carrying the exit code. v0 always runs
-	// /bin/sh; the shell is intentionally not selectable at the wire layer.
-	// Architecture §13: no reattach — closing the stream ends the pty.
+	// shell exits, followed by a single `exit` event carrying the exit code.
+	// The shell is always /bin/sh and is not selectable. Closing the stream
+	// ends the pty; there is no reattach.
 	OpenPty(context.Context) *connect.BidiStreamForClient[v1.OpenPtyRequest, v1.OpenPtyResponse]
-	// ─── FileSystem (filesystem.proto, DEP-4524) ────────────────────────────
-	// Same RPC surface across exec-first (P15) and native vm3 (P17)
-	// implementations; the server picks per-org behind a resolver. Errors
-	// travel as Connect errors with a FileSystemErrorDetail attached — see
-	// src/sandbox/fs-errors.ts for the remapper.
+	// Filesystem operations on the sandbox (see filesystem.proto). Errors are
+	// returned as Connect errors with a FileSystemErrorDetail attached.
 	Mkdir(context.Context, *connect.Request[v1.MkdirRequest]) (*connect.Response[v1.MkdirResponse], error)
 	Stat(context.Context, *connect.Request[v1.StatRequest]) (*connect.Response[v1.StatResponse], error)
 	ReadDir(context.Context, *connect.Request[v1.ReadDirRequest]) (*connect.Response[v1.ReadDirResponse], error)
@@ -196,13 +182,9 @@ type SandboxServiceClient interface {
 	Access(context.Context, *connect.Request[v1.AccessRequest]) (*connect.Response[v1.AccessResponse], error)
 	ReadFile(context.Context, *connect.Request[v1.ReadFileRequest]) (*connect.ServerStreamForClient[v1.FileChunk], error)
 	WriteFile(context.Context) *connect.ClientStreamForClient[v1.WriteFileRequest, v1.WriteFileResponse]
-	// ─── Snapshot (snapshot.proto, DEP-4529) ────────────────────────────────
-	// Durable filesystem snapshots of a sandbox. The wire surface + the SDK
-	// ergonomics ship here; the vm3-side snapshot/restore pipeline that backs
-	// these RPCs is a follow-on slice — v0 handlers return Unimplemented until
-	// that lands. CreateSnapshot will additionally fire a graceful StopSandbox
-	// on the source sandbox once the snapshot is durable (Vercel parity,
-	// architecture §6).
+	// Durable filesystem snapshots of a sandbox (see snapshot.proto). Once a
+	// snapshot is durable, CreateSnapshot also gracefully stops the source
+	// sandbox.
 	CreateSnapshot(context.Context, *connect.Request[v1.CreateSnapshotRequest]) (*connect.Response[v1.CreateSnapshotResponse], error)
 	GetSnapshot(context.Context, *connect.Request[v1.GetSnapshotRequest]) (*connect.Response[v1.GetSnapshotResponse], error)
 	ListSnapshots(context.Context, *connect.Request[v1.ListSnapshotsRequest]) (*connect.Response[v1.ListSnapshotsResponse], error)
@@ -583,67 +565,53 @@ type SandboxServiceHandler interface {
 	CreateSandbox(context.Context, *connect.Request[v1.CreateSandboxRequest]) (*connect.Response[v1.CreateSandboxResponse], error)
 	GetSandbox(context.Context, *connect.Request[v1.SandboxRef]) (*connect.Response[v1.GetSandboxResponse], error)
 	ListSandboxes(context.Context, *connect.Request[v1.ListSandboxesRequest]) (*connect.Response[v1.ListSandboxesResponse], error)
-	// DEP-4515 — stop is graceful (terminated_by=GRACEFUL); kill is forced
-	// (terminated_by=FORCED). Both are idempotent on already-terminal sandboxes
-	// in the sense that they return FailedPrecondition rather than re-running.
+	// StopSandbox shuts a sandbox down gracefully (terminated_by=GRACEFUL);
+	// KillSandbox forces it to stop (terminated_by=FORCED). Calling either on a
+	// sandbox that is already in a terminal state returns FailedPrecondition
+	// rather than acting again.
 	StopSandbox(context.Context, *connect.Request[v1.StopSandboxRequest]) (*connect.Response[v1.StopSandboxResponse], error)
 	KillSandbox(context.Context, *connect.Request[v1.KillSandboxRequest]) (*connect.Response[v1.KillSandboxResponse], error)
-	// DEP-4517 — server-streaming command execution. The response stream begins
-	// with a Started event and ends with Finished (or terminates with a Connect
-	// error). Persistence + the K-Streaming buffered-event-log + the vm3
-	// Execute proxy land with the next two slices (P10b/P10c); this RPC is
-	// wire-reachable today but returns Unimplemented until those land.
+	// RunCommand runs a command in the sandbox and streams its output. The
+	// response stream begins with a Started event and ends with a Finished
+	// event, or terminates with an error.
 	RunCommand(context.Context, *connect.Request[v1.RunCommandRequest], *connect.ServerStream[v1.SandboxCommandExecutionEvent]) error
-	// DEP-4519 — bidirectional-streaming command execution with stdin. The
-	// first request on the stream MUST carry `init`; subsequent requests carry
-	// `stdin` bytes. The response stream shape is identical to RunCommand.
-	// stdin bytes flow through to the guest process and are NOT persisted.
+	// RunCommandPipe runs a command and lets you stream input to it while it
+	// runs. The first request on the stream must carry `init`; later requests
+	// carry `stdin` bytes. The response stream has the same shape as RunCommand.
+	// stdin bytes are delivered to the process but are not persisted.
 	RunCommandPipe(context.Context, *connect.BidiStream[v1.RunCommandPipeRequest, v1.SandboxCommandExecutionEvent]) error
-	// DEP-4534 / P23 — execute a lifecycle hook. Hidden / pattern F: surfaced
-	// for non-TS callers and consumed by the CreateSandboxFromSpec orchestrator
-	// (P25b). NOT exposed as an SDK method. Wraps the hook command in
-	// /bin/sh -lc, prepends /tmp/.depot-env sourcing, exports merged env,
-	// cd's to /workspace, and either streams CommandEvents (foreground) or
-	// detaches via setsid with log redirect to
-	// /var/log/depot/hook-<stage>-<name>.log (detached). Stage label is
-	// metadata-only — execution shape does NOT vary across the six HookStage
-	// values. Architecture §12. Spec Cluster INTERIOR step 2/5.
+	// RunHook runs a lifecycle hook command inside the sandbox. The hook runs
+	// through /bin/sh, with the merged environment exported and the working
+	// directory set to the workspace. It either streams command output in the
+	// foreground or runs detached with output written to a log file. The hook's
+	// stage is a label only and does not change how the command runs.
 	RunHook(context.Context, *connect.Request[v1.RunHookRequest], *connect.ServerStream[v1.SandboxCommandExecutionEvent]) error
-	// DEP-4520 — read side of the SandboxCommandExecution surface. Get and List return persisted
-	// metadata. Attach replays persisted stdout/stderr from ClickHouse and (when
-	// the command is still running on the same replica) tails live output via
-	// the process-local per-cmd BufferedEventLog.
+	// GetCommand and ListCommands return persisted metadata about commands that
+	// have run in the sandbox. AttachCommand replays a command's stored
+	// stdout/stderr and, when the command is still running, tails its live
+	// output.
 	GetCommand(context.Context, *connect.Request[v1.SandboxCommandExecutionRef]) (*connect.Response[v1.GetCommandResponse], error)
 	ListCommands(context.Context, *connect.Request[v1.ListCommandsRequest]) (*connect.Response[v1.ListCommandsResponse], error)
 	AttachCommand(context.Context, *connect.Request[v1.AttachCommandRequest], *connect.ServerStream[v1.SandboxCommandExecutionEvent]) error
-	// DEP-4532 — server-streaming sandbox-scoped log surface. Drains the
-	// per-sandbox boot-output BufferedEventLog (P27a capture-side) and emits
-	// SandboxLogEvent messages to the subscriber. v0 emits the four
-	// boot-output kinds only (boot_stdout / boot_stderr / boot_finished /
-	// evicted_early_data); future event kinds use the reserved tags 5..15 on
-	// the SandboxLogEvent oneof. Cross-replica caveat (MD-33-3): if the
-	// sandbox's boot buffer is hosted on a different replica, the stream
-	// closes cleanly with no events. No past-replay rail in v0 — terminal
-	// sandboxes return FailedPrecondition. See logs.proto.
+	// StreamSandboxLogs streams a sandbox's logs to the caller. Today it emits
+	// the four boot-output event kinds (boot_stdout, boot_stderr,
+	// boot_finished, evicted_early_data). There is no replay of past output:
+	// terminal sandboxes return FailedPrecondition. See logs.proto.
 	StreamSandboxLogs(context.Context, *connect.Request[v1.StreamSandboxLogsRequest], *connect.ServerStream[v1.SandboxLogEvent]) error
-	// DEP-4522 — deliver a signal to a running command. Default signal is
+	// KillCommand delivers a signal to a running command. The default signal is
 	// SIGTERM; SIGINT is also accepted. SIGKILL is rejected with
-	// InvalidArgument in v0 (the abort path stays SIGKILL-free). Kills of
-	// commands that have already finished (or were never registered) return
-	// NotFound, which the SDK surfaces as Code.NotFound.
+	// InvalidArgument. If the command has already finished or was never
+	// registered, this returns NotFound.
 	KillCommand(context.Context, *connect.Request[v1.KillCommandRequest]) (*connect.Response[v1.KillCommandResponse], error)
-	// DEP-4527 — interactive pseudo-terminal. Bidi-streaming RPC; the first
-	// request carries `start`, subsequent requests carry stdin bytes or window
+	// OpenPty opens an interactive pseudo-terminal in the sandbox. The first
+	// request carries `start`; later requests carry stdin bytes or window
 	// resize messages. The response stream emits `data` byte chunks until the
-	// shell exits, then a single `exit` carrying the exit code. v0 always runs
-	// /bin/sh; the shell is intentionally not selectable at the wire layer.
-	// Architecture §13: no reattach — closing the stream ends the pty.
+	// shell exits, followed by a single `exit` event carrying the exit code.
+	// The shell is always /bin/sh and is not selectable. Closing the stream
+	// ends the pty; there is no reattach.
 	OpenPty(context.Context, *connect.BidiStream[v1.OpenPtyRequest, v1.OpenPtyResponse]) error
-	// ─── FileSystem (filesystem.proto, DEP-4524) ────────────────────────────
-	// Same RPC surface across exec-first (P15) and native vm3 (P17)
-	// implementations; the server picks per-org behind a resolver. Errors
-	// travel as Connect errors with a FileSystemErrorDetail attached — see
-	// src/sandbox/fs-errors.ts for the remapper.
+	// Filesystem operations on the sandbox (see filesystem.proto). Errors are
+	// returned as Connect errors with a FileSystemErrorDetail attached.
 	Mkdir(context.Context, *connect.Request[v1.MkdirRequest]) (*connect.Response[v1.MkdirResponse], error)
 	Stat(context.Context, *connect.Request[v1.StatRequest]) (*connect.Response[v1.StatResponse], error)
 	ReadDir(context.Context, *connect.Request[v1.ReadDirRequest]) (*connect.Response[v1.ReadDirResponse], error)
@@ -658,13 +626,9 @@ type SandboxServiceHandler interface {
 	Access(context.Context, *connect.Request[v1.AccessRequest]) (*connect.Response[v1.AccessResponse], error)
 	ReadFile(context.Context, *connect.Request[v1.ReadFileRequest], *connect.ServerStream[v1.FileChunk]) error
 	WriteFile(context.Context, *connect.ClientStream[v1.WriteFileRequest]) (*connect.Response[v1.WriteFileResponse], error)
-	// ─── Snapshot (snapshot.proto, DEP-4529) ────────────────────────────────
-	// Durable filesystem snapshots of a sandbox. The wire surface + the SDK
-	// ergonomics ship here; the vm3-side snapshot/restore pipeline that backs
-	// these RPCs is a follow-on slice — v0 handlers return Unimplemented until
-	// that lands. CreateSnapshot will additionally fire a graceful StopSandbox
-	// on the source sandbox once the snapshot is durable (Vercel parity,
-	// architecture §6).
+	// Durable filesystem snapshots of a sandbox (see snapshot.proto). Once a
+	// snapshot is durable, CreateSnapshot also gracefully stops the source
+	// sandbox.
 	CreateSnapshot(context.Context, *connect.Request[v1.CreateSnapshotRequest]) (*connect.Response[v1.CreateSnapshotResponse], error)
 	GetSnapshot(context.Context, *connect.Request[v1.GetSnapshotRequest]) (*connect.Response[v1.GetSnapshotResponse], error)
 	ListSnapshots(context.Context, *connect.Request[v1.ListSnapshotsRequest]) (*connect.Response[v1.ListSnapshotsResponse], error)

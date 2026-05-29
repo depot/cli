@@ -1,16 +1,15 @@
-// depot.sandbox.v1 — FileSystem surface (DEP-4524).
+// File system operations against a sandbox.
 //
-// Covers the exec-first server-side first slice (P15) and the native vm3 swap
-// (DEP-4525 / P17). Same proto surface across implementations; the server
-// picks the active implementation per-org.
+// The server may back these operations with different implementations, but the
+// message surface is the same regardless of which one is active.
 //
-// Errors travel as Connect errors with a `FileSystemErrorDetail` attached.
-// The SDK adapter (sdk-sandbox/src/errors.ts) converts that into a Node-shape
-// Error object carrying `{code, syscall, path, errno}` so customers can keep
-// coding against node:fs/promises shape.
+// Errors are returned as Connect errors with a FileSystemErrorDetail attached.
+// The SDK converts that detail into a Node-style Error carrying code, syscall,
+// path, and errno, so callers can keep writing code against the shape of
+// node:fs/promises.
 //
-// The RPC declarations live on `service SandboxService` in sandbox.proto;
-// this file only carries messages + enums.
+// The RPCs themselves are declared on the sandbox service; this file only
+// defines the messages and enums they use.
 
 syntax = "proto3";
 
@@ -18,13 +17,12 @@ package depot.sandbox.v1;
 
 import "depot/sandbox/v1/refs.proto";
 
-// FileSystemErrorCode mirrors the Node fs error codes the SDK exposes.
-// Server attaches one of these on a Connect error; client maps to Error.code.
+// Mirrors the Node fs error codes the SDK exposes. The server attaches one of
+// these to a Connect error, and the client maps it to Error.code.
 //
-// `OTHER` is the catch-all when the exec-first classifier cannot pin a
-// specific Node code (e.g. busybox-stderr phrasing the regex doesn't match);
-// callers surface it as a generic FileSystemError without losing the syscall
-// + path context.
+// OTHER is the catch-all used when the server cannot classify the failure into
+// a specific Node code. Callers still receive a FileSystemError with the
+// syscall and path context, just with a generic code.
 enum FileSystemErrorCode {
   FILESYSTEM_ERROR_CODE_UNSPECIFIED = 0;
   FILESYSTEM_ERROR_CODE_ENOENT = 1;
@@ -42,10 +40,8 @@ enum FileSystemErrorCode {
   FILESYSTEM_ERROR_CODE_OTHER = 99;
 }
 
-// FileSystemErrorDetail is the proto message the server attaches to the
-// Connect error (`ConnectError.details`). The SDK reads it back via
-// `findDetails(FileSystemErrorDetailSchema)` and synthesizes a Node-shape
-// `FileSystemError`.
+// The error detail the server attaches to a Connect error's details. The SDK
+// reads it back and uses it to build a Node-style FileSystemError.
 message FileSystemErrorDetail {
   FileSystemErrorCode code = 1;
   string syscall = 2;
@@ -53,8 +49,8 @@ message FileSystemErrorDetail {
   optional string message = 4;
 }
 
-// FileType is the discriminator returned by Stat. SDK uses it to back
-// `.isDirectory()`/`.isFile()`/... on a node:fs/promises-shape Stats object.
+// The kind of file returned by Stat. The SDK uses it to back the isDirectory,
+// isFile, and similar checks on a node:fs/promises-style Stats object.
 enum FileType {
   FILE_TYPE_UNSPECIFIED = 0;
   FILE_TYPE_FILE = 1;
@@ -66,14 +62,16 @@ enum FileType {
   FILE_TYPE_SOCKET = 7;
 }
 
-// ─── Unary RPCs ──────────────────────────────────────────────────────────
+// Messages for the unary file system RPCs.
 
 message MkdirRequest {
   SandboxRef sandbox = 1;
   string path = 2;
-  // mkdir -p semantics; default false → ENOENT on a missing parent.
+  // When true, create parent directories as needed (mkdir -p). When false (the
+  // default), a missing parent directory fails with ENOENT.
   optional bool recursive = 3;
-  // Octal mode (e.g. 0o755 = 0x1ED). Server applies the umask when unset.
+  // Octal permission mode for the new directory. When unset, the server applies
+  // its umask.
   optional uint32 mode = 4;
 }
 message MkdirResponse {}
@@ -81,7 +79,8 @@ message MkdirResponse {}
 message StatRequest {
   SandboxRef sandbox = 1;
   string path = 2;
-  // Follow symlinks (stat) vs not (lstat). Default true.
+  // When true (the default), follow symlinks like stat. When false, report on
+  // the link itself like lstat.
   optional bool follow_symlinks = 3;
 }
 message StatResponse {
@@ -97,8 +96,9 @@ message StatResponse {
 message ReadDirRequest {
   SandboxRef sandbox = 1;
   string path = 2;
-  // node:fs/promises.readdir({withFileTypes}) parity: when false the entries
-  // still carry name + type, but the SDK exposes a string[] surface.
+  // Matches the withFileTypes option of node:fs/promises readdir. The response
+  // entries always carry name and type; when this is false the SDK exposes them
+  // as a plain array of names instead.
   optional bool with_file_types = 3;
 }
 message ReadDirResponse {
@@ -112,9 +112,10 @@ message DirEntry {
 message RemoveRequest {
   SandboxRef sandbox = 1;
   string path = 2;
-  // rm -rf when true.
+  // When true, remove directories and their contents recursively (rm -rf).
   optional bool recursive = 3;
-  // node fs.rm({force: true}) parity — ENOENT is swallowed.
+  // When true, removing a path that does not exist succeeds instead of failing
+  // with ENOENT, matching the force option of node fs.rm.
   optional bool ignore_missing = 4;
 }
 message RemoveResponse {}
@@ -130,7 +131,8 @@ message CopyFileRequest {
   SandboxRef sandbox = 1;
   string from_path = 2;
   string to_path = 3;
-  // cp -p — preserve mode/owner/timestamps where the server can.
+  // When true, preserve the file's mode, owner, and timestamps where the server
+  // can (cp -p).
   optional bool preserve_metadata = 4;
 }
 message CopyFileResponse {}
@@ -145,7 +147,8 @@ message TruncateResponse {}
 message ChmodRequest {
   SandboxRef sandbox = 1;
   string path = 2;
-  // Octal int; the SDK accepts string ("755") or number (0o755) and converts.
+  // The new permission mode as an octal integer. The SDK accepts either a
+  // string ("755") or a number (0o755) and converts it.
   uint32 mode = 3;
 }
 message ChmodResponse {}
@@ -160,7 +163,7 @@ message ChownResponse {}
 
 message SymlinkRequest {
   SandboxRef sandbox = 1;
-  // ln -s target link_path
+  // Create link_path as a symlink pointing at target (ln -s target link_path).
   string target = 2;
   string link_path = 3;
 }
@@ -177,29 +180,29 @@ message ReadlinkResponse {
 message AccessRequest {
   SandboxRef sandbox = 1;
   string path = 2;
-  // F_OK / R_OK / W_OK / X_OK bitmask. Server defaults to F_OK when unset.
+  // Bitmask of access checks to perform (F_OK, R_OK, W_OK, X_OK). When unset,
+  // the server checks for existence (F_OK).
   optional uint32 mode = 3;
 }
 message AccessResponse {}
 
-// ─── Streaming RPCs ──────────────────────────────────────────────────────
+// Messages for the streaming file system RPCs.
 
 message ReadFileRequest {
   SandboxRef sandbox = 1;
   string path = 2;
 }
 
-// FileChunk is the streamed shape for ReadFile — chunks land in order, with
-// the last carrying `eof = true` when the implementation knows. The stream
-// closing also signals EOF.
+// One chunk of a file streamed by ReadFile. Chunks arrive in order. The final
+// chunk may carry eof = true; the stream closing also signals the end of file.
 message FileChunk {
   bytes data = 1;
   optional bool eof = 2;
 }
 
-// WriteFile — first request on the stream MUST carry `init`; subsequent
-// requests carry `data` bytes. `append` selects O_APPEND semantics. `mode`
-// is applied if the file is created.
+// A message in the WriteFile request stream. The first message must carry init;
+// every message after it carries data bytes. In init, append selects append
+// semantics, and mode is applied if the file is created.
 message WriteFileRequest {
   oneof input {
     Init init = 1;
@@ -210,7 +213,7 @@ message WriteFileRequest {
     string path = 2;
     optional uint32 mode = 3;
     optional bool append = 4;
-    // mkdir -p the parent path before opening the file.
+    // When true, create the parent directories before opening the file.
     optional bool create_directories = 5;
   }
 }

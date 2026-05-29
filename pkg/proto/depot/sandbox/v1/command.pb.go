@@ -21,13 +21,14 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-// SandboxCommandExecutionStatus mirrors the lifecycle stages a command transitions through.
+// Lifecycle stages a command moves through. The status reflects where the
+// command is in its lifecycle and is independent of the process exit code.
 //
-//	PENDING:  queued, not yet started in the guest.
-//	RUNNING:  started; bytes can be streaming.
-//	FINISHED: process exited; exit_code populated.
-//	FAILED:   process never started, or the guest reported an error path.
-//	KILLED:   signaled mid-run (DEP-4522).
+//	PENDING:  accepted but not yet started inside the sandbox.
+//	RUNNING:  started and may be producing output.
+//	FINISHED: the process exited; exit_code is populated.
+//	FAILED:   the process never started, or the sandbox reported an error.
+//	KILLED:   the command was signaled to stop while running.
 type SandboxCommandExecutionStatus int32
 
 const (
@@ -86,29 +87,40 @@ func (SandboxCommandExecutionStatus) EnumDescriptor() ([]byte, []int) {
 	return file_depot_sandbox_v1_command_proto_rawDescGZIP(), []int{0}
 }
 
-// SandboxCommandExecution is the persisted metadata for a single RunCommand invocation. The
-// row shape lives in src/sandbox/schema-additions.ts (CommandRow); this is its
-// wire projection. Populated by Get/List/Attach RPCs in follow-up slices.
+// Metadata describing a single command that was run in a sandbox. Returned by
+// the lookup, list, and attach calls.
 type SandboxCommandExecution struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	// Server-minted ULID. Architecture §7.
-	CmdId      string                        `protobuf:"bytes,1,opt,name=cmd_id,json=cmdId,proto3" json:"cmd_id,omitempty"`
-	SandboxId  string                        `protobuf:"bytes,2,opt,name=sandbox_id,json=sandboxId,proto3" json:"sandbox_id,omitempty"`
-	Cmd        string                        `protobuf:"bytes,3,opt,name=cmd,proto3" json:"cmd,omitempty"`
-	Args       []string                      `protobuf:"bytes,4,rep,name=args,proto3" json:"args,omitempty"`
-	Cwd        *string                       `protobuf:"bytes,5,opt,name=cwd,proto3,oneof" json:"cwd,omitempty"`
-	Env        map[string]string             `protobuf:"bytes,6,rep,name=env,proto3" json:"env,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
-	Sudo       bool                          `protobuf:"varint,7,opt,name=sudo,proto3" json:"sudo,omitempty"`
-	Detached   bool                          `protobuf:"varint,8,opt,name=detached,proto3" json:"detached,omitempty"`
-	Status     SandboxCommandExecutionStatus `protobuf:"varint,9,opt,name=status,proto3,enum=depot.sandbox.v1.SandboxCommandExecutionStatus" json:"status,omitempty"`
-	StartedAt  *timestamppb.Timestamp        `protobuf:"bytes,10,opt,name=started_at,json=startedAt,proto3" json:"started_at,omitempty"`
-	FinishedAt *timestamppb.Timestamp        `protobuf:"bytes,11,opt,name=finished_at,json=finishedAt,proto3,oneof" json:"finished_at,omitempty"`
-	ExitCode   *int32                        `protobuf:"varint,12,opt,name=exit_code,json=exitCode,proto3,oneof" json:"exit_code,omitempty"`
-	// Per-stream cumulative byte counts. Split per architecture §8.
+	// Unique command identifier assigned by the server.
+	CmdId string `protobuf:"bytes,1,opt,name=cmd_id,json=cmdId,proto3" json:"cmd_id,omitempty"`
+	// Identifier of the sandbox the command ran in.
+	SandboxId string `protobuf:"bytes,2,opt,name=sandbox_id,json=sandboxId,proto3" json:"sandbox_id,omitempty"`
+	// The program that was executed.
+	Cmd string `protobuf:"bytes,3,opt,name=cmd,proto3" json:"cmd,omitempty"`
+	// Arguments passed to the program.
+	Args []string `protobuf:"bytes,4,rep,name=args,proto3" json:"args,omitempty"`
+	// Working directory the command ran in, if one was specified.
+	Cwd *string `protobuf:"bytes,5,opt,name=cwd,proto3,oneof" json:"cwd,omitempty"`
+	// Environment variables that were set for the command.
+	Env map[string]string `protobuf:"bytes,6,rep,name=env,proto3" json:"env,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
+	// Whether the command ran with elevated privileges.
+	Sudo bool `protobuf:"varint,7,opt,name=sudo,proto3" json:"sudo,omitempty"`
+	// Whether the command was requested to run detached from the output stream.
+	Detached bool `protobuf:"varint,8,opt,name=detached,proto3" json:"detached,omitempty"`
+	// Current lifecycle stage of the command.
+	Status SandboxCommandExecutionStatus `protobuf:"varint,9,opt,name=status,proto3,enum=depot.sandbox.v1.SandboxCommandExecutionStatus" json:"status,omitempty"`
+	// When the command started running.
+	StartedAt *timestamppb.Timestamp `protobuf:"bytes,10,opt,name=started_at,json=startedAt,proto3" json:"started_at,omitempty"`
+	// When the command finished, once it has exited.
+	FinishedAt *timestamppb.Timestamp `protobuf:"bytes,11,opt,name=finished_at,json=finishedAt,proto3,oneof" json:"finished_at,omitempty"`
+	// Exit code of the process, once it has exited.
+	ExitCode *int32 `protobuf:"varint,12,opt,name=exit_code,json=exitCode,proto3,oneof" json:"exit_code,omitempty"`
+	// Total number of bytes emitted on stdout so far.
 	StdoutBytesEmitted int64 `protobuf:"varint,13,opt,name=stdout_bytes_emitted,json=stdoutBytesEmitted,proto3" json:"stdout_bytes_emitted,omitempty"`
+	// Total number of bytes emitted on stderr so far.
 	StderrBytesEmitted int64 `protobuf:"varint,14,opt,name=stderr_bytes_emitted,json=stderrBytesEmitted,proto3" json:"stderr_bytes_emitted,omitempty"`
 }
 
@@ -242,13 +254,10 @@ func (x *SandboxCommandExecution) GetStderrBytesEmitted() int64 {
 	return 0
 }
 
-// SandboxCommandExecutionEvent is the streamed event during RunCommand / RunCommandPipe /
-// AttachCommand. Bytes everywhere; the SDK decodes UTF-8 at the adapter layer.
-//
-// EvictedEarlyData fires only on reattach scenarios where the K-Streaming ring
-// (architecture §10) had to drop head data before the consumer subscribed.
-// It is part of the oneof from day one so the wire shape doesn't need a
-// reserved slot retrofit when the BufferedEventLog impl lands with P10b.
+// A single event in a command's output stream. Output data is carried as raw
+// bytes, which clients decode themselves. The stream normally begins with a
+// Started event, carries interleaved stdout and stderr chunks, and ends with a
+// Finished event.
 type SandboxCommandExecutionEvent struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
@@ -386,27 +395,29 @@ func (*SandboxCommandExecutionEvent_Error_) isSandboxCommandExecutionEvent_Event
 
 func (*SandboxCommandExecutionEvent_Evicted) isSandboxCommandExecutionEvent_Event() {}
 
-// RunCommand — DEP-4517. Server-streaming RPC; the response stream is a
-// sequence of CommandEvents starting with Started and ending with Finished
-// (or terminating with a Connect error).
+// Request to run a command in a sandbox. The response is a stream of output
+// events that begins with Started and ends with Finished, or terminates with a
+// transport-level error.
 type RunCommandRequest struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	// Sandbox to run the command in. Tag 1 was `string sandbox_id` in M6 (a
-	// workaround for the proto import cycle that refs.proto now resolves) — see
-	// the commit body for the wire-break audit. Safe to reuse tag 1 here because
-	// RunCommand is shipped Unimplemented; no client depends on the prior shape.
-	Sandbox *SandboxRef       `protobuf:"bytes,1,opt,name=sandbox,proto3" json:"sandbox,omitempty"`
-	Cmd     string            `protobuf:"bytes,2,opt,name=cmd,proto3" json:"cmd,omitempty"`
-	Args    []string          `protobuf:"bytes,3,rep,name=args,proto3" json:"args,omitempty"`
-	Cwd     *string           `protobuf:"bytes,4,opt,name=cwd,proto3,oneof" json:"cwd,omitempty"`
-	Env     map[string]string `protobuf:"bytes,5,rep,name=env,proto3" json:"env,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
-	Sudo    *bool             `protobuf:"varint,6,opt,name=sudo,proto3,oneof" json:"sudo,omitempty"`
-	// When true, the server returns the Started event and disconnects the
-	// stream; the command runs in the background and can be reattached via
-	// AttachCommand (DEP-4520).
+	// The sandbox to run the command in.
+	Sandbox *SandboxRef `protobuf:"bytes,1,opt,name=sandbox,proto3" json:"sandbox,omitempty"`
+	// The program to execute.
+	Cmd string `protobuf:"bytes,2,opt,name=cmd,proto3" json:"cmd,omitempty"`
+	// Arguments to pass to the program.
+	Args []string `protobuf:"bytes,3,rep,name=args,proto3" json:"args,omitempty"`
+	// Working directory to run the command in. Defaults to the sandbox default.
+	Cwd *string `protobuf:"bytes,4,opt,name=cwd,proto3,oneof" json:"cwd,omitempty"`
+	// Environment variables for the command. These are merged on top of the
+	// sandbox environment, and values given here take precedence on conflict.
+	Env map[string]string `protobuf:"bytes,5,rep,name=env,proto3" json:"env,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
+	// Run the command with elevated privileges.
+	Sudo *bool `protobuf:"varint,6,opt,name=sudo,proto3,oneof" json:"sudo,omitempty"`
+	// Reserved for running a command detached from the output stream. Detached
+	// mode is not yet supported and requests that set it are rejected.
 	Detached *bool `protobuf:"varint,7,opt,name=detached,proto3,oneof" json:"detached,omitempty"`
 }
 
@@ -491,17 +502,13 @@ func (x *RunCommandRequest) GetDetached() bool {
 	return false
 }
 
-// RunCommandPipe — DEP-4519. Client-side bidirectional streaming. The first
-// request on the stream MUST carry `init` (the same RunCommandRequest the
-// blocking RunCommand RPC uses). Every subsequent request carries `stdin`
-// bytes; closing the request stream signals EOF on the command's stdin.
-//
-// The response stream is a sequence of CommandEvents identical in shape to
-// RunCommand's: Started → Stdout/Stderr bytes → Finished (or Connect error).
-//
-// stdin bytes are NOT persisted in v0 — only stdout and stderr land in the
-// ClickHouse log table. AttachCommand replay shows command OUTPUT regardless
-// of whether the original command was Run or RunCommandPipe.
+// A message on the bidirectional pipe stream used to run a command while
+// feeding it standard input. The first message on the stream must carry init,
+// which describes the command to run, using the same fields as RunCommand.
+// Every later message carries a chunk of stdin bytes, and closing the request
+// stream signals end of input. The response is the same output event stream
+// that RunCommand produces. Input bytes are not retained, so reattaching to a
+// command shows only its output, not the input it was given.
 type RunCommandPipeRequest struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
@@ -572,10 +579,12 @@ type isRunCommandPipeRequest_Input interface {
 }
 
 type RunCommandPipeRequest_Init struct {
+	// Describes the command to run. Required as the first message.
 	Init *RunCommandRequest `protobuf:"bytes,1,opt,name=init,proto3,oneof"`
 }
 
 type RunCommandPipeRequest_Stdin struct {
+	// A chunk of bytes to write to the command's standard input.
 	Stdin []byte `protobuf:"bytes,2,opt,name=stdin,proto3,oneof"`
 }
 
@@ -583,15 +592,13 @@ func (*RunCommandPipeRequest_Init) isRunCommandPipeRequest_Input() {}
 
 func (*RunCommandPipeRequest_Stdin) isRunCommandPipeRequest_Input() {}
 
-// GetCommand looks up command metadata by cmd_id. Authorization is sandbox-
-// scoped: the server resolves cmd_id → sandbox_id via a Kysely select filtered
-// by the caller's orgId, then enforces sandbox-level access on the resolved
-// sandbox row (api/CLAUDE.md authz convention).
+// Response containing the metadata for a single command looked up by its id.
 type GetCommandResponse struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
+	// The command's metadata.
 	Command *SandboxCommandExecution `protobuf:"bytes,1,opt,name=command,proto3" json:"command,omitempty"`
 }
 
@@ -634,20 +641,22 @@ func (x *GetCommandResponse) GetCommand() *SandboxCommandExecution {
 	return nil
 }
 
-// ListCommands enumerates commands within a single sandbox, newest first.
-// Pagination follows the ListSandboxes cursor convention: page_token is an
-// opaque server-minted string that clients pass back verbatim to fetch the
-// next page.
+// Request to list the commands run in a sandbox, ordered newest first and
+// returned a page at a time.
 type ListCommandsRequest struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	Sandbox   *SandboxRef `protobuf:"bytes,1,opt,name=sandbox,proto3" json:"sandbox,omitempty"`
-	PageSize  *int32      `protobuf:"varint,2,opt,name=page_size,json=pageSize,proto3,oneof" json:"page_size,omitempty"`
-	PageToken *string     `protobuf:"bytes,3,opt,name=page_token,json=pageToken,proto3,oneof" json:"page_token,omitempty"`
-	// If non-empty, only commands whose status is in this set are returned.
-	// UNSPECIFIED entries are ignored. The full SandboxCommandExecutionStatus enum is accepted.
+	// The sandbox whose commands to list.
+	Sandbox *SandboxRef `protobuf:"bytes,1,opt,name=sandbox,proto3" json:"sandbox,omitempty"`
+	// Maximum number of commands to return in one page.
+	PageSize *int32 `protobuf:"varint,2,opt,name=page_size,json=pageSize,proto3,oneof" json:"page_size,omitempty"`
+	// Opaque token from a previous response used to fetch the next page. Pass it
+	// back unchanged.
+	PageToken *string `protobuf:"bytes,3,opt,name=page_token,json=pageToken,proto3,oneof" json:"page_token,omitempty"`
+	// If non-empty, only commands whose status appears in this set are returned.
+	// Unspecified entries are ignored.
 	StatusFilter []SandboxCommandExecutionStatus `protobuf:"varint,4,rep,packed,name=status_filter,json=statusFilter,proto3,enum=depot.sandbox.v1.SandboxCommandExecutionStatus" json:"status_filter,omitempty"`
 }
 
@@ -711,13 +720,17 @@ func (x *ListCommandsRequest) GetStatusFilter() []SandboxCommandExecutionStatus 
 	return nil
 }
 
+// A page of command metadata.
 type ListCommandsResponse struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	Commands      []*SandboxCommandExecution `protobuf:"bytes,1,rep,name=commands,proto3" json:"commands,omitempty"`
-	NextPageToken *string                    `protobuf:"bytes,2,opt,name=next_page_token,json=nextPageToken,proto3,oneof" json:"next_page_token,omitempty"`
+	// The commands in this page.
+	Commands []*SandboxCommandExecution `protobuf:"bytes,1,rep,name=commands,proto3" json:"commands,omitempty"`
+	// Token to pass on a later request to fetch the next page, absent when there
+	// are no more results.
+	NextPageToken *string `protobuf:"bytes,2,opt,name=next_page_token,json=nextPageToken,proto3,oneof" json:"next_page_token,omitempty"`
 }
 
 func (x *ListCommandsResponse) Reset() {
@@ -766,27 +779,20 @@ func (x *ListCommandsResponse) GetNextPageToken() string {
 	return ""
 }
 
-// AttachCommand re-subscribes to the output of a previously-issued
-// RunCommand / RunCommandPipe. The response stream is the same SandboxCommandExecutionEvent
-// sequence those RPCs emit live: replay of persisted Stdout/Stderr chunks
-// followed (if the command is still running on the same replica) by live tail.
-//
-// Sandbox-level authz: cmd_id is resolved to its sandbox_id server-side, then
-// the standard sandbox-row org check applies. SandboxCommandExecutionRef carries only the
-// cmd_id today (refs.proto's selector pattern); a future sandbox-qualified
-// selector form can be added without a wire break.
+// Request to reattach to the output of a command that was already started. The
+// response is the same output event stream the run calls produce: a replay of
+// the command's stored output, followed by live output if the command is still
+// running.
 type AttachCommandRequest struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
+	// The command to reattach to.
 	Command *SandboxCommandExecutionRef `protobuf:"bytes,1,opt,name=command,proto3" json:"command,omitempty"`
-	// Per-stream WATERMARK: replay events whose byte_offset is STRICTLY GREATER
-	// than the supplied offset. The wire field byte_offset is end-of-chunk
-	// (cumulative bytes through the END of `data`), so a caller that replayed
-	// up through "I last received stdout byteOffset = 100" supplies
-	// stdout_offset = 100 and receives the next event starting at >100. Unset
-	// fields default to 0 — start replay from the beginning of that stream.
+	// Optional starting point for the replay. When set, only output past the
+	// given offsets is replayed, which lets a caller resume without seeing output
+	// it already received.
 	SinceOffset *AttachOffset `protobuf:"bytes,2,opt,name=since_offset,json=sinceOffset,proto3,oneof" json:"since_offset,omitempty"`
 }
 
@@ -836,14 +842,18 @@ func (x *AttachCommandRequest) GetSinceOffset() *AttachOffset {
 	return nil
 }
 
+// Per-stream starting offsets for an attach replay. Each offset is compared
+// against the cumulative end-of-chunk byte count, so only events strictly past
+// the given offset are replayed. An unset offset defaults to zero, replaying
+// that stream from the beginning.
 type AttachOffset struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	// Watermark on stdout: yield events whose byte_offset > stdout_offset.
+	// Replay only stdout past this cumulative byte offset.
 	StdoutOffset *int64 `protobuf:"varint,1,opt,name=stdout_offset,json=stdoutOffset,proto3,oneof" json:"stdout_offset,omitempty"`
-	// Watermark on stderr: yield events whose byte_offset > stderr_offset.
+	// Replay only stderr past this cumulative byte offset.
 	StderrOffset *int64 `protobuf:"varint,2,opt,name=stderr_offset,json=stderrOffset,proto3,oneof" json:"stderr_offset,omitempty"`
 }
 
@@ -893,24 +903,20 @@ func (x *AttachOffset) GetStderrOffset() int64 {
 	return 0
 }
 
-// KillCommand — DEP-4522. Targets a previously-issued command by cmd_id and
-// asks the host to deliver `signal` (default SIGTERM) to the running process.
-// Two-step authorization mirrors AttachCommand: resolve cmd_id → sandbox_id
-// scoped to the caller's org, then enforce sandbox-level access on the
-// resolved sandbox row. Signal is a string passthrough to vm3 SendSignal;
-// unknown signal names propagate vm3's InvalidArgument. Killing a command
-// the host registry no longer knows about (already-finished or never-
-// registered) returns NotFound — this covers the kill-on-finished race
-// without a separate code path.
+// Request to signal a running command identified by its id. An unknown signal
+// name is rejected with an invalid-argument error, and a command that is no
+// longer running (already finished or never registered) is reported as not
+// found.
 type KillCommandRequest struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
+	// Identifier of the command to signal.
 	CmdId string `protobuf:"bytes,1,opt,name=cmd_id,json=cmdId,proto3" json:"cmd_id,omitempty"`
-	// Signal name (e.g. "SIGTERM", "SIGINT"). Omit for SIGTERM. SIGKILL is
-	// rejected by vm3 in v0 to keep the abort path SIGKILL-free; that
-	// rejection surfaces here as a Connect InvalidArgument.
+	// Signal to send, such as "SIGTERM" or "SIGINT". Defaults to SIGTERM when
+	// omitted. SIGKILL is not supported and is rejected with an invalid-argument
+	// error.
 	Signal *string `protobuf:"bytes,2,opt,name=signal,proto3,oneof" json:"signal,omitempty"`
 }
 
@@ -960,6 +966,7 @@ func (x *KillCommandRequest) GetSignal() string {
 	return ""
 }
 
+// Empty response returned when a command is successfully signaled.
 type KillCommandResponse struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
@@ -998,12 +1005,15 @@ func (*KillCommandResponse) Descriptor() ([]byte, []int) {
 	return file_depot_sandbox_v1_command_proto_rawDescGZIP(), []int{10}
 }
 
+// Emitted once when the command begins running.
 type SandboxCommandExecutionEvent_Started struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	CmdId     string                 `protobuf:"bytes,1,opt,name=cmd_id,json=cmdId,proto3" json:"cmd_id,omitempty"`
+	// Identifier of the command that started.
+	CmdId string `protobuf:"bytes,1,opt,name=cmd_id,json=cmdId,proto3" json:"cmd_id,omitempty"`
+	// When the command started running.
 	StartedAt *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=started_at,json=startedAt,proto3" json:"started_at,omitempty"`
 }
 
@@ -1053,15 +1063,18 @@ func (x *SandboxCommandExecutionEvent_Started) GetStartedAt() *timestamppb.Times
 	return nil
 }
 
+// A chunk of standard output.
 type SandboxCommandExecutionEvent_StdoutBytes struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
+	// The raw output bytes in this chunk.
 	Data []byte `protobuf:"bytes,1,opt,name=data,proto3" json:"data,omitempty"`
-	// Cumulative byte index for this stream as of the END of `data`.
-	ByteOffset int64                  `protobuf:"varint,2,opt,name=byte_offset,json=byteOffset,proto3" json:"byte_offset,omitempty"`
-	Timestamp  *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
+	// Cumulative number of stdout bytes through the end of this chunk.
+	ByteOffset int64 `protobuf:"varint,2,opt,name=byte_offset,json=byteOffset,proto3" json:"byte_offset,omitempty"`
+	// When this chunk was produced.
+	Timestamp *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
 }
 
 func (x *SandboxCommandExecutionEvent_StdoutBytes) Reset() {
@@ -1117,14 +1130,18 @@ func (x *SandboxCommandExecutionEvent_StdoutBytes) GetTimestamp() *timestamppb.T
 	return nil
 }
 
+// A chunk of standard error.
 type SandboxCommandExecutionEvent_StderrBytes struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	Data       []byte                 `protobuf:"bytes,1,opt,name=data,proto3" json:"data,omitempty"`
-	ByteOffset int64                  `protobuf:"varint,2,opt,name=byte_offset,json=byteOffset,proto3" json:"byte_offset,omitempty"`
-	Timestamp  *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
+	// The raw output bytes in this chunk.
+	Data []byte `protobuf:"bytes,1,opt,name=data,proto3" json:"data,omitempty"`
+	// Cumulative number of stderr bytes through the end of this chunk.
+	ByteOffset int64 `protobuf:"varint,2,opt,name=byte_offset,json=byteOffset,proto3" json:"byte_offset,omitempty"`
+	// When this chunk was produced.
+	Timestamp *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
 }
 
 func (x *SandboxCommandExecutionEvent_StderrBytes) Reset() {
@@ -1180,12 +1197,15 @@ func (x *SandboxCommandExecutionEvent_StderrBytes) GetTimestamp() *timestamppb.T
 	return nil
 }
 
+// Emitted once when the command exits.
 type SandboxCommandExecutionEvent_Finished struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	ExitCode   int32                  `protobuf:"varint,1,opt,name=exit_code,json=exitCode,proto3" json:"exit_code,omitempty"`
+	// The process exit code.
+	ExitCode int32 `protobuf:"varint,1,opt,name=exit_code,json=exitCode,proto3" json:"exit_code,omitempty"`
+	// When the command finished.
 	FinishedAt *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=finished_at,json=finishedAt,proto3" json:"finished_at,omitempty"`
 }
 
@@ -1235,15 +1255,16 @@ func (x *SandboxCommandExecutionEvent_Finished) GetFinishedAt() *timestamppb.Tim
 	return nil
 }
 
-// Mid-stream failure where the stream itself continues (e.g. one chunk lost
-// but more coming). Connect errors remain the primary error channel; this
-// payload is for partial-degradation cases. Bare string for v0; structured
-// codes are a follow-on if call sites need to discriminate.
+// Reports a problem with the output stream while it remains open, for example
+// a dropped chunk when more output is still expected. Most failures are
+// surfaced as transport-level errors instead; this event is for partial
+// problems where the stream continues.
 type SandboxCommandExecutionEvent_Error struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
+	// A human-readable description of the problem.
 	Reason string `protobuf:"bytes,1,opt,name=reason,proto3" json:"reason,omitempty"`
 }
 
@@ -1286,15 +1307,18 @@ func (x *SandboxCommandExecutionEvent_Error) GetReason() string {
 	return ""
 }
 
-// K-Streaming evicted head data before this consumer subscribed. Carries the
-// per-stream byte counts that were dropped so the consumer can reason about
-// the gap. Architecture §10.
+// Reports that some early output was discarded before this consumer began
+// reading, which can happen when reattaching to a command whose buffered
+// output had already rolled over. The counts let the consumer understand how
+// much output is missing.
 type SandboxCommandExecutionEvent_EvictedEarlyData struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
+	// Number of stdout bytes that were dropped.
 	DroppedBytesStdout int64 `protobuf:"varint,1,opt,name=dropped_bytes_stdout,json=droppedBytesStdout,proto3" json:"dropped_bytes_stdout,omitempty"`
+	// Number of stderr bytes that were dropped.
 	DroppedBytesStderr int64 `protobuf:"varint,2,opt,name=dropped_bytes_stderr,json=droppedBytesStderr,proto3" json:"dropped_bytes_stderr,omitempty"`
 }
 
