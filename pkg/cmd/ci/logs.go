@@ -14,6 +14,7 @@ import (
 
 	"github.com/briandowns/spinner"
 	"github.com/depot/cli/pkg/api"
+	coreci "github.com/depot/cli/pkg/ci"
 	"github.com/depot/cli/pkg/config"
 	"github.com/depot/cli/pkg/helpers"
 	civ1 "github.com/depot/cli/pkg/proto/depot/ci/v1"
@@ -859,32 +860,23 @@ func logTargetResolutionOptionsForOutput(outputOptions logOutputOptions, outputF
 // jobKeyShort returns the short form of a job key (after the first colon),
 // or the full key if there's no colon.
 func jobKeyShort(key string) string {
-	if i := strings.IndexByte(key, ':'); i >= 0 {
-		return key[i+1:]
-	}
-	return key
+	return coreci.JobKeyShort(key)
 }
 
-// jobDisplayNames computes a display name for each candidate. Uses the short
-// name (after colon) when it's unique across all candidates, falls back to the
-// full job key when there's a collision.
 func jobDisplayNames(candidates []jobCandidate) map[string]string {
-	// Count how many candidates share each short name.
-	shortCounts := map[string]int{}
-	for _, c := range candidates {
-		shortCounts[jobKeyShort(c.job.JobKey)]++
-	}
+	return coreci.JobDisplayNames(toCoreJobCandidates(candidates))
+}
 
-	names := make(map[string]string, len(candidates))
+func toCoreJobCandidates(candidates []jobCandidate) []coreci.JobCandidate {
+	out := make([]coreci.JobCandidate, 0, len(candidates))
 	for _, c := range candidates {
-		short := jobKeyShort(c.job.JobKey)
-		if shortCounts[short] > 1 {
-			names[c.job.JobKey] = c.job.JobKey
-		} else {
-			names[c.job.JobKey] = short
-		}
+		out = append(out, coreci.JobCandidate{
+			Job:          c.job,
+			WorkflowPath: c.workflowPath,
+			WorkflowName: c.workflowName,
+		})
 	}
-	return names
+	return out
 }
 
 func resolveLogTarget(resp *civ1.GetRunStatusResponse, originalID, jobKey, workflowFilter string) (logTarget, error) {
@@ -1105,8 +1097,6 @@ func reportLogTargetSelection(target logTarget, reporter *logFollowReporter, fol
 	reporter.Message(strings.Join(parts, ", ") + ".")
 }
 
-// findLogsJob locates the target job in the run status response.
-// Returns the job and the workflow path it belongs to.
 func findLogsJob(resp *civ1.GetRunStatusResponse, originalID, jobKey, workflowFilter string) (*civ1.JobStatus, string, error) {
 	return findLogsJobWithOptions(resp, originalID, jobKey, workflowFilter, logTargetResolutionOptions{allowInteractive: true})
 }
@@ -1213,50 +1203,23 @@ func findLogsJobWithOptions(resp *civ1.GetRunStatusResponse, originalID, jobKey,
 	return nil, "", fmt.Errorf("run has multiple jobs, specify one with --job:\n%s", formatJobList(candidates))
 }
 
-// workflowPathMatches checks if a workflow path matches the filter.
-// The filter can be a full path or just the filename.
 func workflowPathMatches(path, filter string) bool {
-	if path == filter {
-		return true
-	}
-	// Allow matching by filename only (e.g. "ci.yml" matches ".depot/workflows/ci.yml").
-	if strings.HasSuffix(path, "/"+filter) {
-		return true
-	}
-	return false
+	return coreci.WorkflowPathMatches(path, filter)
 }
 
-// formatJobList returns a string listing jobs grouped by workflow for error messages.
-// Uses short job names when unambiguous, full names when there are conflicts.
 func formatJobList(candidates []jobCandidate) string {
-	displayNames := jobDisplayNames(candidates)
+	return coreci.FormatJobList(toCoreJobCandidates(candidates))
+}
 
-	// Group by workflow path.
-	type workflowGroup struct {
-		label string
-		jobs  []jobCandidate
-	}
-	var groups []workflowGroup
-	groupIdx := map[string]int{}
-	for _, c := range candidates {
-		label := c.workflowPath
-		if label == "" {
-			label = c.workflowName
-		}
-		if idx, ok := groupIdx[label]; ok {
-			groups[idx].jobs = append(groups[idx].jobs, c)
-		} else {
-			groupIdx[label] = len(groups)
-			groups = append(groups, workflowGroup{label: label, jobs: []jobCandidate{c}})
+func pickJobForResolver(items []coreci.JobPickerItem) (int, error) {
+	pickerItems := make([]PickJobItem, len(items))
+	for i, item := range items {
+		pickerItems[i] = PickJobItem{
+			Name:     item.Name,
+			Status:   item.Status,
+			Workflow: item.Workflow,
+			Index:    item.Index,
 		}
 	}
-
-	var b strings.Builder
-	for _, g := range groups {
-		fmt.Fprintf(&b, "\n  %s\n", g.label)
-		for _, c := range g.jobs {
-			fmt.Fprintf(&b, "    %s (%s)\n", displayNames[c.job.JobKey], c.job.Status)
-		}
-	}
-	return b.String()
+	return PickJob(pickerItems)
 }

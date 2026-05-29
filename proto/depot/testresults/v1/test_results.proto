@@ -1,0 +1,170 @@
+syntax = "proto3";
+
+package depot.testresults.v1;
+
+import "google/api/visibility.proto";
+
+option go_package = "github.com/depot/api/proto/depot/testresults/v1;testresultsv1";
+
+// TestResultsService ingests and exposes normalized test-result reports.
+// Ingest methods derive owner identity from auth. Read methods verify the
+// requested owner belongs to the authenticated org before returning results.
+service TestResultsService {
+  // ReportTestResults ingests one or more gzipped JUnit XML files for the
+  // authenticated execution owner and invocation.
+  rpc ReportTestResults(ReportTestResultsRequest) returns (ReportTestResultsResponse) {
+    option (google.api.method_visibility).restriction = "INTERNAL";
+  }
+
+  // ListTestResults returns parsed test case results for one verified CI or
+  // GitHub Actions owner.
+  rpc ListTestResults(ListTestResultsRequest) returns (ListTestResultsResponse) {}
+}
+
+enum TestResultsOwnerType {
+  TEST_RESULTS_OWNER_TYPE_UNSPECIFIED = 0;
+  TEST_RESULTS_OWNER_TYPE_CI = 1;
+  TEST_RESULTS_OWNER_TYPE_GITHUB_ACTIONS = 2;
+}
+
+enum TestResultStatus {
+  TEST_RESULT_STATUS_UNSPECIFIED = 0;
+  TEST_RESULT_STATUS_UNKNOWN = 1;
+  TEST_RESULT_STATUS_PASSED = 2;
+  TEST_RESULT_STATUS_FAILED = 3;
+  TEST_RESULT_STATUS_ERRORED = 4;
+  TEST_RESULT_STATUS_SKIPPED = 5;
+}
+
+message ReportTestResultsRequest {
+  // Per-step identity key. Populated by the action from `key:` input, else
+  // $GITHUB_ACTION, else "default". This scopes multiple reports within a
+  // single owner. Must be non-empty.
+  string invocation_id = 1;
+
+  // One entry per JUnit XML file matched by the action's glob.
+  repeated TestResultsFile files = 2;
+}
+
+message TestResultsFile {
+  // Relative filename from the action's glob (telemetry/debugging only).
+  string filename = 1;
+  // gzip-compressed JUnit XML bytes. This must be a gzip stream, not a zip
+  // archive containing multiple XML files.
+  bytes gzipped_xml = 2;
+}
+
+message ReportTestResultsResponse {
+  // Count of files successfully gunzipped and parsed.
+  uint32 files_processed = 1;
+  // Total <testcase> rows parsed from accepted JUnit XML files.
+  uint32 tests_reported = 2;
+  // Whether this invocation was previously reported. Currently always false.
+  bool duplicate_invocation = 3;
+  // Count of files skipped because they could not be gunzipped, parsed as
+  // recognizable JUnit XML, or accepted within the request resource budget.
+  uint32 files_skipped = 4;
+}
+
+message ListTestResultsRequest {
+  // Backend that owns `ownerId`. Required.
+  TestResultsOwnerType owner_type = 1;
+
+  // Unique identifier for the owner to read. When `ownerType` is
+  // `TEST_RESULTS_OWNER_TYPE_CI`, this must be a CI attempt ID. When
+  // `ownerType` is `TEST_RESULTS_OWNER_TYPE_GITHUB_ACTIONS`, this can be the
+  // Depot GitHub job row ID or the GitHub job ID. Required.
+  string owner_id = 2;
+
+  // An array of test statuses to include. Leave empty to include every status.
+  repeated TestResultStatus status = 3;
+
+  // Test suite name to include. Leave empty to include every suite.
+  string suite_name = 4;
+
+  // Test case name to include. Leave empty to include every test.
+  string test_name = 5;
+
+  // Test class name to include. Leave empty to include every class.
+  string class_name = 6;
+
+  // Source filename to include. Leave empty to include every file.
+  string file_name = 7;
+
+  // Number of results to return per page. Maximum: 500. Default: 100.
+  uint32 page_size = 8;
+
+  // Token to fetch the next page. Leave empty to fetch the first page.
+  string page_token = 9;
+}
+
+message ListTestResultsResponse {
+  // Owner type selected after resolving the request.
+  TestResultsOwnerType owner_type = 1;
+
+  // Concrete owner identifier included in this response.
+  string owner_id = 2;
+
+  // Test result rows in deterministic page order.
+  repeated TestResult results = 3;
+
+  // Token to fetch the next page. Empty when there are no more results.
+  string next_page_token = 4;
+}
+
+message TestResult {
+  // Backend owner type for this result.
+  TestResultsOwnerType owner_type = 1;
+
+  // Unique identifier for the concrete owner that reported this result.
+  string owner_id = 2;
+
+  // Invocation identifier supplied by the reporting action.
+  string invocation_id = 3;
+
+  // Test suite name from the parsed JUnit XML.
+  string suite_name = 4;
+
+  // Test case name from the parsed JUnit XML.
+  string test_name = 5;
+
+  // Test class name from the parsed JUnit XML.
+  string class_name = 6;
+
+  // Source filename from the parsed JUnit XML. Empty when the report omitted
+  // it.
+  string file_name = 7;
+
+  // Source line number from the parsed JUnit XML. Zero when the report omitted
+  // it.
+  uint32 line_number = 8;
+
+  // Parsed status for this test case.
+  TestResultStatus status = 9;
+
+  // Test case duration in milliseconds.
+  uint32 duration_ms = 10;
+
+  // Failure message from the parsed JUnit XML. Empty for non-failing tests or
+  // when the report omitted it.
+  string failure_message = 11;
+
+  // Failure type from the parsed JUnit XML. Empty for non-failing tests or
+  // when the report omitted it.
+  string failure_type = 12;
+
+  // Stack trace from the parsed JUnit XML. Empty for non-failing tests or when
+  // the report omitted it.
+  string stack_trace = 13;
+
+  // Captured standard output for this test case. Empty when the report omitted
+  // it.
+  string system_out = 14;
+
+  // Captured standard error for this test case. Empty when the report omitted
+  // it.
+  string system_err = 15;
+
+  // Result timestamp, in RFC 3339 format.
+  string timestamp = 16;
+}
