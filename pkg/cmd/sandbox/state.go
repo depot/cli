@@ -11,10 +11,10 @@ import (
 // We track the most recent sandbox_id per spec name in
 // ~/.depot/sandbox-state/<sanitized-name>.id so `depot sandbox from-spec` can
 // refuse to launch a duplicate while one is already alive. This is a pure
-// local convenience — the API doesn't carry a spec-name surface yet
-// (sandbox.v1.Sandbox has no name field beyond the optional create-time
-// label), so cross-machine collisions still slip through. Once the proto
-// gains a name field, this lookup should move server-side.
+// local convenience: the sandbox's create-time label is now returned on reads,
+// but the API still has no server-side registry that maps a spec name to its
+// live sandbox, so cross-machine collisions slip through. Once that exists,
+// this lookup should move server-side.
 
 func sandboxStateDir() (string, error) {
 	home, err := os.UserHomeDir()

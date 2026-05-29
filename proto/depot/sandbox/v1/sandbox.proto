@@ -188,6 +188,11 @@ message Sandbox {
   optional TerminationReason terminated_by = 13;
   optional int32 exit_code = 14;
   optional string error_message = 15;
+
+  // The human-readable label set when the sandbox was created. Empty when the
+  // sandbox was created without one. Returned by GetSandbox and ListSandboxes
+  // so callers can show or filter on the label they chose.
+  optional string name = 17;
 }
 
 // NetworkUsage records bytes transferred over the sandbox's primary network
