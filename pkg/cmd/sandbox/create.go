@@ -61,8 +61,12 @@ The runtime image defaults to the server-side default when --image is omitted.`,
 			if sb == nil {
 				return fmt.Errorf("create sandbox: server returned no sandbox")
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Sandbox %s created (org %s, status %s)\n",
-				sb.SandboxId, sb.OrganizationId, sb.Status.String())
+			label := ""
+			if sb.Name != nil && *sb.Name != "" {
+				label = fmt.Sprintf(" %q", *sb.Name)
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "Sandbox %s%s created (org %s, status %s)\n",
+				sb.SandboxId, label, sb.OrganizationId, sb.Status.String())
 			fmt.Fprintf(cmd.OutOrStdout(), "Shell: depot sandbox shell %s\n", sb.SandboxId)
 			fmt.Fprintf(cmd.OutOrStdout(), "Kill:  depot sandbox kill %s\n", sb.SandboxId)
 			return nil
