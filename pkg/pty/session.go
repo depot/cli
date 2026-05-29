@@ -68,7 +68,7 @@ func Run(ctx context.Context, opts SessionOptions) error {
 			},
 		},
 	}); err != nil {
-		return fmt.Errorf("send pty init: %w", err)
+		return ptySessionSendInitError(err, opts.SandboxID)
 	}
 
 	ctx, cancel := context.WithCancel(ctx)
@@ -120,7 +120,7 @@ func Run(ctx context.Context, opts SessionOptions) error {
 			if errors.Is(err, io.EOF) {
 				return nil
 			}
-			return fmt.Errorf("recv: %w", err)
+			return ptySessionReceiveError(err, opts.SandboxID)
 		}
 		switch m := resp.GetMessage().(type) {
 		case *civ1.OpenPtySessionResponse_Stdout:

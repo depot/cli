@@ -75,7 +75,7 @@ func newSandboxExec() *cobra.Command {
 			}), token, orgID))
 			if err != nil {
 				// nolint:wrapcheck
-				return err
+				return sandboxExecError(err, sandboxID)
 			}
 
 			for stream.Receive() {
@@ -92,7 +92,7 @@ func newSandboxExec() *cobra.Command {
 				}
 			}
 			if err := stream.Err(); err != nil {
-				return fmt.Errorf("stream error: %w", err)
+				return sandboxExecStreamError(err, sandboxID)
 			}
 
 			return nil

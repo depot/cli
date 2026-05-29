@@ -85,7 +85,7 @@ func newSandboxExecPipe() *cobra.Command {
 					},
 				},
 			}); err != nil {
-				return fmt.Errorf("send init: %w", err)
+				return sandboxExecSendInitError(err, sandboxID)
 			}
 
 			// Forward stdin to the stream in a goroutine.
@@ -121,7 +121,7 @@ func newSandboxExecPipe() *cobra.Command {
 					if errors.Is(err, io.EOF) {
 						return nil
 					}
-					return fmt.Errorf("stream error: %w", err)
+					return sandboxExecStreamError(err, sandboxID)
 				}
 				exitCode, exited, err := writeExecuteCommandResponse(resp, os.Stdout, os.Stderr)
 				if err != nil {
