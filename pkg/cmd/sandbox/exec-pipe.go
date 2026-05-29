@@ -123,14 +123,13 @@ func newSandboxExecPipe() *cobra.Command {
 					}
 					return fmt.Errorf("stream error: %w", err)
 				}
-				switch v := resp.Message.(type) {
-				case *civ1.ExecuteCommandResponse_Stdout:
-					fmt.Fprint(os.Stdout, v.Stdout)
-				case *civ1.ExecuteCommandResponse_Stderr:
-					fmt.Fprint(os.Stderr, v.Stderr)
-				case *civ1.ExecuteCommandResponse_ExitCode:
-					if v.ExitCode != 0 {
-						os.Exit(int(v.ExitCode))
+				exitCode, exited, err := writeExecuteCommandResponse(resp, os.Stdout, os.Stderr)
+				if err != nil {
+					return err
+				}
+				if exited {
+					if exitCode != 0 {
+						os.Exit(int(exitCode))
 					}
 					return nil
 				}

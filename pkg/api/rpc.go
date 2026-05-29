@@ -68,7 +68,8 @@ func NewVariableServiceClient() civ1connect.VariableServiceClient {
 }
 
 func NewComputeClient() civ1connect.DepotComputeServiceClient {
-	return civ1connect.NewDepotComputeServiceClient(getHTTPClient(getBaseURL()), getBaseURL(), WithUserAgent(), connect.WithGRPC())
+	baseURL := getExecBaseURL()
+	return civ1connect.NewDepotComputeServiceClient(getHTTPClient(baseURL), baseURL, WithUserAgent(), connect.WithGRPC())
 }
 
 func NewMigrationClient() civ1connect.MigrationServiceClient {
@@ -125,6 +126,14 @@ func getBaseURL() string {
 	baseURL := os.Getenv("DEPOT_API_URL")
 	if baseURL == "" {
 		baseURL = "https://api.depot.dev"
+	}
+	return baseURL
+}
+
+func getExecBaseURL() string {
+	baseURL := os.Getenv("DEPOT_EXEC_URL")
+	if baseURL == "" {
+		baseURL = "https://exec.depot.dev"
 	}
 	return baseURL
 }

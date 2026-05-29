@@ -2,8 +2,6 @@ syntax = "proto3";
 
 package depot.ci.v1;
 
-option go_package = "github.com/depot/cli/pkg/proto/depot/ci/v1;civ1";
-
 // DepotComputeApi is a collection of public APIs to manage Compute on Depot platform.
 service DepotComputeService {
   // OpenPtySession opens a pseudo terminal session
@@ -75,4 +73,6 @@ message ExecuteCommandResponse {
     string stderr = 2;
     int32 exit_code = 3;
   }
+  bytes stdout_raw = 4;
+  bytes stderr_raw = 5;
 }

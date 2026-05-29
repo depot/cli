@@ -80,14 +80,13 @@ func newSandboxExec() *cobra.Command {
 
 			for stream.Receive() {
 				msg := stream.Msg()
-				switch v := msg.Message.(type) {
-				case *civ1.ExecuteCommandResponse_Stdout:
-					fmt.Fprint(os.Stdout, v.Stdout)
-				case *civ1.ExecuteCommandResponse_Stderr:
-					fmt.Fprint(os.Stderr, v.Stderr)
-				case *civ1.ExecuteCommandResponse_ExitCode:
-					if v.ExitCode != 0 {
-						os.Exit(int(v.ExitCode))
+				exitCode, exited, err := writeExecuteCommandResponse(msg, os.Stdout, os.Stderr)
+				if err != nil {
+					return err
+				}
+				if exited {
+					if exitCode != 0 {
+						os.Exit(int(exitCode))
 					}
 					return nil
 				}
