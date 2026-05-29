@@ -38,22 +38,6 @@ func sandboxRef(id string) *sandboxv1.SandboxRef {
 	}
 }
 
-// commandRef wraps a command id in the depot.sandbox.v1 selector oneof.
-// Used by AttachCommand / KillCommand callers.
-func commandRef(id string) *sandboxv1.SandboxCommandExecutionRef {
-	return &sandboxv1.SandboxCommandExecutionRef{
-		Selector: &sandboxv1.SandboxCommandExecutionRef_Id{Id: id},
-	}
-}
-
-// snapshotRef wraps a snapshot id in the depot.sandbox.v1 selector oneof.
-// Used by GetSnapshot / DeleteSnapshot.
-func snapshotRef(id string) *sandboxv1.SnapshotRef {
-	return &sandboxv1.SnapshotRef{
-		Selector: &sandboxv1.SnapshotRef_Id{Id: id},
-	}
-}
-
 // consumeCommandEventStream drains a depot.sandbox.v1 CommandEvent stream
 // into stdout/stderr and returns the final exit code from Finished. The
 // stream shape mirrors RunCommand / RunCommandPipe / AttachCommand /
@@ -63,19 +47,9 @@ func snapshotRef(id string) *sandboxv1.SnapshotRef {
 // see the gap; the stream continues afterward. Error frames are surfaced the
 // same way and do not abort the loop (the server is signalling partial
 // degradation, not a fatal end — Connect transport errors are the fatal path).
-// detachedMode flags a RunCommand stream that the server will close after
-// Started — no Finished event will arrive, and that's not an error.
-type detachedMode bool
-
-const (
-	streamUntilFinished detachedMode = false
-	streamUntilStarted  detachedMode = true
-)
-
 func consumeCommandEventStream(
 	stream *connect.ServerStreamForClient[sandboxv1.SandboxCommandExecutionEvent],
 	stdout, stderr io.Writer,
-	mode detachedMode,
 ) (exitCode int32, err error) {
 	defer func() { _ = stream.Close() }()
 	for stream.Receive() {
@@ -108,14 +82,6 @@ func consumeCommandEventStream(
 	}
 	if err := stream.Err(); err != nil && !errors.Is(err, io.EOF) {
 		return 0, fmt.Errorf("command stream: %w", err)
-	}
-	// In detached mode the server hangs up after Started — no Finished is
-	// expected and "exit 0, no error" is the right success signal. For
-	// non-detached commands, end-of-stream without Finished means the server
-	// disconnected mid-run; surface that as an error so callers don't conflate
-	// a clean disconnect with a real exit-0 completion.
-	if mode == streamUntilStarted {
-		return 0, nil
 	}
 	return 0, fmt.Errorf("command stream closed without Finished event")
 }

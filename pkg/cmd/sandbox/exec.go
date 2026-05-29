@@ -54,7 +54,6 @@ parsing stops there.`,
 			cwd, _ := cmd.Flags().GetString("cwd")
 			envSlice, _ := cmd.Flags().GetStringArray("env")
 			sudo, _ := cmd.Flags().GetBool("sudo")
-			detached, _ := cmd.Flags().GetBool("detached")
 
 			envMap, err := parseEnvSlice(envSlice)
 			if err != nil {
@@ -73,9 +72,6 @@ parsing stops there.`,
 			if sudo {
 				req.Sudo = &sudo
 			}
-			if detached {
-				req.Detached = &detached
-			}
 
 			// The --timeout flag is deprecated. Warn if it is still set, but
 			// do not fail, since the wire protocol no longer carries a timeout.
@@ -88,11 +84,7 @@ parsing stops there.`,
 				return fmt.Errorf("run command: %w", err)
 			}
 
-			mode := streamUntilFinished
-			if detached {
-				mode = streamUntilStarted
-			}
-			exit, err := consumeCommandEventStream(stream, os.Stdout, os.Stderr, mode)
+			exit, err := consumeCommandEventStream(stream, os.Stdout, os.Stderr)
 			if err != nil {
 				return err
 			}
@@ -106,7 +98,6 @@ parsing stops there.`,
 	cmd.Flags().String("cwd", "", "Working directory inside the sandbox")
 	cmd.Flags().StringArray("env", nil, "Environment variables to set (KEY=VALUE), repeatable")
 	cmd.Flags().Bool("sudo", false, "Run as root")
-	cmd.Flags().Bool("detached", false, "Return after Started; reattach later via AttachCommand")
 	// Deprecated: hidden and ignored.
 	cmd.Flags().Int("timeout", 0, "Deprecated: timeouts are not part of the v0 wire (will be removed)")
 	_ = cmd.Flags().MarkHidden("timeout")

@@ -22,31 +22,3 @@ func TestSandboxRef_PinnedShape(t *testing.T) {
 		t.Errorf("id = %q, want cs-abc123", sel.Id)
 	}
 }
-
-func TestCommandRef_PinnedShape(t *testing.T) {
-	r := commandRef("cmd-xyz789")
-	if r == nil {
-		t.Fatal("commandRef returned nil")
-	}
-	sel, ok := r.Selector.(*sandboxv1.SandboxCommandExecutionRef_Id)
-	if !ok {
-		t.Fatalf("expected CommandRef_Id selector, got %T", r.Selector)
-	}
-	if sel.Id != "cmd-xyz789" {
-		t.Errorf("id = %q, want cmd-xyz789", sel.Id)
-	}
-}
-
-func TestSnapshotRef_PinnedShape(t *testing.T) {
-	r := snapshotRef("snap-456")
-	if r == nil {
-		t.Fatal("snapshotRef returned nil")
-	}
-	sel, ok := r.Selector.(*sandboxv1.SnapshotRef_Id)
-	if !ok {
-		t.Fatalf("expected SnapshotRef_Id selector, got %T", r.Selector)
-	}
-	if sel.Id != "snap-456" {
-		t.Errorf("id = %q, want snap-456", sel.Id)
-	}
-}

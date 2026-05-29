@@ -147,7 +147,7 @@ func runHook(ctx context.Context, client sandboxv1connect.SandboxServiceClient, 
 	// command with setsid and exits 0, so the stream reaches Finished right
 	// away. Waiting until finished is correct for both detached and
 	// foreground hooks.
-	exit, err := consumeCommandEventStream(stream, stdout, stderr, streamUntilFinished)
+	exit, err := consumeCommandEventStream(stream, stdout, stderr)
 	if err != nil {
 		return err
 	}
