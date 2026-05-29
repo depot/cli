@@ -2,17 +2,17 @@ syntax = "proto3";
 
 package depot.sandbox.v1;
 
-// Cross-cutting selector messages for depot.sandbox.v1. The three Ref types
-// live here so sandbox.proto and command.proto can both import them without
-// closing a sandbox -> command -> sandbox cycle, and so future surfaces
-// (snapshot, spec, pty, filesystem, logs) reach the same shapes without
-// having to extract or duplicate them.
+// Selector messages shared across the depot.sandbox.v1 package. These Ref
+// types live in their own file so that other protos (such as sandbox and
+// command) can import them without creating an import cycle, and so any other
+// surface that needs to reference a sandbox, command execution, or snapshot
+// uses the same shapes instead of redefining them.
 //
-// Watts selector pattern (DEP-4343/4426/4356/4485): each Ref is a oneof so
-// alt-id forms (org-scoped name, idempotency key) can be added at higher
-// field numbers without a wire break. The lone selector today is `id`; per
-// the M7 open-question answer, future selectors are NOT pre-declared — a
-// slice that needs one adds it then.
+// Each Ref wraps its selector in a oneof. Today the only way to look something
+// up is by `id`, but the oneof leaves room to add alternate lookup forms (for
+// example an org-scoped name or an idempotency key) at higher field numbers
+// later without breaking the wire format. Those alternate forms are added only
+// when something actually needs them, not pre-declared here.
 
 message SandboxRef {
   oneof selector {

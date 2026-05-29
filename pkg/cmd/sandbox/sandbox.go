@@ -4,14 +4,11 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// NewCmdSandbox wires the `depot sandbox` verb tree.
+// NewCmdSandbox wires up the `depot sandbox` verb tree.
 //
-// Vertical-slice subset of the M34 "CLI v2 catches up to SDK v0" surface:
-// the new depot.sandbox.v1 verbs (create / exec / stop / kill) ship in this
-// PR alongside the pre-existing legacy verbs (exec-pipe / pty) which target
-// CI-bastion sandboxes via depot.ci.v1. The remaining v0 surface
-// (get / list / from-spec / shell / logs / fs / snapshot / build) lands in
-// follow-ons.
+// It registers the lifecycle and command verbs (create, exec, stop, kill)
+// alongside the older CI-bastion verbs (exec-pipe, pty), which target
+// CI-bastion sandboxes through a separate service.
 func NewCmdSandbox() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "sandbox [flags]",
@@ -32,15 +29,15 @@ Command surface:
 	cmd.PersistentFlags().String("token", "", "Depot API token")
 	cmd.PersistentFlags().String("org", "", "Organization ID (required when user is a member of multiple organizations)")
 
-	// Lifecycle (depot.sandbox.v1)
+	// Lifecycle verbs.
 	cmd.AddCommand(newSandboxCreate())
 	cmd.AddCommand(newSandboxStop())
 	cmd.AddCommand(newSandboxKill())
 
-	// Command surface
+	// Command verbs.
 	cmd.AddCommand(newSandboxExec())
 
-	// Legacy CI-bastion verbs (depot.ci.v1)
+	// Legacy CI-bastion verbs.
 	cmd.AddCommand(newSandboxExecPipe())
 	cmd.AddCommand(newSandboxPty())
 

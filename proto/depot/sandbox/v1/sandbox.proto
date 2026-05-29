@@ -13,96 +13,78 @@ import "depot/sandbox/v1/snapshot.proto";
 import "depot/sandbox/v1/source.proto";
 import "google/protobuf/timestamp.proto";
 
-// Cold-start scaffold for the v1 sandbox surface (DEP-4511, DEP-4512, DEP-4514,
-// DEP-4518).
+// SandboxService is the v1 API for creating and managing sandboxes: isolated
+// virtual machines you can run commands in, attach a filesystem and terminal
+// to, and snapshot.
 //
-// This package is the home for the v2 sandbox API that will eventually replace
-// depot.agent.v1.SandboxService. The legacy service remains in place; this
-// service starts with Create + Get + List, with a SandboxStatus lifecycle enum
-// + lifecycle metadata (timestamps, usage block, terminated_by) covering the
-// read surface. Stop/Kill/Extend, command/filesystem/pty/snapshot/logs surfaces
-// all land in follow-up slices.
+// It covers the full sandbox lifecycle (create, inspect, list, stop, kill),
+// command execution (one-shot, streaming, and interactive), a filesystem API,
+// pseudo-terminal access, log streaming, and durable snapshots.
 
 service SandboxService {
   rpc CreateSandbox(CreateSandboxRequest) returns (CreateSandboxResponse);
   rpc GetSandbox(SandboxRef) returns (GetSandboxResponse);
   rpc ListSandboxes(ListSandboxesRequest) returns (ListSandboxesResponse);
 
-  // CreateSandboxFromSpec (DEP-4534 / P25b) lives on SandboxSpecService in
-  // spec_rpc.proto, NOT this service, to break the sandbox.proto <->
-  // spec.proto cycle. The SDK consumes the new service alongside this one;
-  // wire shape is independent so existing SandboxService callers are not
-  // affected. See spec_rpc.proto header.
+  // To create a sandbox from a declarative spec, use CreateSandboxFromSpec on
+  // SandboxSpecService in spec_rpc.proto, not this service. That service is
+  // independent of this one, so existing SandboxService callers are unaffected.
 
-  // DEP-4515 — stop is graceful (terminated_by=GRACEFUL); kill is forced
-  // (terminated_by=FORCED). Both are idempotent on already-terminal sandboxes
-  // in the sense that they return FailedPrecondition rather than re-running.
+  // StopSandbox shuts a sandbox down gracefully (terminated_by=GRACEFUL);
+  // KillSandbox forces it to stop (terminated_by=FORCED). Calling either on a
+  // sandbox that is already in a terminal state returns FailedPrecondition
+  // rather than acting again.
   rpc StopSandbox(StopSandboxRequest) returns (StopSandboxResponse);
   rpc KillSandbox(KillSandboxRequest) returns (KillSandboxResponse);
 
-  // DEP-4517 — server-streaming command execution. The response stream begins
-  // with a Started event and ends with Finished (or terminates with a Connect
-  // error). Persistence + the K-Streaming buffered-event-log + the vm3
-  // Execute proxy land with the next two slices (P10b/P10c); this RPC is
-  // wire-reachable today but returns Unimplemented until those land.
+  // RunCommand runs a command in the sandbox and streams its output. The
+  // response stream begins with a Started event and ends with a Finished
+  // event, or terminates with an error.
   rpc RunCommand(RunCommandRequest) returns (stream SandboxCommandExecutionEvent);
 
-  // DEP-4519 — bidirectional-streaming command execution with stdin. The
-  // first request on the stream MUST carry `init`; subsequent requests carry
-  // `stdin` bytes. The response stream shape is identical to RunCommand.
-  // stdin bytes flow through to the guest process and are NOT persisted.
+  // RunCommandPipe runs a command and lets you stream input to it while it
+  // runs. The first request on the stream must carry `init`; later requests
+  // carry `stdin` bytes. The response stream has the same shape as RunCommand.
+  // stdin bytes are delivered to the process but are not persisted.
   rpc RunCommandPipe(stream RunCommandPipeRequest) returns (stream SandboxCommandExecutionEvent);
 
-  // DEP-4534 / P23 — execute a lifecycle hook. Hidden / pattern F: surfaced
-  // for non-TS callers and consumed by the CreateSandboxFromSpec orchestrator
-  // (P25b). NOT exposed as an SDK method. Wraps the hook command in
-  // /bin/sh -lc, prepends /tmp/.depot-env sourcing, exports merged env,
-  // cd's to /workspace, and either streams CommandEvents (foreground) or
-  // detaches via setsid with log redirect to
-  // /var/log/depot/hook-<stage>-<name>.log (detached). Stage label is
-  // metadata-only — execution shape does NOT vary across the six HookStage
-  // values. Architecture §12. Spec Cluster INTERIOR step 2/5.
+  // RunHook runs a lifecycle hook command inside the sandbox. The hook runs
+  // through /bin/sh, with the merged environment exported and the working
+  // directory set to the workspace. It either streams command output in the
+  // foreground or runs detached with output written to a log file. The hook's
+  // stage is a label only and does not change how the command runs.
   rpc RunHook(RunHookRequest) returns (stream SandboxCommandExecutionEvent);
 
-  // DEP-4520 — read side of the SandboxCommandExecution surface. Get and List return persisted
-  // metadata. Attach replays persisted stdout/stderr from ClickHouse and (when
-  // the command is still running on the same replica) tails live output via
-  // the process-local per-cmd BufferedEventLog.
+  // GetCommand and ListCommands return persisted metadata about commands that
+  // have run in the sandbox. AttachCommand replays a command's stored
+  // stdout/stderr and, when the command is still running, tails its live
+  // output.
   rpc GetCommand(SandboxCommandExecutionRef) returns (GetCommandResponse);
   rpc ListCommands(ListCommandsRequest) returns (ListCommandsResponse);
   rpc AttachCommand(AttachCommandRequest) returns (stream SandboxCommandExecutionEvent);
 
-  // DEP-4532 — server-streaming sandbox-scoped log surface. Drains the
-  // per-sandbox boot-output BufferedEventLog (P27a capture-side) and emits
-  // SandboxLogEvent messages to the subscriber. v0 emits the four
-  // boot-output kinds only (boot_stdout / boot_stderr / boot_finished /
-  // evicted_early_data); future event kinds use the reserved tags 5..15 on
-  // the SandboxLogEvent oneof. Cross-replica caveat (MD-33-3): if the
-  // sandbox's boot buffer is hosted on a different replica, the stream
-  // closes cleanly with no events. No past-replay rail in v0 — terminal
-  // sandboxes return FailedPrecondition. See logs.proto.
+  // StreamSandboxLogs streams a sandbox's logs to the caller. Today it emits
+  // the four boot-output event kinds (boot_stdout, boot_stderr,
+  // boot_finished, evicted_early_data). There is no replay of past output:
+  // terminal sandboxes return FailedPrecondition. See logs.proto.
   rpc StreamSandboxLogs(StreamSandboxLogsRequest) returns (stream SandboxLogEvent);
 
-  // DEP-4522 — deliver a signal to a running command. Default signal is
+  // KillCommand delivers a signal to a running command. The default signal is
   // SIGTERM; SIGINT is also accepted. SIGKILL is rejected with
-  // InvalidArgument in v0 (the abort path stays SIGKILL-free). Kills of
-  // commands that have already finished (or were never registered) return
-  // NotFound, which the SDK surfaces as Code.NotFound.
+  // InvalidArgument. If the command has already finished or was never
+  // registered, this returns NotFound.
   rpc KillCommand(KillCommandRequest) returns (KillCommandResponse);
 
-  // DEP-4527 — interactive pseudo-terminal. Bidi-streaming RPC; the first
-  // request carries `start`, subsequent requests carry stdin bytes or window
+  // OpenPty opens an interactive pseudo-terminal in the sandbox. The first
+  // request carries `start`; later requests carry stdin bytes or window
   // resize messages. The response stream emits `data` byte chunks until the
-  // shell exits, then a single `exit` carrying the exit code. v0 always runs
-  // /bin/sh; the shell is intentionally not selectable at the wire layer.
-  // Architecture §13: no reattach — closing the stream ends the pty.
+  // shell exits, followed by a single `exit` event carrying the exit code.
+  // The shell is always /bin/sh and is not selectable. Closing the stream
+  // ends the pty; there is no reattach.
   rpc OpenPty(stream OpenPtyRequest) returns (stream OpenPtyResponse);
 
-  // ─── FileSystem (filesystem.proto, DEP-4524) ────────────────────────────
-  // Same RPC surface across exec-first (P15) and native vm3 (P17)
-  // implementations; the server picks per-org behind a resolver. Errors
-  // travel as Connect errors with a FileSystemErrorDetail attached — see
-  // src/sandbox/fs-errors.ts for the remapper.
+  // Filesystem operations on the sandbox (see filesystem.proto). Errors are
+  // returned as Connect errors with a FileSystemErrorDetail attached.
   rpc Mkdir(MkdirRequest) returns (MkdirResponse);
   rpc Stat(StatRequest) returns (StatResponse);
   rpc ReadDir(ReadDirRequest) returns (ReadDirResponse);
@@ -118,39 +100,29 @@ service SandboxService {
   rpc ReadFile(ReadFileRequest) returns (stream FileChunk);
   rpc WriteFile(stream WriteFileRequest) returns (WriteFileResponse);
 
-  // ─── Snapshot (snapshot.proto, DEP-4529) ────────────────────────────────
-  // Durable filesystem snapshots of a sandbox. The wire surface + the SDK
-  // ergonomics ship here; the vm3-side snapshot/restore pipeline that backs
-  // these RPCs is a follow-on slice — v0 handlers return Unimplemented until
-  // that lands. CreateSnapshot will additionally fire a graceful StopSandbox
-  // on the source sandbox once the snapshot is durable (Vercel parity,
-  // architecture §6).
+  // Durable filesystem snapshots of a sandbox (see snapshot.proto). Once a
+  // snapshot is durable, CreateSnapshot also gracefully stops the source
+  // sandbox.
   rpc CreateSnapshot(CreateSnapshotRequest) returns (CreateSnapshotResponse);
   rpc GetSnapshot(GetSnapshotRequest) returns (GetSnapshotResponse);
   rpc ListSnapshots(ListSnapshotsRequest) returns (ListSnapshotsResponse);
   rpc DeleteSnapshot(DeleteSnapshotRequest) returns (DeleteSnapshotResponse);
 }
 
-// SandboxRef lives in refs.proto alongside the other cross-cutting selector
-// messages (SandboxCommandExecutionRef, SnapshotRef). See the comment at the top of
-// refs.proto for the selector-pattern rationale.
+// SandboxRef, the selector used to identify a sandbox, lives in refs.proto
+// alongside the other selector messages (SandboxCommandExecutionRef,
+// SnapshotRef).
 
-// SandboxStatus is the lifecycle enum for a sandbox.
+// SandboxStatus describes where a sandbox is in its lifecycle.
 //
-// CREATED:   row materialized, no compute backing assigned yet.
-// ASSIGNED:  compute backing assigned, VM not yet started.
-// STARTING:  VM boot in progress.
-// RUNNING:   VM booted, ready to accept commands.
-// FINISHED:  clean termination (graceful stop, normal exit).
-// CANCELLED: forced termination (kill).
-// FAILED:    ended with an error (image pull fail, OOM, panic, etc.).
-//
-// Values mirror the orchestration-side ComputeSandbox.state vocabulary at v0
-// to minimize the projection layer. The proto is its own type — when v2 needs
-// to diverge (e.g. surface a value the orchestration doesn't track, or hide
-// a CI-only sub-state), it can do so without coordinating with the underlying
-// schema. Terminal-state granularity today (FINISHED vs CANCELLED vs FAILED)
-// carries the gross reason.
+// CREATED:   the sandbox record exists, but no compute has been assigned yet.
+// ASSIGNED:  compute has been assigned, but the VM has not started.
+// STARTING:  the VM is booting.
+// RUNNING:   the VM has booted and is ready to accept commands.
+// FINISHED:  the sandbox terminated cleanly (graceful stop or normal exit).
+// CANCELLED: the sandbox was forcibly terminated (killed).
+// FAILED:    the sandbox ended with an error (such as an image pull failure,
+//            out-of-memory, or a crash).
 enum SandboxStatus {
   SANDBOX_STATUS_UNSPECIFIED = 0;
   SANDBOX_STATUS_CREATED = 1;
@@ -162,14 +134,15 @@ enum SandboxStatus {
   SANDBOX_STATUS_FAILED = 7;
 }
 
-// TerminationReason classifies how a sandbox ended (DEP-4518). Populated only
-// on terminal status (FINISHED / CANCELLED / FAILED). UNSPECIFIED is the proto sentinel and
-// is never written by the server; callers MUST treat it as "unknown".
+// TerminationReason classifies why a sandbox ended. It is populated only on a
+// terminal status (FINISHED, CANCELLED, or FAILED). UNSPECIFIED is never
+// written by the server; callers should treat it as "unknown".
 //
-//   GRACEFUL:     StopSandbox path — clean shutdown the caller asked for.
-//   FORCED:       KillSandbox path — caller asked for an immediate end.
-//   TIMED_OUT:    TTL expired — server-initiated termination.
-//   SYSTEM_FAULT: host failure, OOM, panic, or any other server-side error.
+//   GRACEFUL:     a clean shutdown the caller requested via StopSandbox.
+//   FORCED:       an immediate termination the caller requested via KillSandbox.
+//   TIMED_OUT:    the sandbox's time-to-live expired and the server ended it.
+//   SYSTEM_FAULT: host failure, out-of-memory, a crash, or another
+//                 server-side error.
 enum TerminationReason {
   TERMINATION_REASON_UNSPECIFIED = 0;
   TERMINATION_REASON_GRACEFUL = 1;
@@ -178,72 +151,62 @@ enum TerminationReason {
   TERMINATION_REASON_SYSTEM_FAULT = 4;
 }
 
-// Resources + Runtime extracted to runtime.proto (M29 / P25b) to break the
-// sandbox.proto <-> spec.proto cycle. See runtime.proto header.
+// The Resources and Runtime messages are defined in runtime.proto.
 
-// Sandbox is the canonical message returned by the lifecycle RPCs.
-//
-// Field numbering — the 4..10 block was reserved-by-comment after M2; M4
-// consumes it fully along with 13..15 for the terminal metadata. 11/12 stay
-// with Resources/Runtime (claimed by M2). No gaps remain.
+// Sandbox is the message returned by the lifecycle RPCs and describes a single
+// sandbox and its current state.
 message Sandbox {
   string sandbox_id = 1;
   string organization_id = 2;
   SandboxStatus status = 3;
 
-  // Lifecycle timestamps (DEP-4518). created_at is always populated; the other
-  // two are populated once the sandbox reaches the corresponding state.
+  // Lifecycle timestamps. created_at is always set; started_at and stopped_at
+  // are set once the sandbox reaches the corresponding state.
   google.protobuf.Timestamp created_at = 4;
   optional google.protobuf.Timestamp started_at = 5;
   optional google.protobuf.Timestamp stopped_at = 6;
 
-  // TTL surface (DEP-4518). expires_at is authoritative storage when known;
-  // timeout_ms_remaining is recomputed on read against now(). Both are unset
-  // when the sandbox carries no timeout policy.
+  // Time-to-live. expires_at is the stored expiry when known;
+  // timeout_ms_remaining is recomputed on each read against the current time.
+  // Both are unset when the sandbox has no timeout policy.
   optional google.protobuf.Timestamp expires_at = 7;
   optional int64 timeout_ms_remaining = 8;
 
-  // Usage metering (DEP-4518). Populated only after terminal status, and only
-  // when a metering source is available. TODO(metering): wire to the
-  // SandboxUsage table populated by tasks/cron/createSandboxUsage.ts. Until
-  // wired, both fields remain unset even on terminal sandboxes.
+  // Usage metering. Populated only after the sandbox reaches a terminal state,
+  // and only when usage data is available; otherwise both fields are unset.
   optional int64 active_cpu_usage_ms = 9;
   optional NetworkUsage network_usage = 10;
 
-  // Effective resources + runtime echoed back from the request so callers see
-  // what the server actually resolved (DEP-4512).
+  // The resources and runtime the server actually resolved, echoed back from
+  // the request so callers can see what was applied.
   Resources resources = 11;
   Runtime runtime = 12;
 
-  // Terminal-state metadata (DEP-4518). All three are populated only on
-  // terminal status (FINISHED / CANCELLED / FAILED). exit_code uses int32 in the Unix range
-  // (0..255); negative values are reserved for future signal-coded use.
+  // Terminal-state metadata, populated only on a terminal status (FINISHED,
+  // CANCELLED, or FAILED). exit_code is a Unix exit code in the range 0..255;
+  // negative values are reserved for future signal-coded use.
   optional TerminationReason terminated_by = 13;
   optional int32 exit_code = 14;
   optional string error_message = 15;
 }
 
 // NetworkUsage records bytes transferred over the sandbox's primary network
-// interface (DEP-4518). Split counters mirror typical cloud-vendor metering
-// surfaces and keep ingress/egress visible separately even when one direction
-// dominates.
+// interface, with ingress and egress tracked separately.
 message NetworkUsage {
   int64 ingress_bytes = 1;
   int64 egress_bytes = 2;
 }
 
 message CreateSandboxRequest {
-  // Human label for the sandbox, scoped to the organization. Optional.
+  // Optional human-readable label for the sandbox, scoped to the organization.
   optional string name = 1;
-  // Requested resources; server applies defaults for unset fields (DEP-4512).
+  // Requested resources. The server applies defaults for any unset fields.
   optional Resources resources = 2;
-  // Requested runtime; server resolves `named` against its catalog or pulls
-  // `image_ref` directly (DEP-4512).
+  // Requested runtime. The server resolves a `named` runtime against its
+  // catalog or pulls an `image_ref` directly.
   optional Runtime runtime = 3;
-  // Sandbox content source — git/snapshot/image/template variants. The v0
-  // CreateSandbox handler does NOT read this field; it is wired by the
-  // closing slice of the Source/Git Cluster (DEP-4531) and consumed by
-  // DEP-4529 (snapshot). Unset == prior behavior.
+  // Where the sandbox's initial content comes from (git, snapshot, image, or
+  // template). When unset, the sandbox starts with the default content.
   optional Source source = 4;
 }
 
@@ -255,16 +218,14 @@ message GetSandboxResponse {
   Sandbox sandbox = 1;
 }
 
-// ListSandboxes — DEP-4514. State + creation-time filter, cursor-based
-// pagination (page_token encodes the last seen ComputeSandbox.createdAt;
-// the cursor pattern mirrors src/domains/ci/service/list-runs.ts).
+// ListSandboxesRequest lists sandboxes, optionally filtered by status and
+// creation time, with cursor-based pagination. page_token is the cursor
+// returned by a previous response.
 message ListSandboxesRequest {
   optional int32 page_size = 1;
   optional string page_token = 2;
   message Filter {
-    // Status filter: if non-empty, only sandboxes whose status is in this set
-    // are returned. (Sketch uses the plural `states` for the field name;
-    // mirrored here.)
+    // If non-empty, only sandboxes whose status is in this set are returned.
     repeated SandboxStatus states = 1;
     optional google.protobuf.Timestamp created_after = 2;
     optional google.protobuf.Timestamp created_before = 3;
@@ -277,34 +238,32 @@ message ListSandboxesResponse {
   optional string next_page_token = 2;
 }
 
-// StopSandbox — DEP-4515. Graceful shutdown. The server records the termination
-// request on the row immediately; when `blocking` is true the RPC waits up to a
-// server-side cap for the VM to reach terminal status before returning.
-//
-// `signal` lives on KillSandbox, not here (architecture §5).
+// StopSandboxRequest gracefully shuts a sandbox down. The server records the
+// termination request immediately; when `blocking` is true the RPC waits, up to
+// a server-side limit, for the sandbox to reach a terminal state before
+// returning. To control the signal used, use KillSandbox instead.
 message StopSandboxRequest {
   SandboxRef sandbox = 1;
-  // If true, the server polls until the sandbox reaches a terminal state (or
-  // the server-side cap expires) before responding. If false (default), the
+  // If true, the server waits until the sandbox reaches a terminal state (or a
+  // server-side limit is hit) before responding. If false (the default), the
   // RPC returns as soon as the termination request is recorded.
   optional bool blocking = 2;
 }
 
 message StopSandboxResponse {
-  // The sandbox row after recording the termination request. Status is either
-  // either RUNNING (with terminationRequestedAt non-null) or a terminal status or a terminal status when
-  // the row transitioned before the read.
+  // The sandbox after the termination request was recorded. Its status is
+  // either RUNNING (with termination requested) or a terminal status if it
+  // transitioned before the read.
   Sandbox sandbox = 1;
 }
 
-// KillSandbox — DEP-4515. Forced termination. Fire-and-forget; no blocking
-// option. `signal` is documented at the wire level but ignored by the v0
-// server (which always asks the VM scheduler to mark the row `cancelled`).
-// A future slice wires this through to vm3 SendSignal.
+// KillSandboxRequest forcibly terminates a sandbox. It is fire-and-forget with
+// no blocking option. The `signal` field is accepted but currently ignored; the
+// server always issues a hard cancel.
 message KillSandboxRequest {
   SandboxRef sandbox = 1;
-  // Signal name (e.g. "SIGKILL"). Reserved for forward-compat; v0 ignores it
-  // and always issues a hard cancel.
+  // Signal name (for example "SIGKILL"). Reserved for forward compatibility;
+  // it is currently ignored and a hard cancel is always issued.
   optional string signal = 2;
 }
 

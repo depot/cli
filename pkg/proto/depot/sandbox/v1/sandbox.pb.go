@@ -21,22 +21,17 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-// SandboxStatus is the lifecycle enum for a sandbox.
+// SandboxStatus describes where a sandbox is in its lifecycle.
 //
-// CREATED:   row materialized, no compute backing assigned yet.
-// ASSIGNED:  compute backing assigned, VM not yet started.
-// STARTING:  VM boot in progress.
-// RUNNING:   VM booted, ready to accept commands.
-// FINISHED:  clean termination (graceful stop, normal exit).
-// CANCELLED: forced termination (kill).
-// FAILED:    ended with an error (image pull fail, OOM, panic, etc.).
+// CREATED:   the sandbox record exists, but no compute has been assigned yet.
+// ASSIGNED:  compute has been assigned, but the VM has not started.
+// STARTING:  the VM is booting.
+// RUNNING:   the VM has booted and is ready to accept commands.
+// FINISHED:  the sandbox terminated cleanly (graceful stop or normal exit).
+// CANCELLED: the sandbox was forcibly terminated (killed).
+// FAILED:    the sandbox ended with an error (such as an image pull failure,
 //
-// Values mirror the orchestration-side ComputeSandbox.state vocabulary at v0
-// to minimize the projection layer. The proto is its own type — when v2 needs
-// to diverge (e.g. surface a value the orchestration doesn't track, or hide
-// a CI-only sub-state), it can do so without coordinating with the underlying
-// schema. Terminal-state granularity today (FINISHED vs CANCELLED vs FAILED)
-// carries the gross reason.
+//	out-of-memory, or a crash).
 type SandboxStatus int32
 
 const (
@@ -101,14 +96,15 @@ func (SandboxStatus) EnumDescriptor() ([]byte, []int) {
 	return file_depot_sandbox_v1_sandbox_proto_rawDescGZIP(), []int{0}
 }
 
-// TerminationReason classifies how a sandbox ended (DEP-4518). Populated only
-// on terminal status (FINISHED / CANCELLED / FAILED). UNSPECIFIED is the proto sentinel and
-// is never written by the server; callers MUST treat it as "unknown".
+// TerminationReason classifies why a sandbox ended. It is populated only on a
+// terminal status (FINISHED, CANCELLED, or FAILED). UNSPECIFIED is never
+// written by the server; callers should treat it as "unknown".
 //
-//	GRACEFUL:     StopSandbox path — clean shutdown the caller asked for.
-//	FORCED:       KillSandbox path — caller asked for an immediate end.
-//	TIMED_OUT:    TTL expired — server-initiated termination.
-//	SYSTEM_FAULT: host failure, OOM, panic, or any other server-side error.
+//	GRACEFUL:     a clean shutdown the caller requested via StopSandbox.
+//	FORCED:       an immediate termination the caller requested via KillSandbox.
+//	TIMED_OUT:    the sandbox's time-to-live expired and the server ended it.
+//	SYSTEM_FAULT: host failure, out-of-memory, a crash, or another
+//	              server-side error.
 type TerminationReason int32
 
 const (
@@ -164,11 +160,8 @@ func (TerminationReason) EnumDescriptor() ([]byte, []int) {
 	return file_depot_sandbox_v1_sandbox_proto_rawDescGZIP(), []int{1}
 }
 
-// Sandbox is the canonical message returned by the lifecycle RPCs.
-//
-// Field numbering — the 4..10 block was reserved-by-comment after M2; M4
-// consumes it fully along with 13..15 for the terminal metadata. 11/12 stay
-// with Resources/Runtime (claimed by M2). No gaps remain.
+// Sandbox is the message returned by the lifecycle RPCs and describes a single
+// sandbox and its current state.
 type Sandbox struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
@@ -177,29 +170,27 @@ type Sandbox struct {
 	SandboxId      string        `protobuf:"bytes,1,opt,name=sandbox_id,json=sandboxId,proto3" json:"sandbox_id,omitempty"`
 	OrganizationId string        `protobuf:"bytes,2,opt,name=organization_id,json=organizationId,proto3" json:"organization_id,omitempty"`
 	Status         SandboxStatus `protobuf:"varint,3,opt,name=status,proto3,enum=depot.sandbox.v1.SandboxStatus" json:"status,omitempty"`
-	// Lifecycle timestamps (DEP-4518). created_at is always populated; the other
-	// two are populated once the sandbox reaches the corresponding state.
+	// Lifecycle timestamps. created_at is always set; started_at and stopped_at
+	// are set once the sandbox reaches the corresponding state.
 	CreatedAt *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	StartedAt *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=started_at,json=startedAt,proto3,oneof" json:"started_at,omitempty"`
 	StoppedAt *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=stopped_at,json=stoppedAt,proto3,oneof" json:"stopped_at,omitempty"`
-	// TTL surface (DEP-4518). expires_at is authoritative storage when known;
-	// timeout_ms_remaining is recomputed on read against now(). Both are unset
-	// when the sandbox carries no timeout policy.
+	// Time-to-live. expires_at is the stored expiry when known;
+	// timeout_ms_remaining is recomputed on each read against the current time.
+	// Both are unset when the sandbox has no timeout policy.
 	ExpiresAt          *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=expires_at,json=expiresAt,proto3,oneof" json:"expires_at,omitempty"`
 	TimeoutMsRemaining *int64                 `protobuf:"varint,8,opt,name=timeout_ms_remaining,json=timeoutMsRemaining,proto3,oneof" json:"timeout_ms_remaining,omitempty"`
-	// Usage metering (DEP-4518). Populated only after terminal status, and only
-	// when a metering source is available. TODO(metering): wire to the
-	// SandboxUsage table populated by tasks/cron/createSandboxUsage.ts. Until
-	// wired, both fields remain unset even on terminal sandboxes.
+	// Usage metering. Populated only after the sandbox reaches a terminal state,
+	// and only when usage data is available; otherwise both fields are unset.
 	ActiveCpuUsageMs *int64        `protobuf:"varint,9,opt,name=active_cpu_usage_ms,json=activeCpuUsageMs,proto3,oneof" json:"active_cpu_usage_ms,omitempty"`
 	NetworkUsage     *NetworkUsage `protobuf:"bytes,10,opt,name=network_usage,json=networkUsage,proto3,oneof" json:"network_usage,omitempty"`
-	// Effective resources + runtime echoed back from the request so callers see
-	// what the server actually resolved (DEP-4512).
+	// The resources and runtime the server actually resolved, echoed back from
+	// the request so callers can see what was applied.
 	Resources *Resources `protobuf:"bytes,11,opt,name=resources,proto3" json:"resources,omitempty"`
 	Runtime   *Runtime   `protobuf:"bytes,12,opt,name=runtime,proto3" json:"runtime,omitempty"`
-	// Terminal-state metadata (DEP-4518). All three are populated only on
-	// terminal status (FINISHED / CANCELLED / FAILED). exit_code uses int32 in the Unix range
-	// (0..255); negative values are reserved for future signal-coded use.
+	// Terminal-state metadata, populated only on a terminal status (FINISHED,
+	// CANCELLED, or FAILED). exit_code is a Unix exit code in the range 0..255;
+	// negative values are reserved for future signal-coded use.
 	TerminatedBy *TerminationReason `protobuf:"varint,13,opt,name=terminated_by,json=terminatedBy,proto3,enum=depot.sandbox.v1.TerminationReason,oneof" json:"terminated_by,omitempty"`
 	ExitCode     *int32             `protobuf:"varint,14,opt,name=exit_code,json=exitCode,proto3,oneof" json:"exit_code,omitempty"`
 	ErrorMessage *string            `protobuf:"bytes,15,opt,name=error_message,json=errorMessage,proto3,oneof" json:"error_message,omitempty"`
@@ -343,9 +334,7 @@ func (x *Sandbox) GetErrorMessage() string {
 }
 
 // NetworkUsage records bytes transferred over the sandbox's primary network
-// interface (DEP-4518). Split counters mirror typical cloud-vendor metering
-// surfaces and keep ingress/egress visible separately even when one direction
-// dominates.
+// interface, with ingress and egress tracked separately.
 type NetworkUsage struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
@@ -406,17 +395,15 @@ type CreateSandboxRequest struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	// Human label for the sandbox, scoped to the organization. Optional.
+	// Optional human-readable label for the sandbox, scoped to the organization.
 	Name *string `protobuf:"bytes,1,opt,name=name,proto3,oneof" json:"name,omitempty"`
-	// Requested resources; server applies defaults for unset fields (DEP-4512).
+	// Requested resources. The server applies defaults for any unset fields.
 	Resources *Resources `protobuf:"bytes,2,opt,name=resources,proto3,oneof" json:"resources,omitempty"`
-	// Requested runtime; server resolves `named` against its catalog or pulls
-	// `image_ref` directly (DEP-4512).
+	// Requested runtime. The server resolves a `named` runtime against its
+	// catalog or pulls an `image_ref` directly.
 	Runtime *Runtime `protobuf:"bytes,3,opt,name=runtime,proto3,oneof" json:"runtime,omitempty"`
-	// Sandbox content source — git/snapshot/image/template variants. The v0
-	// CreateSandbox handler does NOT read this field; it is wired by the
-	// closing slice of the Source/Git Cluster (DEP-4531) and consumed by
-	// DEP-4529 (snapshot). Unset == prior behavior.
+	// Where the sandbox's initial content comes from (git, snapshot, image, or
+	// template). When unset, the sandbox starts with the default content.
 	Source *Source `protobuf:"bytes,4,opt,name=source,proto3,oneof" json:"source,omitempty"`
 }
 
@@ -574,9 +561,9 @@ func (x *GetSandboxResponse) GetSandbox() *Sandbox {
 	return nil
 }
 
-// ListSandboxes — DEP-4514. State + creation-time filter, cursor-based
-// pagination (page_token encodes the last seen ComputeSandbox.createdAt;
-// the cursor pattern mirrors src/domains/ci/service/list-runs.ts).
+// ListSandboxesRequest lists sandboxes, optionally filtered by status and
+// creation time, with cursor-based pagination. page_token is the cursor
+// returned by a previous response.
 type ListSandboxesRequest struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
@@ -695,19 +682,18 @@ func (x *ListSandboxesResponse) GetNextPageToken() string {
 	return ""
 }
 
-// StopSandbox — DEP-4515. Graceful shutdown. The server records the termination
-// request on the row immediately; when `blocking` is true the RPC waits up to a
-// server-side cap for the VM to reach terminal status before returning.
-//
-// `signal` lives on KillSandbox, not here (architecture §5).
+// StopSandboxRequest gracefully shuts a sandbox down. The server records the
+// termination request immediately; when `blocking` is true the RPC waits, up to
+// a server-side limit, for the sandbox to reach a terminal state before
+// returning. To control the signal used, use KillSandbox instead.
 type StopSandboxRequest struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
 	Sandbox *SandboxRef `protobuf:"bytes,1,opt,name=sandbox,proto3" json:"sandbox,omitempty"`
-	// If true, the server polls until the sandbox reaches a terminal state (or
-	// the server-side cap expires) before responding. If false (default), the
+	// If true, the server waits until the sandbox reaches a terminal state (or a
+	// server-side limit is hit) before responding. If false (the default), the
 	// RPC returns as soon as the termination request is recorded.
 	Blocking *bool `protobuf:"varint,2,opt,name=blocking,proto3,oneof" json:"blocking,omitempty"`
 }
@@ -763,9 +749,9 @@ type StopSandboxResponse struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	// The sandbox row after recording the termination request. Status is either
-	// either RUNNING (with terminationRequestedAt non-null) or a terminal status or a terminal status when
-	// the row transitioned before the read.
+	// The sandbox after the termination request was recorded. Its status is
+	// either RUNNING (with termination requested) or a terminal status if it
+	// transitioned before the read.
 	Sandbox *Sandbox `protobuf:"bytes,1,opt,name=sandbox,proto3" json:"sandbox,omitempty"`
 }
 
@@ -808,18 +794,17 @@ func (x *StopSandboxResponse) GetSandbox() *Sandbox {
 	return nil
 }
 
-// KillSandbox — DEP-4515. Forced termination. Fire-and-forget; no blocking
-// option. `signal` is documented at the wire level but ignored by the v0
-// server (which always asks the VM scheduler to mark the row `cancelled`).
-// A future slice wires this through to vm3 SendSignal.
+// KillSandboxRequest forcibly terminates a sandbox. It is fire-and-forget with
+// no blocking option. The `signal` field is accepted but currently ignored; the
+// server always issues a hard cancel.
 type KillSandboxRequest struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
 	Sandbox *SandboxRef `protobuf:"bytes,1,opt,name=sandbox,proto3" json:"sandbox,omitempty"`
-	// Signal name (e.g. "SIGKILL"). Reserved for forward-compat; v0 ignores it
-	// and always issues a hard cancel.
+	// Signal name (for example "SIGKILL"). Reserved for forward compatibility;
+	// it is currently ignored and a hard cancel is always issued.
 	Signal *string `protobuf:"bytes,2,opt,name=signal,proto3,oneof" json:"signal,omitempty"`
 }
 
@@ -921,9 +906,7 @@ type ListSandboxesRequest_Filter struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	// Status filter: if non-empty, only sandboxes whose status is in this set
-	// are returned. (Sketch uses the plural `states` for the field name;
-	// mirrored here.)
+	// If non-empty, only sandboxes whose status is in this set are returned.
 	States        []SandboxStatus        `protobuf:"varint,1,rep,packed,name=states,proto3,enum=depot.sandbox.v1.SandboxStatus" json:"states,omitempty"`
 	CreatedAfter  *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=created_after,json=createdAfter,proto3,oneof" json:"created_after,omitempty"`
 	CreatedBefore *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=created_before,json=createdBefore,proto3,oneof" json:"created_before,omitempty"`

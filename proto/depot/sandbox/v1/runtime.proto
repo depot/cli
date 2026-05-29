@@ -1,40 +1,26 @@
-// depot.sandbox.v1 — Resources + Runtime value-shapes.
-//
-// Extracted from sandbox.proto in P25b (M29) to break the
-// sandbox.proto <-> spec.proto cycle that would otherwise form when the
-// CreateSandboxFromSpec RPC's request/event types land in sandbox.proto
-// (sandbox.proto needs to import spec.proto for SandboxSpec; spec.proto
-// imported sandbox.proto for Resources + Runtime). Wire shape is
-// unchanged — both messages remain in the depot.sandbox.v1 package; only
-// their `.proto` home is different. Mirrors the hook.proto split-out
-// pattern at P23.
+// Value types describing the compute resources and runtime environment
+// requested for a sandbox.
 
 syntax = "proto3";
 
 package depot.sandbox.v1;
 
-// Resources caller may request for a sandbox (DEP-4512).
-//
-// All fields optional; unset means "use server-side default". TODO(policy):
-// defaults are currently server-controlled and undocumented at the wire layer.
-// A future slice will pin them either here in proto comments or in a published
-// policy doc.
+// Compute resources a caller can request for a sandbox. Every field is
+// optional; any field left unset falls back to a server-chosen default.
 message Resources {
   optional int32 vcpus = 1;
   optional int32 memory_mb = 2;
   optional int32 disk_gb = 3;
 }
 
-// Runtime selector for a sandbox (DEP-4512). Callers pick exactly one of:
-//   - `named`: a curated runtime identifier (e.g. "node24") resolved server-side
-//   - `image_ref`: an arbitrary OCI image reference
-//
-// TODO(open-question): the catalog of named runtimes is intentionally open in
-// this slice — any string is accepted on the wire and the server may reject
-// unknown names. A follow-up slice picks between a proto enum vs server config.
+// Selects the runtime environment for a sandbox. Choose exactly one option.
 message Runtime {
   oneof runtime {
+    // A named, curated runtime resolved by the server, such as "node24".
+    // Any string is accepted on the wire; the server may reject names it
+    // does not recognize.
     string named = 1;
+    // An OCI image reference to use directly as the runtime.
     string image_ref = 2;
   }
 }

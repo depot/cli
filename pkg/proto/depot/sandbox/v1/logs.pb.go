@@ -21,15 +21,15 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-// SandboxLogEvent is the streamed event the StreamSandboxLogs RPC emits.
-// Bytes everywhere on the stdout/stderr rails (DEP-4404); the SDK decodes
-// UTF-8 at the adapter layer.
+// A single event emitted by the StreamSandboxLogs RPC.
 //
-// EvictedEarlyData fires when the K-Streaming ring (architecture §10) had to
-// drop head data before this consumer subscribed — analogous to
-// SandboxCommandExecutionEvent.EvictedEarlyData. The dropped-bytes counter is single-rail
-// here (no per-stream split) because the boot-output buffer is keyed by
-// arrival across both stdout/stderr.
+// Output data is carried as raw bytes; callers decode text (such as UTF-8) as
+// needed. Exactly one of the event fields is set per message.
+//
+// EvictedEarlyData is sent when the log buffer had to drop the oldest output
+// before this subscriber connected. Its byte count covers both stdout and
+// stderr combined, since the buffer orders entries by arrival rather than by
+// stream.
 type SandboxLogEvent struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
@@ -139,31 +139,23 @@ func (*SandboxLogEvent_BootFinished_) isSandboxLogEvent_Event() {}
 
 func (*SandboxLogEvent_EvictedEarlyData_) isSandboxLogEvent_Event() {}
 
-// StreamSandboxLogs — DEP-4532. Server-streaming RPC; the response stream is
-// a sequence of SandboxLogEvents drained from the per-sandbox boot-output
-// BufferedEventLog (P27a). Terminates when the buffer ends (boot finished)
-// or with a Connect error.
+// Request for the StreamSandboxLogs server-streaming RPC. The response is a
+// sequence of SandboxLogEvent messages read from the sandbox's log buffer. The
+// stream ends when the sandbox finishes, or with an error.
 //
-// `since_offset` is a BufferedEventLog ring offset (NOT a per-stream byte
-// index). The server replays events whose ring offset is >= the supplied
-// value, and any subscription that requests an offset older than the live
-// ring head receives an EvictedEarlyData prefix once before the replay
-// starts.
-//
-// Cross-replica caveat (MD-33-3 / Risk R1): if this RPC lands on a different
-// replica than the CreateSandboxFromSpec orchestrator that minted the
-// sandbox, the buffer lookup misses and — for non-terminal sandboxes — the
-// stream closes cleanly with no events. The handler also surfaces
-// FailedPrecondition for terminal sandboxes (no past-replay rail in v0).
+// since_offset selects where in the buffer to begin. The server replays events
+// at or after that position. If the requested position is older than the oldest
+// entry still held in the buffer, the stream begins with a single
+// EvictedEarlyData event before the replayed events.
 type StreamSandboxLogsRequest struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
 	Sandbox *SandboxRef `protobuf:"bytes,1,opt,name=sandbox,proto3" json:"sandbox,omitempty"`
-	// BufferedEventLog ring offset to start from. Replay events whose offset
-	// is >= since_offset. Unset (or 0) means "from the beginning of the
-	// resident buffer".
+	// Buffer position to start streaming from. The server replays events at or
+	// after this position. Leave unset (or 0) to start from the oldest entry
+	// still held in the buffer.
 	SinceOffset *int64 `protobuf:"varint,2,opt,name=since_offset,json=sinceOffset,proto3,oneof" json:"since_offset,omitempty"`
 }
 
@@ -219,13 +211,10 @@ type SandboxLogEvent_BootStdout struct {
 	unknownFields protoimpl.UnknownFields
 
 	Data []byte `protobuf:"bytes,1,opt,name=data,proto3" json:"data,omitempty"`
-	// Cumulative byte index for the stdout rail as of the END of `data`
-	// (end-of-chunk semantics, mirroring SandboxCommandExecutionEvent.StdoutBytes.byte_offset
-	// from command.proto). Useful for consumers that want to dedup across
-	// resubscribes that they themselves coordinate at the byte rail; the
-	// server-side replay watermark is the request's `since_offset`, which
-	// is a BufferedEventLog ring offset rather than a per-stream byte
-	// index (MD-33-4).
+	// Total number of stdout bytes emitted up to and including the end of
+	// this chunk. Clients can use it to deduplicate output across their own
+	// resubscriptions. Note that this is a per-stream byte count and is
+	// distinct from the request's since_offset, which is a buffer position.
 	ByteOffset int64                  `protobuf:"varint,2,opt,name=byte_offset,json=byteOffset,proto3" json:"byte_offset,omitempty"`
 	Timestamp  *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
 }
@@ -289,7 +278,8 @@ type SandboxLogEvent_BootStderr struct {
 	unknownFields protoimpl.UnknownFields
 
 	Data []byte `protobuf:"bytes,1,opt,name=data,proto3" json:"data,omitempty"`
-	// Cumulative byte index for the stderr rail; see BootStdout.byte_offset.
+	// Total number of stderr bytes emitted up to and including the end of
+	// this chunk; see BootStdout.byte_offset.
 	ByteOffset int64                  `protobuf:"varint,2,opt,name=byte_offset,json=byteOffset,proto3" json:"byte_offset,omitempty"`
 	Timestamp  *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
 }
@@ -402,9 +392,9 @@ func (x *SandboxLogEvent_BootFinished) GetFinishedAt() *timestamppb.Timestamp {
 	return nil
 }
 
-// K-Streaming evicted head data before this consumer subscribed. Carries
-// the byte count that was dropped so the consumer can reason about the
-// gap. Architecture §10.
+// Sent when the buffer dropped the oldest output before this subscriber
+// connected. Carries the number of bytes that were dropped so the
+// subscriber knows there is a gap in the output it receives.
 type SandboxLogEvent_EvictedEarlyData struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache

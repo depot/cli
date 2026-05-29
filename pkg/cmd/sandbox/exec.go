@@ -12,12 +12,11 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// newSandboxExec wraps depot.sandbox.v1.SandboxService.RunCommand — execute
-// one command in an existing sandbox and stream the CommandEvent rail.
+// newSandboxExec builds the `exec` command, which runs a single command in an
+// existing sandbox and streams the command's output events back to the caller.
 //
-// M34 retires the legacy --sess flag (D-M34-M) — sandboxv1 takes a SandboxRef only.
-// M34 deprecates --timeout (MD-7); the flag is hidden + ignored, removed in a
-// follow-on slice.
+// The command targets a sandbox by id. The --timeout flag is deprecated: it is
+// hidden and ignored, since timeouts are not part of the current wire protocol.
 func newSandboxExec() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "exec [flags] <sandbox-id> -- <command> [args...]",
@@ -78,8 +77,8 @@ parsing stops there.`,
 				req.Detached = &detached
 			}
 
-			// --timeout is deprecated (MD-7). Warn if anyone still sets it,
-			// but don't fail — the wire field is gone in v0.
+			// The --timeout flag is deprecated. Warn if it is still set, but
+			// do not fail, since the wire protocol no longer carries a timeout.
 			if t, _ := cmd.Flags().GetInt("timeout"); t > 0 {
 				fmt.Fprintln(cmd.ErrOrStderr(), "warning: --timeout is deprecated and ignored on the v0 wire; remove it (will be deleted in a follow-on slice)")
 			}
@@ -108,7 +107,7 @@ parsing stops there.`,
 	cmd.Flags().StringArray("env", nil, "Environment variables to set (KEY=VALUE), repeatable")
 	cmd.Flags().Bool("sudo", false, "Run as root")
 	cmd.Flags().Bool("detached", false, "Return after Started; reattach later via AttachCommand")
-	// Deprecated — hidden + ignored. Removed in a follow-on slice (MD-7).
+	// Deprecated: hidden and ignored.
 	cmd.Flags().Int("timeout", 0, "Deprecated: timeouts are not part of the v0 wire (will be removed)")
 	_ = cmd.Flags().MarkHidden("timeout")
 	addHookFlags(cmd, "on.exec")
@@ -116,8 +115,8 @@ parsing stops there.`,
 	return cmd
 }
 
-// parseEnvSlice converts ["KEY=VALUE", ...] into a map; rejects entries with
-// no '='. Shared by exec / exec-pipe / shell.
+// parseEnvSlice converts a list of "KEY=VALUE" strings into a map, rejecting
+// any entry that has no '='.
 func parseEnvSlice(in []string) (map[string]string, error) {
 	if len(in) == 0 {
 		return nil, nil

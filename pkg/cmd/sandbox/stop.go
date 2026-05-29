@@ -12,18 +12,15 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// newSandboxStop wraps depot.sandbox.v1.SandboxService.StopSandbox — the
-// graceful shutdown verb (terminated_by=GRACEFUL). M34 renames the legacy
-// `down` to `stop` to match the SDK vocabulary; `down` survives as a cobra
-// alias for script-compat (D-M34-O).
+// newSandboxStop builds the `stop` command, which gracefully shuts down a
+// sandbox. `down` is kept as an alias for backward compatibility.
 //
-// With no positional args, walks up from cwd for a sandbox.depot.yml and
-// resolves the most-recent sandbox started under that spec name (per
-// ~/.depot/sandbox-state/<name>.id). With one or more ids, stops each.
+// With no positional args, it walks up from cwd for a sandbox.depot.yml and
+// resolves the most recent sandbox started under that spec's name (recorded in
+// ~/.depot/sandbox-state/<name>.id). With one or more ids, it stops each.
 //
-// Hook behavior: on.down hooks are still CLI-side (D-M34-I) — they run via
-// RunCommand against the sandboxv1 wire before the StopSandbox call. Pass
-// --no-hook to skip and stop immediately.
+// The CLI runs on.down hooks against the sandbox before requesting the stop.
+// Pass --no-hook to skip the hooks and stop immediately.
 func newSandboxStop() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "stop [<sandbox-id>...]",

@@ -1,15 +1,6 @@
-// depot.sandbox.v1.Source — shared sandbox-creation source descriptor.
-//
-// The `source` field on CreateSandboxRequest (and, in a later slice,
-// CreateSandboxFromSpecRequest) accepts one of: git, snapshot, image, template.
-// Tickets that reference this without introducing it: DEP-4529 (snapshot
-// source consumer), DEP-4531 (git source consumer, the closing P20 slice of
-// the Source/Git Cluster).
-//
-// Cluster boundary note: none of GitSource/SnapshotSource/ImageSource/
-// TemplateSource embed SandboxRef, so this file intentionally does NOT
-// import refs.proto. If a future variant needs SandboxRef, import refs.proto
-// here — NOT sandbox.proto (which would create a cycle).
+// Describes where a new sandbox's initial filesystem comes from. A sandbox
+// can be created from a Git repository, a snapshot, an OCI image, or a
+// template, and this descriptor carries exactly one of those choices.
 
 syntax = "proto3";
 
@@ -17,10 +8,10 @@ package depot.sandbox.v1;
 
 message Source {
   oneof variant {
-    GitSource git = 1;            // DEP-4531 — host-side fetch, ext4 layer mount
-    SnapshotSource snapshot = 2;  // DEP-4529 — create from snapshot
-    ImageSource image = 3;        // raw OCI image (v1 carry-over)
-    TemplateSource template = 4;  // legacy template id (v1 carry-over)
+    GitSource git = 1;            // Clone a Git repository into the sandbox.
+    SnapshotSource snapshot = 2;  // Restore from a previously taken snapshot.
+    ImageSource image = 3;        // Start from an OCI image.
+    TemplateSource template = 4;  // Start from a named template.
   }
 }
 
@@ -28,10 +19,9 @@ message GitSource {
   string url = 1;
   optional string branch = 2;
   optional string commit = 3;
-  // Org secret name carrying credentials. Resolution rules:
-  // unset → public repo (no auth); set → looked up via org secret store.
-  // TODO(open-question): DEP-4531 leaves credential resolution underspecified;
-  // the closing slice picks the resolution semantics.
+  // Name of an organization secret holding the credentials used to clone
+  // the repository. Leave unset for public repositories that need no
+  // authentication; when set, the named secret is resolved at clone time.
   optional string secret = 4;
 }
 
@@ -41,9 +31,8 @@ message SnapshotSource {
 
 message ImageSource {
   string image_ref = 1;
-  // Future: optional auth handle. v0 assumes the registry is public or
-  // covered by the host-side credentials helper. Reserved for follow-on
-  // tickets in the Public Beta milestone (external OCI image support).
+  // The registry must be either public or reachable using credentials the
+  // host already provides; per-image authentication is not yet supported.
 }
 
 message TemplateSource {

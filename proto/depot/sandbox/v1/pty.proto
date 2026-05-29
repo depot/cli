@@ -4,21 +4,19 @@ package depot.sandbox.v1;
 
 import "depot/sandbox/v1/refs.proto";
 
-// Pty surface for depot.sandbox.v1 (DEP-4527 / P18).
+// Interactive pseudo-terminal session in a sandbox.
 //
-// Single bidi RPC: SandboxService.OpenPty. The first request on the stream
-// MUST carry `start`; subsequent requests carry `stdin` bytes or `resize`
-// window changes. Response stream is `data` byte chunks terminated by an
-// `Exit` carrying the exit code.
+// This is served by a single bidirectional RPC, OpenPty. The first request on
+// the stream must carry start; later requests carry stdin bytes or resize
+// window changes. The response stream is a series of data byte chunks,
+// terminated by an Exit message carrying the exit code.
 //
-// Implementation passes through to vm3 ProxyService.PtySession (same wire path
-// as the legacy ci.v1.OpenPtySession); vm3 hardcodes /bin/sh, so no `shell`
-// selector exists at the wire layer. Architecture §13: no reattach in v0;
-// closing the stream ends the pty.
+// The session always runs /bin/sh, so there is no field to choose a shell.
+// There is no way to reattach to a session; closing the stream ends the pty.
 //
-// Bytes-everywhere on the wire: pty output is binary-safe (often includes
-// ANSI control sequences and other non-UTF-8 bytes); the SDK exposes it as
-// Buffer rather than decoding to string at the adapter.
+// Pty output is binary and may include ANSI control sequences and other
+// non-UTF-8 bytes, so it is carried as raw bytes and the SDK exposes it as a
+// Buffer rather than decoding it to a string.
 
 message OpenPtyRequest {
   oneof input {
@@ -27,9 +25,9 @@ message OpenPtyRequest {
     Resize resize = 3;
   }
 
-  // Start carries the per-session init parameters. Sent as the first message
-  // on the stream. Subsequent `start` messages on the same stream are a
-  // protocol violation and ignored by the handler.
+  // Carries the parameters that open the session. It must be the first message
+  // on the stream. Any later start message on the same stream is invalid and is
+  // ignored by the handler.
   message Start {
     SandboxRef sandbox = 1;
     map<string, string> env = 2;
@@ -38,8 +36,8 @@ message OpenPtyRequest {
     optional string cwd = 5;
   }
 
-  // Resize is a window-size change. vm3 maps it to the OS pty Setsize ioctl
-  // which clamps out-of-range values; bounds are intentionally pass-through.
+  // Changes the terminal window size. Values are passed through to the
+  // operating system, which clamps any that are out of range.
   message Resize {
     uint32 rows = 1;
     uint32 cols = 2;

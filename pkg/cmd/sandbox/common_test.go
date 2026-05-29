@@ -6,9 +6,9 @@ import (
 	sandboxv1 "github.com/depot/cli/pkg/proto/depot/sandbox/v1"
 )
 
-// Touch-test (D-M34-D): every <sandbox-id> on the v0 wire flows through
-// sandboxRef(). Pin the wire shape so a future refactor can't silently
-// regress to a bare string id without the oneof envelope.
+// Every sandbox id passed over the wire flows through sandboxRef(). This pins
+// the wire shape so a future refactor cannot silently regress to a bare string
+// id without the oneof envelope.
 func TestSandboxRef_PinnedShape(t *testing.T) {
 	r := sandboxRef("cs-abc123")
 	if r == nil {

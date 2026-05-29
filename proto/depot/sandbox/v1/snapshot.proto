@@ -1,11 +1,11 @@
-// depot.sandbox.v1.Snapshot — durable filesystem snapshot of a sandbox.
+// A durable filesystem snapshot of a sandbox, with the RPCs to create, get,
+// list, and delete one.
 //
-// DEP-4529 — Snapshot Cluster CRUD surface. The cluster ships the wire surface
-// + the SDK ergonomics; the vm3-side snapshot/restore pipeline that backs the
-// handlers is a follow-on. v0 handlers return Unimplemented until that lands.
+// This file defines the wire surface and the SDK ergonomics for snapshots. The
+// underlying snapshot and restore pipeline is not yet implemented, so the
+// handlers currently return Unimplemented.
 //
-// Storage reuses the legacy SandboxTemplate registry (one row per snapshot,
-// soft-deleted via deletedAt). The cross-package selector SnapshotRef lives in
+// The selector used to reference a snapshot, SnapshotRef, is defined in
 // refs.proto.
 
 syntax = "proto3";
@@ -16,9 +16,10 @@ import "depot/sandbox/v1/refs.proto";
 import "google/protobuf/duration.proto";
 import "google/protobuf/timestamp.proto";
 
-// Snapshot is the canonical message returned by the Snapshot CRUD RPCs.
+// A snapshot, as returned by the snapshot RPCs.
 //
-// `expires_at` is reserved for a future TTL surface; v0 leaves it unset.
+// expires_at is reserved for a future time-to-live feature and is currently
+// left unset.
 message Snapshot {
   string snapshot_id = 1;
   string source_sandbox_id = 2;
@@ -28,9 +29,9 @@ message Snapshot {
 
 message CreateSnapshotRequest {
   SandboxRef sandbox = 1;
-  // Forward-compat TTL hint. The v0 server IGNORES this value; the field is
-  // reserved on the wire so the SDK option lands today and a future slice
-  // can wire it without a wire break.
+  // Requested time-to-live for the snapshot. The server currently ignores this
+  // value; the field exists so the SDK option is available now and a future
+  // version can honor it without a wire break.
   optional google.protobuf.Duration expiration = 2;
 }
 
