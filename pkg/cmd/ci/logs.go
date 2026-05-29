@@ -1210,16 +1210,3 @@ func workflowPathMatches(path, filter string) bool {
 func formatJobList(candidates []jobCandidate) string {
 	return coreci.FormatJobList(toCoreJobCandidates(candidates))
 }
-
-func pickJobForResolver(items []coreci.JobPickerItem) (int, error) {
-	pickerItems := make([]PickJobItem, len(items))
-	for i, item := range items {
-		pickerItems[i] = PickJobItem{
-			Name:     item.Name,
-			Status:   item.Status,
-			Workflow: item.Workflow,
-			Index:    item.Index,
-		}
-	}
-	return PickJob(pickerItems)
-}
