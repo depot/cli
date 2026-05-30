@@ -210,9 +210,14 @@ message CreateSandboxRequest {
   // Requested runtime. The server resolves a `named` runtime against its
   // catalog or pulls an `image_ref` directly.
   optional Runtime runtime = 3;
+  // Environment variables to apply to the sandbox. They are stored on the
+  // sandbox and merged into every command run in it, with a command's own
+  // environment taking precedence on a key collision. Values are passed
+  // through verbatim, with no shell interpretation.
+  map<string, string> env = 4;
   // Where the sandbox's initial content comes from (git, snapshot, image, or
   // template). When unset, the sandbox starts with the default content.
-  optional Source source = 4;
+  optional Source source = 5;
 }
 
 message CreateSandboxResponse {
