@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"os"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -23,7 +22,7 @@ const maxPageSize = 500
 
 var (
 	resolveOrgAuthFunc    = helpers.ResolveOrgAuth
-	resolveStaticAuthFunc = resolveStaticOrgAuth
+	resolveStaticAuthFunc = helpers.ResolveStaticOrgAuth
 	currentOrgFunc        = config.GetCurrentOrganization
 	listTestResultsFunc   = api.ListTestResults
 	ciGetRunStatusFunc    = api.CIGetRunStatus
@@ -177,25 +176,6 @@ func resolveToken(ctx context.Context, explicitToken, output string) (string, er
 		return resolveStaticAuthFunc(explicitToken), nil
 	}
 	return resolveOrgAuthFunc(ctx, explicitToken)
-}
-
-func resolveStaticOrgAuth(explicitToken string) string {
-	if explicitToken != "" {
-		return explicitToken
-	}
-	if token := os.Getenv("DEPOT_TOKEN"); token != "" {
-		return token
-	}
-	if token := config.GetApiToken(); token != "" {
-		return token
-	}
-	if token := os.Getenv("DEPOT_JIT_TOKEN"); token != "" {
-		return token
-	}
-	if token := os.Getenv("DEPOT_CACHE_TOKEN"); token != "" {
-		return token
-	}
-	return ""
 }
 
 func requestFromOptions(ctx context.Context, token, id string, opts options) (*testresultsv1.ListTestResultsRequest, error, error) {

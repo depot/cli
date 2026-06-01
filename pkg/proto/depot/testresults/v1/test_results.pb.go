@@ -136,7 +136,7 @@ type ReportTestResultsRequest struct {
 	// Per-step identity key that scopes multiple reports within a single owner.
 	// Must be non-empty.
 	InvocationId string `protobuf:"bytes,1,opt,name=invocation_id,json=invocationId,proto3" json:"invocation_id,omitempty"`
-	// One entry per JUnit XML file matched by the action's glob.
+	// One entry per JUnit XML file included in the report.
 	Files []*TestResultsFile `protobuf:"bytes,2,rep,name=files,proto3" json:"files,omitempty"`
 }
 
@@ -191,7 +191,7 @@ type TestResultsFile struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	// Relative filename from the action's glob (telemetry/debugging only).
+	// Relative filename for this JUnit XML file (telemetry/debugging only).
 	Filename string `protobuf:"bytes,1,opt,name=filename,proto3" json:"filename,omitempty"`
 	// gzip-compressed JUnit XML bytes. This must be a gzip stream, not a zip
 	// archive containing multiple XML files.
@@ -527,7 +527,7 @@ type TestResult struct {
 	OwnerType TestResultsOwnerType `protobuf:"varint,1,opt,name=owner_type,json=ownerType,proto3,enum=depot.testresults.v1.TestResultsOwnerType" json:"owner_type,omitempty"`
 	// Unique identifier for the concrete owner that reported this result.
 	OwnerId string `protobuf:"bytes,2,opt,name=owner_id,json=ownerId,proto3" json:"owner_id,omitempty"`
-	// Invocation identifier supplied by the reporting action.
+	// Invocation identifier supplied with the report.
 	InvocationId string `protobuf:"bytes,3,opt,name=invocation_id,json=invocationId,proto3" json:"invocation_id,omitempty"`
 	// Test suite name from the parsed JUnit XML.
 	SuiteName string `protobuf:"bytes,4,opt,name=suite_name,json=suiteName,proto3" json:"suite_name,omitempty"`

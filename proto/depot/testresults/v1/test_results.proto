@@ -41,12 +41,12 @@ message ReportTestResultsRequest {
   // Must be non-empty.
   string invocation_id = 1;
 
-  // One entry per JUnit XML file matched by the action's glob.
+  // One entry per JUnit XML file included in the report.
   repeated TestResultsFile files = 2;
 }
 
 message TestResultsFile {
-  // Relative filename from the action's glob (telemetry/debugging only).
+  // Relative filename for this JUnit XML file (telemetry/debugging only).
   string filename = 1;
   // gzip-compressed JUnit XML bytes. This must be a gzip stream, not a zip
   // archive containing multiple XML files.
@@ -118,7 +118,7 @@ message TestResult {
   // Unique identifier for the concrete owner that reported this result.
   string owner_id = 2;
 
-  // Invocation identifier supplied by the reporting action.
+  // Invocation identifier supplied with the report.
   string invocation_id = 3;
 
   // Test suite name from the parsed JUnit XML.
