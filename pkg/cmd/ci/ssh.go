@@ -300,21 +300,22 @@ func matchJobKey(jobKey, userKey string) int {
 }
 
 func printSSHInfo(sandboxID, sessionID, output string) error {
+	host := "exec.depot.dev"
 	if output == "json" {
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
 		return enc.Encode(map[string]string{
-			"host":        "api.depot.dev",
+			"host":        host,
 			"sandbox_id":  sandboxID,
 			"session_id":  sessionID,
-			"ssh_command": fmt.Sprintf("ssh %s@api.depot.dev", sandboxID),
+			"ssh_command": fmt.Sprintf("ssh %s@%s", sandboxID, host),
 		})
 	}
 
-	fmt.Printf("Host:     api.depot.dev\n")
+	fmt.Printf("Host:     %s\n", host)
 	fmt.Printf("User:     %s\n", sandboxID)
 	fmt.Printf("Password: Use your Depot API token ($DEPOT_TOKEN)\n")
 	fmt.Println()
-	fmt.Printf("Connect:  ssh %s@api.depot.dev\n", sandboxID)
+	fmt.Printf("Connect:  ssh %s@%s\n", sandboxID, host)
 	return nil
 }
