@@ -60,9 +60,16 @@ job IDs resolve to the latest matching attempt, matching depot ci logs.
 
 Use --gha for GitHub Actions results. The ID may be a GitHub Actions job ID or
 the stored Depot GitHub job row ID.`,
-		Example: `  depot tests <attempt-id> --ci
+		Example: `  # List Depot CI results for one attempt
+  depot tests <attempt-id> --ci
+
+  # List Depot CI results for one job in a run
   depot tests <run-id> --ci --job test
+
+  # List failed GitHub Actions results for one job
   depot tests <github-job-id> --gha --status failed
+
+  # Emit JSON for automation
   depot tests <attempt-id> --ci --output json`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {

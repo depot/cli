@@ -133,9 +133,8 @@ type ReportTestResultsRequest struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	// Per-step identity key. Populated by the action from `key:` input, else
-	// $GITHUB_ACTION, else "default". This scopes multiple reports within a
-	// single owner. Must be non-empty.
+	// Per-step identity key that scopes multiple reports within a single owner.
+	// Must be non-empty.
 	InvocationId string `protobuf:"bytes,1,opt,name=invocation_id,json=invocationId,proto3" json:"invocation_id,omitempty"`
 	// One entry per JUnit XML file matched by the action's glob.
 	Files []*TestResultsFile `protobuf:"bytes,2,rep,name=files,proto3" json:"files,omitempty"`
