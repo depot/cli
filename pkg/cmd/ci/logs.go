@@ -1128,7 +1128,7 @@ func findLogsJobWithOptions(resp *civ1.GetRunStatusResponse, originalID, jobKey,
 		bestTier := 0
 		tierMatches := map[int][]jobCandidate{}
 		for _, c := range candidates {
-			if tier := matchJobKey(c.job.JobKey, jobKey); tier > 0 {
+			if tier := coreci.MatchJobKey(c.job.JobKey, jobKey); tier > 0 {
 				tierMatches[tier] = append(tierMatches[tier], c)
 				if bestTier == 0 || tier < bestTier {
 					bestTier = tier

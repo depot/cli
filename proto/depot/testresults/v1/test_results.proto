@@ -37,9 +37,8 @@ enum TestResultStatus {
 }
 
 message ReportTestResultsRequest {
-  // Per-step identity key. Populated by the action from `key:` input, else
-  // $GITHUB_ACTION, else "default". This scopes multiple reports within a
-  // single owner. Must be non-empty.
+  // Per-step identity key that scopes multiple reports within a single owner.
+  // Must be non-empty.
   string invocation_id = 1;
 
   // One entry per JUnit XML file matched by the action's glob.

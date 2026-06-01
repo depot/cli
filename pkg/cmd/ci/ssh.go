@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/depot/cli/pkg/api"
+	coreci "github.com/depot/cli/pkg/ci"
 	"github.com/depot/cli/pkg/config"
 	"github.com/depot/cli/pkg/helpers"
 	civ1 "github.com/depot/cli/pkg/proto/depot/ci/v1"
@@ -211,7 +212,7 @@ func findJob(resp *civ1.GetRunStatusResponse, jobKey, originalID string) (*civ1.
 		bestTier := 0
 		tierMatches := map[int][]*civ1.JobStatus{}
 		for _, j := range allJobs {
-			if tier := matchJobKey(j.JobKey, jobKey); tier > 0 {
+			if tier := coreci.MatchJobKey(j.JobKey, jobKey); tier > 0 {
 				tierMatches[tier] = append(tierMatches[tier], j)
 				if bestTier == 0 || tier < bestTier {
 					bestTier = tier
@@ -275,28 +276,6 @@ func workflowErrorMessage(resp *civ1.GetRunStatusResponse) string {
 		}
 	}
 	return ""
-}
-
-// matchJobKey returns the match tier of userKey against the full jobKey.
-// Returns 0 for no match. Lower non-zero values are higher priority:
-//
-//	1 = exact match ("build" == "build")
-//	2 = suffix match ("_inline_0.yaml:build" ends with ":build")
-//	3 = segment match ("pr.yaml:bazel:build" contains ":bazel:" as a segment)
-func matchJobKey(jobKey, userKey string) int {
-	if jobKey == userKey {
-		return 1
-	}
-	if strings.HasSuffix(jobKey, ":"+userKey) {
-		return 2
-	}
-	// Check if userKey appears as a complete colon-delimited segment anywhere
-	// in the key. Handles reusable workflow keys like "pr.yaml:bazel:build"
-	// where "bazel" is an intermediate segment.
-	if strings.Contains(":"+jobKey+":", ":"+userKey+":") {
-		return 3
-	}
-	return 0
 }
 
 func printSSHInfo(sandboxID, sessionID, output string) error {
