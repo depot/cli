@@ -3,6 +3,7 @@ package ci
 import (
 	"testing"
 
+	coreci "github.com/depot/cli/pkg/ci"
 	civ1 "github.com/depot/cli/pkg/proto/depot/ci/v1"
 )
 
@@ -31,9 +32,9 @@ func TestMatchJobKey(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		got := matchJobKey(tt.jobKey, tt.userKey)
+		got := coreci.MatchJobKey(tt.jobKey, tt.userKey)
 		if got != tt.want {
-			t.Errorf("matchJobKey(%q, %q) = %d, want %d", tt.jobKey, tt.userKey, got, tt.want)
+			t.Errorf("MatchJobKey(%q, %q) = %d, want %d", tt.jobKey, tt.userKey, got, tt.want)
 		}
 	}
 }

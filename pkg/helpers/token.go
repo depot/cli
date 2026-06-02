@@ -11,19 +11,7 @@ import (
 )
 
 func ResolveOrgAuth(ctx context.Context, tok string) (string, error) {
-	if tok != "" {
-		return tok, nil
-	}
-
-	if token := os.Getenv("DEPOT_TOKEN"); token != "" {
-		return token, nil
-	}
-
-	if token := config.GetApiToken(); token != "" {
-		return token, nil
-	}
-
-	if token := resolveJITToken(); token != "" {
+	if token := ResolveStaticOrgAuth(tok); token != "" {
 		return token, nil
 	}
 
@@ -32,6 +20,22 @@ func ResolveOrgAuth(ctx context.Context, tok string) (string, error) {
 	}
 
 	return "", nil
+}
+
+func ResolveStaticOrgAuth(tok string) string {
+	if tok != "" {
+		return tok
+	}
+
+	if token := os.Getenv("DEPOT_TOKEN"); token != "" {
+		return token
+	}
+
+	if token := config.GetApiToken(); token != "" {
+		return token
+	}
+
+	return resolveJITToken()
 }
 
 func ResolveProjectAuth(ctx context.Context, tok string) (string, error) {
