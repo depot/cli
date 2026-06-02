@@ -329,16 +329,17 @@ type ListTestResultsRequest struct {
 	OwnerType TestResultsOwnerType `protobuf:"varint,1,opt,name=owner_type,json=ownerType,proto3,enum=depot.testresults.v1.TestResultsOwnerType" json:"owner_type,omitempty"`
 	// Unique identifier for the owner to read. When `ownerType` is
 	// `TEST_RESULTS_OWNER_TYPE_CI`, this must be a CI attempt ID. When
-	// `ownerType` is `TEST_RESULTS_OWNER_TYPE_GITHUB_ACTIONS`, this must be a
-	// GitHub Actions job ID. When `ownerType` is unspecified, this can be a CI
-	// attempt ID or a GitHub Actions job ID.
+	// `ownerType` is `TEST_RESULTS_OWNER_TYPE_GITHUB_ACTIONS`, this must be the
+	// GitHub job ID. When `ownerType` is unspecified, this can be a CI attempt ID
+	// or GitHub job ID.
 	// Required.
 	OwnerId string `protobuf:"bytes,2,opt,name=owner_id,json=ownerId,proto3" json:"owner_id,omitempty"`
 	// An array of test statuses to include. Leave empty to include every status.
 	Status []TestResultStatus `protobuf:"varint,3,rep,packed,name=status,proto3,enum=depot.testresults.v1.TestResultStatus" json:"status,omitempty"`
 	// Test suite name to include. Leave empty to include every suite.
 	SuiteName string `protobuf:"bytes,4,opt,name=suite_name,json=suiteName,proto3" json:"suite_name,omitempty"`
-	// Test case name to include. Leave empty to include every test.
+	// Case-insensitive test case name substring to include. Leave empty to
+	// include every test.
 	TestName string `protobuf:"bytes,5,opt,name=test_name,json=testName,proto3" json:"test_name,omitempty"`
 	// Test class name to include. Leave empty to include every class.
 	ClassName string `protobuf:"bytes,6,opt,name=class_name,json=className,proto3" json:"class_name,omitempty"`
