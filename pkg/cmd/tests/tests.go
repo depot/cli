@@ -54,22 +54,25 @@ func NewCmdTests() *cobra.Command {
 		Short: "List test results",
 		Long: `List parsed test results for a Depot CI attempt or GitHub Actions job.
 
-Use --ci for Depot CI results. The ID may be a run, job, or attempt ID; run and
-job IDs resolve to the latest matching attempt, matching depot ci logs.
+By default, Depot tries the ID as Depot CI results or GitHub Actions results.
 
-Use --gha for GitHub Actions results. The ID may be a GitHub Actions job ID or
-the stored Depot GitHub job row ID.`,
+Use --ci to restrict lookup to Depot CI results. The ID may be a run, job, or
+attempt ID; run and job IDs resolve to the latest matching attempt, matching
+depot ci logs.
+
+Use --gha to restrict lookup to GitHub Actions results. The ID may be a GitHub
+Actions job ID.`,
 		Example: `  # List Depot CI results for one attempt
-  depot tests <attempt-id> --ci
+  depot tests <attempt-id>
 
   # List Depot CI results for one job in a run
-  depot tests <run-id> --ci --job test
+  depot tests <run-id> --job test
 
   # List failed GitHub Actions results for one job
   depot tests <github-job-id> --gha --status failed
 
   # Emit JSON for automation
-  depot tests <attempt-id> --ci --output json`,
+  depot tests <attempt-id> --output json`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return run(cmd, args[0], opts)
@@ -79,8 +82,8 @@ the stored Depot GitHub job row ID.`,
 	flags := cmd.Flags()
 	flags.StringVar(&opts.orgID, "org", "", "Organization ID (required when user is a member of multiple organizations)")
 	flags.StringVar(&opts.token, "token", "", "Depot API token")
-	flags.BoolVar(&opts.ci, "ci", false, "Read Depot CI test results")
-	flags.BoolVar(&opts.gha, "gha", false, "Read GitHub Actions test results")
+	flags.BoolVar(&opts.ci, "ci", false, "Restrict lookup to Depot CI test results")
+	flags.BoolVar(&opts.gha, "gha", false, "Restrict lookup to GitHub Actions test results")
 	flags.StringVar(&opts.job, "job", "", "Depot CI job key to select when ID is a run")
 	flags.StringVar(&opts.workflow, "workflow", "", "Depot CI workflow path to filter jobs (e.g. ci.yml)")
 	flags.StringArrayVar(&opts.statuses, "status", nil, "Test status to include (unknown, passed, failed, errored, skipped); repeatable")
@@ -137,13 +140,13 @@ func run(cmd *cobra.Command, id string, opts options) error {
 }
 
 func validateOptions(opts options) error {
-	if opts.ci == opts.gha {
-		return fmt.Errorf("choose exactly one backend: --ci or --gha")
+	if opts.ci && opts.gha {
+		return fmt.Errorf("--ci and --gha are mutually exclusive")
 	}
 
 	if opts.job != "" || opts.workflow != "" {
-		if !opts.ci {
-			return fmt.Errorf("--job and --workflow can only be used with --ci")
+		if opts.gha {
+			return fmt.Errorf("--job and --workflow can only be used with Depot CI")
 		}
 	}
 
@@ -185,9 +188,11 @@ func requestFromOptions(ctx context.Context, token, id string, opts options) (*t
 	}
 
 	ownerID := id
-	ownerType := testresultsv1.TestResultsOwnerType_TEST_RESULTS_OWNER_TYPE_GITHUB_ACTIONS
+	ownerType := testresultsv1.TestResultsOwnerType_TEST_RESULTS_OWNER_TYPE_UNSPECIFIED
 	var runLookupErr error
-	if opts.ci {
+
+	switch {
+	case opts.ci || opts.job != "" || opts.workflow != "":
 		ownerType = testresultsv1.TestResultsOwnerType_TEST_RESULTS_OWNER_TYPE_CI
 		attemptID, lookupErr, err := resolveCIAttempt(ctx, token, opts.orgID, id, opts.job, opts.workflow)
 		if err != nil {
@@ -195,6 +200,17 @@ func requestFromOptions(ctx context.Context, token, id string, opts options) (*t
 		}
 		ownerID = attemptID
 		runLookupErr = lookupErr
+	case opts.gha:
+		ownerType = testresultsv1.TestResultsOwnerType_TEST_RESULTS_OWNER_TYPE_GITHUB_ACTIONS
+	default:
+		attemptID, _, err := resolveCIRunOrJobAttempt(ctx, token, opts.orgID, id, "", "")
+		if err != nil {
+			return nil, nil, err
+		}
+		if attemptID != "" {
+			ownerType = testresultsv1.TestResultsOwnerType_TEST_RESULTS_OWNER_TYPE_CI
+			ownerID = attemptID
+		}
 	}
 
 	return &testresultsv1.ListTestResultsRequest{
@@ -211,9 +227,8 @@ func requestFromOptions(ctx context.Context, token, id string, opts options) (*t
 }
 
 func resolveCIAttempt(ctx context.Context, token, orgID, id, job, workflow string) (string, error, error) {
-	resp, runErr := ciGetRunStatusFunc(ctx, token, orgID, id)
+	attemptID, runErr, err := resolveCIRunOrJobAttempt(ctx, token, orgID, id, job, workflow)
 	if runErr == nil {
-		attemptID, err := coreci.ResolveAttemptForRunStatus(resp, id, job, workflow)
 		return attemptID, nil, err
 	}
 
@@ -222,6 +237,16 @@ func resolveCIAttempt(ctx context.Context, token, orgID, id, job, workflow strin
 	}
 
 	return id, runErr, nil
+}
+
+func resolveCIRunOrJobAttempt(ctx context.Context, token, orgID, id, job, workflow string) (string, error, error) {
+	resp, runErr := ciGetRunStatusFunc(ctx, token, orgID, id)
+	if runErr != nil {
+		return "", runErr, nil
+	}
+
+	attemptID, err := coreci.ResolveAttemptForRunStatus(resp, id, job, workflow)
+	return attemptID, nil, err
 }
 
 func parseStatuses(values []string) ([]testresultsv1.TestResultStatus, error) {

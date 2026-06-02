@@ -325,12 +325,14 @@ type ListTestResultsRequest struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	// Backend that owns `ownerId`. Required.
+	// Backend that owns `ownerId`. Leave unspecified to infer it from `ownerId`.
 	OwnerType TestResultsOwnerType `protobuf:"varint,1,opt,name=owner_type,json=ownerType,proto3,enum=depot.testresults.v1.TestResultsOwnerType" json:"owner_type,omitempty"`
 	// Unique identifier for the owner to read. When `ownerType` is
 	// `TEST_RESULTS_OWNER_TYPE_CI`, this must be a CI attempt ID. When
-	// `ownerType` is `TEST_RESULTS_OWNER_TYPE_GITHUB_ACTIONS`, this can be the
-	// Depot GitHub job row ID or the GitHub job ID. Required.
+	// `ownerType` is `TEST_RESULTS_OWNER_TYPE_GITHUB_ACTIONS`, this must be a
+	// GitHub Actions job ID. When `ownerType` is unspecified, this can be a CI
+	// attempt ID or a GitHub Actions job ID.
+	// Required.
 	OwnerId string `protobuf:"bytes,2,opt,name=owner_id,json=ownerId,proto3" json:"owner_id,omitempty"`
 	// An array of test statuses to include. Leave empty to include every status.
 	Status []TestResultStatus `protobuf:"varint,3,rep,packed,name=status,proto3,enum=depot.testresults.v1.TestResultStatus" json:"status,omitempty"`

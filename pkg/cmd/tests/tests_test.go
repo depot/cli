@@ -115,6 +115,98 @@ func TestRunResolvesCIRunToLatestAttempt(t *testing.T) {
 	}
 }
 
+func TestRunResolvesCIJobWhenJobFlagIsSetWithoutBackend(t *testing.T) {
+	resetTestHooks(t)
+
+	ciGetRunStatusFunc = func(_ context.Context, _ string, _ string, id string) (*civ1.GetRunStatusResponse, error) {
+		if id != "run-1" {
+			t.Fatalf("expected run lookup for %q, got %q", "run-1", id)
+		}
+		return &civ1.GetRunStatusResponse{
+			RunId: "run-1",
+			Workflows: []*civ1.WorkflowStatus{
+				{
+					WorkflowPath: ".depot/workflows/ci.yml",
+					Jobs: []*civ1.JobStatus{
+						{
+							JobId:  "job-1",
+							JobKey: "test",
+							Attempts: []*civ1.AttemptStatus{
+								{AttemptId: "attempt-1", Attempt: 1},
+								{AttemptId: "attempt-2", Attempt: 2},
+							},
+						},
+					},
+				},
+			},
+		}, nil
+	}
+
+	var got *testresultsv1.ListTestResultsRequest
+	listTestResultsFunc = func(_ context.Context, _, _ string, req *testresultsv1.ListTestResultsRequest) (*testresultsv1.ListTestResultsResponse, error) {
+		got = req
+		return &testresultsv1.ListTestResultsResponse{OwnerId: req.GetOwnerId()}, nil
+	}
+
+	_, err := executeCommand("run-1", "--job", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if got.GetOwnerType() != testresultsv1.TestResultsOwnerType_TEST_RESULTS_OWNER_TYPE_CI {
+		t.Fatalf("expected CI owner type, got %v", got.GetOwnerType())
+	}
+	if got.GetOwnerId() != "attempt-2" {
+		t.Fatalf("expected latest attempt %q, got %q", "attempt-2", got.GetOwnerId())
+	}
+}
+
+func TestRunResolvesCIJobIDWhenBackendOmitted(t *testing.T) {
+	resetTestHooks(t)
+
+	ciGetRunStatusFunc = func(_ context.Context, _ string, _ string, id string) (*civ1.GetRunStatusResponse, error) {
+		if id != "job-1" {
+			t.Fatalf("expected run lookup for %q, got %q", "job-1", id)
+		}
+		return &civ1.GetRunStatusResponse{
+			RunId: "run-1",
+			Workflows: []*civ1.WorkflowStatus{
+				{
+					WorkflowPath: ".depot/workflows/ci.yml",
+					Jobs: []*civ1.JobStatus{
+						{
+							JobId:  "job-1",
+							JobKey: "test",
+							Attempts: []*civ1.AttemptStatus{
+								{AttemptId: "attempt-1", Attempt: 1},
+								{AttemptId: "attempt-2", Attempt: 2},
+							},
+						},
+					},
+				},
+			},
+		}, nil
+	}
+
+	var got *testresultsv1.ListTestResultsRequest
+	listTestResultsFunc = func(_ context.Context, _, _ string, req *testresultsv1.ListTestResultsRequest) (*testresultsv1.ListTestResultsResponse, error) {
+		got = req
+		return &testresultsv1.ListTestResultsResponse{OwnerId: req.GetOwnerId()}, nil
+	}
+
+	_, err := executeCommand("job-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if got.GetOwnerType() != testresultsv1.TestResultsOwnerType_TEST_RESULTS_OWNER_TYPE_CI {
+		t.Fatalf("expected CI owner type, got %v", got.GetOwnerType())
+	}
+	if got.GetOwnerId() != "attempt-2" {
+		t.Fatalf("expected latest attempt %q, got %q", "attempt-2", got.GetOwnerId())
+	}
+}
+
 func TestRunListsGitHubActionsJob(t *testing.T) {
 	resetTestHooks(t)
 
@@ -144,16 +236,33 @@ func TestRunListsGitHubActionsJob(t *testing.T) {
 	}
 }
 
-func TestRunRequiresExactlyOneBackend(t *testing.T) {
+func TestRunListsUnspecifiedBackendWhenBackendOmitted(t *testing.T) {
 	resetTestHooks(t)
 
-	_, err := executeCommand("owner-1")
-	if err == nil || !strings.Contains(err.Error(), "choose exactly one backend") {
-		t.Fatalf("expected backend selection error, got %v", err)
+	var got *testresultsv1.ListTestResultsRequest
+	listTestResultsFunc = func(_ context.Context, _, _ string, req *testresultsv1.ListTestResultsRequest) (*testresultsv1.ListTestResultsResponse, error) {
+		got = req
+		return &testresultsv1.ListTestResultsResponse{OwnerId: req.GetOwnerId()}, nil
 	}
 
-	_, err = executeCommand("owner-1", "--ci", "--gha")
-	if err == nil || !strings.Contains(err.Error(), "choose exactly one backend") {
+	_, err := executeCommand("owner-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if got.GetOwnerType() != testresultsv1.TestResultsOwnerType_TEST_RESULTS_OWNER_TYPE_UNSPECIFIED {
+		t.Fatalf("expected unspecified owner type, got %v", got.GetOwnerType())
+	}
+	if got.GetOwnerId() != "owner-1" {
+		t.Fatalf("expected owner ID %q, got %q", "owner-1", got.GetOwnerId())
+	}
+}
+
+func TestRunRejectsMultipleBackends(t *testing.T) {
+	resetTestHooks(t)
+
+	_, err := executeCommand("owner-1", "--ci", "--gha")
+	if err == nil || !strings.Contains(err.Error(), "--ci and --gha are mutually exclusive") {
 		t.Fatalf("expected backend selection error, got %v", err)
 	}
 }
@@ -190,7 +299,7 @@ func TestRunRejectsUnknownOutputBeforeAuthOrAPICalls(t *testing.T) {
 		return nil, nil
 	}
 
-	_, err := executeCommand("owner-1", "--gha", "--output", "yaml")
+	_, err := executeCommand("owner-1", "--output", "yaml")
 	if err == nil || !strings.Contains(err.Error(), "unknown output format") {
 		t.Fatalf("expected unknown output error, got %v", err)
 	}
@@ -219,7 +328,7 @@ func TestRunUsesStaticAuthForJSONOutput(t *testing.T) {
 		return &testresultsv1.ListTestResultsResponse{OwnerId: req.GetOwnerId()}, nil
 	}
 
-	_, err := executeCommand("owner-1", "--gha", "--output", "json")
+	_, err := executeCommand("owner-1", "--output", "json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -241,7 +350,7 @@ func TestRunDefaultsToJSONWhenNotTerminal(t *testing.T) {
 		return &testresultsv1.ListTestResultsResponse{OwnerId: "owner-1"}, nil
 	}
 
-	out, err := executeCommand("owner-1", "--gha")
+	out, err := executeCommand("owner-1")
 	if err != nil {
 		t.Fatal(err)
 	}

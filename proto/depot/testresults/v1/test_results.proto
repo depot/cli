@@ -66,13 +66,15 @@ message ReportTestResultsResponse {
 }
 
 message ListTestResultsRequest {
-  // Backend that owns `ownerId`. Required.
+  // Backend that owns `ownerId`. Leave unspecified to infer it from `ownerId`.
   TestResultsOwnerType owner_type = 1;
 
   // Unique identifier for the owner to read. When `ownerType` is
   // `TEST_RESULTS_OWNER_TYPE_CI`, this must be a CI attempt ID. When
-  // `ownerType` is `TEST_RESULTS_OWNER_TYPE_GITHUB_ACTIONS`, this can be the
-  // Depot GitHub job row ID or the GitHub job ID. Required.
+  // `ownerType` is `TEST_RESULTS_OWNER_TYPE_GITHUB_ACTIONS`, this must be a
+  // GitHub Actions job ID. When `ownerType` is unspecified, this can be a CI
+  // attempt ID or a GitHub Actions job ID.
+  // Required.
   string owner_id = 2;
 
   // An array of test statuses to include. Leave empty to include every status.
