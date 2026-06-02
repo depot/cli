@@ -377,11 +377,12 @@ func firstLine(value string) string {
 }
 
 func truncate(value string, max int) string {
-	if len(value) <= max {
+	runes := []rune(value)
+	if len(runes) <= max {
 		return value
 	}
 	if max <= 3 {
-		return value[:max]
+		return string(runes[:max])
 	}
-	return value[:max-3] + "..."
+	return string(runes[:max-3]) + "..."
 }

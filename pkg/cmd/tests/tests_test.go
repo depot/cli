@@ -7,6 +7,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	civ1 "github.com/depot/cli/pkg/proto/depot/ci/v1"
 	testresultsv1 "github.com/depot/cli/pkg/proto/depot/testresults/v1"
@@ -454,6 +455,20 @@ func TestWriteTableSanitizesCellsAndPrintsNextPageToken(t *testing.T) {
 	}
 	if !strings.Contains(got, "Next page token: next token") {
 		t.Fatalf("expected sanitized next page token, got %q", got)
+	}
+}
+
+func TestTruncatePreservesUTF8(t *testing.T) {
+	got := truncate(strings.Repeat("é", 100), 80)
+
+	if !utf8.ValidString(got) {
+		t.Fatalf("expected truncated value to remain valid UTF-8, got %q", got)
+	}
+	if len([]rune(got)) != 80 {
+		t.Fatalf("expected truncated value to contain 80 runes, got %d", len([]rune(got)))
+	}
+	if !strings.HasSuffix(got, "...") {
+		t.Fatalf("expected truncated value to end with ellipsis, got %q", got)
 	}
 }
 
