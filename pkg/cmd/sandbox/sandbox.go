@@ -15,7 +15,8 @@ The command enables user to start, stop and interact with compute instances.
 Subcommands:
   exec           Execute arbitrary commands within the compute. Streams stdout, stderr and exit code.
   exec-pipe      Execute a command, then stream bytes to the command's stdin.
-  pty            Open a pseudo-terminal within the compute.`,
+  pty            Open a pseudo-terminal within the compute.
+  snapshot       Unpack a registry OCI image into an ext4 sandbox snapshot.`,
 	}
 
 	cmd.PersistentFlags().String("token", "", "Depot API token")
@@ -24,6 +25,7 @@ Subcommands:
 	cmd.AddCommand(newSandboxExec())
 	cmd.AddCommand(newSandboxPty())
 	cmd.AddCommand(newSandboxExecPipe())
+	cmd.AddCommand(newSandboxSnapshot())
 
 	return cmd
 }
