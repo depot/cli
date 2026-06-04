@@ -217,7 +217,11 @@ message CreateSandboxRequest {
   map<string, string> env = 4;
   // Where the sandbox's initial content comes from (git, snapshot, image, or
   // template). When unset, the sandbox starts with the default content.
-  optional Source source = 5;
+  //
+  // Field number 8 (not the historical 5) so this message stays wire-compatible
+  // with the canonical API CreateSandboxRequest, where 5/6/7 are already taken by
+  // staging/timeout_ms/configuration. See DEP-4530 / DEP-4884 / CRR-025.
+  optional Source source = 8;
 }
 
 message CreateSandboxResponse {
