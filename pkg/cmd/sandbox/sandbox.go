@@ -22,6 +22,7 @@ Lifecycle (depot.sandbox.v1):
 
 Command surface:
   exec          Execute a command within a running sandbox.
+  snapshot      Snapshot a running sandbox to a registry image.
   exec-pipe     Execute a command and pipe local stdin (legacy CI-bastion).
   pty           Open a pseudo-terminal (legacy CI-bastion).`,
 	}
@@ -36,6 +37,7 @@ Command surface:
 
 	// Command verbs.
 	cmd.AddCommand(newSandboxExec())
+	cmd.AddCommand(newSandboxSnapshot())
 
 	// Legacy CI-bastion verbs.
 	cmd.AddCommand(newSandboxExecPipe())
