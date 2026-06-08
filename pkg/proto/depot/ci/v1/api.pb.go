@@ -545,6 +545,10 @@ func (x *Command) GetTimeoutMs() int32 {
 }
 
 // ExecuteCommandResponse returns the command execution results.
+//
+// Legacy line-framed rail (oneof) and binary-safe raw rail (flat fields)
+// are populated on the same message when applicable. Old clients switch
+// on the oneof variant; new clients concatenate the raw fields.
 type ExecuteCommandResponse struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache

@@ -1,0 +1,56 @@
+syntax = "proto3";
+
+package depot.sandbox.v1;
+
+import "depot/sandbox/v1/refs.proto";
+
+// Interactive pseudo-terminal session in a sandbox.
+//
+// This is served by a single bidirectional RPC, OpenPty. The first request on
+// the stream must carry start; later requests carry stdin bytes or resize
+// window changes. The response stream is a series of data byte chunks,
+// terminated by an Exit message carrying the exit code.
+//
+// The session always runs /bin/sh, so there is no field to choose a shell.
+// There is no way to reattach to a session; closing the stream ends the pty.
+//
+// Pty output is binary and may include ANSI control sequences and other
+// non-UTF-8 bytes, so it is carried as raw bytes and the SDK exposes it as a
+// Buffer rather than decoding it to a string.
+
+message OpenPtyRequest {
+  oneof input {
+    Start start = 1;
+    bytes stdin = 2;
+    Resize resize = 3;
+  }
+
+  // Carries the parameters that open the session. It must be the first message
+  // on the stream. Any later start message on the same stream is invalid and is
+  // ignored by the handler.
+  message Start {
+    SandboxRef sandbox = 1;
+    map<string, string> env = 2;
+    optional uint32 rows = 3;
+    optional uint32 cols = 4;
+    optional string cwd = 5;
+  }
+
+  // Changes the terminal window size. Values are passed through to the
+  // operating system, which clamps any that are out of range.
+  message Resize {
+    uint32 rows = 1;
+    uint32 cols = 2;
+  }
+}
+
+message OpenPtyResponse {
+  oneof output {
+    bytes data = 1;
+    Exit exit = 2;
+  }
+
+  message Exit {
+    int32 exit_code = 1;
+  }
+}

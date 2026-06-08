@@ -1,0 +1,81 @@
+// The CreateSandboxFromSpec RPC, its request and event types, and the service
+// that hosts it.
+//
+// This RPC creates a sandbox declaratively from a SandboxSpec. It lives in its
+// own service, SandboxSpecService, rather than on SandboxService because its
+// request and event types reference both the Sandbox type from sandbox.proto and
+// SandboxSpec from spec.proto. Keeping the RPC and its types in a separate file
+// and service avoids an import cycle between those proto files.
+//
+// The SDK consumes SandboxSpecService alongside SandboxService over the same
+// transport and auth surface.
+
+syntax = "proto3";
+
+package depot.sandbox.v1;
+
+import "depot/sandbox/v1/command.proto";
+import "depot/sandbox/v1/hook.proto";
+import "depot/sandbox/v1/sandbox.proto";
+import "depot/sandbox/v1/spec.proto";
+
+// Service for creating sandboxes declaratively from a SandboxSpec.
+// CreateSandboxFromSpec parses the spec, resolves its source, creates the
+// sandbox, delivers source, and runs hooks as a single server-streamed flow.
+service SandboxSpecService {
+  rpc CreateSandboxFromSpec(CreateSandboxFromSpecRequest) returns (stream CreateSandboxFromSpecEvent);
+}
+
+// Request to create a sandbox from a spec. Carries the spec, either as a parsed
+// SandboxSpec message or as a YAML string, plus a map of inputs to substitute
+// into the spec before it is validated and run.
+message CreateSandboxFromSpecRequest {
+  oneof spec {
+    string spec_yaml = 1;
+    SandboxSpec sandbox_spec = 2;
+  }
+  map<string, string> inputs = 3;
+}
+
+// An event in the server stream returned by CreateSandboxFromSpec. A
+// SandboxStarted event is sent once the sandbox is running and source delivery
+// has completed, followed by a HookEvent for each create-stage hook. The stream
+// ends with exactly one terminal event, either Done or Error.
+message CreateSandboxFromSpecEvent {
+  oneof event {
+    SandboxStarted sandbox_started = 1;
+    HookEvent hook_event = 2;
+    Done done = 3;
+    Error error = 4;
+    // Tags 5 and 6 are reserved for build and convert log events to be added
+    // later.
+  }
+
+  message SandboxStarted {
+    Sandbox sandbox = 1;
+  }
+
+  message HookEvent {
+    HookStage stage = 1;
+    string hook_name = 2;
+    SandboxCommandExecutionEvent inner = 3;
+  }
+
+  message Done {
+    Sandbox sandbox = 1;
+  }
+
+  message Error {
+    string reason = 1;
+    Stage stage = 2;
+
+    enum Stage {
+      STAGE_UNSPECIFIED = 0;
+      STAGE_PARSE = 1;
+      STAGE_BUILD = 2;
+      STAGE_CONVERT = 3;
+      STAGE_CREATE = 4;
+      STAGE_HOOKS_CREATE = 5;
+    }
+  }
+}
