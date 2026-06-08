@@ -20,31 +20,18 @@ import (
 //   - pty.Run (legacy): civ1.DepotComputeService.OpenPtySession — the CI
 //     bastion path used by `depot run --ssh` / `depot ssh`. Carries
 //     SessionID + SandboxID.
-//   - pty.RunSandboxV0 (M34): depot.sandbox.v1.SandboxService.OpenPty —
-//     the new sandboxv1 wire used by `depot sandbox shell`. Session-id is
-//     gone (D-M34-M); RunSandboxV0 ignores it.
-//
-// Once the CI bastion verbs migrate to sandboxv1 (Theme 3 follow-on), the
-// legacy Run can be retired and SessionID dropped from this struct.
 type SessionOptions struct {
 	Token     string
 	OrgID     string // sent as x-depot-org header for multi-org users
 	SandboxID string
-	SessionID string // legacy CI bastion only; ignored by RunSandboxV0 (D-M34-M)
+	SessionID string
 	Cwd       string
 	Env       map[string]string
-
-	// StdinPrefix is sent as the first stdin chunk after the pty session is
-	// open, before forwarding os.Stdin. Used by `depot sandbox shell` to
-	// inject on.shell entries into the login shell. Must be terminated with
-	// "\n" so the shell's line discipline flushes it.
-	StdinPrefix []byte
 }
 
 // Run opens an interactive PTY session against the legacy CI bastion wire
 // (civ1.DepotComputeService.OpenPtySession). Consumed by `depot run --ssh`
-// and `depot ssh`. Sandbox v0 callers (`depot sandbox shell`) use
-// RunSandboxV0 instead.
+// and `depot ssh`.
 func Run(ctx context.Context, opts SessionOptions) error {
 	fd := int(os.Stdin.Fd())
 	rows, cols := 24, 80 //nolint:mnd
@@ -108,14 +95,6 @@ func Run(ctx context.Context, opts SessionOptions) error {
 
 	stopResize := watchTerminalResize(ctx, fd, sendCh)
 	defer stopResize()
-
-	if len(opts.StdinPrefix) > 0 {
-		if err := stream.Send(&civ1.OpenPtySessionRequest{
-			Message: &civ1.OpenPtySessionRequest_Stdin{Stdin: opts.StdinPrefix},
-		}); err != nil {
-			return fmt.Errorf("send on.shell prefix: %w", err)
-		}
-	}
 
 	go func() {
 		buf := make([]byte, 4096) //nolint:mnd

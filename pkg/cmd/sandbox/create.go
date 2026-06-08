@@ -12,9 +12,6 @@ import (
 // newSandboxCreate builds the `create` command, which creates a new sandbox.
 // Both the name and the image ref are optional; the server fills in defaults
 // when they are omitted.
-//
-// For a declarative flow driven by a sandbox.depot.yml file, use
-// `depot sandbox from-spec`.
 func newSandboxCreate() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "create [flags]",
@@ -67,7 +64,7 @@ The runtime image defaults to the server-side default when --image is omitted.`,
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "Sandbox %s%s created (org %s, status %s)\n",
 				sb.SandboxId, label, sb.OrganizationId, sb.Status.String())
-			fmt.Fprintf(cmd.OutOrStdout(), "Shell: depot sandbox shell %s\n", sb.SandboxId)
+			fmt.Fprintf(cmd.OutOrStdout(), "Exec:  depot sandbox exec %s -- <command>\n", sb.SandboxId)
 			fmt.Fprintf(cmd.OutOrStdout(), "Kill:  depot sandbox kill %s\n", sb.SandboxId)
 			return nil
 		},

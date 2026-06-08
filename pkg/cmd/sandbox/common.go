@@ -44,9 +44,8 @@ func sandboxRef(id string) *sandboxv1.SandboxRef {
 // RunHook: Started -> Stdout/Stderr/Error/EvictedEarlyData* -> Finished.
 //
 // EvictedEarlyData is reported on stderr as a single line so log consumers
-// see the gap; the stream continues afterward. Error frames are surfaced the
-// same way and do not abort the loop (the server is signalling partial
-// degradation, not a fatal end — Connect transport errors are the fatal path).
+// see the gap; the stream continues afterward. Error frames abort so callers
+// do not treat degraded output as a successful command.
 func consumeCommandEventStream(
 	stream *connect.ServerStreamForClient[sandboxv1.SandboxCommandExecutionEvent],
 	stdout, stderr io.Writer,
@@ -59,11 +58,15 @@ func consumeCommandEventStream(
 			// metadata only — nothing to print
 		case *sandboxv1.SandboxCommandExecutionEvent_Stdout:
 			if ev.Stdout != nil && len(ev.Stdout.Data) > 0 {
-				_, _ = stdout.Write(ev.Stdout.Data)
+				if _, err := stdout.Write(ev.Stdout.Data); err != nil {
+					return 0, fmt.Errorf("write stdout: %w", err)
+				}
 			}
 		case *sandboxv1.SandboxCommandExecutionEvent_Stderr:
 			if ev.Stderr != nil && len(ev.Stderr.Data) > 0 {
-				_, _ = stderr.Write(ev.Stderr.Data)
+				if _, err := stderr.Write(ev.Stderr.Data); err != nil {
+					return 0, fmt.Errorf("write stderr: %w", err)
+				}
 			}
 		case *sandboxv1.SandboxCommandExecutionEvent_Finished_:
 			if ev.Finished != nil {
@@ -71,12 +74,17 @@ func consumeCommandEventStream(
 			}
 		case *sandboxv1.SandboxCommandExecutionEvent_Error_:
 			if ev.Error != nil {
-				fmt.Fprintf(stderr, "[command-error] %s\n", ev.Error.Reason)
+				if _, err := fmt.Fprintf(stderr, "[command-error] %s\n", ev.Error.Reason); err != nil {
+					return 0, fmt.Errorf("write stderr: %w", err)
+				}
+				return 0, fmt.Errorf("command error: %s", ev.Error.Reason)
 			}
 		case *sandboxv1.SandboxCommandExecutionEvent_Evicted:
 			if ev.Evicted != nil {
-				fmt.Fprintf(stderr, "[evicted-early-data] dropped %d bytes stdout / %d bytes stderr\n",
-					ev.Evicted.DroppedBytesStdout, ev.Evicted.DroppedBytesStderr)
+				if _, err := fmt.Fprintf(stderr, "[evicted-early-data] dropped %d bytes stdout / %d bytes stderr\n",
+					ev.Evicted.DroppedBytesStdout, ev.Evicted.DroppedBytesStderr); err != nil {
+					return 0, fmt.Errorf("write stderr: %w", err)
+				}
 			}
 		}
 	}

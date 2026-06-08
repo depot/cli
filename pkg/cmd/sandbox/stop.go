@@ -15,33 +15,20 @@ import (
 // newSandboxStop builds the `stop` command, which gracefully shuts down a
 // sandbox. `down` is kept as an alias for backward compatibility.
 //
-// With no positional args, it walks up from cwd for a sandbox.depot.yml and
-// resolves the most recent sandbox started under that spec's name (recorded in
-// ~/.depot/sandbox-state/<name>.id). With one or more ids, it stops each.
-//
-// The CLI runs on.down hooks against the sandbox before requesting the stop.
-// Pass --no-hook to skip the hooks and stop immediately.
+// When --file is provided, the CLI runs that spec's on.down hooks against the
+// sandbox before requesting the stop. Pass --no-hook to skip hooks.
 func newSandboxStop() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "stop [<sandbox-id>...]",
 		Aliases: []string{"down"},
-		Short:   "Gracefully stop a sandbox (runs on.down hooks first)",
+		Short:   "Gracefully stop a sandbox",
 		Long: `Stop a sandbox via depot.sandbox.v1.StopSandbox (terminated_by=GRACEFUL).
 
-With no arguments, walks up from cwd for a sandbox.depot.yml, picks up the
-sandbox last started under that spec's name, runs on.down hooks, then asks
-the server to stop it.
-
-With one or more sandbox ids, runs on.down (resolved from the local spec, if
-one is found) against each, then stops each. Pass --no-hook to skip the
-hooks and stop immediately.`,
-		Args: cobra.ArbitraryArgs,
+With --file, runs that spec's on.down hooks against each sandbox before
+requesting a stop. Pass --no-hook to skip hooks.`,
+		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
-			token, orgID, err := resolveAuthAndOrg(ctx, cmd)
-			if err != nil {
-				return err
-			}
 
 			file, _ := cmd.Flags().GetString("file")
 			setPairs, _ := cmd.Flags().GetStringArray("set")
@@ -49,28 +36,31 @@ hooks and stop immediately.`,
 			blocking, _ := cmd.Flags().GetBool("blocking")
 
 			ids := args
-			if len(ids) == 0 {
-				id, err := sandboxIDFromLocalSpec(file)
-				if err != nil {
-					return err
-				}
-				ids = []string{id}
-			}
 
 			var downHooks []sandbox.HookSpec
-			if !noHook {
-				hooks, err := resolveStageHooks(file, setPairs)
+			if !noHook && file != "" {
+				hooks, err := resolveStageHooks(file, "on.down", setPairs, func(s *sandbox.Spec) []sandbox.HookSpec {
+					return s.On.Down
+				})
 				if err != nil {
 					return fmt.Errorf("resolve on.down: %w", err)
 				}
-				downHooks = hooks.Down
+				downHooks = hooks
+			}
+			if !noHook && file == "" && len(setPairs) > 0 {
+				return fmt.Errorf("on.down --set requires --file")
+			}
+
+			token, orgID, err := resolveAuthAndOrg(ctx, cmd)
+			if err != nil {
+				return err
 			}
 
 			client := api.NewSandboxV0Client()
 			var failures []string
 			for _, id := range ids {
 				if len(downHooks) > 0 {
-					if err := runHooks(ctx, client, token, orgID, id, "on.down", downHooks, os.Stdout, os.Stderr); err != nil {
+					if err := runHooks(ctx, client, token, orgID, id, "on.down", sandboxv1.HookStage_HOOK_STAGE_DOWN, downHooks, os.Stdout, os.Stderr); err != nil {
 						failures = append(failures, fmt.Sprintf("%s: on.down: %v", id, err))
 						continue
 					}

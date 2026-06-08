@@ -1,12 +1,14 @@
 package sandbox
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
 
 	"connectrpc.com/connect"
 	"github.com/depot/cli/pkg/api"
+	civ1 "github.com/depot/cli/pkg/proto/depot/ci/v1"
 	sandboxv1 "github.com/depot/cli/pkg/proto/depot/sandbox/v1"
 	"github.com/depot/cli/pkg/sandbox"
 	"github.com/spf13/cobra"
@@ -32,7 +34,10 @@ parsing stops there.`,
   # Streaming loop
   depot sandbox exec cs-abc123 -- /bin/bash -lc 'for i in {1..10}; do echo $i; sleep 1; done'
 `,
-		Args: cobra.MinimumNArgs(2),
+		Args: func(cmd *cobra.Command, args []string) error {
+			_, _, err := sandboxExecTarget(cmd, args)
+			return err
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
 
@@ -41,13 +46,20 @@ parsing stops there.`,
 				return err
 			}
 
-			sandboxID := args[0]
-			cmdArgs := args[1:]
+			if legacySandboxID, _ := cmd.Flags().GetString("sandbox-id"); legacySandboxID != "" {
+				return runLegacySandboxExec(ctx, cmd, args, token, orgID, legacySandboxID)
+			}
+
+			sandboxID, cmdArgs, err := sandboxExecTarget(cmd, args)
+			if err != nil {
+				return err
+			}
 
 			client := api.NewSandboxV0Client()
 
 			if err := runHookStage(ctx, cmd, client, token, orgID, sandboxID, "on.exec",
-				func(h sandbox.HooksSpec) []sandbox.HookSpec { return h.Exec }, os.Stdout, os.Stderr); err != nil {
+				sandboxv1.HookStage_HOOK_STAGE_EXEC,
+				func(s *sandbox.Spec) []sandbox.HookSpec { return s.On.Exec }, os.Stdout, os.Stderr); err != nil {
 				return err
 			}
 
@@ -73,8 +85,8 @@ parsing stops there.`,
 				req.Sudo = &sudo
 			}
 
-			// The --timeout flag is deprecated. Warn if it is still set, but
-			// do not fail, since the wire protocol no longer carries a timeout.
+			// The --timeout flag is deprecated for the positional v0 path. The
+			// legacy --sandbox-id path still preserves timeout semantics.
 			if t, _ := cmd.Flags().GetInt("timeout"); t > 0 {
 				fmt.Fprintln(cmd.ErrOrStderr(), "warning: --timeout is deprecated and ignored on the v0 wire; remove it (will be deleted in a follow-on slice)")
 			}
@@ -98,12 +110,71 @@ parsing stops there.`,
 	cmd.Flags().String("cwd", "", "Working directory inside the sandbox")
 	cmd.Flags().StringArray("env", nil, "Environment variables to set (KEY=VALUE), repeatable")
 	cmd.Flags().Bool("sudo", false, "Run as root")
+	cmd.Flags().String("sandbox-id", "", "ID of the compute to execute the command against")
+	cmd.Flags().String("session-id", "", "The session the compute belongs to")
 	// Deprecated: hidden and ignored.
 	cmd.Flags().Int("timeout", 0, "Deprecated: timeouts are not part of the v0 wire (will be removed)")
 	_ = cmd.Flags().MarkHidden("timeout")
 	addHookFlags(cmd, "on.exec")
 
 	return cmd
+}
+
+func runLegacySandboxExec(ctx context.Context, cmd *cobra.Command, args []string, token, orgID, sandboxID string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("requires a command after -- when --sandbox-id is used")
+	}
+	sessionID, _ := cmd.Flags().GetString("session-id")
+	if sessionID == "" {
+		return fmt.Errorf("session-id is required")
+	}
+	timeout, _ := cmd.Flags().GetInt("timeout")
+
+	client := api.NewComputeClient()
+	stream, err := client.RemoteExec(ctx, api.WithAuthenticationAndOrg(connect.NewRequest(&civ1.ExecuteCommandRequest{
+		SandboxId: sandboxID,
+		SessionId: sessionID,
+		Command: &civ1.Command{
+			CommandArray: args,
+			TimeoutMs:    int32(timeout),
+		},
+	}), token, orgID))
+	if err != nil {
+		return sandboxExecError(err, sandboxID)
+	}
+
+	for stream.Receive() {
+		msg := stream.Msg()
+		exitCode, exited, err := writeExecuteCommandResponse(msg, os.Stdout, os.Stderr)
+		if err != nil {
+			return err
+		}
+		if exited {
+			if exitCode != 0 {
+				os.Exit(int(exitCode))
+			}
+			return nil
+		}
+	}
+	if err := stream.Err(); err != nil {
+		return sandboxExecStreamError(err, sandboxID)
+	}
+
+	return nil
+}
+
+func sandboxExecTarget(cmd *cobra.Command, args []string) (string, []string, error) {
+	legacySandboxID, _ := cmd.Flags().GetString("sandbox-id")
+	if legacySandboxID != "" {
+		if len(args) < 1 {
+			return "", nil, fmt.Errorf("requires a command after -- when --sandbox-id is used")
+		}
+		return legacySandboxID, args, nil
+	}
+	if err := cobra.MinimumNArgs(2)(cmd, args); err != nil {
+		return "", nil, err
+	}
+	return args[0], args[1:], nil
 }
 
 // parseEnvSlice converts a list of "KEY=VALUE" strings into a map, rejecting

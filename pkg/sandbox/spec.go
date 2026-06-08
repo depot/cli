@@ -1,114 +1,31 @@
-// Package sandbox provides parsing and translation of the declarative
-// `sandbox.depot.yml` spec into StartSandboxRequest messages. The spec is
-// inspired by fly.toml: one file declares everything about a sandbox so the
-// caller does not have to assemble flags or JSON for each StartSandbox call.
+// Package sandbox parses the trusted sandbox.depot.yml hook subset consumed by
+// sandbox CLI commands.
 package sandbox
 
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 
 	"gopkg.in/yaml.v3"
 )
 
-// MCPEnvVar is the environment variable the boot process inside the sandbox
-// reads to materialize MCP server configs. The value is JSON-encoded MCPSpec.
-const MCPEnvVar = "DEPOT_AGENT_MCP_CONFIG"
+const maxHookTimeoutSeconds = 1<<31 - 1
 
-// DefaultSpecFilenames are the names searched in directory walk-up order.
-var DefaultSpecFilenames = []string{"sandbox.depot.yml", "sandbox.depot.yaml"}
-
-// Spec is the on-disk schema for a sandbox.
+// Spec is the supported local hook subset of sandbox.depot.yml.
 type Spec struct {
-	Name      string            `yaml:"name"`
-	AgentType string            `yaml:"agent_type,omitempty"`
-	Argv      string            `yaml:"argv,omitempty"`
-	Command   string            `yaml:"command,omitempty"`
-	Detach    *bool             `yaml:"detach,omitempty"`
-	Template  string            `yaml:"template,omitempty"`
-	Env       map[string]string `yaml:"env,omitempty"`
-	Git       *GitSpec          `yaml:"git,omitempty"`
-	SSH       *SSHSpec          `yaml:"ssh,omitempty"`
-	MCP       *MCPSpec          `yaml:"mcp,omitempty"`
-	Container *ContainerSpec    `yaml:"container,omitempty"`
-
-	// On groups every lifecycle hook stage under one key. Stages:
-	//   create   — once after the sandbox first boots (one-shot setup).
-	//   start    — every boot (fresh up, plus future resume flows).
-	//   exec     — before each `depot sandbox exec` user command.
-	//   shell    — installed at up time as /etc/profile.d/99-depot-on-shell.sh
-	//              so it replaces the login shell when `depot sandbox shell`
-	//              opens a pty.
-	//   snapshot — before `depot sandbox snapshot` runs the tar pipeline.
-	// All stages are sequential; a non-zero exit from a foreground hook
-	// aborts the surrounding command.
 	On HooksSpec `yaml:"on,omitempty"`
-
-	// Image is the rootfs image ref handed to StartSandbox. Two ways it
-	// gets set:
-	//   1. User pins a prebuilt ref via the YAML `image:` key (e.g., the
-	//      output of `depot sandbox build` or `depot sandbox snapshot`).
-	//   2. The CLI's build/convert pipeline derives one from spec.Name +
-	//      project + org and overwrites whatever the YAML had.
-	//
-	// When [container.build] is set, (2) wins — the build product is
-	// always preferred over a stale YAML ref. With no build section, the
-	// YAML ref is used verbatim. With neither, the API picks a default.
-	Image string `yaml:"image,omitempty"`
 }
 
-// ContainerSpec describes how to produce the sandbox's rootfs.
-//
-// Today only Build is supported: the CLI runs `depot build --save` (saves to
-// <orgID>.registry.depot.dev/<projectID>:<spec.Name>), runs an ext4 convert
-// CI run against it, and hands StartSandbox the bare-host form
-// registry.depot.dev/<projectID>:<spec.Name>-ext4 (the API does the org-tenant
-// routing internally).
-//
-// The build/convert destinations are CLI-derived from spec.Name, the build
-// project, and the current org — there's no Tag field to override them yet.
-type ContainerSpec struct {
-	Build *BuildSpec `yaml:"build,omitempty"`
-}
-
-// BuildSpec describes how to produce the sandbox's container image when
-// `depot sandbox up` runs from a directory holding a Dockerfile. It mirrors
-// the relevant `depot build` flags so users can read the yml and predict what
-// shells out.
-type BuildSpec struct {
-	Context    string            `yaml:"context,omitempty"`    // default "."
-	Dockerfile string            `yaml:"dockerfile,omitempty"` // default "Dockerfile"
-	Target     string            `yaml:"target,omitempty"`     // multistage target
-	BuildArgs  map[string]string `yaml:"build_args,omitempty"` // --build-arg
-	Push       *PushSpec         `yaml:"push,omitempty"`       // when nil, defaults are filled in
-	NoCache    bool              `yaml:"no_cache,omitempty"`
-}
-
-// PushSpec controls where the built image is pushed. Both fields default
-// (Project from the nearest depot.json, Tag from the spec name + git short sha
-// or "latest") so most specs leave this section empty.
-type PushSpec struct {
-	Project string `yaml:"project,omitempty"`
-	Tag     string `yaml:"tag,omitempty"`
-}
-
-// HooksSpec groups the lifecycle hook stages. Each list runs sequentially.
-// See Spec.On for stage semantics.
+// HooksSpec groups the currently supported lifecycle hook stages.
 type HooksSpec struct {
-	Create   []HookSpec `yaml:"create,omitempty"`
-	Start    []HookSpec `yaml:"start,omitempty"`
-	Exec     []HookSpec `yaml:"exec,omitempty"`
-	Shell    []HookSpec `yaml:"shell,omitempty"`
-	Snapshot []HookSpec `yaml:"snapshot,omitempty"`
-	Down     []HookSpec `yaml:"down,omitempty"`
+	Exec []HookSpec `yaml:"exec,omitempty"`
+	Down []HookSpec `yaml:"down,omitempty"`
 }
 
-// HookSpec is one entry in any On.* list. Command is a shell string
-// run via `bash -lc`; Detach=true backgrounds it with setsid so it outlives
-// the exec stream (use for long-running processes like an agent loop).
+// HookSpec is one entry in any On.* list. Command is the shell string sent to
+// the sandbox RunHook RPC.
 //
 // HookSpec accepts either object form (`{command: "...", detach: true}`) or
 // bare-string shorthand (`- "echo hi"`); the latter is sugar for
@@ -116,17 +33,12 @@ type HooksSpec struct {
 type HookSpec struct {
 	// Command is the shell line to execute. Required.
 	Command string `yaml:"command"`
-	// Detach=true backgrounds the command (setsid + redirect stdio) so the
-	// caller's exec stream returns once the process has been spawned, not
-	// when it exits. Stdio is captured to /tmp/depot-hook-<name>.log
-	// inside the sandbox.
+	// Detach=true asks RunHook to spawn the hook in the background.
 	Detach bool `yaml:"detach,omitempty"`
 	// Name is an optional label used for log filenames and CLI output. If
 	// omitted, the CLI substitutes the hook's index.
 	Name string `yaml:"name,omitempty"`
-	// TimeoutSeconds bounds a foreground hook. Ignored when Detach=true
-	// (the spawn itself is fast; the backgrounded process has no timeout).
-	// Zero means no timeout.
+	// TimeoutSeconds bounds foreground hook execution. Zero means no timeout.
 	TimeoutSeconds int `yaml:"timeout_seconds,omitempty"`
 }
 
@@ -149,41 +61,7 @@ func (h *HookSpec) UnmarshalYAML(node *yaml.Node) error {
 	return nil
 }
 
-type GitSpec struct {
-	URL    string `yaml:"url"`
-	Branch string `yaml:"branch,omitempty"`
-	Commit string `yaml:"commit,omitempty"`
-	Secret string `yaml:"secret,omitempty"`
-}
-
-type SSHSpec struct {
-	Enabled        bool  `yaml:"enabled"`
-	TimeoutMinutes int32 `yaml:"timeout_minutes,omitempty"`
-}
-
-type MCPSpec struct {
-	Servers map[string]MCPServer `yaml:"servers" json:"servers"`
-}
-
-// MCPServer covers both Claude Code MCP transports:
-//   - stdio: `command: ["bin", "arg"]` (subprocess MCP servers, e.g. Plain)
-//   - http:  `type: http`, `url: "..."` (hosted MCP servers, e.g. Linear)
-//
-// The bootstrap script in the agent image translates this into the schema
-// `claude --mcp-config` expects.
-type MCPServer struct {
-	// http transport
-	Type string `yaml:"type,omitempty" json:"type,omitempty"`
-	URL  string `yaml:"url,omitempty" json:"url,omitempty"`
-	// stdio transport
-	Command []string          `yaml:"command,omitempty" json:"command,omitempty"`
-	Args    []string          `yaml:"args,omitempty" json:"args,omitempty"`
-	Env     map[string]string `yaml:"env,omitempty" json:"env,omitempty"`
-	// optional headers for http transport (e.g., Authorization)
-	Headers map[string]string `yaml:"headers,omitempty" json:"headers,omitempty"`
-}
-
-// Load reads a spec from an explicit path. Use FindSpec for walk-up discovery.
+// Load reads a spec from an explicit path.
 func Load(path string) (*Spec, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -196,69 +74,101 @@ func Load(path string) (*Spec, error) {
 	return &s, nil
 }
 
-// FindSpec walks up from cwd looking for one of DefaultSpecFilenames and
-// returns its absolute path. Mirrors pkg/project.FindConfigFileUp.
-func FindSpec(cwd string) (string, error) {
-	current, err := filepath.Abs(cwd)
-	if err != nil {
-		return "", err
-	}
-	for {
-		for _, name := range DefaultSpecFilenames {
-			p := filepath.Join(current, name)
-			if _, err := os.Stat(p); err == nil {
-				return p, nil
-			}
-		}
-		next := filepath.Dir(current)
-		if next == current {
-			break
-		}
-		current = next
-	}
-	return "", fmt.Errorf("no %s found from %s upward", DefaultSpecFilenames[0], cwd)
-}
-
 // inputRefRe matches ${input.foo} (required) or ${input.foo?}
 // (optional — substitutes "" if the input is missing).
 var inputRefRe = regexp.MustCompile(`\$\{input\.([A-Za-z_][A-Za-z0-9_]*)(\?)?\}`)
 
-// substitute replaces ${input.foo} occurrences with values from inputs. An
-// unknown reference returns an error unless the trailing `?` makes it
-// optional (then the substitution is the empty string).
+// substitute replaces ${input.foo} occurrences with shell-quoted values from
+// inputs. An unknown reference returns an error unless the trailing `?` makes
+// it optional (then the substitution is the empty string).
 func substitute(s string, inputs map[string]string) (string, error) {
 	var missing []string
-	out := inputRefRe.ReplaceAllStringFunc(s, func(match string) string {
+	var quoted []string
+	var out strings.Builder
+	last := 0
+	for _, loc := range inputRefRe.FindAllStringIndex(s, -1) {
+		start, end := loc[0], loc[1]
+		out.WriteString(s[last:start])
+		match := s[start:end]
 		groups := inputRefRe.FindStringSubmatch(match)
 		key := groups[1]
 		optional := groups[2] == "?"
+		if context := shellQuoteContext(s[:start]); context != "" {
+			quoted = append(quoted, fmt.Sprintf("%s in %s quotes", match, context))
+			out.WriteString(match)
+			last = end
+			continue
+		}
 		v, ok := inputs[key]
 		if !ok {
 			if optional {
-				return ""
+				last = end
+				continue
 			}
 			missing = append(missing, key)
-			return match
+			out.WriteString(match)
+			last = end
+			continue
 		}
-		return v
-	})
+		out.WriteString(shellQuote(v))
+		last = end
+	}
+	out.WriteString(s[last:])
+	if len(quoted) > 0 {
+		return "", fmt.Errorf("input placeholder(s) cannot be used inside shell quotes: %s", strings.Join(quoted, ", "))
+	}
 	if len(missing) > 0 {
 		return "", fmt.Errorf("missing input(s): %s", strings.Join(missing, ", "))
 	}
-	return out, nil
+	return out.String(), nil
 }
 
-// MarshalSpec re-serializes the in-memory Spec back to YAML, used by the
-// from-spec CLI verb after it patches spec.Image with a build-then-convert
-// result. Round-trip is structural — comments / formatting from the on-disk
-// file are lost, so call sites should prefer reading the original bytes when
-// no in-memory edits have been made (D-M34-G Path B).
-func MarshalSpec(s *Spec) ([]byte, error) {
-	b, err := yaml.Marshal(s)
-	if err != nil {
-		return nil, fmt.Errorf("marshal spec: %w", err)
+func shellQuote(s string) string {
+	if s == "" {
+		return "''"
 	}
-	return b, nil
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
+func shellQuoteContext(prefix string) string {
+	var quote rune
+	escaped := false
+	for _, r := range prefix {
+		if escaped {
+			escaped = false
+			continue
+		}
+		switch quote {
+		case 0:
+			switch r {
+			case '\\':
+				escaped = true
+			case '\'':
+				quote = '\''
+			case '"':
+				quote = '"'
+			}
+		case '\'':
+			if r == '\'' {
+				quote = 0
+			}
+		case '"':
+			switch r {
+			case '\\':
+				escaped = true
+			case '"':
+				quote = 0
+			}
+		}
+	}
+	switch quote {
+	case '\'':
+		return "single"
+	case '"':
+		return "double"
+	default:
+		return ""
+	}
 }
 
 // ResolveHooks returns the spec's hook stages with ${input.KEY} substitution
@@ -275,11 +185,7 @@ func (s *Spec) ResolveHooks(inputs map[string]string) (HooksSpec, error) {
 		dst   *[]HookSpec
 	}
 	for _, st := range []stage{
-		{"on.create", s.On.Create, &out.Create},
-		{"on.start", s.On.Start, &out.Start},
 		{"on.exec", s.On.Exec, &out.Exec},
-		{"on.shell", s.On.Shell, &out.Shell},
-		{"on.snapshot", s.On.Snapshot, &out.Snapshot},
 		{"on.down", s.On.Down, &out.Down},
 	} {
 		resolved, err := resolveHookList(st.src, st.label, inputs)
@@ -291,6 +197,15 @@ func (s *Spec) ResolveHooks(inputs map[string]string) (HooksSpec, error) {
 	return out, nil
 }
 
+// ResolveHookStage returns one hook stage with ${input.KEY} substitution
+// applied to each command.
+func (s *Spec) ResolveHookStage(label string, hooks []HookSpec, inputs map[string]string) ([]HookSpec, error) {
+	if inputs == nil {
+		inputs = map[string]string{}
+	}
+	return resolveHookList(hooks, label, inputs)
+}
+
 func resolveHookList(hooks []HookSpec, label string, inputs map[string]string) ([]HookSpec, error) {
 	if len(hooks) == 0 {
 		return nil, nil
@@ -299,6 +214,12 @@ func resolveHookList(hooks []HookSpec, label string, inputs map[string]string) (
 	for i, h := range hooks {
 		if strings.TrimSpace(h.Command) == "" {
 			return nil, fmt.Errorf("%s[%d]: command is required", label, i)
+		}
+		if h.TimeoutSeconds < 0 {
+			return nil, fmt.Errorf("%s[%d].timeout_seconds: must be non-negative", label, i)
+		}
+		if h.TimeoutSeconds > maxHookTimeoutSeconds {
+			return nil, fmt.Errorf("%s[%d].timeout_seconds: must be <= %d", label, i, maxHookTimeoutSeconds)
 		}
 		cmd, err := substitute(h.Command, inputs)
 		if err != nil {
