@@ -95,6 +95,8 @@ Actions job ID.`,
 	flags.StringVar(&opts.pageToken, "page-token", "", "Token to fetch the next page")
 	flags.StringVar(&opts.output, "output", "auto", "Output format (auto, table, json)")
 
+	cmd.AddCommand(newCmdTestsRun())
+
 	return cmd
 }
 

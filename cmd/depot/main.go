@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"path"
@@ -101,9 +102,10 @@ func runMain() int {
 
 	if plugin.RunningStandalone() {
 		rootCmd := root.NewCmdRoot(buildVersion, buildDate)
+		rootCmd.SilenceErrors = true
 
 		if err := rootCmd.Execute(); err != nil {
-			return 1
+			return statusCodeFromError(err, os.Stderr)
 		}
 	} else {
 		cmd, err := command.NewDockerCli()
@@ -122,19 +124,7 @@ func runMain() int {
 		})
 
 		if err != nil {
-			if sterr, ok := err.(cli.StatusError); ok {
-				if sterr.Status != "" {
-					fmt.Fprintln(cmd.Err(), sterr.Status)
-				}
-				// StatusError should only be used for errors, and all errors should
-				// have a non-zero exit status, so never exit with 0
-				if sterr.StatusCode == 0 {
-					return 1
-				}
-				return sterr.StatusCode
-			}
-			fmt.Fprintln(cmd.Err(), err)
-			return 1
+			return statusCodeFromError(err, cmd.Err())
 		}
 	}
 
@@ -155,6 +145,22 @@ func runMain() int {
 	}
 
 	return 0
+}
+
+func statusCodeFromError(err error, w io.Writer) int {
+	if sterr, ok := err.(cli.StatusError); ok {
+		if sterr.Status != "" {
+			fmt.Fprintln(w, sterr.Status)
+		}
+		// StatusError should only be used for errors, and all errors should
+		// have a non-zero exit status, so never exit with 0.
+		if sterr.StatusCode == 0 {
+			return 1
+		}
+		return sterr.StatusCode
+	}
+	fmt.Fprintln(w, err)
+	return 1
 }
 
 func parseCmdSubcmd() (string, string) {

@@ -503,6 +503,11 @@ func resetTestHooks(t *testing.T) {
 	isTerminalFunc = func() bool {
 		return true
 	}
+	splitTestsFunc = apiSplitTests
+	reportTestResultsFunc = apiReportTestResults
+	resolveOIDCCredentialFunc = oidcResolveCredential
+	runShellCommandFunc = shellRunCommand
+	workingDirectoryFunc = osWorkingDirectory
 
 	t.Cleanup(func() {
 		resolveOrgAuthFunc = helpersResolveOrgAuth
@@ -511,6 +516,11 @@ func resetTestHooks(t *testing.T) {
 		listTestResultsFunc = apiListTestResults
 		ciGetRunStatusFunc = apiCIGetRunStatus
 		isTerminalFunc = helpersIsTerminal
+		splitTestsFunc = apiSplitTests
+		reportTestResultsFunc = apiReportTestResults
+		resolveOIDCCredentialFunc = oidcResolveCredential
+		runShellCommandFunc = shellRunCommand
+		workingDirectoryFunc = osWorkingDirectory
 	})
 }
 
@@ -533,4 +543,9 @@ var (
 	apiListTestResults    = listTestResultsFunc
 	apiCIGetRunStatus     = ciGetRunStatusFunc
 	helpersIsTerminal     = isTerminalFunc
+	apiSplitTests         = splitTestsFunc
+	apiReportTestResults  = reportTestResultsFunc
+	oidcResolveCredential = resolveOIDCCredentialFunc
+	shellRunCommand       = runShellCommandFunc
+	osWorkingDirectory    = workingDirectoryFunc
 )

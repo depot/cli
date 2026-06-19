@@ -16,6 +16,11 @@ service TestResultsService {
     option (google.api.method_visibility).restriction = "INTERNAL";
   }
 
+  // SplitTests returns the runnable candidates assigned to one shard.
+  rpc SplitTests(SplitTestsRequest) returns (SplitTestsResponse) {
+    option (google.api.method_visibility).restriction = "INTERNAL";
+  }
+
   // ListTestResults returns parsed test case results for one verified CI or
   // GitHub Actions owner.
   rpc ListTestResults(ListTestResultsRequest) returns (ListTestResultsResponse) {}
@@ -36,17 +41,38 @@ enum TestResultStatus {
   TEST_RESULT_STATUS_SKIPPED = 5;
 }
 
+enum TestTimingIdentity {
+  // Unknown timing identity.
+  TEST_TIMING_IDENTITY_UNSPECIFIED = 0;
+  // Use the JUnit file identity.
+  TEST_TIMING_IDENTITY_FILENAME = 1;
+  // Use the JUnit class identity.
+  TEST_TIMING_IDENTITY_CLASSNAME = 2;
+  // Use the JUnit test name identity.
+  TEST_TIMING_IDENTITY_TESTNAME = 3;
+}
+
+enum TestCandidateIdentity {
+  // Unknown candidate identity.
+  TEST_CANDIDATE_IDENTITY_UNSPECIFIED = 0;
+  // Runnable candidates are file paths.
+  TEST_CANDIDATE_IDENTITY_FILENAME = 1;
+  // Runnable candidates are JUnit class names.
+  TEST_CANDIDATE_IDENTITY_CLASSNAME = 2;
+}
+
 message ReportTestResultsRequest {
-  // Per-step identity key that scopes multiple reports within a single owner.
-  // Must be non-empty.
+  // Per-step identity key. Populated by the action from `key:` input, else
+  // $GITHUB_ACTION, else "default". This scopes multiple reports within a
+  // single owner. Must be non-empty.
   string invocation_id = 1;
 
-  // One entry per JUnit XML file included in the report.
+  // One entry per JUnit XML file matched by the action's glob.
   repeated TestResultsFile files = 2;
 }
 
 message TestResultsFile {
-  // Relative filename for this JUnit XML file (telemetry/debugging only).
+  // Relative filename from the action's glob (telemetry/debugging only).
   string filename = 1;
   // gzip-compressed JUnit XML bytes. This must be a gzip stream, not a zip
   // archive containing multiple XML files.
@@ -63,6 +89,56 @@ message ReportTestResultsResponse {
   // Count of files skipped because they could not be gunzipped, parsed as
   // recognizable JUnit XML, or accepted within the request resource budget.
   uint32 files_skipped = 4;
+}
+
+message SplitTestsRequest {
+  // An array of runnable test candidates to split. Each value should be
+  // something the caller's test command can execute, such as a test file path
+  // or a JUnit class name. Blank values are ignored. Duplicate values may be
+  // collapsed after applying `candidateIdentity`; file path separators are
+  // treated equivalently. Maximum: 10000 candidates, 4096 bytes per candidate,
+  // and 524288 total candidate bytes. Every shard request for the same
+  // authenticated execution, `splitKey`, `shardTotal`, `candidateIdentity`, and
+  // `timingIdentity` must send the same candidate set; changing it returns
+  // FailedPrecondition.
+  repeated string candidates = 1;
+
+  // Candidate identity used by `candidates`. Required when `timingIdentity` is
+  // `TEST_TIMING_IDENTITY_TESTNAME`. Default: `timingIdentity` when it is
+  // `TEST_TIMING_IDENTITY_FILENAME` or `TEST_TIMING_IDENTITY_CLASSNAME`;
+  // otherwise `TEST_CANDIDATE_IDENTITY_FILENAME`.
+  TestCandidateIdentity candidate_identity = 2;
+
+  // JUnit identity used to weight candidates with historical timings. Default:
+  // `candidateIdentity`.
+  TestTimingIdentity timing_identity = 3;
+
+  // Zero-based shard index to return. Must be less than `shardTotal`.
+  uint32 shard_index = 4;
+
+  // Total number of shards in the test run. Must be greater than zero. Maximum:
+  // 10000.
+  uint32 shard_total = 5;
+
+  // Per-test-command identity key. Use a distinct value when one job performs
+  // more than one independent test split. Maximum: 16384 bytes. Default:
+  // default.
+  string split_key = 6;
+}
+
+message SplitTestsResponse {
+  // Runnable candidates assigned to the requested shard. Values are selected
+  // from `candidates` after trimming blank space.
+  repeated string candidates = 1;
+
+  // Number of candidate values received in the request.
+  uint32 candidates_requested = 2;
+
+  // Number of candidates assigned to the requested shard.
+  uint32 candidates_selected = 3;
+
+  // Number of normalized candidates with historical timing data.
+  uint32 candidates_with_timings = 4;
 }
 
 message ListTestResultsRequest {
