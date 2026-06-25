@@ -207,7 +207,10 @@ type nopCloser struct {
 func (c nopCloser) Close() error { return nil }
 
 func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.Node, opts map[string]build.Options, depotOpts DepotOptions, progressMode, metadataFile string, exportLoad, allowNoOutput bool) (imageIDs []string, res *build.ResultContext, err error) {
-	ctx2, cancel := context.WithCancel(context.TODO())
+	// Derive from the build context (not context.TODO) so cancellation — a dead
+	// builder, a signal, a parent deadline — propagates to the progress printer
+	// instead of leaving it blocked on a connection that will never return.
+	ctx2, cancel := context.WithCancel(ctx)
 
 	printer, err := progress.NewPrinter(ctx2, os.Stderr, os.Stderr, progressMode)
 	if err != nil {
