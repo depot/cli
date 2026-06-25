@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"connectrpc.com/connect"
@@ -74,7 +75,12 @@ func Acquire(ctx context.Context, buildID, token, platform string) (*Machine, er
 			BuildId:  m.BuildID,
 			Platform: builderPlatform,
 		}
-		resp, err := client.GetBuildKitConnection(ctx, api.WithAuthentication(connect.NewRequest(&req), m.Token))
+		// Bound each poll with a per-call deadline so a half-open API connection
+		// can't wedge acquisition forever; an error aborts so the build surfaces
+		// it instead of hanging.
+		callCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		resp, err := client.GetBuildKitConnection(callCtx, api.WithAuthentication(connect.NewRequest(&req), m.Token))
+		cancel()
 		if err != nil {
 			return nil, err
 		}
@@ -164,15 +170,53 @@ func (m *Machine) Release() error {
 	return nil
 }
 
+// buildKitKeepaliveOnce guards the one-time keepalive env defaults below.
+var buildKitKeepaliveOnce sync.Once
+
+// applyBuildKitKeepaliveDefaults sets the DEPOT_KEEPALIVE_CLIENT_* values the
+// depot/buildkit fork reads when it builds the gRPC client, unless the operator
+// already set them. Time is the idle interval between keepalive pings and
+// Timeout is how long to wait for a ping ack before closing the connection, so a
+// dead builder is detected in roughly Time+Timeout while a solve stream is
+// active. PermitWithoutStream is left off on purpose: the builder's keepalive
+// enforcement policy can GOAWAY a client that pings on an idle, stream-less
+// connection, and the hang we care about (DEP-5143) happens during an active
+// solve where pings flow regardless.
+func applyBuildKitKeepaliveDefaults() {
+	buildKitKeepaliveOnce.Do(func() {
+		setEnvDefault("DEPOT_KEEPALIVE_CLIENT_TIME_MS", "30000")
+		setEnvDefault("DEPOT_KEEPALIVE_CLIENT_TIMEOUT_MS", "10000")
+	})
+}
+
+func setEnvDefault(key, value string) {
+	if os.Getenv(key) == "" {
+		_ = os.Setenv(key, value)
+	}
+}
+
 func (m *Machine) Client(ctx context.Context) (*client.Client, error) {
 	if m.client != nil {
 		return m.client, nil
 	}
 
+	// Enable gRPC keepalive on the BuildKit connection. buildkit's client.New
+	// already wires grpc.WithKeepaliveParams, but the depot fork sources those
+	// values from DEPOT_KEEPALIVE_CLIENT_* env vars and leaves them zero (i.e.
+	// disabled) when unset — so a wedged solve stream to a dead builder blocks
+	// forever and the build is pinned `running` (DEP-5143). Set sane defaults so
+	// a half-open connection is detected in seconds.
+	applyBuildKitKeepaliveDefaults()
+
 	opts := []client.ClientOpt{
 		client.WithContextDialer(func(ctx context.Context, addr string) (net.Conn, error) {
 			addr = strings.TrimPrefix(addr, "tcp://")
-			return net.Dial("tcp", addr)
+			// A bare net.Dial has no connect timeout and ignores the context, so a
+			// builder that accepts the TCP connection but never responds, or a DNS
+			// hang, blocks indefinitely. Bound the dial and turn on TCP keepalive
+			// as an OS-level backstop to the gRPC pings.
+			dialer := &net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}
+			return dialer.DialContext(ctx, "tcp", addr)
 		}),
 	}
 
