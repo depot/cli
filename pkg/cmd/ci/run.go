@@ -34,6 +34,7 @@ func NewCmdRun() *cobra.Command {
 		sshAfterStep int
 		ssh          bool
 		repoFlag     string
+		follow       bool
 	)
 
 	cmd := &cobra.Command{
@@ -73,6 +74,10 @@ patch is relative to the default branch.`,
 
 			if ssh && sshAfterStep > 0 {
 				return fmt.Errorf("--ssh and --ssh-after-step are mutually exclusive")
+			}
+
+			if follow && (ssh || sshAfterStep > 0) {
+				return fmt.Errorf("--follow cannot be combined with --ssh/--ssh-after-step")
 			}
 
 			if orgID == "" {
@@ -260,6 +265,16 @@ patch is relative to the default branch.`,
 				return execSSH(sshTarget)
 			}
 
+			if follow {
+				// Pass a job selector only when exactly one job was requested;
+				// otherwise let the logs resolver auto-select or prompt.
+				jobKey := ""
+				if len(jobNames) == 1 {
+					jobKey = jobNames[0]
+				}
+				return followRunLogs(ctx, tokenVal, orgID, resp.RunId, jobKey, "", logOutputOptions{}, cmd.OutOrStdout(), cmd.ErrOrStderr())
+			}
+
 			orgFlag := ""
 			if cmd.Flags().Changed("org") {
 				orgFlag = " --org " + orgID
@@ -278,6 +293,7 @@ patch is relative to the default branch.`,
 	cmd.Flags().IntVar(&sshAfterStep, "ssh-after-step", 0, "1-based step index to insert a tmate debug step after (requires single --job)")
 	cmd.Flags().BoolVar(&ssh, "ssh", false, "Start the run and connect to the job's sandbox via interactive terminal (requires single --job)")
 	cmd.Flags().StringVar(&repoFlag, "repo", "", "GitHub repository (owner/repo) to use instead of detecting from git remotes")
+	cmd.Flags().BoolVarP(&follow, "follow", "f", false, "Follow live logs")
 
 	cmd.AddCommand(NewCmdRunList())
 	cmd.AddCommand(NewCmdRunShow())
