@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"connectrpc.com/connect"
 	"github.com/depot/cli/pkg/api"
 	civ1 "github.com/depot/cli/pkg/proto/depot/ci/v1"
 )
@@ -450,6 +451,150 @@ func TestLogsCommandHistoricalDirectAttemptDefaultOutputUnchanged(t *testing.T) 
 	}
 	if got := stderr.String(); got != "" {
 		t.Fatalf("stderr = %q, want empty", got)
+	}
+}
+
+func TestLogsCommandHistoricalDirectJobUsesJobSelectorAfterRunLookupMiss(t *testing.T) {
+	originalGetRunStatus := ciGetRunStatus
+	originalGetJobAttemptLogs := ciGetJobAttemptLogs
+	originalGetJobAttemptLogsForTarget := ciGetJobAttemptLogsForTarget
+	t.Cleanup(func() {
+		ciGetRunStatus = originalGetRunStatus
+		ciGetJobAttemptLogs = originalGetJobAttemptLogs
+		ciGetJobAttemptLogsForTarget = originalGetJobAttemptLogsForTarget
+	})
+
+	var runStatusCalls int
+	ciGetRunStatus = func(_ context.Context, _, _, id string) (*civ1.GetRunStatusResponse, error) {
+		runStatusCalls++
+		if id != "job-1" {
+			t.Fatalf("run status id = %q, want job-1", id)
+		}
+		return nil, connect.NewError(connect.CodeNotFound, errors.New("run or job not found"))
+	}
+	ciGetJobAttemptLogs = func(_ context.Context, _, _, attemptID string) ([]*civ1.LogLine, error) {
+		if attemptID != "job-1" {
+			t.Fatalf("attemptID = %q, want job-1", attemptID)
+		}
+		return nil, connect.NewError(connect.CodeNotFound, errors.New("attempt not found"))
+	}
+	ciGetJobAttemptLogsForTarget = func(_ context.Context, _, _ string, target api.CILogStreamTarget) ([]*civ1.LogLine, error) {
+		if target.JobID != "job-1" || target.AttemptID != "" {
+			t.Fatalf("target = %+v, want job-1 only", target)
+		}
+		return []*civ1.LogLine{{Body: "job line"}}, nil
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd := NewCmdLogs()
+	cmd.SetArgs([]string{"job-1", "--token", "token-123", "--org", "org-123"})
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := stdout.String(), "job line\n"; got != want {
+		t.Fatalf("stdout = %q, want %q", got, want)
+	}
+	if got := stderr.String(); got != "" {
+		t.Fatalf("stderr = %q, want empty", got)
+	}
+	if runStatusCalls != 1 {
+		t.Fatalf("run status calls = %d, want 1", runStatusCalls)
+	}
+}
+
+func TestLogsCommandHistoricalUnresolvedErrorIncludesRunJobAttemptContext(t *testing.T) {
+	originalGetRunStatus := ciGetRunStatus
+	originalGetJobAttemptLogs := ciGetJobAttemptLogs
+	originalGetJobAttemptLogsForTarget := ciGetJobAttemptLogsForTarget
+	t.Cleanup(func() {
+		ciGetRunStatus = originalGetRunStatus
+		ciGetJobAttemptLogs = originalGetJobAttemptLogs
+		ciGetJobAttemptLogsForTarget = originalGetJobAttemptLogsForTarget
+	})
+
+	ciGetRunStatus = func(context.Context, string, string, string) (*civ1.GetRunStatusResponse, error) {
+		return nil, errors.New("run lookup failed")
+	}
+	ciGetJobAttemptLogs = func(context.Context, string, string, string) ([]*civ1.LogLine, error) {
+		return nil, connect.NewError(connect.CodeNotFound, errors.New("attempt not found"))
+	}
+	ciGetJobAttemptLogsForTarget = func(context.Context, string, string, api.CILogStreamTarget) ([]*civ1.LogLine, error) {
+		return nil, connect.NewError(connect.CodeNotFound, errors.New("job not found"))
+	}
+
+	cmd := NewCmdLogs()
+	cmd.SetArgs([]string{"unknown-id", "--token", "token-123", "--org", "org-123"})
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	for _, want := range []string{
+		`could not resolve "unknown-id" as a run, job, or attempt ID`,
+		"as run/job:",
+		"run lookup failed",
+		"as attempt:",
+		"attempt not found",
+		"as job:",
+		"job not found",
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error missing %q:\n%v", want, err)
+		}
+	}
+}
+
+func TestLogsCommandHistoricalFlagsDoNotFallbackToBareJobOrAttemptTargets(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{name: "job flag", args: []string{"attempt-1", "--token", "token-123", "--org", "org-123", "--job", "build"}},
+		{name: "workflow flag", args: []string{"attempt-1", "--token", "token-123", "--org", "org-123", "--workflow", "ci.yml"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			originalGetRunStatus := ciGetRunStatus
+			originalGetJobAttemptLogs := ciGetJobAttemptLogs
+			originalGetJobAttemptLogsForTarget := ciGetJobAttemptLogsForTarget
+			t.Cleanup(func() {
+				ciGetRunStatus = originalGetRunStatus
+				ciGetJobAttemptLogs = originalGetJobAttemptLogs
+				ciGetJobAttemptLogsForTarget = originalGetJobAttemptLogsForTarget
+			})
+
+			ciGetRunStatus = func(context.Context, string, string, string) (*civ1.GetRunStatusResponse, error) {
+				return nil, errors.New("not a run")
+			}
+			ciGetJobAttemptLogs = func(context.Context, string, string, string) ([]*civ1.LogLine, error) {
+				t.Fatal("bare attempt fallback should not run when run-level disambiguation flags are set")
+				return nil, nil
+			}
+			ciGetJobAttemptLogsForTarget = func(context.Context, string, string, api.CILogStreamTarget) ([]*civ1.LogLine, error) {
+				t.Fatal("bare job fallback should not run when run-level disambiguation flags are set")
+				return nil, nil
+			}
+
+			cmd := NewCmdLogs()
+			cmd.SetArgs(tt.args)
+			cmd.SetOut(io.Discard)
+			cmd.SetErr(io.Discard)
+
+			err := cmd.Execute()
+			if err == nil {
+				t.Fatal("expected error")
+			}
+			if !strings.Contains(err.Error(), "failed to look up run: not a run") {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
 	}
 }
 
