@@ -133,10 +133,11 @@ ID, use --job and --workflow to disambiguate by workflow job key.`,
 			resolutionOptions := logTargetResolutionOptionsForOutput(outputOptions, outputFile)
 			resp, runErr := ciGetRunStatus(ctx, tokenVal, orgID, id)
 			if runErr == nil {
-				target, err := resolveLogTargetWithOptions(resp, id, job, workflow, resolutionOptions)
-				if follow && err != nil {
-					target, err = resolveLogTargetWithFollowRetry(ctx, tokenVal, orgID, id, job, workflow, err, reporter, resolutionOptions)
+				if follow && outputFile == "" {
+					return followRunLogsWithReporter(ctx, tokenVal, orgID, id, job, workflow, resp, outputOptions, reporter, resolutionOptions, cmd.OutOrStdout())
 				}
+
+				target, err := resolveLogTargetWithOptions(resp, id, job, workflow, resolutionOptions)
 				if err != nil {
 					return err
 				}
@@ -151,10 +152,6 @@ ID, use --job and --workflow to disambiguate by workflow job key.`,
 
 				if outputFile != "" {
 					return downloadLogsToFile(ctx, tokenVal, orgID, api.CILogStreamTarget{AttemptID: target.attemptID}, outputOptions, outputFile, cmd.ErrOrStderr())
-				} else if follow {
-					if err := streamLogsWithFollowUX(ctx, tokenVal, orgID, target, cmd.OutOrStdout(), reporter, outputOptions); err != nil {
-						return fmt.Errorf("failed to stream logs: %w", err)
-					}
 				} else {
 					reportLogTargetSelection(target, reporter, false)
 					lines, err := ciGetJobAttemptLogs(ctx, tokenVal, orgID, target.attemptID)
@@ -608,6 +605,59 @@ func (w *followLogWriter) WriteLine(line *civ1.LogLine, timestamps bool) error {
 		w.reporter.SawLogs()
 	}
 	return err
+}
+
+// followRunLogs resolves the log target for an already-triggered run and streams
+// its logs with the interactive follow UX, exactly like `depot ci logs <run-id> --follow`.
+// It is the entry point used by `depot ci run --follow`, which has the run ID in hand
+// but has not yet fetched run status or built a reporter.
+func followRunLogs(ctx context.Context, token, orgID, runID, jobKey, workflow string, outputOptions logOutputOptions, out io.Writer, errW io.Writer) error {
+	resolutionOptions := logTargetResolutionOptionsForOutput(outputOptions, "")
+
+	reporterWriter := errW
+	reporterInteractive := helpers.IsTerminal()
+	if outputOptions.json() {
+		reporterWriter = io.Discard
+		reporterInteractive = false
+	}
+	reporter := newLogFollowReporter(reporterWriter, reporterInteractive)
+
+	resp, err := ciGetRunStatus(ctx, token, orgID, runID)
+	if err != nil {
+		return fmt.Errorf("failed to look up run: %w", err)
+	}
+
+	return followRunLogsWithReporter(ctx, token, orgID, runID, jobKey, workflow, resp, outputOptions, reporter, resolutionOptions, out)
+}
+
+// followRunLogsWithReporter performs the resolve-target + follow-retry + stream flow
+// shared by `ci logs --follow` and `ci run --follow`. Callers supply the already-fetched
+// run status and a configured reporter.
+func followRunLogsWithReporter(
+	ctx context.Context,
+	token, orgID, runID, jobKey, workflow string,
+	resp *civ1.GetRunStatusResponse,
+	outputOptions logOutputOptions,
+	reporter *logFollowReporter,
+	resolutionOptions logTargetResolutionOptions,
+	out io.Writer,
+) error {
+	target, err := resolveLogTargetWithOptions(resp, runID, jobKey, workflow, resolutionOptions)
+	if err != nil {
+		target, err = resolveLogTargetWithFollowRetry(ctx, token, orgID, runID, jobKey, workflow, err, reporter, resolutionOptions)
+	}
+	if err != nil {
+		return err
+	}
+	if target.noLogsMessage != "" {
+		reporter.Message(target.noLogsMessage)
+		return nil
+	}
+
+	if err := streamLogsWithFollowUX(ctx, token, orgID, target, out, reporter, outputOptions); err != nil {
+		return fmt.Errorf("failed to stream logs: %w", err)
+	}
+	return nil
 }
 
 func streamLogsWithFollowUX(
