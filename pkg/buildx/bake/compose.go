@@ -53,6 +53,11 @@ func ParseCompose(cfgs []compose.ConfigFile, envs map[string]string) (*Config, e
 
 	var c Config
 	if len(cfg.Services) > 0 {
+		serviceTargetNames, err := composeBuildTargetNames(cfg.Services)
+		if err != nil {
+			return nil, err
+		}
+
 		c.Groups = []*Group{}
 		c.Targets = []*Target{}
 
@@ -63,10 +68,7 @@ func ParseCompose(cfgs []compose.ConfigFile, envs map[string]string) (*Config, e
 				continue
 			}
 
-			targetName := sanitizeTargetName(s.Name)
-			if err = validateTargetName(targetName); err != nil {
-				return nil, errors.Wrapf(err, "invalid service name %q", targetName)
-			}
+			targetName := serviceTargetNames[s.Name]
 
 			var contextPathP *string
 			if s.Build.Context != "" {
@@ -88,7 +90,7 @@ func ParseCompose(cfgs []compose.ConfigFile, envs map[string]string) (*Config, e
 			if s.Build.AdditionalContexts != nil {
 				additionalContexts = map[string]string{}
 				for k, v := range s.Build.AdditionalContexts {
-					additionalContexts[k] = v
+					additionalContexts[k] = normalizeComposeAdditionalContext(v, serviceTargetNames)
 				}
 			}
 
@@ -167,6 +169,35 @@ func ParseCompose(cfgs []compose.ConfigFile, envs map[string]string) (*Config, e
 	}
 
 	return &c, nil
+}
+
+func composeBuildTargetNames(services compose.Services) (map[string]string, error) {
+	targetNames := map[string]string{}
+	for _, s := range services {
+		if s.Build == nil {
+			continue
+		}
+
+		targetName := sanitizeTargetName(s.Name)
+		if err := validateTargetName(targetName); err != nil {
+			return nil, errors.Wrapf(err, "invalid service name %q", targetName)
+		}
+		targetNames[s.Name] = targetName
+	}
+	return targetNames, nil
+}
+
+func normalizeComposeAdditionalContext(context string, serviceTargetNames map[string]string) string {
+	serviceName, ok := strings.CutPrefix(context, compose.ServicePrefix)
+	if !ok {
+		return context
+	}
+
+	targetName, ok := serviceTargetNames[serviceName]
+	if !ok {
+		return context
+	}
+	return "target:" + targetName
 }
 
 func validateComposeFile(dt []byte, fn string) (bool, error) {
