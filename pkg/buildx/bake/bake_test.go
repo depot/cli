@@ -75,6 +75,31 @@ target "webapp" {
 	require.Equal(t, []string{"linux/amd64"}, targets2["webapp"].Platforms)
 }
 
+func TestReadTargetsComposeServiceAdditionalContext(t *testing.T) {
+	dt := []byte(`
+services:
+  api.docs:
+    build:
+      context: ./api-docs
+  django:
+    build:
+      context: .
+      additional_contexts:
+        api-schema-docs: service:api.docs
+        local-docs: ./docs
+`)
+
+	targets, _, err := bake.ReadTargets(context.TODO(), []bake.File{{Name: "compose.yaml", Data: dt}}, []string{"django"}, nil, nil)
+	require.NoError(t, err)
+
+	require.Contains(t, targets, "django")
+	require.Equal(t, "target:api_docs", targets["django"].Contexts["api-schema-docs"])
+	require.Equal(t, "docs", targets["django"].Contexts["local-docs"])
+
+	require.Contains(t, targets, "api_docs")
+	require.Equal(t, "api-docs", *targets["api_docs"].Context)
+}
+
 func TestVariableValidation(t *testing.T) {
 	fp := bake.File{
 		Name: "docker-bake.hcl",
