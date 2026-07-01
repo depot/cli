@@ -278,6 +278,46 @@ func TestSetRunRequestGitContext_noPatch_headUnresolved(t *testing.T) {
 	}
 }
 
+func TestResolveBranchRef_OnDefaultBranch(t *testing.T) {
+	bare := initBareRemote(t)
+	clone := cloneRepo(t, bare)
+
+	branch := run(t, clone, "git", "rev-parse", "--abbrev-ref", "HEAD")
+	want := "refs/heads/" + branch
+	if got := resolveBranchRef(clone); got != want {
+		t.Fatalf("resolveBranchRef = %q, want %q", got, want)
+	}
+}
+
+func TestResolveBranchRef_FeatureBranch(t *testing.T) {
+	bare := initBareRemote(t)
+	clone := cloneRepo(t, bare)
+
+	run(t, clone, "git", "checkout", "-b", "feature/test")
+	if got := resolveBranchRef(clone); got != "refs/heads/feature/test" {
+		t.Fatalf("resolveBranchRef = %q, want refs/heads/feature/test", got)
+	}
+}
+
+func TestResolveBranchRef_DetachedHEAD(t *testing.T) {
+	bare := initBareRemote(t)
+	clone := cloneRepo(t, bare)
+
+	headSHA := run(t, clone, "git", "rev-parse", "HEAD")
+	run(t, clone, "git", "checkout", headSHA)
+
+	if got := resolveBranchRef(clone); got != "" {
+		t.Fatalf("resolveBranchRef on detached HEAD = %q, want empty", got)
+	}
+}
+
+func TestResolveBranchRef_NotAGitRepo(t *testing.T) {
+	dir := t.TempDir()
+	if got := resolveBranchRef(dir); got != "" {
+		t.Fatalf("resolveBranchRef in non-git dir = %q, want empty", got)
+	}
+}
+
 func TestFindUntrackedDepotFiles_includesNewActions(t *testing.T) {
 	bare := initBareRemote(t)
 	clone := cloneRepo(t, bare)
