@@ -97,6 +97,7 @@ Actions job ID.`,
 
 	cmd.AddCommand(newCmdTestsRun())
 	cmd.AddCommand(newCmdTestsSplit())
+	cmd.AddCommand(newCmdTestsReport())
 
 	return cmd
 }

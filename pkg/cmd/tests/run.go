@@ -207,21 +207,26 @@ func splitCandidatesByTimings(ctx context.Context, candidates []string, opts run
 }
 
 func uploadTestReports(ctx context.Context, opts runOptions) error {
+	_, err := uploadTestReportsResponse(ctx, opts)
+	return err
+}
+
+func uploadTestReportsResponse(ctx context.Context, opts runOptions) (*testresultsv1.ReportTestResultsResponse, error) {
 	workspace, err := workingDirectoryFunc()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	files, err := discoverReportFiles(opts.reportPath, workspace)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if len(files) == 0 {
-		return fmt.Errorf("no test report files matched: %s", strings.Join(strings.Fields(opts.reportPath), ", "))
+		return nil, fmt.Errorf("no test report files matched: %s", strings.Join(strings.Fields(opts.reportPath), ", "))
 	}
 
 	prepared, err := prepareReportFiles(files)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	requestCtx, cancel := context.WithTimeout(ctx, reportTestResultsRequestTimeout)
@@ -229,14 +234,17 @@ func uploadTestReports(ctx context.Context, opts runOptions) error {
 
 	token, err := resolveOIDCCredentialFunc(requestCtx)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	_, err = reportTestResultsFunc(requestCtx, token, &testresultsv1.ReportTestResultsRequest{
+	resp, err := reportTestResultsFunc(requestCtx, token, &testresultsv1.ReportTestResultsRequest{
 		InvocationId: testInvocationKey(opts.key),
 		Files:        prepared,
 	})
-	return err
+	if err != nil {
+		return nil, err
+	}
+	return resp, nil
 }
 
 func testInvocationKey(key string) string {
