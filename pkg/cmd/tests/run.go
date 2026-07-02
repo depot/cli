@@ -40,6 +40,7 @@ type runOptions struct {
 	reportPath    string
 	candidates    string
 	key           string
+	output        string
 }
 
 func newCmdTestsRun() *cobra.Command {
@@ -86,43 +87,9 @@ func runTestsRun(cmd *cobra.Command, opts runOptions) error {
 		return fmt.Errorf("--report-path is required")
 	}
 
-	mode, err := parseSplitMode(opts.splitBy)
+	mode, candidates, selectedCandidates, splitResponse, err := selectTestCandidates(cmd, opts)
 	if err != nil {
 		return err
-	}
-	if err := validateShard(opts.index, opts.total); err != nil {
-		return err
-	}
-	if err := validateExplicitRunIdentityFlags(opts); err != nil {
-		return err
-	}
-	if stdin, ok := cmd.InOrStdin().(*os.File); opts.candidates == "" && ok && stdin == os.Stdin && isTerminalFunc() {
-		return fmt.Errorf("no candidates provided; pipe newline-delimited candidates to stdin or pass --candidates")
-	}
-
-	candidates, err := loadCandidates(cmd.InOrStdin(), opts.candidates)
-	if err != nil {
-		return fmt.Errorf("failed to load candidates: %w", err)
-	}
-	if err := validateRunIdentityFlags(opts, candidates, mode); err != nil {
-		return err
-	}
-
-	selectedCandidates := candidates
-	var splitResponse *testresultsv1.SplitTestsResponse
-	if opts.total > 1 {
-		switch mode {
-		case splitModeTimings:
-			selectedCandidates, splitResponse, err = splitCandidatesByTimings(cmd.Context(), candidates, opts)
-			if err != nil {
-				return err
-			}
-		case splitModeName, splitModeFileSize:
-			selectedCandidates, err = partitionCandidates(candidates, mode, opts.index, opts.total)
-			if err != nil {
-				return err
-			}
-		}
 	}
 
 	writeSplitSummary(cmd.ErrOrStderr(), mode, opts, len(candidates), selectedCandidates, splitResponse)
@@ -147,6 +114,49 @@ func runTestsRun(cmd *cobra.Command, opts runOptions) error {
 		return fmt.Errorf("failed to upload test reports: %w", reportErr)
 	}
 	return nil
+}
+
+func selectTestCandidates(cmd *cobra.Command, opts runOptions) (splitMode, []string, []string, *testresultsv1.SplitTestsResponse, error) {
+	mode, err := parseSplitMode(opts.splitBy)
+	if err != nil {
+		return "", nil, nil, nil, err
+	}
+	if err := validateShard(opts.index, opts.total); err != nil {
+		return "", nil, nil, nil, err
+	}
+	if err := validateExplicitRunIdentityFlags(opts); err != nil {
+		return "", nil, nil, nil, err
+	}
+	if stdin, ok := cmd.InOrStdin().(*os.File); opts.candidates == "" && ok && stdin == os.Stdin && isTerminalFunc() {
+		return "", nil, nil, nil, fmt.Errorf("no candidates provided; pipe newline-delimited candidates to stdin or pass --candidates")
+	}
+
+	candidates, err := loadCandidates(cmd.InOrStdin(), opts.candidates)
+	if err != nil {
+		return "", nil, nil, nil, fmt.Errorf("failed to load candidates: %w", err)
+	}
+	if err := validateRunIdentityFlags(opts, candidates, mode); err != nil {
+		return "", nil, nil, nil, err
+	}
+
+	selectedCandidates := candidates
+	var splitResponse *testresultsv1.SplitTestsResponse
+	if opts.total > 1 {
+		switch mode {
+		case splitModeTimings:
+			selectedCandidates, splitResponse, err = splitCandidatesByTimings(cmd.Context(), candidates, opts)
+			if err != nil {
+				return "", nil, nil, nil, err
+			}
+		case splitModeName, splitModeFileSize:
+			selectedCandidates, err = partitionCandidates(candidates, mode, opts.index, opts.total)
+			if err != nil {
+				return "", nil, nil, nil, err
+			}
+		}
+	}
+
+	return mode, candidates, selectedCandidates, splitResponse, nil
 }
 
 func validateRunIdentityFlags(opts runOptions, candidates []string, mode splitMode) error {
