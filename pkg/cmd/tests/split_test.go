@@ -44,7 +44,7 @@ func TestSplitDefaultsToTimingSplit(t *testing.T) {
 		"split",
 		"--candidate-type", "filename",
 		"--timings-type", "testname",
-		"--split-key", "unit",
+		"--key", "unit",
 		"--index", "1",
 		"--total", "2",
 	)

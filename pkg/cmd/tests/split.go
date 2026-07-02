@@ -52,7 +52,7 @@ timings to select a balanced shard. Use --split-by name or --split-by filesize f
 	flags.StringVar(&opts.timingsType, "timings-type", "", "JUnit timing identity (filename, classname, testname)")
 	flags.IntVar(&opts.index, "index", -1, "Zero-based shard index")
 	flags.IntVar(&opts.total, "total", 0, "Total number of shards")
-	flags.StringVar(&opts.splitKey, "split-key", "", "Identity for this logical split when one job runs multiple splits")
+	flags.StringVar(&opts.key, "key", "", "Test split key")
 	flags.StringVar(&opts.candidates, "candidates", "", "Path to newline-delimited runnable test candidates instead of stdin")
 	flags.StringVar(&opts.output, "output", splitOutputAuto, "Output format (auto, text, json)")
 

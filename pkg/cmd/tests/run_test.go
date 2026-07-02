@@ -81,6 +81,9 @@ func TestRunDefaultsToTimingSplit(t *testing.T) {
 	if splitReq.GetShardIndex() != 1 || splitReq.GetShardTotal() != 2 {
 		t.Fatalf("expected shard 1/2, got %d/%d", splitReq.GetShardIndex(), splitReq.GetShardTotal())
 	}
+	if splitReq.GetSplitKey() != "default" {
+		t.Fatalf("expected default split key, got %q", splitReq.GetSplitKey())
+	}
 	if !equalStrings(commandCandidates, []string{"b.test.ts"}) {
 		t.Fatalf("expected selected command candidate, got %v", commandCandidates)
 	}
@@ -169,14 +172,16 @@ func TestRunSubcommandTakesPrecedenceOverResultID(t *testing.T) {
 	}
 }
 
-func TestRunPassesExplicitIdentitiesAndSplitKey(t *testing.T) {
+func TestRunPassesExplicitIdentitiesAndKey(t *testing.T) {
 	resetTestHooks(t)
 	workspace := t.TempDir()
 	writeTempFileAt(t, workspace, "reports/junit.xml", "<testsuite/>")
 	workingDirectoryFunc = func() (string, error) { return workspace, nil }
 	resolveOIDCCredentialFunc = func(context.Context) (string, error) { return "oidc-token", nil }
 	runShellCommandFunc = func(context.Context, string, []string, io.Writer, io.Writer) (int, error) { return 0, nil }
-	reportTestResultsFunc = func(context.Context, string, *testresultsv1.ReportTestResultsRequest) (*testresultsv1.ReportTestResultsResponse, error) {
+	var reportReq *testresultsv1.ReportTestResultsRequest
+	reportTestResultsFunc = func(_ context.Context, _ string, req *testresultsv1.ReportTestResultsRequest) (*testresultsv1.ReportTestResultsResponse, error) {
+		reportReq = req
 		return &testresultsv1.ReportTestResultsResponse{}, nil
 	}
 
@@ -191,7 +196,7 @@ func TestRunPassesExplicitIdentitiesAndSplitKey(t *testing.T) {
 		"run",
 		"--candidate-type", "classname",
 		"--timings-type", "testname",
-		"--split-key", "unit",
+		"--key", "unit",
 		"--index", "0",
 		"--total", "2",
 		"--command", "test-command",
@@ -208,6 +213,9 @@ func TestRunPassesExplicitIdentitiesAndSplitKey(t *testing.T) {
 	}
 	if splitReq.GetSplitKey() != "unit" {
 		t.Fatalf("expected split key unit, got %q", splitReq.GetSplitKey())
+	}
+	if reportReq.GetInvocationId() != "unit" {
+		t.Fatalf("expected report invocation key unit, got %q", reportReq.GetInvocationId())
 	}
 }
 

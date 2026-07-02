@@ -35,7 +35,6 @@ type runOptions struct {
 	timingsType   string
 	index         int
 	total         int
-	splitKey      string
 	command       string
 	reportPath    string
 	candidates    string
@@ -70,11 +69,10 @@ timings to select a balanced shard. Use --split-by name or --split-by filesize f
 	flags.StringVar(&opts.timingsType, "timings-type", "", "JUnit timing identity (filename, classname, testname)")
 	flags.IntVar(&opts.index, "index", -1, "Zero-based shard index")
 	flags.IntVar(&opts.total, "total", 0, "Total number of shards")
-	flags.StringVar(&opts.splitKey, "split-key", "", "Identity for this logical split when one job runs multiple splits")
 	flags.StringVar(&opts.command, "command", "", "Shell command that receives selected candidates on stdin")
 	flags.StringVar(&opts.reportPath, "report-path", "", "JUnit XML report path, directory, or glob")
 	flags.StringVar(&opts.candidates, "candidates", "", "Path to newline-delimited runnable test candidates instead of stdin")
-	flags.StringVar(&opts.key, "key", "", "Report invocation key")
+	flags.StringVar(&opts.key, "key", "", "Test invocation key")
 
 	return cmd
 }
@@ -200,7 +198,7 @@ func splitCandidatesByTimings(ctx context.Context, candidates []string, opts run
 		TimingIdentity:    timingIdentity,
 		ShardIndex:        uint32(opts.index),
 		ShardTotal:        uint32(opts.total),
-		SplitKey:          opts.splitKey,
+		SplitKey:          testInvocationKey(opts.key),
 	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to split tests by timings: %w", err)
@@ -235,13 +233,13 @@ func uploadTestReports(ctx context.Context, opts runOptions) error {
 	}
 
 	_, err = reportTestResultsFunc(requestCtx, token, &testresultsv1.ReportTestResultsRequest{
-		InvocationId: reportInvocationKey(opts.key),
+		InvocationId: testInvocationKey(opts.key),
 		Files:        prepared,
 	})
 	return err
 }
 
-func reportInvocationKey(key string) string {
+func testInvocationKey(key string) string {
 	if strings.TrimSpace(key) != "" {
 		return strings.TrimSpace(key)
 	}
