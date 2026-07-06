@@ -21,3 +21,12 @@ func ListTestResults(ctx context.Context, token, orgID string, req *testresultsv
 	}
 	return resp.Msg, nil
 }
+
+func SplitTests(ctx context.Context, token string, req *testresultsv1.SplitTestsRequest) (*testresultsv1.SplitTestsResponse, error) {
+	client := newTestResultsServiceClient()
+	resp, err := client.SplitTests(ctx, WithAuthentication(connect.NewRequest(req), token))
+	if err != nil {
+		return nil, err
+	}
+	return resp.Msg, nil
+}

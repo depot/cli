@@ -482,6 +482,13 @@ func executeCommand(args ...string) (string, error) {
 	return out.String(), err
 }
 
+func requireContextDeadline(t *testing.T, ctx context.Context, name string) {
+	t.Helper()
+	if _, ok := ctx.Deadline(); !ok {
+		t.Fatalf("expected %s context to have deadline", name)
+	}
+}
+
 func resetTestHooks(t *testing.T) {
 	t.Helper()
 
@@ -500,9 +507,23 @@ func resetTestHooks(t *testing.T) {
 	ciGetRunStatusFunc = func(context.Context, string, string, string) (*civ1.GetRunStatusResponse, error) {
 		return nil, errors.New("not found")
 	}
+	splitTestsFunc = func(_ context.Context, _ string, req *testresultsv1.SplitTestsRequest) (*testresultsv1.SplitTestsResponse, error) {
+		return &testresultsv1.SplitTestsResponse{
+			Candidates:          req.GetCandidates(),
+			CandidatesRequested: uint32(len(req.GetCandidates())),
+			CandidatesSelected:  uint32(len(req.GetCandidates())),
+		}, nil
+	}
+	resolveOIDCCredentialFunc = func(context.Context) (string, error) {
+		return "oidc-token", nil
+	}
 	isTerminalFunc = func() bool {
 		return true
 	}
+	isStdinTerminalFunc = func() bool {
+		return true
+	}
+	oidcDebugWriter = defaultOIDCDebugWriter
 
 	t.Cleanup(func() {
 		resolveOrgAuthFunc = helpersResolveOrgAuth
@@ -510,7 +531,11 @@ func resetTestHooks(t *testing.T) {
 		currentOrgFunc = configCurrentOrg
 		listTestResultsFunc = apiListTestResults
 		ciGetRunStatusFunc = apiCIGetRunStatus
+		splitTestsFunc = apiSplitTests
+		resolveOIDCCredentialFunc = testsResolveOIDCCredential
 		isTerminalFunc = helpersIsTerminal
+		isStdinTerminalFunc = helpersIsStdinTerminal
+		oidcDebugWriter = defaultOIDCDebugWriter
 	})
 }
 
@@ -527,10 +552,14 @@ func equalStatuses(left, right []testresultsv1.TestResultStatus) bool {
 }
 
 var (
-	helpersResolveOrgAuth = resolveOrgAuthFunc
-	staticResolveOrgAuth  = resolveStaticAuthFunc
-	configCurrentOrg      = currentOrgFunc
-	apiListTestResults    = listTestResultsFunc
-	apiCIGetRunStatus     = ciGetRunStatusFunc
-	helpersIsTerminal     = isTerminalFunc
+	helpersResolveOrgAuth      = resolveOrgAuthFunc
+	staticResolveOrgAuth       = resolveStaticAuthFunc
+	configCurrentOrg           = currentOrgFunc
+	apiListTestResults         = listTestResultsFunc
+	apiCIGetRunStatus          = ciGetRunStatusFunc
+	apiSplitTests              = splitTestsFunc
+	testsResolveOIDCCredential = resolveOIDCCredentialFunc
+	helpersIsTerminal          = isTerminalFunc
+	helpersIsStdinTerminal     = isStdinTerminalFunc
+	defaultOIDCDebugWriter     = oidcDebugWriter
 )
