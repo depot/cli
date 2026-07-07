@@ -15,6 +15,7 @@ import (
 
 var (
 	splitTestsFunc            = api.SplitTests
+	reportTestResultsFunc     = api.ReportTestResults
 	resolveOIDCCredentialFunc = resolveOIDCCredential
 )
 

@@ -504,6 +504,9 @@ func resetTestHooks(t *testing.T) {
 	listTestResultsFunc = func(context.Context, string, string, *testresultsv1.ListTestResultsRequest) (*testresultsv1.ListTestResultsResponse, error) {
 		return &testresultsv1.ListTestResultsResponse{}, nil
 	}
+	reportTestResultsFunc = func(context.Context, string, *testresultsv1.ReportTestResultsRequest) (*testresultsv1.ReportTestResultsResponse, error) {
+		return &testresultsv1.ReportTestResultsResponse{}, nil
+	}
 	ciGetRunStatusFunc = func(context.Context, string, string, string) (*civ1.GetRunStatusResponse, error) {
 		return nil, errors.New("not found")
 	}
@@ -530,6 +533,7 @@ func resetTestHooks(t *testing.T) {
 		resolveStaticAuthFunc = staticResolveOrgAuth
 		currentOrgFunc = configCurrentOrg
 		listTestResultsFunc = apiListTestResults
+		reportTestResultsFunc = apiReportTestResults
 		ciGetRunStatusFunc = apiCIGetRunStatus
 		splitTestsFunc = apiSplitTests
 		resolveOIDCCredentialFunc = testsResolveOIDCCredential
@@ -556,6 +560,7 @@ var (
 	staticResolveOrgAuth       = resolveStaticAuthFunc
 	configCurrentOrg           = currentOrgFunc
 	apiListTestResults         = listTestResultsFunc
+	apiReportTestResults       = reportTestResultsFunc
 	apiCIGetRunStatus          = ciGetRunStatusFunc
 	apiSplitTests              = splitTestsFunc
 	testsResolveOIDCCredential = resolveOIDCCredentialFunc
