@@ -491,6 +491,7 @@ func requireContextDeadline(t *testing.T, ctx context.Context, name string) {
 
 func resetTestHooks(t *testing.T) {
 	t.Helper()
+	t.Setenv("GITHUB_WORKSPACE", "")
 
 	resolveOrgAuthFunc = func(context.Context, string) (string, error) {
 		return "token-1", nil

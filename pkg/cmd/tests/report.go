@@ -345,6 +345,9 @@ func gzipBytes(contents []byte) ([]byte, error) {
 func globReportFiles(pattern string) ([]string, error) {
 	base, filePattern := doublestar.SplitPattern(filepath.ToSlash(filepath.Clean(pattern)))
 	base = filepath.FromSlash(base)
+	if _, err := os.Stat(base); os.IsNotExist(err) {
+		return nil, nil
+	}
 
 	var matches []string
 	err := doublestar.GlobWalk(os.DirFS(base), filePattern, func(filePath string, entry fs.DirEntry) error {
@@ -367,15 +370,20 @@ func findReportSearchRoot(pattern string) string {
 
 func realExistingPath(filePath string) (string, error) {
 	current := filepath.Clean(filePath)
+	var missing []string
 	for {
 		realPath, err := filepath.EvalSymlinks(current)
 		if err == nil {
+			for _, part := range missing {
+				realPath = filepath.Join(realPath, part)
+			}
 			return realPath, nil
 		}
 		parent := filepath.Dir(current)
 		if parent == current {
 			return "", fmt.Errorf("unable to resolve test report path: %s", filePath)
 		}
+		missing = append([]string{filepath.Base(current)}, missing...)
 		current = parent
 	}
 }

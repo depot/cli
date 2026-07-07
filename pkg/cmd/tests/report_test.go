@@ -77,6 +77,53 @@ func TestDiscoverReportFilesDeduplicatesMatches(t *testing.T) {
 	}
 }
 
+func TestDiscoverReportFilesDoesNotClimbMissingPathSegments(t *testing.T) {
+	workspace := t.TempDir()
+	writeTempFileAt(t, workspace, "junit.xml", "<testsuite/>")
+	writeTempFileAt(t, workspace, "reports/junit.xml", "<testsuite/>")
+
+	files, err := discoverReportFiles([]string{"missing/junit.xml"}, workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 0 {
+		t.Fatalf("expected missing literal path to match no files, got %v", filenames(files))
+	}
+
+	files, err = discoverReportFiles([]string{"missing/**/*.xml"}, workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 0 {
+		t.Fatalf("expected missing recursive glob path to match no files, got %v", filenames(files))
+	}
+}
+
+func TestDiscoverReportFilesPreservesMissingSegmentsAfterSymlinkRoot(t *testing.T) {
+	workspace := t.TempDir()
+	writeTempFileAt(t, workspace, "real/junit.xml", "<testsuite/>")
+	link := filepath.Join(workspace, "reports")
+	if err := os.Symlink(filepath.Join(workspace, "real"), link); err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+
+	files, err := discoverReportFiles([]string{"reports/missing/junit.xml"}, workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 0 {
+		t.Fatalf("expected missing symlink-root literal path to match no files, got %v", filenames(files))
+	}
+
+	files, err = discoverReportFiles([]string{"reports/missing/**/*.xml"}, workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 0 {
+		t.Fatalf("expected missing symlink-root recursive glob path to match no files, got %v", filenames(files))
+	}
+}
+
 func TestDiscoverReportFilesRejectsUnsafePaths(t *testing.T) {
 	workspace := t.TempDir()
 	outside := writeTempFile(t, "outside.xml", "<testsuite/>")
