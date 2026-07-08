@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
@@ -641,6 +642,43 @@ func TestRunRejectsWhenNoReportFileWasUpdatedByCommand(t *testing.T) {
 		"--total", "1",
 		"--command", "test-command",
 		"--report-path", "reports/junit.xml",
+	)
+	if err == nil || !strings.Contains(err.Error(), "no JUnit XML report files were updated by command") {
+		t.Fatalf("expected no updated reports error, got %v", err)
+	}
+}
+
+func TestRunRejectsStaleReportCreatedAfterEmptyBaseline(t *testing.T) {
+	resetTestHooks(t)
+	workspace := t.TempDir()
+	t.Chdir(workspace)
+	stalePath := writeTempFileAt(t, workspace, "stale/junit.xml", "<testsuite><testcase name=\"old\"/></testsuite>")
+	staleTime := time.Now().Add(-time.Hour)
+	if err := os.Chtimes(stalePath, staleTime, staleTime); err != nil {
+		t.Fatal(err)
+	}
+
+	runShellCommandFunc = func(context.Context, string, []string, io.Writer, io.Writer) (int, error) {
+		if err := os.MkdirAll(filepath.Join(workspace, "reports"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Rename(stalePath, filepath.Join(workspace, "reports", "junit.xml")); err != nil {
+			t.Fatal(err)
+		}
+		return 0, nil
+	}
+	reportTestResultsFunc = func(context.Context, string, *testresultsv1.ReportTestResultsRequest) (*testresultsv1.ReportTestResultsResponse, error) {
+		t.Fatal("stale report should not upload")
+		return nil, nil
+	}
+
+	_, _, err := executeCommandWithInputOutput(
+		"a.test.ts\n",
+		"run",
+		"--index", "0",
+		"--total", "1",
+		"--command", "test-command",
+		"--report-path", "reports/*.xml",
 	)
 	if err == nil || !strings.Contains(err.Error(), "no JUnit XML report files were updated by command") {
 		t.Fatalf("expected no updated reports error, got %v", err)
