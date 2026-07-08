@@ -32,6 +32,8 @@ type discoveredReportFile struct {
 	info         os.FileInfo
 }
 
+type reportFileBaseline map[string]os.FileInfo
+
 func uploadTestReportsResponse(cmd *cobra.Command, opts reportOptions) (int, *testresultsv1.ReportTestResultsResponse, error) {
 	workspace, err := reportWorkspace()
 	if err != nil {
@@ -44,6 +46,12 @@ func uploadTestReportsResponse(cmd *cobra.Command, opts reportOptions) (int, *te
 	}
 	if len(files) == 0 {
 		return 0, nil, fmt.Errorf("no JUnit XML report files matched")
+	}
+	if opts.requireUpdatedByCommand != nil {
+		files = updatedReportFiles(files, opts.requireUpdatedByCommand)
+		if len(files) == 0 {
+			return 0, nil, fmt.Errorf("no JUnit XML report files were updated by command; remove stale report files before running, use a narrower --report-path, or ensure --command writes matching reports")
+		}
 	}
 
 	prepared, err := prepareReportFiles(files)
@@ -67,6 +75,37 @@ func uploadTestReportsResponse(cmd *cobra.Command, opts reportOptions) (int, *te
 		return 0, nil, fmt.Errorf("failed to upload test reports: %w", err)
 	}
 	return len(prepared), resp, nil
+}
+
+func snapshotReportFiles(reportPaths []string) (reportFileBaseline, error) {
+	workspace, err := reportWorkspace()
+	if err != nil {
+		return nil, err
+	}
+	files, err := discoverReportFiles(reportPaths, workspace)
+	if err != nil {
+		return nil, err
+	}
+
+	baseline := reportFileBaseline{}
+	for _, file := range files {
+		baseline[file.realPath] = file.info
+	}
+	return baseline, nil
+}
+
+func updatedReportFiles(files []discoveredReportFile, baseline reportFileBaseline) []discoveredReportFile {
+	if len(baseline) == 0 {
+		return files
+	}
+	updated := files[:0]
+	for _, file := range files {
+		if previous, ok := baseline[file.realPath]; ok && !reportFileChanged(previous, file.info) {
+			continue
+		}
+		updated = append(updated, file)
+	}
+	return updated
 }
 
 func reportWorkspace() (string, error) {

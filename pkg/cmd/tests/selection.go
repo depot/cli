@@ -28,16 +28,9 @@ func selectTestCandidates(cmd *cobra.Command, opts splitOptions) (splitMode, []s
 	if err := validateExplicitSplitIdentityFlags(opts); err != nil {
 		return "", nil, nil, nil, err
 	}
-	if stdin, ok := cmd.InOrStdin().(*os.File); opts.candidatesFile == "" && ok && stdin == os.Stdin && isStdinTerminalFunc() {
-		return "", nil, nil, nil, fmt.Errorf("no candidates provided; pipe newline-delimited candidates to stdin or pass --candidates-file")
-	}
-
-	candidates, err := loadCandidates(cmd.InOrStdin(), opts.candidatesFile)
+	candidates, err := loadRequiredCandidates(cmd, opts.candidatesFile)
 	if err != nil {
-		return "", nil, nil, nil, fmt.Errorf("failed to load candidates: %w", err)
-	}
-	if len(candidates) == 0 {
-		return "", nil, nil, nil, fmt.Errorf("no candidates provided; pipe newline-delimited candidates to stdin or pass --candidates-file")
+		return "", nil, nil, nil, err
 	}
 	if opts.total == 1 {
 		return splitModePassthrough, candidates, candidates, nil, nil
@@ -61,6 +54,20 @@ func selectTestCandidates(cmd *cobra.Command, opts splitOptions) (splitMode, []s
 	}
 
 	return mode, candidates, selectedCandidates, splitResponse, nil
+}
+
+func loadRequiredCandidates(cmd *cobra.Command, candidatesFile string) ([]string, error) {
+	if stdin, ok := cmd.InOrStdin().(*os.File); candidatesFile == "" && ok && stdin == os.Stdin && isStdinTerminalFunc() {
+		return nil, fmt.Errorf("no candidates provided; pipe newline-delimited candidates to stdin or pass --candidates-file")
+	}
+	candidates, err := loadCandidates(cmd.InOrStdin(), candidatesFile)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load candidates: %w", err)
+	}
+	if len(candidates) == 0 {
+		return nil, fmt.Errorf("no candidates provided; pipe newline-delimited candidates to stdin or pass --candidates-file")
+	}
+	return candidates, nil
 }
 
 func validateSplitIdentityFlags(opts splitOptions, candidates []string) error {

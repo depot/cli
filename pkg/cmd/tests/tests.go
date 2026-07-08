@@ -97,6 +97,7 @@ Actions job ID.`,
 	flags.StringVar(&opts.output, "output", "auto", "Output format (auto, table, json)")
 
 	cmd.AddCommand(newCmdTestsReport())
+	cmd.AddCommand(newCmdTestsRun())
 	cmd.AddCommand(newCmdTestsSplit())
 
 	return cmd
