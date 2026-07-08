@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestDiscoverReportFilesFindsExplicitXMLFiles(t *testing.T) {
@@ -353,6 +354,28 @@ func TestPrepareReportFilesRejectsChangedFile(t *testing.T) {
 	_, err = prepareReportFiles(files)
 	if err == nil || !strings.Contains(err.Error(), "changed after discovery") {
 		t.Fatalf("expected changed file error, got %v", err)
+	}
+}
+
+func TestUpdatedReportFilesAllowsNewFilesWithinFreshnessGrace(t *testing.T) {
+	workspace := t.TempDir()
+	reportPath := writeTempFileAt(t, workspace, "reports/a.xml", "<testsuite/>")
+	snapshotAt := time.Now()
+	roundedModTime := snapshotAt.Add(-time.Second)
+	if err := os.Chtimes(reportPath, roundedModTime, roundedModTime); err != nil {
+		t.Fatal(err)
+	}
+	files, err := discoverReportFiles([]string{"reports/a.xml"}, workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	updated := updatedReportFiles(files, reportFileBaseline{
+		snapshotAt: snapshotAt,
+		files:      map[string]os.FileInfo{},
+	})
+	if len(updated) != 1 {
+		t.Fatalf("expected fresh report within timestamp grace, got %d files", len(updated))
 	}
 }
 

@@ -18,7 +18,7 @@ type reportOptions struct {
 	reportPaths             []string
 	key                     string
 	output                  string
-	requireUpdatedByCommand reportFileBaseline
+	requireUpdatedByCommand *reportFileBaseline
 }
 
 type reportOutput struct {

@@ -191,7 +191,7 @@ func uploadAndSummarizeTestReports(cmd *cobra.Command, reportPaths []string, key
 		reportPaths:             reportPaths,
 		key:                     key,
 		output:                  reportOutputText,
-		requireUpdatedByCommand: baseline,
+		requireUpdatedByCommand: &baseline,
 	})
 	if err != nil {
 		return err

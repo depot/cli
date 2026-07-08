@@ -23,6 +23,8 @@ const (
 	maxReportFileBytes   = 50 * 1024 * 1024
 	maxReportTotalBytes  = 100 * 1024 * 1024
 	reportRequestTimeout = 2 * time.Minute
+	// Some CI filesystems expose mtimes at coarser precision than time.Now.
+	reportFreshnessGrace = 2 * time.Second
 )
 
 type discoveredReportFile struct {
@@ -32,7 +34,10 @@ type discoveredReportFile struct {
 	info         os.FileInfo
 }
 
-type reportFileBaseline map[string]os.FileInfo
+type reportFileBaseline struct {
+	snapshotAt time.Time
+	files      map[string]os.FileInfo
+}
 
 func uploadTestReportsResponse(cmd *cobra.Command, opts reportOptions) (int, *testresultsv1.ReportTestResultsResponse, error) {
 	workspace, err := reportWorkspace()
@@ -48,7 +53,7 @@ func uploadTestReportsResponse(cmd *cobra.Command, opts reportOptions) (int, *te
 		return 0, nil, fmt.Errorf("no JUnit XML report files matched")
 	}
 	if opts.requireUpdatedByCommand != nil {
-		files = updatedReportFiles(files, opts.requireUpdatedByCommand)
+		files = updatedReportFiles(files, *opts.requireUpdatedByCommand)
 		if len(files) == 0 {
 			return 0, nil, fmt.Errorf("no JUnit XML report files were updated by command; remove stale report files before running, use a narrower --report-path, or ensure --command writes matching reports")
 		}
@@ -78,29 +83,34 @@ func uploadTestReportsResponse(cmd *cobra.Command, opts reportOptions) (int, *te
 }
 
 func snapshotReportFiles(reportPaths []string) (reportFileBaseline, error) {
+	snapshotAt := time.Now()
 	workspace, err := reportWorkspace()
 	if err != nil {
-		return nil, err
+		return reportFileBaseline{}, err
 	}
 	files, err := discoverReportFiles(reportPaths, workspace)
 	if err != nil {
-		return nil, err
+		return reportFileBaseline{}, err
 	}
 
-	baseline := reportFileBaseline{}
+	baseline := reportFileBaseline{
+		snapshotAt: snapshotAt,
+		files:      map[string]os.FileInfo{},
+	}
 	for _, file := range files {
-		baseline[file.realPath] = file.info
+		baseline.files[file.realPath] = file.info
 	}
 	return baseline, nil
 }
 
 func updatedReportFiles(files []discoveredReportFile, baseline reportFileBaseline) []discoveredReportFile {
-	if len(baseline) == 0 {
-		return files
-	}
 	updated := files[:0]
 	for _, file := range files {
-		if previous, ok := baseline[file.realPath]; ok && !reportFileChanged(previous, file.info) {
+		if previous, ok := baseline.files[file.realPath]; ok {
+			if !reportFileChanged(previous, file.info) {
+				continue
+			}
+		} else if file.info.ModTime().Add(reportFreshnessGrace).Before(baseline.snapshotAt) {
 			continue
 		}
 		updated = append(updated, file)
