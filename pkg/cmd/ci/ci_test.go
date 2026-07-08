@@ -194,26 +194,6 @@ func TestLegacyListRepoSelectorOnlyAcceptsLegacySelectors(t *testing.T) {
 	}
 }
 
-func TestListFilteringIncludesUnscopedVariantsForRepo(t *testing.T) {
-	group := api.CISecretGroup{
-		Name: "TOKEN",
-		Variants: []api.CISecretVariant{
-			{Name: "default"},
-			{Name: "matching", Attributes: []api.CIVariantAttribute{{Key: "repository", Value: "Owner/Repo"}}},
-			{Name: "other", Attributes: []api.CIVariantAttribute{{Key: "repository", Value: "other/repo"}}},
-		},
-	}
-
-	filtered := filterSecretVariantsForList(group, []string{"owner/repo"}, nil, nil, nil)
-
-	if len(filtered.Variants) != 2 {
-		t.Fatalf("len(filtered.Variants) = %d, want 2: %#v", len(filtered.Variants), filtered.Variants)
-	}
-	if filtered.Variants[0].Name != "default" || filtered.Variants[1].Name != "matching" {
-		t.Fatalf("filtered variants = %#v", filtered.Variants)
-	}
-}
-
 func TestStrictVariantMatchingStillRequiresRepoAttribute(t *testing.T) {
 	group := api.CISecretGroup{
 		Name: "TOKEN",

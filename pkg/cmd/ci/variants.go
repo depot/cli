@@ -28,26 +28,27 @@ func formatVariantAttributes(attrs []api.CIVariantAttribute) string {
 	return strings.Join(parts, ",")
 }
 
+// variantStatusLabel turns a server-computed resolution into a short column value for the list table.
+// It is only meaningful when the list request carried a job context; without context the resolution is
+// empty and this returns "-".
+func variantStatusLabel(resolution string) string {
+	switch resolution {
+	case "resolved":
+		return "active"
+	case "lower-priority":
+		return "shadowed"
+	case "indeterminate":
+		return "candidate"
+	default:
+		return "-"
+	}
+}
+
 func variantScope(repos []string) string {
 	if len(repos) == 0 {
 		return "org-wide"
 	}
 	return strings.Join(repos, ",")
-}
-
-func filterSecretVariantsForList(secret api.CISecretGroup, repo, environment, branch, workflow []string) api.CISecretGroup {
-	if len(repo) == 0 && len(environment) == 0 && len(branch) == 0 && len(workflow) == 0 {
-		return secret
-	}
-	filtered := secret
-	filtered.Variants = nil
-	for _, variant := range secret.Variants {
-		if variantAppliesToListFilter(variant.Attributes, repo, environment, branch, workflow) {
-			filtered.Variants = append(filtered.Variants, variant)
-		}
-	}
-	filtered.VariantCount = uint32(len(filtered.Variants))
-	return filtered
 }
 
 func resolveSecretVariant(group api.CISecretGroup, variant string, repo, environment, branch, workflow []string) ([]api.CISecretVariant, error) {
