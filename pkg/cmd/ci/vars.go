@@ -129,6 +129,7 @@ named "default".`,
 			}
 
 			fmt.Printf("Successfully set CI variable '%s' variant '%s'\n", varName, displayVariantName(result.Variant.Name))
+			warnVariableVariantShadowed(ctx, tokenVal, orgID, result)
 			return nil
 		},
 	}
@@ -232,8 +233,9 @@ Without match flags, the variant applies to all workflow runs in the organizatio
 					variables = append(variables, variableInput{name: parts[0], value: parts[1]})
 				}
 
+				var results []api.CISetVariableVariantResult
 				for _, variable := range variables {
-					_, err := api.CISetVariableVariant(ctx, tokenVal, orgID, api.CISetVariableVariantOptions{
+					result, err := api.CISetVariableVariant(ctx, tokenVal, orgID, api.CISetVariableVariantOptions{
 						Name:        variable.name,
 						Variant:     variant,
 						Value:       variable.value,
@@ -245,10 +247,14 @@ Without match flags, the variant applies to all workflow runs in the organizatio
 					if err != nil {
 						return fmt.Errorf("failed to add CI variable '%s': %w", variable.name, err)
 					}
+					results = append(results, result)
 				}
 
 				for _, v := range variables {
 					fmt.Printf("Successfully added CI variable '%s' variant '%s' (%s)\n", v.name, displayVariantName(variant), scope)
+				}
+				for _, result := range results {
+					warnVariableVariantShadowed(ctx, tokenVal, orgID, result)
 				}
 				return nil
 			}
@@ -274,7 +280,7 @@ Without match flags, the variant applies to all workflow runs in the organizatio
 				}
 			}
 
-			_, err = api.CISetVariableVariant(ctx, tokenVal, orgID, api.CISetVariableVariantOptions{
+			result, err := api.CISetVariableVariant(ctx, tokenVal, orgID, api.CISetVariableVariantOptions{
 				Name:        varName,
 				Variant:     variant,
 				Value:       varValue,
@@ -288,6 +294,7 @@ Without match flags, the variant applies to all workflow runs in the organizatio
 			}
 
 			fmt.Printf("Successfully added CI variable '%s' variant '%s' (%s)\n", varName, displayVariantName(variant), scope)
+			warnVariableVariantShadowed(ctx, tokenVal, orgID, result)
 			return nil
 		},
 	}
@@ -352,27 +359,43 @@ attributes. Passing a variable name lists one grouped variable.`,
 				}
 			}
 
-			var result api.CIListVariableVariantsResult
+			// The selectors describe a job context. Route both the single-variable and list-all cases
+			// through the same context-aware RPC so the server resolves each group for that context
+			// (which variant wins, which are shadowed) and orders winners first. As with secrets, the
+			// server decides which variants are relevant, so we deliberately do not re-filter here.
+			hasContext := hasVariantSelectors(repo, environment, branch, workflow)
+			opts := api.CIListVariableVariantsOptions{
+				Repo:        repo,
+				Environment: environment,
+				Branch:      branch,
+				Workflow:    workflow,
+			}
 			if len(args) == 1 {
-				variable, err := api.CIGetVariableVariantGroup(ctx, tokenVal, orgID, args[0])
-				if err != nil {
-					return fmt.Errorf("failed to get CI variable: %w", err)
-				}
-				result.Variables = []api.CIVariableGroup{filterVariableVariantsForList(variable, repo, environment, branch, workflow)}
-			} else {
-				var err error
-				result, err = api.CIListVariableVariants(ctx, tokenVal, orgID, api.CIListVariableVariantsOptions{
-					Repo:        nil,
-					Environment: nil,
-					Branch:      nil,
-					Workflow:    nil,
-				})
-				if err != nil {
-					return fmt.Errorf("failed to list CI variables: %w", err)
-				}
+				opts.Query = args[0]
+			}
+
+			result, err := api.CIListVariableVariants(ctx, tokenVal, orgID, opts)
+			if err != nil {
+				return fmt.Errorf("failed to list CI variables: %w", err)
+			}
+
+			if len(args) == 1 {
+				// `query` is a substring match, so narrow to the exact variable and preserve the
+				// direct-lookup behavior of reporting a missing variable as an error.
 				filtered := result.Variables[:0]
 				for i := range result.Variables {
-					result.Variables[i] = filterVariableVariantsForList(result.Variables[i], repo, environment, branch, workflow)
+					if strings.EqualFold(result.Variables[i].Name, args[0]) {
+						filtered = append(filtered, result.Variables[i])
+					}
+				}
+				result.Variables = filtered
+				if len(result.Variables) == 0 {
+					return fmt.Errorf("CI variable %q not found", args[0])
+				}
+			} else if hasContext {
+				// Drop variables with no variant relevant to the context so the listing stays focused.
+				filtered := result.Variables[:0]
+				for i := range result.Variables {
 					if len(result.Variables[i].Variants) > 0 {
 						filtered = append(filtered, result.Variables[i])
 					}
@@ -389,25 +412,7 @@ attributes. Passing a variable name lists one grouped variable.`,
 				return nil
 			}
 
-			fmt.Printf("%-30s %-18s %-32s %-42s %-30s %s\n", "NAME", "VARIANT", "VALUE", "ATTRIBUTES", "DESCRIPTION", "UPDATED")
-			fmt.Printf("%-30s %-18s %-32s %-42s %-30s %s\n", strings.Repeat("-", 30), strings.Repeat("-", 18), strings.Repeat("-", 32), strings.Repeat("-", 42), strings.Repeat("-", 30), strings.Repeat("-", 20))
-			for _, variable := range result.Variables {
-				if len(variable.Variants) == 0 {
-					fmt.Printf("%-30s %-18s %-32s %-42s %-30s %s\n", truncateForTable(variable.Name, 30), "-", "-", "-", "-", variable.LastModified)
-					continue
-				}
-				for _, variant := range variable.Variants {
-					fmt.Printf("%-30s %-18s %-32s %-42s %-30s %s\n",
-						truncateForTable(variable.Name, 30),
-						truncateForTable(displayVariantName(variant.Name), 18),
-						truncateForTable(variant.Value, 32),
-						truncateForTable(formatVariantAttributes(variant.Attributes), 42),
-						truncateForTable(variant.Description, 30),
-						variant.LastModified,
-					)
-				}
-			}
-
+			printVariableVariantsTable(result.Variables, hasContext)
 			return nil
 		},
 	}
@@ -421,6 +426,76 @@ attributes. Passing a variable name lists one grouped variable.`,
 	cmd.Flags().StringArrayVar(&workflow, "workflow", nil, "Filter variants by workflow file (repeatable)")
 
 	return cmd
+}
+
+// printVariableVariantsTable renders variables and their variants. Unlike secrets, variable values are
+// not sensitive, so the VALUE and DESCRIPTION columns are kept. When hasContext is true the request
+// carried a job context, so each variant shows a STATUS that reveals which one wins and which are
+// silently overridden; STATUS is the trailing column because its labels are the widest. Variables
+// report resolution only at the group level, so the per-row status is derived from the server's
+// winner-first ordering (see variableVariantRowResolution).
+func printVariableVariantsTable(variables []api.CIVariableGroup, hasContext bool) {
+	const (
+		nameWidth    = 28
+		varWidth     = 16
+		valueWidth   = 28
+		scopeWidth   = 28
+		descWidth    = 24
+		updatedWidth = 20
+	)
+
+	if hasContext {
+		fmt.Printf("%-*s %-*s %-*s %-*s %-*s %-*s %s\n", nameWidth, "NAME", varWidth, "VARIANT", valueWidth, "VALUE", scopeWidth, "SCOPE", descWidth, "DESCRIPTION", updatedWidth, "UPDATED", "STATUS")
+		fmt.Printf("%-*s %-*s %-*s %-*s %-*s %-*s %s\n", nameWidth, strings.Repeat("-", nameWidth), varWidth, strings.Repeat("-", varWidth), valueWidth, strings.Repeat("-", valueWidth), scopeWidth, strings.Repeat("-", scopeWidth), descWidth, strings.Repeat("-", descWidth), updatedWidth, strings.Repeat("-", updatedWidth), strings.Repeat("-", 12))
+	} else {
+		fmt.Printf("%-*s %-*s %-*s %-*s %-*s %s\n", nameWidth, "NAME", varWidth, "VARIANT", valueWidth, "VALUE", scopeWidth, "SCOPE", descWidth, "DESCRIPTION", "UPDATED")
+		fmt.Printf("%-*s %-*s %-*s %-*s %-*s %s\n", nameWidth, strings.Repeat("-", nameWidth), varWidth, strings.Repeat("-", varWidth), valueWidth, strings.Repeat("-", valueWidth), scopeWidth, strings.Repeat("-", scopeWidth), descWidth, strings.Repeat("-", descWidth), strings.Repeat("-", updatedWidth))
+	}
+
+	multipleVariants := false
+	for _, variable := range variables {
+		if variable.VariantCount > 1 || len(variable.Variants) > 1 {
+			multipleVariants = true
+		}
+		if len(variable.Variants) == 0 {
+			if hasContext {
+				fmt.Printf("%-*s %-*s %-*s %-*s %-*s %-*s %s\n", nameWidth, truncateForTable(variable.Name, nameWidth), varWidth, "-", valueWidth, "-", scopeWidth, "-", descWidth, "-", updatedWidth, variable.LastModified, "-")
+			} else {
+				fmt.Printf("%-*s %-*s %-*s %-*s %-*s %s\n", nameWidth, truncateForTable(variable.Name, nameWidth), varWidth, "-", valueWidth, "-", scopeWidth, "-", descWidth, "-", variable.LastModified)
+			}
+			continue
+		}
+		for index, variant := range variable.Variants {
+			scope := truncateForTable(formatVariantAttributes(variant.Attributes), scopeWidth)
+			if hasContext {
+				fmt.Printf("%-*s %-*s %-*s %-*s %-*s %-*s %s\n",
+					nameWidth, truncateForTable(variable.Name, nameWidth),
+					varWidth, truncateForTable(displayVariantName(variant.Name), varWidth),
+					valueWidth, truncateForTable(variant.Value, valueWidth),
+					scopeWidth, scope,
+					descWidth, truncateForTable(variant.Description, descWidth),
+					updatedWidth, variant.LastModified,
+					variantStatusLabel(variableVariantRowResolution(variable.Resolution, index)),
+				)
+			} else {
+				fmt.Printf("%-*s %-*s %-*s %-*s %-*s %s\n",
+					nameWidth, truncateForTable(variable.Name, nameWidth),
+					varWidth, truncateForTable(displayVariantName(variant.Name), varWidth),
+					valueWidth, truncateForTable(variant.Value, valueWidth),
+					scopeWidth, scope,
+					descWidth, truncateForTable(variant.Description, descWidth),
+					variant.LastModified,
+				)
+			}
+		}
+	}
+
+	fmt.Println()
+	if hasContext {
+		fmt.Println("STATUS: active (wins) = wins this context · shadowed = overridden by a more specific variant · may win = could win with more context")
+	} else if multipleVariants {
+		fmt.Println("Some variables have more than one variant. Pass --repo, --env, --branch, or --workflow to see which one wins.")
+	}
 }
 
 func NewCmdVarsRemove() *cobra.Command {

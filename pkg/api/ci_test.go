@@ -683,7 +683,10 @@ func TestCIListVariableVariantsFetchesAllPagesAndMapsResponse(t *testing.T) {
 	if got := recorder.listRequests[1].GetPage().GetPage(); got != 2 {
 		t.Fatalf("second page = %d, want 2", got)
 	}
-	assertProtoAttributes(t, first.GetAttributes(), []CIVariantAttribute{{Key: "repository", Value: "depot/api"}})
+	assertProtoAttributes(t, first.GetContext(), []CIVariantAttribute{{Key: "repository", Value: "depot/api"}})
+	if len(first.GetAttributes()) != 0 {
+		t.Fatalf("attributes should be empty, got %+v", first.GetAttributes())
+	}
 }
 
 func withTestVariableVariantsService(t *testing.T, handler civ3beta2connect.VariableServiceHandler, fn func()) {

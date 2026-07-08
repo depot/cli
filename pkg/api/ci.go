@@ -948,6 +948,11 @@ type CIVariableGroup struct {
 	Variants     []CIVariableVariant `json:"variants"`
 	VariantCount uint32              `json:"variantCount"`
 	LastModified string              `json:"lastModified,omitempty"`
+	// Resolution is populated by list requests that carry a job context. Unlike secrets, variables
+	// report resolution only at the group level: "resolved" means the first (winner-ordered) variant
+	// is the definite winner for that context and any later variants are shadowed; "indeterminate"
+	// means more context is needed to pick a winner. Empty when no context was supplied.
+	Resolution string `json:"resolution,omitempty"`
 }
 
 // CIVariableVariant contains metadata and value for one named CI variable variant.
@@ -994,13 +999,16 @@ type CISetVariableVariantResult struct {
 func CIListVariableVariants(ctx context.Context, token, orgID string, opts CIListVariableVariantsOptions) (CIListVariableVariantsResult, error) {
 	client := newCIVariableServiceV3Beta2Client()
 
-	attrs := ciAttributes(opts.Repo, opts.Environment, opts.Branch, opts.Workflow)
+	// The selectors describe a job context, so send them as `context`: the server annotates the
+	// variable group with its resolution and orders variants winner-first, rather than filtering
+	// variants out. This is what makes variant shadowing visible (mirrors CIListSecretVariants).
+	context := ciAttributes(opts.Repo, opts.Environment, opts.Branch, opts.Workflow)
 	result := CIListVariableVariantsResult{Variables: []CIVariableGroup{}}
 	for page := uint32(ciDefaultPage); ; page++ {
 		resp, err := client.ListVariables(ctx, WithAuthenticationAndOrg(connect.NewRequest(&civ3beta2.ListVariablesRequest{
-			Page:       ciPageRequest(page),
-			Query:      opts.Query,
-			Attributes: attrs,
+			Page:    ciPageRequest(page),
+			Query:   opts.Query,
+			Context: context,
 		}), token, orgID))
 		if err != nil {
 			return CIListVariableVariantsResult{}, err
@@ -1196,6 +1204,7 @@ func variableGroupFromProto(variable *civ3beta2.Variable) CIVariableGroup {
 		Variants:     variableVariantsFromProto(variable.GetVariants()),
 		VariantCount: variable.GetVariantCount(),
 		LastModified: ciTimeString(variable.GetLastModified()),
+		Resolution:   variantResolutionString(variable.GetResolution()),
 	}
 }
 

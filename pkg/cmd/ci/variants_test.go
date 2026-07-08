@@ -141,3 +141,87 @@ func TestShadowingWinner(t *testing.T) {
 		t.Error("indeterminate resolution should not report shadowing")
 	}
 }
+
+func TestLooksLikePattern(t *testing.T) {
+	patterns := []string{"release/*", "feat-?", "v[0-9]", "env-{a,b}"}
+	for _, value := range patterns {
+		if !looksLikePattern(value) {
+			t.Errorf("looksLikePattern(%q) = false, want true", value)
+		}
+	}
+	literals := []string{"main", "owner/repo", "production", ""}
+	for _, value := range literals {
+		if looksLikePattern(value) {
+			t.Errorf("looksLikePattern(%q) = true, want false", value)
+		}
+	}
+}
+
+func TestScopesDisjointGlobConservative(t *testing.T) {
+	// A glob on the written side must not be treated as a mismatch against a literal
+	// sibling — we cannot statically prove the glob excludes the sibling, so err
+	// toward probing (not disjoint).
+	writtenGlob := map[string]map[string]bool{
+		"branch": {"release/*": true},
+	}
+	if scopesDisjoint(writtenGlob, []api.CIVariantAttribute{{Key: "branch", Value: "release/1.0"}}) {
+		t.Error("a glob written value should not be declared disjoint from a literal sibling")
+	}
+
+	// A glob on the sibling side is likewise conservative.
+	writtenLiteral := map[string]map[string]bool{
+		"branch": {"release/1.0": true},
+	}
+	if scopesDisjoint(writtenLiteral, []api.CIVariantAttribute{{Key: "branch", Value: "release/*"}}) {
+		t.Error("a glob sibling value should not be declared disjoint from a literal written value")
+	}
+}
+
+func TestVariableShadowingWinner(t *testing.T) {
+	variables := []api.CIVariableGroup{{
+		Name:       "REGISTRY_URL",
+		Resolution: "resolved",
+		Variants: []api.CIVariableVariant{
+			{ID: "repo", Name: "default", Attributes: []api.CIVariantAttribute{{Key: "repository", Value: "owner/repo"}}},
+			{ID: "written", Name: "default"},
+		},
+	}}
+
+	// Server orders winner-first: the top row (repo) wins, so the written default is shadowed.
+	winner, ok := variableShadowingWinner(variables, "REGISTRY_URL", "written")
+	if !ok {
+		t.Fatal("expected the written variant to be reported as shadowed")
+	}
+	if winner.ID != "repo" {
+		t.Errorf("winner = %q, want repo", winner.ID)
+	}
+
+	// When the written variant is itself the winner (top row), nothing shadows it.
+	if _, ok := variableShadowingWinner(variables, "REGISTRY_URL", "repo"); ok {
+		t.Error("the winning written variant should not be reported as shadowed")
+	}
+
+	// Indeterminate resolution: no definite winner, so no shadow claim.
+	variables[0].Resolution = "indeterminate"
+	if _, ok := variableShadowingWinner(variables, "REGISTRY_URL", "written"); ok {
+		t.Error("indeterminate resolution should not report shadowing")
+	}
+}
+
+func TestVariableVariantRowResolution(t *testing.T) {
+	// With a resolved group, only the top row (index 0) is the winner; the rest are shadowed.
+	if got := variableVariantRowResolution("resolved", 0); got != "resolved" {
+		t.Errorf("resolved index 0 = %q, want resolved", got)
+	}
+	if got := variableVariantRowResolution("resolved", 1); got != "lower-priority" {
+		t.Errorf("resolved index 1 = %q, want lower-priority", got)
+	}
+	// Indeterminate propagates to every row.
+	if got := variableVariantRowResolution("indeterminate", 0); got != "indeterminate" {
+		t.Errorf("indeterminate index 0 = %q, want indeterminate", got)
+	}
+	// No group resolution (no context) yields no per-row status.
+	if got := variableVariantRowResolution("", 0); got != "" {
+		t.Errorf("empty resolution = %q, want empty", got)
+	}
+}
