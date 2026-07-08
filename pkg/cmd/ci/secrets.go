@@ -150,6 +150,7 @@ named "default".`,
 			}
 
 			fmt.Printf("Successfully set CI secret '%s' variant '%s'\n", secretName, displayVariantName(result.Variant.Name))
+			warnSecretVariantShadowed(ctx, tokenVal, orgID, result)
 			return nil
 		},
 	}
@@ -260,8 +261,9 @@ Without match flags, the variant applies to all workflow runs in the organizatio
 					secrets = append(secrets, secretInput{name: parts[0], value: parts[1]})
 				}
 
+				results := make([]api.CISetSecretVariantResult, 0, len(secrets))
 				for _, secret := range secrets {
-					_, err := api.CISetSecretVariant(ctx, tokenVal, orgID, api.CISetSecretVariantOptions{
+					result, err := api.CISetSecretVariant(ctx, tokenVal, orgID, api.CISetSecretVariantOptions{
 						Name:        secret.name,
 						Variant:     variant,
 						Value:       secret.value,
@@ -273,10 +275,14 @@ Without match flags, the variant applies to all workflow runs in the organizatio
 					if err != nil {
 						return fmt.Errorf("failed to add secret '%s': %w", secret.name, err)
 					}
+					results = append(results, result)
 				}
 
 				for _, s := range secrets {
 					printSecretAddSuccess(s.name, variant, scope)
+				}
+				for _, result := range results {
+					warnSecretVariantShadowed(ctx, tokenVal, orgID, result)
 				}
 				return nil
 			}
@@ -302,7 +308,7 @@ Without match flags, the variant applies to all workflow runs in the organizatio
 				}
 			}
 
-			_, err = api.CISetSecretVariant(ctx, tokenVal, orgID, api.CISetSecretVariantOptions{
+			result, err := api.CISetSecretVariant(ctx, tokenVal, orgID, api.CISetSecretVariantOptions{
 				Name:        secretName,
 				Variant:     variant,
 				Value:       secretValue,
@@ -317,6 +323,7 @@ Without match flags, the variant applies to all workflow runs in the organizatio
 			}
 
 			printSecretAddSuccess(secretName, variant, scope)
+			warnSecretVariantShadowed(ctx, tokenVal, orgID, result)
 			return nil
 		},
 	}
@@ -407,8 +414,9 @@ secret in the input.`,
 				return fmt.Errorf("no secrets found in input")
 			}
 
+			results := make([]api.CISetSecretVariantResult, 0, len(secrets))
 			for _, secret := range secrets {
-				_, err := api.CISetSecretVariant(ctx, tokenVal, orgID, api.CISetSecretVariantOptions{
+				result, err := api.CISetSecretVariant(ctx, tokenVal, orgID, api.CISetSecretVariantOptions{
 					Name:        secret.name,
 					Variant:     variant,
 					Value:       secret.value,
@@ -420,11 +428,15 @@ secret in the input.`,
 				if err != nil {
 					return fmt.Errorf("failed to import secret '%s': %w", secret.name, err)
 				}
+				results = append(results, result)
 			}
 
 			scope := variantScope(repo)
 			for _, secret := range secrets {
 				printSecretAddSuccess(secret.name, variant, scope)
+			}
+			for _, result := range results {
+				warnSecretVariantShadowed(ctx, tokenVal, orgID, result)
 			}
 			return nil
 		},
@@ -630,9 +642,9 @@ variant silently overrides the default for that repository.
 
 Pass --repo, --env, --branch, and --workflow to describe a job context. Each
 variant is then marked with whether it wins that context (active), is overridden
-by a more specific variant (shadowed), or could still win with more context
-(candidate) — which makes shadowing visible. Passing a secret name lists just
-that secret.`,
+by a more specific variant (shadowed), or could still win with more context (may
+win) — which makes shadowing visible. Passing a secret name lists just that
+secret.`,
 		Example: `  # List all secrets and their variants
   depot ci secrets list
 
@@ -750,22 +762,24 @@ that secret.`,
 }
 
 // printSecretVariantsTable renders secrets and their variants. When hasContext is true the request
-// carried a job context, so each variant shows a STATUS (active / shadowed / candidate) that reveals
-// which variant wins and which are silently overridden. Without context there is no single winner to
-// report, so the STATUS column is omitted and a hint points at the selector flags.
+// carried a job context, so each variant shows a STATUS that reveals which one wins and which are
+// silently overridden. STATUS is the last column because its labels are the widest and variable in
+// length. Without context there is no single winner to report, so the STATUS column is omitted and a
+// hint points at the selector flags.
 func printSecretVariantsTable(secrets []api.CISecretGroup, hasContext bool) {
 	const (
-		nameWidth  = 28
-		varWidth   = 16
-		scopeWidth = 30
+		nameWidth    = 28
+		varWidth     = 16
+		scopeWidth   = 30
+		updatedWidth = 20
 	)
 
 	if hasContext {
-		fmt.Printf("%-*s %-*s %-*s %-11s %s\n", nameWidth, "NAME", varWidth, "VARIANT", scopeWidth, "SCOPE", "STATUS", "UPDATED")
-		fmt.Printf("%-*s %-*s %-*s %-11s %s\n", nameWidth, strings.Repeat("-", nameWidth), varWidth, strings.Repeat("-", varWidth), scopeWidth, strings.Repeat("-", scopeWidth), strings.Repeat("-", 8), strings.Repeat("-", 20))
+		fmt.Printf("%-*s %-*s %-*s %-*s %s\n", nameWidth, "NAME", varWidth, "VARIANT", scopeWidth, "SCOPE", updatedWidth, "UPDATED", "STATUS")
+		fmt.Printf("%-*s %-*s %-*s %-*s %s\n", nameWidth, strings.Repeat("-", nameWidth), varWidth, strings.Repeat("-", varWidth), scopeWidth, strings.Repeat("-", scopeWidth), updatedWidth, strings.Repeat("-", updatedWidth), strings.Repeat("-", 12))
 	} else {
 		fmt.Printf("%-*s %-*s %-*s %s\n", nameWidth, "NAME", varWidth, "VARIANT", scopeWidth, "SCOPE", "UPDATED")
-		fmt.Printf("%-*s %-*s %-*s %s\n", nameWidth, strings.Repeat("-", nameWidth), varWidth, strings.Repeat("-", varWidth), scopeWidth, strings.Repeat("-", scopeWidth), strings.Repeat("-", 20))
+		fmt.Printf("%-*s %-*s %-*s %s\n", nameWidth, strings.Repeat("-", nameWidth), varWidth, strings.Repeat("-", varWidth), scopeWidth, strings.Repeat("-", scopeWidth), strings.Repeat("-", updatedWidth))
 	}
 
 	multipleVariants := false
@@ -775,7 +789,7 @@ func printSecretVariantsTable(secrets []api.CISecretGroup, hasContext bool) {
 		}
 		if len(secret.Variants) == 0 {
 			if hasContext {
-				fmt.Printf("%-*s %-*s %-*s %-11s %s\n", nameWidth, truncateForTable(secret.Name, nameWidth), varWidth, "-", scopeWidth, "-", "-", secret.LastModified)
+				fmt.Printf("%-*s %-*s %-*s %-*s %s\n", nameWidth, truncateForTable(secret.Name, nameWidth), varWidth, "-", scopeWidth, "-", updatedWidth, secret.LastModified, "-")
 			} else {
 				fmt.Printf("%-*s %-*s %-*s %s\n", nameWidth, truncateForTable(secret.Name, nameWidth), varWidth, "-", scopeWidth, "-", secret.LastModified)
 			}
@@ -784,12 +798,12 @@ func printSecretVariantsTable(secrets []api.CISecretGroup, hasContext bool) {
 		for _, variant := range secret.Variants {
 			scope := truncateForTable(formatVariantAttributes(variant.Attributes), scopeWidth)
 			if hasContext {
-				fmt.Printf("%-*s %-*s %-*s %-11s %s\n",
+				fmt.Printf("%-*s %-*s %-*s %-*s %s\n",
 					nameWidth, truncateForTable(secret.Name, nameWidth),
 					varWidth, truncateForTable(displayVariantName(variant.Name), varWidth),
 					scopeWidth, scope,
+					updatedWidth, variant.LastModified,
 					variantStatusLabel(variant.Resolution),
-					variant.LastModified,
 				)
 			} else {
 				fmt.Printf("%-*s %-*s %-*s %s\n",
@@ -804,7 +818,7 @@ func printSecretVariantsTable(secrets []api.CISecretGroup, hasContext bool) {
 
 	fmt.Println()
 	if hasContext {
-		fmt.Println("STATUS: active = wins this context · shadowed = overridden by a more specific variant · candidate = could win with more context")
+		fmt.Println("STATUS: active (wins) = wins this context · shadowed = overridden by a more specific variant · may win = could win with more context")
 	} else if multipleVariants {
 		fmt.Println("Some secrets have more than one variant. Pass --repo, --env, --branch, or --workflow to see which one wins.")
 	}
