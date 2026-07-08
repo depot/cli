@@ -15,9 +15,10 @@ const (
 )
 
 type reportOptions struct {
-	reportPaths []string
-	key         string
-	output      string
+	reportPaths             []string
+	key                     string
+	output                  string
+	requireUpdatedByCommand reportFileBaseline
 }
 
 type reportOutput struct {

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -521,6 +522,9 @@ func resetTestHooks(t *testing.T) {
 	resolveOIDCCredentialFunc = func(context.Context) (string, error) {
 		return "oidc-token", nil
 	}
+	runShellCommandFunc = func(context.Context, string, []string, io.Writer, io.Writer) (int, error) {
+		return 0, nil
+	}
 	isTerminalFunc = func() bool {
 		return true
 	}
@@ -538,6 +542,7 @@ func resetTestHooks(t *testing.T) {
 		ciGetRunStatusFunc = apiCIGetRunStatus
 		splitTestsFunc = apiSplitTests
 		resolveOIDCCredentialFunc = testsResolveOIDCCredential
+		runShellCommandFunc = testsRunShellCommand
 		isTerminalFunc = helpersIsTerminal
 		isStdinTerminalFunc = helpersIsStdinTerminal
 		oidcDebugWriter = defaultOIDCDebugWriter
@@ -565,6 +570,7 @@ var (
 	apiCIGetRunStatus          = ciGetRunStatusFunc
 	apiSplitTests              = splitTestsFunc
 	testsResolveOIDCCredential = resolveOIDCCredentialFunc
+	testsRunShellCommand       = runShellCommandFunc
 	helpersIsTerminal          = isTerminalFunc
 	helpersIsStdinTerminal     = isStdinTerminalFunc
 	defaultOIDCDebugWriter     = oidcDebugWriter
