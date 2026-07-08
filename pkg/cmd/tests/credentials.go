@@ -2,6 +2,7 @@ package tests
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -39,6 +40,9 @@ func resolveOIDCCredentialWithProviders(ctx context.Context, providers []oidc.OI
 		if err != nil {
 			if debug {
 				fmt.Fprintf(oidcDebugWriter, "OIDC provider %s failed: %v\n", provider.Name(), err)
+			}
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return "", err
 			}
 			continue
 		}

@@ -56,6 +56,25 @@ func TestResolveOIDCCredentialIgnoresProviderErrors(t *testing.T) {
 	}
 }
 
+func TestResolveOIDCCredentialPreservesContextErrors(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		err  error
+	}{
+		{name: "canceled", err: context.Canceled},
+		{name: "deadline", err: context.DeadlineExceeded},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := resolveOIDCCredentialWithProviders(context.Background(), []oidc.OIDCProvider{
+				fakeOIDCProvider{name: "github", err: tc.err},
+			})
+			if !errors.Is(err, tc.err) {
+				t.Fatalf("expected %v, got %v", tc.err, err)
+			}
+		})
+	}
+}
+
 func TestResolveOIDCCredentialReportsMissingCredential(t *testing.T) {
 	_, err := resolveOIDCCredentialWithProviders(context.Background(), []oidc.OIDCProvider{
 		fakeOIDCProvider{name: "empty"},
