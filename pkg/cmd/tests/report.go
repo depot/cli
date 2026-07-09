@@ -139,6 +139,7 @@ func expandReportPattern(input, workspace string) ([]string, error) {
 		absoluteInput = filepath.Join(workspace, input)
 	}
 	absoluteInput = filepath.Clean(absoluteInput)
+	inputHasGlob := hasGlobMeta(absoluteInput)
 
 	if stat, err := os.Stat(absoluteInput); err == nil && stat.IsDir() {
 		realInput, err := filepath.EvalSymlinks(absoluteInput)
@@ -151,7 +152,7 @@ func expandReportPattern(input, workspace string) ([]string, error) {
 		if realInput == workspace {
 			return nil, fmt.Errorf("test report path is too broad; use a report subdirectory instead: %s", input)
 		}
-		return globReportFiles(filepath.Join(realInput, "**", "*.xml"))
+		return globReportFiles(filepath.Join(realInput, "**", "*.xml"), true)
 	}
 
 	searchRoot := findReportSearchRoot(absoluteInput)
@@ -170,7 +171,7 @@ func expandReportPattern(input, workspace string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	return globReportFiles(resolvedPattern)
+	return globReportFiles(resolvedPattern, inputHasGlob)
 }
 
 func resolveGlobPattern(pattern, searchRoot, realSearchRoot string) (string, error) {
@@ -342,7 +343,7 @@ func gzipBytes(contents []byte) ([]byte, error) {
 	return out.Bytes(), nil
 }
 
-func globReportFiles(pattern string) ([]string, error) {
+func globReportFiles(pattern string, xmlOnly bool) ([]string, error) {
 	base, filePattern := doublestar.SplitPattern(filepath.ToSlash(filepath.Clean(pattern)))
 	base = filepath.FromSlash(base)
 	if _, err := os.Stat(base); os.IsNotExist(err) {
@@ -352,6 +353,9 @@ func globReportFiles(pattern string) ([]string, error) {
 	var matches []string
 	err := doublestar.GlobWalk(os.DirFS(base), filePattern, func(filePath string, entry fs.DirEntry) error {
 		if entry.IsDir() {
+			return nil
+		}
+		if xmlOnly && strings.ToLower(filepath.Ext(filePath)) != ".xml" {
 			return nil
 		}
 		matches = append(matches, filepath.Join(base, filePath))
@@ -395,6 +399,10 @@ func hasRecursiveGlob(pattern string) bool {
 		}
 	}
 	return false
+}
+
+func hasGlobMeta(pattern string) bool {
+	return strings.ContainsAny(filepath.ToSlash(pattern), "*?{[")
 }
 
 func isInsideWorkspace(workspace, filePath string) bool {

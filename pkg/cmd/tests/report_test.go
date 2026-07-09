@@ -77,6 +77,20 @@ func TestDiscoverReportFilesDeduplicatesMatches(t *testing.T) {
 	}
 }
 
+func TestDiscoverReportFilesIgnoresNonXMLGlobMatches(t *testing.T) {
+	workspace := t.TempDir()
+	writeTempFileAt(t, workspace, "reports/a.xml", "<testsuite/>")
+	writeTempFileAt(t, workspace, "reports/notes.txt", "ignore")
+
+	files, err := discoverReportFiles([]string{"reports/*"}, workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := filenames(files); !equalStrings(got, []string{"reports/a.xml"}) {
+		t.Fatalf("expected broad glob to include only XML report files, got %v", got)
+	}
+}
+
 func TestDiscoverReportFilesDoesNotClimbMissingPathSegments(t *testing.T) {
 	workspace := t.TempDir()
 	writeTempFileAt(t, workspace, "junit.xml", "<testsuite/>")
