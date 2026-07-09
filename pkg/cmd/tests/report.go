@@ -23,6 +23,8 @@ const (
 	maxReportFileBytes   = 50 * 1024 * 1024
 	maxReportTotalBytes  = 100 * 1024 * 1024
 	reportRequestTimeout = 2 * time.Minute
+	// Some CI filesystems expose mtimes at coarser precision than time.Now.
+	reportFreshnessGrace = 2 * time.Second
 )
 
 type discoveredReportFile struct {
@@ -30,6 +32,11 @@ type discoveredReportFile struct {
 	realPath     string
 	filename     string
 	info         os.FileInfo
+}
+
+type reportFileBaseline struct {
+	snapshotAt time.Time
+	files      map[string]os.FileInfo
 }
 
 func uploadTestReportsResponse(cmd *cobra.Command, opts reportOptions) (int, *testresultsv1.ReportTestResultsResponse, error) {
@@ -44,6 +51,12 @@ func uploadTestReportsResponse(cmd *cobra.Command, opts reportOptions) (int, *te
 	}
 	if len(files) == 0 {
 		return 0, nil, fmt.Errorf("no JUnit XML report files matched")
+	}
+	if opts.requireUpdatedByCommand != nil {
+		files = updatedReportFiles(files, *opts.requireUpdatedByCommand)
+		if len(files) == 0 {
+			return 0, nil, fmt.Errorf("no JUnit XML report files were updated by command; remove stale report files before running, use a narrower --report-path, or ensure --command writes matching reports")
+		}
 	}
 
 	prepared, err := prepareReportFiles(files)
@@ -67,6 +80,42 @@ func uploadTestReportsResponse(cmd *cobra.Command, opts reportOptions) (int, *te
 		return 0, nil, fmt.Errorf("failed to upload test reports: %w", err)
 	}
 	return len(prepared), resp, nil
+}
+
+func snapshotReportFiles(reportPaths []string) (reportFileBaseline, error) {
+	snapshotAt := time.Now()
+	workspace, err := reportWorkspace()
+	if err != nil {
+		return reportFileBaseline{}, err
+	}
+	files, err := discoverReportFiles(reportPaths, workspace)
+	if err != nil {
+		return reportFileBaseline{}, err
+	}
+
+	baseline := reportFileBaseline{
+		snapshotAt: snapshotAt,
+		files:      map[string]os.FileInfo{},
+	}
+	for _, file := range files {
+		baseline.files[file.realPath] = file.info
+	}
+	return baseline, nil
+}
+
+func updatedReportFiles(files []discoveredReportFile, baseline reportFileBaseline) []discoveredReportFile {
+	updated := files[:0]
+	for _, file := range files {
+		if previous, ok := baseline.files[file.realPath]; ok {
+			if !reportFileChanged(previous, file.info) {
+				continue
+			}
+		} else if file.info.ModTime().Add(reportFreshnessGrace).Before(baseline.snapshotAt) {
+			continue
+		}
+		updated = append(updated, file)
+	}
+	return updated
 }
 
 func reportWorkspace() (string, error) {
