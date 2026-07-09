@@ -15,15 +15,7 @@ import (
 
 func TestListTestResultsSendsAuthAndOrgHeaders(t *testing.T) {
 	handler := &testResultsHandler{}
-	mux := http.NewServeMux()
-	path, connectHandler := testresultsv1connect.NewTestResultsServiceHandler(handler)
-	mux.Handle(path, connectHandler)
-	server := httptest.NewServer(h2c.NewHandler(mux, &http2.Server{}))
-	t.Cleanup(server.Close)
-
-	previousBaseURLFunc := baseURLFunc
-	baseURLFunc = func() string { return server.URL }
-	t.Cleanup(func() { baseURLFunc = previousBaseURLFunc })
+	setupTestResultsServer(t, handler)
 
 	resp, err := ListTestResults(
 		context.Background(),
@@ -52,12 +44,85 @@ func TestListTestResultsSendsAuthAndOrgHeaders(t *testing.T) {
 	}
 }
 
+func TestSplitTestsSendsAuthHeader(t *testing.T) {
+	handler := &testResultsHandler{}
+	setupTestResultsServer(t, handler)
+
+	resp, err := SplitTests(
+		context.Background(),
+		"oidc-token-1",
+		&testresultsv1.SplitTestsRequest{
+			Candidates:        []string{"a.test.ts", "b.test.ts"},
+			CandidateIdentity: testresultsv1.TestCandidateIdentity_TEST_CANDIDATE_IDENTITY_FILENAME,
+			TimingIdentity:    testresultsv1.TestTimingIdentity_TEST_TIMING_IDENTITY_TESTNAME,
+			ShardIndex:        1,
+			ShardTotal:        2,
+			SplitKey:          "unit",
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if handler.authorization != "Bearer oidc-token-1" {
+		t.Fatalf("expected auth header %q, got %q", "Bearer oidc-token-1", handler.authorization)
+	}
+	if handler.orgID != "" {
+		t.Fatalf("expected no org header for split tests, got %q", handler.orgID)
+	}
+	if handler.splitRequest.GetShardIndex() != 1 || handler.splitRequest.GetShardTotal() != 2 {
+		t.Fatalf("expected shard 1/2, got %d/%d", handler.splitRequest.GetShardIndex(), handler.splitRequest.GetShardTotal())
+	}
+	if handler.splitRequest.GetCandidateIdentity() != testresultsv1.TestCandidateIdentity_TEST_CANDIDATE_IDENTITY_FILENAME {
+		t.Fatalf("expected filename candidate identity, got %v", handler.splitRequest.GetCandidateIdentity())
+	}
+	if handler.splitRequest.GetTimingIdentity() != testresultsv1.TestTimingIdentity_TEST_TIMING_IDENTITY_TESTNAME {
+		t.Fatalf("expected testname timing identity, got %v", handler.splitRequest.GetTimingIdentity())
+	}
+	if handler.splitRequest.GetSplitKey() != "unit" {
+		t.Fatalf("expected split key %q, got %q", "unit", handler.splitRequest.GetSplitKey())
+	}
+	if got := resp.GetCandidates(); len(got) != 1 || got[0] != "b.test.ts" {
+		t.Fatalf("expected selected candidate b.test.ts, got %v", got)
+	}
+}
+
+func setupTestResultsServer(t *testing.T, handler *testResultsHandler) {
+	t.Helper()
+
+	mux := http.NewServeMux()
+	path, connectHandler := testresultsv1connect.NewTestResultsServiceHandler(handler)
+	mux.Handle(path, connectHandler)
+	server := httptest.NewServer(h2c.NewHandler(mux, &http2.Server{}))
+	t.Cleanup(server.Close)
+
+	previousBaseURLFunc := baseURLFunc
+	baseURLFunc = func() string { return server.URL }
+	t.Cleanup(func() { baseURLFunc = previousBaseURLFunc })
+}
+
 type testResultsHandler struct {
 	testresultsv1connect.UnimplementedTestResultsServiceHandler
 
 	authorization string
 	orgID         string
 	request       *testresultsv1.ListTestResultsRequest
+	splitRequest  *testresultsv1.SplitTestsRequest
+}
+
+func (h *testResultsHandler) SplitTests(
+	_ context.Context,
+	req *connect.Request[testresultsv1.SplitTestsRequest],
+) (*connect.Response[testresultsv1.SplitTestsResponse], error) {
+	h.authorization = req.Header().Get("Authorization")
+	h.orgID = req.Header().Get("x-depot-org")
+	h.splitRequest = req.Msg
+	return connect.NewResponse(&testresultsv1.SplitTestsResponse{
+		Candidates:            []string{"b.test.ts"},
+		CandidatesRequested:   uint32(len(req.Msg.GetCandidates())),
+		CandidatesSelected:    1,
+		CandidatesWithTimings: 1,
+	}), nil
 }
 
 func (h *testResultsHandler) ListTestResults(

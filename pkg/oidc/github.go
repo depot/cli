@@ -31,7 +31,7 @@ func (p *GitHubOIDCProvider) RetrieveToken(ctx context.Context) (string, error) 
 
 	requestURL = requestURL + "&audience=" + audience
 
-	req, err := http.NewRequest("GET", requestURL, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", requestURL, nil)
 	if err != nil {
 		return "", err
 	}
