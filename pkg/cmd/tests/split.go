@@ -62,7 +62,7 @@ splitting.`,
 	flags.StringVar(&opts.timingsType, "timings-type", "", "JUnit timing identity (filename, classname, testname)")
 	flags.IntVar(&opts.index, "index", -1, "Zero-based shard index")
 	flags.IntVar(&opts.total, "total", 0, "Total number of shards")
-	flags.StringVar(&opts.key, "key", "", "Test split key")
+	flags.StringVar(&opts.key, "key", "", "Test key")
 	flags.StringVar(&opts.candidatesFile, "candidates-file", "", "Path to newline-delimited runnable test candidates instead of stdin")
 	flags.StringVar(&opts.output, "output", splitOutputText, "Output format (text, json)")
 

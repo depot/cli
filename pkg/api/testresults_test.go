@@ -87,6 +87,41 @@ func TestSplitTestsSendsAuthHeader(t *testing.T) {
 	}
 }
 
+func TestReportTestResultsSendsAuthHeader(t *testing.T) {
+	handler := &testResultsHandler{}
+	setupTestResultsServer(t, handler)
+
+	resp, err := ReportTestResults(
+		context.Background(),
+		"oidc-token-1",
+		&testresultsv1.ReportTestResultsRequest{
+			InvocationId: "unit",
+			Files: []*testresultsv1.TestResultsFile{
+				{Filename: "reports/junit.xml", GzippedXml: []byte("gzipped")},
+			},
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if handler.authorization != "Bearer oidc-token-1" {
+		t.Fatalf("expected auth header %q, got %q", "Bearer oidc-token-1", handler.authorization)
+	}
+	if handler.orgID != "" {
+		t.Fatalf("expected no org header for report tests, got %q", handler.orgID)
+	}
+	if handler.reportRequest.GetInvocationId() != "unit" {
+		t.Fatalf("expected invocation ID %q, got %q", "unit", handler.reportRequest.GetInvocationId())
+	}
+	if len(handler.reportRequest.GetFiles()) != 1 || handler.reportRequest.GetFiles()[0].GetFilename() != "reports/junit.xml" {
+		t.Fatalf("expected report file in request, got %#v", handler.reportRequest.GetFiles())
+	}
+	if resp.GetFilesProcessed() != 1 || resp.GetTestsReported() != 2 {
+		t.Fatalf("expected report response counts, got files=%d tests=%d", resp.GetFilesProcessed(), resp.GetTestsReported())
+	}
+}
+
 func setupTestResultsServer(t *testing.T, handler *testResultsHandler) {
 	t.Helper()
 
@@ -107,7 +142,21 @@ type testResultsHandler struct {
 	authorization string
 	orgID         string
 	request       *testresultsv1.ListTestResultsRequest
+	reportRequest *testresultsv1.ReportTestResultsRequest
 	splitRequest  *testresultsv1.SplitTestsRequest
+}
+
+func (h *testResultsHandler) ReportTestResults(
+	_ context.Context,
+	req *connect.Request[testresultsv1.ReportTestResultsRequest],
+) (*connect.Response[testresultsv1.ReportTestResultsResponse], error) {
+	h.authorization = req.Header().Get("Authorization")
+	h.orgID = req.Header().Get("x-depot-org")
+	h.reportRequest = req.Msg
+	return connect.NewResponse(&testresultsv1.ReportTestResultsResponse{
+		FilesProcessed: 1,
+		TestsReported:  2,
+	}), nil
 }
 
 func (h *testResultsHandler) SplitTests(
