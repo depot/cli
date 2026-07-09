@@ -150,7 +150,7 @@ named "default".`,
 			}
 
 			fmt.Printf("Successfully set CI secret '%s' variant '%s'\n", secretName, displayVariantName(result.Variant.Name))
-			warnSecretVariantShadowed(ctx, tokenVal, orgID, result)
+			warnSecretVariantShadowed(ctx, tokenVal, orgID, result, newShadowProbeBudget(maxShadowProbes))
 			return nil
 		},
 	}
@@ -281,8 +281,9 @@ Without match flags, the variant applies to all workflow runs in the organizatio
 				for _, s := range secrets {
 					printSecretAddSuccess(s.name, variant, scope)
 				}
+				budget := newShadowProbeBudget(maxShadowProbes)
 				for _, result := range results {
-					warnSecretVariantShadowed(ctx, tokenVal, orgID, result)
+					warnSecretVariantShadowed(ctx, tokenVal, orgID, result, budget)
 				}
 				return nil
 			}
@@ -323,7 +324,7 @@ Without match flags, the variant applies to all workflow runs in the organizatio
 			}
 
 			printSecretAddSuccess(secretName, variant, scope)
-			warnSecretVariantShadowed(ctx, tokenVal, orgID, result)
+			warnSecretVariantShadowed(ctx, tokenVal, orgID, result, newShadowProbeBudget(maxShadowProbes))
 			return nil
 		},
 	}
@@ -435,8 +436,9 @@ secret in the input.`,
 			for _, secret := range secrets {
 				printSecretAddSuccess(secret.name, variant, scope)
 			}
+			budget := newShadowProbeBudget(maxShadowProbes)
 			for _, result := range results {
-				warnSecretVariantShadowed(ctx, tokenVal, orgID, result)
+				warnSecretVariantShadowed(ctx, tokenVal, orgID, result, budget)
 			}
 			return nil
 		},

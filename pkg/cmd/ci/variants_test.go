@@ -177,6 +177,41 @@ func TestScopesDisjointGlobConservative(t *testing.T) {
 	}
 }
 
+func TestScopesDisjointRepositoryCaseInsensitive(t *testing.T) {
+	// Repository names match case-insensitively everywhere else, so a sibling that differs from the
+	// written scope only by case must not be judged disjoint (which would skip its shadow probe).
+	written := map[string]map[string]bool{
+		"repository": {"owner/repo": true},
+	}
+	if scopesDisjoint(written, []api.CIVariantAttribute{{Key: "repository", Value: "Owner/Repo"}}) {
+		t.Error("repository scopes differing only by case should not be disjoint")
+	}
+	// A genuinely different repository is still disjoint.
+	if !scopesDisjoint(written, []api.CIVariantAttribute{{Key: "repository", Value: "owner/other"}}) {
+		t.Error("different repositories should be disjoint")
+	}
+}
+
+func TestShadowProbeBudget(t *testing.T) {
+	// A nil budget is unbounded.
+	if got := (*shadowProbeBudget)(nil).take(5); got != 5 {
+		t.Errorf("nil budget take(5) = %d, want 5", got)
+	}
+
+	// A shared budget is drawn down across successive takes (the bulk-write case) and never goes
+	// negative once exhausted.
+	budget := newShadowProbeBudget(4)
+	if got := budget.take(3); got != 3 {
+		t.Errorf("take(3) = %d, want 3", got)
+	}
+	if got := budget.take(3); got != 1 {
+		t.Errorf("second take(3) = %d, want 1 (only 1 left)", got)
+	}
+	if got := budget.take(3); got != 0 {
+		t.Errorf("exhausted take(3) = %d, want 0", got)
+	}
+}
+
 func TestVariableShadowingWinner(t *testing.T) {
 	variables := []api.CIVariableGroup{{
 		Name:       "REGISTRY_URL",

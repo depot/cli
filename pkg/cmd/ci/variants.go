@@ -15,6 +15,34 @@ const defaultVariantName = "default"
 // so a bulk import can't fan out into an unbounded number of follow-up requests.
 const maxShadowProbes = 16
 
+// shadowProbeBudget caps the total number of shadow-probe list RPCs a single command may issue.
+// A single set/add gets its own full budget, but a bulk write (many KEY=VALUE pairs, or a dotenv
+// import) shares one budget across every item so a large import can't fan out into hundreds of
+// advisory reads after the writes have already succeeded. A nil budget means "unbounded" (each call
+// is still capped at maxShadowProbes by shadowProbeContexts).
+type shadowProbeBudget struct {
+	remaining int
+}
+
+func newShadowProbeBudget(n int) *shadowProbeBudget {
+	return &shadowProbeBudget{remaining: n}
+}
+
+// take reserves up to n probes from the budget and returns how many are allowed.
+func (b *shadowProbeBudget) take(n int) int {
+	if b == nil {
+		return n
+	}
+	if b.remaining <= 0 {
+		return 0
+	}
+	if n > b.remaining {
+		n = b.remaining
+	}
+	b.remaining -= n
+	return n
+}
+
 func displayVariantName(name string) string {
 	if name == "" {
 		return defaultVariantName
@@ -96,7 +124,7 @@ func selectorHintFromAttributes(attrs []api.CIVariantAttribute) string {
 // context-aware list) which variant wins there, and only warn when the server marks the variant we
 // just wrote as lower-priority. The CLI never recomputes the specificity weights. The write has
 // already succeeded, so any failure of the follow-up read is swallowed rather than surfaced.
-func warnSecretVariantShadowed(ctx context.Context, token, orgID string, res api.CISetSecretVariantResult) {
+func warnSecretVariantShadowed(ctx context.Context, token, orgID string, res api.CISetSecretVariantResult, budget *shadowProbeBudget) {
 	written := res.Variant
 	secretName := res.Secret.Name
 
@@ -108,8 +136,10 @@ func warnSecretVariantShadowed(ctx context.Context, token, orgID string, res api
 		siblings = append(siblings, sibling.Attributes)
 	}
 
+	probes := shadowProbeContexts(written.Attributes, siblings)
+	probes = probes[:budget.take(len(probes))]
 	shadowerScopes := make([]string, 0)
-	for _, probeAttrs := range shadowProbeContexts(written.Attributes, siblings) {
+	for _, probeAttrs := range probes {
 		repo, environment, branch, workflow := contextFromAttributes(probeAttrs)
 		result, err := api.CIListSecretVariants(ctx, token, orgID, api.CIListSecretVariantsOptions{
 			Query:       secretName,
@@ -135,7 +165,7 @@ func warnSecretVariantShadowed(ctx context.Context, token, orgID string, res api
 // works the same way — probe each sibling scope and let the server decide the winner — but variables
 // report resolution only at the group level, so shadowing is read from the server's winner-first
 // ordering rather than a per-row lower-priority flag (see variableShadowingWinner).
-func warnVariableVariantShadowed(ctx context.Context, token, orgID string, res api.CISetVariableVariantResult) {
+func warnVariableVariantShadowed(ctx context.Context, token, orgID string, res api.CISetVariableVariantResult, budget *shadowProbeBudget) {
 	written := res.Variant
 	varName := res.Variable.Name
 
@@ -147,8 +177,10 @@ func warnVariableVariantShadowed(ctx context.Context, token, orgID string, res a
 		siblings = append(siblings, sibling.Attributes)
 	}
 
+	probes := shadowProbeContexts(written.Attributes, siblings)
+	probes = probes[:budget.take(len(probes))]
 	shadowerScopes := make([]string, 0)
-	for _, probeAttrs := range shadowProbeContexts(written.Attributes, siblings) {
+	for _, probeAttrs := range probes {
 		repo, environment, branch, workflow := contextFromAttributes(probeAttrs)
 		result, err := api.CIListVariableVariants(ctx, token, orgID, api.CIListVariableVariantsOptions{
 			Query:       varName,
@@ -181,7 +213,7 @@ func shadowProbeContexts(written []api.CIVariantAttribute, siblings [][]api.CIVa
 		if writtenByKey[attr.Key] == nil {
 			writtenByKey[attr.Key] = map[string]bool{}
 		}
-		writtenByKey[attr.Key][attr.Value] = true
+		writtenByKey[attr.Key][normalizeScopeValue(attr.Key, attr.Value)] = true
 	}
 
 	seen := map[string]bool{}
@@ -241,7 +273,7 @@ func scopesDisjoint(writtenByKey map[string]map[string]bool, siblingAttrs []api.
 		}
 		overlap := false
 		for _, value := range siblingValues {
-			if writtenValues[value] || looksLikePattern(value) {
+			if writtenValues[normalizeScopeValue(key, value)] || looksLikePattern(value) {
 				overlap = true
 				break
 			}
@@ -266,6 +298,17 @@ func scopesDisjoint(writtenByKey map[string]map[string]bool, siblingAttrs []api.
 // check treats it as potentially overlapping.
 func looksLikePattern(value string) bool {
 	return strings.ContainsAny(value, "*?[]{}")
+}
+
+// normalizeScopeValue canonicalizes an attribute value for equality comparison. Repository names match
+// case-insensitively everywhere else in this file (see anyAttributeValueMatches), so the disjoint check
+// must too — otherwise a sibling scoped to owner/Repo would be wrongly judged disjoint from a written
+// owner/repo and its shadowing would go unwarned. Other dimensions compare exactly.
+func normalizeScopeValue(key, value string) string {
+	if key == "repository" {
+		return strings.ToLower(value)
+	}
+	return value
 }
 
 // mergeScopes returns the written variant's attributes plus any dimension the sibling constrains that

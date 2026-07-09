@@ -129,7 +129,7 @@ named "default".`,
 			}
 
 			fmt.Printf("Successfully set CI variable '%s' variant '%s'\n", varName, displayVariantName(result.Variant.Name))
-			warnVariableVariantShadowed(ctx, tokenVal, orgID, result)
+			warnVariableVariantShadowed(ctx, tokenVal, orgID, result, newShadowProbeBudget(maxShadowProbes))
 			return nil
 		},
 	}
@@ -253,8 +253,9 @@ Without match flags, the variant applies to all workflow runs in the organizatio
 				for _, v := range variables {
 					fmt.Printf("Successfully added CI variable '%s' variant '%s' (%s)\n", v.name, displayVariantName(variant), scope)
 				}
+				budget := newShadowProbeBudget(maxShadowProbes)
 				for _, result := range results {
-					warnVariableVariantShadowed(ctx, tokenVal, orgID, result)
+					warnVariableVariantShadowed(ctx, tokenVal, orgID, result, budget)
 				}
 				return nil
 			}
@@ -294,7 +295,7 @@ Without match flags, the variant applies to all workflow runs in the organizatio
 			}
 
 			fmt.Printf("Successfully added CI variable '%s' variant '%s' (%s)\n", varName, displayVariantName(variant), scope)
-			warnVariableVariantShadowed(ctx, tokenVal, orgID, result)
+			warnVariableVariantShadowed(ctx, tokenVal, orgID, result, newShadowProbeBudget(maxShadowProbes))
 			return nil
 		},
 	}
