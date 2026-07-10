@@ -28,7 +28,7 @@ func selectTestCandidates(cmd *cobra.Command, opts splitOptions) (splitMode, []s
 	if err := validateExplicitSplitIdentityFlags(opts); err != nil {
 		return "", nil, nil, nil, err
 	}
-	candidates, err := loadRequiredCandidates(cmd, opts.candidatesFile)
+	candidates, err := loadRequiredCandidates(cmd, opts.candidatesFile, opts.candidatesCommand)
 	if err != nil {
 		return "", nil, nil, nil, err
 	}
@@ -56,22 +56,49 @@ func selectTestCandidates(cmd *cobra.Command, opts splitOptions) (splitMode, []s
 	return mode, candidates, selectedCandidates, splitResponse, nil
 }
 
-func loadRequiredCandidates(cmd *cobra.Command, candidatesFile string) ([]string, error) {
-	candidates, err := loadOptionalCandidates(cmd, candidatesFile)
+func loadRequiredCandidates(cmd *cobra.Command, candidatesFile, candidatesCommand string) ([]string, error) {
+	candidates, err := loadOptionalCandidates(cmd, candidatesFile, candidatesCommand)
 	if err != nil {
 		return nil, err
 	}
 	if len(candidates) == 0 {
-		return nil, fmt.Errorf("no candidates provided; pipe newline-delimited candidates to stdin or pass --candidates-file")
+		return nil, fmt.Errorf("no candidates provided; pipe newline-delimited candidates to stdin or pass --candidates-file or --candidates-command")
 	}
 	return candidates, nil
 }
 
-func loadOptionalCandidates(cmd *cobra.Command, candidatesFile string) ([]string, error) {
-	if stdin, ok := cmd.InOrStdin().(*os.File); candidatesFile == "" && ok && stdin == os.Stdin && isStdinTerminalFunc() {
-		return nil, nil
+func loadOptionalCandidates(cmd *cobra.Command, candidatesFile, candidatesCommand string) ([]string, error) {
+	if candidatesFile != "" && candidatesCommand != "" {
+		return nil, fmt.Errorf("--candidates-file and --candidates-command are mutually exclusive")
 	}
-	candidates, err := loadCandidates(cmd.InOrStdin(), candidatesFile)
+
+	stdin := cmd.InOrStdin()
+	stdinIsTerminal := false
+	if file, ok := stdin.(*os.File); ok && file == os.Stdin {
+		stdinIsTerminal = isStdinTerminalFunc()
+	}
+	if stdinIsTerminal {
+		if candidatesFile == "" && candidatesCommand == "" {
+			return nil, nil
+		}
+		candidates, err := loadCandidates(cmd.Context(), stdin, candidatesFile, candidatesCommand, cmd.ErrOrStderr())
+		if err != nil {
+			return nil, fmt.Errorf("failed to load candidates: %w", err)
+		}
+		return candidates, nil
+	}
+
+	stdinCandidates, err := readCandidates(stdin)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load candidates: %w", err)
+	}
+	if len(stdinCandidates) > 0 && (candidatesFile != "" || candidatesCommand != "") {
+		return nil, fmt.Errorf("stdin, --candidates-file, and --candidates-command are mutually exclusive")
+	}
+	if candidatesFile == "" && candidatesCommand == "" {
+		return stdinCandidates, nil
+	}
+	candidates, err := loadCandidates(cmd.Context(), stdin, candidatesFile, candidatesCommand, cmd.ErrOrStderr())
 	if err != nil {
 		return nil, fmt.Errorf("failed to load candidates: %w", err)
 	}

@@ -25,13 +25,14 @@ type splitOutput struct {
 }
 
 type splitOptions struct {
-	candidateType  string
-	timingsType    string
-	index          int
-	total          int
-	candidatesFile string
-	key            string
-	output         string
+	candidateType     string
+	timingsType       string
+	index             int
+	total             int
+	candidatesFile    string
+	candidatesCommand string
+	key               string
+	output            string
 }
 
 func newCmdTestsSplit() *cobra.Command {
@@ -43,14 +44,17 @@ func newCmdTestsSplit() *cobra.Command {
 		SilenceUsage: true,
 		Long: `Print the candidates assigned to this shard without running tests or uploading reports.
 
-Candidates are newline-delimited runnable units read from stdin or --candidates-file. By default, Depot uses historical test
-timings to select a balanced shard. If no timings are available for filename candidates, Depot falls back to file-size
-splitting.`,
+Candidates are newline-delimited runnable units read from stdin, --candidates-file, or --candidates-command. Provide at
+most one source. By default, Depot uses historical test timings to select a balanced shard. If no timings are available for
+filename candidates, Depot falls back to file-size splitting.`,
 		Example: `  # Print a timing-balanced shard from stdin candidates
   go list ./... | depot tests split --index 0 --total 4 --candidate-type classname
 
   # Print a shard from an explicit candidates file
-  depot tests split --candidates-file tests.txt --index 0 --total 4 --candidate-type filename`,
+  depot tests split --candidates-file tests.txt --index 0 --total 4 --candidate-type filename
+
+  # Discover candidates with a command
+  depot tests split --candidates-command "go list ./..." --index 0 --total 4 --candidate-type classname`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runTestsSplit(cmd, opts)
@@ -64,6 +68,7 @@ splitting.`,
 	flags.IntVar(&opts.total, "total", 0, "Total number of shards")
 	flags.StringVar(&opts.key, "key", "", "Test key")
 	flags.StringVar(&opts.candidatesFile, "candidates-file", "", "Path to newline-delimited runnable test candidates instead of stdin")
+	flags.StringVar(&opts.candidatesCommand, "candidates-command", "", "Shell command that prints newline-delimited runnable test candidates")
 	flags.StringVar(&opts.output, "output", splitOutputText, "Output format (text, json)")
 
 	return cmd

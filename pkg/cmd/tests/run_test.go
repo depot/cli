@@ -436,7 +436,7 @@ func TestRunReadsCandidatesFile(t *testing.T) {
 	}
 
 	_, _, err := executeCommandWithInputOutput(
-		"ignored.test.ts\n",
+		"",
 		"run",
 		"--candidates-file", candidatesPath,
 		"--command", "test-command",
@@ -447,6 +447,74 @@ func TestRunReadsCandidatesFile(t *testing.T) {
 	}
 	if !equalStrings(commandCandidates, []string{"a.test.ts", "b.test.ts"}) {
 		t.Fatalf("expected candidates file to drive command stdin, got %v", commandCandidates)
+	}
+}
+
+func TestRunReadsCandidatesCommand(t *testing.T) {
+	resetTestHooks(t)
+	workspace := t.TempDir()
+	t.Chdir(workspace)
+	writeTempFileAt(t, workspace, "reports/junit.xml", "<testsuite/>")
+	runCandidatesCommandFunc = func(_ context.Context, command string, stdout, _ io.Writer) error {
+		if command != "discover-tests" {
+			t.Fatalf("expected candidate command %q, got %q", "discover-tests", command)
+		}
+		_, _ = io.WriteString(stdout, "a.test.ts\nb.test.ts\n")
+		return nil
+	}
+
+	var commandCandidates []string
+	runShellCommandFunc = func(_ context.Context, _ string, candidates []string, _ io.Writer, _ io.Writer) (int, error) {
+		commandCandidates = append([]string(nil), candidates...)
+		writeRunReport(t, workspace)
+		return 0, nil
+	}
+
+	_, _, err := executeCommandWithInputOutput(
+		"",
+		"run",
+		"--candidates-command", "discover-tests",
+		"--index", "0",
+		"--total", "1",
+		"--command", "test-command",
+		"--report-path", "reports/junit.xml",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !equalStrings(commandCandidates, []string{"a.test.ts", "b.test.ts"}) {
+		t.Fatalf("expected command candidates, got %v", commandCandidates)
+	}
+}
+
+func TestRunCandidatesCommandFailureDoesNotRunTestsOrUploadReports(t *testing.T) {
+	resetTestHooks(t)
+	runCandidatesCommandFunc = func(_ context.Context, _ string, stdout, stderr io.Writer) error {
+		_, _ = io.WriteString(stdout, "partial.test.ts\n")
+		_, _ = io.WriteString(stderr, "discovery failed\n")
+		return errors.New("exit status 1")
+	}
+	runShellCommandFunc = func(context.Context, string, []string, io.Writer, io.Writer) (int, error) {
+		t.Fatal("test command should not run after candidate command failure")
+		return 0, nil
+	}
+	reportTestResultsFunc = func(context.Context, string, *testresultsv1.ReportTestResultsRequest) (*testresultsv1.ReportTestResultsResponse, error) {
+		t.Fatal("report upload should not run after candidate command failure")
+		return nil, nil
+	}
+
+	_, stderr, err := executeCommandWithInputOutput(
+		"",
+		"run",
+		"--candidates-command", "discover-tests",
+		"--command", "test-command",
+		"--report-path", "reports/junit.xml",
+	)
+	if err == nil || !strings.Contains(err.Error(), "candidate command failed") {
+		t.Fatalf("expected candidate command failure, got %v", err)
+	}
+	if !strings.Contains(stderr, "discovery failed") {
+		t.Fatalf("expected candidate command stderr, got %q", stderr)
 	}
 }
 
