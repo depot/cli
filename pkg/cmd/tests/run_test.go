@@ -125,6 +125,11 @@ func TestRunUsesDefaultsForOmittedKeys(t *testing.T) {
 			wantSplit:  "test-action",
 			wantReport: "unit-report",
 		},
+		{
+			name:       "no keys",
+			wantSplit:  "test-action",
+			wantReport: "test-action",
+		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			resetTestHooks(t)
