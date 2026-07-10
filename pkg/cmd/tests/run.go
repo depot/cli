@@ -20,15 +20,16 @@ import (
 var runShellCommandFunc = runShellCommand
 
 type runOptions struct {
-	candidateType  string
-	timingsType    string
-	index          int
-	total          int
-	splitKey       string
-	command        string
-	reportPaths    []string
-	candidatesFile string
-	key            string
+	candidateType     string
+	timingsType       string
+	index             int
+	total             int
+	splitKey          string
+	command           string
+	reportPaths       []string
+	candidatesFile    string
+	candidatesCommand string
+	key               string
 }
 
 func newCmdTestsRun() *cobra.Command {
@@ -40,15 +41,19 @@ func newCmdTestsRun() *cobra.Command {
 		SilenceUsage: true,
 		Long: `Run a test command against the candidates assigned to this shard and upload JUnit XML reports.
 
-Candidates are optional when not splitting. When provided, they are newline-delimited runnable units read from stdin or
---candidates-file. Pass --index and --total to split candidates across shards; candidates are required when splitting.
+Candidates are optional when not splitting. When provided, they are newline-delimited runnable units read from stdin,
+--candidates-file, or --candidates-command. Provide at most one source. Pass --index and --total to split candidates
+across shards; candidates are required when splitting.
 Depot uses historical test timings to select a balanced shard. If no timings are available for filename candidates, Depot
 falls back to file-size splitting.`,
 		Example: `  # Run a timing-balanced shard from stdin candidates
   go list ./... | depot tests run --index 0 --total 4 --command "xargs go test -json | go-junit-report -out reports/junit.xml" --report-path reports/junit.xml
 
   # Run with an explicit candidates file
-  depot tests run --candidates-file tests.txt --index 0 --total 4 --command "xargs npm test -- --reporter junit --reporter-options output=reports/junit.xml" --report-path "reports/*.xml"`,
+  depot tests run --candidates-file tests.txt --index 0 --total 4 --command "xargs npm test -- --reporter junit --reporter-options output=reports/junit.xml" --report-path "reports/*.xml"
+
+  # Discover candidates with a command
+  depot tests run --candidates-command "go list ./..." --index 0 --total 4 --command "xargs go test -json | go-junit-report -out reports/junit.xml" --report-path reports/junit.xml`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runTestsRun(cmd, opts)
@@ -64,6 +69,7 @@ falls back to file-size splitting.`,
 	flags.StringVar(&opts.command, "command", "", "Shell command that receives selected candidates on stdin (required)")
 	flags.StringArrayVar(&opts.reportPaths, "report-path", nil, "JUnit XML report path, directory, or glob (required, repeatable)")
 	flags.StringVar(&opts.candidatesFile, "candidates-file", "", "Path to newline-delimited runnable test candidates instead of stdin")
+	flags.StringVar(&opts.candidatesCommand, "candidates-command", "", "Shell command that prints newline-delimited runnable test candidates")
 	flags.StringVar(&opts.key, "key", "", "Report invocation key for idempotent uploads (defaults to GITHUB_ACTION or default)")
 
 	return cmd
@@ -86,13 +92,14 @@ func runTestsRun(cmd *cobra.Command, opts runOptions) error {
 	}
 
 	splitOpts := splitOptions{
-		candidateType:  opts.candidateType,
-		timingsType:    opts.timingsType,
-		index:          opts.index,
-		total:          opts.total,
-		candidatesFile: opts.candidatesFile,
-		key:            opts.splitKey,
-		output:         splitOutputText,
+		candidateType:     opts.candidateType,
+		timingsType:       opts.timingsType,
+		index:             opts.index,
+		total:             opts.total,
+		candidatesFile:    opts.candidatesFile,
+		candidatesCommand: opts.candidatesCommand,
+		key:               opts.splitKey,
+		output:            splitOutputText,
 	}
 	splitRequested := runSplitRequested(splitOpts)
 	mode, candidates, selectedCandidates, splitResponse, err := selectRunCandidates(cmd, splitOpts)
@@ -173,7 +180,7 @@ func selectRunCandidates(cmd *cobra.Command, opts splitOptions) (splitMode, []st
 		if err := validateExplicitSplitIdentityFlags(opts); err != nil {
 			return "", nil, nil, nil, err
 		}
-		candidates, err := loadOptionalCandidates(cmd, opts.candidatesFile)
+		candidates, err := loadOptionalCandidates(cmd, opts.candidatesFile, opts.candidatesCommand)
 		if err != nil {
 			return "", nil, nil, nil, err
 		}

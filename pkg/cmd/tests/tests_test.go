@@ -525,6 +525,7 @@ func resetTestHooks(t *testing.T) {
 	runShellCommandFunc = func(context.Context, string, []string, io.Writer, io.Writer) (int, error) {
 		return 0, nil
 	}
+	runCandidatesCommandFunc = runCandidatesCommand
 	isTerminalFunc = func() bool {
 		return true
 	}
@@ -543,6 +544,7 @@ func resetTestHooks(t *testing.T) {
 		splitTestsFunc = apiSplitTests
 		resolveOIDCCredentialFunc = testsResolveOIDCCredential
 		runShellCommandFunc = testsRunShellCommand
+		runCandidatesCommandFunc = testsRunCandidatesCommand
 		isTerminalFunc = helpersIsTerminal
 		isStdinTerminalFunc = helpersIsStdinTerminal
 		oidcDebugWriter = defaultOIDCDebugWriter
@@ -571,6 +573,7 @@ var (
 	apiSplitTests              = splitTestsFunc
 	testsResolveOIDCCredential = resolveOIDCCredentialFunc
 	testsRunShellCommand       = runShellCommandFunc
+	testsRunCandidatesCommand  = runCandidatesCommandFunc
 	helpersIsTerminal          = isTerminalFunc
 	helpersIsStdinTerminal     = isStdinTerminalFunc
 	defaultOIDCDebugWriter     = oidcDebugWriter

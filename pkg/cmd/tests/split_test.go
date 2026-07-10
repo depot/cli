@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"os"
 	"strings"
 	"testing"
@@ -431,7 +432,7 @@ func TestSplitReadsCandidatesFile(t *testing.T) {
 	}
 
 	stdout, _, err := executeCommandWithInputOutput(
-		"ignored.test.ts\n",
+		"",
 		"split",
 		"--candidates-file", candidatesPath,
 		"--index", "0",
@@ -442,6 +443,131 @@ func TestSplitReadsCandidatesFile(t *testing.T) {
 	}
 	if stdout != "a.test.ts\nb.test.ts\n" {
 		t.Fatalf("expected candidates file to be used, got %q", stdout)
+	}
+}
+
+func TestSplitReadsCandidatesCommand(t *testing.T) {
+	resetTestHooks(t)
+	runCandidatesCommandFunc = func(_ context.Context, command string, stdout, _ io.Writer) error {
+		if command != "discover-tests" {
+			t.Fatalf("expected candidate command %q, got %q", "discover-tests", command)
+		}
+		_, _ = io.WriteString(stdout, "a.test.ts\nb.test.ts\n")
+		return nil
+	}
+	resolveOIDCCredentialFunc = func(context.Context) (string, error) {
+		t.Fatal("single-shard split should not need OIDC")
+		return "", nil
+	}
+
+	stdout, _, err := executeCommandWithInputOutput(
+		"",
+		"split",
+		"--candidates-command", "discover-tests",
+		"--index", "0",
+		"--total", "1",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stdout != "a.test.ts\nb.test.ts\n" {
+		t.Fatalf("expected candidates command output, got %q", stdout)
+	}
+}
+
+func TestSplitRejectsPipedCandidatesWithCandidatesCommand(t *testing.T) {
+	resetTestHooks(t)
+	runCandidatesCommandFunc = func(context.Context, string, io.Writer, io.Writer) error {
+		t.Fatal("candidate command should not run for ambiguous sources")
+		return nil
+	}
+	resolveOIDCCredentialFunc = func(context.Context) (string, error) {
+		t.Fatal("ambiguous sources should not need OIDC")
+		return "", nil
+	}
+
+	_, _, err := executeCommandWithInputOutput(
+		"piped.test.ts\n",
+		"split",
+		"--candidates-command", "discover-tests",
+		"--index", "0",
+		"--total", "1",
+	)
+	if err == nil || !strings.Contains(err.Error(), "mutually exclusive") {
+		t.Fatalf("expected source conflict, got %v", err)
+	}
+}
+
+func TestSplitRejectsAmbiguousCandidateSources(t *testing.T) {
+	candidatesPath := writeTempFile(t, "candidates.txt", "from-file.test.ts\n")
+	tests := []struct {
+		name  string
+		input string
+		args  []string
+	}{
+		{
+			name:  "stdin and file",
+			input: "from-stdin.test.ts\n",
+			args:  []string{"split", "--candidates-file", candidatesPath, "--index", "0", "--total", "1"},
+		},
+		{
+			name: "file and command",
+			args: []string{
+				"split", "--candidates-file", candidatesPath, "--candidates-command", "discover-tests", "--index", "0", "--total", "1",
+			},
+		},
+		{
+			name:  "stdin file and command",
+			input: "from-stdin.test.ts\n",
+			args: []string{
+				"split", "--candidates-file", candidatesPath, "--candidates-command", "discover-tests", "--index", "0", "--total", "1",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resetTestHooks(t)
+			runCandidatesCommandFunc = func(context.Context, string, io.Writer, io.Writer) error {
+				t.Fatal("candidate command should not run for ambiguous sources")
+				return nil
+			}
+			resolveOIDCCredentialFunc = func(context.Context) (string, error) {
+				t.Fatal("ambiguous sources should not need OIDC")
+				return "", nil
+			}
+
+			_, _, err := executeCommandWithInputOutput(tt.input, tt.args...)
+			if err == nil || !strings.Contains(err.Error(), "mutually exclusive") {
+				t.Fatalf("expected source conflict, got %v", err)
+			}
+		})
+	}
+}
+
+func TestSplitCandidatesCommandFailureDoesNotUseOIDCOrAPI(t *testing.T) {
+	resetTestHooks(t)
+	runCandidatesCommandFunc = func(context.Context, string, io.Writer, io.Writer) error {
+		return errors.New("exit status 1")
+	}
+	resolveOIDCCredentialFunc = func(context.Context) (string, error) {
+		t.Fatal("candidate command failure should not need OIDC")
+		return "", nil
+	}
+	splitTestsFunc = func(context.Context, string, *testresultsv1.SplitTestsRequest) (*testresultsv1.SplitTestsResponse, error) {
+		t.Fatal("candidate command failure should not call SplitTests")
+		return nil, nil
+	}
+
+	_, _, err := executeCommandWithInputOutput(
+		"",
+		"split",
+		"--candidates-command", "discover-tests",
+		"--index", "0",
+		"--total", "2",
+	)
+	if err == nil || !strings.Contains(err.Error(), "candidate command failed") {
+		t.Fatalf("expected candidate command failure, got %v", err)
 	}
 }
 
@@ -457,7 +583,7 @@ func TestSplitCandidatesFileFailureDoesNotUseStdinOrAPI(t *testing.T) {
 	}
 
 	stdout, _, err := executeCommandWithInputOutput(
-		"ignored.test.ts\n",
+		"",
 		"split",
 		"--candidates-file", "missing-candidates.txt",
 		"--index", "0",
