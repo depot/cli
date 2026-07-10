@@ -19,7 +19,7 @@ import (
 	testresultsv1 "github.com/depot/cli/pkg/proto/depot/testresults/v1"
 )
 
-func TestRunDefaultsToTimingSplitAndReportsWithKey(t *testing.T) {
+func TestRunUsesIndependentSplitAndReportKeys(t *testing.T) {
 	resetTestHooks(t)
 	workspace := t.TempDir()
 	t.Chdir(workspace)
@@ -66,7 +66,8 @@ func TestRunDefaultsToTimingSplitAndReportsWithKey(t *testing.T) {
 		"run",
 		"--candidate-type", "filename",
 		"--timings-type", "testname",
-		"--key", "unit",
+		"--split-key", "unit-history",
+		"--key", "unit-report",
 		"--index", "1",
 		"--total", "2",
 		"--command", "test-command",
@@ -94,14 +95,14 @@ func TestRunDefaultsToTimingSplitAndReportsWithKey(t *testing.T) {
 	if splitReq.GetTimingIdentity() != testresultsv1.TestTimingIdentity_TEST_TIMING_IDENTITY_TESTNAME {
 		t.Fatalf("expected testname timing identity, got %v", splitReq.GetTimingIdentity())
 	}
-	if splitReq.GetSplitKey() != "unit" {
-		t.Fatalf("expected split key unit, got %q", splitReq.GetSplitKey())
+	if splitReq.GetSplitKey() != "unit-history" {
+		t.Fatalf("expected split key unit-history, got %q", splitReq.GetSplitKey())
 	}
 	if !equalStrings(commandCandidates, []string{"b.test.ts"}) {
 		t.Fatalf("expected selected command candidate, got %v", commandCandidates)
 	}
-	if reportReq == nil || reportReq.GetInvocationId() != "unit" || len(reportReq.GetFiles()) != 1 {
-		t.Fatalf("expected report upload with unit key, got %#v", reportReq)
+	if reportReq == nil || reportReq.GetInvocationId() != "unit-report" || len(reportReq.GetFiles()) != 1 {
+		t.Fatalf("expected report upload with unit-report key, got %#v", reportReq)
 	}
 }
 
