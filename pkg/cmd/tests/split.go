@@ -110,6 +110,10 @@ func writeCandidates(w io.Writer, candidates []string) error {
 
 func writeSplitSummary(w io.Writer, mode splitMode, opts splitOptions, totalCandidates int, selected []string, resp *testresultsv1.SplitTestsResponse) {
 	if opts.total == 1 {
+		if totalCandidates == 0 {
+			fmt.Fprintln(w, "Depot is running against a single shard.")
+			return
+		}
 		fmt.Fprintf(w, "Depot selected all %d candidate(s) for a single shard.\n", len(selected))
 		return
 	}

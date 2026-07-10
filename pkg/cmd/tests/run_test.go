@@ -148,6 +148,81 @@ func TestRunWithoutShardFlagsRunsAllCandidatesWithoutSplitting(t *testing.T) {
 	}
 }
 
+func TestRunWithoutShardFlagsRunsWithoutCandidates(t *testing.T) {
+	resetTestHooks(t)
+	workspace := t.TempDir()
+	t.Chdir(workspace)
+	writeTempFileAt(t, workspace, "reports/junit.xml", "<testsuite/>")
+	splitTestsFunc = func(context.Context, string, *testresultsv1.SplitTestsRequest) (*testresultsv1.SplitTestsResponse, error) {
+		t.Fatal("SplitTests should not be called without shard flags")
+		return nil, nil
+	}
+
+	var commandCandidates []string
+	runShellCommandFunc = func(_ context.Context, _ string, candidates []string, _ io.Writer, _ io.Writer) (int, error) {
+		commandCandidates = append([]string(nil), candidates...)
+		writeRunReport(t, workspace)
+		return 0, nil
+	}
+	var reported bool
+	reportTestResultsFunc = func(context.Context, string, *testresultsv1.ReportTestResultsRequest) (*testresultsv1.ReportTestResultsResponse, error) {
+		reported = true
+		return &testresultsv1.ReportTestResultsResponse{FilesProcessed: 1}, nil
+	}
+
+	_, stderr, err := executeCommandOutput(
+		"run",
+		"--command", "test-command",
+		"--report-path", "reports/junit.xml",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if commandCandidates != nil {
+		t.Fatalf("expected no command candidates, got %v", commandCandidates)
+	}
+	if !reported {
+		t.Fatal("expected report upload after command")
+	}
+	if !strings.Contains(stderr, "Depot is running against a single shard.") {
+		t.Fatalf("expected no-candidate summary, got %q", stderr)
+	}
+}
+
+func TestRunWithoutShardFlagsRunsWithEmptyPipedCandidates(t *testing.T) {
+	resetTestHooks(t)
+	workspace := t.TempDir()
+	t.Chdir(workspace)
+	writeTempFileAt(t, workspace, "reports/junit.xml", "<testsuite/>")
+	splitTestsFunc = func(context.Context, string, *testresultsv1.SplitTestsRequest) (*testresultsv1.SplitTestsResponse, error) {
+		t.Fatal("SplitTests should not be called without shard flags")
+		return nil, nil
+	}
+
+	var commandCandidates []string
+	runShellCommandFunc = func(_ context.Context, _ string, candidates []string, _ io.Writer, _ io.Writer) (int, error) {
+		commandCandidates = append([]string(nil), candidates...)
+		writeRunReport(t, workspace)
+		return 0, nil
+	}
+	reportTestResultsFunc = func(context.Context, string, *testresultsv1.ReportTestResultsRequest) (*testresultsv1.ReportTestResultsResponse, error) {
+		return &testresultsv1.ReportTestResultsResponse{FilesProcessed: 1}, nil
+	}
+
+	_, _, err := executeCommandWithInputOutput(
+		"",
+		"run",
+		"--command", "test-command",
+		"--report-path", "reports/junit.xml",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if commandCandidates != nil {
+		t.Fatalf("expected no command candidates, got %v", commandCandidates)
+	}
+}
+
 func TestRunPreservesRealCommandStdout(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("uses POSIX shell syntax")
@@ -276,6 +351,10 @@ func TestRunReadsCandidatesFile(t *testing.T) {
 	t.Chdir(workspace)
 	candidatesPath := writeTempFileAt(t, workspace, "candidates.txt", "a.test.ts\nb.test.ts\n")
 	writeTempFileAt(t, workspace, "reports/junit.xml", "<testsuite/>")
+	splitTestsFunc = func(context.Context, string, *testresultsv1.SplitTestsRequest) (*testresultsv1.SplitTestsResponse, error) {
+		t.Fatal("SplitTests should not be called without shard flags")
+		return nil, nil
+	}
 
 	var commandCandidates []string
 	runShellCommandFunc = func(_ context.Context, _ string, candidates []string, _ io.Writer, _ io.Writer) (int, error) {
@@ -288,8 +367,6 @@ func TestRunReadsCandidatesFile(t *testing.T) {
 		"ignored.test.ts\n",
 		"run",
 		"--candidates-file", candidatesPath,
-		"--index", "0",
-		"--total", "1",
 		"--command", "test-command",
 		"--report-path", "reports/junit.xml",
 	)
