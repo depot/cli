@@ -57,15 +57,23 @@ func selectTestCandidates(cmd *cobra.Command, opts splitOptions) (splitMode, []s
 }
 
 func loadRequiredCandidates(cmd *cobra.Command, candidatesFile string) ([]string, error) {
-	if stdin, ok := cmd.InOrStdin().(*os.File); candidatesFile == "" && ok && stdin == os.Stdin && isStdinTerminalFunc() {
+	candidates, err := loadOptionalCandidates(cmd, candidatesFile)
+	if err != nil {
+		return nil, err
+	}
+	if len(candidates) == 0 {
 		return nil, fmt.Errorf("no candidates provided; pipe newline-delimited candidates to stdin or pass --candidates-file")
+	}
+	return candidates, nil
+}
+
+func loadOptionalCandidates(cmd *cobra.Command, candidatesFile string) ([]string, error) {
+	if stdin, ok := cmd.InOrStdin().(*os.File); candidatesFile == "" && ok && stdin == os.Stdin && isStdinTerminalFunc() {
+		return nil, nil
 	}
 	candidates, err := loadCandidates(cmd.InOrStdin(), candidatesFile)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load candidates: %w", err)
-	}
-	if len(candidates) == 0 {
-		return nil, fmt.Errorf("no candidates provided; pipe newline-delimited candidates to stdin or pass --candidates-file")
 	}
 	return candidates, nil
 }

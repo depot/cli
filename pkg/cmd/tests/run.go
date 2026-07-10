@@ -39,9 +39,10 @@ func newCmdTestsRun() *cobra.Command {
 		SilenceUsage: true,
 		Long: `Run a test command against the candidates assigned to this shard and upload JUnit XML reports.
 
-Candidates are newline-delimited runnable units read from stdin or --candidates-file. Pass --index and --total to split
-candidates across shards. Depot uses historical test timings to select a balanced shard. If no timings are available for
-filename candidates, Depot falls back to file-size splitting.`,
+Candidates are optional when not splitting. When provided, they are newline-delimited runnable units read from stdin or
+--candidates-file. Pass --index and --total to split candidates across shards; candidates are required when splitting.
+Depot uses historical test timings to select a balanced shard. If no timings are available for filename candidates, Depot
+falls back to file-size splitting.`,
 		Example: `  # Run a timing-balanced shard from stdin candidates
   go list ./... | depot tests run --index 0 --total 4 --command "xargs go test -json | go-junit-report -out reports/junit.xml" --report-path reports/junit.xml
 
@@ -103,7 +104,7 @@ func runTestsRun(cmd *cobra.Command, opts runOptions) error {
 		summaryOpts.total = 1
 	}
 	writeSplitSummary(cmd.ErrOrStderr(), mode, summaryOpts, len(candidates), selectedCandidates, splitResponse)
-	if len(selectedCandidates) == 0 {
+	if splitRequested && len(selectedCandidates) == 0 {
 		fmt.Fprintln(cmd.ErrOrStderr(), "Depot skipped test command because this shard has no candidates.")
 		return nil
 	}
@@ -170,7 +171,7 @@ func selectRunCandidates(cmd *cobra.Command, opts splitOptions) (splitMode, []st
 		if err := validateExplicitSplitIdentityFlags(opts); err != nil {
 			return "", nil, nil, nil, err
 		}
-		candidates, err := loadRequiredCandidates(cmd, opts.candidatesFile)
+		candidates, err := loadOptionalCandidates(cmd, opts.candidatesFile)
 		if err != nil {
 			return "", nil, nil, nil, err
 		}
