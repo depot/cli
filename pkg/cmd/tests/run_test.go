@@ -19,7 +19,7 @@ import (
 	testresultsv1 "github.com/depot/cli/pkg/proto/depot/testresults/v1"
 )
 
-func TestRunDefaultsToTimingSplitAndReportsWithKey(t *testing.T) {
+func TestRunUsesIndependentSplitAndReportKeys(t *testing.T) {
 	resetTestHooks(t)
 	workspace := t.TempDir()
 	t.Chdir(workspace)
@@ -66,7 +66,8 @@ func TestRunDefaultsToTimingSplitAndReportsWithKey(t *testing.T) {
 		"run",
 		"--candidate-type", "filename",
 		"--timings-type", "testname",
-		"--key", "unit",
+		"--split-key", "unit-history",
+		"--key", "unit-report",
 		"--index", "1",
 		"--total", "2",
 		"--command", "test-command",
@@ -94,14 +95,85 @@ func TestRunDefaultsToTimingSplitAndReportsWithKey(t *testing.T) {
 	if splitReq.GetTimingIdentity() != testresultsv1.TestTimingIdentity_TEST_TIMING_IDENTITY_TESTNAME {
 		t.Fatalf("expected testname timing identity, got %v", splitReq.GetTimingIdentity())
 	}
-	if splitReq.GetSplitKey() != "unit" {
-		t.Fatalf("expected split key unit, got %q", splitReq.GetSplitKey())
+	if splitReq.GetSplitKey() != "unit-history" {
+		t.Fatalf("expected split key unit-history, got %q", splitReq.GetSplitKey())
 	}
 	if !equalStrings(commandCandidates, []string{"b.test.ts"}) {
 		t.Fatalf("expected selected command candidate, got %v", commandCandidates)
 	}
-	if reportReq == nil || reportReq.GetInvocationId() != "unit" || len(reportReq.GetFiles()) != 1 {
-		t.Fatalf("expected report upload with unit key, got %#v", reportReq)
+	if reportReq == nil || reportReq.GetInvocationId() != "unit-report" || len(reportReq.GetFiles()) != 1 {
+		t.Fatalf("expected report upload with unit-report key, got %#v", reportReq)
+	}
+}
+
+func TestRunUsesDefaultsForOmittedKeys(t *testing.T) {
+	for _, tt := range []struct {
+		name       string
+		keyArgs    []string
+		wantSplit  string
+		wantReport string
+	}{
+		{
+			name:       "split key only",
+			keyArgs:    []string{"--split-key", "unit-history"},
+			wantSplit:  "unit-history",
+			wantReport: "test-action",
+		},
+		{
+			name:       "report key only",
+			keyArgs:    []string{"--key", "unit-report"},
+			wantSplit:  "test-action",
+			wantReport: "unit-report",
+		},
+		{
+			name:       "no keys",
+			wantSplit:  "test-action",
+			wantReport: "test-action",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			resetTestHooks(t)
+			t.Setenv("GITHUB_ACTION", "test-action")
+			workspace := t.TempDir()
+			t.Chdir(workspace)
+			writeTempFileAt(t, workspace, "reports/junit.xml", "<testsuite/>")
+			resolveOIDCCredentialFunc = func(context.Context) (string, error) { return "oidc-token", nil }
+
+			var splitReq *testresultsv1.SplitTestsRequest
+			splitTestsFunc = func(_ context.Context, _ string, req *testresultsv1.SplitTestsRequest) (*testresultsv1.SplitTestsResponse, error) {
+				splitReq = req
+				return &testresultsv1.SplitTestsResponse{Candidates: []string{"a.test.ts"}, CandidatesWithTimings: 1}, nil
+			}
+			runShellCommandFunc = func(_ context.Context, _ string, _ []string, _ io.Writer, _ io.Writer) (int, error) {
+				writeRunReport(t, workspace)
+				return 0, nil
+			}
+
+			var reportReq *testresultsv1.ReportTestResultsRequest
+			reportTestResultsFunc = func(_ context.Context, _ string, req *testresultsv1.ReportTestResultsRequest) (*testresultsv1.ReportTestResultsResponse, error) {
+				reportReq = req
+				return &testresultsv1.ReportTestResultsResponse{FilesProcessed: 1}, nil
+			}
+
+			args := []string{
+				"run",
+				"--index", "0",
+				"--total", "2",
+				"--command", "test-command",
+				"--report-path", "reports/junit.xml",
+			}
+			args = append(args, tt.keyArgs...)
+			_, _, err := executeCommandWithInputOutput("a.test.ts\n", args...)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if splitReq == nil || splitReq.GetSplitKey() != tt.wantSplit {
+				t.Fatalf("expected split key %q, got %#v", tt.wantSplit, splitReq)
+			}
+			if reportReq == nil || reportReq.GetInvocationId() != tt.wantReport {
+				t.Fatalf("expected report key %q, got %#v", tt.wantReport, reportReq)
+			}
+		})
 	}
 }
 
