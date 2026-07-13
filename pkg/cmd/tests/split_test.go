@@ -70,6 +70,101 @@ func TestSplitDefaultsToTimingSplit(t *testing.T) {
 	}
 }
 
+func TestSplitUsesMatrixEnvironmentDefaults(t *testing.T) {
+	resetTestHooks(t)
+	t.Setenv("DEPOT_MATRIX_JOB_INDEX", "1")
+	t.Setenv("DEPOT_MATRIX_JOB_TOTAL", "2")
+	resolveOIDCCredentialFunc = func(context.Context) (string, error) { return "oidc-token", nil }
+
+	var splitReq *testresultsv1.SplitTestsRequest
+	splitTestsFunc = func(_ context.Context, _ string, req *testresultsv1.SplitTestsRequest) (*testresultsv1.SplitTestsResponse, error) {
+		splitReq = req
+		return &testresultsv1.SplitTestsResponse{
+			Candidates:            []string{"b.test.ts"},
+			CandidatesRequested:   2,
+			CandidatesSelected:    1,
+			CandidatesWithTimings: 1,
+		}, nil
+	}
+
+	stdout, stderr, err := executeCommandWithInputOutput(
+		"a.test.ts\nb.test.ts\n",
+		"split",
+		"--output", "json",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stderr != "" {
+		t.Fatalf("expected no text summary for json output, got %q", stderr)
+	}
+	if splitReq == nil || splitReq.GetShardIndex() != 1 || splitReq.GetShardTotal() != 2 {
+		t.Fatalf("expected matrix shard 1/2, got %#v", splitReq)
+	}
+
+	var out splitOutput
+	if err := json.Unmarshal([]byte(stdout), &out); err != nil {
+		t.Fatalf("expected valid json, got %q: %v", stdout, err)
+	}
+	if out.ShardIndex != 1 || out.ShardTotal != 2 {
+		t.Fatalf("expected matrix shard metadata 1/2, got %#v", out)
+	}
+}
+
+func TestSplitExplicitFlagsOverrideMatrixEnvironment(t *testing.T) {
+	resetTestHooks(t)
+	t.Setenv("DEPOT_MATRIX_JOB_INDEX", "1")
+	t.Setenv("DEPOT_MATRIX_JOB_TOTAL", "4")
+	resolveOIDCCredentialFunc = func(context.Context) (string, error) { return "oidc-token", nil }
+
+	var splitReq *testresultsv1.SplitTestsRequest
+	splitTestsFunc = func(_ context.Context, _ string, req *testresultsv1.SplitTestsRequest) (*testresultsv1.SplitTestsResponse, error) {
+		splitReq = req
+		return &testresultsv1.SplitTestsResponse{Candidates: []string{"a.test.ts"}, CandidatesWithTimings: 1}, nil
+	}
+
+	_, _, err := executeCommandWithInputOutput(
+		"a.test.ts\n",
+		"split",
+		"--index", "0",
+		"--total", "2",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if splitReq == nil || splitReq.GetShardIndex() != 0 || splitReq.GetShardTotal() != 2 {
+		t.Fatalf("expected explicit shard 0/2, got %#v", splitReq)
+	}
+}
+
+func TestSplitMatrixSingleShardPrintsAllCandidatesWithoutSplitting(t *testing.T) {
+	resetTestHooks(t)
+	t.Setenv("DEPOT_MATRIX_JOB_INDEX", "0")
+	t.Setenv("DEPOT_MATRIX_JOB_TOTAL", "1")
+	resolveOIDCCredentialFunc = func(context.Context) (string, error) {
+		t.Fatal("single-shard split should not need OIDC")
+		return "", nil
+	}
+	splitTestsFunc = func(context.Context, string, *testresultsv1.SplitTestsRequest) (*testresultsv1.SplitTestsResponse, error) {
+		t.Fatal("single-shard split should not call SplitTests")
+		return nil, nil
+	}
+
+	stdout, stderr, err := executeCommandWithInputOutput(
+		"a.test.ts\nb.test.ts\n",
+		"split",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stdout != "a.test.ts\nb.test.ts\n" {
+		t.Fatalf("expected all candidates on stdout, got %q", stdout)
+	}
+	if !strings.Contains(stderr, "selected all 2 candidate") {
+		t.Fatalf("expected single-shard summary, got %q", stderr)
+	}
+}
+
 func TestSplitSupportsJSONOutput(t *testing.T) {
 	resetTestHooks(t)
 	resolveOIDCCredentialFunc = func(context.Context) (string, error) { return "oidc-token", nil }

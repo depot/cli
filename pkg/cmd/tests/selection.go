@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -20,6 +21,77 @@ var (
 )
 
 const splitTestsRequestTimeout = 2 * time.Minute
+
+const (
+	matrixJobIndexEnv = "DEPOT_MATRIX_JOB_INDEX"
+	matrixJobTotalEnv = "DEPOT_MATRIX_JOB_TOTAL"
+)
+
+func resolveSplitOptions(cmd *cobra.Command, opts splitOptions) (splitOptions, error) {
+	flags := cmd.Flags()
+	indexExplicit := flags.Changed("index")
+	totalExplicit := flags.Changed("total")
+	explicitTotalOne := totalExplicit && opts.total == 1 && !indexExplicit
+	shardConfigured := indexExplicit || totalExplicit
+
+	indexFromEnv := false
+	if !indexExplicit && !explicitTotalOne {
+		index, set, err := matrixShardOption(matrixJobIndexEnv)
+		if err != nil {
+			return opts, err
+		}
+		if set {
+			opts.index = index
+			indexFromEnv = true
+			shardConfigured = true
+		}
+	}
+
+	totalFromEnv := false
+	if !totalExplicit {
+		total, set, err := matrixShardOption(matrixJobTotalEnv)
+		if err != nil {
+			return opts, err
+		}
+		if set {
+			opts.total = total
+			totalFromEnv = true
+			shardConfigured = true
+		}
+	}
+
+	if indexFromEnv && !totalExplicit && !totalFromEnv {
+		return opts, fmt.Errorf("%s must be set when %s is set", matrixJobTotalEnv, matrixJobIndexEnv)
+	}
+	if totalFromEnv && !indexExplicit && !indexFromEnv {
+		return opts, fmt.Errorf("%s must be set when %s is set", matrixJobIndexEnv, matrixJobTotalEnv)
+	}
+
+	if explicitTotalOne {
+		opts.index = 0
+	}
+	if !shardConfigured {
+		return opts, nil
+	}
+	if err := validateShard(opts.index, opts.total); err != nil {
+		return opts, err
+	}
+
+	return opts, nil
+}
+
+func matrixShardOption(name string) (int, bool, error) {
+	value, set := os.LookupEnv(name)
+	if !set {
+		return 0, false, nil
+	}
+
+	parsed, err := strconv.Atoi(strings.TrimSpace(value))
+	if err != nil {
+		return 0, true, fmt.Errorf("invalid %s value %q: must be an integer", name, value)
+	}
+	return parsed, true, nil
+}
 
 func selectTestCandidates(cmd *cobra.Command, opts splitOptions) (splitMode, []string, []string, *testresultsv1.SplitTestsResponse, error) {
 	if err := validateShard(opts.index, opts.total); err != nil {

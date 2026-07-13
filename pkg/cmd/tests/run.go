@@ -101,6 +101,10 @@ func runTestsRun(cmd *cobra.Command, opts runOptions) error {
 		key:               opts.splitKey,
 		output:            splitOutputText,
 	}
+	splitOpts, err := resolveSplitOptions(cmd, splitOpts)
+	if err != nil {
+		return cancellationErrorOr(err)
+	}
 	splitRequested := runSplitRequested(splitOpts)
 	mode, candidates, selectedCandidates, splitResponse, err := selectRunCandidates(cmd, splitOpts)
 	if err != nil {
@@ -193,7 +197,7 @@ func selectRunCandidates(cmd *cobra.Command, opts splitOptions) (splitMode, []st
 }
 
 func runSplitRequested(opts splitOptions) bool {
-	return opts.index >= 0 || opts.total != 0
+	return opts.total > 1
 }
 
 func uploadAndSummarizeTestReports(cmd *cobra.Command, reportPaths []string, key string, baseline reportFileBaseline) error {

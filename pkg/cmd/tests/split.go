@@ -79,6 +79,10 @@ func runTestsSplit(cmd *cobra.Command, opts splitOptions) error {
 	if err != nil {
 		return err
 	}
+	opts, err = resolveSplitOptions(cmd, opts)
+	if err != nil {
+		return err
+	}
 
 	mode, candidates, selectedCandidates, splitResponse, err := selectTestCandidates(cmd, opts)
 	if err != nil {
