@@ -760,11 +760,15 @@ func TestSplitUsesDefaultKey(t *testing.T) {
 		{
 			name:      "action without job",
 			action:    "go-test",
-			wantSplit: "default",
+			wantSplit: "go-test",
 		},
 		{
 			name:      "job without action",
 			job:       "unit",
+			wantSplit: "unit",
+		},
+		{
+			name:      "no GitHub identity",
 			wantSplit: "default",
 		},
 		{

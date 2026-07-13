@@ -183,6 +183,12 @@ func splitKey(key string) string {
 	if job != "" && action != "" {
 		return job + ":" + action
 	}
+	if job != "" {
+		return job
+	}
+	if action != "" {
+		return action
+	}
 	return "default"
 }
 
