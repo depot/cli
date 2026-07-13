@@ -156,7 +156,7 @@ func splitCandidatesByTimings(ctx context.Context, candidates []string, opts spl
 		TimingIdentity:    timingIdentity,
 		ShardIndex:        uint32(opts.index),
 		ShardTotal:        uint32(opts.total),
-		SplitKey:          testKey(opts.key),
+		SplitKey:          splitKey(opts.key),
 	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to split tests by timings: %w", err)
@@ -170,6 +170,18 @@ func testKey(key string) string {
 	}
 	if action := strings.TrimSpace(os.Getenv("GITHUB_ACTION")); action != "" {
 		return action
+	}
+	return "default"
+}
+
+func splitKey(key string) string {
+	if strings.TrimSpace(key) != "" {
+		return strings.TrimSpace(key)
+	}
+	job := strings.TrimSpace(os.Getenv("GITHUB_JOB"))
+	action := strings.TrimSpace(os.Getenv("GITHUB_ACTION"))
+	if job != "" && action != "" {
+		return job + ":" + action
 	}
 	return "default"
 }
