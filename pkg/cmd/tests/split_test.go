@@ -743,34 +743,76 @@ func TestSplitReportsOIDCAndAPIErrors(t *testing.T) {
 	}
 }
 
-func TestSplitUsesGitHubActionAsDefaultKey(t *testing.T) {
-	resetTestHooks(t)
-	t.Setenv("GITHUB_ACTION", " go-test ")
-	resolveOIDCCredentialFunc = func(context.Context) (string, error) { return "oidc-token", nil }
-
-	var splitReq *testresultsv1.SplitTestsRequest
-	splitTestsFunc = func(_ context.Context, _ string, req *testresultsv1.SplitTestsRequest) (*testresultsv1.SplitTestsResponse, error) {
-		splitReq = req
-		return &testresultsv1.SplitTestsResponse{
-			Candidates:            []string{"a.test.ts"},
-			CandidatesRequested:   1,
-			CandidatesSelected:    1,
-			CandidatesWithTimings: 1,
-		}, nil
+func TestSplitUsesDefaultKey(t *testing.T) {
+	tests := []struct {
+		name      string
+		job       string
+		action    string
+		keyArgs   []string
+		wantSplit string
+	}{
+		{
+			name:      "GitHub job and action",
+			job:       " unit ",
+			action:    " go-test ",
+			wantSplit: "unit:go-test",
+		},
+		{
+			name:      "action without job",
+			action:    "go-test",
+			wantSplit: "go-test",
+		},
+		{
+			name:      "job without action",
+			job:       "unit",
+			wantSplit: "unit",
+		},
+		{
+			name:      "no GitHub identity",
+			wantSplit: "default",
+		},
+		{
+			name:      "explicit key",
+			job:       "unit",
+			action:    "go-test",
+			keyArgs:   []string{"--key", " unit-history "},
+			wantSplit: "unit-history",
+		},
 	}
 
-	_, _, err := executeCommandWithInputOutput(
-		"a.test.ts\n",
-		"split",
-		"--candidate-type", "filename",
-		"--index", "0",
-		"--total", "2",
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if splitReq.GetSplitKey() != "go-test" {
-		t.Fatalf("expected GITHUB_ACTION split key, got %q", splitReq.GetSplitKey())
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resetTestHooks(t)
+			t.Setenv("GITHUB_JOB", tt.job)
+			t.Setenv("GITHUB_ACTION", tt.action)
+			resolveOIDCCredentialFunc = func(context.Context) (string, error) { return "oidc-token", nil }
+
+			var splitReq *testresultsv1.SplitTestsRequest
+			splitTestsFunc = func(_ context.Context, _ string, req *testresultsv1.SplitTestsRequest) (*testresultsv1.SplitTestsResponse, error) {
+				splitReq = req
+				return &testresultsv1.SplitTestsResponse{
+					Candidates:            []string{"a.test.ts"},
+					CandidatesRequested:   1,
+					CandidatesSelected:    1,
+					CandidatesWithTimings: 1,
+				}, nil
+			}
+
+			args := []string{
+				"split",
+				"--candidate-type", "filename",
+				"--index", "0",
+				"--total", "2",
+			}
+			args = append(args, tt.keyArgs...)
+			_, _, err := executeCommandWithInputOutput("a.test.ts\n", args...)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if splitReq.GetSplitKey() != tt.wantSplit {
+				t.Fatalf("expected split key %q, got %q", tt.wantSplit, splitReq.GetSplitKey())
+			}
+		})
 	}
 }
 

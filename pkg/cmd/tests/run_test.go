@@ -122,17 +122,18 @@ func TestRunUsesDefaultsForOmittedKeys(t *testing.T) {
 		{
 			name:       "report key only",
 			keyArgs:    []string{"--key", "unit-report"},
-			wantSplit:  "test-action",
+			wantSplit:  "test-job:test-action",
 			wantReport: "unit-report",
 		},
 		{
 			name:       "no keys",
-			wantSplit:  "test-action",
+			wantSplit:  "test-job:test-action",
 			wantReport: "test-action",
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			resetTestHooks(t)
+			t.Setenv("GITHUB_JOB", "test-job")
 			t.Setenv("GITHUB_ACTION", "test-action")
 			workspace := t.TempDir()
 			t.Chdir(workspace)

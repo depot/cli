@@ -65,7 +65,7 @@ falls back to file-size splitting.`,
 	flags.StringVar(&opts.timingsType, "timings-type", "", "JUnit timing identity (filename, classname, testname)")
 	flags.IntVar(&opts.index, "index", -1, "Zero-based shard index; pass with --total to split")
 	flags.IntVar(&opts.total, "total", 0, "Total number of shards; pass with --index to split")
-	flags.StringVar(&opts.splitKey, "split-key", "", "Stable test suite key for split timings (defaults to GITHUB_ACTION or default; set when running multiple suites)")
+	flags.StringVar(&opts.splitKey, "split-key", "", "Stable test suite key for split timings (defaults to the GitHub job/action identity or default; set when running multiple suites)")
 	flags.StringVar(&opts.command, "command", "", "Shell command that receives selected candidates on stdin (required)")
 	flags.StringArrayVar(&opts.reportPaths, "report-path", nil, "JUnit XML report path, directory, or glob (required, repeatable)")
 	flags.StringVar(&opts.candidatesFile, "candidates-file", "", "Path to newline-delimited runnable test candidates instead of stdin")
