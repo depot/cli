@@ -70,7 +70,7 @@ falls back to file-size splitting.`,
 	flags.StringArrayVar(&opts.reportPaths, "report-path", nil, "JUnit XML report path, directory, or glob (required, repeatable)")
 	flags.StringVar(&opts.candidatesFile, "candidates-file", "", "Path to newline-delimited runnable test candidates instead of stdin")
 	flags.StringVar(&opts.candidatesCommand, "candidates-command", "", "Shell command that prints newline-delimited runnable test candidates")
-	flags.StringVar(&opts.key, "key", "", "Report invocation key for idempotent uploads (defaults to GITHUB_ACTION or default)")
+	flags.StringVar(&opts.key, "key", "", "Report invocation key (defaults to GITHUB_ACTION or default; set a distinct value when the same job reports more than once; does not affect split timings)")
 
 	return cmd
 }
