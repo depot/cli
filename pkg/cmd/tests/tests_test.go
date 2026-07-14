@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"os"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -493,6 +494,8 @@ func requireContextDeadline(t *testing.T, ctx context.Context, name string) {
 func resetTestHooks(t *testing.T) {
 	t.Helper()
 	t.Setenv("GITHUB_WORKSPACE", "")
+	unsetEnv(t, matrixJobIndexEnv)
+	unsetEnv(t, matrixJobTotalEnv)
 
 	resolveOrgAuthFunc = func(context.Context, string) (string, error) {
 		return "token-1", nil
@@ -548,6 +551,21 @@ func resetTestHooks(t *testing.T) {
 		isTerminalFunc = helpersIsTerminal
 		isStdinTerminalFunc = helpersIsStdinTerminal
 		oidcDebugWriter = defaultOIDCDebugWriter
+	})
+}
+
+func unsetEnv(t *testing.T, key string) {
+	t.Helper()
+	value, set := os.LookupEnv(key)
+	if err := os.Unsetenv(key); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if set {
+			_ = os.Setenv(key, value)
+			return
+		}
+		_ = os.Unsetenv(key)
 	})
 }
 

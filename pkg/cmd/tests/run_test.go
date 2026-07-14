@@ -178,6 +178,92 @@ func TestRunUsesDefaultsForOmittedKeys(t *testing.T) {
 	}
 }
 
+func TestRunUsesMatrixEnvironmentDefaults(t *testing.T) {
+	resetTestHooks(t)
+	t.Setenv("DEPOT_MATRIX_JOB_INDEX", "1")
+	t.Setenv("DEPOT_MATRIX_JOB_TOTAL", "2")
+	workspace := t.TempDir()
+	t.Chdir(workspace)
+	writeTempFileAt(t, workspace, "reports/junit.xml", "<testsuite/>")
+
+	var splitReq *testresultsv1.SplitTestsRequest
+	resolveOIDCCredentialFunc = func(context.Context) (string, error) { return "oidc-token", nil }
+	splitTestsFunc = func(_ context.Context, _ string, req *testresultsv1.SplitTestsRequest) (*testresultsv1.SplitTestsResponse, error) {
+		splitReq = req
+		return &testresultsv1.SplitTestsResponse{
+			Candidates:            []string{"b.test.ts"},
+			CandidatesWithTimings: 1,
+		}, nil
+	}
+	var commandCandidates []string
+	runShellCommandFunc = func(_ context.Context, _ string, candidates []string, _ io.Writer, _ io.Writer) (int, error) {
+		commandCandidates = append([]string(nil), candidates...)
+		writeRunReport(t, workspace)
+		return 0, nil
+	}
+	reportTestResultsFunc = func(context.Context, string, *testresultsv1.ReportTestResultsRequest) (*testresultsv1.ReportTestResultsResponse, error) {
+		return &testresultsv1.ReportTestResultsResponse{FilesProcessed: 1}, nil
+	}
+
+	_, _, err := executeCommandWithInputOutput(
+		"a.test.ts\nb.test.ts\n",
+		"run",
+		"--command", "test-command",
+		"--report-path", "reports/junit.xml",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if splitReq == nil || splitReq.GetShardIndex() != 1 || splitReq.GetShardTotal() != 2 {
+		t.Fatalf("expected matrix shard 1/2, got %#v", splitReq)
+	}
+	if !equalStrings(commandCandidates, []string{"b.test.ts"}) {
+		t.Fatalf("expected selected candidates on command stdin, got %v", commandCandidates)
+	}
+}
+
+func TestRunMatrixSingleShardPreservesUnsplitBehavior(t *testing.T) {
+	resetTestHooks(t)
+	t.Setenv("DEPOT_MATRIX_JOB_INDEX", "0")
+	t.Setenv("DEPOT_MATRIX_JOB_TOTAL", "1")
+	workspace := t.TempDir()
+	t.Chdir(workspace)
+	writeTempFileAt(t, workspace, "reports/junit.xml", "<testsuite/>")
+	resolveOIDCCredentialFunc = func(context.Context) (string, error) { return "oidc-token", nil }
+	splitTestsFunc = func(context.Context, string, *testresultsv1.SplitTestsRequest) (*testresultsv1.SplitTestsResponse, error) {
+		t.Fatal("single-shard run should not call SplitTests")
+		return nil, nil
+	}
+
+	var commandRan bool
+	runShellCommandFunc = func(_ context.Context, _ string, candidates []string, _ io.Writer, _ io.Writer) (int, error) {
+		if candidates != nil {
+			t.Fatalf("expected no command candidates, got %v", candidates)
+		}
+		commandRan = true
+		writeRunReport(t, workspace)
+		return 0, nil
+	}
+	reportTestResultsFunc = func(context.Context, string, *testresultsv1.ReportTestResultsRequest) (*testresultsv1.ReportTestResultsResponse, error) {
+		return &testresultsv1.ReportTestResultsResponse{FilesProcessed: 1}, nil
+	}
+
+	_, stderr, err := executeCommandOutput(
+		"run",
+		"--command", "test-command",
+		"--report-path", "reports/junit.xml",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !commandRan {
+		t.Fatal("expected test command to run")
+	}
+	if !strings.Contains(stderr, "Depot is running against a single shard.") {
+		t.Fatalf("expected single-shard summary, got %q", stderr)
+	}
+}
+
 func TestRunWithoutShardFlagsRunsAllCandidatesWithoutSplitting(t *testing.T) {
 	resetTestHooks(t)
 	workspace := t.TempDir()
@@ -1034,11 +1120,28 @@ func TestRunRejectsUnsupportedTimingIdentityPair(t *testing.T) {
 	}
 }
 
-func TestRunRequiresCandidatesWhenStdinIsTerminal(t *testing.T) {
+func TestRunTotalOneDoesNotRequireCandidatesWhenStdinIsTerminal(t *testing.T) {
 	resetTestHooks(t)
-	runShellCommandFunc = func(context.Context, string, []string, io.Writer, io.Writer) (int, error) {
-		t.Fatal("command should not run")
+	workspace := t.TempDir()
+	t.Chdir(workspace)
+	writeTempFileAt(t, workspace, "reports/junit.xml", "<testsuite/>")
+	splitTestsFunc = func(context.Context, string, *testresultsv1.SplitTestsRequest) (*testresultsv1.SplitTestsResponse, error) {
+		t.Fatal("single-shard run should not call SplitTests")
+		return nil, nil
+	}
+	resolveOIDCCredentialFunc = func(context.Context) (string, error) { return "oidc-token", nil }
+
+	var commandRan bool
+	runShellCommandFunc = func(_ context.Context, _ string, candidates []string, _ io.Writer, _ io.Writer) (int, error) {
+		if candidates != nil {
+			t.Fatalf("expected no command candidates, got %v", candidates)
+		}
+		commandRan = true
+		writeRunReport(t, workspace)
 		return 0, nil
+	}
+	reportTestResultsFunc = func(context.Context, string, *testresultsv1.ReportTestResultsRequest) (*testresultsv1.ReportTestResultsResponse, error) {
+		return &testresultsv1.ReportTestResultsResponse{FilesProcessed: 1}, nil
 	}
 
 	_, _, err := executeCommandOutput(
@@ -1046,10 +1149,31 @@ func TestRunRequiresCandidatesWhenStdinIsTerminal(t *testing.T) {
 		"--index", "0",
 		"--total", "1",
 		"--command", "test-command",
-		"--report-path", "junit.xml",
+		"--report-path", "reports/junit.xml",
 	)
-	if err == nil || !strings.Contains(err.Error(), "pipe newline-delimited candidates") || !strings.Contains(err.Error(), "--candidates-file") {
-		t.Fatalf("expected missing candidates error, got %v", err)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !commandRan {
+		t.Fatal("expected test command to run")
+	}
+}
+
+func TestRunSplitRequested(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		opts splitOptions
+		want bool
+	}{
+		{name: "no shard configuration", opts: splitOptions{index: -1}, want: false},
+		{name: "single shard", opts: splitOptions{index: 0, total: 1}, want: false},
+		{name: "multiple shards", opts: splitOptions{index: 0, total: 2}, want: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := runSplitRequested(tt.opts); got != tt.want {
+				t.Fatalf("runSplitRequested(%+v) = %t, want %t", tt.opts, got, tt.want)
+			}
+		})
 	}
 }
 
