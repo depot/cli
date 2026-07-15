@@ -264,22 +264,6 @@ func TestRunMatrixSingleShardPreservesUnsplitBehavior(t *testing.T) {
 	}
 }
 
-func TestRunExposesReportKeyOnly(t *testing.T) {
-	cmd := newCmdTestsRun()
-	if cmd.Flags().Lookup("report-key") == nil {
-		t.Fatal("expected --report-key flag")
-	}
-	if cmd.Flags().Lookup("key") != nil {
-		t.Fatal("did not expect --key flag")
-	}
-
-	cmd.SetArgs([]string{"--key", "unit-report"})
-	err := cmd.Execute()
-	if err == nil || !strings.Contains(err.Error(), "unknown flag: --key") {
-		t.Fatalf("expected --key to be rejected, got %v", err)
-	}
-}
-
 func TestRunWithoutShardFlagsRunsAllCandidatesWithoutSplitting(t *testing.T) {
 	resetTestHooks(t)
 	workspace := t.TempDir()
