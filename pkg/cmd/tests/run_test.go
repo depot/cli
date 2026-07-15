@@ -67,7 +67,7 @@ func TestRunUsesIndependentSplitAndReportKeys(t *testing.T) {
 		"--candidate-type", "filename",
 		"--timings-type", "testname",
 		"--split-key", "unit-history",
-		"--key", "unit-report",
+		"--report-key", "unit-report",
 		"--index", "1",
 		"--total", "2",
 		"--command", "test-command",
@@ -121,7 +121,7 @@ func TestRunUsesDefaultsForOmittedKeys(t *testing.T) {
 		},
 		{
 			name:       "report key only",
-			keyArgs:    []string{"--key", "unit-report"},
+			keyArgs:    []string{"--report-key", "unit-report"},
 			wantSplit:  "test-job:test-action",
 			wantReport: "unit-report",
 		},

@@ -29,7 +29,7 @@ type runOptions struct {
 	reportPaths       []string
 	candidatesFile    string
 	candidatesCommand string
-	key               string
+	reportKey         string
 }
 
 func newCmdTestsRun() *cobra.Command {
@@ -70,7 +70,7 @@ falls back to file-size splitting.`,
 	flags.StringArrayVar(&opts.reportPaths, "report-path", nil, "JUnit XML report path, directory, or glob (required, repeatable)")
 	flags.StringVar(&opts.candidatesFile, "candidates-file", "", "Path to newline-delimited runnable test candidates instead of stdin")
 	flags.StringVar(&opts.candidatesCommand, "candidates-command", "", "Shell command that prints newline-delimited runnable test candidates")
-	flags.StringVar(&opts.key, "key", "", "Report invocation key for idempotent uploads (defaults to GITHUB_ACTION or default)")
+	flags.StringVar(&opts.reportKey, "report-key", "", "Report invocation key for distinguishing between multiple reports uploads")
 
 	return cmd
 }
@@ -137,7 +137,7 @@ func runTestsRun(cmd *cobra.Command, opts runOptions) error {
 	if err := ctx.Err(); err != nil && exitCode == 0 {
 		return cancellationErrorOr(err)
 	}
-	reportErr := uploadAndSummarizeTestReports(cmd, reportPaths, opts.key, reportBaseline)
+	reportErr := uploadAndSummarizeTestReports(cmd, reportPaths, opts.reportKey, reportBaseline)
 	if reportErr != nil && errors.Is(reportErr, context.Canceled) && exitCode == 0 {
 		return cancellationErrorOr(reportErr)
 	}

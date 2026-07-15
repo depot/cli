@@ -49,7 +49,7 @@ func newCmdTestsReport() *cobra.Command {
 
 	flags := cmd.Flags()
 	flags.StringArrayVar(&opts.reportPaths, "report-path", nil, "JUnit XML report path, directory, or glob; repeatable")
-	flags.StringVar(&opts.key, "key", "", "Test key")
+	flags.StringVar(&opts.key, "key", "", "Report invocation key for distinguishing between multiple reports uploads")
 	flags.StringVar(&opts.output, "output", reportOutputText, "Output format (text, json)")
 
 	return cmd
