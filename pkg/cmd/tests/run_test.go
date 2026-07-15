@@ -67,7 +67,7 @@ func TestRunUsesIndependentSplitAndReportKeys(t *testing.T) {
 		"--candidate-type", "filename",
 		"--timings-type", "testname",
 		"--split-key", "unit-history",
-		"--key", "unit-report",
+		"--report-key", "unit-report",
 		"--index", "1",
 		"--total", "2",
 		"--command", "test-command",
@@ -121,7 +121,7 @@ func TestRunUsesDefaultsForOmittedKeys(t *testing.T) {
 		},
 		{
 			name:       "report key only",
-			keyArgs:    []string{"--key", "unit-report"},
+			keyArgs:    []string{"--report-key", "unit-report"},
 			wantSplit:  "test-job:test-action",
 			wantReport: "unit-report",
 		},
@@ -261,6 +261,22 @@ func TestRunMatrixSingleShardPreservesUnsplitBehavior(t *testing.T) {
 	}
 	if !strings.Contains(stderr, "Depot is running against a single shard.") {
 		t.Fatalf("expected single-shard summary, got %q", stderr)
+	}
+}
+
+func TestRunExposesReportKeyOnly(t *testing.T) {
+	cmd := newCmdTestsRun()
+	if cmd.Flags().Lookup("report-key") == nil {
+		t.Fatal("expected --report-key flag")
+	}
+	if cmd.Flags().Lookup("key") != nil {
+		t.Fatal("did not expect --key flag")
+	}
+
+	cmd.SetArgs([]string{"--key", "unit-report"})
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "unknown flag: --key") {
+		t.Fatalf("expected --key to be rejected, got %v", err)
 	}
 }
 
