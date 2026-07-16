@@ -846,10 +846,12 @@ message GetArtifactDownloadURLResponse {
 // GetJobAttemptLogs messages
 
 message GetJobAttemptLogsRequest {
-  // attempt_id identifies the job attempt whose logs to fetch
+  // attempt_id selects a concrete job attempt whose logs to fetch.
   string attempt_id = 1;
-  // The page token indicating which page of results to return.
+  // page_token resumes cursor pagination from a previous response.
   string page_token = 2;
+  // job_id selects the latest attempt for a CI job.
+  optional string job_id = 3;
 }
 
 message GetJobAttemptLogsResponse {
