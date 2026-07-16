@@ -1,0 +1,33 @@
+syntax = "proto3";
+
+package depot.sandbox.v1;
+
+// Selector messages shared across the depot.sandbox.v1 package. These Ref
+// types live in their own file so that other protos (such as sandbox and
+// command) can import them without creating an import cycle, and so any other
+// surface that needs to reference a sandbox, command execution, or snapshot
+// uses the same shapes instead of redefining them.
+//
+// Each Ref wraps its selector in a oneof. Today the only way to look something
+// up is by `id`, but the oneof leaves room to add alternate lookup forms (for
+// example an org-scoped name or an idempotency key) at higher field numbers
+// later without breaking the wire format. Those alternate forms are added only
+// when something actually needs them, not pre-declared here.
+
+message SandboxRef {
+  oneof selector {
+    string id = 1;
+  }
+}
+
+message SandboxCommandExecutionRef {
+  oneof selector {
+    string id = 1;
+  }
+}
+
+message SnapshotRef {
+  oneof selector {
+    string id = 1;
+  }
+}

@@ -1,0 +1,99 @@
+// Declarative spec messages for a sandbox.
+//
+// This file defines the message types that describe a sandbox spec: SandboxSpec
+// and its nested SSHSpec, ContainerSpec, BuildSpec, and Hooks. The HookSpec and
+// HookStage types live in hook.proto, and the CreateSandboxFromSpec RPC with its
+// request and event types lives in spec_rpc.proto. Splitting those out keeps
+// spec.proto free of an import cycle with sandbox.proto.
+//
+// SandboxSpec mirrors the YAML spec schema field for field, so the shapes used
+// in the CLI carry over directly and the SDK adapter handles any cosmetic
+// renaming on the way out.
+
+syntax = "proto3";
+
+package depot.sandbox.v1;
+
+import "depot/sandbox/v1/hook.proto";
+import "depot/sandbox/v1/runtime.proto";
+import "depot/sandbox/v1/source.proto";
+
+// A declarative description of a sandbox to create. SandboxSpec mirrors the YAML
+// spec schema field for field, so the shapes used in the CLI carry over directly
+// and the SDK adapter handles any cosmetic renaming on the way out.
+message SandboxSpec {
+  // Identity and lifecycle settings for the sandbox.
+  optional string name = 1;
+  optional string argv = 2;
+  optional string command = 3;
+  optional bool detach = 4;
+  optional string template = 5;
+
+  // Where the sandbox filesystem comes from. Either `source` or
+  // `container.build` may be set, but not both; the parser rejects specs that
+  // set both.
+  optional Source source = 6;
+  optional ContainerSpec container = 7;
+  // A pre-built image reference to use directly, bypassing `container.build`.
+  optional string image = 8;
+
+  // Resources and runtime configuration for the sandbox.
+  optional Resources resources = 9;
+  optional Runtime runtime = 10;
+  // Environment variables to set inside the sandbox.
+  map<string, string> env = 11;
+
+  // SSH configuration. Retained for parity with the CLI even though the SDK does
+  // not surface SSH details directly.
+  optional SSHSpec ssh = 12;
+
+  // Tag 13 is reserved so that an MCP field can be added later without wire-shape
+  // ambiguity.
+  reserved 13;
+  reserved "mcp";
+
+  // Commands to run at each sandbox lifecycle stage, such as on create or on
+  // start.
+  optional Hooks on = 14;
+}
+
+// SSH access configuration for a sandbox.
+message SSHSpec {
+  bool enabled = 1;
+  optional int32 timeout_minutes = 2;
+}
+
+// How to obtain the sandbox image when building from a container definition.
+message ContainerSpec {
+  optional BuildSpec build = 1;
+}
+
+// Instructions for building a container image for the sandbox.
+message BuildSpec {
+  // Path or URL to the build context.
+  optional string context = 1;
+  optional string dockerfile = 2;
+  optional string target = 3;
+  map<string, string> build_args = 4;
+  optional bool push = 5;
+  optional bool no_cache = 6;
+}
+
+// Hooks to run at each sandbox lifecycle stage. Each stage holds an ordered list
+// of HookSpec entries that run in sequence.
+message Hooks {
+  repeated HookSpec create = 1;
+  repeated HookSpec start = 2;
+  repeated HookSpec exec = 3;
+  repeated HookSpec shell = 4;
+  repeated HookSpec snapshot = 5;
+  repeated HookSpec down = 6;
+}
+
+// HookSpec and HookStage are defined in hook.proto, and spec.proto imports them
+// for the HookSpec lists in Hooks above. They live there, rather than here, to
+// avoid an import cycle between sandbox.proto, hook.proto, and spec.proto.
+//
+// The CreateSandboxFromSpec request and event types are defined in spec_rpc.proto
+// rather than here, since they reference both SandboxSpec and the Sandbox type
+// from sandbox.proto.
