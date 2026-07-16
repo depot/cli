@@ -23,6 +23,7 @@ Official CLI for [Depot](https://depot.dev) - you can use the CLI to build Docke
     - [`depot exec`](#depot-exec)
     - [`depot gocache`](#depot-gocache)
     - [`depot configure-docker`](#depot-configure-docker)
+    - [`depot login-docker`](#depot-login-docker)
     - [`depot list`](#depot-list)
       - [`depot list projects`](#depot-list-projects)
       - [`depot list builds`](#depot-list-builds)
@@ -360,6 +361,20 @@ If you want to uninstall the plugin, you can specify the `--uninstall` flag.
 depot configure-docker --uninstall
 ```
 
+### `depot login-docker`
+
+Configure Docker to download from the [Depot Registry](https://depot.dev/docs/registry/overview). This command stores your user API token as a Docker credential so you can `docker pull` images from your organization's registries.
+
+```shell
+depot login-docker
+```
+
+If you want to log out, use the Docker CLI.
+
+```shell
+docker logout {orgId}.registry.depot.dev
+```
+
 ### `depot list`
 
 Interact with Depot projects and builds.
@@ -455,11 +470,11 @@ depot projects delete --project-id your-project-id --yes
 
 #### Flags for `projects delete`
 
-| Name           | Description                                    |
-| -------------- | ---------------------------------------------- |
-| `project-id`   | The ID of the project to delete                |
-| `yes`          | Confirm deletion without interactive prompt    |
-| `token`        | Depot API token                                |
+| Name         | Description                                 |
+| ------------ | ------------------------------------------- |
+| `project-id` | The ID of the project to delete             |
+| `yes`        | Confirm deletion without interactive prompt |
+| `token`      | Depot API token                             |
 
 #### `depot projects list`
 
