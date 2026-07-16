@@ -33,6 +33,15 @@ type ciJobSummaryLookup func(context.Context, string, string, *civ1.GetJobSummar
 
 type ciJobMetricsLookup func(context.Context, string, string, string) (*civ1.GetJobMetricsResponse, error)
 
+type entityLookupDependencies struct {
+	resolveProjectToken func(context.Context) (string, error)
+	resolveOrgToken     func(context.Context) (string, error)
+	getBuild            func(context.Context, string, string) (*cliv1.GetBuildResponse, error)
+	getWorkflow         func(context.Context, string, string, string) (*civ1.GetWorkflowResponse, error)
+	getJobSummary       ciJobSummaryLookup
+	getJobMetrics       ciJobMetricsLookup
+}
+
 type dependencies struct {
 	currentOrg     func() string
 	lookupBuildURL buildURLLookup
@@ -241,6 +250,7 @@ func validateRelativePath(path string) error {
 }
 
 func buildShorthandID(path string) (string, bool) {
+	path = strings.TrimSuffix(path, "/")
 	parts := strings.Split(path, "/")
 	if len(parts) != 2 || parts[0] != "builds" || parts[1] == "" {
 		return "", false
@@ -303,17 +313,33 @@ func lookupBuildURL(ctx context.Context, buildID string) (string, error) {
 }
 
 func lookupEntity(ctx context.Context, id, orgID string) ([]entityDestination, error) {
+	return lookupEntityWithDependencies(ctx, id, orgID, entityLookupDependencies{
+		resolveProjectToken: func(ctx context.Context) (string, error) {
+			return helpers.ResolveProjectAuth(ctx, "")
+		},
+		resolveOrgToken: func(ctx context.Context) (string, error) {
+			return helpers.ResolveOrgAuth(ctx, "")
+		},
+		getBuild: func(ctx context.Context, token, id string) (*cliv1.GetBuildResponse, error) {
+			response, err := api.NewBuildClient().GetBuild(
+				ctx,
+				api.WithAuthentication(connect.NewRequest(&cliv1.GetBuildRequest{BuildId: id}), token),
+			)
+			if err != nil {
+				return nil, err
+			}
+			return response.Msg, nil
+		},
+		getWorkflow:   api.CIGetWorkflow,
+		getJobSummary: api.CIGetJobSummary,
+		getJobMetrics: api.CIGetJobMetrics,
+	})
+}
+
+func lookupEntityWithDependencies(ctx context.Context, id, orgID string, deps entityLookupDependencies) ([]entityDestination, error) {
 	if isDecimalID(id) {
 		path := "github-actions/jobs/" + url.PathEscape(id)
 		return []entityDestination{{kind: "GitHub Actions job", path: path, url: orgURL(orgID, path)}}, nil
-	}
-
-	token, err := helpers.ResolveProjectAuth(ctx, "")
-	if err != nil {
-		return nil, err
-	}
-	if token == "" {
-		return nil, fmt.Errorf("missing API token, please run `depot login`")
 	}
 
 	type lookupResult struct {
@@ -324,27 +350,35 @@ func lookupEntity(ctx context.Context, id, orgID string) ([]entityDestination, e
 	var wg sync.WaitGroup
 	wg.Add(3)
 
+	projectToken, projectTokenErr := resolveEntityLookupToken(ctx, "build", deps.resolveProjectToken)
+	orgToken, orgTokenErr := resolveEntityLookupToken(ctx, "Depot CI", deps.resolveOrgToken)
+
 	go func() {
 		defer wg.Done()
-		response, err := api.NewBuildClient().GetBuild(
-			ctx,
-			api.WithAuthentication(connect.NewRequest(&cliv1.GetBuildRequest{BuildId: id}), token),
-		)
+		if projectTokenErr != nil {
+			results <- lookupResult{err: projectTokenErr}
+			return
+		}
+		response, err := deps.getBuild(ctx, projectToken, id)
 		if err != nil {
 			results <- lookupResult{err: entityLookupError("build", err)}
 			return
 		}
-		if response.Msg.GetBuildUrl() == "" {
+		if response.GetBuildUrl() == "" {
 			results <- lookupResult{err: fmt.Errorf("build lookup returned an empty URL")}
 			return
 		}
 		path := "builds/" + url.PathEscape(id)
-		results <- lookupResult{destination: &entityDestination{kind: "build", path: path, url: response.Msg.GetBuildUrl()}}
+		results <- lookupResult{destination: &entityDestination{kind: "build", path: path, url: response.GetBuildUrl()}}
 	}()
 
 	go func() {
 		defer wg.Done()
-		response, err := api.CIGetWorkflow(ctx, token, orgID, id)
+		if orgTokenErr != nil {
+			results <- lookupResult{err: orgTokenErr}
+			return
+		}
+		response, err := deps.getWorkflow(ctx, orgToken, orgID, id)
 		if err != nil {
 			results <- lookupResult{err: entityLookupError("Depot CI workflow", err)}
 			return
@@ -359,7 +393,11 @@ func lookupEntity(ctx context.Context, id, orgID string) ([]entityDestination, e
 
 	go func() {
 		defer wg.Done()
-		destination, err := lookupCIJob(ctx, token, orgID, id, api.CIGetJobSummary, api.CIGetJobMetrics)
+		if orgTokenErr != nil {
+			results <- lookupResult{err: orgTokenErr}
+			return
+		}
+		destination, err := lookupCIJob(ctx, orgToken, orgID, id, deps.getJobSummary, deps.getJobMetrics)
 		results <- lookupResult{destination: destination, err: err}
 	}()
 
@@ -377,6 +415,17 @@ func lookupEntity(ctx context.Context, id, orgID string) ([]entityDestination, e
 		}
 	}
 	return finishEntityLookup(matches, lookupErrors)
+}
+
+func resolveEntityLookupToken(ctx context.Context, kind string, resolve func(context.Context) (string, error)) (string, error) {
+	token, err := resolve(ctx)
+	if err != nil {
+		return "", fmt.Errorf("%s authentication failed: %w", kind, err)
+	}
+	if token == "" {
+		return "", fmt.Errorf("%s authentication failed: missing API token, please run `depot login`", kind)
+	}
+	return token, nil
 }
 
 func finishEntityLookup(matches []entityDestination, lookupErrors []string) ([]entityDestination, error) {

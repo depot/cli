@@ -6,7 +6,9 @@ import (
 	"strings"
 	"testing"
 
+	"connectrpc.com/connect"
 	civ1 "github.com/depot/cli/pkg/proto/depot/ci/v1"
+	cliv1 "github.com/depot/cli/pkg/proto/depot/cli/v1"
 )
 
 func TestResolveDestination(t *testing.T) {
@@ -70,7 +72,7 @@ func TestResolveDestinationBuildShorthand(t *testing.T) {
 		return "https://depot.dev/orgs/org-123/projects/project-123/builds/build-123", nil
 	}
 
-	got, err := resolveDestination(context.Background(), "builds/build-123?tab=logs#step", "org-123", lookup, nil)
+	got, err := resolveDestination(context.Background(), "builds/build-123/?tab=logs#step", "org-123", lookup, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -231,16 +233,108 @@ func TestLookupCIJobRecoversWorkflowFromMetrics(t *testing.T) {
 	}
 }
 
-func TestFinishEntityLookupKeepsConfirmedMatches(t *testing.T) {
+func TestLookupEntityKeepsConfirmedMatchWhenSiblingLookupsFail(t *testing.T) {
 	t.Parallel()
 
-	matches := []entityDestination{{kind: "build", path: "builds/build-123", url: "https://depot.dev/build-123"}}
-	got, err := finishEntityLookup(matches, []string{"Depot CI workflow lookup failed: unavailable"})
+	buildTokens := make(chan string, 1)
+	workflowTokens := make(chan string, 1)
+	jobTokens := make(chan string, 1)
+	matches, err := lookupEntityWithDependencies(context.Background(), "build-123", "org-123", entityLookupDependencies{
+		resolveProjectToken: func(context.Context) (string, error) {
+			return "project-token", nil
+		},
+		resolveOrgToken: func(context.Context) (string, error) {
+			return "org-token", nil
+		},
+		getBuild: func(_ context.Context, token, _ string) (*cliv1.GetBuildResponse, error) {
+			buildTokens <- token
+			return &cliv1.GetBuildResponse{BuildUrl: "https://depot.dev/orgs/org-123/projects/project-123/builds/build-123"}, nil
+		},
+		getWorkflow: func(_ context.Context, token, _, _ string) (*civ1.GetWorkflowResponse, error) {
+			workflowTokens <- token
+			return nil, connect.NewError(connect.CodeUnavailable, errors.New("workflow service unavailable"))
+		},
+		getJobSummary: func(_ context.Context, token, _ string, _ *civ1.GetJobSummaryRequest) (*civ1.GetJobSummaryResponse, error) {
+			jobTokens <- token
+			return nil, connect.NewError(connect.CodePermissionDenied, errors.New("job lookup denied"))
+		},
+		getJobMetrics: func(context.Context, string, string, string) (*civ1.GetJobMetricsResponse, error) {
+			return nil, errors.New("unexpected job metrics lookup")
+		},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 1 || got[0] != matches[0] {
-		t.Fatalf("matches = %v, want %v", got, matches)
+	want := entityDestination{
+		kind: "build",
+		path: "builds/build-123",
+		url:  "https://depot.dev/orgs/org-123/projects/project-123/builds/build-123",
+	}
+	if len(matches) != 1 || matches[0] != want {
+		t.Fatalf("matches = %v, want [%v]", matches, want)
+	}
+	if got := <-buildTokens; got != "project-token" {
+		t.Errorf("build token = %q, want project-token", got)
+	}
+	if got := <-workflowTokens; got != "org-token" {
+		t.Errorf("workflow token = %q, want org-token", got)
+	}
+	if got := <-jobTokens; got != "org-token" {
+		t.Errorf("job token = %q, want org-token", got)
+	}
+}
+
+func TestLookupEntityKeepsBuildMatchWhenOrgAuthenticationFails(t *testing.T) {
+	t.Parallel()
+
+	matches, err := lookupEntityWithDependencies(context.Background(), "build-123", "org-123", entityLookupDependencies{
+		resolveProjectToken: func(context.Context) (string, error) { return "project-token", nil },
+		resolveOrgToken:     func(context.Context) (string, error) { return "", errors.New("org auth unavailable") },
+		getBuild: func(context.Context, string, string) (*cliv1.GetBuildResponse, error) {
+			return &cliv1.GetBuildResponse{BuildUrl: "https://depot.dev/orgs/org-123/projects/project-123/builds/build-123"}, nil
+		},
+		getWorkflow: func(context.Context, string, string, string) (*civ1.GetWorkflowResponse, error) {
+			return nil, errors.New("unexpected workflow lookup")
+		},
+		getJobSummary: func(context.Context, string, string, *civ1.GetJobSummaryRequest) (*civ1.GetJobSummaryResponse, error) {
+			return nil, errors.New("unexpected job lookup")
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(matches) != 1 || matches[0].kind != "build" {
+		t.Fatalf("matches = %v, want one build", matches)
+	}
+}
+
+func TestLookupEntityKeepsWorkflowMatchWhenProjectAuthenticationFails(t *testing.T) {
+	t.Parallel()
+
+	matches, err := lookupEntityWithDependencies(context.Background(), "workflow-123", "org-123", entityLookupDependencies{
+		resolveProjectToken: func(context.Context) (string, error) { return "", errors.New("project auth unavailable") },
+		resolveOrgToken:     func(context.Context) (string, error) { return "org-token", nil },
+		getBuild: func(context.Context, string, string) (*cliv1.GetBuildResponse, error) {
+			return nil, errors.New("unexpected build lookup")
+		},
+		getWorkflow: func(_ context.Context, token, _, _ string) (*civ1.GetWorkflowResponse, error) {
+			if token != "org-token" {
+				return nil, errors.New("workflow received wrong token")
+			}
+			return &civ1.GetWorkflowResponse{WorkflowId: "workflow-123"}, nil
+		},
+		getJobSummary: func(context.Context, string, string, *civ1.GetJobSummaryRequest) (*civ1.GetJobSummaryResponse, error) {
+			return nil, connect.NewError(connect.CodeNotFound, errors.New("job not found"))
+		},
+		getJobMetrics: func(context.Context, string, string, string) (*civ1.GetJobMetricsResponse, error) {
+			return nil, errors.New("unexpected job metrics lookup")
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(matches) != 1 || matches[0].kind != "Depot CI workflow" {
+		t.Fatalf("matches = %v, want one Depot CI workflow", matches)
 	}
 }
 
