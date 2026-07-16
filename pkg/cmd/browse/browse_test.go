@@ -360,7 +360,7 @@ func TestBrowseHelpHighlightsProductsAndDiscoveryCommands(t *testing.T) {
 		"depot ci workflow list --output json",
 		"depot ci workflow show <workflow-id> --output json",
 		"depot list builds --project <project-id> --output json",
-		"gh run view <run-id> --json jobs",
+		"Find job IDs with: depot browse github-actions",
 		"depot browse <id>",
 	} {
 		if !strings.Contains(help, want) {

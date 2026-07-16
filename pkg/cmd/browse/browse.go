@@ -94,21 +94,14 @@ GitHub Actions job ID.`,
   depot browse github-actions
 
   # Open a GitHub Actions job
-  # Find run IDs with: gh run list --json databaseId
-  # Find job IDs with: gh run view <run-id> --json jobs
+  # Find job IDs with: depot browse github-actions
   depot browse github-actions/jobs/<github-job-id>
 
   # Open the organization homepage
   depot browse
 
-  # Open the registry
-  depot browse registry
-
   # Open organization usage for a specific month
   depot browse 'usage/2026/07?section=github-actions'
-
-  # Open a complete Depot URL unchanged
-  depot browse 'https://depot.dev/orgs/<org-id>/usage/2026/07?section=github-actions'
 
   # Look up a build, Depot CI workflow/job, or GitHub Actions job by ID
   depot browse <id>
