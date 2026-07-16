@@ -163,6 +163,11 @@ message RunRequest {
   // When set, orchestrator compile fetches this generic cache key (same bytes the worker applies)
   // and runs git apply in the compile temp repo before resolving .depot/actions and .depot/workflows.
   optional string workspace_patch_cache_key = 6;
+  // Fully-qualified git ref the run is associated with. For example, "refs/heads/main". Populates
+  // github.ref / github.ref_name (GITHUB_REF / GITHUB_REF_NAME in the sandbox) so ref-dependent
+  // actions like actions/cache work. Does not change the checked-out commit (that is driven by sha);
+  // the CLI sets this to the caller's local branch.
+  optional string ref = 7;
 }
 
 message RunResponse {
