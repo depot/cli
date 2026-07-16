@@ -29,7 +29,7 @@ func TestResolveDestination(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, err := resolveDestination(context.Background(), tt.location, tt.orgID, nil)
+			got, err := resolveDestination(context.Background(), tt.location, tt.orgID, nil, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -49,7 +49,7 @@ func TestResolveDestinationBuildShorthand(t *testing.T) {
 		return "https://depot.dev/orgs/org-123/projects/project-123/builds/build-123", nil
 	}
 
-	got, err := resolveDestination(context.Background(), "builds/build-123?tab=logs#step", "org-123", lookup)
+	got, err := resolveDestination(context.Background(), "builds/build-123?tab=logs#step", "org-123", lookup, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,7 +69,7 @@ func TestResolveDestinationRejectsUnsafeBuildURL(t *testing.T) {
 		return "https://example.com/phishing", nil
 	}
 
-	_, err := resolveDestination(context.Background(), "builds/build-123", "org-123", lookup)
+	_, err := resolveDestination(context.Background(), "builds/build-123", "org-123", lookup, nil)
 	if err == nil || !strings.Contains(err.Error(), "outside https://depot.dev") {
 		t.Fatalf("error = %v, want unsafe build URL error", err)
 	}
@@ -95,11 +95,92 @@ func TestResolveDestinationRejectsUnsafeOrIncompleteInput(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			_, err := resolveDestination(context.Background(), tt.location, tt.orgID, nil)
+			_, err := resolveDestination(context.Background(), tt.location, tt.orgID, nil, nil)
 			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 				t.Fatalf("error = %v, want containing %q", err, tt.wantErr)
 			}
 		})
+	}
+}
+
+func TestResolveDestinationLooksUpBareID(t *testing.T) {
+	t.Parallel()
+
+	lookup := func(_ context.Context, id, orgID string) ([]entityDestination, error) {
+		if id != "workflow-123" || orgID != "org-123" {
+			t.Fatalf("lookup(%q, %q), want workflow-123, org-123", id, orgID)
+		}
+		return []entityDestination{{
+			kind: "Depot CI workflow",
+			path: "workflows/workflow-123",
+			url:  "https://depot.dev/orgs/org-123/workflows/workflow-123",
+		}}, nil
+	}
+
+	got, err := resolveDestination(context.Background(), "workflow-123?view=graph#failed", "org-123", nil, lookup)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "https://depot.dev/orgs/org-123/workflows/workflow-123?view=graph#failed"; got != want {
+		t.Fatalf("resolveDestination() = %q, want %q", got, want)
+	}
+}
+
+func TestResolveDestinationDoesNotLookUpKnownPath(t *testing.T) {
+	t.Parallel()
+
+	lookup := func(context.Context, string, string) ([]entityDestination, error) {
+		t.Fatal("lookup called for known app path")
+		return nil, nil
+	}
+
+	got, err := resolveDestination(context.Background(), "registry", "org-123", nil, lookup)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "https://depot.dev/orgs/org-123/registry"; got != want {
+		t.Fatalf("resolveDestination() = %q, want %q", got, want)
+	}
+}
+
+func TestResolveDestinationRejectsAmbiguousBareID(t *testing.T) {
+	t.Parallel()
+
+	lookup := func(context.Context, string, string) ([]entityDestination, error) {
+		return []entityDestination{
+			{kind: "build", path: "builds/shared-id", url: "https://depot.dev/orgs/org-123/projects/project-1/builds/shared-id"},
+			{kind: "Depot CI workflow", path: "workflows/shared-id", url: "https://depot.dev/orgs/org-123/workflows/shared-id"},
+		}, nil
+	}
+
+	_, err := resolveDestination(context.Background(), "shared-id", "org-123", nil, lookup)
+	if err == nil || !strings.Contains(err.Error(), "shared-id is ambiguous") || !strings.Contains(err.Error(), "builds/shared-id") || !strings.Contains(err.Error(), "workflows/shared-id") {
+		t.Fatalf("error = %v, want ambiguity with explicit paths", err)
+	}
+}
+
+func TestResolveDestinationReportsUnknownBareID(t *testing.T) {
+	t.Parallel()
+
+	lookup := func(context.Context, string, string) ([]entityDestination, error) { return nil, nil }
+	_, err := resolveDestination(context.Background(), "missing-id", "org-123", nil, lookup)
+	if err == nil || !strings.Contains(err.Error(), "could not find missing-id") || !strings.Contains(err.Error(), "use an explicit path") {
+		t.Fatalf("error = %v, want not-found guidance", err)
+	}
+}
+
+func TestLookupEntityRecognizesGitHubActionsJobID(t *testing.T) {
+	t.Parallel()
+
+	matches, err := lookupEntity(context.Background(), "87413161724", "org-123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(matches) != 1 {
+		t.Fatalf("matches = %v, want one", matches)
+	}
+	if got, want := matches[0].url, "https://depot.dev/orgs/org-123/github-actions/jobs/87413161724"; got != want {
+		t.Fatalf("URL = %q, want %q", got, want)
 	}
 }
 
@@ -216,9 +297,12 @@ func TestBrowseHelpHighlightsProductsAndDiscoveryCommands(t *testing.T) {
 
 	for _, want := range []string{
 		"If the intended product is unclear, ask the user which destination they want.",
+		"single-segment path is looked up as a build, Depot CI workflow or job",
 		"depot ci workflow list --output json",
+		"depot ci workflow show <workflow-id> --output json",
 		"depot list builds --project <project-id> --output json",
 		"gh run view <run-id> --json jobs",
+		"depot browse <id>",
 	} {
 		if !strings.Contains(help, want) {
 			t.Fatalf("help missing %q:\n%s", want, help)

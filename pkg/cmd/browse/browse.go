@@ -4,12 +4,15 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"sort"
 	"strings"
+	"sync"
 
 	"connectrpc.com/connect"
 	"github.com/depot/cli/pkg/api"
 	"github.com/depot/cli/pkg/config"
 	"github.com/depot/cli/pkg/helpers"
+	civ1 "github.com/depot/cli/pkg/proto/depot/ci/v1"
 	cliv1 "github.com/depot/cli/pkg/proto/depot/cli/v1"
 	"github.com/spf13/cobra"
 )
@@ -18,9 +21,18 @@ const depotWebURL = "https://depot.dev"
 
 type buildURLLookup func(context.Context, string) (string, error)
 
+type entityDestination struct {
+	kind string
+	path string
+	url  string
+}
+
+type entityLookup func(context.Context, string, string) ([]entityDestination, error)
+
 type dependencies struct {
 	currentOrg     func() string
 	lookupBuildURL buildURLLookup
+	lookupEntity   entityLookup
 	openURL        func(string) error
 }
 
@@ -28,6 +40,7 @@ func NewCmdBrowse() *cobra.Command {
 	return newCmdBrowse(dependencies{
 		currentOrg:     config.GetCurrentOrganization,
 		lookupBuildURL: lookupBuildURL,
+		lookupEntity:   lookupEntity,
 		openURL:        api.OpenURL,
 	})
 }
@@ -52,13 +65,19 @@ If the intended product is unclear, ask the user which destination they want.
 
 Relative paths are opened within the current Depot organization. Complete
 https://depot.dev URLs are opened unchanged. The builds/<build-id> shorthand
-looks up the build and opens its canonical project build page.`,
+looks up the build and opens its canonical project build page. An unrecognized
+single-segment path is looked up as a build, Depot CI workflow or job, or
+GitHub Actions job ID.`,
 		Example: `  # Open Depot CI
   depot browse workflows
 
   # Open a Depot CI workflow
   # Find workflow IDs with: depot ci workflow list --output json
   depot browse workflows/<workflow-id>
+
+  # Open a Depot CI job
+  # Find job IDs with: depot ci workflow show <workflow-id> --output json
+  depot browse workflows/<workflow-id>/jobs/<job-id>
 
   # Open Depot Container Builds
   depot browse builds
@@ -87,6 +106,9 @@ looks up the build and opens its canonical project build page.`,
   # Open a complete Depot URL unchanged
   depot browse 'https://depot.dev/orgs/<org-id>/usage/2026/07?section=github-actions'
 
+  # Look up a build, Depot CI workflow/job, or GitHub Actions job by ID
+  depot browse <id>
+
   # Print the resolved URL without opening a browser
   depot browse workflows --no-browser`,
 		Args: cobra.MaximumNArgs(1),
@@ -101,7 +123,7 @@ looks up the build and opens its canonical project build page.`,
 				selectedOrgID = deps.currentOrg()
 			}
 
-			destination, err := resolveDestination(cmd.Context(), location, selectedOrgID, deps.lookupBuildURL)
+			destination, err := resolveDestination(cmd.Context(), location, selectedOrgID, deps.lookupBuildURL, deps.lookupEntity)
 			if err != nil {
 				return err
 			}
@@ -126,7 +148,7 @@ looks up the build and opens its canonical project build page.`,
 	return cmd
 }
 
-func resolveDestination(ctx context.Context, location, orgID string, lookup buildURLLookup) (string, error) {
+func resolveDestination(ctx context.Context, location, orgID string, lookupBuild buildURLLookup, lookupBareID entityLookup) (string, error) {
 	location = strings.TrimSpace(location)
 	parsed, err := url.Parse(location)
 	if err != nil {
@@ -151,18 +173,57 @@ func resolveDestination(ctx context.Context, location, orgID string, lookup buil
 	if path == "builds" {
 		path = "projects"
 	} else if buildID, ok := buildShorthandID(path); ok {
-		if lookup == nil {
+		if lookupBuild == nil {
 			return "", fmt.Errorf("build lookup is unavailable")
 		}
-		canonical, err := lookup(ctx, buildID)
+		canonical, err := lookupBuild(ctx, buildID)
 		if err != nil {
 			return "", fmt.Errorf("failed to look up build %s: %w", buildID, err)
 		}
 		return addQueryAndFragment(canonical, parsed.RawQuery, parsed.EscapedFragment())
+	} else if isBareID(path) && !isKnownOrgPath(path) {
+		if lookupBareID == nil {
+			return "", fmt.Errorf("entity lookup is unavailable")
+		}
+		matches, err := lookupBareID(ctx, path, orgID)
+		if err != nil {
+			return "", fmt.Errorf("failed to look up %s: %w", path, err)
+		}
+		return selectEntityDestination(path, matches, parsed.RawQuery, parsed.EscapedFragment())
 	}
 
 	prefix := depotWebURL + "/orgs/" + url.PathEscape(orgID) + "/"
 	return prefix + relativeReference(path, parsed.RawQuery, parsed.EscapedFragment()), nil
+}
+
+func isBareID(path string) bool {
+	return path != "" && !strings.Contains(path, "/")
+}
+
+func isKnownOrgPath(path string) bool {
+	switch path {
+	case "audit-logs-portal", "builds", "cache", "claude", "code", "compute",
+		"dagger-projects", "github-actions", "home", "projects", "registry",
+		"registry-v2", "settings", "sso-portal", "test-results", "usage", "workflows":
+		return true
+	default:
+		return false
+	}
+}
+
+func selectEntityDestination(id string, matches []entityDestination, rawQuery, escapedFragment string) (string, error) {
+	if len(matches) == 0 {
+		return "", fmt.Errorf("could not find %s as a build, Depot CI workflow or job, or GitHub Actions job; use an explicit path if it is an app destination", id)
+	}
+	if len(matches) > 1 {
+		paths := make([]string, 0, len(matches))
+		for _, match := range matches {
+			paths = append(paths, fmt.Sprintf("%s (%s)", match.path, match.kind))
+		}
+		sort.Strings(paths)
+		return "", fmt.Errorf("%s is ambiguous; choose one of: %s", id, strings.Join(paths, ", "))
+	}
+	return addQueryAndFragment(matches[0].url, rawQuery, escapedFragment)
 }
 
 func validateRelativePath(path string) error {
@@ -204,7 +265,7 @@ func addQueryAndFragment(destination, rawQuery, escapedFragment string) (string,
 		return "", fmt.Errorf("invalid build URL: %w", err)
 	}
 	if parsed.Scheme != "https" || parsed.Host != "depot.dev" || parsed.User != nil {
-		return "", fmt.Errorf("build lookup returned a URL outside https://depot.dev")
+		return "", fmt.Errorf("lookup returned a URL outside https://depot.dev")
 	}
 	parsed.RawQuery = rawQuery
 	parsed.Fragment, err = url.PathUnescape(escapedFragment)
@@ -234,4 +295,117 @@ func lookupBuildURL(ctx context.Context, buildID string) (string, error) {
 		return "", fmt.Errorf("build lookup returned an empty URL")
 	}
 	return response.Msg.GetBuildUrl(), nil
+}
+
+func lookupEntity(ctx context.Context, id, orgID string) ([]entityDestination, error) {
+	if isDecimalID(id) {
+		path := "github-actions/jobs/" + url.PathEscape(id)
+		return []entityDestination{{kind: "GitHub Actions job", path: path, url: orgURL(orgID, path)}}, nil
+	}
+
+	token, err := helpers.ResolveProjectAuth(ctx, "")
+	if err != nil {
+		return nil, err
+	}
+	if token == "" {
+		return nil, fmt.Errorf("missing API token, please run `depot login`")
+	}
+
+	type lookupResult struct {
+		destination *entityDestination
+		err         error
+	}
+	results := make(chan lookupResult, 3)
+	var wg sync.WaitGroup
+	wg.Add(3)
+
+	go func() {
+		defer wg.Done()
+		response, err := api.NewBuildClient().GetBuild(
+			ctx,
+			api.WithAuthentication(connect.NewRequest(&cliv1.GetBuildRequest{BuildId: id}), token),
+		)
+		if err != nil {
+			results <- lookupResult{err: entityLookupError("build", err)}
+			return
+		}
+		if response.Msg.GetBuildUrl() == "" {
+			results <- lookupResult{err: fmt.Errorf("build lookup returned an empty URL")}
+			return
+		}
+		path := "builds/" + url.PathEscape(id)
+		results <- lookupResult{destination: &entityDestination{kind: "build", path: path, url: response.Msg.GetBuildUrl()}}
+	}()
+
+	go func() {
+		defer wg.Done()
+		response, err := api.CIGetWorkflow(ctx, token, orgID, id)
+		if err != nil {
+			results <- lookupResult{err: entityLookupError("Depot CI workflow", err)}
+			return
+		}
+		if response.GetWorkflowId() == "" {
+			results <- lookupResult{err: fmt.Errorf("Depot CI workflow lookup returned incomplete routing information")}
+			return
+		}
+		path := "workflows/" + url.PathEscape(response.GetWorkflowId())
+		results <- lookupResult{destination: &entityDestination{kind: "Depot CI workflow", path: path, url: orgURL(orgID, path)}}
+	}()
+
+	go func() {
+		defer wg.Done()
+		response, err := api.CIGetJobSummary(ctx, token, orgID, &civ1.GetJobSummaryRequest{JobId: id})
+		if err != nil {
+			results <- lookupResult{err: entityLookupError("Depot CI job", err)}
+			return
+		}
+		if response.GetWorkflowId() == "" || response.GetJobId() == "" {
+			results <- lookupResult{err: fmt.Errorf("Depot CI job lookup returned incomplete routing information")}
+			return
+		}
+		path := "workflows/" + url.PathEscape(response.GetWorkflowId()) + "/jobs/" + url.PathEscape(response.GetJobId())
+		results <- lookupResult{destination: &entityDestination{kind: "Depot CI job", path: path, url: orgURL(orgID, path)}}
+	}()
+
+	wg.Wait()
+	close(results)
+
+	var matches []entityDestination
+	var lookupErrors []string
+	for result := range results {
+		if result.destination != nil {
+			matches = append(matches, *result.destination)
+		}
+		if result.err != nil {
+			lookupErrors = append(lookupErrors, result.err.Error())
+		}
+	}
+	if len(lookupErrors) > 0 {
+		sort.Strings(lookupErrors)
+		return nil, fmt.Errorf("%s", strings.Join(lookupErrors, "; "))
+	}
+	return matches, nil
+}
+
+func isDecimalID(id string) bool {
+	if id == "" {
+		return false
+	}
+	for _, char := range id {
+		if char < '0' || char > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func entityLookupError(kind string, err error) error {
+	if code := connect.CodeOf(err); code == connect.CodeNotFound || code == connect.CodeInvalidArgument {
+		return nil
+	}
+	return fmt.Errorf("%s lookup failed: %w", kind, err)
+}
+
+func orgURL(orgID, path string) string {
+	return depotWebURL + "/orgs/" + url.PathEscape(orgID) + "/" + path
 }
