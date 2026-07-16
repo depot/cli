@@ -326,3 +326,45 @@ jobs:
 		}
 	}
 }
+
+func TestRunMigrate_CopiesWorkflowSiblings(t *testing.T) {
+	dir := t.TempDir()
+	workflowsDir := filepath.Join(dir, ".github", "workflows")
+	os.MkdirAll(filepath.Join(workflowsDir, "scripts"), 0755)
+
+	workflow := `name: CI
+on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash .github/workflows/scripts/build.sh
+`
+	os.WriteFile(filepath.Join(workflowsDir, "ci.yml"), []byte(workflow), 0644)
+	// Non-YAML sibling referenced by the workflow.
+	os.WriteFile(filepath.Join(workflowsDir, "scripts", "build.sh"), []byte("#!/bin/sh\necho building\n"), 0755)
+
+	var buf bytes.Buffer
+	opts := migrateOptions{yes: true, dir: dir, stdout: &buf}
+	if err := workflows(opts); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// The sibling script should be mirrored into .depot/workflows/scripts/.
+	sibling := filepath.Join(dir, ".depot", "workflows", "scripts", "build.sh")
+	if data, err := os.ReadFile(sibling); err != nil {
+		t.Fatalf("expected sibling copied to %s: %v", sibling, err)
+	} else if !strings.Contains(string(data), "echo building") {
+		t.Errorf("sibling content not preserved: %q", data)
+	}
+
+	// The workflow reference to the script should now point at .depot/.
+	ci, err := os.ReadFile(filepath.Join(dir, ".depot", "workflows", "ci.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(ci), ".depot/workflows/scripts/build.sh") {
+		t.Errorf("expected script reference rewritten to .depot/, got:\n%s", ci)
+	}
+}
