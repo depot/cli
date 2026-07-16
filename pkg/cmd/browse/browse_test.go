@@ -5,6 +5,8 @@ import (
 	"errors"
 	"strings"
 	"testing"
+
+	civ1 "github.com/depot/cli/pkg/proto/depot/ci/v1"
 )
 
 func TestResolveDestination(t *testing.T) {
@@ -199,6 +201,45 @@ func TestLookupEntityRecognizesGitHubActionsJobID(t *testing.T) {
 	}
 	if got, want := matches[0].url, "https://depot.dev/orgs/org-123/github-actions/jobs/87413161724"; got != want {
 		t.Fatalf("URL = %q, want %q", got, want)
+	}
+}
+
+func TestLookupCIJobRecoversWorkflowFromMetrics(t *testing.T) {
+	t.Parallel()
+
+	destination, err := lookupCIJob(
+		context.Background(),
+		"token-123",
+		"org-123",
+		"job-123",
+		func(context.Context, string, string, *civ1.GetJobSummaryRequest) (*civ1.GetJobSummaryResponse, error) {
+			return &civ1.GetJobSummaryResponse{JobId: "job-123", JobStatus: "queued", EmptyReason: "no_attempt"}, nil
+		},
+		func(context.Context, string, string, string) (*civ1.GetJobMetricsResponse, error) {
+			return &civ1.GetJobMetricsResponse{
+				Workflow: &civ1.CIMetricsWorkflowContext{WorkflowId: "workflow-123"},
+				Job:      &civ1.CIMetricsJobContext{JobId: "job-123"},
+			}, nil
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := destination.url, "https://depot.dev/orgs/org-123/workflows/workflow-123/jobs/job-123"; got != want {
+		t.Fatalf("URL = %q, want %q", got, want)
+	}
+}
+
+func TestFinishEntityLookupKeepsConfirmedMatches(t *testing.T) {
+	t.Parallel()
+
+	matches := []entityDestination{{kind: "build", path: "builds/build-123", url: "https://depot.dev/build-123"}}
+	got, err := finishEntityLookup(matches, []string{"Depot CI workflow lookup failed: unavailable"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != matches[0] {
+		t.Fatalf("matches = %v, want %v", got, matches)
 	}
 }
 

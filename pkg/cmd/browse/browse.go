@@ -29,6 +29,10 @@ type entityDestination struct {
 
 type entityLookup func(context.Context, string, string) ([]entityDestination, error)
 
+type ciJobSummaryLookup func(context.Context, string, string, *civ1.GetJobSummaryRequest) (*civ1.GetJobSummaryResponse, error)
+
+type ciJobMetricsLookup func(context.Context, string, string, string) (*civ1.GetJobMetricsResponse, error)
+
 type dependencies struct {
 	currentOrg     func() string
 	lookupBuildURL buildURLLookup
@@ -359,17 +363,8 @@ func lookupEntity(ctx context.Context, id, orgID string) ([]entityDestination, e
 
 	go func() {
 		defer wg.Done()
-		response, err := api.CIGetJobSummary(ctx, token, orgID, &civ1.GetJobSummaryRequest{JobId: id})
-		if err != nil {
-			results <- lookupResult{err: entityLookupError("Depot CI job", err)}
-			return
-		}
-		if response.GetWorkflowId() == "" || response.GetJobId() == "" {
-			results <- lookupResult{err: fmt.Errorf("Depot CI job lookup returned incomplete routing information")}
-			return
-		}
-		path := "workflows/" + url.PathEscape(response.GetWorkflowId()) + "/jobs/" + url.PathEscape(response.GetJobId())
-		results <- lookupResult{destination: &entityDestination{kind: "Depot CI job", path: path, url: orgURL(orgID, path)}}
+		destination, err := lookupCIJob(ctx, token, orgID, id, api.CIGetJobSummary, api.CIGetJobMetrics)
+		results <- lookupResult{destination: destination, err: err}
 	}()
 
 	wg.Wait()
@@ -385,11 +380,48 @@ func lookupEntity(ctx context.Context, id, orgID string) ([]entityDestination, e
 			lookupErrors = append(lookupErrors, result.err.Error())
 		}
 	}
+	return finishEntityLookup(matches, lookupErrors)
+}
+
+func finishEntityLookup(matches []entityDestination, lookupErrors []string) ([]entityDestination, error) {
+	if len(matches) > 0 {
+		return matches, nil
+	}
 	if len(lookupErrors) > 0 {
 		sort.Strings(lookupErrors)
 		return nil, fmt.Errorf("%s", strings.Join(lookupErrors, "; "))
 	}
-	return matches, nil
+	return nil, nil
+}
+
+func lookupCIJob(
+	ctx context.Context,
+	token, orgID, jobID string,
+	getSummary ciJobSummaryLookup,
+	getMetrics ciJobMetricsLookup,
+) (*entityDestination, error) {
+	response, err := getSummary(ctx, token, orgID, &civ1.GetJobSummaryRequest{JobId: jobID})
+	if err != nil {
+		return nil, entityLookupError("Depot CI job", err)
+	}
+	if response.GetJobId() == "" {
+		return nil, fmt.Errorf("Depot CI job lookup returned incomplete routing information")
+	}
+
+	workflowID := response.GetWorkflowId()
+	if workflowID == "" {
+		metrics, err := getMetrics(ctx, token, orgID, response.GetJobId())
+		if err != nil {
+			return nil, fmt.Errorf("Depot CI job lookup could not resolve its workflow: %w", err)
+		}
+		workflowID = metrics.GetWorkflow().GetWorkflowId()
+	}
+	if workflowID == "" {
+		return nil, fmt.Errorf("Depot CI job lookup returned incomplete routing information")
+	}
+
+	path := "workflows/" + url.PathEscape(workflowID) + "/jobs/" + url.PathEscape(response.GetJobId())
+	return &entityDestination{kind: "Depot CI job", path: path, url: orgURL(orgID, path)}, nil
 }
 
 func isDecimalID(id string) bool {
