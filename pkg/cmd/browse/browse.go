@@ -173,6 +173,9 @@ func resolveDestination(ctx context.Context, location, orgID string, lookupBuild
 		}
 		return addQueryAndFragment(canonical, parsed.RawQuery, parsed.EscapedFragment())
 	}
+	if orgID == "" && path == "" {
+		return addQueryAndFragment(depotWebURL, parsed.RawQuery, parsed.EscapedFragment())
+	}
 	if orgID == "" {
 		return "", fmt.Errorf("no organization selected; run `depot org switch` or use --org")
 	}

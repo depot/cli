@@ -19,6 +19,7 @@ func TestResolveDestination(t *testing.T) {
 		want     string
 	}{
 		{name: "organization homepage", orgID: "org-123", want: "https://depot.dev/orgs/org-123/"},
+		{name: "Depot homepage without organization", want: "https://depot.dev"},
 		{name: "Depot CI", location: "workflows", orgID: "org-123", want: "https://depot.dev/orgs/org-123/workflows"},
 		{name: "container builds alias", location: "builds", orgID: "org-123", want: "https://depot.dev/orgs/org-123/projects"},
 		{name: "container builds alias with trailing slash", location: "builds/", orgID: "org-123", want: "https://depot.dev/orgs/org-123/projects"},
@@ -288,6 +289,26 @@ func TestBrowseOpensResolvedURL(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got, want := opened, "https://depot.dev/orgs/org-123/projects"; got != want {
+		t.Fatalf("opened = %q, want %q", got, want)
+	}
+}
+
+func TestBrowseWithoutOrganizationOpensDepotHomepage(t *testing.T) {
+	t.Parallel()
+
+	var opened string
+	cmd := newCmdBrowse(dependencies{
+		currentOrg: func() string { return "" },
+		openURL: func(destination string) error {
+			opened = destination
+			return nil
+		},
+	})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := opened, "https://depot.dev"; got != want {
 		t.Fatalf("opened = %q, want %q", got, want)
 	}
 }
