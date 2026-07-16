@@ -156,7 +156,7 @@ func resolveDestination(ctx context.Context, location, orgID string, lookupBuild
 	}
 
 	if parsed.IsAbs() || parsed.Host != "" {
-		if parsed.Scheme != "https" || parsed.Host != "depot.dev" || parsed.User != nil {
+		if !isDepotURL(parsed) {
 			return "", fmt.Errorf("only https://depot.dev URLs can be opened as complete URLs")
 		}
 		return parsed.String(), nil
@@ -166,13 +166,7 @@ func resolveDestination(ctx context.Context, location, orgID string, lookupBuild
 	if err := validateRelativePath(path); err != nil {
 		return "", err
 	}
-	if orgID == "" {
-		return "", fmt.Errorf("no organization selected; run `depot org switch` or use --org")
-	}
-
-	if path == "builds" {
-		path = "projects"
-	} else if buildID, ok := buildShorthandID(path); ok {
+	if buildID, ok := buildShorthandID(path); ok {
 		if lookupBuild == nil {
 			return "", fmt.Errorf("build lookup is unavailable")
 		}
@@ -181,6 +175,13 @@ func resolveDestination(ctx context.Context, location, orgID string, lookupBuild
 			return "", fmt.Errorf("failed to look up build %s: %w", buildID, err)
 		}
 		return addQueryAndFragment(canonical, parsed.RawQuery, parsed.EscapedFragment())
+	}
+	if orgID == "" {
+		return "", fmt.Errorf("no organization selected; run `depot org switch` or use --org")
+	}
+
+	if path == "builds" || path == "builds/" {
+		path = "projects"
 	} else if isBareID(path) && !isKnownOrgPath(path) {
 		if lookupBareID == nil {
 			return "", fmt.Errorf("entity lookup is unavailable")
@@ -264,7 +265,7 @@ func addQueryAndFragment(destination, rawQuery, escapedFragment string) (string,
 	if err != nil {
 		return "", fmt.Errorf("invalid build URL: %w", err)
 	}
-	if parsed.Scheme != "https" || parsed.Host != "depot.dev" || parsed.User != nil {
+	if !isDepotURL(parsed) {
 		return "", fmt.Errorf("lookup returned a URL outside https://depot.dev")
 	}
 	parsed.RawQuery = rawQuery
@@ -273,6 +274,10 @@ func addQueryAndFragment(destination, rawQuery, escapedFragment string) (string,
 		return "", fmt.Errorf("invalid URL fragment: %w", err)
 	}
 	return parsed.String(), nil
+}
+
+func isDepotURL(parsed *url.URL) bool {
+	return parsed.Scheme == "https" && strings.EqualFold(parsed.Hostname(), "depot.dev") && parsed.Port() == "" && parsed.User == nil
 }
 
 func lookupBuildURL(ctx context.Context, buildID string) (string, error) {

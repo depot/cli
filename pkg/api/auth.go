@@ -16,13 +16,21 @@ import (
 // OpenURL opens the specified URL in the user's default browser.
 // It handles different operating systems appropriately.
 func OpenURL(url string) error {
+	cmd, args, err := browserCommand(runtime.GOOS, url)
+	if err != nil {
+		return err
+	}
+	return exec.Command(cmd, args...).Start()
+}
+
+func browserCommand(goos, url string) (string, []string, error) {
 	var cmd string
 	var args []string
 
-	switch runtime.GOOS {
+	switch goos {
 	case "windows":
-		cmd = "cmd"
-		args = []string{"/c", "start", url}
+		cmd = "rundll32"
+		args = []string{"url.dll,FileProtocolHandler", url}
 	case "darwin":
 		cmd = "open"
 		args = []string{url}
@@ -30,10 +38,9 @@ func OpenURL(url string) error {
 		cmd = "xdg-open"
 		args = []string{url}
 	default:
-		return fmt.Errorf("unsupported platform")
+		return "", nil, fmt.Errorf("unsupported platform")
 	}
-
-	return exec.Command(cmd, args...).Start()
+	return cmd, args, nil
 }
 
 func AuthorizeDevice(ctx context.Context) (*cliv1beta1.FinishLoginResponse, error) {

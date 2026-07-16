@@ -19,10 +19,12 @@ func TestResolveDestination(t *testing.T) {
 		{name: "organization homepage", orgID: "org-123", want: "https://depot.dev/orgs/org-123/"},
 		{name: "Depot CI", location: "workflows", orgID: "org-123", want: "https://depot.dev/orgs/org-123/workflows"},
 		{name: "container builds alias", location: "builds", orgID: "org-123", want: "https://depot.dev/orgs/org-123/projects"},
+		{name: "container builds alias with trailing slash", location: "builds/", orgID: "org-123", want: "https://depot.dev/orgs/org-123/projects"},
 		{name: "GitHub Actions job", location: "github-actions/jobs/87413161724", orgID: "org-123", want: "https://depot.dev/orgs/org-123/github-actions/jobs/87413161724"},
 		{name: "encoded registry repository", location: "registry/repositories/depot%2Fsnapshots%2Fe2e-base/manifests", orgID: "org-123", want: "https://depot.dev/orgs/org-123/registry/repositories/depot%2Fsnapshots%2Fe2e-base/manifests"},
 		{name: "query and fragment", location: "usage/2026/07?section=github-actions#details", orgID: "org-123", want: "https://depot.dev/orgs/org-123/usage/2026/07?section=github-actions#details"},
 		{name: "complete Depot URL", location: "https://depot.dev/orgs/another-org/workflows?status=failed", want: "https://depot.dev/orgs/another-org/workflows?status=failed"},
+		{name: "complete Depot URL with mixed-case host", location: "https://Depot.Dev/orgs/another-org/workflows", want: "https://Depot.Dev/orgs/another-org/workflows"},
 	}
 
 	for _, tt := range tests {
@@ -37,6 +39,22 @@ func TestResolveDestination(t *testing.T) {
 				t.Fatalf("resolveDestination() = %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestResolveDestinationBuildShorthandDoesNotRequireOrganization(t *testing.T) {
+	t.Parallel()
+
+	lookup := func(context.Context, string) (string, error) {
+		return "https://depot.dev/orgs/org-123/projects/project-123/builds/build-123", nil
+	}
+
+	got, err := resolveDestination(context.Background(), "builds/build-123", "", lookup, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "https://depot.dev/orgs/org-123/projects/project-123/builds/build-123"; got != want {
+		t.Fatalf("resolveDestination() = %q, want %q", got, want)
 	}
 }
 
