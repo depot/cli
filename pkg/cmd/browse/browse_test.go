@@ -126,7 +126,7 @@ func TestResolveDestinationRejectsUnsafeOrIncompleteInput(t *testing.T) {
 	}
 }
 
-func TestResolveDestinationLooksUpBareID(t *testing.T) {
+func TestResolveDestinationDecodesBareIDForLookup(t *testing.T) {
 	t.Parallel()
 
 	lookup := func(_ context.Context, id, orgID string) ([]entityDestination, error) {
@@ -140,7 +140,7 @@ func TestResolveDestinationLooksUpBareID(t *testing.T) {
 		}}, nil
 	}
 
-	got, err := resolveDestination(context.Background(), "workflow-123?view=graph#failed", "org-123", nil, lookup)
+	got, err := resolveDestination(context.Background(), "workflow%2D123?view=graph#failed", "org-123", nil, lookup)
 	if err != nil {
 		t.Fatal(err)
 	}

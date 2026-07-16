@@ -195,11 +195,15 @@ func resolveDestination(ctx context.Context, location, orgID string, lookupBuild
 		if lookupBareID == nil {
 			return "", fmt.Errorf("entity lookup is unavailable")
 		}
-		matches, err := lookupBareID(ctx, path, orgID)
+		id, err := url.PathUnescape(path)
 		if err != nil {
-			return "", fmt.Errorf("failed to look up %s: %w", path, err)
+			return "", fmt.Errorf("invalid path segment %q: %w", path, err)
 		}
-		return selectEntityDestination(path, matches, parsed.RawQuery, parsed.EscapedFragment())
+		matches, err := lookupBareID(ctx, id, orgID)
+		if err != nil {
+			return "", fmt.Errorf("failed to look up %s: %w", id, err)
+		}
+		return selectEntityDestination(id, matches, parsed.RawQuery, parsed.EscapedFragment())
 	}
 
 	prefix := depotWebURL + "/orgs/" + url.PathEscape(orgID) + "/"
