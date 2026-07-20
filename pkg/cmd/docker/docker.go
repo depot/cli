@@ -215,12 +215,19 @@ func driverImageCandidates(cliVersion string) []string {
 // retrying each a few times to ride out transient registry errors before
 // falling through to the next.
 func resolveDriverImage(ctx context.Context, dockerCli command.Cli, candidates []string) (string, error) {
-	var err error
-	for _, image := range candidates {
-		err = retry.Retry(func() error {
+	return selectDriverImage(candidates, func(image string) error {
+		return retry.Retry(func() error {
 			return DownloadImage(ctx, dockerCli, image)
 		}, 3)
-		if err == nil {
+	})
+}
+
+// selectDriverImage returns the first candidate for which pull succeeds, trying
+// them in order, or the last error if every candidate fails.
+func selectDriverImage(candidates []string, pull func(image string) error) (string, error) {
+	var err error
+	for _, image := range candidates {
+		if err = pull(image); err == nil {
 			return image, nil
 		}
 	}
@@ -267,7 +274,7 @@ func runConfigureBuildx(ctx context.Context, dockerCli command.Cli, project, tok
 		return fmt.Errorf("unable create driver container: %w", err)
 	}
 	if want := depotCLIImageRepo + version; image != want {
-		fmt.Fprintf(os.Stderr, "depot: driver image %s is not published yet, falling back to %s\n", want, image)
+		fmt.Fprintf(os.Stderr, "depot: driver image %s unavailable, falling back to %s\n", want, image)
 	}
 
 	nodeName := "depot_" + projectName
@@ -405,6 +412,21 @@ func StopDepotNodes(ctx context.Context, client dockerclient.APIClient, nodes []
 }
 
 func UpdateDrivers(ctx context.Context, dockerCli command.Cli) error {
+	// Resolve the target driver image before tearing down the existing drivers,
+	// so a failed resolve (e.g. all candidate tags unreachable) leaves the
+	// working drivers in place rather than deleting them (DEP-5314).
+	version := build.Version
+	if version == "0.0.0-dev" {
+		version = "latest"
+	}
+	resolvedImage, err := resolveDriverImage(ctx, dockerCli, driverImageCandidates(version))
+	if err != nil {
+		return fmt.Errorf("unable to resolve driver image: %w", err)
+	}
+	if want := depotCLIImageRepo + version; resolvedImage != want {
+		fmt.Fprintf(os.Stderr, "depot: driver image %s unavailable, falling back to %s\n", want, resolvedImage)
+	}
+
 	nodes, err := ListDepotNodes(ctx, dockerCli.Client())
 	if err != nil {
 		return err
@@ -422,23 +444,6 @@ func UpdateDrivers(ctx context.Context, dockerCli command.Cli) error {
 	nodeGroups, err := txn.List()
 	if err != nil {
 		return fmt.Errorf("unable to list node groups: %w", err)
-	}
-
-	// Update to the current build's version.
-	version := build.Version
-	if version == "0.0.0-dev" {
-		version = "latest"
-	}
-
-	// Resolve the target driver image once, falling back to floating tags when
-	// the exact version image isn't published yet (DEP-5314). If none resolve,
-	// leave the existing drivers untouched rather than pinning an unavailable tag.
-	resolvedImage, err := resolveDriverImage(ctx, dockerCli, driverImageCandidates(version))
-	if err != nil {
-		return fmt.Errorf("unable to resolve driver image: %w", err)
-	}
-	if want := depotCLIImageRepo + version; resolvedImage != want {
-		fmt.Fprintf(os.Stderr, "depot: driver image %s is not published yet, falling back to %s\n", want, resolvedImage)
 	}
 
 	for _, nodeGroup := range nodeGroups {
