@@ -249,6 +249,18 @@ func runConfigureBuildx(ctx context.Context, dockerCli command.Cli, project, tok
 		return errors.Errorf("unknown project ID (run `depot init` or use --project or $DEPOT_PROJECT_ID)")
 	}
 
+	// Resolve the driver image before opening the store transaction, so the
+	// registry pulls (and release-window fallback retries) don't run while the
+	// cross-process store lock is held (DEP-5314).
+	version := build.Version
+	image, err := resolveDriverImage(ctx, dockerCli, driverImageCandidates(version))
+	if err != nil {
+		return fmt.Errorf("unable create driver container: %w", err)
+	}
+	if want := depotCLIImageRepo + version; image != want {
+		fmt.Fprintf(os.Stderr, "depot: driver image %s unavailable, falling back to %s\n", want, image)
+	}
+
 	configStore, err := store.New(confutil.ConfigDir(dockerCli))
 	if err != nil {
 		return fmt.Errorf("unable to create docker configuration store: %w", err)
@@ -265,16 +277,6 @@ func runConfigureBuildx(ctx context.Context, dockerCli command.Cli, project, tok
 	endpoint, err := dockerutil.GetCurrentEndpoint(dockerCli)
 	if err != nil {
 		return fmt.Errorf("unable to get current docker endpoint: %w", err)
-	}
-
-	version := build.Version
-
-	image, err := resolveDriverImage(ctx, dockerCli, driverImageCandidates(version))
-	if err != nil {
-		return fmt.Errorf("unable create driver container: %w", err)
-	}
-	if want := depotCLIImageRepo + version; image != want {
-		fmt.Fprintf(os.Stderr, "depot: driver image %s unavailable, falling back to %s\n", want, image)
 	}
 
 	nodeName := "depot_" + projectName
