@@ -28,6 +28,7 @@ import (
 	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/api/types/network"
 	dockerclient "github.com/docker/docker/client"
+	goversion "github.com/hashicorp/go-version"
 	specs "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
@@ -175,6 +176,57 @@ func uninstallDepotPlugin(dir string) error {
 	return nil
 }
 
+const depotCLIImageRepo = "public.ecr.aws/depot/cli:"
+
+// driverImageCandidates returns the buildkit driver image references to try, in
+// preference order: the exact CLI version, then the floating <major>.<minor>
+// and <major> tags.
+//
+// The exact-version image (public.ecr.aws/depot/cli:<version>) is published by a
+// separate, slower pipeline than the one that makes a release resolvable as
+// `latest`, so for up to ~an hour after a release the exact tag can 404 while
+// the floating tags still point at the previous, driver-compatible patch.
+// Falling back to those keeps configure-docker working during that window.
+// See DEP-5314.
+//
+// Fallbacks are only offered for clean release versions; dev/prerelease builds
+// try the exact tag only, matching prior behavior.
+func driverImageCandidates(cliVersion string) []string {
+	candidates := []string{depotCLIImageRepo + cliVersion}
+
+	v, err := goversion.NewVersion(cliVersion)
+	if err != nil || v.Prerelease() != "" {
+		return candidates
+	}
+
+	seg := v.Segments()
+	if len(seg) >= 2 {
+		if mm := fmt.Sprintf("%s%d.%d", depotCLIImageRepo, seg[0], seg[1]); mm != candidates[0] {
+			candidates = append(candidates, mm)
+		}
+		if mj := fmt.Sprintf("%s%d", depotCLIImageRepo, seg[0]); mj != candidates[0] {
+			candidates = append(candidates, mj)
+		}
+	}
+	return candidates
+}
+
+// resolveDriverImage returns the first candidate image that can be pulled,
+// retrying each a few times to ride out transient registry errors before
+// falling through to the next.
+func resolveDriverImage(ctx context.Context, dockerCli command.Cli, candidates []string) (string, error) {
+	var err error
+	for _, image := range candidates {
+		err = retry.Retry(func() error {
+			return DownloadImage(ctx, dockerCli, image)
+		}, 3)
+		if err == nil {
+			return image, nil
+		}
+	}
+	return "", err
+}
+
 func runConfigureBuildx(ctx context.Context, dockerCli command.Cli, project, token string) error {
 	var err error
 	token, err = helpers.ResolveProjectAuth(ctx, token)
@@ -210,7 +262,13 @@ func runConfigureBuildx(ctx context.Context, dockerCli command.Cli, project, tok
 
 	version := build.Version
 
-	image := "public.ecr.aws/depot/cli:" + version
+	image, err := resolveDriverImage(ctx, dockerCli, driverImageCandidates(version))
+	if err != nil {
+		return fmt.Errorf("unable create driver container: %w", err)
+	}
+	if want := depotCLIImageRepo + version; image != want {
+		fmt.Fprintf(os.Stderr, "depot: driver image %s is not published yet, falling back to %s\n", want, image)
+	}
 
 	nodeName := "depot_" + projectName
 	ng := &store.NodeGroup{
@@ -372,18 +430,29 @@ func UpdateDrivers(ctx context.Context, dockerCli command.Cli) error {
 		version = "latest"
 	}
 
+	// Resolve the target driver image once, falling back to floating tags when
+	// the exact version image isn't published yet (DEP-5314). If none resolve,
+	// leave the existing drivers untouched rather than pinning an unavailable tag.
+	resolvedImage, err := resolveDriverImage(ctx, dockerCli, driverImageCandidates(version))
+	if err != nil {
+		return fmt.Errorf("unable to resolve driver image: %w", err)
+	}
+	if want := depotCLIImageRepo + version; resolvedImage != want {
+		fmt.Fprintf(os.Stderr, "depot: driver image %s is not published yet, falling back to %s\n", want, resolvedImage)
+	}
+
 	for _, nodeGroup := range nodeGroups {
 		var save bool
 		for i, node := range nodeGroup.Nodes {
 			image := node.DriverOpts["image"]
 			if strings.HasPrefix(image, "ghcr.io/depot/cli") || strings.HasPrefix(image, "public.ecr.aws/depot/cli") {
-				nodeGroup.Nodes[i].DriverOpts["image"] = "public.ecr.aws/depot/cli:" + version
+				nodeGroup.Nodes[i].DriverOpts["image"] = resolvedImage
 				save = true
 
 				projectName := node.DriverOpts["env.DEPOT_PROJECT_ID"]
 				token := node.DriverOpts["env.DEPOT_TOKEN"]
 				platform := node.DriverOpts["env.DEPOT_PLATFORM"]
-				_ = Bootstrap(ctx, dockerCli, "public.ecr.aws/depot/cli:"+version, projectName, token, platform)
+				_ = Bootstrap(ctx, dockerCli, resolvedImage, projectName, token, platform)
 			}
 
 		}
