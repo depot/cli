@@ -37,7 +37,7 @@ func NewCmdPull() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "pull [flags] [buildID|tag]",
 		Short: "Pull a project's build from the Depot registry",
-		Args:  cli.RequiresMaxArgs(1),
+		Args:  cobra.MatchAll(cli.RequiresMaxArgs(1), requireNonEmptyArg),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			dockerCli, err := dockerclient.NewDockerCLI()
 			if err != nil {
@@ -148,6 +148,13 @@ func NewCmdPull() *cobra.Command {
 	cmd.Flags().StringSliceVar(&targets, "target", nil, "Pulls image for specific bake targets")
 
 	return cmd
+}
+
+func requireNonEmptyArg(_ *cobra.Command, args []string) error {
+	if len(args) == 1 && args[0] == "" {
+		return fmt.Errorf("build ID or tag must not be empty")
+	}
+	return nil
 }
 
 // extractProjectIDAndTag extracts project ID and tag from a registry reference
