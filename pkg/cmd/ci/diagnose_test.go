@@ -53,6 +53,7 @@ func TestDiagnoseHumanGroupedOutputWithOrgQualifiedCommands(t *testing.T) {
 		"3 failures",
 		"Diagnosis:\n    Unit tests failed in package pkg/cmd/ci.",
 		"Possible fix:\n    Fix the failing assertion and rerun tests.",
+		"This diagnosis is AI-generated and can make mistakes.",
 		"Attempts:",
 		"- #2 att-1  ci.yml:test (failed)",
 		"Evidence:",
@@ -73,6 +74,9 @@ func TestDiagnoseHumanGroupedOutputWithOrgQualifiedCommands(t *testing.T) {
 	}
 	if count := strings.Count(stdout, "Fix the failing assertion and rerun tests."); count != 1 {
 		t.Fatalf("possible fix rendered %d times, want group-level only:\n%s", count, stdout)
+	}
+	if count := strings.Count(stdout, "This diagnosis is AI-generated and can make mistakes."); count != 1 {
+		t.Fatalf("AI disclosure rendered %d times, want once per command output:\n%s", count, stdout)
 	}
 	if count := strings.Count(stdout, "go test ./... failed"); count != 1 {
 		t.Fatalf("group error rendered %d times, want group heading only:\n%s", count, stdout)
@@ -271,8 +275,137 @@ func TestDiagnoseFocusedTextIgnoresFailureGroups(t *testing.T) {
 	if count := strings.Count(stdout, "Unit tests failed in package pkg/cmd/ci."); count != 1 {
 		t.Fatalf("focused diagnosis rendered %d times, want once:\n%s", count, stdout)
 	}
+	if count := strings.Count(stdout, "This diagnosis is AI-generated and can make mistakes."); count != 1 {
+		t.Fatalf("AI disclosure rendered %d times, want once per command output:\n%s", count, stdout)
+	}
 	if strings.Contains(stdout, "group-level diagnosis should stay JSON-only") {
 		t.Fatalf("focused text output leaked group diagnosis:\n%s", stdout)
+	}
+}
+
+func TestGroupedDiagnosisAIDisclosure(t *testing.T) {
+	tests := []struct {
+		name           string
+		configure      func(*civ1.GetFailureDiagnosisResponse)
+		wantDisclosure int
+		wantOutputText []string
+	}{
+		{
+			name: "multiple AI-bearing groups",
+			configure: func(resp *civ1.GetFailureDiagnosisResponse) {
+				resp.FailureGroups = append(resp.FailureGroups, &civ1.FailureGroup{
+					Count:        1,
+					ErrorMessage: "second failure",
+					Diagnosis:    "Second diagnosis.",
+					PossibleFix:  "Second possible fix.",
+				})
+			},
+			wantDisclosure: 1,
+			wantOutputText: []string{
+				"Unit tests failed in package pkg/cmd/ci.",
+				"Fix the failing assertion and rerun tests.",
+				"Second diagnosis.",
+				"Second possible fix.",
+			},
+		},
+		{
+			name: "possible fix only",
+			configure: func(resp *civ1.GetFailureDiagnosisResponse) {
+				resp.FailureGroups[0].Diagnosis = ""
+			},
+			wantDisclosure: 1,
+			wantOutputText: []string{"Fix the failing assertion and rerun tests."},
+		},
+		{
+			name: "no AI fields",
+			configure: func(resp *civ1.GetFailureDiagnosisResponse) {
+				resp.FailureGroups[0].Diagnosis = ""
+				resp.FailureGroups[0].PossibleFix = ""
+			},
+			wantDisclosure: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resp := groupedDiagnosisResponse(true)
+			tt.configure(resp)
+
+			var output bytes.Buffer
+			printGroupedDiagnosis(&output, resp, "org-123")
+
+			if count := strings.Count(output.String(), aiDiagnosisDisclosure); count != tt.wantDisclosure {
+				t.Fatalf("AI disclosure rendered %d times, want %d:\n%s", count, tt.wantDisclosure, output.String())
+			}
+			for _, want := range tt.wantOutputText {
+				if !strings.Contains(output.String(), want) {
+					t.Fatalf("grouped output missing %q:\n%s", want, output.String())
+				}
+			}
+		})
+	}
+}
+
+func TestFocusedDiagnosisAIDisclosure(t *testing.T) {
+	tests := []struct {
+		name           string
+		configure      func(*civ1.GetFailureDiagnosisResponse)
+		wantDisclosure int
+		wantOutputText []string
+	}{
+		{
+			name: "multiple AI-bearing attempts",
+			configure: func(resp *civ1.GetFailureDiagnosisResponse) {
+				second := diagnoseRepresentative(true)
+				second.AttemptId = "att-2"
+				second.Attempt = 3
+				second.Diagnosis = "Second diagnosis."
+				second.PossibleFix = "Second possible fix."
+				resp.RepresentativeAttempts = append(resp.RepresentativeAttempts, second)
+			},
+			wantDisclosure: 1,
+			wantOutputText: []string{
+				"Unit tests failed in package pkg/cmd/ci.",
+				"Fix the failing assertion and rerun tests.",
+				"Second diagnosis.",
+				"Second possible fix.",
+			},
+		},
+		{
+			name: "possible fix only",
+			configure: func(resp *civ1.GetFailureDiagnosisResponse) {
+				resp.RepresentativeAttempts[0].Diagnosis = ""
+			},
+			wantDisclosure: 1,
+			wantOutputText: []string{"Fix the failing assertion and rerun tests."},
+		},
+		{
+			name: "no AI fields",
+			configure: func(resp *civ1.GetFailureDiagnosisResponse) {
+				resp.RepresentativeAttempts[0].Diagnosis = ""
+				resp.RepresentativeAttempts[0].PossibleFix = ""
+			},
+			wantDisclosure: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resp := focusedDiagnosisResponse(true)
+			tt.configure(resp)
+
+			var output bytes.Buffer
+			printFocusedDiagnosis(&output, resp, "org-123")
+
+			if count := strings.Count(output.String(), aiDiagnosisDisclosure); count != tt.wantDisclosure {
+				t.Fatalf("AI disclosure rendered %d times, want %d:\n%s", count, tt.wantDisclosure, output.String())
+			}
+			for _, want := range tt.wantOutputText {
+				if !strings.Contains(output.String(), want) {
+					t.Fatalf("focused output missing %q:\n%s", want, output.String())
+				}
+			}
+		})
 	}
 }
 

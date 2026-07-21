@@ -18,6 +18,7 @@ var ciDiagnose = api.CIGetFailureDiagnosis
 const (
 	diagnoseTextWidth     = 96
 	maxGroupEvidenceLines = 5
+	aiDiagnosisDisclosure = "This diagnosis is AI-generated and can make mistakes."
 )
 
 func NewCmdDiagnose() *cobra.Command {
@@ -272,11 +273,18 @@ func printFocusedDiagnosis(w io.Writer, resp *civ1.GetFailureDiagnosisResponse, 
 	}
 
 	fmt.Fprintln(w, "Focused diagnosis:")
+	hasAIDiagnosis := false
 	for _, representative := range resp.GetRepresentativeAttempts() {
+		if representative.GetDiagnosis() != "" || representative.GetPossibleFix() != "" {
+			hasAIDiagnosis = true
+		}
 		printRepresentativeAttempt(w, resp.GetOrgId(), representative, resp.GetCommandCapabilities(), commandOrgID, "  ")
 	}
 	printSummaryUnavailableNote(w, resp.GetCommandCapabilities())
 	printBoundsSummary(w, resp)
+	if hasAIDiagnosis {
+		fmt.Fprintf(w, "\n%s\n", aiDiagnosisDisclosure)
+	}
 }
 
 func printGroupedDiagnosis(w io.Writer, resp *civ1.GetFailureDiagnosisResponse, commandOrgID string) {
@@ -291,6 +299,7 @@ func printGroupedDiagnosis(w io.Writer, resp *civ1.GetFailureDiagnosisResponse, 
 	} else {
 		fmt.Fprintf(w, "Failure groups: %d\n", len(resp.GetFailureGroups()))
 	}
+	hasAIDiagnosis := false
 	for i, group := range resp.GetFailureGroups() {
 		fmt.Fprintf(w, "\nGroup %d: %s\n", i+1, firstNonEmpty(group.GetErrorMessage(), "failure group"))
 		fmt.Fprintf(w, "  %d %s\n", group.GetCount(), pluralize("failure", int(group.GetCount())))
@@ -313,6 +322,9 @@ func printGroupedDiagnosis(w io.Writer, resp *civ1.GetFailureDiagnosisResponse, 
 			fmt.Fprintln(w)
 			printWrappedSection(w, "Possible fix", group.GetPossibleFix(), "  ")
 		}
+		if group.GetDiagnosis() != "" || group.GetPossibleFix() != "" {
+			hasAIDiagnosis = true
+		}
 		if len(group.GetRepresentatives()) > 0 {
 			fmt.Fprintln(w)
 			fmt.Fprintln(w, "  Attempts:")
@@ -332,6 +344,9 @@ func printGroupedDiagnosis(w io.Writer, resp *civ1.GetFailureDiagnosisResponse, 
 	}
 	printSummaryUnavailableNote(w, resp.GetCommandCapabilities())
 	printBoundsSummary(w, resp)
+	if hasAIDiagnosis {
+		fmt.Fprintf(w, "\n%s\n", aiDiagnosisDisclosure)
+	}
 }
 
 func printCompactRepresentativeAttempt(w io.Writer, orgID string, representative *civ1.RepresentativeAttempt, capabilities *civ1.FailureDiagnosisCommandCapabilities, commandOrgID string, indent string, showError bool) {
