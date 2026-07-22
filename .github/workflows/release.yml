@@ -9,8 +9,62 @@ permissions:
   id-token: write
 
 jobs:
+  # Build and push the container image before the CLI binaries are released.
+  # `latest` only flips to a version once goreleaser uploads its binaries, and
+  # the release job now waits on this one, so the driver image is always present
+  # by the time `latest` points at the new version. If the image push fails, the
+  # release job is skipped and the release never completes (DEP-5314).
+  package:
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v') && !contains(github.ref, 'dev-')
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v6
+      - uses: depot/setup-action@v1
+      - uses: docker/metadata-action@v6
+        id: meta
+        with:
+          images: |
+            ghcr.io/depot/cli
+            public.ecr.aws/depot/cli
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+      - id: build-info
+        name: Set build information
+        run: |
+          echo "version=${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.version'] }}" >> $GITHUB_OUTPUT
+          echo "date=$(date +'%Y-%m-%d')" >> $GITHUB_OUTPUT
+          echo "sentry-environment=release" >> $GITHUB_OUTPUT
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: arn:aws:iam::375021575472:role/github-actions
+          aws-region: us-east-1
+      - uses: aws-actions/amazon-ecr-login@v2
+        with:
+          registry-type: public
+      - uses: depot/build-push-action@v1
+        with:
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          platforms: linux/amd64,linux/arm64
+          build-args: |
+            LDFLAGS=-s -w -X github.com/depot/cli/internal/build.Version=${{ steps.build-info.outputs.version }} -X github.com/depot/cli/internal/build.Date=${{ steps.build-info.outputs.date }} -X github.com/depot/cli/internal/build.SentryEnvironment=${{ steps.build-info.outputs.sentry-environment }}
+
   release:
     runs-on: ubuntu-latest-16-cores
+    needs: package
     if: startsWith(github.ref, 'refs/tags/v') && !contains(github.ref, 'dev-')
     steps:
       - uses: actions/checkout@v6
