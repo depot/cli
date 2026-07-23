@@ -726,6 +726,10 @@ type CISecretVariant struct {
 	Attributes      []CIVariantAttribute `json:"attributes,omitempty"`
 	LastModified    string               `json:"lastModified,omitempty"`
 	ValueGroupIndex *uint32              `json:"valueGroupIndex,omitempty"`
+	// Resolution is populated by list requests that carry a job context. It reports whether this
+	// variant wins for that context ("resolved"), is outranked by another variant ("lower-priority"),
+	// or could still win with more context ("indeterminate"). Empty when no context was supplied.
+	Resolution string `json:"resolution,omitempty"`
 }
 
 type CIListSecretVariantsOptions struct {
@@ -761,13 +765,16 @@ type CISetSecretVariantResult struct {
 func CIListSecretVariants(ctx context.Context, token, orgID string, opts CIListSecretVariantsOptions) (CIListSecretVariantsResult, error) {
 	client := newCISecretServiceV3Beta2Client()
 
-	attrs := ciAttributes(opts.Repo, opts.Environment, opts.Branch, opts.Workflow)
+	// The selectors describe a job context, so send them as `context`: the server annotates every
+	// variant with its resolution (winner / shadowed / indeterminate) and orders winners first,
+	// rather than filtering variants out. This is what makes variant shadowing visible.
+	context := ciAttributes(opts.Repo, opts.Environment, opts.Branch, opts.Workflow)
 	result := CIListSecretVariantsResult{Secrets: []CISecretGroup{}}
 	for page := uint32(ciDefaultPage); ; page++ {
 		resp, err := client.ListSecrets(ctx, WithAuthenticationAndOrg(connect.NewRequest(&civ3beta2.ListSecretsRequest{
-			Page:       ciPageRequest(page),
-			Query:      opts.Query,
-			Attributes: attrs,
+			Page:    ciPageRequest(page),
+			Query:   opts.Query,
+			Context: context,
 		}), token, orgID))
 		if err != nil {
 			return CIListSecretVariantsResult{}, err
@@ -941,6 +948,11 @@ type CIVariableGroup struct {
 	Variants     []CIVariableVariant `json:"variants"`
 	VariantCount uint32              `json:"variantCount"`
 	LastModified string              `json:"lastModified,omitempty"`
+	// Resolution is populated by list requests that carry a job context. Unlike secrets, variables
+	// report resolution only at the group level: "resolved" means the first (winner-ordered) variant
+	// is the definite winner for that context and any later variants are shadowed; "indeterminate"
+	// means more context is needed to pick a winner. Empty when no context was supplied.
+	Resolution string `json:"resolution,omitempty"`
 }
 
 // CIVariableVariant contains metadata and value for one named CI variable variant.
@@ -987,13 +999,16 @@ type CISetVariableVariantResult struct {
 func CIListVariableVariants(ctx context.Context, token, orgID string, opts CIListVariableVariantsOptions) (CIListVariableVariantsResult, error) {
 	client := newCIVariableServiceV3Beta2Client()
 
-	attrs := ciAttributes(opts.Repo, opts.Environment, opts.Branch, opts.Workflow)
+	// The selectors describe a job context, so send them as `context`: the server annotates the
+	// variable group with its resolution and orders variants winner-first, rather than filtering
+	// variants out. This is what makes variant shadowing visible (mirrors CIListSecretVariants).
+	context := ciAttributes(opts.Repo, opts.Environment, opts.Branch, opts.Workflow)
 	result := CIListVariableVariantsResult{Variables: []CIVariableGroup{}}
 	for page := uint32(ciDefaultPage); ; page++ {
 		resp, err := client.ListVariables(ctx, WithAuthenticationAndOrg(connect.NewRequest(&civ3beta2.ListVariablesRequest{
-			Page:       ciPageRequest(page),
-			Query:      opts.Query,
-			Attributes: attrs,
+			Page:    ciPageRequest(page),
+			Query:   opts.Query,
+			Context: context,
 		}), token, orgID))
 		if err != nil {
 			return CIListVariableVariantsResult{}, err
@@ -1154,6 +1169,20 @@ func secretVariantFromProto(variant *civ3beta2.SecretVariant) CISecretVariant {
 		Attributes:      ciAttributesFromProto(variant.GetAttributes()),
 		LastModified:    ciTimeString(variant.GetLastModified()),
 		ValueGroupIndex: variant.ValueGroupIndex,
+		Resolution:      variantResolutionString(variant.GetResolution()),
+	}
+}
+
+func variantResolutionString(r civ3beta2.VariantResolution) string {
+	switch r {
+	case civ3beta2.VariantResolution_VARIANT_RESOLUTION_RESOLVED:
+		return "resolved"
+	case civ3beta2.VariantResolution_VARIANT_RESOLUTION_INDETERMINATE:
+		return "indeterminate"
+	case civ3beta2.VariantResolution_VARIANT_RESOLUTION_LOWER_PRIORITY:
+		return "lower-priority"
+	default:
+		return ""
 	}
 }
 
@@ -1175,6 +1204,7 @@ func variableGroupFromProto(variable *civ3beta2.Variable) CIVariableGroup {
 		Variants:     variableVariantsFromProto(variable.GetVariants()),
 		VariantCount: variable.GetVariantCount(),
 		LastModified: ciTimeString(variable.GetLastModified()),
+		Resolution:   variantResolutionString(variable.GetResolution()),
 	}
 }
 

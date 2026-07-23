@@ -150,6 +150,7 @@ named "default".`,
 			}
 
 			fmt.Printf("Successfully set CI secret '%s' variant '%s'\n", secretName, displayVariantName(result.Variant.Name))
+			warnSecretVariantShadowed(ctx, tokenVal, orgID, result, newShadowProbeBudget(maxShadowProbes))
 			return nil
 		},
 	}
@@ -260,8 +261,9 @@ Without match flags, the variant applies to all workflow runs in the organizatio
 					secrets = append(secrets, secretInput{name: parts[0], value: parts[1]})
 				}
 
+				results := make([]api.CISetSecretVariantResult, 0, len(secrets))
 				for _, secret := range secrets {
-					_, err := api.CISetSecretVariant(ctx, tokenVal, orgID, api.CISetSecretVariantOptions{
+					result, err := api.CISetSecretVariant(ctx, tokenVal, orgID, api.CISetSecretVariantOptions{
 						Name:        secret.name,
 						Variant:     variant,
 						Value:       secret.value,
@@ -273,10 +275,15 @@ Without match flags, the variant applies to all workflow runs in the organizatio
 					if err != nil {
 						return fmt.Errorf("failed to add secret '%s': %w", secret.name, err)
 					}
+					results = append(results, result)
 				}
 
 				for _, s := range secrets {
 					printSecretAddSuccess(s.name, variant, scope)
+				}
+				budget := newShadowProbeBudget(maxShadowProbes)
+				for _, result := range results {
+					warnSecretVariantShadowed(ctx, tokenVal, orgID, result, budget)
 				}
 				return nil
 			}
@@ -302,7 +309,7 @@ Without match flags, the variant applies to all workflow runs in the organizatio
 				}
 			}
 
-			_, err = api.CISetSecretVariant(ctx, tokenVal, orgID, api.CISetSecretVariantOptions{
+			result, err := api.CISetSecretVariant(ctx, tokenVal, orgID, api.CISetSecretVariantOptions{
 				Name:        secretName,
 				Variant:     variant,
 				Value:       secretValue,
@@ -317,6 +324,7 @@ Without match flags, the variant applies to all workflow runs in the organizatio
 			}
 
 			printSecretAddSuccess(secretName, variant, scope)
+			warnSecretVariantShadowed(ctx, tokenVal, orgID, result, newShadowProbeBudget(maxShadowProbes))
 			return nil
 		},
 	}
@@ -407,8 +415,9 @@ secret in the input.`,
 				return fmt.Errorf("no secrets found in input")
 			}
 
+			results := make([]api.CISetSecretVariantResult, 0, len(secrets))
 			for _, secret := range secrets {
-				_, err := api.CISetSecretVariant(ctx, tokenVal, orgID, api.CISetSecretVariantOptions{
+				result, err := api.CISetSecretVariant(ctx, tokenVal, orgID, api.CISetSecretVariantOptions{
 					Name:        secret.name,
 					Variant:     variant,
 					Value:       secret.value,
@@ -420,11 +429,16 @@ secret in the input.`,
 				if err != nil {
 					return fmt.Errorf("failed to import secret '%s': %w", secret.name, err)
 				}
+				results = append(results, result)
 			}
 
 			scope := variantScope(repo)
 			for _, secret := range secrets {
 				printSecretAddSuccess(secret.name, variant, scope)
+			}
+			budget := newShadowProbeBudget(maxShadowProbes)
+			for _, result := range results {
+				warnSecretVariantShadowed(ctx, tokenVal, orgID, result, budget)
 			}
 			return nil
 		},
@@ -624,16 +638,23 @@ func NewCmdSecretsList() *cobra.Command {
 		Short: "List all CI secrets",
 		Long: `List CI secrets and their variants.
 
-Use --repo, --env, --branch, and --workflow to filter variants by matching
-attributes. Passing a secret name lists one grouped secret.`,
-		Example: `  # List org-wide secrets
+A secret can have several variants (for example a repo-scoped variant and a
+default). At runtime the most specific matching variant wins, so a repo-scoped
+variant silently overrides the default for that repository.
+
+Pass --repo, --env, --branch, and --workflow to describe a job context. Each
+variant is then marked with whether it wins that context (active), is overridden
+by a more specific variant (shadowed), or could still win with more context (may
+win) — which makes shadowing visible. Passing a secret name lists just that
+secret.`,
+		Example: `  # List all secrets and their variants
   depot ci secrets list
 
-  # List variants matching repositories or branches
-  depot ci secrets list --repo owner/repo --repo owner/other --branch main
+  # Show which variant wins for a repository (reveals shadowing)
+  depot ci secrets list NPM_TOKEN --repo owner/repo
 
-  # List one secret with its variants
-  depot ci secrets list MY_API_KEY
+  # Resolve against a fuller job context
+  depot ci secrets list --repo owner/repo --branch main --env production
 
   # List secrets in JSON format
   depot ci secrets list --output json`,
@@ -668,27 +689,48 @@ attributes. Passing a secret name lists one grouped secret.`,
 				}
 			}
 
-			var result api.CIListSecretVariantsResult
+			// The selectors describe a job context. Route both the single-secret and list-all cases
+			// through the same context-aware RPC so the server annotates each variant with its
+			// resolution (which one wins, which are shadowed) and orders winners first. The server
+			// also decides which variants are relevant to the context (with the same pattern
+			// semantics it uses at runtime), so we deliberately do not re-filter variants here — a
+			// client-side filter would risk dropping a variant the server just resolved.
+			hasContext := hasVariantSelectors(repo, environment, branch, workflow)
+			opts := api.CIListSecretVariantsOptions{
+				Repo:        repo,
+				Environment: environment,
+				Branch:      branch,
+				Workflow:    workflow,
+			}
 			if len(args) == 1 {
-				secret, err := api.CIGetSecretVariantGroup(ctx, tokenVal, orgID, args[0])
-				if err != nil {
-					return fmt.Errorf("failed to get secret: %w", err)
-				}
-				result.Secrets = []api.CISecretGroup{filterSecretVariantsForList(secret, repo, environment, branch, workflow)}
-			} else {
-				var err error
-				result, err = api.CIListSecretVariants(ctx, tokenVal, orgID, api.CIListSecretVariantsOptions{
-					Repo:        nil,
-					Environment: nil,
-					Branch:      nil,
-					Workflow:    nil,
-				})
-				if err != nil {
-					return fmt.Errorf("failed to list secrets: %w", err)
-				}
+				opts.Query = args[0]
+			}
+
+			result, err := api.CIListSecretVariants(ctx, tokenVal, orgID, opts)
+			if err != nil {
+				return fmt.Errorf("failed to list secrets: %w", err)
+			}
+
+			if len(args) == 1 {
+				// `query` is a substring match, so narrow to the exact secret. Preserve the
+				// direct-lookup behavior of reporting a missing secret as an error rather than an
+				// empty list.
 				filtered := result.Secrets[:0]
 				for i := range result.Secrets {
-					result.Secrets[i] = filterSecretVariantsForList(result.Secrets[i], repo, environment, branch, workflow)
+					if strings.EqualFold(result.Secrets[i].Name, args[0]) {
+						filtered = append(filtered, result.Secrets[i])
+					}
+				}
+				result.Secrets = filtered
+				if len(result.Secrets) == 0 {
+					return fmt.Errorf("secret %q not found", args[0])
+				}
+			} else if hasContext {
+				// With a context, the server returns every secret annotated for that context. Drop
+				// secrets that have no variant relevant to it so the listing stays focused, matching
+				// the behavior of `variables list`.
+				filtered := result.Secrets[:0]
+				for i := range result.Secrets {
 					if len(result.Secrets[i].Variants) > 0 {
 						filtered = append(filtered, result.Secrets[i])
 					}
@@ -705,23 +747,7 @@ attributes. Passing a secret name lists one grouped secret.`,
 				return nil
 			}
 
-			fmt.Printf("%-30s %-18s %-38s %s\n", "NAME", "VARIANT", "DESCRIPTION", "UPDATED")
-			fmt.Printf("%-30s %-18s %-38s %s\n", strings.Repeat("-", 30), strings.Repeat("-", 18), strings.Repeat("-", 38), strings.Repeat("-", 20))
-			for _, secret := range result.Secrets {
-				if len(secret.Variants) == 0 {
-					fmt.Printf("%-30s %-18s %-38s %s\n", truncateForTable(secret.Name, 30), "-", "-", secret.LastModified)
-					continue
-				}
-				for _, variant := range secret.Variants {
-					fmt.Printf("%-30s %-18s %-38s %s\n",
-						truncateForTable(secret.Name, 30),
-						truncateForTable(displayVariantName(variant.Name), 18),
-						truncateForTable(variant.Description, 38),
-						variant.LastModified,
-					)
-				}
-			}
-
+			printSecretVariantsTable(result.Secrets, hasContext)
 			return nil
 		},
 	}
@@ -729,12 +755,75 @@ attributes. Passing a secret name lists one grouped secret.`,
 	cmd.Flags().StringVar(&orgID, "org", "", "Organization ID (required when user is a member of multiple organizations)")
 	cmd.Flags().StringVar(&token, "token", "", "Depot API token")
 	cmd.Flags().StringVar(&output, "output", "", "Output format (json)")
-	cmd.Flags().StringArrayVar(&repo, "repo", nil, "Filter variants by repository (repeatable, e.g. owner/repo)")
-	cmd.Flags().StringArrayVar(&environment, "env", nil, "Filter variants by environment (repeatable)")
-	cmd.Flags().StringArrayVar(&branch, "branch", nil, "Filter variants by branch (repeatable)")
-	cmd.Flags().StringArrayVar(&workflow, "workflow", nil, "Filter variants by workflow file (repeatable)")
+	cmd.Flags().StringArrayVar(&repo, "repo", nil, "Repository to resolve variants against, e.g. owner/repo (repeatable)")
+	cmd.Flags().StringArrayVar(&environment, "env", nil, "Environment to resolve variants against (repeatable)")
+	cmd.Flags().StringArrayVar(&branch, "branch", nil, "Branch to resolve variants against (repeatable)")
+	cmd.Flags().StringArrayVar(&workflow, "workflow", nil, "Workflow file to resolve variants against (repeatable)")
 
 	return cmd
+}
+
+// printSecretVariantsTable renders secrets and their variants. When hasContext is true the request
+// carried a job context, so each variant shows a STATUS that reveals which one wins and which are
+// silently overridden. STATUS is the last column because its labels are the widest and variable in
+// length. Without context there is no single winner to report, so the STATUS column is omitted and a
+// hint points at the selector flags.
+func printSecretVariantsTable(secrets []api.CISecretGroup, hasContext bool) {
+	const (
+		nameWidth    = 28
+		varWidth     = 16
+		scopeWidth   = 30
+		updatedWidth = 20
+	)
+
+	if hasContext {
+		fmt.Printf("%-*s %-*s %-*s %-*s %s\n", nameWidth, "NAME", varWidth, "VARIANT", scopeWidth, "SCOPE", updatedWidth, "UPDATED", "STATUS")
+		fmt.Printf("%-*s %-*s %-*s %-*s %s\n", nameWidth, strings.Repeat("-", nameWidth), varWidth, strings.Repeat("-", varWidth), scopeWidth, strings.Repeat("-", scopeWidth), updatedWidth, strings.Repeat("-", updatedWidth), strings.Repeat("-", 12))
+	} else {
+		fmt.Printf("%-*s %-*s %-*s %s\n", nameWidth, "NAME", varWidth, "VARIANT", scopeWidth, "SCOPE", "UPDATED")
+		fmt.Printf("%-*s %-*s %-*s %s\n", nameWidth, strings.Repeat("-", nameWidth), varWidth, strings.Repeat("-", varWidth), scopeWidth, strings.Repeat("-", scopeWidth), strings.Repeat("-", updatedWidth))
+	}
+
+	multipleVariants := false
+	for _, secret := range secrets {
+		if secret.VariantCount > 1 || len(secret.Variants) > 1 {
+			multipleVariants = true
+		}
+		if len(secret.Variants) == 0 {
+			if hasContext {
+				fmt.Printf("%-*s %-*s %-*s %-*s %s\n", nameWidth, truncateForTable(secret.Name, nameWidth), varWidth, "-", scopeWidth, "-", updatedWidth, secret.LastModified, "-")
+			} else {
+				fmt.Printf("%-*s %-*s %-*s %s\n", nameWidth, truncateForTable(secret.Name, nameWidth), varWidth, "-", scopeWidth, "-", secret.LastModified)
+			}
+			continue
+		}
+		for _, variant := range secret.Variants {
+			scope := truncateForTable(formatVariantAttributes(variant.Attributes), scopeWidth)
+			if hasContext {
+				fmt.Printf("%-*s %-*s %-*s %-*s %s\n",
+					nameWidth, truncateForTable(secret.Name, nameWidth),
+					varWidth, truncateForTable(displayVariantName(variant.Name), varWidth),
+					scopeWidth, scope,
+					updatedWidth, variant.LastModified,
+					variantStatusLabel(variant.Resolution),
+				)
+			} else {
+				fmt.Printf("%-*s %-*s %-*s %s\n",
+					nameWidth, truncateForTable(secret.Name, nameWidth),
+					varWidth, truncateForTable(displayVariantName(variant.Name), varWidth),
+					scopeWidth, scope,
+					variant.LastModified,
+				)
+			}
+		}
+	}
+
+	fmt.Println()
+	if hasContext {
+		fmt.Println("STATUS: active (wins) = wins this context · shadowed = overridden by a more specific variant · may win = could win with more context")
+	} else if multipleVariants {
+		fmt.Println("Some secrets have more than one variant. Pass --repo, --env, --branch, or --workflow to see which one wins.")
+	}
 }
 
 func NewCmdSecretsRemove() *cobra.Command {

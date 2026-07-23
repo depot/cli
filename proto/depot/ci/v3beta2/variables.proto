@@ -7,6 +7,7 @@ import "depot/ci/v3beta2/types.proto";
 
 service VariableService {
   rpc ListVariables(ListVariablesRequest) returns (ListVariablesResponse);
+  rpc ListVariableAttributes(ListVariableAttributesRequest) returns (ListVariableAttributesResponse);
   rpc GetVariable(GetVariableRequest) returns (GetVariableResponse);
   rpc GetVariableVariant(GetVariableVariantRequest) returns (GetVariableVariantResponse);
 
@@ -24,6 +25,7 @@ message Variable {
   repeated VariableVariant variants = 3;
   uint32 variant_count = 4;
   optional google.protobuf.Timestamp last_modified = 5;
+  VariantResolution resolution = 6;
 }
 
 message VariableVariant {
@@ -40,11 +42,21 @@ message ListVariablesRequest {
   PageRequest page = 1;
   string query = 2;
   repeated Attribute attributes = 3;
+
+  // Optional job context for variants that could apply to a workflow run.
+  // Variants without a context key match all values for that key.
+  repeated Attribute context = 4;
 }
 
 message ListVariablesResponse {
   repeated Variable variables = 1;
   PageResponse page = 2;
+}
+
+message ListVariableAttributesRequest {}
+
+message ListVariableAttributesResponse {
+  repeated AttributeLinkCount attributes = 1;
 }
 
 message GetVariableRequest {

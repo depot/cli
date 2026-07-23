@@ -1,0 +1,262 @@
+package ci
+
+import (
+	"testing"
+
+	"github.com/depot/cli/pkg/api"
+)
+
+func TestVariantStatusLabel(t *testing.T) {
+	cases := map[string]string{
+		"resolved":       "active (wins)",
+		"lower-priority": "shadowed",
+		"indeterminate":  "may win (needs branch/env)",
+		"":               "-",
+		"unknown":        "-",
+	}
+	for resolution, want := range cases {
+		if got := variantStatusLabel(resolution); got != want {
+			t.Errorf("variantStatusLabel(%q) = %q, want %q", resolution, got, want)
+		}
+	}
+}
+
+func TestContextFromAttributes(t *testing.T) {
+	repo, env, branch, workflow := contextFromAttributes([]api.CIVariantAttribute{
+		{Key: "repository", Value: "owner/repo"},
+		{Key: "environment", Value: "production"},
+		{Key: "branch", Value: "main"},
+		{Key: "workflow", Value: "deploy.yml"},
+		{Key: "unknown", Value: "ignored"},
+	})
+	if len(repo) != 1 || repo[0] != "owner/repo" {
+		t.Errorf("repo = %v", repo)
+	}
+	if len(env) != 1 || env[0] != "production" {
+		t.Errorf("env = %v", env)
+	}
+	if len(branch) != 1 || branch[0] != "main" {
+		t.Errorf("branch = %v", branch)
+	}
+	if len(workflow) != 1 || workflow[0] != "deploy.yml" {
+		t.Errorf("workflow = %v", workflow)
+	}
+}
+
+func TestSelectorHintFromAttributes(t *testing.T) {
+	got := selectorHintFromAttributes([]api.CIVariantAttribute{
+		{Key: "repository", Value: "owner/repo"},
+		{Key: "environment", Value: "production"},
+	})
+	want := "--repo owner/repo --env production"
+	if got != want {
+		t.Errorf("selectorHintFromAttributes = %q, want %q", got, want)
+	}
+	if selectorHintFromAttributes(nil) != "" {
+		t.Errorf("empty attributes should yield empty hint")
+	}
+}
+
+func TestScopesDisjoint(t *testing.T) {
+	written := map[string]map[string]bool{
+		"repository": {"owner/repo": true},
+	}
+
+	// Sibling constrains the same repository with a different value: disjoint, no job matches both.
+	if !scopesDisjoint(written, []api.CIVariantAttribute{{Key: "repository", Value: "owner/other"}}) {
+		t.Error("different repository values should be disjoint")
+	}
+	// Sibling constrains a dimension the written variant leaves open: not disjoint.
+	if scopesDisjoint(written, []api.CIVariantAttribute{{Key: "environment", Value: "production"}}) {
+		t.Error("widening a new dimension should not be disjoint")
+	}
+	// Sibling agrees on the shared dimension: not disjoint.
+	if scopesDisjoint(written, []api.CIVariantAttribute{{Key: "repository", Value: "owner/repo"}}) {
+		t.Error("matching repository values should not be disjoint")
+	}
+	// Repeatable values on a shared dimension: overlap on any value means not disjoint.
+	if scopesDisjoint(written, []api.CIVariantAttribute{
+		{Key: "repository", Value: "owner/repo"},
+		{Key: "repository", Value: "owner/other"},
+		{Key: "branch", Value: "main"},
+	}) {
+		t.Error("a sibling that includes the written repository among several should not be disjoint")
+	}
+	// Shared dimension with no overlapping value: disjoint.
+	if !scopesDisjoint(written, []api.CIVariantAttribute{
+		{Key: "repository", Value: "owner/a"},
+		{Key: "repository", Value: "owner/b"},
+	}) {
+		t.Error("a sibling constraining repository to entirely different values should be disjoint")
+	}
+}
+
+func TestMergeScopes(t *testing.T) {
+	written := []api.CIVariantAttribute{{Key: "repository", Value: "owner/repo"}}
+	sibling := []api.CIVariantAttribute{
+		{Key: "repository", Value: "owner/repo"},  // already constrained: not duplicated
+		{Key: "environment", Value: "production"}, // new dimension: added
+	}
+	merged := mergeScopes(written, sibling)
+	if len(merged) != 2 {
+		t.Fatalf("merged = %v, want 2 attributes", merged)
+	}
+	seen := map[string]string{}
+	for _, attr := range merged {
+		seen[attr.Key] = attr.Value
+	}
+	if seen["repository"] != "owner/repo" || seen["environment"] != "production" {
+		t.Errorf("merged scope = %v", seen)
+	}
+}
+
+func TestShadowingWinner(t *testing.T) {
+	secrets := []api.CISecretGroup{{
+		Name: "NPM_TOKEN",
+		Variants: []api.CISecretVariant{
+			{ID: "written", Name: "default", Resolution: "lower-priority"},
+			{ID: "repo", Name: "default", Attributes: []api.CIVariantAttribute{{Key: "repository", Value: "owner/repo"}}, Resolution: "resolved"},
+		},
+	}}
+
+	winner, ok := shadowingWinner(secrets, "NPM_TOKEN", "written")
+	if !ok {
+		t.Fatal("expected the written variant to be reported as shadowed")
+	}
+	if winner.ID != "repo" {
+		t.Errorf("winner = %q, want repo", winner.ID)
+	}
+
+	// When the written variant is the resolved winner, nothing shadows it.
+	secrets[0].Variants[0].Resolution = "resolved"
+	secrets[0].Variants[1].Resolution = "lower-priority"
+	if _, ok := shadowingWinner(secrets, "NPM_TOKEN", "written"); ok {
+		t.Error("a winning written variant should not be reported as shadowed")
+	}
+
+	// When resolution is indeterminate (missing context), we cannot claim a definite winner.
+	secrets[0].Variants[0].Resolution = "indeterminate"
+	secrets[0].Variants[1].Resolution = "indeterminate"
+	if _, ok := shadowingWinner(secrets, "NPM_TOKEN", "written"); ok {
+		t.Error("indeterminate resolution should not report shadowing")
+	}
+}
+
+func TestLooksLikePattern(t *testing.T) {
+	patterns := []string{"release/*", "feat-?", "v[0-9]", "env-{a,b}"}
+	for _, value := range patterns {
+		if !looksLikePattern(value) {
+			t.Errorf("looksLikePattern(%q) = false, want true", value)
+		}
+	}
+	literals := []string{"main", "owner/repo", "production", ""}
+	for _, value := range literals {
+		if looksLikePattern(value) {
+			t.Errorf("looksLikePattern(%q) = true, want false", value)
+		}
+	}
+}
+
+func TestScopesDisjointGlobConservative(t *testing.T) {
+	// A glob on the written side must not be treated as a mismatch against a literal
+	// sibling — we cannot statically prove the glob excludes the sibling, so err
+	// toward probing (not disjoint).
+	writtenGlob := map[string]map[string]bool{
+		"branch": {"release/*": true},
+	}
+	if scopesDisjoint(writtenGlob, []api.CIVariantAttribute{{Key: "branch", Value: "release/1.0"}}) {
+		t.Error("a glob written value should not be declared disjoint from a literal sibling")
+	}
+
+	// A glob on the sibling side is likewise conservative.
+	writtenLiteral := map[string]map[string]bool{
+		"branch": {"release/1.0": true},
+	}
+	if scopesDisjoint(writtenLiteral, []api.CIVariantAttribute{{Key: "branch", Value: "release/*"}}) {
+		t.Error("a glob sibling value should not be declared disjoint from a literal written value")
+	}
+}
+
+func TestScopesDisjointRepositoryCaseInsensitive(t *testing.T) {
+	// Repository names match case-insensitively everywhere else, so a sibling that differs from the
+	// written scope only by case must not be judged disjoint (which would skip its shadow probe).
+	written := map[string]map[string]bool{
+		"repository": {"owner/repo": true},
+	}
+	if scopesDisjoint(written, []api.CIVariantAttribute{{Key: "repository", Value: "Owner/Repo"}}) {
+		t.Error("repository scopes differing only by case should not be disjoint")
+	}
+	// A genuinely different repository is still disjoint.
+	if !scopesDisjoint(written, []api.CIVariantAttribute{{Key: "repository", Value: "owner/other"}}) {
+		t.Error("different repositories should be disjoint")
+	}
+}
+
+func TestShadowProbeBudget(t *testing.T) {
+	// A nil budget is unbounded.
+	if got := (*shadowProbeBudget)(nil).take(5); got != 5 {
+		t.Errorf("nil budget take(5) = %d, want 5", got)
+	}
+
+	// A shared budget is drawn down across successive takes (the bulk-write case) and never goes
+	// negative once exhausted.
+	budget := newShadowProbeBudget(4)
+	if got := budget.take(3); got != 3 {
+		t.Errorf("take(3) = %d, want 3", got)
+	}
+	if got := budget.take(3); got != 1 {
+		t.Errorf("second take(3) = %d, want 1 (only 1 left)", got)
+	}
+	if got := budget.take(3); got != 0 {
+		t.Errorf("exhausted take(3) = %d, want 0", got)
+	}
+}
+
+func TestVariableShadowingWinner(t *testing.T) {
+	variables := []api.CIVariableGroup{{
+		Name:       "REGISTRY_URL",
+		Resolution: "resolved",
+		Variants: []api.CIVariableVariant{
+			{ID: "repo", Name: "default", Attributes: []api.CIVariantAttribute{{Key: "repository", Value: "owner/repo"}}},
+			{ID: "written", Name: "default"},
+		},
+	}}
+
+	// Server orders winner-first: the top row (repo) wins, so the written default is shadowed.
+	winner, ok := variableShadowingWinner(variables, "REGISTRY_URL", "written")
+	if !ok {
+		t.Fatal("expected the written variant to be reported as shadowed")
+	}
+	if winner.ID != "repo" {
+		t.Errorf("winner = %q, want repo", winner.ID)
+	}
+
+	// When the written variant is itself the winner (top row), nothing shadows it.
+	if _, ok := variableShadowingWinner(variables, "REGISTRY_URL", "repo"); ok {
+		t.Error("the winning written variant should not be reported as shadowed")
+	}
+
+	// Indeterminate resolution: no definite winner, so no shadow claim.
+	variables[0].Resolution = "indeterminate"
+	if _, ok := variableShadowingWinner(variables, "REGISTRY_URL", "written"); ok {
+		t.Error("indeterminate resolution should not report shadowing")
+	}
+}
+
+func TestVariableVariantRowResolution(t *testing.T) {
+	// With a resolved group, only the top row (index 0) is the winner; the rest are shadowed.
+	if got := variableVariantRowResolution("resolved", 0); got != "resolved" {
+		t.Errorf("resolved index 0 = %q, want resolved", got)
+	}
+	if got := variableVariantRowResolution("resolved", 1); got != "lower-priority" {
+		t.Errorf("resolved index 1 = %q, want lower-priority", got)
+	}
+	// Indeterminate propagates to every row.
+	if got := variableVariantRowResolution("indeterminate", 0); got != "indeterminate" {
+		t.Errorf("indeterminate index 0 = %q, want indeterminate", got)
+	}
+	// No group resolution (no context) yields no per-row status.
+	if got := variableVariantRowResolution("", 0); got != "" {
+		t.Errorf("empty resolution = %q, want empty", got)
+	}
+}

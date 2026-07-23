@@ -36,6 +36,9 @@ const (
 	// VariableServiceListVariablesProcedure is the fully-qualified name of the VariableService's
 	// ListVariables RPC.
 	VariableServiceListVariablesProcedure = "/depot.ci.v3beta2.VariableService/ListVariables"
+	// VariableServiceListVariableAttributesProcedure is the fully-qualified name of the
+	// VariableService's ListVariableAttributes RPC.
+	VariableServiceListVariableAttributesProcedure = "/depot.ci.v3beta2.VariableService/ListVariableAttributes"
 	// VariableServiceGetVariableProcedure is the fully-qualified name of the VariableService's
 	// GetVariable RPC.
 	VariableServiceGetVariableProcedure = "/depot.ci.v3beta2.VariableService/GetVariable"
@@ -65,6 +68,7 @@ const (
 // VariableServiceClient is a client for the depot.ci.v3beta2.VariableService service.
 type VariableServiceClient interface {
 	ListVariables(context.Context, *connect.Request[v3beta2.ListVariablesRequest]) (*connect.Response[v3beta2.ListVariablesResponse], error)
+	ListVariableAttributes(context.Context, *connect.Request[v3beta2.ListVariableAttributesRequest]) (*connect.Response[v3beta2.ListVariableAttributesResponse], error)
 	GetVariable(context.Context, *connect.Request[v3beta2.GetVariableRequest]) (*connect.Response[v3beta2.GetVariableResponse], error)
 	GetVariableVariant(context.Context, *connect.Request[v3beta2.GetVariableVariantRequest]) (*connect.Response[v3beta2.GetVariableVariantResponse], error)
 	CreateVariableVariant(context.Context, *connect.Request[v3beta2.CreateVariableVariantRequest]) (*connect.Response[v3beta2.CreateVariableVariantResponse], error)
@@ -88,6 +92,11 @@ func NewVariableServiceClient(httpClient connect.HTTPClient, baseURL string, opt
 		listVariables: connect.NewClient[v3beta2.ListVariablesRequest, v3beta2.ListVariablesResponse](
 			httpClient,
 			baseURL+VariableServiceListVariablesProcedure,
+			opts...,
+		),
+		listVariableAttributes: connect.NewClient[v3beta2.ListVariableAttributesRequest, v3beta2.ListVariableAttributesResponse](
+			httpClient,
+			baseURL+VariableServiceListVariableAttributesProcedure,
 			opts...,
 		),
 		getVariable: connect.NewClient[v3beta2.GetVariableRequest, v3beta2.GetVariableResponse](
@@ -136,6 +145,7 @@ func NewVariableServiceClient(httpClient connect.HTTPClient, baseURL string, opt
 // variableServiceClient implements VariableServiceClient.
 type variableServiceClient struct {
 	listVariables                 *connect.Client[v3beta2.ListVariablesRequest, v3beta2.ListVariablesResponse]
+	listVariableAttributes        *connect.Client[v3beta2.ListVariableAttributesRequest, v3beta2.ListVariableAttributesResponse]
 	getVariable                   *connect.Client[v3beta2.GetVariableRequest, v3beta2.GetVariableResponse]
 	getVariableVariant            *connect.Client[v3beta2.GetVariableVariantRequest, v3beta2.GetVariableVariantResponse]
 	createVariableVariant         *connect.Client[v3beta2.CreateVariableVariantRequest, v3beta2.CreateVariableVariantResponse]
@@ -149,6 +159,11 @@ type variableServiceClient struct {
 // ListVariables calls depot.ci.v3beta2.VariableService.ListVariables.
 func (c *variableServiceClient) ListVariables(ctx context.Context, req *connect.Request[v3beta2.ListVariablesRequest]) (*connect.Response[v3beta2.ListVariablesResponse], error) {
 	return c.listVariables.CallUnary(ctx, req)
+}
+
+// ListVariableAttributes calls depot.ci.v3beta2.VariableService.ListVariableAttributes.
+func (c *variableServiceClient) ListVariableAttributes(ctx context.Context, req *connect.Request[v3beta2.ListVariableAttributesRequest]) (*connect.Response[v3beta2.ListVariableAttributesResponse], error) {
+	return c.listVariableAttributes.CallUnary(ctx, req)
 }
 
 // GetVariable calls depot.ci.v3beta2.VariableService.GetVariable.
@@ -195,6 +210,7 @@ func (c *variableServiceClient) DeleteVariable(ctx context.Context, req *connect
 // VariableServiceHandler is an implementation of the depot.ci.v3beta2.VariableService service.
 type VariableServiceHandler interface {
 	ListVariables(context.Context, *connect.Request[v3beta2.ListVariablesRequest]) (*connect.Response[v3beta2.ListVariablesResponse], error)
+	ListVariableAttributes(context.Context, *connect.Request[v3beta2.ListVariableAttributesRequest]) (*connect.Response[v3beta2.ListVariableAttributesResponse], error)
 	GetVariable(context.Context, *connect.Request[v3beta2.GetVariableRequest]) (*connect.Response[v3beta2.GetVariableResponse], error)
 	GetVariableVariant(context.Context, *connect.Request[v3beta2.GetVariableVariantRequest]) (*connect.Response[v3beta2.GetVariableVariantResponse], error)
 	CreateVariableVariant(context.Context, *connect.Request[v3beta2.CreateVariableVariantRequest]) (*connect.Response[v3beta2.CreateVariableVariantResponse], error)
@@ -214,6 +230,11 @@ func NewVariableServiceHandler(svc VariableServiceHandler, opts ...connect.Handl
 	variableServiceListVariablesHandler := connect.NewUnaryHandler(
 		VariableServiceListVariablesProcedure,
 		svc.ListVariables,
+		opts...,
+	)
+	variableServiceListVariableAttributesHandler := connect.NewUnaryHandler(
+		VariableServiceListVariableAttributesProcedure,
+		svc.ListVariableAttributes,
 		opts...,
 	)
 	variableServiceGetVariableHandler := connect.NewUnaryHandler(
@@ -260,6 +281,8 @@ func NewVariableServiceHandler(svc VariableServiceHandler, opts ...connect.Handl
 		switch r.URL.Path {
 		case VariableServiceListVariablesProcedure:
 			variableServiceListVariablesHandler.ServeHTTP(w, r)
+		case VariableServiceListVariableAttributesProcedure:
+			variableServiceListVariableAttributesHandler.ServeHTTP(w, r)
 		case VariableServiceGetVariableProcedure:
 			variableServiceGetVariableHandler.ServeHTTP(w, r)
 		case VariableServiceGetVariableVariantProcedure:
@@ -287,6 +310,10 @@ type UnimplementedVariableServiceHandler struct{}
 
 func (UnimplementedVariableServiceHandler) ListVariables(context.Context, *connect.Request[v3beta2.ListVariablesRequest]) (*connect.Response[v3beta2.ListVariablesResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.ci.v3beta2.VariableService.ListVariables is not implemented"))
+}
+
+func (UnimplementedVariableServiceHandler) ListVariableAttributes(context.Context, *connect.Request[v3beta2.ListVariableAttributesRequest]) (*connect.Response[v3beta2.ListVariableAttributesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.ci.v3beta2.VariableService.ListVariableAttributes is not implemented"))
 }
 
 func (UnimplementedVariableServiceHandler) GetVariable(context.Context, *connect.Request[v3beta2.GetVariableRequest]) (*connect.Response[v3beta2.GetVariableResponse], error) {
