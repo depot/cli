@@ -83,7 +83,15 @@ func TestGetProjectCallsAPIAndWritesJSON(t *testing.T) {
 }
 
 func TestUpdateProjectSendsOnlyChangedFields(t *testing.T) {
-	handler := &projectServiceRecorder{}
+	handler := &projectServiceRecorder{
+		project: &corev1.Project{
+			ProjectId: "project-123",
+			CachePolicy: &corev1.CachePolicy{
+				KeepBytes: 50 * bytesPerGigabyte,
+				KeepDays:  14,
+			},
+		},
+	}
 	setupProjectService(t, handler)
 
 	var stdout bytes.Buffer
@@ -119,6 +127,12 @@ func TestUpdateProjectSendsOnlyChangedFields(t *testing.T) {
 	}
 	if request.CachePolicy == nil || request.CachePolicy.GetKeepBytes() != 75*bytesPerGigabyte {
 		t.Fatalf("CachePolicy = %#v", request.CachePolicy)
+	}
+	if request.CachePolicy.GetKeepDays() != 14 {
+		t.Fatalf("CachePolicy.KeepDays = %d, want 14", request.CachePolicy.GetKeepDays())
+	}
+	if handler.getRequest == nil || handler.getRequest.GetProjectId() != "project-123" {
+		t.Fatalf("GetProject request = %#v, want project-123", handler.getRequest)
 	}
 	if handler.authorization != "Bearer token-123" {
 		t.Fatalf("Authorization = %q, want Bearer token-123", handler.authorization)

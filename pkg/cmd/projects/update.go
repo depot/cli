@@ -69,6 +69,7 @@ current directory.`,
 				return fmt.Errorf("missing API token, please run `depot login`")
 			}
 
+			client := api.NewSDKProjectsClient()
 			requestBody := &corev1.UpdateProjectRequest{ProjectId: resolvedProjectID}
 			if nameChanged {
 				requestBody.Name = &name
@@ -77,13 +78,27 @@ current directory.`,
 				requestBody.RegionId = &region
 			}
 			if cachePolicyChanged {
+				getRequest := connect.NewRequest(&corev1.GetProjectRequest{ProjectId: resolvedProjectID})
+				getResponse, err := client.GetProject(
+					cmd.Context(),
+					api.WithAuthentication(getRequest, token),
+				)
+				if err != nil {
+					return fmt.Errorf("failed to get current project cache policy: %w", err)
+				}
+				currentProject := getResponse.Msg.GetProject()
+				if currentProject == nil {
+					return fmt.Errorf("API returned no project")
+				}
+
 				requestBody.CachePolicy = &corev1.CachePolicy{
 					KeepBytes: keepGigabytes * bytesPerGigabyte,
+					KeepDays:  currentProject.GetCachePolicy().GetKeepDays(),
 				}
 			}
 
 			request := connect.NewRequest(requestBody)
-			response, err := api.NewSDKProjectsClient().UpdateProject(
+			response, err := client.UpdateProject(
 				cmd.Context(),
 				api.WithAuthentication(request, token),
 			)
