@@ -32,6 +32,87 @@ func TestProjectsCommandRegistration(t *testing.T) {
 	}
 }
 
+func TestCreateProjectSendsCachePolicyKeepDays(t *testing.T) {
+	handler := &projectServiceRecorder{}
+	setupProjectService(t, handler)
+
+	var stdout bytes.Buffer
+	command := NewCmdCreate()
+	command.SetArgs([]string{
+		"Example",
+		"--organization", "org-123",
+		"--region", "eu-central-1",
+		"--cache-storage-policy", "75",
+		"--cache-policy-keep-days", "30",
+		"--token", "token-123",
+	})
+	command.SetOut(&stdout)
+	command.SetErr(io.Discard)
+	command.SilenceUsage = true
+	command.SilenceErrors = true
+
+	if err := command.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	request := handler.createRequest
+	if request == nil {
+		t.Fatal("CreateProject was not called")
+	}
+	if request.GetName() != "Example" || request.GetOrganizationId() != "org-123" {
+		t.Fatalf("request = %#v", request)
+	}
+	if request.GetRegionId() != "eu-central-1" {
+		t.Fatalf("RegionId = %q, want eu-central-1", request.GetRegionId())
+	}
+	if request.GetCachePolicy().GetKeepBytes() != 75*bytesPerGigabyte {
+		t.Fatalf("CachePolicy.KeepBytes = %d, want %d", request.GetCachePolicy().GetKeepBytes(), 75*bytesPerGigabyte)
+	}
+	if request.GetCachePolicy().GetKeepDays() != 30 {
+		t.Fatalf("CachePolicy.KeepDays = %d, want 30", request.GetCachePolicy().GetKeepDays())
+	}
+	if handler.authorization != "Bearer token-123" {
+		t.Fatalf("Authorization = %q, want Bearer token-123", handler.authorization)
+	}
+}
+
+func TestCreateProjectDefaultsCachePolicyKeepDays(t *testing.T) {
+	handler := &projectServiceRecorder{}
+	setupProjectService(t, handler)
+
+	command := NewCmdCreate()
+	command.SetArgs([]string{"Example", "--token", "token-123"})
+	command.SetOut(io.Discard)
+	command.SetErr(io.Discard)
+	command.SilenceUsage = true
+	command.SilenceErrors = true
+
+	if err := command.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	if handler.createRequest == nil {
+		t.Fatal("CreateProject was not called")
+	}
+	if got := handler.createRequest.GetCachePolicy().GetKeepDays(); got != 14 {
+		t.Fatalf("CachePolicy.KeepDays = %d, want 14", got)
+	}
+}
+
+func TestCreateProjectRejectsNegativeCachePolicyKeepDays(t *testing.T) {
+	command := NewCmdCreate()
+	command.SetArgs([]string{"Example", "--cache-policy-keep-days", "-1"})
+	command.SetOut(io.Discard)
+	command.SetErr(io.Discard)
+	command.SilenceUsage = true
+	command.SilenceErrors = true
+
+	err := command.Execute()
+	if err == nil || !strings.Contains(err.Error(), "--cache-policy-keep-days cannot be negative") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
 func TestGetProjectCallsAPIAndWritesJSON(t *testing.T) {
 	handler := &projectServiceRecorder{
 		project: &corev1.Project{
@@ -193,9 +274,24 @@ type projectServiceRecorder struct {
 	corev1connect.UnimplementedProjectServiceHandler
 
 	project       *corev1.Project
+	createRequest *corev1.CreateProjectRequest
 	getRequest    *corev1.GetProjectRequest
 	updateRequest *corev1.UpdateProjectRequest
 	authorization string
+}
+
+func (h *projectServiceRecorder) CreateProject(_ context.Context, request *connect.Request[corev1.CreateProjectRequest]) (*connect.Response[corev1.CreateProjectResponse], error) {
+	h.createRequest = request.Msg
+	h.authorization = request.Header().Get("Authorization")
+	return connect.NewResponse(&corev1.CreateProjectResponse{
+		Project: &corev1.Project{
+			ProjectId:      "project-123",
+			OrganizationId: request.Msg.GetOrganizationId(),
+			Name:           request.Msg.GetName(),
+			RegionId:       request.Msg.GetRegionId(),
+			CachePolicy:    request.Msg.GetCachePolicy(),
+		},
+	}), nil
 }
 
 func (h *projectServiceRecorder) GetProject(_ context.Context, request *connect.Request[corev1.GetProjectRequest]) (*connect.Response[corev1.GetProjectResponse], error) {
