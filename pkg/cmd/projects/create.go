@@ -81,7 +81,7 @@ func NewCmdCreate() *cobra.Command {
 	flags.StringVarP(&orgID, "organization", "o", config.GetCurrentOrganization(), "Depot organization ID")
 	flags.StringVar(&region, "region", "us-east-1", "Build data will be stored in the chosen region")
 	flags.Int64Var(&keepGigabytes, "cache-storage-policy", 50, "Build cache to keep per architecture in GB")
-	flags.Int32Var(&cachePolicyKeepDays, "cache-policy-keep-days", 0, "Build cache retention in days (0 means no limit)")
+	flags.Int32Var(&cachePolicyKeepDays, "cache-policy-keep-days", 14, "Build cache retention in days (0 means no limit)")
 
 	return cmd
 }

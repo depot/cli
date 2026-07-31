@@ -43,7 +43,7 @@ func TestCreateProjectSendsCachePolicyKeepDays(t *testing.T) {
 		"--organization", "org-123",
 		"--region", "eu-central-1",
 		"--cache-storage-policy", "75",
-		"--cache-policy-keep-days", "14",
+		"--cache-policy-keep-days", "30",
 		"--token", "token-123",
 	})
 	command.SetOut(&stdout)
@@ -68,11 +68,34 @@ func TestCreateProjectSendsCachePolicyKeepDays(t *testing.T) {
 	if request.GetCachePolicy().GetKeepBytes() != 75*bytesPerGigabyte {
 		t.Fatalf("CachePolicy.KeepBytes = %d, want %d", request.GetCachePolicy().GetKeepBytes(), 75*bytesPerGigabyte)
 	}
-	if request.GetCachePolicy().GetKeepDays() != 14 {
-		t.Fatalf("CachePolicy.KeepDays = %d, want 14", request.GetCachePolicy().GetKeepDays())
+	if request.GetCachePolicy().GetKeepDays() != 30 {
+		t.Fatalf("CachePolicy.KeepDays = %d, want 30", request.GetCachePolicy().GetKeepDays())
 	}
 	if handler.authorization != "Bearer token-123" {
 		t.Fatalf("Authorization = %q, want Bearer token-123", handler.authorization)
+	}
+}
+
+func TestCreateProjectDefaultsCachePolicyKeepDays(t *testing.T) {
+	handler := &projectServiceRecorder{}
+	setupProjectService(t, handler)
+
+	command := NewCmdCreate()
+	command.SetArgs([]string{"Example", "--token", "token-123"})
+	command.SetOut(io.Discard)
+	command.SetErr(io.Discard)
+	command.SilenceUsage = true
+	command.SilenceErrors = true
+
+	if err := command.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	if handler.createRequest == nil {
+		t.Fatal("CreateProject was not called")
+	}
+	if got := handler.createRequest.GetCachePolicy().GetKeepDays(); got != 14 {
+		t.Fatalf("CachePolicy.KeepDays = %d, want 14", got)
 	}
 }
 
