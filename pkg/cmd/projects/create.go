@@ -15,11 +15,11 @@ import (
 
 func NewCmdCreate() *cobra.Command {
 	var (
-		token              string
-		orgID              string
-		region             string
-		keepGigabytes      int64
-		cacheRetentionDays int32
+		token               string
+		orgID               string
+		region              string
+		keepGigabytes       int64
+		cachePolicyKeepDays int32
 	)
 
 	cmd := &cobra.Command{
@@ -34,8 +34,8 @@ func NewCmdCreate() *cobra.Command {
 			ctx := cmd.Context()
 			projectName := args[0]
 
-			if cacheRetentionDays < 0 {
-				return fmt.Errorf("--cache-retention-days cannot be negative")
+			if cachePolicyKeepDays < 0 {
+				return fmt.Errorf("--cache-policy-keep-days cannot be negative")
 			}
 
 			token, err := helpers.ResolveProjectAuth(ctx, token)
@@ -53,7 +53,7 @@ func NewCmdCreate() *cobra.Command {
 				RegionId: region,
 				CachePolicy: &corev1.CachePolicy{
 					KeepBytes: keepGigabytes * 1024 * 1024 * 1024,
-					KeepDays:  cacheRetentionDays,
+					KeepDays:  cachePolicyKeepDays,
 				},
 			}
 			if orgID != "" {
@@ -81,7 +81,7 @@ func NewCmdCreate() *cobra.Command {
 	flags.StringVarP(&orgID, "organization", "o", config.GetCurrentOrganization(), "Depot organization ID")
 	flags.StringVar(&region, "region", "us-east-1", "Build data will be stored in the chosen region")
 	flags.Int64Var(&keepGigabytes, "cache-storage-policy", 50, "Build cache to keep per architecture in GB")
-	flags.Int32Var(&cacheRetentionDays, "cache-retention-days", 0, "Build cache retention in days (0 means no limit)")
+	flags.Int32Var(&cachePolicyKeepDays, "cache-policy-keep-days", 0, "Build cache retention in days (0 means no limit)")
 
 	return cmd
 }

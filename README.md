@@ -424,7 +424,7 @@ Create a new Depot project. This command creates a new project in your Depot acc
 depot projects create
 
 # Create a project with custom settings
-depot projects create --organization your-org-id --region us-west-2 --cache-storage-policy 100 --cache-retention-days 14 your-project-name
+depot projects create --organization your-org-id --region us-west-2 --cache-storage-policy 100 --cache-policy-keep-days 14 your-project-name
 ```
 
 #### Flags for `projects create`
@@ -434,7 +434,7 @@ depot projects create --organization your-org-id --region us-west-2 --cache-stor
 | `organization` / `-o`    | Depot organization ID                                    |
 | `region`                 | Build data storage region (default: "us-east-1")         |
 | `cache-storage-policy`   | Build cache to keep per architecture in GB (default: 50) |
-| `cache-retention-days`   | Build cache retention in days (default: no limit)        |
+| `cache-policy-keep-days` | Build cache retention in days (default: no limit)        |
 | `token`                  | Depot API token                                          |
 
 #### `depot projects get`

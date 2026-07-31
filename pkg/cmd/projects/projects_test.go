@@ -32,7 +32,7 @@ func TestProjectsCommandRegistration(t *testing.T) {
 	}
 }
 
-func TestCreateProjectSendsCacheRetentionDays(t *testing.T) {
+func TestCreateProjectSendsCachePolicyKeepDays(t *testing.T) {
 	handler := &projectServiceRecorder{}
 	setupProjectService(t, handler)
 
@@ -43,7 +43,7 @@ func TestCreateProjectSendsCacheRetentionDays(t *testing.T) {
 		"--organization", "org-123",
 		"--region", "eu-central-1",
 		"--cache-storage-policy", "75",
-		"--cache-retention-days", "14",
+		"--cache-policy-keep-days", "14",
 		"--token", "token-123",
 	})
 	command.SetOut(&stdout)
@@ -76,16 +76,16 @@ func TestCreateProjectSendsCacheRetentionDays(t *testing.T) {
 	}
 }
 
-func TestCreateProjectRejectsNegativeCacheRetentionDays(t *testing.T) {
+func TestCreateProjectRejectsNegativeCachePolicyKeepDays(t *testing.T) {
 	command := NewCmdCreate()
-	command.SetArgs([]string{"Example", "--cache-retention-days", "-1"})
+	command.SetArgs([]string{"Example", "--cache-policy-keep-days", "-1"})
 	command.SetOut(io.Discard)
 	command.SetErr(io.Discard)
 	command.SilenceUsage = true
 	command.SilenceErrors = true
 
 	err := command.Execute()
-	if err == nil || !strings.Contains(err.Error(), "--cache-retention-days cannot be negative") {
+	if err == nil || !strings.Contains(err.Error(), "--cache-policy-keep-days cannot be negative") {
 		t.Fatalf("error = %v", err)
 	}
 }
