@@ -208,8 +208,9 @@ func (p *Cache) handleRequest(ctx context.Context, req *wire.ProgRequest, res *w
 	}
 }
 
-func (p *Cache) handleGet(ctx context.Context, req *wire.ProgRequest, res *wire.ProgResponse) (retErr error) {
+func (p *Cache) handleGet(ctx context.Context, req *wire.ProgRequest, res *wire.ProgResponse) error {
 	p.Gets.Add(1)
+	var retErr error
 	defer func() {
 		if retErr != nil {
 			log.Printf("get(action %x): %v", req.ActionID, retErr)
@@ -222,18 +223,21 @@ func (p *Cache) handleGet(ctx context.Context, req *wire.ProgRequest, res *wire.
 	}()
 	outputID, diskPath, err := p.RemoteCache.Get(ctx, fmt.Sprintf("%x", req.ActionID))
 	if err != nil {
-		return err
+		retErr = err
+		return retErr
 	}
 	if outputID == "" && diskPath == "" {
 		res.Miss = true
 		return nil
 	}
 	if outputID == "" {
-		return errors.New("no outputID")
+		retErr = errors.New("no outputID")
+		return retErr
 	}
 	res.OutputID, err = hex.DecodeString(outputID)
 	if err != nil {
-		return fmt.Errorf("invalid OutputID: %v", err)
+		retErr = fmt.Errorf("invalid OutputID: %v", err)
+		return retErr
 	}
 	fi, err := os.Stat(diskPath)
 	if err != nil {
@@ -241,10 +245,12 @@ func (p *Cache) handleGet(ctx context.Context, req *wire.ProgRequest, res *wire.
 			res.Miss = true
 			return nil
 		}
-		return err
+		retErr = err
+		return retErr
 	}
 	if !fi.Mode().IsRegular() {
-		return fmt.Errorf("not a regular file")
+		retErr = fmt.Errorf("not a regular file")
+		return retErr
 	}
 	res.Size = fi.Size()
 	time := fi.ModTime()
@@ -253,7 +259,7 @@ func (p *Cache) handleGet(ctx context.Context, req *wire.ProgRequest, res *wire.
 	return nil
 }
 
-func (p *Cache) handlePut(ctx context.Context, req *wire.ProgRequest, res *wire.ProgResponse) (retErr error) {
+func (p *Cache) handlePut(ctx context.Context, req *wire.ProgRequest, res *wire.ProgResponse) error {
 	if req.OutputID == nil && req.ObjectID != nil {
 		req.OutputID = req.ObjectID
 	}
@@ -267,6 +273,7 @@ func (p *Cache) handlePut(ctx context.Context, req *wire.ProgRequest, res *wire.
 
 	actionID, objectID := fmt.Sprintf("%x", req.ActionID), fmt.Sprintf("%x", req.OutputID)
 	p.Puts.Add(1)
+	var retErr error
 	defer func() {
 		if retErr != nil {
 			p.PutErrors.Add(1)
@@ -280,14 +287,17 @@ func (p *Cache) handlePut(ctx context.Context, req *wire.ProgRequest, res *wire.
 	}
 	diskPath, err := p.RemoteCache.Put(ctx, actionID, objectID, req.BodySize, body)
 	if err != nil {
-		return err
+		retErr = err
+		return retErr
 	}
 	fi, err := os.Stat(diskPath)
 	if err != nil {
-		return fmt.Errorf("stat after successful Put: %w", err)
+		retErr = fmt.Errorf("stat after successful Put: %w", err)
+		return retErr
 	}
 	if fi.Size() != req.BodySize {
-		return fmt.Errorf("failed to write file to disk with right size: disk=%v; wanted=%v", fi.Size(), req.BodySize)
+		retErr = fmt.Errorf("failed to write file to disk with right size: disk=%v; wanted=%v", fi.Size(), req.BodySize)
+		return retErr
 	}
 	res.DiskPath = diskPath
 	return nil
@@ -339,8 +349,8 @@ func (c *RemoteCache) httpClient() *http.Client {
 	return http.DefaultClient
 }
 
-func (c *RemoteCache) Get(ctx context.Context, actionID string) (outputID, diskPath string, err error) {
-	outputID, diskPath, err = c.Disk.Get(ctx, actionID)
+func (c *RemoteCache) Get(ctx context.Context, actionID string) (string, string, error) {
+	outputID, diskPath, err := c.Disk.Get(ctx, actionID)
 	if err == nil && outputID != "" {
 		return outputID, diskPath, nil
 	}
@@ -425,7 +435,7 @@ func (c *RemoteCache) Get(ctx context.Context, actionID string) (outputID, diskP
 		return "", "", nil
 	}
 
-	diskPath, err = c.Disk.Put(ctx, actionID, outputID, int64(size), bytes.NewReader(buf))
+	diskPath, _, err = c.Disk.Put(ctx, actionID, outputID, int64(size), bytes.NewReader(buf))
 	if err != nil {
 		if c.Verbose {
 			log.Printf("unable to cache actionID %s to disk: %v", actionID, err)
@@ -440,7 +450,7 @@ func (c *RemoteCache) Get(ctx context.Context, actionID string) (outputID, diskP
 	return outputID, diskPath, nil
 }
 
-func (c *RemoteCache) Put(ctx context.Context, actionID, outputID string, size int64, body io.Reader) (diskPath string, _ error) {
+func (c *RemoteCache) Put(ctx context.Context, actionID, outputID string, size int64, body io.Reader) (string, error) {
 	if size < 0 {
 		return "", fmt.Errorf("negative size %d", size)
 	}
@@ -475,12 +485,12 @@ func (c *RemoteCache) Put(ctx context.Context, actionID, outputID string, size i
 	}
 	buf := b.Bytes()
 
-	diskPath, err = c.Disk.Put(ctx, actionID, outputID, size, bytes.NewReader(buf[headerSize:]))
+	diskPath, wrote, err := c.Disk.Put(ctx, actionID, outputID, size, bytes.NewReader(buf[headerSize:]))
 	if err != nil {
 		return "", fmt.Errorf("unable to write actionID %s to disk: %w", actionID, err)
 	}
 
-	if len(outputID) == 0 {
+	if len(outputID) == 0 || !wrote {
 		return diskPath, nil
 	}
 
@@ -544,7 +554,7 @@ type DiskCache struct {
 	Verbose bool
 }
 
-func (dc *DiskCache) Get(ctx context.Context, actionID string) (outputID, diskPath string, err error) {
+func (dc *DiskCache) Get(ctx context.Context, actionID string) (string, string, error) {
 	actionFile := fileNameAction(dc.Dir, actionID)
 	ij, err := os.ReadFile(actionFile)
 	if err != nil {
@@ -586,16 +596,22 @@ func (dc *DiskCache) OutputFilename(objectID string) string {
 	return fileNameOutput(dc.Dir, objectID)
 }
 
-func (dc *DiskCache) Put(ctx context.Context, actionID, objectID string, size int64, body io.Reader) (diskPath string, _ error) {
+func (dc *DiskCache) Put(ctx context.Context, actionID, objectID string, size int64, body io.Reader) (string, bool, error) {
 	file := fileNameOutput(dc.Dir, objectID)
 	actionFile := fileNameAction(dc.Dir, actionID)
+	if err := os.MkdirAll(filepath.Dir(file), 0755); err != nil {
+		return "", false, err
+	}
+	if err := os.MkdirAll(filepath.Dir(actionFile), 0755); err != nil {
+		return "", false, err
+	}
 
 	// Skip writing the file if it already exists and is the right size.
 	stat, err := os.Stat(file)
 	if err == nil && stat.Size() == size {
 		_, err = os.Stat(actionFile)
 		if err == nil {
-			return file, nil
+			return file, false, nil
 		}
 	}
 
@@ -603,16 +619,16 @@ func (dc *DiskCache) Put(ctx context.Context, actionID, objectID string, size in
 	if size == 0 {
 		zf, err := os.OpenFile(file, os.O_CREATE|os.O_RDWR, 0644)
 		if err != nil {
-			return "", err
+			return "", false, err
 		}
 		zf.Close()
 	} else {
 		wrote, err := writeAtomic(file, body)
 		if err != nil {
-			return "", fmt.Errorf("unable to write to disk: %w", err)
+			return "", false, fmt.Errorf("unable to write to disk: %w", err)
 		}
 		if wrote != size {
-			return "", fmt.Errorf("wrote %d bytes, expected %d", wrote, size)
+			return "", false, fmt.Errorf("wrote %d bytes, expected %d", wrote, size)
 		}
 	}
 
@@ -623,13 +639,13 @@ func (dc *DiskCache) Put(ctx context.Context, actionID, objectID string, size in
 		TimeNanos: time.Now().UnixNano(),
 	})
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 
 	if _, err := writeAtomic(actionFile, bytes.NewReader(ij)); err != nil {
-		return "", err
+		return "", false, err
 	}
-	return file, nil
+	return file, true, nil
 }
 
 func writeAtomic(dest string, r io.Reader) (int64, error) {
