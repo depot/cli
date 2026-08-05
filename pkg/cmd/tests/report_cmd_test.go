@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"strings"
 	"testing"
@@ -242,6 +243,21 @@ func TestReportRejectsUnknownOutput(t *testing.T) {
 	_, _, err := executeCommandOutput("report", "--report-path", "reports/junit.xml", "--output", "auto")
 	if err == nil || !strings.Contains(err.Error(), "Requires text or json") {
 		t.Fatalf("expected output validation error, got %v", err)
+	}
+}
+
+func TestReportMissingOIDCRemainsFailure(t *testing.T) {
+	resetTestHooks(t)
+	workspace := t.TempDir()
+	t.Chdir(workspace)
+	writeTempFileAt(t, workspace, "reports/junit.xml", "<testsuite/>")
+	resolveOIDCCredentialFunc = func(context.Context) (string, error) {
+		return "", errMissingOIDCCredential
+	}
+
+	_, _, err := executeCommandOutput("report", "--report-path", "reports/junit.xml")
+	if !errors.Is(err, errMissingOIDCCredential) {
+		t.Fatalf("expected standalone report to fail without OIDC, got %v", err)
 	}
 }
 

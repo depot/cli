@@ -921,6 +921,82 @@ func TestRunFailsWhenReportUploadFailsAfterSuccessfulCommand(t *testing.T) {
 	}
 }
 
+func TestRunWarnsWhenReportUploadLacksOIDCAfterSuccessfulCommand(t *testing.T) {
+	resetTestHooks(t)
+	workspace := t.TempDir()
+	t.Chdir(workspace)
+	writeTempFileAt(t, workspace, "reports/junit.xml", "<testsuite/>")
+	runShellCommandFunc = func(context.Context, string, []string, io.Writer, io.Writer) (int, error) {
+		writeRunReport(t, workspace)
+		return 0, nil
+	}
+	resolveOIDCCredentialFunc = func(context.Context) (string, error) {
+		return "", errMissingOIDCCredential
+	}
+	reportTestResultsFunc = func(context.Context, string, *testresultsv1.ReportTestResultsRequest) (*testresultsv1.ReportTestResultsResponse, error) {
+		t.Fatal("report upload should not run without an OIDC credential")
+		return nil, nil
+	}
+
+	_, stderr, err := executeCommandWithInputOutput(
+		"a.test.ts\n",
+		"run",
+		"--index", "0",
+		"--total", "1",
+		"--command", "test-command",
+		"--report-path", "reports/junit.xml",
+	)
+	if err != nil {
+		t.Fatalf("expected successful test command to remain successful, got %v", err)
+	}
+	if !strings.Contains(stderr, "Warning: test command passed, but Depot skipped test report upload") ||
+		!strings.Contains(stderr, "missing OIDC credential") {
+		t.Fatalf("expected missing OIDC warning, got %q", stderr)
+	}
+}
+
+func TestRunMissingOIDCDoesNotMaskCancellationDuringReportUpload(t *testing.T) {
+	resetTestHooks(t)
+	workspace := t.TempDir()
+	t.Chdir(workspace)
+	writeTempFileAt(t, workspace, "reports/junit.xml", "<testsuite/>")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	runShellCommandFunc = func(context.Context, string, []string, io.Writer, io.Writer) (int, error) {
+		writeRunReport(t, workspace)
+		return 0, nil
+	}
+	resolveOIDCCredentialFunc = func(context.Context) (string, error) {
+		cancel()
+		return "", errMissingOIDCCredential
+	}
+
+	cmd := newCmdTestsRun()
+	var stdout, stderr bytes.Buffer
+	cmd.SetContext(ctx)
+	cmd.SetIn(strings.NewReader("a.test.ts\n"))
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{
+		"--index", "0",
+		"--total", "1",
+		"--command", "test-command",
+		"--report-path", "reports/junit.xml",
+	})
+
+	err := cmd.Execute()
+	statusErr, ok := err.(cli.StatusError)
+	if !ok {
+		t.Fatalf("expected cli.StatusError, got %T: %v", err, err)
+	}
+	if statusErr.StatusCode != 1 || !strings.Contains(statusErr.Status, "context canceled") {
+		t.Fatalf("expected cancellation status, got %#v", statusErr)
+	}
+	if strings.Contains(stderr.String(), "Warning:") {
+		t.Fatalf("expected cancellation without missing OIDC warning, got %q", stderr.String())
+	}
+}
+
 func TestRunRejectsWhenNoReportFileWasUpdatedByCommand(t *testing.T) {
 	resetTestHooks(t)
 	workspace := t.TempDir()

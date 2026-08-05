@@ -155,6 +155,13 @@ func runTestsRun(cmd *cobra.Command, opts runOptions) error {
 		}
 		return commandErr
 	}
+	if errors.Is(reportErr, errMissingOIDCCredential) {
+		if err := ctx.Err(); err != nil {
+			return cancellationErrorOr(err)
+		}
+		fmt.Fprintf(cmd.ErrOrStderr(), "Warning: test command passed, but Depot skipped test report upload: %v\n", reportErr)
+		return nil
+	}
 	if reportErr != nil {
 		return reportErr
 	}

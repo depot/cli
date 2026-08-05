@@ -48,6 +48,9 @@ func TestResolveOIDCCredentialIgnoresProviderErrors(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error")
 	}
+	if !errors.Is(err, errMissingOIDCCredential) {
+		t.Fatalf("expected missing OIDC credential sentinel, got %v", err)
+	}
 	if !strings.Contains(err.Error(), "missing OIDC credential") {
 		t.Fatalf("expected missing credential error, got %q", err.Error())
 	}

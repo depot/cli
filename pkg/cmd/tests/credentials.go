@@ -19,6 +19,8 @@ const (
 
 var oidcDebugWriter io.Writer = os.Stderr
 
+var errMissingOIDCCredential = errors.New("missing OIDC credential; ensure this command is running in a supported CI environment with OIDC enabled")
+
 func resolveOIDCCredential(ctx context.Context) (string, error) {
 	return resolveOIDCCredentialWithDepotCIEnv(ctx, oidc.Providers)
 }
@@ -50,7 +52,7 @@ func resolveOIDCCredentialWithProviders(ctx context.Context, providers []oidc.OI
 			return strings.TrimSpace(token), nil
 		}
 	}
-	return "", fmt.Errorf("missing OIDC credential; ensure this command is running in a supported CI environment with OIDC enabled")
+	return "", errMissingOIDCCredential
 }
 
 func configureDepotCIOIDCEnv() func() {
