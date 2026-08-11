@@ -1,6 +1,7 @@
 package compose
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -66,7 +67,7 @@ func TargetTags(files []bake.File) (map[string][]string, error) {
 		options.SkipNormalization = true
 	}
 
-	cfg, err := loader.Load(details, opts)
+	cfg, err := loader.LoadWithContext(context.Background(), details, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -153,7 +154,7 @@ func isComposeFile(file string, content []byte) bool {
 		options.SkipConsistencyCheck = true
 	}
 
-	_, err = loader.Load(config, opts)
+	_, err = loader.LoadWithContext(context.Background(), config, opts)
 	if err != nil {
 		return false
 	}
