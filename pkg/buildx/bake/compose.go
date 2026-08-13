@@ -129,6 +129,18 @@ func ParseCompose(cfgs []compose.ConfigFile, envs map[string]string) (*Config, e
 				return nil, err
 			}
 
+			var inAttests []string
+			if s.Build.SBOM != "" {
+				inAttests = append(inAttests, buildflags.CanonicalizeAttest("sbom", s.Build.SBOM))
+			}
+			if s.Build.Provenance != "" {
+				inAttests = append(inAttests, buildflags.CanonicalizeAttest("provenance", s.Build.Provenance))
+			}
+			attests, err := parseArrValue[buildflags.Attest](inAttests)
+			if err != nil {
+				return nil, err
+			}
+
 			g.Targets = append(g.Targets, targetName)
 			t := &Target{
 				Name:             targetName,
@@ -145,12 +157,14 @@ func ParseCompose(cfgs []compose.ConfigFile, envs map[string]string) (*Config, e
 					val, ok := cfg.Environment[val]
 					return val, ok
 				})),
-				CacheFrom:   cacheFrom,
-				CacheTo:     cacheTo,
-				NetworkMode: &s.Build.Network,
-				Platforms:   s.Build.Platforms,
-				SSH:         ssh,
-				Secrets:     secrets,
+				CacheFrom:     cacheFrom,
+				CacheTo:       cacheTo,
+				NetworkMode:   &s.Build.Network,
+				Platforms:     s.Build.Platforms,
+				SSH:           ssh,
+				Secrets:       secrets,
+				Attest:        attests,
+				NoCacheFilter: s.Build.NoCacheFilter,
 			}
 			if err = t.composeExtTarget(s.Build.Extensions); err != nil {
 				return nil, err
