@@ -555,7 +555,12 @@ func TestCIListSecretVariantsFetchesAllPagesAndMapsResponse(t *testing.T) {
 	if got := recorder.listRequests[1].GetPage().GetPage(); got != 2 {
 		t.Fatalf("second page = %d, want 2", got)
 	}
-	assertProtoAttributes(t, req.GetAttributes(), []CIVariantAttribute{{Key: "repository", Value: "depot/api"}})
+	// Selectors are sent as `context` (which annotates every variant with its resolution and orders
+	// winners first) rather than `attributes` (which would filter variants out and hide shadowing).
+	assertProtoAttributes(t, req.GetContext(), []CIVariantAttribute{{Key: "repository", Value: "depot/api"}})
+	if len(req.GetAttributes()) != 0 {
+		t.Fatalf("attributes should be empty, got %+v", req.GetAttributes())
+	}
 }
 
 func withTestSecretVariantsService(t *testing.T, handler civ3beta2connect.SecretServiceHandler, fn func()) {
@@ -678,7 +683,10 @@ func TestCIListVariableVariantsFetchesAllPagesAndMapsResponse(t *testing.T) {
 	if got := recorder.listRequests[1].GetPage().GetPage(); got != 2 {
 		t.Fatalf("second page = %d, want 2", got)
 	}
-	assertProtoAttributes(t, first.GetAttributes(), []CIVariantAttribute{{Key: "repository", Value: "depot/api"}})
+	assertProtoAttributes(t, first.GetContext(), []CIVariantAttribute{{Key: "repository", Value: "depot/api"}})
+	if len(first.GetAttributes()) != 0 {
+		t.Fatalf("attributes should be empty, got %+v", first.GetAttributes())
+	}
 }
 
 func withTestVariableVariantsService(t *testing.T, handler civ3beta2connect.VariableServiceHandler, fn func()) {
