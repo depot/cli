@@ -100,6 +100,27 @@ services:
 	require.Equal(t, "api-docs", *targets["api_docs"].Context)
 }
 
+func TestReadTargetsComposeRecentSpecField(t *testing.T) {
+	// pre_start reached the compose spec well after the compose-go version
+	// this module pinned for a long time, so bake rejected files the Compose
+	// CLI accepts. Any field the loader does not know fails the same way;
+	// this guards against drifting behind the spec again.
+	dt := []byte(`
+services:
+  web:
+    build:
+      context: .
+    pre_start:
+      - command: ["echo", "migrating"]
+`)
+
+	targets, _, err := bake.ReadTargets(context.TODO(), []bake.File{{Name: "compose.yaml", Data: dt}}, []string{"web"}, nil, nil)
+	require.NoError(t, err)
+
+	require.Contains(t, targets, "web")
+	require.Equal(t, ".", *targets["web"].Context)
+}
+
 func TestVariableValidation(t *testing.T) {
 	fp := bake.File{
 		Name: "docker-bake.hcl",
