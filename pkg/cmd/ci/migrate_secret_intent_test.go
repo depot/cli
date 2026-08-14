@@ -59,8 +59,8 @@ func TestGenerateSecretMigrationWorkflow(t *testing.T) {
 		`DEPOT_SECRET_MIGRATION_BRANCH_PREFIX=automation/depot- depot ci vars add MY_VAR="$MY_VAR" --repo owner/repo`,
 		"  cleanup:\n    needs: [secrets, variables]\n    if: ${{ always() }}",
 		"    permissions:\n      contents: write",
-		`DEPOT_SECRET_MIGRATION_BRANCH_PREFIX: "automation/depot-"`,
-		`intent_id="${GITHUB_REF_NAME#"$DEPOT_SECRET_MIGRATION_BRANCH_PREFIX"}"`,
+		`expected_branch_pattern='^automation/depot-[0123456789bcdfghjklmnpqrstvwxz]{10}$'`,
+		`if [[ ! "$GITHUB_REF_NAME" =~ $expected_branch_pattern ]]; then`,
 		`gh api --method DELETE "repos/${GITHUB_REPOSITORY}/git/refs/heads/${GITHUB_REF_NAME}"`,
 	} {
 		if !strings.Contains(workflow, expected) {
@@ -92,6 +92,12 @@ func TestGenerateSecretMigrationWorkflow(t *testing.T) {
 	}
 	if !strings.Contains(secretOnlyWorkflow, "    needs: [secrets]") {
 		t.Fatalf("secret-only cleanup has incorrect dependencies:\n%s", secretOnlyWorkflow)
+	}
+	if strings.Contains(secretOnlyWorkflow, "\n          DEPOT_SECRET_MIGRATION_BRANCH_PREFIX=") || strings.Contains(secretOnlyWorkflow, "\n          DEPOT_SECRET_MIGRATION_BRANCH_PREFIX:") {
+		t.Fatalf("default branch prefix should be implicit:\n%s", secretOnlyWorkflow)
+	}
+	if !strings.Contains(secretOnlyWorkflow, `expected_branch_pattern='^depot-migrate-secrets-[0123456789bcdfghjklmnpqrstvwxz]{10}$'`) {
+		t.Fatalf("default branch pattern is missing:\n%s", secretOnlyWorkflow)
 	}
 
 	variableOnlyWorkflow, err := generateSecretMigrationWorkflow("owner/repo", oidc.SecretMigrationBranchPrefix, nil, []string{"MY_VAR"})

@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -343,9 +342,8 @@ func generateSecretMigrationWorkflow(targetRepo, branchPrefix string, secrets, v
 			"        run: |",
 			"          unset DEPOT_TOKEN",
 			fmt.Sprintf(
-				"          %s=%s depot ci secrets add %s --repo %s",
-				oidc.SecretMigrationBranchPrefixEnv,
-				shellQuote(branchPrefix),
+				"          %sdepot ci secrets add %s --repo %s",
+				secretMigrationBranchPrefixAssignment(branchPrefix),
 				strings.Join(assignments, " "),
 				targetRepo,
 			),
@@ -370,9 +368,8 @@ func generateSecretMigrationWorkflow(targetRepo, branchPrefix string, secrets, v
 			"        run: |",
 			"          unset DEPOT_TOKEN",
 			fmt.Sprintf(
-				"          %s=%s depot ci vars add %s --repo %s",
-				oidc.SecretMigrationBranchPrefixEnv,
-				shellQuote(branchPrefix),
+				"          %sdepot ci vars add %s --repo %s",
+				secretMigrationBranchPrefixAssignment(branchPrefix),
 				strings.Join(assignments, " "),
 				targetRepo,
 			),
@@ -389,14 +386,27 @@ func generateSecretMigrationWorkflow(targetRepo, branchPrefix string, secrets, v
 		"      - name: Delete migration branch",
 		"        env:",
 		"          GH_TOKEN: ${{ github.token }}",
-		fmt.Sprintf("          %s: %s", oidc.SecretMigrationBranchPrefixEnv, strconv.Quote(branchPrefix)),
 		"        run: |",
-		fmt.Sprintf(`          intent_id="${GITHUB_REF_NAME#"$%s"}"`, oidc.SecretMigrationBranchPrefixEnv),
-		`          if [ "$intent_id" = "$GITHUB_REF_NAME" ] || [ "${#intent_id}" -ne 10 ]; then echo "Refusing to delete unexpected branch ${GITHUB_REF_NAME}" >&2; exit 1; fi`,
-		`          case "$intent_id" in *[!0123456789bcdfghjklmnpqrstvwxz]*) echo "Refusing to delete unexpected branch ${GITHUB_REF_NAME}" >&2; exit 1;; esac`,
+		fmt.Sprintf("          expected_branch_pattern=%s", shellQuote(secretMigrationBranchPattern(branchPrefix))),
+		`          if [[ ! "$GITHUB_REF_NAME" =~ $expected_branch_pattern ]]; then`,
+		`            echo "Refusing to delete unexpected branch ${GITHUB_REF_NAME}" >&2`,
+		"            exit 1",
+		"          fi",
 		"          gh api --method DELETE \"repos/${GITHUB_REPOSITORY}/git/refs/heads/${GITHUB_REF_NAME}\"",
 	)
 	return strings.Join(append(lines, ""), "\n"), nil
+}
+
+func secretMigrationBranchPattern(branchPrefix string) string {
+	intentIDPattern := strings.TrimPrefix(oidc.SecretMigrationIntentIDPattern.String(), "^")
+	return "^" + regexp.QuoteMeta(branchPrefix) + intentIDPattern
+}
+
+func secretMigrationBranchPrefixAssignment(branchPrefix string) string {
+	if branchPrefix == oidc.SecretMigrationBranchPrefix {
+		return ""
+	}
+	return fmt.Sprintf("%s=%s ", oidc.SecretMigrationBranchPrefixEnv, shellQuote(branchPrefix))
 }
 
 func secretMigrationNames(names []string, kind string) ([]string, error) {
