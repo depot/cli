@@ -232,9 +232,14 @@ Without match flags, the variant applies to all workflow runs in the organizatio
 					if len(parts) != 2 || parts[0] == "" {
 						return fmt.Errorf("invalid argument %q - expected KEY=VALUE format", arg)
 					}
-					if isSecretMigration && parts[1] == "" {
-						skippedEmpty++
-						continue
+					if isSecretMigration {
+						if strings.EqualFold(parts[0], "DEPOT_TOKEN") {
+							continue
+						}
+						if parts[1] == "" {
+							skippedEmpty++
+							continue
+						}
 					}
 					variables = append(variables, variableInput{name: parts[0], value: parts[1]})
 				}

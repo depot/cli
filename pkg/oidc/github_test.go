@@ -63,6 +63,17 @@ func TestSecretMigrationIntentIDFromGitHubRef(t *testing.T) {
 	}
 }
 
+func TestSecretMigrationIntentIDFromGitHubRefWithPrefix(t *testing.T) {
+	if got, want := SecretMigrationIntentIDFromGitHubRefWithPrefix("automation/depot-0123456789", "automation/depot-"), "0123456789"; got != want {
+		t.Fatalf("intent ID = %q, want %q", got, want)
+	}
+	for _, refName := range []string{"automation/depot-abc", "other/depot-0123456789", "0123456789"} {
+		if got := SecretMigrationIntentIDFromGitHubRefWithPrefix(refName, "automation/depot-"); got != "" {
+			t.Fatalf("intent ID for malformed ref %q = %q, want empty", refName, got)
+		}
+	}
+}
+
 func TestSecretMigrationIntentIDFromGitHubActionsEnvironment(t *testing.T) {
 	t.Setenv("GITHUB_REF_NAME", "depot-migrate-secrets-0123456789")
 	if got := SecretMigrationIntentIDFromGitHubActionsEnvironment(); got != "" {
@@ -73,6 +84,12 @@ func TestSecretMigrationIntentIDFromGitHubActionsEnvironment(t *testing.T) {
 	t.Setenv("ACTIONS_ID_TOKEN_REQUEST_URL", "https://example.invalid/oidc")
 	if got, want := SecretMigrationIntentIDFromGitHubActionsEnvironment(), "0123456789"; got != want {
 		t.Fatalf("intent ID = %q, want %q", got, want)
+	}
+
+	t.Setenv("GITHUB_REF_NAME", "automation/depot-0123456789")
+	t.Setenv(SecretMigrationBranchPrefixEnv, "automation/depot-")
+	if got, want := SecretMigrationIntentIDFromGitHubActionsEnvironment(), "0123456789"; got != want {
+		t.Fatalf("custom-prefix intent ID = %q, want %q", got, want)
 	}
 }
 

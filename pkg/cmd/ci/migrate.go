@@ -20,21 +20,23 @@ import (
 	"github.com/depot/cli/pkg/ci/transform"
 	"github.com/depot/cli/pkg/config"
 	"github.com/depot/cli/pkg/helpers"
+	"github.com/depot/cli/pkg/oidc"
 	civ1 "github.com/depot/cli/pkg/proto/depot/ci/v1"
 	"github.com/spf13/cobra"
 )
 
 type migrateOptions struct {
-	token                    string
-	orgID                    string
-	yes                      bool
-	overwrite                bool
-	dir                      string
-	stdout                   io.Writer
-	includeSecrets           []string
-	includeVars              []string
-	secretMigrationRegistrar secretMigrationIntentRegistrar
-	secretMigrationNow       time.Time
+	token                       string
+	orgID                       string
+	yes                         bool
+	overwrite                   bool
+	dir                         string
+	stdout                      io.Writer
+	includeSecrets              []string
+	includeVars                 []string
+	secretMigrationBranchPrefix string
+	secretMigrationRegistrar    secretMigrationIntentRegistrar
+	secretMigrationNow          time.Time
 }
 
 func NewCmdMigrate() *cobra.Command {
@@ -81,6 +83,12 @@ func newCmdSecretsAndVars(parentOpts *migrateOptions) *cobra.Command {
 
 	cmd.Flags().StringSliceVar(&parentOpts.includeSecrets, "secrets", nil, "Secret name(s) to include (repeatable)")
 	cmd.Flags().StringSliceVar(&parentOpts.includeVars, "vars", nil, "Variable name(s) to include (repeatable)")
+	cmd.Flags().StringVar(
+		&parentOpts.secretMigrationBranchPrefix,
+		"branch-prefix",
+		oidc.SecretMigrationBranchPrefix,
+		"Prefix for the temporary migration branch (the intent ID is appended)",
+	)
 
 	return cmd
 }
@@ -143,21 +151,23 @@ func createSecretMigrationFromRepository(
 			}
 		}
 	}
-	secretNames = omitSecretMigrationGitHubToken(secretNames)
+	secretNames = omitSecretMigrationNames(secretNames, "GITHUB_TOKEN", "DEPOT_TOKEN")
+	variableNames = omitSecretMigrationNames(variableNames, "DEPOT_TOKEN")
 	if len(secretNames) == 0 && len(variableNames) == 0 {
 		fmt.Fprintln(out, "No secrets or variables found to import.")
 		return nil
 	}
 
 	result, err := createSecretMigration(ctx, createSecretMigrationOptions{
-		dir:       workDir,
-		remote:    remote,
-		token:     token,
-		orgID:     orgID,
-		secrets:   secretNames,
-		variables: variableNames,
-		now:       opts.secretMigrationNow,
-		registrar: opts.secretMigrationRegistrar,
+		dir:          workDir,
+		remote:       remote,
+		token:        token,
+		orgID:        orgID,
+		secrets:      secretNames,
+		variables:    variableNames,
+		branchPrefix: opts.secretMigrationBranchPrefix,
+		now:          opts.secretMigrationNow,
+		registrar:    opts.secretMigrationRegistrar,
 	})
 	if err != nil {
 		return err
@@ -169,10 +179,17 @@ func createSecretMigrationFromRepository(
 	return nil
 }
 
-func omitSecretMigrationGitHubToken(secretNames []string) []string {
-	filtered := make([]string, 0, len(secretNames))
-	for _, name := range secretNames {
-		if !strings.EqualFold(strings.TrimSpace(name), "GITHUB_TOKEN") {
+func omitSecretMigrationNames(names []string, omittedNames ...string) []string {
+	filtered := make([]string, 0, len(names))
+	for _, name := range names {
+		omit := false
+		for _, omittedName := range omittedNames {
+			if strings.EqualFold(strings.TrimSpace(name), omittedName) {
+				omit = true
+				break
+			}
+		}
+		if !omit {
 			filtered = append(filtered, name)
 		}
 	}

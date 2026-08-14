@@ -14,14 +14,19 @@ import (
 
 const secretMigrationAudiencePrefix = "https://depot.dev/ci/secret-migration/"
 const SecretMigrationBranchPrefix = "depot-migrate-secrets-"
+const SecretMigrationBranchPrefixEnv = "DEPOT_SECRET_MIGRATION_BRANCH_PREFIX"
 
 var SecretMigrationIntentIDPattern = regexp.MustCompile(`^[0123456789bcdfghjklmnpqrstvwxz]{10}$`)
 
 func SecretMigrationIntentIDFromGitHubRef(refName string) string {
-	if !strings.HasPrefix(refName, SecretMigrationBranchPrefix) {
+	return SecretMigrationIntentIDFromGitHubRefWithPrefix(refName, SecretMigrationBranchPrefix)
+}
+
+func SecretMigrationIntentIDFromGitHubRefWithPrefix(refName, branchPrefix string) string {
+	if branchPrefix == "" || !strings.HasPrefix(refName, branchPrefix) {
 		return ""
 	}
-	intentID := strings.TrimPrefix(refName, SecretMigrationBranchPrefix)
+	intentID := strings.TrimPrefix(refName, branchPrefix)
 	if !SecretMigrationIntentIDPattern.MatchString(intentID) {
 		return ""
 	}
@@ -32,7 +37,11 @@ func SecretMigrationIntentIDFromGitHubActionsEnvironment() string {
 	if os.Getenv("ACTIONS_ID_TOKEN_REQUEST_TOKEN") == "" || os.Getenv("ACTIONS_ID_TOKEN_REQUEST_URL") == "" {
 		return ""
 	}
-	return SecretMigrationIntentIDFromGitHubRef(os.Getenv("GITHUB_REF_NAME"))
+	branchPrefix := os.Getenv(SecretMigrationBranchPrefixEnv)
+	if branchPrefix == "" {
+		branchPrefix = SecretMigrationBranchPrefix
+	}
+	return SecretMigrationIntentIDFromGitHubRefWithPrefix(os.Getenv("GITHUB_REF_NAME"), branchPrefix)
 }
 
 type GitHubOIDCProvider struct {

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"github.com/depot/cli/pkg/oidc"
 	civ2 "github.com/depot/cli/pkg/proto/depot/ci/v2"
 )
 
@@ -42,21 +43,24 @@ func TestValidateSecretMigrationAuth(t *testing.T) {
 func TestGenerateSecretMigrationWorkflow(t *testing.T) {
 	workflow, err := generateSecretMigrationWorkflow(
 		"owner/repo",
-		[]string{"Z_SECRET", "DEPOT_TOKEN", "github_token", "A_SECRET", "A_SECRET"},
-		[]string{"MY_VAR"},
+		"automation/depot-",
+		[]string{"Z_SECRET", "depot_token", "github_token", "A_SECRET", "A_SECRET"},
+		[]string{"MY_VAR", "DEPOT_TOKEN"},
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, expected := range []string{
 		"permissions:\n  id-token: write\n  contents: read",
+		`DEPOT_SECRET_MIGRATION_BRANCH_PREFIX=automation/depot- depot ci secrets add`,
 		"A_SECRET: ${{ secrets.A_SECRET }}",
-		"DEPOT_MIGRATION_SOURCE_DEPOT_TOKEN: ${{ secrets.DEPOT_TOKEN }}",
-		`depot ci secrets add A_SECRET="$A_SECRET" DEPOT_TOKEN="$DEPOT_MIGRATION_SOURCE_DEPOT_TOKEN" Z_SECRET="$Z_SECRET" --repo owner/repo`,
+		`DEPOT_SECRET_MIGRATION_BRANCH_PREFIX=automation/depot- depot ci secrets add A_SECRET="$A_SECRET" Z_SECRET="$Z_SECRET" --repo owner/repo`,
 		"MY_VAR: ${{ vars.MY_VAR }}",
-		`depot ci vars add MY_VAR="$MY_VAR" --repo owner/repo`,
+		`DEPOT_SECRET_MIGRATION_BRANCH_PREFIX=automation/depot- depot ci vars add MY_VAR="$MY_VAR" --repo owner/repo`,
 		"  cleanup:\n    needs: [secrets, variables]\n    if: ${{ always() }}",
 		"    permissions:\n      contents: write",
+		`DEPOT_SECRET_MIGRATION_BRANCH_PREFIX: "automation/depot-"`,
+		`intent_id="${GITHUB_REF_NAME#"$DEPOT_SECRET_MIGRATION_BRANCH_PREFIX"}"`,
 		`gh api --method DELETE "repos/${GITHUB_REPOSITORY}/git/refs/heads/${GITHUB_REF_NAME}"`,
 	} {
 		if !strings.Contains(workflow, expected) {
@@ -66,8 +70,11 @@ func TestGenerateSecretMigrationWorkflow(t *testing.T) {
 	if strings.Contains(strings.ToUpper(workflow), "SECRETS.GITHUB_TOKEN") {
 		t.Fatalf("workflow must not migrate GITHUB_TOKEN:\n%s", workflow)
 	}
-	if strings.Contains(workflow, "DEPOT_SECRET_MIGRATION_INTENT_ID") || strings.Contains(workflow, "DEPOT_SECRET_MIGRATION_BRANCH_PREFIX") {
-		t.Fatalf("workflow must derive migration metadata inside the CLI:\n%s", workflow)
+	if strings.Contains(strings.ToUpper(workflow), "SECRETS.DEPOT_TOKEN") || strings.Contains(strings.ToUpper(workflow), "VARS.DEPOT_TOKEN") {
+		t.Fatalf("workflow must not migrate DEPOT_TOKEN:\n%s", workflow)
+	}
+	if strings.Contains(workflow, "DEPOT_SECRET_MIGRATION_INTENT_ID") {
+		t.Fatalf("workflow must derive the migration intent ID inside the CLI:\n%s", workflow)
 	}
 	if got := strings.Count(workflow, "depot ci secrets add"); got != 1 {
 		t.Fatalf("workflow contains %d secret import commands, want 1:\n%s", got, workflow)
@@ -75,11 +82,11 @@ func TestGenerateSecretMigrationWorkflow(t *testing.T) {
 	if got := strings.Count(workflow, "depot ci vars add"); got != 1 {
 		t.Fatalf("workflow contains %d variable import commands, want 1:\n%s", got, workflow)
 	}
-	if _, err := generateSecretMigrationWorkflow("owner/repo", []string{"bad-name"}, nil); err == nil {
+	if _, err := generateSecretMigrationWorkflow("owner/repo", oidc.SecretMigrationBranchPrefix, []string{"bad-name"}, nil); err == nil {
 		t.Fatal("invalid secret name should be rejected")
 	}
 
-	secretOnlyWorkflow, err := generateSecretMigrationWorkflow("owner/repo", []string{"MY_SECRET"}, nil)
+	secretOnlyWorkflow, err := generateSecretMigrationWorkflow("owner/repo", oidc.SecretMigrationBranchPrefix, []string{"MY_SECRET"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -87,7 +94,7 @@ func TestGenerateSecretMigrationWorkflow(t *testing.T) {
 		t.Fatalf("secret-only cleanup has incorrect dependencies:\n%s", secretOnlyWorkflow)
 	}
 
-	variableOnlyWorkflow, err := generateSecretMigrationWorkflow("owner/repo", nil, []string{"MY_VAR"})
+	variableOnlyWorkflow, err := generateSecretMigrationWorkflow("owner/repo", oidc.SecretMigrationBranchPrefix, nil, []string{"MY_VAR"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -187,7 +194,8 @@ func testSecretsAndVarsCreatesIntentAndLocalBranch(t *testing.T, pushURL, reposi
 	localWIPSHA := runSecretMigrationTestCommand(t, repoDir, "git", "rev-parse", "HEAD")
 
 	const intentID = "0123456789"
-	const migrationBranchName = "depot-migrate-secrets-" + intentID
+	const branchPrefix = "automation/depot-"
+	const migrationBranchName = branchPrefix + intentID
 	registered := false
 	registeredSHA := ""
 	registrar := recordingSecretMigrationRegistrar{register: func(request *connect.Request[civ2.SecretMigrationIntent]) {
@@ -213,12 +221,13 @@ func testSecretsAndVarsCreatesIntentAndLocalBranch(t *testing.T, pushURL, reposi
 
 	var output bytes.Buffer
 	err := secretsAndVars(context.Background(), migrateOptions{
-		dir:                      repoDir,
-		stdout:                   &output,
-		token:                    "depot_api_token",
-		orgID:                    "org-id",
-		secretMigrationNow:       time.Unix(1_700_000_000, 0),
-		secretMigrationRegistrar: registrar,
+		dir:                         repoDir,
+		stdout:                      &output,
+		token:                       "depot_api_token",
+		orgID:                       "org-id",
+		secretMigrationBranchPrefix: branchPrefix,
+		secretMigrationNow:          time.Unix(1_700_000_000, 0),
+		secretMigrationRegistrar:    registrar,
 	})
 	if err != nil {
 		t.Fatal(err)

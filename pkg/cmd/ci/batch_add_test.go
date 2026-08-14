@@ -110,6 +110,7 @@ func TestAddCommandsUseOneBatchRequestForMigrationShape(t *testing.T) {
 		"A_SECRET=alpha",
 		"EMPTY_SECRET=",
 		"github_token=ephemeral-token",
+		"depot_token=source-token",
 		"B_SECRET=beta",
 		"--repo", "namespace/repo",
 		"--token", "depot_api_token",
@@ -135,6 +136,7 @@ func TestAddCommandsUseOneBatchRequestForMigrationShape(t *testing.T) {
 	variableCmd.SetArgs([]string{
 		"A_VAR=alpha",
 		"EMPTY_VAR=",
+		"DEPOT_TOKEN=source-token",
 		"B_VAR=beta",
 		"--repo", "namespace/repo",
 		"--token", "depot_api_token",

@@ -261,7 +261,7 @@ Without match flags, the variant applies to all workflow runs in the organizatio
 						return fmt.Errorf("invalid argument %q - expected KEY=VALUE format", arg)
 					}
 					if isSecretMigration {
-						if strings.EqualFold(parts[0], "GITHUB_TOKEN") {
+						if strings.EqualFold(parts[0], "GITHUB_TOKEN") || strings.EqualFold(parts[0], "DEPOT_TOKEN") {
 							continue
 						}
 						if parts[1] == "" {
