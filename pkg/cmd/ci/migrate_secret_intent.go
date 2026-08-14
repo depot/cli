@@ -85,9 +85,9 @@ func createSecretMigration(ctx context.Context, opts createSecretMigrationOption
 	if err != nil {
 		return nil, err
 	}
-	baseSHA, err := runGit(ctx, dir, "rev-parse", "HEAD")
+	baseSHA, err := resolveSecretMigrationBaseSHA(ctx, dir, remote)
 	if err != nil {
-		return nil, fmt.Errorf("failed to resolve the current commit: %w", err)
+		return nil, err
 	}
 
 	tempRoot, err := os.MkdirTemp("", "depot-secret-migration-")
@@ -160,6 +160,47 @@ func createSecretMigration(ctx context.Context, opts createSecretMigrationOption
 		commitSHA:  commitSHA,
 		intentID:   intentID,
 	}, nil
+}
+
+func resolveSecretMigrationBaseSHA(ctx context.Context, dir, remote string) (string, error) {
+	remotePrefix := remote + "/"
+	if upstream, err := runGit(ctx, dir, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"); err == nil && strings.HasPrefix(upstream, remotePrefix) {
+		if sha, err := resolveSecretMigrationCommit(ctx, dir, upstream); err == nil {
+			return sha, nil
+		}
+	}
+
+	if branch, err := runGit(ctx, dir, "symbolic-ref", "--quiet", "--short", "HEAD"); err == nil {
+		if sha, err := resolveSecretMigrationCommit(ctx, dir, "refs/remotes/"+remote+"/"+branch); err == nil {
+			return sha, nil
+		}
+	}
+
+	remoteHead := "refs/remotes/" + remote + "/HEAD"
+	if sha, err := resolveSecretMigrationCommit(ctx, dir, remoteHead); err == nil {
+		return sha, nil
+	}
+
+	refs, err := runGit(ctx, dir, "for-each-ref", "--format=%(refname)", "refs/remotes/"+remote)
+	if err == nil {
+		var candidates []string
+		for _, ref := range strings.Fields(refs) {
+			if ref != remoteHead {
+				candidates = append(candidates, ref)
+			}
+		}
+		if len(candidates) == 1 {
+			if sha, err := resolveSecretMigrationCommit(ctx, dir, candidates[0]); err == nil {
+				return sha, nil
+			}
+		}
+	}
+
+	return "", fmt.Errorf("failed to resolve a remote-tracking base commit for %q; set an upstream branch or configure the remote's default branch", remote)
+}
+
+func resolveSecretMigrationCommit(ctx context.Context, dir, ref string) (string, error) {
+	return runGit(ctx, dir, "rev-parse", "--verify", ref+"^{commit}")
 }
 
 func detectSecretMigrationRemote(ctx context.Context, dir string) (string, string, error) {

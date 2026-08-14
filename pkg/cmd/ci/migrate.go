@@ -172,7 +172,7 @@ func createSecretMigrationFromRepository(
 func omitSecretMigrationGitHubToken(secretNames []string) []string {
 	filtered := make([]string, 0, len(secretNames))
 	for _, name := range secretNames {
-		if strings.TrimSpace(name) != "GITHUB_TOKEN" {
+		if !strings.EqualFold(strings.TrimSpace(name), "GITHUB_TOKEN") {
 			filtered = append(filtered, name)
 		}
 	}

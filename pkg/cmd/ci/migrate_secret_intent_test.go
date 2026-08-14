@@ -42,7 +42,7 @@ func TestValidateSecretMigrationAuth(t *testing.T) {
 func TestGenerateSecretMigrationWorkflow(t *testing.T) {
 	workflow, err := generateSecretMigrationWorkflow(
 		"owner/repo",
-		[]string{"Z_SECRET", "DEPOT_TOKEN", "GITHUB_TOKEN", "A_SECRET", "A_SECRET"},
+		[]string{"Z_SECRET", "DEPOT_TOKEN", "github_token", "A_SECRET", "A_SECRET"},
 		[]string{"MY_VAR"},
 	)
 	if err != nil {
@@ -63,7 +63,7 @@ func TestGenerateSecretMigrationWorkflow(t *testing.T) {
 			t.Fatalf("workflow does not contain %q:\n%s", expected, workflow)
 		}
 	}
-	if strings.Contains(workflow, "secrets.GITHUB_TOKEN") {
+	if strings.Contains(strings.ToUpper(workflow), "SECRETS.GITHUB_TOKEN") {
 		t.Fatalf("workflow must not migrate GITHUB_TOKEN:\n%s", workflow)
 	}
 	if strings.Contains(workflow, "DEPOT_SECRET_MIGRATION_INTENT_ID") || strings.Contains(workflow, "DEPOT_SECRET_MIGRATION_BRANCH_PREFIX") {
@@ -175,8 +175,16 @@ func testSecretsAndVarsCreatesIntentAndLocalBranch(t *testing.T, pushURL, reposi
 	runSecretMigrationTestCommand(t, repoDir, "git", "remote", "add", "origin", "https://github.com/upstream-owner/upstream-repo.git")
 	runSecretMigrationTestCommand(t, repoDir, "git", "remote", "set-url", "--push", "origin", remoteDir)
 	runSecretMigrationTestCommand(t, repoDir, "git", "push", "origin", "HEAD:refs/heads/main")
+	remoteBaseSHA := runSecretMigrationTestCommand(t, repoDir, "git", "rev-parse", "refs/remotes/origin/main")
+	runSecretMigrationTestCommand(t, repoDir, "git", "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
 	runSecretMigrationTestCommand(t, repoDir, "git", "remote", "set-url", "--push", "origin", pushURL)
 	runSecretMigrationTestCommand(t, repoDir, "git", "config", "commit.gpgsign", "true")
+	if err := os.WriteFile(filepath.Join(repoDir, "LOCAL-WIP.md"), []byte("must not be pushed\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runSecretMigrationTestCommand(t, repoDir, "git", "add", "LOCAL-WIP.md")
+	runSecretMigrationTestCommand(t, repoDir, "git", "-c", "user.name=Depot Test", "-c", "user.email=test@depot.dev", "-c", "commit.gpgsign=false", "commit", "-m", "local WIP")
+	localWIPSHA := runSecretMigrationTestCommand(t, repoDir, "git", "rev-parse", "HEAD")
 
 	const intentID = "0123456789"
 	const migrationBranchName = "depot-migrate-secrets-" + intentID
@@ -230,6 +238,15 @@ func testSecretsAndVarsCreatesIntentAndLocalBranch(t *testing.T, pushURL, reposi
 	localSHA := runSecretMigrationTestCommand(t, repoDir, "git", "rev-parse", "refs/heads/"+migrationBranchName)
 	if localSHA != registeredSHA {
 		t.Fatalf("local branch points to %q, want registered SHA %q", localSHA, registeredSHA)
+	}
+	if parentSHA := runSecretMigrationTestCommand(t, repoDir, "git", "rev-parse", migrationBranchName+"^"); parentSHA != remoteBaseSHA {
+		t.Fatalf("migration commit parent = %q, want remote base %q", parentSHA, remoteBaseSHA)
+	}
+	if headSHA := runSecretMigrationTestCommand(t, repoDir, "git", "rev-parse", "HEAD"); headSHA != localWIPSHA {
+		t.Fatalf("caller's HEAD = %q, want local WIP commit %q", headSHA, localWIPSHA)
+	}
+	if cmd := exec.Command("git", "-C", repoDir, "cat-file", "-e", migrationBranchName+":LOCAL-WIP.md"); cmd.Run() == nil {
+		t.Fatal("migration branch contains the caller's local WIP commit")
 	}
 	workflowPath := ".github/workflows/migrate-secrets-to-depot-ci-1700000000000.yml"
 	workflow := runSecretMigrationTestCommand(t, repoDir, "git", "show", migrationBranchName+":"+workflowPath)

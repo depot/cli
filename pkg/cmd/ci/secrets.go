@@ -254,21 +254,29 @@ Without match flags, the variant applies to all workflow runs in the organizatio
 				}
 
 				var secrets []secretInput
+				skippedEmpty := 0
 				for _, arg := range args {
 					parts := strings.SplitN(arg, "=", 2)
 					if len(parts) != 2 || parts[0] == "" {
 						return fmt.Errorf("invalid argument %q - expected KEY=VALUE format", arg)
 					}
-					if isSecretMigration && (parts[0] == "GITHUB_TOKEN" || parts[1] == "") {
-						continue
+					if isSecretMigration {
+						if strings.EqualFold(parts[0], "GITHUB_TOKEN") {
+							continue
+						}
+						if parts[1] == "" {
+							skippedEmpty++
+							continue
+						}
 					}
 					secrets = append(secrets, secretInput{name: parts[0], value: parts[1]})
 				}
+				printSecretMigrationSkippedWarning("secret", skippedEmpty)
 				if len(secrets) == 0 {
 					return nil
 				}
 
-				if len(repo) <= 1 && len(environment) == 0 && len(branch) == 0 && len(workflow) == 0 {
+				if isSecretMigration && len(repo) <= 1 && len(environment) == 0 && len(branch) == 0 && len(workflow) == 0 {
 					inputs := make([]*civ2.SecretInput, 0, len(secrets))
 					for _, secret := range secrets {
 						inputs = append(inputs, &civ2.SecretInput{Name: secret.name, Value: secret.value})
@@ -354,6 +362,18 @@ Without match flags, the variant applies to all workflow runs in the organizatio
 	_ = cmd.Flags().MarkHidden("value")
 
 	return cmd
+}
+
+func printSecretMigrationSkippedWarning(kind string, count int) {
+	if count == 0 {
+		return
+	}
+
+	label := kind
+	if count != 1 {
+		label += "s"
+	}
+	fmt.Printf("Warning: skipped %d %s during migration because their values were empty; GitHub may not expose environment-scoped values to this workflow.\n", count, label)
 }
 
 func NewCmdSecretsBulk() *cobra.Command {
