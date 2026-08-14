@@ -1,0 +1,27 @@
+syntax = "proto3";
+
+package depot.ci.v2;
+
+import "google/protobuf/timestamp.proto";
+
+// MigrationService supports workflow migrations initiated by Depot clients.
+service MigrationService {
+  // Registers a five-minute authorization for a GitHub Actions workflow to import secrets and variables.
+  rpc RegisterSecretMigrationIntent(SecretMigrationIntent) returns (RegisterSecretMigrationIntentResponse);
+}
+
+message SecretMigrationIntent {
+  // Full commit SHA that will deliver the secrets and variables.
+  string sha = 1;
+
+  // Fully qualified clone URL without a scheme, such as github.com/owner/repo.
+  string repository_url = 2;
+}
+
+message RegisterSecretMigrationIntentResponse {
+  // Time after which the intent can no longer authorize a migration.
+  google.protobuf.Timestamp expires_at = 1;
+
+  // Unique identifier included in the GitHub OIDC audience.
+  string id = 2;
+}

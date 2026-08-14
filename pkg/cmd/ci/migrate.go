@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"connectrpc.com/connect"
 	"github.com/charmbracelet/huh"
@@ -24,15 +25,17 @@ import (
 )
 
 type migrateOptions struct {
-	token          string
-	orgID          string
-	yes            bool
-	overwrite      bool
-	dir            string
-	stdout         io.Writer
-	branchName     string
-	includeSecrets []string
-	includeVars    []string
+	token                    string
+	orgID                    string
+	yes                      bool
+	overwrite                bool
+	dir                      string
+	stdout                   io.Writer
+	branchName               string
+	includeSecrets           []string
+	includeVars              []string
+	secretMigrationRegistrar secretMigrationIntentRegistrar
+	secretMigrationNow       time.Time
 }
 
 func NewCmdMigrate() *cobra.Command {
@@ -90,43 +93,72 @@ func secretsAndVars(ctx context.Context, opts migrateOptions) error {
 		workDir = "."
 	}
 
+	token, orgID, err := resolveAuth(ctx, opts)
+	if err != nil {
+		return err
+	}
+	remote, _, err := detectSecretMigrationRemote(ctx, workDir)
+	if err != nil {
+		return err
+	}
+	return createSecretMigrationFromRepository(ctx, opts, token, orgID, remote)
+}
+
+func createSecretMigrationFromRepository(
+	ctx context.Context,
+	opts migrateOptions,
+	token, orgID, remote string,
+) error {
+	workDir := opts.dir
+	if strings.TrimSpace(workDir) == "" {
+		workDir = "."
+	}
 	out := opts.stdout
 	if out == nil {
 		out = os.Stdout
 	}
 
-	bold := lipgloss.NewStyle().Bold(true)
-
-	token, orgID, err := resolveAuth(ctx, opts)
-	if err != nil {
-		return err
+	secretNames := opts.includeSecrets
+	variableNames := opts.includeVars
+	if len(secretNames) == 0 || len(variableNames) == 0 {
+		workflowsDir := filepath.Join(workDir, ".github", "workflows")
+		workflows, warnings, err := parseWorkflowDirWithWarnings(workflowsDir)
+		if err != nil {
+			return fmt.Errorf("failed to inspect GitHub Actions workflows: %w", err)
+		}
+		for _, warning := range warnings {
+			fmt.Fprintf(out, "Warning: %s\n", warning)
+		}
+		if len(secretNames) == 0 {
+			secretNames, err = detectSecretsFromWorkflows(workflows)
+			if err != nil {
+				return fmt.Errorf("failed to detect secrets: %w", err)
+			}
+		}
+		if len(variableNames) == 0 {
+			variableNames, err = detectVariablesFromWorkflows(workflows)
+			if err != nil {
+				return fmt.Errorf("failed to detect variables: %w", err)
+			}
+		}
 	}
-
-	// Detect repo
-	repo := detectRepoFromGitRemote(workDir)
-	if repo == "" {
-		return fmt.Errorf("could not detect GitHub repository from git remotes — is this a GitHub repo with a configured remote?")
+	if len(secretNames) == 0 && len(variableNames) == 0 {
+		fmt.Fprintln(out, "No secrets or variables found to import.")
+		return nil
 	}
-
-	client := api.NewMigrationClient()
 
 	if !opts.yes {
 		if !helpers.IsTerminal() {
 			return fmt.Errorf("interactive mode requires a terminal; rerun with --yes")
 		}
-
-		fmt.Fprintln(out, "")
-		fmt.Fprintf(out, "This will push a GitHub Actions workflow to %s on a temporary branch.\n", bold.Render(repo))
-		fmt.Fprintln(out, "The workflow runs immediately, reads your existing secrets and variables,")
-		fmt.Fprintln(out, "and imports them into Depot CI. The branch is safe to delete afterwards.")
-		fmt.Fprintln(out, "")
-		preview := true
+		confirmed := false
 		if err := huh.NewForm(huh.NewGroup(
 			huh.NewConfirm().
-				Title("Preview the workflow before creating it?").
-				Affirmative("Yes, show me").
-				Negative("No, go ahead").
-				Value(&preview),
+				Title("Create a local migration workflow commit?").
+				Description("You will have five minutes to push the generated branch.").
+				Affirmative("Yes").
+				Negative("No").
+				Value(&confirmed),
 		)).Run(); err != nil {
 			if errors.Is(err, huh.ErrUserAborted) {
 				fmt.Fprintln(out, "Cancelled.")
@@ -134,74 +166,30 @@ func secretsAndVars(ctx context.Context, opts migrateOptions) error {
 			}
 			return fmt.Errorf("failed to confirm: %w", err)
 		}
-
-		if preview {
-			dryResp, err := client.ImportSecretsAndVars(ctx, api.WithAuthenticationAndOrg(
-				connect.NewRequest(&civ1.ImportSecretsAndVarsRequest{Repo: repo, DryRun: true, BranchName: opts.branchName, IncludeSecrets: opts.includeSecrets, IncludeVars: opts.includeVars}),
-				token, orgID,
-			))
-			if err != nil {
-				var connectErr *connect.Error
-				if errors.As(err, &connectErr) {
-					return fmt.Errorf("%s", connectErr.Message())
-				}
-				return fmt.Errorf("failed to preview: %w", err)
-			}
-
-			dryResult := dryResp.Msg.GetResult()
-			switch r := dryResult.(type) {
-			case *civ1.ImportSecretsAndVarsResponse_DryRunResult:
-				fmt.Fprintln(out, "")
-				fmt.Fprintf(out, "Branch: %s\n", bold.Render(r.DryRunResult.GetBranchName()))
-				fmt.Fprintf(out, "File:   .github/workflows/%s\n\n", bold.Render(r.DryRunResult.GetWorkflowName()))
-				fmt.Fprintln(out, r.DryRunResult.GetWorkflowContent())
-			default:
-				fmt.Fprintln(out, "No secrets or variables found to import.")
-				return nil
-			}
-
-			confirm := false
-			if err := huh.NewForm(huh.NewGroup(
-				huh.NewConfirm().
-					Title("Create this workflow?").
-					Affirmative("Yes").
-					Negative("No").
-					Value(&confirm),
-			)).Run(); err != nil {
-				if errors.Is(err, huh.ErrUserAborted) {
-					fmt.Fprintln(out, "Cancelled.")
-					return nil
-				}
-				return fmt.Errorf("failed to confirm: %w", err)
-			}
-
-			if !confirm {
-				fmt.Fprintln(out, "Cancelled.")
-				return nil
-			}
+		if !confirmed {
+			fmt.Fprintln(out, "Cancelled.")
+			return nil
 		}
 	}
 
-	resp, err := client.ImportSecretsAndVars(ctx, api.WithAuthenticationAndOrg(
-		connect.NewRequest(&civ1.ImportSecretsAndVarsRequest{Repo: repo, BranchName: opts.branchName, IncludeSecrets: opts.includeSecrets, IncludeVars: opts.includeVars}),
-		token, orgID,
-	))
+	result, err := createSecretMigration(ctx, createSecretMigrationOptions{
+		dir:        workDir,
+		remote:     remote,
+		branchName: opts.branchName,
+		token:      token,
+		orgID:      orgID,
+		secrets:    secretNames,
+		variables:  variableNames,
+		now:        opts.secretMigrationNow,
+		registrar:  opts.secretMigrationRegistrar,
+	})
 	if err != nil {
-		var connectErr *connect.Error
-		if errors.As(err, &connectErr) {
-			return fmt.Errorf("%s", connectErr.Message())
-		}
-		return fmt.Errorf("failed to import secrets and variables: %w", err)
+		return err
 	}
 
-	result := resp.Msg.GetResult()
-	switch r := result.(type) {
-	case *civ1.ImportSecretsAndVarsResponse_RunResult:
-		fmt.Fprintf(out, "\nMigration workflow created. View it at:\n  %s\n\n", r.RunResult.GetWorkflowUrl())
-	default:
-		fmt.Fprintln(out, "No secrets or variables found to import.")
-	}
-
+	fmt.Fprintf(out, "\nWe've committed a workflow to migrate your secrets and variables on branch %s.\n", result.branchName)
+	fmt.Fprintln(out, "All you need to do is push it within 5 minutes:")
+	fmt.Fprintf(out, "  git push %s %s\n", shellQuote(remote), shellQuote(result.branchName))
 	return nil
 }
 

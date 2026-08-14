@@ -13,6 +13,7 @@ import (
 	"github.com/depot/cli/pkg/proto/depot/agent/v1/agentv1connect"
 	"github.com/depot/cli/pkg/proto/depot/build/v1/buildv1connect"
 	"github.com/depot/cli/pkg/proto/depot/ci/v1/civ1connect"
+	"github.com/depot/cli/pkg/proto/depot/ci/v2/civ2connect"
 	"github.com/depot/cli/pkg/proto/depot/cli/v1/cliv1connect"
 	"github.com/depot/cli/pkg/proto/depot/cli/v1beta1/cliv1beta1connect"
 	cliCorev1connect "github.com/depot/cli/pkg/proto/depot/core/v1/corev1connect"
@@ -74,6 +75,10 @@ func NewComputeClient() civ1connect.DepotComputeServiceClient {
 
 func NewMigrationClient() civ1connect.MigrationServiceClient {
 	return civ1connect.NewMigrationServiceClient(getHTTPClient(getBaseURL()), getBaseURL(), WithUserAgent())
+}
+
+func NewWorkflowMigrationClient() civ2connect.MigrationServiceClient {
+	return civ2connect.NewMigrationServiceClient(getHTTPClient(getBaseURL()), getBaseURL(), WithUserAgent())
 }
 
 func WithAuthentication[T any](req *connect.Request[T], token string) *connect.Request[T] {

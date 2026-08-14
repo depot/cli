@@ -1,0 +1,257 @@
+package ci
+
+import (
+	"bytes"
+	"context"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"connectrpc.com/connect"
+	civ2 "github.com/depot/cli/pkg/proto/depot/ci/v2"
+)
+
+type recordingSecretMigrationRegistrar struct {
+	register func(*connect.Request[civ2.SecretMigrationIntent])
+	intentID string
+}
+
+func (r recordingSecretMigrationRegistrar) RegisterSecretMigrationIntent(
+	_ context.Context,
+	request *connect.Request[civ2.SecretMigrationIntent],
+) (*connect.Response[civ2.RegisterSecretMigrationIntentResponse], error) {
+	r.register(request)
+	return connect.NewResponse(&civ2.RegisterSecretMigrationIntentResponse{Id: r.intentID}), nil
+}
+
+func TestValidateSecretMigrationAuth(t *testing.T) {
+	if err := validateSecretMigrationAuth("depot_org_token", ""); err != nil {
+		t.Fatalf("org token should not require an org ID: %v", err)
+	}
+	if err := validateSecretMigrationAuth("depot_api_token", "org-id"); err != nil {
+		t.Fatalf("API token with org ID should be accepted: %v", err)
+	}
+	if err := validateSecretMigrationAuth("depot_api_token", ""); err == nil {
+		t.Fatal("API token without org ID should be rejected")
+	}
+}
+
+func TestGenerateSecretMigrationWorkflow(t *testing.T) {
+	workflow, err := generateSecretMigrationWorkflow(
+		"owner/repo",
+		"depot-migrate-secrets-test",
+		[]string{"Z_SECRET", "DEPOT_TOKEN", "A_SECRET", "A_SECRET"},
+		[]string{"MY_VAR"},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"permissions:\n  id-token: write\n  contents: read",
+		`export DEPOT_SECRET_MIGRATION_INTENT_ID="${GITHUB_REF_NAME##*-}"`,
+		"A_SECRET: ${{ secrets.A_SECRET }}",
+		`if [ -n "${A_SECRET:-}" ]; then set -- "$@" A_SECRET="$A_SECRET"; else echo "::warning::Skipping GitHub secret A_SECRET because it is unavailable or empty"; fi`,
+		`if [ -n "${Z_SECRET:-}" ]; then set -- "$@" Z_SECRET="$Z_SECRET"; else echo "::warning::Skipping GitHub secret Z_SECRET because it is unavailable or empty"; fi`,
+		"DEPOT_MIGRATION_SOURCE_DEPOT_TOKEN: ${{ secrets.DEPOT_TOKEN }}",
+		`if [ -n "${DEPOT_MIGRATION_SOURCE_DEPOT_TOKEN:-}" ]; then set -- "$@" DEPOT_TOKEN="$DEPOT_MIGRATION_SOURCE_DEPOT_TOKEN"; else echo "::warning::Skipping GitHub secret DEPOT_TOKEN because it is unavailable or empty"; fi`,
+		`if [ "$#" -gt 0 ]; then depot ci secrets add "$@" --repo owner/repo; fi`,
+		"MY_VAR: ${{ vars.MY_VAR }}",
+		"  cleanup:\n    needs: [secrets, variables]\n    if: ${{ always() }}",
+		"    permissions:\n      contents: write",
+		`DEPOT_SECRET_MIGRATION_BRANCH_PREFIX: "depot-migrate-secrets-test"`,
+		`if [ "${GITHUB_REF_NAME%-*}" != "$DEPOT_SECRET_MIGRATION_BRANCH_PREFIX" ]; then echo "Refusing to delete unexpected branch ${GITHUB_REF_NAME}" >&2; exit 1; fi`,
+		`gh api --method DELETE "repos/${GITHUB_REPOSITORY}/git/refs/heads/${GITHUB_REF_NAME}"`,
+	} {
+		if !strings.Contains(workflow, expected) {
+			t.Fatalf("workflow does not contain %q:\n%s", expected, workflow)
+		}
+	}
+	if got := strings.Count(workflow, "depot ci secrets add"); got != 1 {
+		t.Fatalf("workflow contains %d secret import commands, want 1:\n%s", got, workflow)
+	}
+	if got := strings.Count(workflow, "depot ci vars add"); got != 1 {
+		t.Fatalf("workflow contains %d variable import commands, want 1:\n%s", got, workflow)
+	}
+	if _, err := generateSecretMigrationWorkflow("owner/repo", "migration", []string{"bad-name"}, nil); err == nil {
+		t.Fatal("invalid secret name should be rejected")
+	}
+
+	secretOnlyWorkflow, err := generateSecretMigrationWorkflow("owner/repo", "migration", []string{"MY_SECRET"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(secretOnlyWorkflow, "    needs: [secrets]") {
+		t.Fatalf("secret-only cleanup has incorrect dependencies:\n%s", secretOnlyWorkflow)
+	}
+
+	variableOnlyWorkflow, err := generateSecretMigrationWorkflow("owner/repo", "migration", nil, []string{"MY_VAR"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(variableOnlyWorkflow, "    needs: [variables]") {
+		t.Fatalf("variable-only cleanup has incorrect dependencies:\n%s", variableOnlyWorkflow)
+	}
+}
+
+func TestNormalizeSecretMigrationRemoteURL(t *testing.T) {
+	tests := []struct {
+		remote     string
+		qualified  string
+		repository string
+	}{
+		{"https://github.com/Depot/CLI.git", "github.com/Depot/CLI", "Depot/CLI"},
+		{"https://github.com/Depot/CLI.GIT", "github.com/Depot/CLI", "Depot/CLI"},
+		{"git@github.com:depot/cli.git", "github.com/depot/cli", "depot/cli"},
+		{"ssh://git@github.com/depot/cli.git", "github.com/depot/cli", "depot/cli"},
+		{"https://origin.cursor.com/git/acme/api", "origin.cursor.com/acme/api", "acme/api"},
+		{"git@origin.cursor.com:git/acme/api.git", "origin.cursor.com/acme/api", "acme/api"},
+	}
+	for _, test := range tests {
+		t.Run(test.remote, func(t *testing.T) {
+			qualified, repository, err := normalizeSecretMigrationRemoteURL(test.remote)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if qualified != test.qualified || repository != test.repository {
+				t.Fatalf("got (%q, %q), want (%q, %q)", qualified, repository, test.qualified, test.repository)
+			}
+		})
+	}
+
+	for _, remote := range []string{"", "/tmp/repo", "https://gitlab.com/depot/cli", "https://github.com/depot"} {
+		if _, _, err := normalizeSecretMigrationRemoteURL(remote); err == nil {
+			t.Fatalf("expected %q to be rejected", remote)
+		}
+	}
+}
+
+func TestSecretsAndVarsCreatesIntentAndLocalBranchForClientCreatedMigration(t *testing.T) {
+	tests := []struct {
+		name          string
+		pushURL       string
+		repositoryURL string
+		targetRepo    string
+	}{
+		{name: "GitHub", pushURL: "https://github.com/owner/repo.git", repositoryURL: "github.com/owner/repo", targetRepo: "owner/repo"},
+		{name: "Cursor Origin", pushURL: "https://origin.cursor.com/git/namespace/repo.git", repositoryURL: "origin.cursor.com/namespace/repo", targetRepo: "namespace/repo"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			testSecretsAndVarsCreatesIntentAndLocalBranch(t, test.pushURL, test.repositoryURL, test.targetRepo)
+		})
+	}
+}
+
+func testSecretsAndVarsCreatesIntentAndLocalBranch(t *testing.T, pushURL, repositoryURL, targetRepo string) {
+	tempDir := t.TempDir()
+	remoteDir := filepath.Join(tempDir, "remote.git")
+	repoDir := filepath.Join(tempDir, "repo")
+	runSecretMigrationTestCommand(t, "", "git", "init", "--bare", remoteDir)
+	runSecretMigrationTestCommand(t, "", "git", "init", repoDir)
+	if err := os.WriteFile(filepath.Join(repoDir, "README.md"), []byte("base\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runSecretMigrationTestCommand(t, repoDir, "git", "add", "README.md")
+	runSecretMigrationTestCommand(t, repoDir, "git", "-c", "user.name=Depot Test", "-c", "user.email=test@depot.dev", "commit", "-m", "base")
+	runSecretMigrationTestCommand(t, repoDir, "git", "remote", "add", "origin", "https://github.com/upstream-owner/upstream-repo.git")
+	runSecretMigrationTestCommand(t, repoDir, "git", "remote", "set-url", "--push", "origin", remoteDir)
+	runSecretMigrationTestCommand(t, repoDir, "git", "push", "origin", "HEAD:refs/heads/main")
+	runSecretMigrationTestCommand(t, repoDir, "git", "remote", "set-url", "--push", "origin", pushURL)
+	runSecretMigrationTestCommand(t, repoDir, "git", "config", "commit.gpgsign", "true")
+
+	const branchName = "depot-migrate-secrets-test"
+	const intentID = "0123456789"
+	const migrationBranchName = branchName + "-" + intentID
+	registered := false
+	registeredSHA := ""
+	registrar := recordingSecretMigrationRegistrar{register: func(request *connect.Request[civ2.SecretMigrationIntent]) {
+		registered = true
+		if request.Header().Get("Authorization") != "Bearer depot_api_token" {
+			t.Fatalf("unexpected authorization header: %q", request.Header().Get("Authorization"))
+		}
+		if request.Header().Get("x-depot-org") != "org-id" {
+			t.Fatalf("unexpected org header: %q", request.Header().Get("x-depot-org"))
+		}
+		if request.Msg.GetRepositoryUrl() != repositoryURL {
+			t.Fatalf("unexpected repository URL: %q", request.Msg.GetRepositoryUrl())
+		}
+		if len(request.Msg.GetSha()) != 40 {
+			t.Fatalf("unexpected commit SHA: %q", request.Msg.GetSha())
+		}
+		registeredSHA = request.Msg.GetSha()
+		cmd := exec.Command("git", "--git-dir", remoteDir, "show-ref", "--verify", "refs/heads/"+migrationBranchName)
+		if err := cmd.Run(); err == nil {
+			t.Fatal("migration branch was pushed")
+		}
+	}, intentID: intentID}
+
+	var output bytes.Buffer
+	err := secretsAndVars(context.Background(), migrateOptions{
+		dir:                      repoDir,
+		stdout:                   &output,
+		yes:                      true,
+		branchName:               branchName,
+		token:                    "depot_api_token",
+		orgID:                    "org-id",
+		includeSecrets:           []string{"MY_SECRET"},
+		includeVars:              []string{"MY_VAR"},
+		secretMigrationNow:       time.Unix(1_700_000_000, 0),
+		secretMigrationRegistrar: registrar,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !registered {
+		t.Fatal("intent was not registered")
+	}
+	for _, expected := range []string{
+		"We've committed a workflow to migrate your secrets and variables on branch " + migrationBranchName,
+		"All you need to do is push it within 5 minutes:",
+		"git push origin " + migrationBranchName,
+	} {
+		if !strings.Contains(output.String(), expected) {
+			t.Fatalf("output does not contain %q:\n%s", expected, output.String())
+		}
+	}
+	localSHA := runSecretMigrationTestCommand(t, repoDir, "git", "rev-parse", "refs/heads/"+migrationBranchName)
+	if localSHA != registeredSHA {
+		t.Fatalf("local branch points to %q, want registered SHA %q", localSHA, registeredSHA)
+	}
+	workflowPath := ".github/workflows/migrate-secrets-to-depot-ci-1700000000000.yml"
+	workflow := runSecretMigrationTestCommand(t, repoDir, "git", "show", migrationBranchName+":"+workflowPath)
+	for _, expected := range []string{
+		`depot ci secrets add "$@" --repo ` + targetRepo,
+		`depot ci vars add MY_VAR="$MY_VAR" --repo ` + targetRepo,
+	} {
+		if !strings.Contains(workflow, expected) {
+			t.Fatalf("committed workflow does not contain push-remote target %q:\n%s", expected, workflow)
+		}
+	}
+	if strings.Contains(workflow, "--repo upstream-owner/upstream-repo") {
+		t.Fatalf("committed workflow uses the workflow runtime repository instead of the push remote:\n%s", workflow)
+	}
+	cmd := exec.Command("git", "--git-dir", remoteDir, "show-ref", "--verify", "refs/heads/"+migrationBranchName)
+	if err := cmd.Run(); err == nil {
+		t.Fatal("migration branch was pushed")
+	}
+	status := runSecretMigrationTestCommand(t, repoDir, "git", "status", "--short")
+	if status != "" {
+		t.Fatalf("caller's worktree was modified: %s", status)
+	}
+}
+
+func runSecretMigrationTestCommand(t *testing.T, dir, name string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command(name, args...)
+	if dir != "" {
+		cmd.Dir = dir
+	}
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("%s %s failed: %v\n%s", name, strings.Join(args, " "), err, output)
+	}
+	return strings.TrimSpace(string(output))
+}

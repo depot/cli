@@ -11,6 +11,7 @@ import (
 	"github.com/depot/cli/pkg/api"
 	"github.com/depot/cli/pkg/config"
 	"github.com/depot/cli/pkg/helpers"
+	civ2 "github.com/depot/cli/pkg/proto/depot/ci/v2"
 	"github.com/spf13/cobra"
 )
 
@@ -221,8 +222,7 @@ Without match flags, the variant applies to all workflow runs in the organizatio
 				orgID = config.GetCurrentOrganization()
 			}
 
-			// Allow migration of GH Secrets to Depot CI via GH OIDC
-			tokenVal, err := helpers.ResolveProjectAuth(ctx, token)
+			tokenVal, err := helpers.ResolveProjectAuthForSecretMigration(ctx, token)
 			if err != nil {
 				return err
 			}
@@ -260,18 +260,32 @@ Without match flags, the variant applies to all workflow runs in the organizatio
 					secrets = append(secrets, secretInput{name: parts[0], value: parts[1]})
 				}
 
-				for _, secret := range secrets {
-					_, err := api.CISetSecretVariant(ctx, tokenVal, orgID, api.CISetSecretVariantOptions{
-						Name:        secret.name,
-						Variant:     variant,
-						Value:       secret.value,
-						Repo:        repo,
-						Environment: environment,
-						Branch:      branch,
-						Workflow:    workflow,
-					})
-					if err != nil {
-						return fmt.Errorf("failed to add secret '%s': %w", secret.name, err)
+				if len(repo) <= 1 && len(environment) == 0 && len(branch) == 0 && len(workflow) == 0 {
+					inputs := make([]*civ2.SecretInput, 0, len(secrets))
+					for _, secret := range secrets {
+						inputs = append(inputs, &civ2.SecretInput{Name: secret.name, Value: secret.value})
+					}
+					batchRepo := ""
+					if len(repo) == 1 {
+						batchRepo = repo[0]
+					}
+					if err := api.CIBatchAddSecrets(ctx, tokenVal, orgID, inputs, batchRepo); err != nil {
+						return fmt.Errorf("failed to add secrets: %w", err)
+					}
+				} else {
+					for _, secret := range secrets {
+						_, err := api.CISetSecretVariant(ctx, tokenVal, orgID, api.CISetSecretVariantOptions{
+							Name:        secret.name,
+							Variant:     variant,
+							Value:       secret.value,
+							Repo:        repo,
+							Environment: environment,
+							Branch:      branch,
+							Workflow:    workflow,
+						})
+						if err != nil {
+							return fmt.Errorf("failed to add secret '%s': %w", secret.name, err)
+						}
 					}
 				}
 
