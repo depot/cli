@@ -7,6 +7,8 @@ import (
 	"github.com/depot/cli/pkg/api"
 	"github.com/depot/cli/pkg/config"
 	"github.com/depot/cli/pkg/helpers"
+	"github.com/depot/cli/pkg/oidc"
+	civ2 "github.com/depot/cli/pkg/proto/depot/ci/v2"
 	"github.com/spf13/cobra"
 )
 
@@ -186,13 +188,13 @@ Without match flags, the variant applies to all workflow runs in the organizatio
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
+			isSecretMigration := oidc.SecretMigrationIntentIDFromGitHubActionsEnvironment() != ""
 
 			if orgID == "" {
 				orgID = config.GetCurrentOrganization()
 			}
 
-			// Allow migration of GH Vars to Depot CI via GH OIDC
-			tokenVal, err := helpers.ResolveProjectAuth(ctx, token)
+			tokenVal, err := helpers.ResolveProjectAuthForSecretMigration(ctx, token)
 			if err != nil {
 				return err
 			}
@@ -224,26 +226,54 @@ Without match flags, the variant applies to all workflow runs in the organizatio
 				}
 
 				var variables []variableInput
+				skippedEmpty := 0
 				for _, arg := range args {
 					parts := strings.SplitN(arg, "=", 2)
 					if len(parts) != 2 || parts[0] == "" {
 						return fmt.Errorf("invalid argument %q - expected KEY=VALUE format", arg)
 					}
+					if isSecretMigration {
+						if strings.EqualFold(parts[0], "DEPOT_TOKEN") {
+							continue
+						}
+						if parts[1] == "" {
+							skippedEmpty++
+							continue
+						}
+					}
 					variables = append(variables, variableInput{name: parts[0], value: parts[1]})
 				}
+				printSecretMigrationSkippedWarning("variable", skippedEmpty)
+				if len(variables) == 0 {
+					return nil
+				}
 
-				for _, variable := range variables {
-					_, err := api.CISetVariableVariant(ctx, tokenVal, orgID, api.CISetVariableVariantOptions{
-						Name:        variable.name,
-						Variant:     variant,
-						Value:       variable.value,
-						Repo:        repo,
-						Environment: environment,
-						Branch:      branch,
-						Workflow:    workflow,
-					})
-					if err != nil {
-						return fmt.Errorf("failed to add CI variable '%s': %w", variable.name, err)
+				if isSecretMigration && len(repo) <= 1 && len(environment) == 0 && len(branch) == 0 && len(workflow) == 0 {
+					inputs := make([]*civ2.VariableInput, 0, len(variables))
+					for _, variable := range variables {
+						inputs = append(inputs, &civ2.VariableInput{Name: variable.name, Value: variable.value})
+					}
+					batchRepo := ""
+					if len(repo) == 1 {
+						batchRepo = repo[0]
+					}
+					if err := api.CIBatchAddVariables(ctx, tokenVal, orgID, inputs, batchRepo); err != nil {
+						return fmt.Errorf("failed to add CI variables: %w", err)
+					}
+				} else {
+					for _, variable := range variables {
+						_, err := api.CISetVariableVariant(ctx, tokenVal, orgID, api.CISetVariableVariantOptions{
+							Name:        variable.name,
+							Variant:     variant,
+							Value:       variable.value,
+							Repo:        repo,
+							Environment: environment,
+							Branch:      branch,
+							Workflow:    workflow,
+						})
+						if err != nil {
+							return fmt.Errorf("failed to add CI variable '%s': %w", variable.name, err)
+						}
 					}
 				}
 

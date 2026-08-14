@@ -39,15 +39,7 @@ func ResolveStaticOrgAuth(tok string) string {
 }
 
 func ResolveProjectAuth(ctx context.Context, tok string) (string, error) {
-	if tok != "" {
-		return tok, nil
-	}
-
-	if token := os.Getenv("DEPOT_TOKEN"); token != "" {
-		return token, nil
-	}
-
-	if token := config.GetApiToken(); token != "" {
+	if token := resolveStaticProjectAuth(tok); token != "" {
 		return token, nil
 	}
 
@@ -64,6 +56,37 @@ func ResolveProjectAuth(ctx context.Context, tok string) (string, error) {
 	}
 
 	return "", nil
+}
+
+func ResolveProjectAuthForSecretMigration(ctx context.Context, tok string) (string, error) {
+	if token := resolveStaticProjectAuth(tok); token != "" {
+		return token, nil
+	}
+
+	intentID := oidc.SecretMigrationIntentIDFromGitHubActionsEnvironment()
+	if intentID != "" {
+		token, err := oidc.NewGitHubOIDCProvider().RetrieveSecretMigrationToken(ctx, intentID)
+		if err != nil {
+			return "", err
+		}
+		if token != "" {
+			return token, nil
+		}
+	}
+
+	return ResolveProjectAuth(ctx, tok)
+}
+
+func resolveStaticProjectAuth(tok string) string {
+	if tok != "" {
+		return tok
+	}
+
+	if token := os.Getenv("DEPOT_TOKEN"); token != "" {
+		return token
+	}
+
+	return config.GetApiToken()
 }
 
 func authorizeDevice(ctx context.Context) (string, error) {
