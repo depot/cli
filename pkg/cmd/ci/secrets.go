@@ -11,6 +11,7 @@ import (
 	"github.com/depot/cli/pkg/api"
 	"github.com/depot/cli/pkg/config"
 	"github.com/depot/cli/pkg/helpers"
+	"github.com/depot/cli/pkg/oidc"
 	civ2 "github.com/depot/cli/pkg/proto/depot/ci/v2"
 	"github.com/spf13/cobra"
 )
@@ -217,6 +218,7 @@ Without match flags, the variant applies to all workflow runs in the organizatio
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
+			isSecretMigration := oidc.SecretMigrationIntentIDFromGitHubActionsEnvironment() != ""
 
 			if orgID == "" {
 				orgID = config.GetCurrentOrganization()
@@ -257,7 +259,13 @@ Without match flags, the variant applies to all workflow runs in the organizatio
 					if len(parts) != 2 || parts[0] == "" {
 						return fmt.Errorf("invalid argument %q - expected KEY=VALUE format", arg)
 					}
+					if isSecretMigration && (parts[0] == "GITHUB_TOKEN" || parts[1] == "") {
+						continue
+					}
 					secrets = append(secrets, secretInput{name: parts[0], value: parts[1]})
+				}
+				if len(secrets) == 0 {
+					return nil
 				}
 
 				if len(repo) <= 1 && len(environment) == 0 && len(branch) == 0 && len(workflow) == 0 {

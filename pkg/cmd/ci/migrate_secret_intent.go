@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -31,15 +30,14 @@ type secretMigrationIntentRegistrar interface {
 }
 
 type createSecretMigrationOptions struct {
-	dir        string
-	remote     string
-	branchName string
-	token      string
-	orgID      string
-	secrets    []string
-	variables  []string
-	now        time.Time
-	registrar  secretMigrationIntentRegistrar
+	dir       string
+	remote    string
+	token     string
+	orgID     string
+	secrets   []string
+	variables []string
+	now       time.Time
+	registrar secretMigrationIntentRegistrar
 }
 
 type createSecretMigrationResult struct {
@@ -82,16 +80,8 @@ func createSecretMigration(ctx context.Context, opts createSecretMigrationOption
 		now = time.Now()
 	}
 	timestamp := now.UnixMilli()
-	branchName := opts.branchName
-	if strings.TrimSpace(branchName) == "" {
-		branchName = fmt.Sprintf("depot-migrate-secrets-%d", timestamp)
-	}
-	if _, err := runGit(ctx, dir, "check-ref-format", "--branch", branchName); err != nil {
-		return nil, fmt.Errorf("invalid branch name %q: %w", branchName, err)
-	}
-
 	workflowName := fmt.Sprintf("migrate-secrets-to-depot-ci-%d.yml", timestamp)
-	workflowContent, err := generateSecretMigrationWorkflow(targetRepo, branchName, opts.secrets, opts.variables)
+	workflowContent, err := generateSecretMigrationWorkflow(targetRepo, opts.secrets, opts.variables)
 	if err != nil {
 		return nil, err
 	}
@@ -160,8 +150,7 @@ func createSecretMigration(ctx context.Context, opts createSecretMigrationOption
 	if !oidc.SecretMigrationIntentIDPattern.MatchString(intentID) {
 		return nil, fmt.Errorf("failed to register the secret migration: invalid intent ID")
 	}
-	branchName += "-" + intentID
-
+	branchName := oidc.SecretMigrationBranchPrefix + intentID
 	if _, err := runGit(ctx, dir, "branch", branchName, commitSHA); err != nil {
 		return nil, fmt.Errorf("failed to create the local migration branch: %w", err)
 	}
@@ -254,11 +243,12 @@ func validateSecretMigrationAuth(token, orgID string) error {
 	return nil
 }
 
-func generateSecretMigrationWorkflow(targetRepo, branchName string, secrets, variables []string) (string, error) {
+func generateSecretMigrationWorkflow(targetRepo string, secrets, variables []string) (string, error) {
 	secretNames, err := secretMigrationNames(secrets, "secret")
 	if err != nil {
 		return "", err
 	}
+	secretNames = omitSecretMigrationGitHubToken(secretNames)
 	variableNames, err := secretMigrationNames(variables, "variable")
 	if err != nil {
 		return "", err
@@ -307,29 +297,19 @@ func generateSecretMigrationWorkflow(targetRepo, branchName string, secrets, var
 		if hasDepotToken {
 			lines = append(lines, fmt.Sprintf("          %s: ${{ secrets.DEPOT_TOKEN }}", depotTokenEnvName))
 		}
+		assignments := make([]string, 0, len(secretNames))
+		for _, name := range secretNames {
+			if name == "DEPOT_TOKEN" {
+				assignments = append(assignments, fmt.Sprintf(`DEPOT_TOKEN="$%s"`, depotTokenEnvName))
+			} else {
+				assignments = append(assignments, fmt.Sprintf(`%s="$%s"`, name, name))
+			}
+		}
 		lines = append(lines,
 			"        run: |",
 			"          unset DEPOT_TOKEN",
-			fmt.Sprintf(`          export %s="${GITHUB_REF_NAME##*-}"`, oidc.SecretMigrationIntentIDEnv),
-			"          set --",
+			fmt.Sprintf("          depot ci secrets add %s --repo %s", strings.Join(assignments, " "), targetRepo),
 		)
-		for _, name := range envSecrets {
-			lines = append(lines, fmt.Sprintf(
-				`          if [ -n "${%s:-}" ]; then set -- "$@" %s="$%s"; else echo "::warning::Skipping GitHub secret %s because it is unavailable or empty"; fi`,
-				name,
-				name,
-				name,
-				name,
-			))
-		}
-		if hasDepotToken {
-			lines = append(lines, fmt.Sprintf(
-				`          if [ -n "${%s:-}" ]; then set -- "$@" DEPOT_TOKEN="$%s"; else echo "::warning::Skipping GitHub secret DEPOT_TOKEN because it is unavailable or empty"; fi`,
-				depotTokenEnvName,
-				depotTokenEnvName,
-			))
-		}
-		lines = append(lines, fmt.Sprintf(`          if [ "$#" -gt 0 ]; then depot ci secrets add "$@" --repo %s; fi`, targetRepo))
 	}
 	if len(variableNames) > 0 {
 		importJobs = append(importJobs, "variables")
@@ -349,7 +329,6 @@ func generateSecretMigrationWorkflow(targetRepo, branchName string, secrets, var
 		lines = append(lines,
 			"        run: |",
 			"          unset DEPOT_TOKEN",
-			fmt.Sprintf(`          export %s="${GITHUB_REF_NAME##*-}"`, oidc.SecretMigrationIntentIDEnv),
 			fmt.Sprintf("          depot ci vars add %s --repo %s", strings.Join(assignments, " "), targetRepo),
 		)
 	}
@@ -364,9 +343,7 @@ func generateSecretMigrationWorkflow(targetRepo, branchName string, secrets, var
 		"      - name: Delete migration branch",
 		"        env:",
 		"          GH_TOKEN: ${{ github.token }}",
-		"          DEPOT_SECRET_MIGRATION_BRANCH_PREFIX: "+strconv.Quote(branchName),
 		"        run: |",
-		`          if [ "${GITHUB_REF_NAME%-*}" != "$DEPOT_SECRET_MIGRATION_BRANCH_PREFIX" ]; then echo "Refusing to delete unexpected branch ${GITHUB_REF_NAME}" >&2; exit 1; fi`,
 		"          gh api --method DELETE \"repos/${GITHUB_REPOSITORY}/git/refs/heads/${GITHUB_REF_NAME}\"",
 	)
 	return strings.Join(append(lines, ""), "\n"), nil

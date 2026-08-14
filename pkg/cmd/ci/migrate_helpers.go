@@ -49,6 +49,23 @@ func parseWorkflowDirWithWarnings(workflowsDir string) ([]*migrate.WorkflowFile,
 	return workflows, warnings, nil
 }
 
+func parseExistingWorkflowDirsWithWarnings(workflowDirs []string) ([]*migrate.WorkflowFile, []string, error) {
+	workflows := make([]*migrate.WorkflowFile, 0)
+	warnings := make([]string, 0)
+	for _, workflowDir := range workflowDirs {
+		dirWorkflows, dirWarnings, err := parseWorkflowDirWithWarnings(workflowDir)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return nil, nil, err
+		}
+		workflows = append(workflows, dirWorkflows...)
+		warnings = append(warnings, dirWarnings...)
+	}
+	return workflows, warnings, nil
+}
+
 func detectSecretsFromWorkflows(workflows []*migrate.WorkflowFile) ([]string, error) {
 	all := make([]string, 0)
 	for _, workflow := range workflows {

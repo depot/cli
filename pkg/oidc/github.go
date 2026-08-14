@@ -12,12 +12,28 @@ import (
 	"strings"
 )
 
-// SecretMigrationIntentIDEnv carries the per-run intent selected by a migration workflow.
-const SecretMigrationIntentIDEnv = "DEPOT_SECRET_MIGRATION_INTENT_ID"
-
 const secretMigrationAudiencePrefix = "https://depot.dev/ci/secret-migration/"
+const SecretMigrationBranchPrefix = "depot-migrate-secrets-"
 
 var SecretMigrationIntentIDPattern = regexp.MustCompile(`^[0123456789bcdfghjklmnpqrstvwxz]{10}$`)
+
+func SecretMigrationIntentIDFromGitHubRef(refName string) string {
+	if !strings.HasPrefix(refName, SecretMigrationBranchPrefix) {
+		return ""
+	}
+	intentID := strings.TrimPrefix(refName, SecretMigrationBranchPrefix)
+	if !SecretMigrationIntentIDPattern.MatchString(intentID) {
+		return ""
+	}
+	return intentID
+}
+
+func SecretMigrationIntentIDFromGitHubActionsEnvironment() string {
+	if os.Getenv("ACTIONS_ID_TOKEN_REQUEST_TOKEN") == "" || os.Getenv("ACTIONS_ID_TOKEN_REQUEST_URL") == "" {
+		return ""
+	}
+	return SecretMigrationIntentIDFromGitHubRef(os.Getenv("GITHUB_REF_NAME"))
+}
 
 type GitHubOIDCProvider struct {
 }

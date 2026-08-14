@@ -41,7 +41,7 @@ func TestGitHubOIDCProviderIgnoresSecretMigrationIntentForDefaultAudience(t *tes
 
 	t.Setenv("ACTIONS_ID_TOKEN_REQUEST_TOKEN", "request-token")
 	t.Setenv("ACTIONS_ID_TOKEN_REQUEST_URL", server.URL+"?token=1")
-	t.Setenv(SecretMigrationIntentIDEnv, "0123456789")
+	t.Setenv("GITHUB_REF_NAME", "depot-migrate-secrets-0123456789")
 
 	token, err := NewGitHubOIDCProvider().RetrieveToken(context.Background())
 	if err != nil {
@@ -49,6 +49,30 @@ func TestGitHubOIDCProviderIgnoresSecretMigrationIntentForDefaultAudience(t *tes
 	}
 	if token != "token-1" {
 		t.Fatalf("token = %q, want token-1", token)
+	}
+}
+
+func TestSecretMigrationIntentIDFromGitHubRef(t *testing.T) {
+	if got, want := SecretMigrationIntentIDFromGitHubRef("depot-migrate-secrets-0123456789"), "0123456789"; got != want {
+		t.Fatalf("intent ID = %q, want %q", got, want)
+	}
+	for _, refName := range []string{"", "main", "0123456789", "depot-migrate-secrets-abc", "depot-migrate-secrets-012345678a"} {
+		if got := SecretMigrationIntentIDFromGitHubRef(refName); got != "" {
+			t.Fatalf("intent ID for malformed ref %q = %q, want empty", refName, got)
+		}
+	}
+}
+
+func TestSecretMigrationIntentIDFromGitHubActionsEnvironment(t *testing.T) {
+	t.Setenv("GITHUB_REF_NAME", "depot-migrate-secrets-0123456789")
+	if got := SecretMigrationIntentIDFromGitHubActionsEnvironment(); got != "" {
+		t.Fatalf("intent ID without GitHub OIDC environment = %q, want empty", got)
+	}
+
+	t.Setenv("ACTIONS_ID_TOKEN_REQUEST_TOKEN", "request-token")
+	t.Setenv("ACTIONS_ID_TOKEN_REQUEST_URL", "https://example.invalid/oidc")
+	if got, want := SecretMigrationIntentIDFromGitHubActionsEnvironment(), "0123456789"; got != want {
+		t.Fatalf("intent ID = %q, want %q", got, want)
 	}
 }
 

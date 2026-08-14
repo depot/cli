@@ -31,7 +31,6 @@ type migrateOptions struct {
 	overwrite                bool
 	dir                      string
 	stdout                   io.Writer
-	branchName               string
 	includeSecrets           []string
 	includeVars              []string
 	secretMigrationRegistrar secretMigrationIntentRegistrar
@@ -80,7 +79,6 @@ func newCmdSecretsAndVars(parentOpts *migrateOptions) *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&parentOpts.branchName, "branch", "", "Override the branch name used for the migration workflow")
 	cmd.Flags().StringSliceVar(&parentOpts.includeSecrets, "secrets", nil, "Secret name(s) to include (repeatable)")
 	cmd.Flags().StringSliceVar(&parentOpts.includeVars, "vars", nil, "Variable name(s) to include (repeatable)")
 
@@ -121,8 +119,11 @@ func createSecretMigrationFromRepository(
 	secretNames := opts.includeSecrets
 	variableNames := opts.includeVars
 	if len(secretNames) == 0 || len(variableNames) == 0 {
-		workflowsDir := filepath.Join(workDir, ".github", "workflows")
-		workflows, warnings, err := parseWorkflowDirWithWarnings(workflowsDir)
+		workflowDirs := []string{
+			filepath.Join(workDir, ".github", "workflows"),
+			filepath.Join(workDir, ".depot", "workflows"),
+		}
+		workflows, warnings, err := parseExistingWorkflowDirsWithWarnings(workflowDirs)
 		if err != nil {
 			return fmt.Errorf("failed to inspect GitHub Actions workflows: %w", err)
 		}
@@ -142,46 +143,21 @@ func createSecretMigrationFromRepository(
 			}
 		}
 	}
+	secretNames = omitSecretMigrationGitHubToken(secretNames)
 	if len(secretNames) == 0 && len(variableNames) == 0 {
 		fmt.Fprintln(out, "No secrets or variables found to import.")
 		return nil
 	}
 
-	if !opts.yes {
-		if !helpers.IsTerminal() {
-			return fmt.Errorf("interactive mode requires a terminal; rerun with --yes")
-		}
-		confirmed := false
-		if err := huh.NewForm(huh.NewGroup(
-			huh.NewConfirm().
-				Title("Create a local migration workflow commit?").
-				Description("You will have five minutes to push the generated branch.").
-				Affirmative("Yes").
-				Negative("No").
-				Value(&confirmed),
-		)).Run(); err != nil {
-			if errors.Is(err, huh.ErrUserAborted) {
-				fmt.Fprintln(out, "Cancelled.")
-				return nil
-			}
-			return fmt.Errorf("failed to confirm: %w", err)
-		}
-		if !confirmed {
-			fmt.Fprintln(out, "Cancelled.")
-			return nil
-		}
-	}
-
 	result, err := createSecretMigration(ctx, createSecretMigrationOptions{
-		dir:        workDir,
-		remote:     remote,
-		branchName: opts.branchName,
-		token:      token,
-		orgID:      orgID,
-		secrets:    secretNames,
-		variables:  variableNames,
-		now:        opts.secretMigrationNow,
-		registrar:  opts.secretMigrationRegistrar,
+		dir:       workDir,
+		remote:    remote,
+		token:     token,
+		orgID:     orgID,
+		secrets:   secretNames,
+		variables: variableNames,
+		now:       opts.secretMigrationNow,
+		registrar: opts.secretMigrationRegistrar,
 	})
 	if err != nil {
 		return err
@@ -191,6 +167,16 @@ func createSecretMigrationFromRepository(
 	fmt.Fprintln(out, "All you need to do is push it within 5 minutes:")
 	fmt.Fprintf(out, "  git push %s %s\n", shellQuote(remote), shellQuote(result.branchName))
 	return nil
+}
+
+func omitSecretMigrationGitHubToken(secretNames []string) []string {
+	filtered := make([]string, 0, len(secretNames))
+	for _, name := range secretNames {
+		if strings.TrimSpace(name) != "GITHUB_TOKEN" {
+			filtered = append(filtered, name)
+		}
+	}
+	return filtered
 }
 
 func newCmdWorkflows(parentOpts *migrateOptions) *cobra.Command {

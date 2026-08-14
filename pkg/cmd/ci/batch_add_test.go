@@ -72,16 +72,33 @@ func TestAddCommandsUseOneBatchRequestForMigrationShape(t *testing.T) {
 	server := httptest.NewServer(h2c.NewHandler(mux, &http2.Server{}))
 	t.Cleanup(server.Close)
 	t.Setenv("DEPOT_API_URL", server.URL)
+	t.Setenv("GITHUB_REF_NAME", "depot-migrate-secrets-0123456789")
+	t.Setenv("ACTIONS_ID_TOKEN_REQUEST_TOKEN", "request-token")
+	t.Setenv("ACTIONS_ID_TOKEN_REQUEST_URL", "https://example.invalid/oidc")
 
 	secretCmd := NewCmdSecretsAdd()
 	secretCmd.SetArgs([]string{
 		"A_SECRET=alpha",
+		"EMPTY_SECRET=",
+		"GITHUB_TOKEN=ephemeral-token",
 		"B_SECRET=beta",
 		"--repo", "namespace/repo",
 		"--token", "depot_api_token",
 		"--org", "org-id",
 	})
 	if err := secretCmd.ExecuteContext(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	emptySecretCmd := NewCmdSecretsAdd()
+	emptySecretCmd.SetArgs([]string{
+		"EMPTY_SECRET=",
+		"GITHUB_TOKEN=ephemeral-token",
+		"--repo", "namespace/repo",
+		"--token", "depot_api_token",
+		"--org", "org-id",
+	})
+	if err := emptySecretCmd.ExecuteContext(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 

@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"strings"
 
 	"github.com/depot/cli/pkg/api"
 	"github.com/depot/cli/pkg/config"
@@ -64,8 +63,8 @@ func ResolveProjectAuthForSecretMigration(ctx context.Context, tok string) (stri
 		return token, nil
 	}
 
-	intentID := strings.TrimSpace(os.Getenv(oidc.SecretMigrationIntentIDEnv))
-	if intentID != "" && os.Getenv("ACTIONS_ID_TOKEN_REQUEST_TOKEN") != "" && os.Getenv("ACTIONS_ID_TOKEN_REQUEST_URL") != "" {
+	intentID := oidc.SecretMigrationIntentIDFromGitHubActionsEnvironment()
+	if intentID != "" {
 		token, err := oidc.NewGitHubOIDCProvider().RetrieveSecretMigrationToken(ctx, intentID)
 		if err != nil {
 			return "", err
