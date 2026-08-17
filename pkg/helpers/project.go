@@ -8,11 +8,11 @@ import (
 	"path/filepath"
 	"strings"
 
+	"charm.land/bubbles/v2/list"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/huh/v2"
+	"charm.land/lipgloss/v2"
 	"connectrpc.com/connect"
-	"github.com/charmbracelet/bubbles/list"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/huh"
-	"github.com/charmbracelet/lipgloss"
 	"github.com/depot/cli/pkg/api"
 	"github.com/depot/cli/pkg/project"
 	cliv1beta1 "github.com/depot/cli/pkg/proto/depot/cli/v1beta1"
@@ -211,10 +211,10 @@ func chooseProjectID(projects *cliv1beta1.ListProjectsResponse) (string, error) 
 		items = append(items, item{id: p.Id, title: p.Name, desc: p.OrgName})
 	}
 
-	m := model{list: list.New(items, list.NewDefaultDelegate(), 0, 0), ctrlC: false}
+	m := model{list: list.New(items, projectDelegate(true), 0, 0), ctrlC: false}
 	m.list.Title = "Choose a project"
 
-	p := tea.NewProgram(m, tea.WithAltScreen())
+	p := tea.NewProgram(m)
 
 	final, err := p.Run()
 	if err != nil {
@@ -254,12 +254,12 @@ type model struct {
 }
 
 func (m model) Init() tea.Cmd {
-	return nil
+	return tea.RequestBackgroundColor
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		if msg.String() == "ctrl+c" {
 			m.ctrlC = true
 			return m, tea.Quit
@@ -274,6 +274,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		h, v := docStyle.GetFrameSize()
 		m.list.SetSize(msg.Width-h, msg.Height-v)
+	case tea.BackgroundColorMsg:
+		styles := list.DefaultStyles(msg.IsDark())
+		m.list.Styles = styles
+		m.list.FilterInput.SetStyles(styles.Filter)
+		m.list.SetDelegate(projectDelegate(msg.IsDark()))
 	}
 
 	var cmd tea.Cmd
@@ -281,8 +286,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-func (m model) View() string {
-	return docStyle.Render(m.list.View())
+func (m model) View() tea.View {
+	v := tea.NewView(docStyle.Render(m.list.View()))
+	v.AltScreen = true
+	return v
+}
+
+func projectDelegate(isDark bool) list.DefaultDelegate {
+	d := list.NewDefaultDelegate()
+	d.Styles = list.NewDefaultItemStyles(isDark)
+	return d
 }
 
 // SelectProject allows selecting a project using huh library

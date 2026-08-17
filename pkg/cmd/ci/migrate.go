@@ -11,9 +11,10 @@ import (
 	"strings"
 	"time"
 
+	"charm.land/huh/v2"
+	"charm.land/lipgloss/v2"
 	"connectrpc.com/connect"
-	"github.com/charmbracelet/huh"
-	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/colorprofile"
 	"github.com/depot/cli/pkg/api"
 	"github.com/depot/cli/pkg/ci/compat"
 	"github.com/depot/cli/pkg/ci/migrate"
@@ -277,6 +278,7 @@ func preflight(ctx context.Context, opts migrateOptions) (*preflightResult, erro
 	if out == nil {
 		out = os.Stdout
 	}
+	out = colorprofile.NewWriter(out, os.Environ())
 
 	bold := lipgloss.NewStyle().Bold(true)
 
@@ -369,6 +371,7 @@ func workflows(opts migrateOptions) error {
 	if out == nil {
 		out = os.Stdout
 	}
+	out = colorprofile.NewWriter(out, os.Environ())
 
 	bold := lipgloss.NewStyle().Bold(true)
 
@@ -409,7 +412,7 @@ func workflows(opts migrateOptions) error {
 		}
 
 		greenStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#30a46c"))
-		dimStyle := lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#9B9B9B", Dark: "#5C5C5C"})
+		dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
 
 		// Split workflows into supported (has at least one supported trigger) and unsupported-only
 		var supportedWorkflows, unsupportedWorkflows []*migrate.WorkflowFile
@@ -421,6 +424,8 @@ func workflows(opts migrateOptions) error {
 			}
 		}
 
+		// Huh v2 subtracts the title from the inferred option height, so each
+		// multi-select includes that row explicitly.
 		var groups []*huh.Group
 
 		// Supported triggers group
@@ -439,6 +444,7 @@ func workflows(opts migrateOptions) error {
 				huh.NewMultiSelect[string]().
 					Title("These workflows have supported triggers. Which should we migrate?").
 					Options(opts...).
+					Height(len(opts)+1).
 					Value(&selectedSupported),
 			))
 		}
@@ -455,6 +461,7 @@ func workflows(opts migrateOptions) error {
 				huh.NewMultiSelect[string]().
 					Title("These workflows have unsupported triggers. Migrate anyway?").
 					Options(opts...).
+					Height(len(opts)+1).
 					Value(&selectedUnsupported),
 			))
 		}

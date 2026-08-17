@@ -7,7 +7,7 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/lipgloss/v2"
 	"github.com/pkg/errors"
 )
 
@@ -56,12 +56,12 @@ func apiRequest[Response interface{}](method, url, token string, payload interfa
 
 	infoMessage := resp.Header.Get("X-Depot-Info-Message")
 	if infoMessage != "" {
-		fmt.Println(infoStyle.Render(infoMessage))
+		lipgloss.Println(infoStyle.Render(infoMessage))
 	}
 
 	warnMessage := resp.Header.Get("X-Depot-Warn-Message")
 	if warnMessage != "" {
-		fmt.Println(warnStyle.Render(warnMessage))
+		lipgloss.Println(warnStyle.Render(warnMessage))
 	}
 
 	body, err := io.ReadAll(resp.Body)

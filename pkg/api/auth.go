@@ -7,9 +7,9 @@ import (
 	"runtime"
 	"time"
 
+	"charm.land/huh/v2"
 	"connectrpc.com/connect"
 	"github.com/briandowns/spinner"
-	"github.com/charmbracelet/huh"
 	cliv1beta1 "github.com/depot/cli/pkg/proto/depot/cli/v1beta1"
 )
 
