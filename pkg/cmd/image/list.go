@@ -9,10 +9,10 @@ import (
 	"sort"
 	"time"
 
+	"charm.land/bubbles/v2/table"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"connectrpc.com/connect"
-	"github.com/charmbracelet/bubbles/table"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 	"github.com/depot/cli/pkg/api"
 	"github.com/depot/cli/pkg/helpers"
 	v1 "github.com/depot/cli/pkg/proto/depot/build/v1"
@@ -111,7 +111,7 @@ func NewCmdList() *cobra.Command {
 				token:       token,
 			}
 
-			_, err = tea.NewProgram(m, tea.WithAltScreen()).Run()
+			_, err = tea.NewProgram(m).Run()
 			return err
 		},
 	}
@@ -242,12 +242,8 @@ func (m imagesModel) Init() tea.Cmd {
 func (m imagesModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	switch msg := msg.(type) {
-	case tea.KeyMsg:
-		if msg.Type == tea.KeyCtrlC || msg.Type == tea.KeyEsc {
-			return m, tea.Quit
-		}
-
-		if msg.String() == "q" {
+	case tea.KeyPressMsg:
+		if msg.String() == "ctrl+c" || msg.String() == "esc" || msg.String() == "q" {
 			return m, tea.Quit
 		}
 
@@ -287,12 +283,14 @@ func (m *imagesModel) resizeTable(msg tea.WindowSizeMsg) {
 	}
 }
 
-func (m imagesModel) View() string {
+func (m imagesModel) View() tea.View {
 	s := baseStyle.Render(m.imagesTable.View()) + "\n"
 	if m.err != nil {
 		s = "Error: " + m.err.Error() + "\n"
 	}
-	return s
+	v := tea.NewView(s)
+	v.AltScreen = true
+	return v
 }
 
 type imageRows []table.Row

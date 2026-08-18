@@ -9,10 +9,10 @@ import (
 	"os"
 	"time"
 
+	"charm.land/bubbles/v2/table"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"connectrpc.com/connect"
-	"github.com/charmbracelet/bubbles/table"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 	"github.com/depot/cli/pkg/api"
 	"github.com/depot/cli/pkg/helpers"
 	cliv1beta1 "github.com/depot/cli/pkg/proto/depot/cli/v1beta1"
@@ -96,7 +96,7 @@ func NewCmdProjects(commandName, commandAlias string) *cobra.Command {
 				token:         token,
 			}
 
-			_, err = tea.NewProgram(m, tea.WithAltScreen()).Run()
+			_, err = tea.NewProgram(m).Run()
 			return err
 		},
 	}
@@ -128,7 +128,7 @@ func (m projectsModel) Init() tea.Cmd {
 
 func (m projectsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if m.state == "builds" {
-		if keyMsg, ok := msg.(tea.KeyMsg); ok && keyMsg.Type == tea.KeyEsc {
+		if keyMsg, ok := msg.(tea.KeyPressMsg); ok && keyMsg.String() == "esc" {
 			// Return to projects
 			m.state = "projects"
 		} else {
@@ -144,8 +144,8 @@ func (m projectsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	var cmd tea.Cmd
 	switch msg := msg.(type) {
-	case tea.KeyMsg:
-		if msg.Type == tea.KeyCtrlC {
+	case tea.KeyPressMsg:
+		if msg.String() == "ctrl+c" {
 			return m, tea.Quit
 		}
 
@@ -157,7 +157,7 @@ func (m projectsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.loadProjects()
 		}
 
-		if msg.Type == tea.KeyEnter {
+		if msg.String() == "enter" {
 			m.state = "builds"
 			m.builds.ProjectID = m.projectsTable.SelectedRow()[0]
 			cmd = m.builds.Init()
@@ -195,7 +195,7 @@ func (m *projectsModel) resizeProjectTable(msg tea.WindowSizeMsg) {
 	m.projectsTable.SetColumns(m.columns)
 }
 
-func (m projectsModel) View() string {
+func (m projectsModel) View() tea.View {
 	if m.state == "builds" {
 		return m.builds.View()
 	}
@@ -205,7 +205,9 @@ func (m projectsModel) View() string {
 		s = "Error: " + m.err.Error() + "\n"
 	}
 
-	return s
+	v := tea.NewView(s)
+	v.AltScreen = true
+	return v
 }
 
 type projects []table.Row

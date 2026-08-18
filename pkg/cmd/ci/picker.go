@@ -12,10 +12,10 @@ import (
 	"io"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/key"
-	"github.com/charmbracelet/bubbles/list"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/list"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -23,7 +23,6 @@ import (
 var (
 	depotGreen      = lipgloss.Color("#30a46c")
 	depotGreenLight = lipgloss.Color("#3cb179")
-	dimColor        = lipgloss.AdaptiveColor{Light: "#9B9B9B", Dark: "#5C5C5C"}
 )
 
 // PickJobItem is the data that the picker displays for each selectable job.
@@ -44,10 +43,12 @@ func PickJob(items []PickJobItem) (int, error) {
 		listItems[i] = item
 	}
 
-	delegate := newJobDelegate()
+	delegate := newJobDelegate(true)
 	l := list.New(listItems, delegate, 72, min(len(items)+6, 20))
 	l.Title = "Select a job"
-	l.Styles = depotListStyles()
+	styles := depotListStyles(true)
+	l.Styles = styles
+	l.FilterInput.SetStyles(styles.Filter)
 	l.SetFilteringEnabled(true)
 	l.SetShowStatusBar(false)
 	l.SetShowHelp(true)
@@ -80,7 +81,7 @@ type pickerModel struct {
 }
 
 func (m pickerModel) Init() tea.Cmd {
-	return nil
+	return tea.RequestBackgroundColor
 }
 
 func (m pickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -88,7 +89,13 @@ func (m pickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.list.SetSize(msg.Width, msg.Height)
 		return m, nil
-	case tea.KeyMsg:
+	case tea.BackgroundColorMsg:
+		styles := depotListStyles(msg.IsDark())
+		m.list.Styles = styles
+		m.list.FilterInput.SetStyles(styles.Filter)
+		m.list.SetDelegate(newJobDelegate(msg.IsDark()))
+		return m, nil
+	case tea.KeyPressMsg:
 		// Only intercept keys when not actively filtering — otherwise
 		// enter/esc need to reach the inner list to confirm/cancel the filter.
 		if m.list.FilterState() != list.Filtering {
@@ -111,8 +118,8 @@ func (m pickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-func (m pickerModel) View() string {
-	return m.list.View()
+func (m pickerModel) View() tea.View {
+	return tea.NewView(m.list.View())
 }
 
 // jobDelegate is a single-line item delegate that renders each job as:
@@ -128,17 +135,18 @@ type jobDelegate struct {
 	filterMatch   lipgloss.Style
 }
 
-func newJobDelegate() jobDelegate {
+func newJobDelegate(isDark bool) jobDelegate {
+	lightDark := lipgloss.LightDark(isDark)
 	return jobDelegate{
 		normalStyle: lipgloss.NewStyle().
-			Foreground(lipgloss.AdaptiveColor{Light: "#1a1a1a", Dark: "#dddddd"}).
+			Foreground(lightDark(lipgloss.Color("#1a1a1a"), lipgloss.Color("#dddddd"))).
 			Padding(0, 0, 0, 2),
 		selectedStyle: lipgloss.NewStyle().
 			Foreground(depotGreen).
 			Bold(true).
 			Padding(0, 0, 0, 1),
 		dimStyle: lipgloss.NewStyle().
-			Foreground(dimColor),
+			Foreground(lightDark(lipgloss.Color("#9B9B9B"), lipgloss.Color("#5C5C5C"))),
 		cursorStyle: lipgloss.NewStyle().
 			Foreground(depotGreen).
 			SetString("▸ "),
@@ -201,8 +209,8 @@ func (d jobDelegate) Render(w io.Writer, m list.Model, index int, item list.Item
 }
 
 // depotListStyles returns list-level styles themed with Depot green.
-func depotListStyles() list.Styles {
-	s := list.DefaultStyles()
+func depotListStyles(isDark bool) list.Styles {
+	s := list.DefaultStyles(isDark)
 
 	s.TitleBar = lipgloss.NewStyle().Padding(0, 0, 1, 0)
 
@@ -210,11 +218,10 @@ func depotListStyles() list.Styles {
 		Foreground(depotGreen).
 		Bold(true)
 
-	s.FilterPrompt = lipgloss.NewStyle().
-		Foreground(depotGreen)
-
-	s.FilterCursor = lipgloss.NewStyle().
-		Foreground(depotGreenLight)
+	filterPrompt := lipgloss.NewStyle().Foreground(depotGreen)
+	s.Filter.Focused.Prompt = filterPrompt
+	s.Filter.Blurred.Prompt = filterPrompt
+	s.Filter.Cursor.Color = depotGreenLight
 
 	s.DefaultFilterCharacterMatch = lipgloss.NewStyle().
 		Foreground(depotGreen).
