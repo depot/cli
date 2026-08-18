@@ -315,6 +315,7 @@ func SelectProject(projects []*cliv1beta1.ListProjectsResponse_Project) (string,
 			huh.NewSelect[string]().
 				Title("Choose a project").
 				Options(options...).
+				Height(len(options) + 1).
 				Value(&selectedID),
 		),
 	)

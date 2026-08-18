@@ -65,6 +65,7 @@ func SelectOrganization() (*Organization, error) {
 	err = huh.NewSelect[*Organization]().
 		Title("Select an organization").
 		Options(huhOptions...).
+		Height(len(huhOptions) + 1).
 		Value(&selectedOrg).
 		Run()
 	if err != nil {
