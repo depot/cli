@@ -146,7 +146,8 @@ message Installation {
 }
 
 message RunRequest {
-  // repo is the name of the target GitHub repo in {org}/{repo} format
+  // repo identifies the target repository. GitHub and Cursor Origin use owner/repo;
+  // Depot Code uses the repository's canonical name.
   string repo = 1;
   // sha points to a snapshot of code, used as context for the run
   // defaults to HEAD of default branch
@@ -163,6 +164,8 @@ message RunRequest {
   // When set, orchestrator compile fetches this generic cache key (same bytes the worker applies)
   // and runs git apply in the compile temp repo before resolving .depot/actions and .depot/workflows.
   optional string workspace_patch_cache_key = 6;
+  // forge identifies the source-code host. Unspecified defaults to GitHub for compatibility.
+  Forge forge = 7;
 }
 
 message RunResponse {
@@ -1036,4 +1039,11 @@ message ListWorkflowsResponseJobCounts {
   int32 failed = 6;
   int32 cancelled = 7;
   int32 skipped = 8;
+}
+
+enum Forge {
+  FORGE_UNSPECIFIED = 0;
+  FORGE_GITHUB = 1;
+  FORGE_CURSOR_ORIGIN = 2;
+  FORGE_DEPOT_CODE = 3;
 }
