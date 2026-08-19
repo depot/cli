@@ -20,10 +20,8 @@ func parseRunForge(value string) (civ1.Forge, error) {
 		return civ1.Forge_FORGE_GITHUB, nil
 	case "cursor-origin":
 		return civ1.Forge_FORGE_CURSOR_ORIGIN, nil
-	case "depot-code":
-		return civ1.Forge_FORGE_DEPOT_CODE, nil
 	default:
-		return civ1.Forge_FORGE_UNSPECIFIED, fmt.Errorf("unsupported forge %q; expected github, cursor-origin, or depot-code", value)
+		return civ1.Forge_FORGE_UNSPECIFIED, fmt.Errorf("unsupported forge %q; expected github or cursor-origin", value)
 	}
 }
 
@@ -45,8 +43,6 @@ func parseRunRepository(remoteURL string) (runRepository, bool) {
 		forge = civ1.Forge_FORGE_GITHUB
 	case host == "origin.cursor.com":
 		forge = civ1.Forge_FORGE_CURSOR_ORIGIN
-	case strings.HasSuffix(host, ".code.depot.dev") || strings.HasSuffix(host, ".code.preview.depot.dev"):
-		forge = civ1.Forge_FORGE_DEPOT_CODE
 	default:
 		return runRepository{}, false
 	}
@@ -54,11 +50,9 @@ func parseRunRepository(remoteURL string) (runRepository, bool) {
 	if path == "" || strings.ContainsAny(path, "?#") {
 		return runRepository{}, false
 	}
-	if forge != civ1.Forge_FORGE_DEPOT_CODE {
-		parts := strings.Split(path, "/")
-		if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
-			return runRepository{}, false
-		}
+	parts := strings.Split(path, "/")
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		return runRepository{}, false
 	}
 	return runRepository{forge: forge, repo: path}, true
 }
@@ -83,13 +77,14 @@ func splitGitRemoteURL(remoteURL string) (host, path string, ok bool) {
 	return parsed.Hostname(), parsed.Path, true
 }
 
-func detectRunRepositories(dir string) []runRepository {
+func detectRunRepositories(dir string) (*runRepository, []runRepository) {
 	out, err := exec.Command("git", "-C", dir, "remote").Output()
 	if err != nil {
-		return nil
+		return nil, nil
 	}
 
 	seen := make(map[runRepository]struct{})
+	var origin *runRepository
 	var repositories []runRepository
 	for _, name := range strings.Fields(string(out)) {
 		urlOut, err := exec.Command("git", "-C", dir, "remote", "get-url", "--all", name).Output()
@@ -106,9 +101,12 @@ func detectRunRepositories(dir string) []runRepository {
 			}
 			seen[repository] = struct{}{}
 			repositories = append(repositories, repository)
+			if name == "origin" && origin == nil {
+				origin = &repository
+			}
 		}
 	}
-	return repositories
+	return origin, repositories
 }
 
 func resolveRunRepository(dir, explicitRepo, forgeFlag string) (runRepository, error) {
@@ -121,7 +119,7 @@ func resolveRunRepository(dir, explicitRepo, forgeFlag string) (runRepository, e
 		}
 	}
 
-	detected := detectRunRepositories(dir)
+	origin, detected := detectRunRepositories(dir)
 	if explicitRepo != "" {
 		if selectedForge != civ1.Forge_FORGE_UNSPECIFIED {
 			return runRepository{forge: selectedForge, repo: explicitRepo}, nil
@@ -131,7 +129,7 @@ func resolveRunRepository(dir, explicitRepo, forgeFlag string) (runRepository, e
 			forges[repository.forge] = struct{}{}
 		}
 		if len(forges) > 1 {
-			return runRepository{}, fmt.Errorf("multiple supported forges found in git remotes; use --forge github|cursor-origin|depot-code")
+			return runRepository{}, fmt.Errorf("multiple supported forges found in git remotes; use --forge github|cursor-origin")
 		}
 		for forge := range forges {
 			return runRepository{forge: forge, repo: explicitRepo}, nil
@@ -147,15 +145,25 @@ func resolveRunRepository(dir, explicitRepo, forgeFlag string) (runRepository, e
 			}
 		}
 		detected = filtered
+		if origin != nil && origin.forge != selectedForge {
+			origin = nil
+		}
 	}
 	if len(detected) == 0 {
-		return runRepository{}, fmt.Errorf("no supported repository found in git remotes; use --repo and optionally --forge (github, cursor-origin, or depot-code)")
+		return runRepository{}, fmt.Errorf("no supported repository found in git remotes; use --repo and optionally --forge (github or cursor-origin)")
 	}
 	if len(detected) > 1 {
-		if forgeFlag == "" {
-			return runRepository{}, fmt.Errorf("multiple supported repositories found in git remotes; use --forge github|cursor-origin|depot-code or --repo")
+		forges := make(map[civ1.Forge]struct{})
+		for _, repository := range detected {
+			forges[repository.forge] = struct{}{}
 		}
-		return runRepository{}, fmt.Errorf("multiple %s repositories found in git remotes; use --repo to select one", forgeFlag)
+		if len(forges) > 1 {
+			return runRepository{}, fmt.Errorf("multiple supported forges found in git remotes; use --forge github|cursor-origin")
+		}
+		if origin != nil {
+			return *origin, nil
+		}
+		return runRepository{}, fmt.Errorf("multiple repositories found for the selected forge; use --repo to select one")
 	}
 	return detected[0], nil
 }

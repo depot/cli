@@ -19,8 +19,6 @@ func TestParseRunRepository(t *testing.T) {
 		{remoteURL: "https://origin.cursor.com/git/owner/repo.git", forge: civ1.Forge_FORGE_CURSOR_ORIGIN, repo: "owner/repo", ok: true},
 		{remoteURL: "https://origin.cursor.com/owner/repo", forge: civ1.Forge_FORGE_CURSOR_ORIGIN, repo: "owner/repo", ok: true},
 		{remoteURL: "git@origin.cursor.com:owner/repo", forge: civ1.Forge_FORGE_CURSOR_ORIGIN, repo: "owner/repo", ok: true},
-		{remoteURL: "https://x-token@org.code.depot.dev/canonical-name.git", forge: civ1.Forge_FORGE_DEPOT_CODE, repo: "canonical-name", ok: true},
-		{remoteURL: "git@org.code.preview.depot.dev:team/canonical-name.git", forge: civ1.Forge_FORGE_DEPOT_CODE, repo: "team/canonical-name", ok: true},
 		{remoteURL: "https://gitlab.com/owner/repo.git", ok: false},
 		{remoteURL: "https://github.com/owner/repo/extra", ok: false},
 	}
@@ -49,13 +47,15 @@ func TestResolveRunRepositorySingleCursorOrigin(t *testing.T) {
 	}
 }
 
-func TestResolveRunRepositorySingleDepotCode(t *testing.T) {
-	dir := initRunRepositoryGit(t, "https://token@acme.code.depot.dev/widgets.git")
+func TestResolveRunRepositoryPrefersOriginForSameForge(t *testing.T) {
+	dir := initRunRepositoryGit(t, "https://github.com/acme/widgets-fork.git")
+	run(t, dir, "git", "remote", "add", "upstream", "https://github.com/acme/widgets.git")
+
 	got, err := resolveRunRepository(dir, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.forge != civ1.Forge_FORGE_DEPOT_CODE || got.repo != "widgets" {
+	if got.forge != civ1.Forge_FORGE_GITHUB || got.repo != "acme/widgets-fork" {
 		t.Fatalf("resolveRunRepository() = %#v", got)
 	}
 }

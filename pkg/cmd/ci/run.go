@@ -48,7 +48,7 @@ automatically uploaded as a patch and applied during the workflow run. For pushe
 branches, the patch contains only unpushed changes; for unpushed branches, the
 patch is relative to the default branch.
 
-Repositories are detected from GitHub, Cursor Origin, and Depot Code git remotes.
+Repositories are detected from GitHub and Cursor Origin git remotes.
 Use --forge when more than one supported source is configured.`,
 		Example: `  # Run a workflow
   depot ci run --workflow .depot/workflows/ci.yml
@@ -293,7 +293,7 @@ Use --forge when more than one supported source is configured.`,
 	cmd.Flags().IntVar(&sshAfterStep, "ssh-after-step", 0, "1-based step index to insert a tmate debug step after (requires single --job)")
 	cmd.Flags().BoolVar(&ssh, "ssh", false, "Start the run and connect to the job's sandbox via interactive terminal (requires single --job)")
 	cmd.Flags().StringVar(&repoFlag, "repo", "", "Repository name to use instead of detecting from git remotes")
-	cmd.Flags().StringVar(&forgeFlag, "forge", "", "Repository forge: github, cursor-origin, or depot-code")
+	cmd.Flags().StringVar(&forgeFlag, "forge", "", "Repository forge: github or cursor-origin")
 	cmd.Flags().BoolVarP(&follow, "follow", "f", false, "Follow live logs")
 
 	cmd.AddCommand(NewCmdRunList())
