@@ -214,6 +214,14 @@ patch is relative to the default branch.`,
 			if headOK {
 				fmt.Printf("HEAD: %s\n", headSHA)
 			}
+			// Forward the local branch as a git ref so GITHUB_REF / GITHUB_REF_NAME are set in the
+			// sandbox. Without this the run is tied to a bare SHA, GITHUB_REF is empty, and
+			// ref-dependent actions like actions/cache silently no-op. The ref only carries branch
+			// identity for the GitHub context — the checked-out commit is still driven by the SHA.
+			gitRef := resolveBranchRef(workflowDir)
+			if gitRef != "" {
+				fmt.Printf("Ref: %s\n", gitRef)
+			}
 			fmt.Println()
 
 			// Serialize workflow back to YAML
@@ -227,6 +235,9 @@ patch is relative to the default branch.`,
 				WorkflowContent: []string{string(yamlBytes)},
 			}
 			setRunRequestGitContext(req, patch, headSHA, headOK, workspacePatchKey)
+			if gitRef != "" {
+				req.Ref = &gitRef
+			}
 
 			resp, err := api.CIRun(ctx, tokenVal, orgID, req)
 			if err != nil {
@@ -307,6 +318,28 @@ func resolveHEAD(workflowDir string) (string, error) {
 		return "", err
 	}
 	return strings.TrimSpace(string(out)), nil
+}
+
+// resolveBranchRef returns the fully-qualified ref (refs/heads/<branch>) for the
+// current local branch, or "" when HEAD is detached or the branch can't be
+// determined (e.g. not a git repo). This is sent to the server to populate
+// GITHUB_REF / GITHUB_REF_NAME in the sandbox so ref-dependent actions such as
+// actions/cache work. It carries branch identity only; it does not affect which
+// commit is checked out (that is the SHA on the request).
+func resolveBranchRef(workflowDir string) string {
+	// symbolic-ref returns the fully-qualified ref (e.g. "refs/heads/feature/x") and exits
+	// non-zero on a detached HEAD or outside a repo. Prefer it over `rev-parse --abbrev-ref`,
+	// which can emit "heads/<branch>" when the short name is ambiguous with a tag and would
+	// otherwise double-prefix to "refs/heads/heads/<branch>".
+	out, err := exec.Command("git", "-C", workflowDir, "symbolic-ref", "--quiet", "HEAD").Output()
+	if err != nil {
+		return ""
+	}
+	ref := strings.TrimSpace(string(out))
+	if !strings.HasPrefix(ref, "refs/heads/") { // not on a branch
+		return ""
+	}
+	return ref
 }
 
 type patchInfo struct {
