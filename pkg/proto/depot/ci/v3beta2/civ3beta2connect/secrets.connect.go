@@ -36,6 +36,9 @@ const (
 	// SecretServiceListSecretsProcedure is the fully-qualified name of the SecretService's ListSecrets
 	// RPC.
 	SecretServiceListSecretsProcedure = "/depot.ci.v3beta2.SecretService/ListSecrets"
+	// SecretServiceListSecretAttributesProcedure is the fully-qualified name of the SecretService's
+	// ListSecretAttributes RPC.
+	SecretServiceListSecretAttributesProcedure = "/depot.ci.v3beta2.SecretService/ListSecretAttributes"
 	// SecretServiceGetSecretProcedure is the fully-qualified name of the SecretService's GetSecret RPC.
 	SecretServiceGetSecretProcedure = "/depot.ci.v3beta2.SecretService/GetSecret"
 	// SecretServiceGetSecretVariantProcedure is the fully-qualified name of the SecretService's
@@ -64,6 +67,7 @@ const (
 // SecretServiceClient is a client for the depot.ci.v3beta2.SecretService service.
 type SecretServiceClient interface {
 	ListSecrets(context.Context, *connect.Request[v3beta2.ListSecretsRequest]) (*connect.Response[v3beta2.ListSecretsResponse], error)
+	ListSecretAttributes(context.Context, *connect.Request[v3beta2.ListSecretAttributesRequest]) (*connect.Response[v3beta2.ListSecretAttributesResponse], error)
 	GetSecret(context.Context, *connect.Request[v3beta2.GetSecretRequest]) (*connect.Response[v3beta2.GetSecretResponse], error)
 	GetSecretVariant(context.Context, *connect.Request[v3beta2.GetSecretVariantRequest]) (*connect.Response[v3beta2.GetSecretVariantResponse], error)
 	CreateSecretVariant(context.Context, *connect.Request[v3beta2.CreateSecretVariantRequest]) (*connect.Response[v3beta2.CreateSecretVariantResponse], error)
@@ -87,6 +91,11 @@ func NewSecretServiceClient(httpClient connect.HTTPClient, baseURL string, opts 
 		listSecrets: connect.NewClient[v3beta2.ListSecretsRequest, v3beta2.ListSecretsResponse](
 			httpClient,
 			baseURL+SecretServiceListSecretsProcedure,
+			opts...,
+		),
+		listSecretAttributes: connect.NewClient[v3beta2.ListSecretAttributesRequest, v3beta2.ListSecretAttributesResponse](
+			httpClient,
+			baseURL+SecretServiceListSecretAttributesProcedure,
 			opts...,
 		),
 		getSecret: connect.NewClient[v3beta2.GetSecretRequest, v3beta2.GetSecretResponse](
@@ -135,6 +144,7 @@ func NewSecretServiceClient(httpClient connect.HTTPClient, baseURL string, opts 
 // secretServiceClient implements SecretServiceClient.
 type secretServiceClient struct {
 	listSecrets                 *connect.Client[v3beta2.ListSecretsRequest, v3beta2.ListSecretsResponse]
+	listSecretAttributes        *connect.Client[v3beta2.ListSecretAttributesRequest, v3beta2.ListSecretAttributesResponse]
 	getSecret                   *connect.Client[v3beta2.GetSecretRequest, v3beta2.GetSecretResponse]
 	getSecretVariant            *connect.Client[v3beta2.GetSecretVariantRequest, v3beta2.GetSecretVariantResponse]
 	createSecretVariant         *connect.Client[v3beta2.CreateSecretVariantRequest, v3beta2.CreateSecretVariantResponse]
@@ -148,6 +158,11 @@ type secretServiceClient struct {
 // ListSecrets calls depot.ci.v3beta2.SecretService.ListSecrets.
 func (c *secretServiceClient) ListSecrets(ctx context.Context, req *connect.Request[v3beta2.ListSecretsRequest]) (*connect.Response[v3beta2.ListSecretsResponse], error) {
 	return c.listSecrets.CallUnary(ctx, req)
+}
+
+// ListSecretAttributes calls depot.ci.v3beta2.SecretService.ListSecretAttributes.
+func (c *secretServiceClient) ListSecretAttributes(ctx context.Context, req *connect.Request[v3beta2.ListSecretAttributesRequest]) (*connect.Response[v3beta2.ListSecretAttributesResponse], error) {
+	return c.listSecretAttributes.CallUnary(ctx, req)
 }
 
 // GetSecret calls depot.ci.v3beta2.SecretService.GetSecret.
@@ -193,6 +208,7 @@ func (c *secretServiceClient) DeleteSecret(ctx context.Context, req *connect.Req
 // SecretServiceHandler is an implementation of the depot.ci.v3beta2.SecretService service.
 type SecretServiceHandler interface {
 	ListSecrets(context.Context, *connect.Request[v3beta2.ListSecretsRequest]) (*connect.Response[v3beta2.ListSecretsResponse], error)
+	ListSecretAttributes(context.Context, *connect.Request[v3beta2.ListSecretAttributesRequest]) (*connect.Response[v3beta2.ListSecretAttributesResponse], error)
 	GetSecret(context.Context, *connect.Request[v3beta2.GetSecretRequest]) (*connect.Response[v3beta2.GetSecretResponse], error)
 	GetSecretVariant(context.Context, *connect.Request[v3beta2.GetSecretVariantRequest]) (*connect.Response[v3beta2.GetSecretVariantResponse], error)
 	CreateSecretVariant(context.Context, *connect.Request[v3beta2.CreateSecretVariantRequest]) (*connect.Response[v3beta2.CreateSecretVariantResponse], error)
@@ -212,6 +228,11 @@ func NewSecretServiceHandler(svc SecretServiceHandler, opts ...connect.HandlerOp
 	secretServiceListSecretsHandler := connect.NewUnaryHandler(
 		SecretServiceListSecretsProcedure,
 		svc.ListSecrets,
+		opts...,
+	)
+	secretServiceListSecretAttributesHandler := connect.NewUnaryHandler(
+		SecretServiceListSecretAttributesProcedure,
+		svc.ListSecretAttributes,
 		opts...,
 	)
 	secretServiceGetSecretHandler := connect.NewUnaryHandler(
@@ -258,6 +279,8 @@ func NewSecretServiceHandler(svc SecretServiceHandler, opts ...connect.HandlerOp
 		switch r.URL.Path {
 		case SecretServiceListSecretsProcedure:
 			secretServiceListSecretsHandler.ServeHTTP(w, r)
+		case SecretServiceListSecretAttributesProcedure:
+			secretServiceListSecretAttributesHandler.ServeHTTP(w, r)
 		case SecretServiceGetSecretProcedure:
 			secretServiceGetSecretHandler.ServeHTTP(w, r)
 		case SecretServiceGetSecretVariantProcedure:
@@ -285,6 +308,10 @@ type UnimplementedSecretServiceHandler struct{}
 
 func (UnimplementedSecretServiceHandler) ListSecrets(context.Context, *connect.Request[v3beta2.ListSecretsRequest]) (*connect.Response[v3beta2.ListSecretsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.ci.v3beta2.SecretService.ListSecrets is not implemented"))
+}
+
+func (UnimplementedSecretServiceHandler) ListSecretAttributes(context.Context, *connect.Request[v3beta2.ListSecretAttributesRequest]) (*connect.Response[v3beta2.ListSecretAttributesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.ci.v3beta2.SecretService.ListSecretAttributes is not implemented"))
 }
 
 func (UnimplementedSecretServiceHandler) GetSecret(context.Context, *connect.Request[v3beta2.GetSecretRequest]) (*connect.Response[v3beta2.GetSecretResponse], error) {

@@ -71,14 +71,14 @@ jobs:
 
       - uses: actions/setup-go@v6
         with:
-          go-version: "1.24.4"
+          go-version: "1.25.14"
           check-latest: true
           cache: true
 
       - name: Install pnpm
         uses: pnpm/action-setup@v5
         with:
-          version: 8.x.x
+          version: 11.22.0
 
       - name: Install Node 24
         uses: actions/setup-node@v6

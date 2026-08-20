@@ -226,11 +226,16 @@ func testSecretsAndVarsCreatesIntentAndLocalBranch(t *testing.T, pushURL, reposi
 	}, intentID: intentID}
 
 	var output bytes.Buffer
+	forge := migrationForgeGitHub
+	if strings.HasPrefix(repositoryURL, "origin.cursor.com/") {
+		forge = migrationForgeCursor
+	}
 	err := secretsAndVars(context.Background(), migrateOptions{
 		dir:                         repoDir,
 		stdout:                      &output,
 		token:                       "depot_api_token",
 		orgID:                       "org-id",
+		forge:                       forge,
 		secretMigrationBranchPrefix: branchPrefix,
 		secretMigrationNow:          time.Unix(1_700_000_000, 0),
 		secretMigrationRegistrar:    registrar,

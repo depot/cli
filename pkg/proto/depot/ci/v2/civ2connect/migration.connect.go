@@ -33,6 +33,21 @@ const (
 // reflection-formatted method names, remove the leading slash and convert the remaining slash to a
 // period.
 const (
+	// MigrationServiceListRepositoriesProcedure is the fully-qualified name of the MigrationService's
+	// ListRepositories RPC.
+	MigrationServiceListRepositoriesProcedure = "/depot.ci.v2.MigrationService/ListRepositories"
+	// MigrationServiceGetRepositoryAnalysisProcedure is the fully-qualified name of the
+	// MigrationService's GetRepositoryAnalysis RPC.
+	MigrationServiceGetRepositoryAnalysisProcedure = "/depot.ci.v2.MigrationService/GetRepositoryAnalysis"
+	// MigrationServiceStartMigrationProcedure is the fully-qualified name of the MigrationService's
+	// StartMigration RPC.
+	MigrationServiceStartMigrationProcedure = "/depot.ci.v2.MigrationService/StartMigration"
+	// MigrationServiceRetryMigrationProcedure is the fully-qualified name of the MigrationService's
+	// RetryMigration RPC.
+	MigrationServiceRetryMigrationProcedure = "/depot.ci.v2.MigrationService/RetryMigration"
+	// MigrationServiceReportSecretImportProcedure is the fully-qualified name of the MigrationService's
+	// ReportSecretImport RPC.
+	MigrationServiceReportSecretImportProcedure = "/depot.ci.v2.MigrationService/ReportSecretImport"
 	// MigrationServiceRegisterSecretMigrationIntentProcedure is the fully-qualified name of the
 	// MigrationService's RegisterSecretMigrationIntent RPC.
 	MigrationServiceRegisterSecretMigrationIntentProcedure = "/depot.ci.v2.MigrationService/RegisterSecretMigrationIntent"
@@ -40,6 +55,16 @@ const (
 
 // MigrationServiceClient is a client for the depot.ci.v2.MigrationService service.
 type MigrationServiceClient interface {
+	// Lists repositories available through an installation.
+	ListRepositories(context.Context, *connect.Request[v2.ListMigrationRepositoriesRequest]) (*connect.Response[v2.ListMigrationRepositoriesResponse], error)
+	// Returns current workflow analysis with the latest migration state overlaid.
+	GetRepositoryAnalysis(context.Context, *connect.Request[v2.GetRepositoryMigrationAnalysisRequest]) (*connect.Response[v2.GetRepositoryMigrationAnalysisResponse], error)
+	// Starts an asynchronous migration for selected workflows.
+	StartMigration(context.Context, *connect.Request[v2.StartWorkflowMigrationRequest]) (*connect.Response[v2.StartWorkflowMigrationResponse], error)
+	// Creates a new attempt for a retryable failed migration.
+	RetryMigration(context.Context, *connect.Request[v2.RetryWorkflowMigrationRequest]) (*connect.Response[v2.RetryWorkflowMigrationResponse], error)
+	// Records the aggregate result from a generated GitHub Actions secret-import workflow.
+	ReportSecretImport(context.Context, *connect.Request[v2.ReportSecretImportRequest]) (*connect.Response[v2.ReportSecretImportResponse], error)
 	// Registers a five-minute authorization for a GitHub Actions workflow to import secrets and variables.
 	RegisterSecretMigrationIntent(context.Context, *connect.Request[v2.SecretMigrationIntent]) (*connect.Response[v2.RegisterSecretMigrationIntentResponse], error)
 }
@@ -54,6 +79,31 @@ type MigrationServiceClient interface {
 func NewMigrationServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) MigrationServiceClient {
 	baseURL = strings.TrimRight(baseURL, "/")
 	return &migrationServiceClient{
+		listRepositories: connect.NewClient[v2.ListMigrationRepositoriesRequest, v2.ListMigrationRepositoriesResponse](
+			httpClient,
+			baseURL+MigrationServiceListRepositoriesProcedure,
+			opts...,
+		),
+		getRepositoryAnalysis: connect.NewClient[v2.GetRepositoryMigrationAnalysisRequest, v2.GetRepositoryMigrationAnalysisResponse](
+			httpClient,
+			baseURL+MigrationServiceGetRepositoryAnalysisProcedure,
+			opts...,
+		),
+		startMigration: connect.NewClient[v2.StartWorkflowMigrationRequest, v2.StartWorkflowMigrationResponse](
+			httpClient,
+			baseURL+MigrationServiceStartMigrationProcedure,
+			opts...,
+		),
+		retryMigration: connect.NewClient[v2.RetryWorkflowMigrationRequest, v2.RetryWorkflowMigrationResponse](
+			httpClient,
+			baseURL+MigrationServiceRetryMigrationProcedure,
+			opts...,
+		),
+		reportSecretImport: connect.NewClient[v2.ReportSecretImportRequest, v2.ReportSecretImportResponse](
+			httpClient,
+			baseURL+MigrationServiceReportSecretImportProcedure,
+			opts...,
+		),
 		registerSecretMigrationIntent: connect.NewClient[v2.SecretMigrationIntent, v2.RegisterSecretMigrationIntentResponse](
 			httpClient,
 			baseURL+MigrationServiceRegisterSecretMigrationIntentProcedure,
@@ -64,7 +114,37 @@ func NewMigrationServiceClient(httpClient connect.HTTPClient, baseURL string, op
 
 // migrationServiceClient implements MigrationServiceClient.
 type migrationServiceClient struct {
+	listRepositories              *connect.Client[v2.ListMigrationRepositoriesRequest, v2.ListMigrationRepositoriesResponse]
+	getRepositoryAnalysis         *connect.Client[v2.GetRepositoryMigrationAnalysisRequest, v2.GetRepositoryMigrationAnalysisResponse]
+	startMigration                *connect.Client[v2.StartWorkflowMigrationRequest, v2.StartWorkflowMigrationResponse]
+	retryMigration                *connect.Client[v2.RetryWorkflowMigrationRequest, v2.RetryWorkflowMigrationResponse]
+	reportSecretImport            *connect.Client[v2.ReportSecretImportRequest, v2.ReportSecretImportResponse]
 	registerSecretMigrationIntent *connect.Client[v2.SecretMigrationIntent, v2.RegisterSecretMigrationIntentResponse]
+}
+
+// ListRepositories calls depot.ci.v2.MigrationService.ListRepositories.
+func (c *migrationServiceClient) ListRepositories(ctx context.Context, req *connect.Request[v2.ListMigrationRepositoriesRequest]) (*connect.Response[v2.ListMigrationRepositoriesResponse], error) {
+	return c.listRepositories.CallUnary(ctx, req)
+}
+
+// GetRepositoryAnalysis calls depot.ci.v2.MigrationService.GetRepositoryAnalysis.
+func (c *migrationServiceClient) GetRepositoryAnalysis(ctx context.Context, req *connect.Request[v2.GetRepositoryMigrationAnalysisRequest]) (*connect.Response[v2.GetRepositoryMigrationAnalysisResponse], error) {
+	return c.getRepositoryAnalysis.CallUnary(ctx, req)
+}
+
+// StartMigration calls depot.ci.v2.MigrationService.StartMigration.
+func (c *migrationServiceClient) StartMigration(ctx context.Context, req *connect.Request[v2.StartWorkflowMigrationRequest]) (*connect.Response[v2.StartWorkflowMigrationResponse], error) {
+	return c.startMigration.CallUnary(ctx, req)
+}
+
+// RetryMigration calls depot.ci.v2.MigrationService.RetryMigration.
+func (c *migrationServiceClient) RetryMigration(ctx context.Context, req *connect.Request[v2.RetryWorkflowMigrationRequest]) (*connect.Response[v2.RetryWorkflowMigrationResponse], error) {
+	return c.retryMigration.CallUnary(ctx, req)
+}
+
+// ReportSecretImport calls depot.ci.v2.MigrationService.ReportSecretImport.
+func (c *migrationServiceClient) ReportSecretImport(ctx context.Context, req *connect.Request[v2.ReportSecretImportRequest]) (*connect.Response[v2.ReportSecretImportResponse], error) {
+	return c.reportSecretImport.CallUnary(ctx, req)
 }
 
 // RegisterSecretMigrationIntent calls depot.ci.v2.MigrationService.RegisterSecretMigrationIntent.
@@ -74,6 +154,16 @@ func (c *migrationServiceClient) RegisterSecretMigrationIntent(ctx context.Conte
 
 // MigrationServiceHandler is an implementation of the depot.ci.v2.MigrationService service.
 type MigrationServiceHandler interface {
+	// Lists repositories available through an installation.
+	ListRepositories(context.Context, *connect.Request[v2.ListMigrationRepositoriesRequest]) (*connect.Response[v2.ListMigrationRepositoriesResponse], error)
+	// Returns current workflow analysis with the latest migration state overlaid.
+	GetRepositoryAnalysis(context.Context, *connect.Request[v2.GetRepositoryMigrationAnalysisRequest]) (*connect.Response[v2.GetRepositoryMigrationAnalysisResponse], error)
+	// Starts an asynchronous migration for selected workflows.
+	StartMigration(context.Context, *connect.Request[v2.StartWorkflowMigrationRequest]) (*connect.Response[v2.StartWorkflowMigrationResponse], error)
+	// Creates a new attempt for a retryable failed migration.
+	RetryMigration(context.Context, *connect.Request[v2.RetryWorkflowMigrationRequest]) (*connect.Response[v2.RetryWorkflowMigrationResponse], error)
+	// Records the aggregate result from a generated GitHub Actions secret-import workflow.
+	ReportSecretImport(context.Context, *connect.Request[v2.ReportSecretImportRequest]) (*connect.Response[v2.ReportSecretImportResponse], error)
 	// Registers a five-minute authorization for a GitHub Actions workflow to import secrets and variables.
 	RegisterSecretMigrationIntent(context.Context, *connect.Request[v2.SecretMigrationIntent]) (*connect.Response[v2.RegisterSecretMigrationIntentResponse], error)
 }
@@ -84,6 +174,31 @@ type MigrationServiceHandler interface {
 // By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
 // and JSON codecs. They also support gzip compression.
 func NewMigrationServiceHandler(svc MigrationServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
+	migrationServiceListRepositoriesHandler := connect.NewUnaryHandler(
+		MigrationServiceListRepositoriesProcedure,
+		svc.ListRepositories,
+		opts...,
+	)
+	migrationServiceGetRepositoryAnalysisHandler := connect.NewUnaryHandler(
+		MigrationServiceGetRepositoryAnalysisProcedure,
+		svc.GetRepositoryAnalysis,
+		opts...,
+	)
+	migrationServiceStartMigrationHandler := connect.NewUnaryHandler(
+		MigrationServiceStartMigrationProcedure,
+		svc.StartMigration,
+		opts...,
+	)
+	migrationServiceRetryMigrationHandler := connect.NewUnaryHandler(
+		MigrationServiceRetryMigrationProcedure,
+		svc.RetryMigration,
+		opts...,
+	)
+	migrationServiceReportSecretImportHandler := connect.NewUnaryHandler(
+		MigrationServiceReportSecretImportProcedure,
+		svc.ReportSecretImport,
+		opts...,
+	)
 	migrationServiceRegisterSecretMigrationIntentHandler := connect.NewUnaryHandler(
 		MigrationServiceRegisterSecretMigrationIntentProcedure,
 		svc.RegisterSecretMigrationIntent,
@@ -91,6 +206,16 @@ func NewMigrationServiceHandler(svc MigrationServiceHandler, opts ...connect.Han
 	)
 	return "/depot.ci.v2.MigrationService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
+		case MigrationServiceListRepositoriesProcedure:
+			migrationServiceListRepositoriesHandler.ServeHTTP(w, r)
+		case MigrationServiceGetRepositoryAnalysisProcedure:
+			migrationServiceGetRepositoryAnalysisHandler.ServeHTTP(w, r)
+		case MigrationServiceStartMigrationProcedure:
+			migrationServiceStartMigrationHandler.ServeHTTP(w, r)
+		case MigrationServiceRetryMigrationProcedure:
+			migrationServiceRetryMigrationHandler.ServeHTTP(w, r)
+		case MigrationServiceReportSecretImportProcedure:
+			migrationServiceReportSecretImportHandler.ServeHTTP(w, r)
 		case MigrationServiceRegisterSecretMigrationIntentProcedure:
 			migrationServiceRegisterSecretMigrationIntentHandler.ServeHTTP(w, r)
 		default:
@@ -101,6 +226,26 @@ func NewMigrationServiceHandler(svc MigrationServiceHandler, opts ...connect.Han
 
 // UnimplementedMigrationServiceHandler returns CodeUnimplemented from all methods.
 type UnimplementedMigrationServiceHandler struct{}
+
+func (UnimplementedMigrationServiceHandler) ListRepositories(context.Context, *connect.Request[v2.ListMigrationRepositoriesRequest]) (*connect.Response[v2.ListMigrationRepositoriesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.ci.v2.MigrationService.ListRepositories is not implemented"))
+}
+
+func (UnimplementedMigrationServiceHandler) GetRepositoryAnalysis(context.Context, *connect.Request[v2.GetRepositoryMigrationAnalysisRequest]) (*connect.Response[v2.GetRepositoryMigrationAnalysisResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.ci.v2.MigrationService.GetRepositoryAnalysis is not implemented"))
+}
+
+func (UnimplementedMigrationServiceHandler) StartMigration(context.Context, *connect.Request[v2.StartWorkflowMigrationRequest]) (*connect.Response[v2.StartWorkflowMigrationResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.ci.v2.MigrationService.StartMigration is not implemented"))
+}
+
+func (UnimplementedMigrationServiceHandler) RetryMigration(context.Context, *connect.Request[v2.RetryWorkflowMigrationRequest]) (*connect.Response[v2.RetryWorkflowMigrationResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.ci.v2.MigrationService.RetryMigration is not implemented"))
+}
+
+func (UnimplementedMigrationServiceHandler) ReportSecretImport(context.Context, *connect.Request[v2.ReportSecretImportRequest]) (*connect.Response[v2.ReportSecretImportResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.ci.v2.MigrationService.ReportSecretImport is not implemented"))
+}
 
 func (UnimplementedMigrationServiceHandler) RegisterSecretMigrationIntent(context.Context, *connect.Request[v2.SecretMigrationIntent]) (*connect.Response[v2.RegisterSecretMigrationIntentResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.ci.v2.MigrationService.RegisterSecretMigrationIntent is not implemented"))
