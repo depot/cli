@@ -13,8 +13,14 @@ import (
 	civ2 "github.com/depot/cli/pkg/proto/depot/ci/v2"
 )
 
+type cursorOriginAnalysis struct {
+	response      *connect.Response[civ2.GetRepositoryMigrationAnalysisResponse]
+	remote        string
+	repositoryURL string
+}
+
 func cursorPreflight(ctx context.Context, opts migrateOptions) (*preflightResult, error) {
-	_, repositoryURL, err := analyzeCursorOriginWorkflows(ctx, opts, nil)
+	analysis, err := analyzeCursorOriginWorkflows(ctx, opts, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -27,33 +33,33 @@ func cursorPreflight(ctx context.Context, opts migrateOptions) (*preflightResult
 	if out == nil {
 		out = os.Stdout
 	}
-	fmt.Fprintf(out, "\nDetected repository: %s\n", repositoryURL)
+	fmt.Fprintf(out, "\nDetected repository: %s\n", analysis.repositoryURL)
 	fmt.Fprintln(out, "Cursor Origin repository is available to this Depot organization.")
-	return &preflightResult{token: token, orgID: orgID, repo: repositoryURL}, nil
+	return &preflightResult{token: token, orgID: orgID, repo: analysis.repositoryURL}, nil
 }
 
 func analyzeCursorOriginWorkflows(
 	ctx context.Context,
 	opts migrateOptions,
 	workflows []*migrate.WorkflowFile,
-) (*connect.Response[civ2.GetRepositoryMigrationAnalysisResponse], string, error) {
+) (*cursorOriginAnalysis, error) {
 	token, orgID, err := resolveAuth(ctx, opts)
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
 
 	workDir := opts.dir
 	if strings.TrimSpace(workDir) == "" {
 		workDir = "."
 	}
-	_, repositoryURL, err := detectMigrationRemote(ctx, workDir, migrationForgeCursor, false)
+	remote, repositoryURL, err := detectMigrationRemote(ctx, workDir, migrationForgeCursor, false)
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
 
 	workflowFiles, err := migrationWorkflowFiles(workDir, workflows)
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
 
 	client := opts.repositoryAnalysisClient
@@ -67,9 +73,9 @@ func analyzeCursorOriginWorkflows(
 	}), token, orgID)
 	response, err := client.GetRepositoryAnalysis(ctx, request)
 	if err != nil {
-		return nil, "", fmt.Errorf("failed to analyze Cursor Origin compatibility for %s: %w", repositoryURL, err)
+		return nil, fmt.Errorf("failed to analyze Cursor Origin compatibility for %s: %w", repositoryURL, err)
 	}
-	return response, repositoryURL, nil
+	return &cursorOriginAnalysis{response: response, remote: remote, repositoryURL: repositoryURL}, nil
 }
 
 func migrationWorkflowFiles(workDir string, workflows []*migrate.WorkflowFile) ([]*civ2.MigrationWorkflowFile, error) {

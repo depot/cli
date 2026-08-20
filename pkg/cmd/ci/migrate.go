@@ -432,6 +432,7 @@ func workflowsWithContext(ctx context.Context, opts migrateOptions) error {
 	out = colorprofile.NewWriter(out, os.Environ())
 
 	bold := lipgloss.NewStyle().Bold(true)
+	migrationRemote := "origin"
 
 	githubDir := filepath.Join(workDir, ".github")
 	workflowsDir := filepath.Join(githubDir, "workflows")
@@ -588,11 +589,14 @@ func workflowsWithContext(ctx context.Context, opts migrateOptions) error {
 	}
 
 	if effectiveMigrationForge(opts.forge) == migrationForgeCursor {
-		if _, repositoryURL, err := analyzeCursorOriginWorkflows(ctx, opts, selectedWorkflows); err != nil {
+		analysis, err := analyzeCursorOriginWorkflows(ctx, opts, selectedWorkflows)
+		if err != nil {
 			return err
-		} else {
-			fmt.Fprintf(out, "\nDetected repository: %s\n", bold.Render(repositoryURL))
 		}
+		// DEP-6082 owns rendering the structured findings. Keep them non-blocking here.
+		_ = analysis.response
+		migrationRemote = analysis.remote
+		fmt.Fprintf(out, "\nDetected repository: %s\n", bold.Render(analysis.repositoryURL))
 	}
 
 	// Copy .github/actions/ to .depot/actions/
@@ -704,14 +708,20 @@ func workflowsWithContext(ctx context.Context, opts migrateOptions) error {
 		return fmt.Errorf("failed to detect variables: %w", err)
 	}
 
-	defaultBranch := detectDefaultBranch(workDir)
+	defaultBranch := detectDefaultBranch(workDir, migrationRemote)
 
 	fmt.Fprintln(out, "")
 	fmt.Fprintf(out, "%s\n\n", bold.Render("Next steps:"))
 
 	if len(detectedSecrets) > 0 || len(detectedVariables) > 0 {
-		fmt.Fprintf(out, "  1. Your workflows depend on %d secret(s) and %d variable(s) which need to be imported from GitHub:\n", len(detectedSecrets), len(detectedVariables))
-		fmt.Fprintln(out, "     - Import them automatically with `depot ci migrate secrets-and-vars`")
+		secretsSource := "GitHub"
+		secretMigrationCommand := "depot ci migrate secrets-and-vars"
+		if effectiveMigrationForge(opts.forge) == migrationForgeCursor {
+			secretsSource = "the source repository"
+			secretMigrationCommand += " --forge=cursor"
+		}
+		fmt.Fprintf(out, "  1. Your workflows depend on %d secret(s) and %d variable(s) which need to be imported from %s:\n", len(detectedSecrets), len(detectedVariables), secretsSource)
+		fmt.Fprintf(out, "     - Import them automatically with `%s`\n", secretMigrationCommand)
 		fmt.Fprintln(out, "     - Or import them manually with `depot ci secrets add` and `depot ci vars add`")
 		if defaultBranch != "" {
 			fmt.Fprintf(out, "  2. Activate these workflows by pushing and merging them into %s\n", bold.Render(defaultBranch))
@@ -732,11 +742,14 @@ func workflowsWithContext(ctx context.Context, opts migrateOptions) error {
 }
 
 // detectDefaultBranch returns the default branch name (e.g. "main") or empty string.
-func detectDefaultBranch(dir string) string {
-	// Try symbolic-ref first (works when origin/HEAD is set)
-	if out, err := exec.Command("git", "-C", dir, "symbolic-ref", "refs/remotes/origin/HEAD").Output(); err == nil {
+func detectDefaultBranch(dir, remote string) string {
+	if strings.TrimSpace(remote) == "" {
+		remote = "origin"
+	}
+	// Try symbolic-ref first (works when the remote's HEAD is set)
+	if out, err := exec.Command("git", "-C", dir, "symbolic-ref", "refs/remotes/"+remote+"/HEAD").Output(); err == nil {
 		branch := strings.TrimSpace(string(out))
-		branch = strings.TrimPrefix(branch, "refs/remotes/origin/")
+		branch = strings.TrimPrefix(branch, "refs/remotes/"+remote+"/")
 		if branch != "" {
 			return branch
 		}
@@ -744,7 +757,7 @@ func detectDefaultBranch(dir string) string {
 
 	// Fall back to checking for common default branch names
 	for _, name := range []string{"main", "master"} {
-		if err := exec.Command("git", "-C", dir, "rev-parse", "--verify", "refs/remotes/origin/"+name).Run(); err == nil {
+		if err := exec.Command("git", "-C", dir, "rev-parse", "--verify", "refs/remotes/"+remote+"/"+name).Run(); err == nil {
 			return name
 		}
 	}

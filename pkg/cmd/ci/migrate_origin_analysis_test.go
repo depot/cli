@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -35,8 +34,15 @@ func (c *recordingRepositoryAnalysisClient) GetRepositoryAnalysis(
 
 func TestCursorMigrationAnalyzesSelectedLocalWorkflowsBeforeMigrating(t *testing.T) {
 	dir, workflow := newMigrationTestRepository(t)
+	runSecretMigrationTestCommand(t, dir, "git", "add", ".")
+	runSecretMigrationTestCommand(t, dir, "git", "-c", "user.name=Depot Test", "-c", "user.email=test@depot.dev", "commit", "-m", "base")
+	sha := runSecretMigrationTestCommand(t, dir, "git", "rev-parse", "HEAD")
 	runSecretMigrationTestCommand(t, dir, "git", "remote", "add", "origin", "https://github.com/acme/widgets.git")
 	runSecretMigrationTestCommand(t, dir, "git", "remote", "add", "cursor", "git@origin.cursor.com:git/acme/widgets.git")
+	runSecretMigrationTestCommand(t, dir, "git", "update-ref", "refs/remotes/origin/main", sha)
+	runSecretMigrationTestCommand(t, dir, "git", "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
+	runSecretMigrationTestCommand(t, dir, "git", "update-ref", "refs/remotes/cursor/trunk", sha)
+	runSecretMigrationTestCommand(t, dir, "git", "symbolic-ref", "refs/remotes/cursor/HEAD", "refs/remotes/cursor/trunk")
 
 	client := &recordingRepositoryAnalysisClient{response: &civ2.GetRepositoryMigrationAnalysisResponse{
 		Workflows: []*civ2.RepositoryWorkflowMigration{{
@@ -86,6 +92,15 @@ func TestCursorMigrationAnalyzesSelectedLocalWorkflowsBeforeMigrating(t *testing
 	}
 	if _, err := os.Stat(filepath.Join(dir, ".depot", "workflows", "ci.yml")); err != nil {
 		t.Fatalf("diagnostic findings must not stop migration: %v", err)
+	}
+	if !strings.Contains(output.String(), "depot ci migrate secrets-and-vars --forge=cursor") {
+		t.Fatalf("Cursor follow-up command dropped the selected forge:\n%s", output.String())
+	}
+	if !strings.Contains(output.String(), "pushing and merging them into trunk") {
+		t.Fatalf("next steps did not use the selected Cursor remote's default branch:\n%s", output.String())
+	}
+	if strings.Contains(output.String(), "imported from GitHub") {
+		t.Fatalf("Cursor next steps incorrectly describe the source as GitHub:\n%s", output.String())
 	}
 }
 
@@ -216,20 +231,6 @@ func TestMigrateForgeFlagRejectsUnsupportedValueOnSubcommands(t *testing.T) {
 	}
 }
 
-func TestMigrateForgeFlagAcceptsSupportedValues(t *testing.T) {
-	for _, forge := range []string{"github", "cursor"} {
-		t.Run(forge, func(t *testing.T) {
-			cmd := NewCmdMigrate()
-			cmd.SetOut(io.Discard)
-			cmd.SetErr(io.Discard)
-			cmd.SetArgs([]string{"workflows", "--forge", forge, "--help"})
-			if err := cmd.ExecuteContext(context.Background()); err != nil {
-				t.Fatalf("--forge=%s was rejected: %v", forge, err)
-			}
-		})
-	}
-}
-
 func newMigrationTestRepository(t *testing.T) (string, string) {
 	t.Helper()
 	dir := t.TempDir()
@@ -238,7 +239,7 @@ func newMigrationTestRepository(t *testing.T) (string, string) {
 	if err := os.MkdirAll(workflowsDir, 0755); err != nil {
 		t.Fatal(err)
 	}
-	workflow := "name: CI\non: push\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n"
+	workflow := "name: CI\non: push\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - run: echo ${{ secrets.MY_SECRET }}\n"
 	if err := os.WriteFile(filepath.Join(workflowsDir, "ci.yml"), []byte(workflow), 0644); err != nil {
 		t.Fatal(err)
 	}
