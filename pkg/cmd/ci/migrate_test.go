@@ -189,6 +189,12 @@ jobs:
 	if !strings.Contains(output, "variable(s)") {
 		t.Errorf("expected variables count in summary, got:\n%s", output)
 	}
+	if !strings.Contains(output, "depot ci migrate secrets-and-vars`") {
+		t.Errorf("expected the default GitHub follow-up command, got:\n%s", output)
+	}
+	if strings.Contains(output, "--forge=cursor") {
+		t.Errorf("default GitHub migration unexpectedly selected Cursor, got:\n%s", output)
+	}
 }
 
 func TestRunMigrate_DisabledJob(t *testing.T) {
