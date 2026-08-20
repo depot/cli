@@ -83,17 +83,20 @@ type migrateOptions struct {
 }
 
 func NewCmdMigrate() *cobra.Command {
-	opts := migrateOptions{forge: migrationForgeGitHub}
+	return newCmdMigrate(migrateOptions{})
+}
+
+func newCmdMigrate(opts migrateOptions) *cobra.Command {
+	if opts.forge == "" {
+		opts.forge = migrationForgeGitHub
+	}
 
 	cmd := &cobra.Command{
 		Use:   "migrate",
 		Short: "Migrate GitHub Actions workflows to Depot CI",
 		Long:  "Optimistically migrates GitHub Actions workflows into .depot/workflows/ with inline corrections and comments.",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			runOpts := opts
-			runOpts.dir = "."
-			runOpts.stdout = os.Stdout
-			return runMigrate(cmd.Context(), runOpts)
+			return runMigrate(cmd.Context(), migrateCommandOptions(cmd, opts))
 		},
 	}
 
@@ -112,16 +115,23 @@ func NewCmdMigrate() *cobra.Command {
 	return cmd
 }
 
+func migrateCommandOptions(cmd *cobra.Command, opts migrateOptions) migrateOptions {
+	if strings.TrimSpace(opts.dir) == "" {
+		opts.dir = "."
+	}
+	if opts.stdout == nil {
+		opts.stdout = cmd.OutOrStdout()
+	}
+	return opts
+}
+
 func newCmdSecretsAndVars(parentOpts *migrateOptions) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "secrets-and-vars",
 		Short: "Import GitHub Actions secrets and variables into Depot CI",
 		Long:  "Creates a one-shot GitHub Actions workflow that reads secrets and variables from the source repo and imports them into Depot CI via the depot CLI.",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			opts := *parentOpts
-			opts.dir = "."
-			opts.stdout = os.Stdout
-			return secretsAndVars(cmd.Context(), opts)
+			return secretsAndVars(cmd.Context(), migrateCommandOptions(cmd, *parentOpts))
 		},
 	}
 
@@ -246,10 +256,7 @@ func newCmdWorkflows(parentOpts *migrateOptions) *cobra.Command {
 		Short: "Migrate and transform GitHub Actions workflows to .depot/workflows/",
 		Long:  "Copies .github/workflows/ into .depot/workflows/, applying Depot CI transformations and compatibility fixes.",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			opts := *parentOpts
-			opts.dir = "."
-			opts.stdout = os.Stdout
-			return workflowsWithContext(cmd.Context(), opts)
+			return workflowsWithContext(cmd.Context(), migrateCommandOptions(cmd, *parentOpts))
 		},
 	}
 
@@ -264,9 +271,7 @@ func newCmdPreflight(parentOpts *migrateOptions) *cobra.Command {
 		Short: "Check authentication and repository access for migration",
 		Long:  "Validates authentication, detects a repository for the selected forge, and checks the access required to migrate it. GitHub checks the Depot Code Access app; Cursor checks that the Origin repository is available to the Depot organization.",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			opts := *parentOpts
-			opts.dir = "."
-			opts.stdout = os.Stdout
+			opts := migrateCommandOptions(cmd, *parentOpts)
 			_, err := preflight(cmd.Context(), opts)
 			return err
 		},
