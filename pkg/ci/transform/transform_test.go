@@ -9,6 +9,7 @@ import (
 
 	"github.com/depot/cli/pkg/ci/compat"
 	"github.com/depot/cli/pkg/ci/migrate"
+	"gopkg.in/yaml.v3"
 )
 
 func TestTransformWorkflow_NoChanges(t *testing.T) {
@@ -796,6 +797,68 @@ jobs:
 	}
 }
 
+func TestTransformWorkflow_PartialMigration_SiblingScriptPath(t *testing.T) {
+	// A migrated workflow references a sibling helper script that lives under
+	// .github/workflows/. Under a partial migration the rewrite is gated by the
+	// migratedWorkflows set, keyed by path relative to the workflows dir — so a nested
+	// script key like "scripts/build.sh" must gate its reference the same way a
+	// top-level workflow filename does. This is the membership check the command layer
+	// relies on after it adds copied siblings to the set.
+	raw := []byte(`name: CI
+on: push
+jobs:
+  build:
+    runs-on: depot-ubuntu-latest
+    steps:
+      - run: bash .github/workflows/scripts/build.sh
+      - run: bash .github/workflows/scripts/other.sh
+`)
+
+	wf := &migrate.WorkflowFile{
+		Path:     ".github/workflows/ci.yml",
+		Name:     "CI",
+		Triggers: []string{"push"},
+		Jobs:     []migrate.JobInfo{{Name: "build", RunsOn: "depot-ubuntu-latest"}},
+	}
+	report := compat.AnalyzeWorkflow(wf)
+
+	// build.sh was copied (so it joins the set); other.sh was not.
+	migratedWorkflows := map[string]bool{
+		"ci.yml":           true,
+		"scripts/build.sh": true,
+	}
+
+	result, err := TransformWorkflow(raw, wf, report, migratedWorkflows)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	content := string(result.Content)
+	if !strings.Contains(content, ".depot/workflows/scripts/build.sh") {
+		t.Errorf("expected copied sibling reference rewritten to .depot/, got:\n%s", content)
+	}
+	if !strings.Contains(content, ".github/workflows/scripts/other.sh") {
+		t.Errorf("expected un-copied sibling reference left at .github/, got:\n%s", content)
+	}
+}
+
+func TestRewriteGitHubPaths_PartialMigration_EscapedSiblingTail(t *testing.T) {
+	// An escaped nested-sibling reference embedded in a code string keeps escaped
+	// separators in its tail (scripts\/build.sh). The allow-list is keyed by plain
+	// slash paths, so the tail must be unescaped before the lookup — otherwise the
+	// copied sibling reference would be left pointing at .github/.
+	set := map[string]bool{"scripts/build.sh": true}
+	input := `node -e "require('fs').existsSync('.github\/workflows\/scripts\/build.sh')"`
+
+	got, changed := rewriteGitHubPaths(input, set)
+	if !changed {
+		t.Fatalf("expected escaped sibling reference rewritten, got unchanged: %q", got)
+	}
+	if !strings.Contains(got, `.depot\/workflows\/scripts\/build.sh`) {
+		t.Errorf("expected escaped tail rewritten to .depot/, got:\n%s", got)
+	}
+}
+
 func TestRewriteGitHubPaths(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -1000,6 +1063,48 @@ func TestRewriteGitHubPaths(t *testing.T) {
 			input:   "(.github/actions/setup/run.sh)",
 			want:    "(.depot/actions/setup/run.sh)",
 			changed: true,
+		},
+		{
+			name:    "regex escaped dot rewritten",
+			input:   `const re = /\.github\/actions\//`,
+			want:    `const re = /\.depot\/actions\//`,
+			changed: true,
+		},
+		{
+			name:    "regex escaped dot literal slash rewritten",
+			input:   `\.github/actions/setup`,
+			want:    `\.depot/actions/setup`,
+			changed: true,
+		},
+		{
+			name:    "escaped dot inside longer token not rewritten",
+			input:   `myapp\.github/actions/setup`,
+			want:    `myapp\.github/actions/setup`,
+			changed: false,
+		},
+		{
+			name:    "python raw regex workflows rewritten",
+			input:   `re.compile(r"\.github\/workflows")`,
+			want:    `re.compile(r"\.depot\/workflows")`,
+			changed: true,
+		},
+		{
+			name:    "escaped-slash url left untouched",
+			input:   `"https:\/\/github.com\/org\/repo\/tree\/main\/.github\/actions"`,
+			want:    `"https:\/\/github.com\/org\/repo\/tree\/main\/.github\/actions"`,
+			changed: false,
+		},
+		{
+			name:    "escaped-slash remote ref left untouched",
+			input:   `uses: org\/repo\/.github\/workflows\/reusable.yml`,
+			want:    `uses: org\/repo\/.github\/workflows\/reusable.yml`,
+			changed: false,
+		},
+		{
+			name:    "fully escaped remote ref left untouched",
+			input:   `ref: org\/repo\/\.github\/actions\/setup`,
+			want:    `ref: org\/repo\/\.github\/actions\/setup`,
+			changed: false,
 		},
 	}
 
@@ -1232,5 +1337,455 @@ func TestBuildHeaderComment_WithNonstandardChanges(t *testing.T) {
 	header := buildHeaderComment(wf, changes)
 	if !strings.Contains(header, "blacksmith-4vcpu") {
 		t.Errorf("expected nonstandard label detail in header, got: %s", header)
+	}
+}
+
+func TestSanitizeBlockScalars_PreservesBackslashContinuation(t *testing.T) {
+	// A line ending in a backslash followed by whitespace is a literal escaped
+	// space in shell, not a line continuation. Trimming it down to a trailing
+	// backslash would change what the command does, so it must be left intact —
+	// while an ordinary trailing-whitespace line is still trimmed.
+	n := &yaml.Node{
+		Kind:  yaml.ScalarNode,
+		Style: yaml.LiteralStyle,
+		Value: "echo foo \\   \necho bar   \n",
+	}
+	trimTrailingWhitespace(n)
+
+	lines := strings.Split(n.Value, "\n")
+	if lines[0] != "echo foo \\   " {
+		t.Errorf("expected backslash-continuation line preserved, got %q", lines[0])
+	}
+	if lines[1] != "echo bar" {
+		t.Errorf("expected ordinary trailing whitespace trimmed, got %q", lines[1])
+	}
+}
+
+func TestSanitizeBlockScalars_PreservesHeredoc(t *testing.T) {
+	// A heredoc payload may depend on trailing whitespace, so a scalar containing
+	// a heredoc operator is left entirely untouched rather than tidied.
+	original := "cat <<EOF\npadded line   \nEOF\n"
+	n := &yaml.Node{Kind: yaml.ScalarNode, Style: yaml.LiteralStyle, Value: original}
+	trimTrailingWhitespace(n)
+	if n.Value != original {
+		t.Errorf("expected heredoc scalar left untouched, got %q", n.Value)
+	}
+}
+
+func TestSanitizeBlockScalars_PreservesQuotedLineSpan(t *testing.T) {
+	// A single-quoted shell string can span lines; the trailing spaces after "foo"
+	// are string data continuing to the next line, so trimming them would change the
+	// value the shell sees. The line ending mid-quote must be left intact, while an
+	// ordinary trailing-whitespace line after the quote closes is still trimmed.
+	n := &yaml.Node{
+		Kind:  yaml.ScalarNode,
+		Style: yaml.LiteralStyle,
+		Value: "printf '%s' 'foo  \nbar'\necho done   \n",
+	}
+	trimTrailingWhitespace(n)
+
+	lines := strings.Split(n.Value, "\n")
+	if lines[0] != "printf '%s' 'foo  " {
+		t.Errorf("expected line inside open quote preserved, got %q", lines[0])
+	}
+	if lines[2] != "echo done" {
+		t.Errorf("expected trailing whitespace outside quotes trimmed, got %q", lines[2])
+	}
+}
+
+func TestSanitizeBlockScalars_PreservesPowerShellContinuation(t *testing.T) {
+	// PowerShell uses a backtick and cmd uses a caret as line-continuation escapes
+	// rather than a backslash. A trailing "escape + spaces" is a literal escaped space,
+	// not a continuation, so trimming it would splice the line onto the next and change
+	// what runs. Both must be left intact, while an ordinary line is still trimmed.
+	n := &yaml.Node{
+		Kind:  yaml.ScalarNode,
+		Style: yaml.LiteralStyle,
+		Value: "Write-Host foo `   \ncopy a b ^  \necho ok   \n",
+	}
+	trimTrailingWhitespace(n)
+
+	lines := strings.Split(n.Value, "\n")
+	if lines[0] != "Write-Host foo `   " {
+		t.Errorf("expected backtick-continuation line preserved, got %q", lines[0])
+	}
+	if lines[1] != "copy a b ^  " {
+		t.Errorf("expected caret-continuation line preserved, got %q", lines[1])
+	}
+	if lines[2] != "echo ok" {
+		t.Errorf("expected ordinary trailing whitespace trimmed, got %q", lines[2])
+	}
+}
+
+func TestTransformWorkflow_PreservesNonRunBlockScalar(t *testing.T) {
+	// A non-run block scalar (an action input) may carry meaningful trailing
+	// whitespace — e.g. Markdown hard line breaks — so it must survive migration
+	// byte-for-byte, even though that forces yaml.v3's quoted fallback.
+	raw := []byte("name: CI\non: push\njobs:\n  build:\n    runs-on: depot-ubuntu-latest\n    steps:\n      - uses: some/action@v1\n        with:\n          body: |\n            first line  \n            second line\n")
+
+	wf := &migrate.WorkflowFile{
+		Path:     ".github/workflows/ci.yml",
+		Name:     "CI",
+		Triggers: []string{"push"},
+		Jobs:     []migrate.JobInfo{{Name: "build", RunsOn: "depot-ubuntu-latest"}},
+	}
+	report := compat.AnalyzeWorkflow(wf)
+
+	result, err := TransformWorkflow(raw, wf, report, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Re-parse the emitted YAML and confirm the body payload kept its trailing
+	// spaces exactly.
+	var parsed struct {
+		Jobs map[string]struct {
+			Steps []struct {
+				With struct {
+					Body string `yaml:"body"`
+				} `yaml:"with"`
+			} `yaml:"steps"`
+		} `yaml:"jobs"`
+	}
+	if err := yaml.Unmarshal(result.Content, &parsed); err != nil {
+		t.Fatalf("failed to re-parse migrated YAML: %v", err)
+	}
+	body := parsed.Jobs["build"].Steps[0].With.Body
+	if body != "first line  \nsecond line\n" {
+		t.Errorf("expected non-run body preserved byte-for-byte, got %q", body)
+	}
+}
+
+func TestTransformWorkflow_PreservesRunBlockScalar(t *testing.T) {
+	// The run block has a line with trailing whitespace, which previously forced
+	// yaml.v3 to flatten the whole block into a double-quoted "\n"-escaped string.
+	raw := []byte("name: CI\non: push\njobs:\n  build:\n    runs-on: depot-ubuntu-latest\n    steps:\n      - run: |\n          echo hello   \n          make build\n          ls .github/actions\n")
+
+	wf := &migrate.WorkflowFile{
+		Path:     ".github/workflows/ci.yml",
+		Name:     "CI",
+		Triggers: []string{"push"},
+		Jobs:     []migrate.JobInfo{{Name: "build", RunsOn: "depot-ubuntu-latest"}},
+	}
+	report := compat.AnalyzeWorkflow(wf)
+
+	result, err := TransformWorkflow(raw, wf, report, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	content := string(result.Content)
+	if !strings.Contains(content, "run: |") {
+		t.Errorf("expected literal block style 'run: |' to be preserved, got:\n%s", content)
+	}
+	if strings.Contains(content, `\n`) {
+		t.Errorf("expected no escaped newlines in flattened run block, got:\n%s", content)
+	}
+	// The path rewrite inside the block should still have happened.
+	if !strings.Contains(content, ".depot/actions") {
+		t.Errorf("expected .github/actions rewritten inside run block, got:\n%s", content)
+	}
+}
+
+func TestTransformWorkflow_PreservesWithRunInput(t *testing.T) {
+	// A block scalar passed to an action input named "run" (under with:) is not a shell
+	// step, so its trailing whitespace must survive migration byte-for-byte even though
+	// that forces yaml.v3's quoted fallback.
+	raw := []byte("name: CI\non: push\njobs:\n  build:\n    runs-on: depot-ubuntu-latest\n    steps:\n      - uses: some/action@v1\n        with:\n          run: |\n            first line  \n            second line\n")
+
+	wf := &migrate.WorkflowFile{
+		Path:     ".github/workflows/ci.yml",
+		Name:     "CI",
+		Triggers: []string{"push"},
+		Jobs:     []migrate.JobInfo{{Name: "build", RunsOn: "depot-ubuntu-latest"}},
+	}
+	report := compat.AnalyzeWorkflow(wf)
+
+	result, err := TransformWorkflow(raw, wf, report, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var parsed struct {
+		Jobs map[string]struct {
+			Steps []struct {
+				With struct {
+					Run string `yaml:"run"`
+				} `yaml:"with"`
+			} `yaml:"steps"`
+		} `yaml:"jobs"`
+	}
+	if err := yaml.Unmarshal(result.Content, &parsed); err != nil {
+		t.Fatalf("failed to re-parse migrated YAML: %v", err)
+	}
+	run := parsed.Jobs["build"].Steps[0].With.Run
+	if run != "first line  \nsecond line\n" {
+		t.Errorf("expected with.run input preserved byte-for-byte, got %q", run)
+	}
+}
+
+func TestTransformWorkflow_PreservesCmdRunBlock(t *testing.T) {
+	// Under shell: cmd, trailing spaces can be significant (e.g. `set NAME=value   `
+	// stores them), so a cmd run block must be left byte-exact rather than trimmed.
+	raw := []byte("name: CI\non: push\njobs:\n  build:\n    runs-on: depot-ubuntu-latest\n    steps:\n      - shell: cmd\n        run: |\n          set NAME=value   \n          echo %NAME%\n")
+
+	wf := &migrate.WorkflowFile{
+		Path:     ".github/workflows/ci.yml",
+		Name:     "CI",
+		Triggers: []string{"push"},
+		Jobs:     []migrate.JobInfo{{Name: "build", RunsOn: "depot-ubuntu-latest"}},
+	}
+	report := compat.AnalyzeWorkflow(wf)
+
+	result, err := TransformWorkflow(raw, wf, report, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var parsed struct {
+		Jobs map[string]struct {
+			Steps []struct {
+				Run string `yaml:"run"`
+			} `yaml:"steps"`
+		} `yaml:"jobs"`
+	}
+	if err := yaml.Unmarshal(result.Content, &parsed); err != nil {
+		t.Fatalf("failed to re-parse migrated YAML: %v", err)
+	}
+	run := parsed.Jobs["build"].Steps[0].Run
+	if run != "set NAME=value   \necho %NAME%\n" {
+		t.Errorf("expected cmd run block preserved byte-for-byte, got %q", run)
+	}
+}
+
+func TestTransformWorkflow_SparseCheckoutSuperset_BlockScalar(t *testing.T) {
+	raw := []byte("name: CI\non: push\njobs:\n  build:\n    runs-on: depot-ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n        with:\n          sparse-checkout: |\n            .github/workflows\n            .github/actions\n            src\n      - run: bash .github/scripts/deploy.sh\n")
+
+	wf := &migrate.WorkflowFile{
+		Path:     ".github/workflows/ci.yml",
+		Name:     "CI",
+		Triggers: []string{"push"},
+		Jobs:     []migrate.JobInfo{{Name: "build", RunsOn: "depot-ubuntu-latest"}},
+	}
+	report := compat.AnalyzeWorkflow(wf)
+
+	result, err := TransformWorkflow(raw, wf, report, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	content := string(result.Content)
+	// Originals kept so git still materializes .github/ for the deploy script.
+	if !strings.Contains(content, ".github/workflows") {
+		t.Errorf("expected .github/workflows kept in sparse-checkout, got:\n%s", content)
+	}
+	if !strings.Contains(content, ".github/actions") {
+		t.Errorf("expected .github/actions kept in sparse-checkout, got:\n%s", content)
+	}
+	// Depot siblings added so migrated content is materialized too.
+	if !strings.Contains(content, ".depot/workflows") {
+		t.Errorf("expected .depot/workflows added to sparse-checkout, got:\n%s", content)
+	}
+	if !strings.Contains(content, ".depot/actions") {
+		t.Errorf("expected .depot/actions added to sparse-checkout, got:\n%s", content)
+	}
+	// The unmigrated script reference must stay pointing at .github/.
+	if !strings.Contains(content, "bash .github/scripts/deploy.sh") {
+		t.Errorf("expected script reference to stay at .github/, got:\n%s", content)
+	}
+
+	sparseChanges := 0
+	for _, c := range result.Changes {
+		if c.Type == ChangeSparseCheckout {
+			sparseChanges++
+		}
+	}
+	if sparseChanges != 1 {
+		t.Errorf("expected exactly 1 ChangeSparseCheckout, got %d", sparseChanges)
+	}
+}
+
+func TestTransformWorkflow_SparseCheckoutSuperset_Sequence(t *testing.T) {
+	raw := []byte("name: CI\non: push\njobs:\n  build:\n    runs-on: depot-ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n        with:\n          sparse-checkout:\n            - .github/actions\n            - src\n")
+
+	wf := &migrate.WorkflowFile{
+		Path:     ".github/workflows/ci.yml",
+		Name:     "CI",
+		Triggers: []string{"push"},
+		Jobs:     []migrate.JobInfo{{Name: "build", RunsOn: "depot-ubuntu-latest"}},
+	}
+	report := compat.AnalyzeWorkflow(wf)
+
+	result, err := TransformWorkflow(raw, wf, report, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	content := string(result.Content)
+	if !strings.Contains(content, "- .github/actions") {
+		t.Errorf("expected .github/actions kept in sparse-checkout list, got:\n%s", content)
+	}
+	if !strings.Contains(content, "- .depot/actions") {
+		t.Errorf("expected .depot/actions added to sparse-checkout list, got:\n%s", content)
+	}
+}
+
+func TestTransformWorkflow_SparseCheckoutSuperset_MirrorsNegation(t *testing.T) {
+	// In non-cone mode a "!" pattern excludes a path. The migrated superset must mirror
+	// the negation, otherwise the added positive parent (.depot/actions) would re-include
+	// files the original explicitly excluded (!.github/actions/cache).
+	raw := []byte("name: CI\non: push\njobs:\n  build:\n    runs-on: depot-ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n        with:\n          sparse-checkout-cone-mode: false\n          sparse-checkout: |\n            .github/actions\n            !.github/actions/cache\n")
+
+	wf := &migrate.WorkflowFile{
+		Path:     ".github/workflows/ci.yml",
+		Name:     "CI",
+		Triggers: []string{"push"},
+		Jobs:     []migrate.JobInfo{{Name: "build", RunsOn: "depot-ubuntu-latest"}},
+	}
+	report := compat.AnalyzeWorkflow(wf)
+
+	result, err := TransformWorkflow(raw, wf, report, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	content := string(result.Content)
+	if !strings.Contains(content, "!.depot/actions/cache") {
+		t.Errorf("expected negated pattern mirrored to .depot/, got:\n%s", content)
+	}
+	// The mirrored exclusion must follow the positive .depot/actions include so that
+	// gitignore-style ordering still excludes the cache directory.
+	incl := strings.Index(content, ".depot/actions")
+	excl := strings.Index(content, "!.depot/actions/cache")
+	if incl < 0 || excl < 0 || excl < incl {
+		t.Errorf("expected .depot/actions include before !.depot/actions/cache exclude, got:\n%s", content)
+	}
+}
+
+func TestTransformWorkflow_SparseCheckoutSuperset_MirrorsNegationPreservesSourceOrder(t *testing.T) {
+	// When the source lists an exclusion before its positive parent include — an ordering
+	// under which the original .github/ checkout already re-includes the "excluded" path,
+	// since the last matching gitignore-style pattern wins — the .depot/ mirror must
+	// reproduce that same order rather than silently "fixing" it. Faithful mirroring keeps
+	// the migrated checkout behaving exactly like the source; reordering would make .depot/
+	// diverge from .github/. (.github/ and .depot/ patterns never cross-match, so the
+	// interleaved .github/ lines don't affect which .depot/ paths materialize.)
+	raw := []byte("name: CI\non: push\njobs:\n  build:\n    runs-on: depot-ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n        with:\n          sparse-checkout-cone-mode: false\n          sparse-checkout: |\n            !.github/actions/cache\n            .github/actions\n")
+
+	wf := &migrate.WorkflowFile{
+		Path:     ".github/workflows/ci.yml",
+		Name:     "CI",
+		Triggers: []string{"push"},
+		Jobs:     []migrate.JobInfo{{Name: "build", RunsOn: "depot-ubuntu-latest"}},
+	}
+	report := compat.AnalyzeWorkflow(wf)
+
+	result, err := TransformWorkflow(raw, wf, report, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	content := string(result.Content)
+	// Locate the mirrored lines by trimmed equality so the assertion is independent of
+	// how yaml.v3 re-indents the block scalar (and so the ".depot/actions" include isn't
+	// confused with the "!.depot/actions/cache" substring).
+	exclLine, inclLine := -1, -1
+	for i, l := range strings.Split(content, "\n") {
+		switch strings.TrimSpace(l) {
+		case "!.depot/actions/cache":
+			exclLine = i
+		case ".depot/actions":
+			inclLine = i
+		}
+	}
+	if exclLine < 0 {
+		t.Fatalf("expected negated pattern mirrored to .depot/, got:\n%s", content)
+	}
+	if inclLine < 0 {
+		t.Fatalf("expected .depot/actions include mirrored, got:\n%s", content)
+	}
+	// Source had the exclude before the include; the mirror must keep that order.
+	if exclLine > inclLine {
+		t.Errorf("expected mirrored !.depot/actions/cache to precede .depot/actions (source order), got:\n%s", content)
+	}
+}
+
+func TestTransformWorkflow_SparseCheckoutSuperset_PartialMigration(t *testing.T) {
+	// Under a partial migration the sparse-checkout superset must only point at
+	// .depot/ paths that actually exist post-migration. .github/actions always
+	// migrates, and a bare .github/workflows directory holds the migrated content,
+	// so both gain a .depot/ sibling. A specific workflow file that was NOT copied
+	// (other.yml) must not gain a .depot/workflows/other.yml sibling — that path
+	// would not exist — while a migrated one (ci.yml) must.
+	raw := []byte("name: CI\non: push\njobs:\n  build:\n    runs-on: depot-ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n        with:\n          sparse-checkout: |\n            .github/workflows\n            .github/workflows/ci.yml\n            .github/workflows/other.yml\n            .github/actions\n")
+
+	wf := &migrate.WorkflowFile{
+		Path:     ".github/workflows/ci.yml",
+		Name:     "CI",
+		Triggers: []string{"push"},
+		Jobs:     []migrate.JobInfo{{Name: "build", RunsOn: "depot-ubuntu-latest"}},
+	}
+	report := compat.AnalyzeWorkflow(wf)
+
+	// Only ci.yml was migrated; other.yml stays at .github/.
+	migratedWorkflows := map[string]bool{"ci.yml": true}
+
+	result, err := TransformWorkflow(raw, wf, report, migratedWorkflows)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	content := string(result.Content)
+	// The bare workflows directory, the migrated file, and actions all gain siblings.
+	if !strings.Contains(content, ".depot/workflows\n") && !strings.Contains(content, ".depot/workflows ") {
+		t.Errorf("expected bare .depot/workflows directory added, got:\n%s", content)
+	}
+	if !strings.Contains(content, ".depot/workflows/ci.yml") {
+		t.Errorf("expected migrated .depot/workflows/ci.yml added, got:\n%s", content)
+	}
+	if !strings.Contains(content, ".depot/actions") {
+		t.Errorf("expected .depot/actions added, got:\n%s", content)
+	}
+	// The non-migrated file must NOT gain a .depot/ sibling.
+	if strings.Contains(content, ".depot/workflows/other.yml") {
+		t.Errorf("expected NO .depot/workflows/other.yml sibling for un-migrated file, got:\n%s", content)
+	}
+	// Every original .github/ entry is preserved either way.
+	for _, orig := range []string{".github/workflows/ci.yml", ".github/workflows/other.yml", ".github/actions"} {
+		if !strings.Contains(content, orig) {
+			t.Errorf("expected original %q preserved, got:\n%s", orig, content)
+		}
+	}
+}
+
+func TestTransformWorkflow_SparseCheckoutSuperset_PartialMigrationGlob(t *testing.T) {
+	// A glob sparse-checkout pattern is self-limiting: even under a partial migration it
+	// must gain its .depot/ sibling so the migrated workflow files that landed under
+	// .depot/workflows are still checked out. Unlike a literal un-migrated filename, a
+	// glob asserts no specific file, so it is not gated on the allow-list.
+	raw := []byte("name: CI\non: push\njobs:\n  build:\n    runs-on: depot-ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n        with:\n          sparse-checkout-cone-mode: false\n          sparse-checkout: |\n            .github/workflows/*.yml\n")
+
+	wf := &migrate.WorkflowFile{
+		Path:     ".github/workflows/ci.yml",
+		Name:     "CI",
+		Triggers: []string{"push"},
+		Jobs:     []migrate.JobInfo{{Name: "build", RunsOn: "depot-ubuntu-latest"}},
+	}
+	report := compat.AnalyzeWorkflow(wf)
+
+	// Only ci.yml was migrated, yet the glob must still be mirrored.
+	migratedWorkflows := map[string]bool{"ci.yml": true}
+
+	result, err := TransformWorkflow(raw, wf, report, migratedWorkflows)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	content := string(result.Content)
+	if !strings.Contains(content, ".depot/workflows/*.yml") {
+		t.Errorf("expected glob .depot/workflows/*.yml sibling added, got:\n%s", content)
+	}
+	if !strings.Contains(content, ".github/workflows/*.yml") {
+		t.Errorf("expected original glob preserved, got:\n%s", content)
 	}
 }
