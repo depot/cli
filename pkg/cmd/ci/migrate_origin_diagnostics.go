@@ -3,6 +3,7 @@ package ci
 import (
 	"fmt"
 	"io"
+	"path"
 	"regexp"
 	"strings"
 	"unicode"
@@ -97,10 +98,18 @@ func originWorkflowDisplayPath(source string) string {
 
 	source = strings.TrimSpace(source)
 	name, found := strings.CutPrefix(source, sourcePrefix)
-	if found && name != "" && !strings.Contains(name, "/") && (strings.HasSuffix(name, ".yml") || strings.HasSuffix(name, ".yaml")) {
+	if found && isSafeOriginWorkflowRelativePath(name) {
 		return fmt.Sprintf("%s%s (from %s)", destinationPrefix, safeOriginDiagnosticText(name), safeOriginDiagnosticText(source))
 	}
 	return safeOriginDiagnosticText(source)
+}
+
+func isSafeOriginWorkflowRelativePath(name string) bool {
+	if name == "" || path.IsAbs(name) || strings.Contains(name, "\\") || path.Clean(name) != name || strings.HasPrefix(name, "../") {
+		return false
+	}
+	ext := path.Ext(name)
+	return ext == ".yml" || ext == ".yaml"
 }
 
 func writeOriginDiagnosticField(out io.Writer, label, value string) {

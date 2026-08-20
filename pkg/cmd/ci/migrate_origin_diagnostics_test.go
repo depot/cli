@@ -129,6 +129,45 @@ func TestRenderCursorOriginDiagnosticsOmitsGeneralAndAbsentFields(t *testing.T) 
 	}
 }
 
+func TestRenderCursorOriginDiagnosticsMapsSafeNestedWorkflowDestinations(t *testing.T) {
+	diagnostic := func() *civ2.MigrationDiagnostic {
+		return &civ2.MigrationDiagnostic{
+			Capability: "github-releases",
+			Severity:   civ2.MigrationDiagnosticSeverity_MIGRATION_DIAGNOSTIC_SEVERITY_FAILS,
+		}
+	}
+	response := &civ2.GetRepositoryMigrationAnalysisResponse{
+		Workflows: []*civ2.RepositoryWorkflowMigration{
+			{
+				Path: ".github/workflows/release/publish.yml",
+				Analysis: &civ2.WorkflowAnalysis{
+					Blockers: []*civ2.MigrationDiagnostic{diagnostic()},
+				},
+			},
+			{
+				Path: ".github/workflows/../outside.yml",
+				Analysis: &civ2.WorkflowAnalysis{
+					Blockers: []*civ2.MigrationDiagnostic{diagnostic()},
+				},
+			},
+		},
+	}
+
+	var output bytes.Buffer
+	renderCursorOriginDiagnostics(&output, response)
+	text := output.String()
+
+	if !strings.Contains(text, "FAILS — .depot/workflows/release/publish.yml (from .github/workflows/release/publish.yml)") {
+		t.Errorf("nested workflow destination was not mapped:\n%s", text)
+	}
+	if !strings.Contains(text, "FAILS — .github/workflows/../outside.yml") {
+		t.Errorf("unsafe workflow path was not left as its source path:\n%s", text)
+	}
+	if strings.Contains(text, ".depot/workflows/../outside.yml") {
+		t.Errorf("unsafe workflow path was mapped into the destination directory:\n%s", text)
+	}
+}
+
 func TestRenderCursorOriginDiagnosticsKeepsCompatibleWorkflowsQuiet(t *testing.T) {
 	responses := []*civ2.GetRepositoryMigrationAnalysisResponse{
 		nil,
