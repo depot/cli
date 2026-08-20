@@ -16,15 +16,15 @@
     "postinstall": "node install.js"
   },
   "optionalDependencies": {
-    "@depot/cli-darwin-arm64": "0.0.1-cli.0.0.0-dev",
-    "@depot/cli-darwin-x64": "0.0.1-cli.0.0.0-dev",
-    "@depot/cli-linux-arm": "0.0.1-cli.0.0.0-dev",
-    "@depot/cli-linux-arm64": "0.0.1-cli.0.0.0-dev",
-    "@depot/cli-linux-ia32": "0.0.1-cli.0.0.0-dev",
-    "@depot/cli-linux-x64": "0.0.1-cli.0.0.0-dev",
-    "@depot/cli-win32-arm64": "0.0.1-cli.0.0.0-dev",
-    "@depot/cli-win32-ia32": "0.0.1-cli.0.0.0-dev",
-    "@depot/cli-win32-x64": "0.0.1-cli.0.0.0-dev"
+    "@depot/cli-darwin-arm64": "workspace:*",
+    "@depot/cli-darwin-x64": "workspace:*",
+    "@depot/cli-linux-arm": "workspace:*",
+    "@depot/cli-linux-arm64": "workspace:*",
+    "@depot/cli-linux-ia32": "workspace:*",
+    "@depot/cli-linux-x64": "workspace:*",
+    "@depot/cli-win32-arm64": "workspace:*",
+    "@depot/cli-win32-ia32": "workspace:*",
+    "@depot/cli-win32-x64": "workspace:*"
   },
   "publishConfig": {
     "access": "public"
