@@ -4,13 +4,19 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"connectrpc.com/connect"
+	civ1 "github.com/depot/cli/pkg/proto/depot/ci/v1"
+	"github.com/depot/cli/pkg/proto/depot/ci/v1/civ1connect"
 	civ2 "github.com/depot/cli/pkg/proto/depot/ci/v2"
+	"golang.org/x/net/http2"
+	"golang.org/x/net/http2/h2c"
 )
 
 type recordingRepositoryAnalysisClient struct {
@@ -18,6 +24,33 @@ type recordingRepositoryAnalysisClient struct {
 	response *civ2.GetRepositoryMigrationAnalysisResponse
 	err      error
 	calls    int
+}
+
+type recordingGitHubMigrationService struct {
+	civ1connect.UnimplementedMigrationServiceHandler
+	requests []*connect.Request[civ1.GetInstallationRequest]
+}
+
+func (s *recordingGitHubMigrationService) GetInstallation(
+	_ context.Context,
+	request *connect.Request[civ1.GetInstallationRequest],
+) (*connect.Response[civ1.GetInstallationResponse], error) {
+	s.requests = append(s.requests, request)
+	return connect.NewResponse(&civ1.GetInstallationResponse{
+		Installations: []*civ1.Installation{{Owner: "acme", RepoAccessible: true}},
+	}), nil
+}
+
+func useGitHubMigrationTestServer(t *testing.T) *recordingGitHubMigrationService {
+	t.Helper()
+	service := &recordingGitHubMigrationService{}
+	path, handler := civ1connect.NewMigrationServiceHandler(service)
+	mux := http.NewServeMux()
+	mux.Handle(path, handler)
+	server := httptest.NewServer(h2c.NewHandler(mux, &http2.Server{}))
+	t.Cleanup(server.Close)
+	t.Setenv("DEPOT_API_URL", server.URL)
+	return service
 }
 
 func (c *recordingRepositoryAnalysisClient) GetRepositoryAnalysis(
@@ -32,7 +65,50 @@ func (c *recordingRepositoryAnalysisClient) GetRepositoryAnalysis(
 	return connect.NewResponse(c.response), nil
 }
 
-func TestCursorMigrationAnalyzesSelectedLocalWorkflowsBeforeMigrating(t *testing.T) {
+func representativeOriginAnalysisResponse() *civ2.GetRepositoryMigrationAnalysisResponse {
+	return &civ2.GetRepositoryMigrationAnalysisResponse{
+		Workflows: []*civ2.RepositoryWorkflowMigration{{
+			Path: ".github/workflows/ci.yml",
+			Analysis: &civ2.WorkflowAnalysis{
+				Blockers: []*civ2.MigrationDiagnostic{{
+					Code:       "internal_tracking_DEP-1234",
+					Message:    "Cursor Origin does not provide GitHub release APIs.",
+					Action:     "softprops/action-gh-release",
+					Job:        "release",
+					Step:       "Publish release",
+					Mode:       "publish-release",
+					Capability: "github-releases",
+					Severity:   civ2.MigrationDiagnosticSeverity_MIGRATION_DIAGNOSTIC_SEVERITY_FAILS,
+					Workaround: "Publish releases from a GitHub workflow.",
+				}},
+				Caveats: []*civ2.MigrationDiagnostic{
+					{
+						Message:    "Dependency submission can appear successful without publishing.",
+						Action:     "aquasecurity/trivy-action",
+						Job:        "scan",
+						Step:       "Publish dependency snapshot",
+						Mode:       "dependency-snapshot",
+						Capability: "dependency-snapshots",
+						Severity:   civ2.MigrationDiagnosticSeverity_MIGRATION_DIAGNOSTIC_SEVERITY_SILENTLY_DEGRADES,
+						Workaround: "Use another output format.",
+					},
+					{
+						Message:    "Runtime input determines whether SARIF upload is attempted.",
+						Action:     "github/codeql-action/analyze",
+						Job:        "codeql",
+						Step:       "Analyze",
+						Mode:       "upload-analysis",
+						Capability: "code-scanning-sarif",
+						Severity:   civ2.MigrationDiagnosticSeverity_MIGRATION_DIAGNOSTIC_SEVERITY_CONDITIONALLY_UNSUPPORTED,
+						Workaround: "Set upload to never.",
+					},
+				},
+			},
+		}},
+	}
+}
+
+func TestMigrateCommandCursorAnalyzesAndRendersSelectedWorkflows(t *testing.T) {
 	dir, workflow := newMigrationTestRepository(t)
 	runSecretMigrationTestCommand(t, dir, "git", "add", ".")
 	runSecretMigrationTestCommand(t, dir, "git", "-c", "user.name=Depot Test", "-c", "user.email=test@depot.dev", "commit", "-m", "base")
@@ -44,33 +120,15 @@ func TestCursorMigrationAnalyzesSelectedLocalWorkflowsBeforeMigrating(t *testing
 	runSecretMigrationTestCommand(t, dir, "git", "update-ref", "refs/remotes/cursor/trunk", sha)
 	runSecretMigrationTestCommand(t, dir, "git", "symbolic-ref", "refs/remotes/cursor/HEAD", "refs/remotes/cursor/trunk")
 
-	client := &recordingRepositoryAnalysisClient{response: &civ2.GetRepositoryMigrationAnalysisResponse{
-		Workflows: []*civ2.RepositoryWorkflowMigration{{
-			Path: ".github/workflows/ci.yml",
-			Analysis: &civ2.WorkflowAnalysis{Blockers: []*civ2.MigrationDiagnostic{{
-				Code:       "unsupported_github_releases",
-				Message:    "Cursor Origin does not provide GitHub release APIs.",
-				Action:     "softprops/action-gh-release",
-				Job:        "release",
-				Step:       "Publish release",
-				Mode:       "publish-release",
-				Capability: "github-releases",
-				Severity:   civ2.MigrationDiagnosticSeverity_MIGRATION_DIAGNOSTIC_SEVERITY_FAILS,
-				Workaround: "Publish releases from a GitHub workflow.",
-			}}},
-		}},
-	}}
+	client := &recordingRepositoryAnalysisClient{response: representativeOriginAnalysisResponse()}
 	var output bytes.Buffer
-	err := workflowsWithContext(context.Background(), migrateOptions{
+	cmd := newCmdMigrate(migrateOptions{
 		dir:                      dir,
-		stdout:                   &output,
-		yes:                      true,
-		forge:                    migrationForgeCursor,
-		token:                    "depot_api_token",
-		orgID:                    "org-id",
 		repositoryAnalysisClient: client,
 	})
-	if err != nil {
+	cmd.SetOut(&output)
+	cmd.SetArgs([]string{"--yes", "--forge=cursor", "--token=depot_api_token", "--org=org-id"})
+	if err := cmd.ExecuteContext(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -100,10 +158,38 @@ func TestCursorMigrationAnalyzesSelectedLocalWorkflowsBeforeMigrating(t *testing
 	if _, err := os.Stat(filepath.Join(dir, ".depot", "workflows", "ci.yml")); err != nil {
 		t.Fatalf("diagnostic findings must not stop migration: %v", err)
 	}
-	if !strings.Contains(output.String(), "FAILS — .depot/workflows/ci.yml") ||
-		!strings.Contains(output.String(), "Action: softprops/action-gh-release") ||
-		!strings.Contains(output.String(), "Workaround: Publish releases from a GitHub workflow.") {
-		t.Fatalf("structured Origin finding was not rendered:\n%s", output.String())
+	for _, finding := range []string{
+		`  FAILS — .depot/workflows/ci.yml (from .github/workflows/ci.yml)
+    Job: release
+    Step: Publish release
+    Action: softprops/action-gh-release
+    Mode: publish-release
+    Missing capability: github-releases
+    Explanation: Cursor Origin does not provide GitHub release APIs.
+    Workaround: Publish releases from a GitHub workflow.`,
+		`  SILENT DEGRADATION — .depot/workflows/ci.yml (from .github/workflows/ci.yml)
+    Job: scan
+    Step: Publish dependency snapshot
+    Action: aquasecurity/trivy-action
+    Mode: dependency-snapshot
+    Missing capability: dependency-snapshots
+    Explanation: Dependency submission can appear successful without publishing.
+    Workaround: Use another output format.`,
+		`  CONDITIONALLY UNSUPPORTED — .depot/workflows/ci.yml (from .github/workflows/ci.yml)
+    Job: codeql
+    Step: Analyze
+    Action: github/codeql-action/analyze
+    Mode: upload-analysis
+    Missing capability: code-scanning-sarif
+    Explanation: Runtime input determines whether SARIF upload is attempted.
+    Workaround: Set upload to never.`,
+	} {
+		if !strings.Contains(output.String(), finding) {
+			t.Errorf("command output does not contain finding:\n%s\n\nfull output:\n%s", finding, output.String())
+		}
+	}
+	if strings.Contains(output.String(), "internal_tracking_DEP-1234") {
+		t.Fatalf("command output exposed machine-only diagnostic metadata:\n%s", output.String())
 	}
 	if !strings.Contains(output.String(), "depot ci migrate secrets-and-vars --forge=cursor") {
 		t.Fatalf("Cursor follow-up command dropped the selected forge:\n%s", output.String())
@@ -116,18 +202,70 @@ func TestCursorMigrationAnalyzesSelectedLocalWorkflowsBeforeMigrating(t *testing
 	}
 }
 
-func TestGitHubMigrationDoesNotRequestOriginAnalysis(t *testing.T) {
+func TestMigrateCommandGitHubModesDoNotRequestOriginAnalysis(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{name: "default", args: []string{"--yes", "--token=depot_api_token", "--org=org-id"}},
+		{name: "explicit", args: []string{"--yes", "--forge=github", "--token=depot_api_token", "--org=org-id"}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			dir, _ := newMigrationTestRepository(t)
+			runSecretMigrationTestCommand(t, dir, "git", "remote", "add", "origin", "https://github.com/acme/widgets.git")
+			githubService := useGitHubMigrationTestServer(t)
+			client := &recordingRepositoryAnalysisClient{err: errors.New("must not be called")}
+			var output bytes.Buffer
+			cmd := newCmdMigrate(migrateOptions{
+				dir:                      dir,
+				repositoryAnalysisClient: client,
+			})
+			cmd.SetOut(&output)
+			cmd.SetArgs(test.args)
+
+			if err := cmd.ExecuteContext(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			if client.calls != 0 {
+				t.Fatalf("Origin analysis calls = %d, want 0", client.calls)
+			}
+			if len(githubService.requests) != 1 || githubService.requests[0].Msg.GetRepo() != "acme/widgets" {
+				t.Fatalf("unexpected GitHub preflight requests: %#v", githubService.requests)
+			}
+			if _, err := os.Stat(filepath.Join(dir, ".depot", "workflows", "ci.yml")); err != nil {
+				t.Fatalf("GitHub workflow was not migrated: %v", err)
+			}
+			if !strings.Contains(output.String(), "Migrated 1 workflow(s)") || strings.Contains(output.String(), "Cursor Origin") {
+				t.Fatalf("unexpected GitHub migration output:\n%s", output.String())
+			}
+		})
+	}
+}
+
+func TestMigrateCommandCompatibleCursorWorkflowStaysQuiet(t *testing.T) {
 	dir, _ := newMigrationTestRepository(t)
-	client := &recordingRepositoryAnalysisClient{err: errors.New("must not be called")}
-	if err := workflows(migrateOptions{
+	runSecretMigrationTestCommand(t, dir, "git", "remote", "add", "origin", "https://origin.cursor.com/git/acme/widgets")
+	client := &recordingRepositoryAnalysisClient{response: &civ2.GetRepositoryMigrationAnalysisResponse{}}
+	var output bytes.Buffer
+	cmd := newCmdMigrate(migrateOptions{
 		dir:                      dir,
-		yes:                      true,
 		repositoryAnalysisClient: client,
-	}); err != nil {
+	})
+	cmd.SetOut(&output)
+	cmd.SetArgs([]string{"--yes", "--forge=cursor", "--token=depot_org_token"})
+
+	if err := cmd.ExecuteContext(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if client.calls != 0 {
-		t.Fatalf("Origin analysis calls = %d, want 0", client.calls)
+	if client.calls != 1 {
+		t.Fatalf("Origin analysis calls = %d, want 1", client.calls)
+	}
+	if strings.Contains(output.String(), "Cursor Origin compatibility findings:") {
+		t.Fatalf("compatible workflow produced compatibility output:\n%s", output.String())
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".depot", "workflows", "ci.yml")); err != nil {
+		t.Fatalf("compatible Cursor workflow was not migrated: %v", err)
 	}
 }
 
