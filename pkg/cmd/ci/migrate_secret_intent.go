@@ -214,7 +214,11 @@ func resolveSecretMigrationCommit(ctx context.Context, dir, ref string) (string,
 	return runGit(ctx, dir, "rev-parse", "--verify", ref+"^{commit}")
 }
 
-func detectSecretMigrationRemote(ctx context.Context, dir string) (string, string, error) {
+func detectSecretMigrationRemote(ctx context.Context, dir string, forge migrationForge) (string, string, error) {
+	return detectMigrationRemote(ctx, dir, forge, true)
+}
+
+func detectMigrationRemote(ctx context.Context, dir string, forge migrationForge, push bool) (string, string, error) {
 	remotes, err := runGit(ctx, dir, "remote")
 	if err != nil {
 		return "", "", fmt.Errorf("failed to list git remotes: %w", err)
@@ -228,16 +232,39 @@ func detectSecretMigrationRemote(ctx context.Context, dir string) (string, strin
 		}
 	}
 	for _, name := range names {
-		remoteURL, err := runGit(ctx, dir, "remote", "get-url", "--push", name)
+		args := []string{"remote", "get-url"}
+		if push {
+			args = append(args, "--push")
+		}
+		remoteURL, err := runGit(ctx, dir, append(args, name)...)
 		if err != nil {
 			continue
 		}
 		repositoryURL, _, err := normalizeSecretMigrationRemoteURL(remoteURL)
-		if err == nil {
+		if err == nil && repositoryURLMatchesForge(repositoryURL, forge) {
 			return name, repositoryURL, nil
 		}
 	}
-	return "", "", fmt.Errorf("could not detect a supported repository from git push remotes")
+	forgeName := "GitHub"
+	host := "github.com/owner/repo"
+	if forge == migrationForgeCursor {
+		forgeName = "Cursor Origin"
+		host = "origin.cursor.com/namespace/repo"
+	}
+	remoteKind := "git remotes"
+	if push {
+		remoteKind = "git push remotes"
+	}
+	return "", "", fmt.Errorf("could not detect a %s repository from %s — configure a remote pointing to %s", forgeName, remoteKind, host)
+}
+
+func repositoryURLMatchesForge(repositoryURL string, forge migrationForge) bool {
+	switch forge {
+	case migrationForgeCursor:
+		return strings.HasPrefix(repositoryURL, "origin.cursor.com/")
+	default:
+		return strings.HasPrefix(repositoryURL, "github.com/")
+	}
 }
 
 func normalizeSecretMigrationRemoteURL(value string) (string, string, error) {

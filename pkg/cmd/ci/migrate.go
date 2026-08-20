@@ -23,12 +23,53 @@ import (
 	"github.com/depot/cli/pkg/helpers"
 	"github.com/depot/cli/pkg/oidc"
 	civ1 "github.com/depot/cli/pkg/proto/depot/ci/v1"
+	civ2 "github.com/depot/cli/pkg/proto/depot/ci/v2"
 	"github.com/spf13/cobra"
 )
+
+type migrationForge string
+
+const (
+	migrationForgeGitHub migrationForge = "github"
+	migrationForgeCursor migrationForge = "cursor"
+)
+
+func (f *migrationForge) String() string {
+	if f == nil || *f == "" {
+		return string(migrationForgeGitHub)
+	}
+	return string(*f)
+}
+
+func (f *migrationForge) Set(value string) error {
+	switch migrationForge(value) {
+	case migrationForgeGitHub, migrationForgeCursor:
+		*f = migrationForge(value)
+		return nil
+	default:
+		return fmt.Errorf("must be one of github, cursor")
+	}
+}
+
+func (f *migrationForge) Type() string {
+	return "forge"
+}
+
+func effectiveMigrationForge(forge migrationForge) migrationForge {
+	if forge == "" {
+		return migrationForgeGitHub
+	}
+	return forge
+}
+
+type repositoryAnalysisClient interface {
+	GetRepositoryAnalysis(context.Context, *connect.Request[civ2.GetRepositoryMigrationAnalysisRequest]) (*connect.Response[civ2.GetRepositoryMigrationAnalysisResponse], error)
+}
 
 type migrateOptions struct {
 	token                       string
 	orgID                       string
+	forge                       migrationForge
 	yes                         bool
 	overwrite                   bool
 	dir                         string
@@ -38,10 +79,11 @@ type migrateOptions struct {
 	secretMigrationBranchPrefix string
 	secretMigrationRegistrar    secretMigrationIntentRegistrar
 	secretMigrationNow          time.Time
+	repositoryAnalysisClient    repositoryAnalysisClient
 }
 
 func NewCmdMigrate() *cobra.Command {
-	var opts migrateOptions
+	opts := migrateOptions{forge: migrationForgeGitHub}
 
 	cmd := &cobra.Command{
 		Use:   "migrate",
@@ -58,6 +100,7 @@ func NewCmdMigrate() *cobra.Command {
 	pf := cmd.PersistentFlags()
 	pf.StringVar(&opts.token, "token", "", "Depot API token")
 	pf.StringVar(&opts.orgID, "org", "", "Depot organization ID")
+	pf.Var(&opts.forge, "forge", "Source-code forge to migrate from (github or cursor)")
 	pf.BoolVarP(&opts.yes, "yes", "y", false, "Run in non-interactive mode")
 
 	cmd.Flags().BoolVar(&opts.overwrite, "overwrite", false, "Overwrite existing .depot/ directory")
@@ -104,7 +147,7 @@ func secretsAndVars(ctx context.Context, opts migrateOptions) error {
 	if err != nil {
 		return err
 	}
-	remote, _, err := detectSecretMigrationRemote(ctx, workDir)
+	remote, _, err := detectSecretMigrationRemote(ctx, workDir, effectiveMigrationForge(opts.forge))
 	if err != nil {
 		return err
 	}
@@ -206,7 +249,7 @@ func newCmdWorkflows(parentOpts *migrateOptions) *cobra.Command {
 			opts := *parentOpts
 			opts.dir = "."
 			opts.stdout = os.Stdout
-			return workflows(opts)
+			return workflowsWithContext(cmd.Context(), opts)
 		},
 	}
 
@@ -218,8 +261,8 @@ func newCmdWorkflows(parentOpts *migrateOptions) *cobra.Command {
 func newCmdPreflight(parentOpts *migrateOptions) *cobra.Command {
 	return &cobra.Command{
 		Use:   "preflight",
-		Short: "Check that the Depot Code Access app is installed and configured",
-		Long:  "Validates authentication, detects the repository from the git remote, and checks that the Depot Code Access GitHub App is installed with the correct permissions and repository access.",
+		Short: "Check authentication and repository access for migration",
+		Long:  "Validates authentication, detects a repository for the selected forge, and checks the access required to migrate it. GitHub checks the Depot Code Access app; Cursor checks that the Origin repository is available to the Depot organization.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			opts := *parentOpts
 			opts.dir = "."
@@ -269,6 +312,13 @@ type preflightResult struct {
 // Returns nil result (and nil error) when the check fails with a user-facing
 // message that has already been printed.
 func preflight(ctx context.Context, opts migrateOptions) (*preflightResult, error) {
+	if effectiveMigrationForge(opts.forge) == migrationForgeCursor {
+		return cursorPreflight(ctx, opts)
+	}
+	return githubPreflight(ctx, opts)
+}
+
+func githubPreflight(ctx context.Context, opts migrateOptions) (*preflightResult, error) {
 	workDir := opts.dir
 	if strings.TrimSpace(workDir) == "" {
 		workDir = "."
@@ -348,6 +398,10 @@ func preflight(ctx context.Context, opts migrateOptions) (*preflightResult, erro
 }
 
 func runMigrate(ctx context.Context, opts migrateOptions) error {
+	if effectiveMigrationForge(opts.forge) == migrationForgeCursor {
+		return workflowsWithContext(ctx, opts)
+	}
+
 	result, err := preflight(ctx, opts)
 	if err != nil {
 		return err
@@ -358,10 +412,14 @@ func runMigrate(ctx context.Context, opts migrateOptions) error {
 
 	_ = result // auth info available for future use
 
-	return workflows(opts)
+	return workflowsWithContext(ctx, opts)
 }
 
 func workflows(opts migrateOptions) error {
+	return workflowsWithContext(context.Background(), opts)
+}
+
+func workflowsWithContext(ctx context.Context, opts migrateOptions) error {
 	workDir := opts.dir
 	if strings.TrimSpace(workDir) == "" {
 		workDir = "."
@@ -527,6 +585,14 @@ func workflows(opts migrateOptions) error {
 		}
 	} else if !os.IsNotExist(err) {
 		return fmt.Errorf("failed to inspect .depot directory: %w", err)
+	}
+
+	if effectiveMigrationForge(opts.forge) == migrationForgeCursor {
+		if _, repositoryURL, err := analyzeCursorOriginWorkflows(ctx, opts, selectedWorkflows); err != nil {
+			return err
+		} else {
+			fmt.Fprintf(out, "\nDetected repository: %s\n", bold.Render(repositoryURL))
+		}
 	}
 
 	// Copy .github/actions/ to .depot/actions/
