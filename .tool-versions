@@ -1,2 +1,4 @@
 golang 1.25.14
 buf 1.65.0
+nodejs 24.19.0
+pnpm 11.22.0
