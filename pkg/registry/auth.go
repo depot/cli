@@ -29,24 +29,24 @@ var (
 type AuthProvider struct {
 	inner       auth.AuthServer
 	credentials []build.Credential
+	projectID   string
 }
 
 // NewAuthProvider searches the session.Attachables for the first auth.AuthServer,
 // wraps it in an AuthProvider, and returns it.
 func ReplaceDockerAuth(credentials []build.Credential, as []session.Attachable) []session.Attachable {
+	return ReplaceDockerAuthForProject("", credentials, as)
+}
+
+func ReplaceDockerAuthForProject(projectID string, credentials []build.Credential, as []session.Attachable) []session.Attachable {
 	dockerConfig := config.LoadDefaultConfigFile(os.Stderr)
-	for _, c := range credentials {
-		dockerConfig.AuthConfigs[c.Host] = types.AuthConfig{
-			Auth:          c.Token,
-			ServerAddress: c.Host,
-		}
-	}
 
 	for i, a := range as {
 		if _, ok := a.(auth.AuthServer); ok {
 			p := authprovider.NewDockerAuthProvider(dockerConfig)
 			as[i] = &AuthProvider{
 				credentials: credentials,
+				projectID:   projectID,
 				inner:       p.(auth.AuthServer),
 			}
 		}
@@ -83,6 +83,10 @@ func (a *AuthProvider) Credentials(ctx context.Context, req *auth.CredentialsReq
 }
 
 func (a *AuthProvider) FetchToken(ctx context.Context, req *auth.FetchTokenRequest) (*auth.FetchTokenResponse, error) {
+	if !a.shouldUseDepotCredentials(req.Scopes) {
+		return a.inner.FetchToken(ctx, req)
+	}
+
 	creds, err := a.findCredentials(req.Host)
 	if err != nil {
 		return nil, err
@@ -97,6 +101,22 @@ func (a *AuthProvider) FetchToken(ctx context.Context, req *auth.FetchTokenReque
 
 	// No secret, fall back to inner provider.
 	return a.inner.FetchToken(ctx, req)
+}
+
+func (a *AuthProvider) shouldUseDepotCredentials(scopes []string) bool {
+	if a.projectID == "" {
+		return true
+	}
+
+	for _, scope := range scopes {
+		for _, part := range strings.Split(scope, " ") {
+			if strings.HasPrefix(part, "repository:"+a.projectID+":") {
+				return true
+			}
+		}
+	}
+
+	return false
 }
 
 // findCredentials looks up decoded credentials for a host from the depot credential list.
