@@ -433,6 +433,7 @@ func workflowsWithContext(ctx context.Context, opts migrateOptions) error {
 
 	bold := lipgloss.NewStyle().Bold(true)
 	migrationRemote := "origin"
+	var originAnalysis *cursorOriginAnalysis
 
 	githubDir := filepath.Join(workDir, ".github")
 	workflowsDir := filepath.Join(githubDir, "workflows")
@@ -593,8 +594,7 @@ func workflowsWithContext(ctx context.Context, opts migrateOptions) error {
 		if err != nil {
 			return err
 		}
-		// DEP-6082 owns rendering the structured findings. Keep them non-blocking here.
-		_ = analysis.response
+		originAnalysis = analysis
 		migrationRemote = analysis.remote
 		fmt.Fprintf(out, "\nDetected repository: %s\n", bold.Render(analysis.repositoryURL))
 	}
@@ -695,6 +695,9 @@ func workflowsWithContext(ctx context.Context, opts migrateOptions) error {
 			status = fmt.Sprintf("%d change(s) applied", len(r.result.Changes))
 		}
 		fmt.Fprintf(out, "  %s — %s\n", r.filename, status)
+	}
+	if originAnalysis != nil && originAnalysis.response != nil {
+		renderCursorOriginDiagnostics(out, originAnalysis.response.Msg)
 	}
 
 	// Detect secrets and variables
