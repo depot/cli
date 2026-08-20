@@ -4,24 +4,309 @@ package depot.ci.v2;
 
 import "google/protobuf/timestamp.proto";
 
-// MigrationService supports workflow migrations initiated by Depot clients.
+// MigrationService analyzes and migrates GitHub Actions workflows from supported source-code forges.
+// This service is for Depot clients and approved partner integrations.
 service MigrationService {
+  // Lists repositories available through an installation.
+  rpc ListRepositories(ListMigrationRepositoriesRequest) returns (ListMigrationRepositoriesResponse);
+
+  // Returns current workflow analysis with the latest migration state overlaid.
+  rpc GetRepositoryAnalysis(GetRepositoryMigrationAnalysisRequest) returns (GetRepositoryMigrationAnalysisResponse);
+
+  // Starts an asynchronous migration for selected workflows.
+  rpc StartMigration(StartWorkflowMigrationRequest) returns (StartWorkflowMigrationResponse);
+
+  // Creates a new attempt for a retryable failed migration.
+  rpc RetryMigration(RetryWorkflowMigrationRequest) returns (RetryWorkflowMigrationResponse);
+
+  // Records the aggregate result from a generated GitHub Actions secret-import workflow.
+  rpc ReportSecretImport(ReportSecretImportRequest) returns (ReportSecretImportResponse);
+
   // Registers a five-minute authorization for a GitHub Actions workflow to import secrets and variables.
   rpc RegisterSecretMigrationIntent(SecretMigrationIntent) returns (RegisterSecretMigrationIntentResponse);
 }
 
+// Source-code host containing the repository to migrate.
+enum MigrationForge {
+  MIGRATION_FORGE_UNSPECIFIED = 0;
+  MIGRATION_FORGE_GITHUB = 1;
+  MIGRATION_FORGE_CURSOR_ORIGIN = 2;
+}
+
+// Analyzer assessment for the current workflow contents.
+enum MigrationReadiness {
+  MIGRATION_READINESS_UNSPECIFIED = 0;
+  MIGRATION_READINESS_READY = 1;
+  MIGRATION_READINESS_READY_WITH_CAVEATS = 2;
+  MIGRATION_READINESS_NOT_READY = 3;
+}
+
+// Rolled-up state of the latest migration attempt for a workflow.
+enum WorkflowMigrationStatus {
+  WORKFLOW_MIGRATION_STATUS_UNSPECIFIED = 0;
+  WORKFLOW_MIGRATION_STATUS_NOT_STARTED = 1;
+  WORKFLOW_MIGRATION_STATUS_IN_PROGRESS = 2;
+  WORKFLOW_MIGRATION_STATUS_FAILED = 3;
+  WORKFLOW_MIGRATION_STATUS_SUCCEEDED = 4;
+}
+
+// Current state of one migration attempt.
+enum MigrationStatus {
+  MIGRATION_STATUS_UNSPECIFIED = 0;
+  MIGRATION_STATUS_PENDING = 1;
+  MIGRATION_STATUS_MIGRATING_WORKFLOWS = 2;
+  MIGRATION_STATUS_WORKFLOW_MIGRATION_FAILED = 3;
+  MIGRATION_STATUS_PENDING_SECRET_IMPORT = 4;
+  MIGRATION_STATUS_IMPORTING_SECRETS = 5;
+  MIGRATION_STATUS_SECRET_IMPORT_FAILED = 6;
+  MIGRATION_STATUS_SUCCEEDED = 7;
+}
+
+// Machine-readable reason attached to a migration method error.
+enum MigrationErrorReason {
+  MIGRATION_ERROR_REASON_UNSPECIFIED = 0;
+  MIGRATION_ERROR_REASON_WORKFLOW_MIGRATION_CONFLICT = 1;
+}
+
+// User-visible impact when an action uses a capability unavailable on the selected forge.
+enum MigrationDiagnosticSeverity {
+  MIGRATION_DIAGNOSTIC_SEVERITY_UNSPECIFIED = 0;
+  MIGRATION_DIAGNOSTIC_SEVERITY_FAILS = 1;
+  MIGRATION_DIAGNOSTIC_SEVERITY_SILENTLY_DEGRADES = 2;
+  MIGRATION_DIAGNOSTIC_SEVERITY_CONDITIONALLY_UNSUPPORTED = 3;
+}
+
+message MigrationErrorDetail {
+  // Stable reason for the error.
+  MigrationErrorReason reason = 1;
+}
+
+message MigrationRepository {
+  // Unique identifier for the repository.
+  string id = 1;
+
+  // Repository name without its owner.
+  string name = 2;
+
+  // Repository name including its owner.
+  string full_name = 3;
+}
+
+message ListMigrationRepositoriesRequest {
+  // Source-code host to list. An app credential defaults to GitHub; a Cursor credential defaults to Cursor Origin.
+  MigrationForge forge = 1;
+
+  // Unique identifier for the forge installation.
+  string installation_id = 2;
+
+  // Number of repositories to return per page. Maximum: 100. Default: 50.
+  uint32 page_size = 3;
+
+  // Token to fetch the next page. Leave empty to fetch the first page.
+  string page_token = 4;
+}
+
+message ListMigrationRepositoriesResponse {
+  // Repositories available through the installation.
+  repeated MigrationRepository repositories = 1;
+
+  // Token to fetch the next page. Empty when there are no more repositories.
+  string next_page_token = 2;
+}
+
+message MigrationDiagnostic {
+  // Stable machine-readable diagnostic code.
+  string code = 1;
+
+  // Human-readable explanation suitable for display.
+  string message = 2;
+
+  // Action reference without its version. Empty for workflow-level diagnostics.
+  string action = 3;
+
+  // Workflow job containing the action. Empty for workflow-level diagnostics.
+  string job = 4;
+
+  // Workflow step containing the action. The action reference is used when the step has no name. Empty for workflow-level diagnostics.
+  string step = 5;
+
+  // Action behavior that requires the missing capability. Empty for workflow-level diagnostics.
+  string mode = 6;
+
+  // Stable machine-readable identifier for the missing forge capability. Empty for general migration diagnostics.
+  string capability = 7;
+
+  // User-visible impact when the selected action mode runs.
+  MigrationDiagnosticSeverity severity = 8;
+
+  // Customer-facing remediation. Empty when no workaround is known.
+  string workaround = 9;
+
+}
+
+message WorkflowAnalysis {
+  // Analyzer assessment for the current workflow contents.
+  MigrationReadiness migration_readiness = 1;
+
+  // Conditions that require review but do not prevent migration.
+  repeated MigrationDiagnostic caveats = 2;
+
+  // Conditions that prevent migration.
+  repeated MigrationDiagnostic blockers = 3;
+}
+
+message RepositoryWorkflowMigration {
+  // Repository-relative workflow path. For example, ".github/workflows/ci.yml".
+  string path = 1;
+
+  // Current-content analysis. Unset when the workflow no longer exists but migration history remains.
+  WorkflowAnalysis analysis = 2;
+
+  // Rolled-up state of the latest migration attempt.
+  WorkflowMigrationStatus migration_status = 3;
+
+  // Unique identifier for the latest migration attempt. Unset when the workflow has no attempts.
+  optional string latest_migration_id = 4;
+}
+
+message WorkflowMigration {
+  // Unique identifier for the migration attempt.
+  string id = 1;
+
+  // Current state of the migration attempt.
+  MigrationStatus status = 2;
+
+  // Whether `RetryMigration` can create a new attempt from this failure now.
+  bool retryable = 3;
+
+  // Creation time, in RFC 3339 format.
+  google.protobuf.Timestamp created_at = 4;
+
+  // Last update time, in RFC 3339 format.
+  google.protobuf.Timestamp updated_at = 5;
+
+  // Completion time, in RFC 3339 format. Unset until the attempt reaches a terminal state.
+  google.protobuf.Timestamp finished_at = 6;
+}
+
+message MigrationWorkflowFile {
+  // Repository-relative workflow path. For example, ".github/workflows/ci.yml".
+  string path = 1;
+
+  // Complete workflow YAML that the caller is about to migrate. Maximum: 1 MiB.
+  string content = 2;
+}
+
+message MigrationWorkflowFiles {
+  // Workflow files to analyze. Maximum: 500 files and 10 MiB total. An empty array analyzes no workflows.
+  repeated MigrationWorkflowFile workflows = 1;
+}
+
+message GetRepositoryMigrationAnalysisRequest {
+  // Source-code host containing the repository. An app credential defaults to GitHub; a Cursor or Depot credential defaults
+  // to Cursor Origin.
+  MigrationForge forge = 1;
+
+  // Unique identifier for the forge installation. Required for App- and Cursor-authenticated requests. Leave empty when using
+  // `repositoryUrl`.
+  string installation_id = 2;
+
+  // Unique forge-native identifier for the repository containing the workflows. Required for App- and Cursor-authenticated
+  // requests. Leave empty when using `repositoryUrl`.
+  string workflow_repo_id = 3;
+
+  // Canonical repository identity including the forge hostname. Depot-authenticated requests currently require an Origin
+  // repository in `origin.cursor.com/namespace/repo` format. Mutually exclusive with `installationId` and `workflowRepoId`.
+  string repository_url = 4;
+
+  // Local workflow files to analyze instead of reading the repository's default branch. Depot-authenticated requests require
+  // this value so diagnostics reflect the files being migrated. Leave unset to analyze the remote repository.
+  MigrationWorkflowFiles workflow_files = 5;
+}
+
+message GetRepositoryMigrationAnalysisResponse {
+  // Current repository metadata.
+  MigrationRepository repository = 1;
+
+  // Current and history-only workflows ordered by path.
+  repeated RepositoryWorkflowMigration workflows = 2;
+
+  // Latest migration attempts referenced by `workflows`, de-duplicated by ID.
+  repeated WorkflowMigration migrations = 3;
+}
+
+message StartWorkflowMigrationRequest {
+  // Source-code host containing the repository. An app credential defaults to GitHub; a Cursor credential defaults to Cursor Origin.
+  MigrationForge forge = 1;
+
+  // Unique identifier for the forge installation.
+  string installation_id = 2;
+
+  // Unique forge-native identifier for the repository containing the workflows.
+  string workflow_repo_id = 3;
+
+  // An array of repository-relative workflow paths to migrate. Leave empty to migrate every current workflow.
+  repeated string workflow_paths = 4;
+}
+
+message StartWorkflowMigrationResponse {
+  // Newly created asynchronous migration attempt.
+  WorkflowMigration migration = 1;
+}
+
+message RetryWorkflowMigrationRequest {
+  // Source-code host containing the repository. An app credential defaults to GitHub; a Cursor credential defaults to Cursor Origin.
+  MigrationForge forge = 1;
+
+  // Unique identifier for the forge installation.
+  string installation_id = 2;
+
+  // Unique forge-native identifier for the repository containing the workflows.
+  string workflow_repo_id = 3;
+
+  // Unique identifier for the failed migration attempt. Returned by `GetRepositoryAnalysis` and `StartMigration`.
+  string migration_id = 4;
+}
+
+message RetryWorkflowMigrationResponse {
+  // Newly created asynchronous migration attempt.
+  WorkflowMigration migration = 1;
+}
+
+message SecretImportJobResult {
+  // Generated job name.
+  string name = 1;
+
+  // GitHub Actions job conclusion.
+  string conclusion = 2;
+
+  // Internal diagnostic detail. Leave empty when the job succeeded or supplied no detail.
+  string message = 3;
+}
+
+message ReportSecretImportRequest {
+  // Whether every applicable import job succeeded.
+  bool succeeded = 1;
+
+  // Results for the generated import jobs.
+  repeated SecretImportJobResult jobs = 2;
+}
+
+message ReportSecretImportResponse {}
+
 message SecretMigrationIntent {
-  // Full commit SHA that will deliver the secrets and variables.
+  // Full commit SHA that will send secrets and variables.
   string sha = 1;
 
-  // Fully qualified clone URL without a scheme, such as github.com/owner/repo.
+  // Repository that will send secrets and variables, including its forge hostname.
+  // For example, "github.com/depot/cli" or "origin.cursor.com/depot/cli".
   string repository_url = 2;
 }
 
 message RegisterSecretMigrationIntentResponse {
-  // Time after which the intent can no longer authorize a migration.
+  // Expiration time, in RFC 3339 format.
   google.protobuf.Timestamp expires_at = 1;
 
-  // Unique identifier included in the GitHub OIDC audience.
+  // Unique identifier for the secret migration intent.
   string id = 2;
 }
