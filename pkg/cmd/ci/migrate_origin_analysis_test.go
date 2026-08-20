@@ -48,8 +48,15 @@ func TestCursorMigrationAnalyzesSelectedLocalWorkflowsBeforeMigrating(t *testing
 		Workflows: []*civ2.RepositoryWorkflowMigration{{
 			Path: ".github/workflows/ci.yml",
 			Analysis: &civ2.WorkflowAnalysis{Blockers: []*civ2.MigrationDiagnostic{{
-				Code:     "origin.unsupported",
-				Severity: civ2.MigrationDiagnosticSeverity_MIGRATION_DIAGNOSTIC_SEVERITY_FAILS,
+				Code:       "unsupported_github_releases",
+				Message:    "Cursor Origin does not provide GitHub release APIs.",
+				Action:     "softprops/action-gh-release",
+				Job:        "release",
+				Step:       "Publish release",
+				Mode:       "publish-release",
+				Capability: "github-releases",
+				Severity:   civ2.MigrationDiagnosticSeverity_MIGRATION_DIAGNOSTIC_SEVERITY_FAILS,
+				Workaround: "Publish releases from a GitHub workflow.",
 			}}},
 		}},
 	}}
@@ -92,6 +99,11 @@ func TestCursorMigrationAnalyzesSelectedLocalWorkflowsBeforeMigrating(t *testing
 	}
 	if _, err := os.Stat(filepath.Join(dir, ".depot", "workflows", "ci.yml")); err != nil {
 		t.Fatalf("diagnostic findings must not stop migration: %v", err)
+	}
+	if !strings.Contains(output.String(), "FAILS — .depot/workflows/ci.yml") ||
+		!strings.Contains(output.String(), "Action: softprops/action-gh-release") ||
+		!strings.Contains(output.String(), "Workaround: Publish releases from a GitHub workflow.") {
+		t.Fatalf("structured Origin finding was not rendered:\n%s", output.String())
 	}
 	if !strings.Contains(output.String(), "depot ci migrate secrets-and-vars --forge=cursor") {
 		t.Fatalf("Cursor follow-up command dropped the selected forge:\n%s", output.String())
