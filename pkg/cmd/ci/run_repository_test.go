@@ -16,9 +16,9 @@ func TestParseRunRepository(t *testing.T) {
 	}{
 		{remoteURL: "https://user:token@github.com/owner/repo.git", forge: civ1.Forge_FORGE_GITHUB, repo: "owner/repo", ok: true},
 		{remoteURL: "git@github.com:owner/repo.git", forge: civ1.Forge_FORGE_GITHUB, repo: "owner/repo", ok: true},
-		{remoteURL: "https://origin.cursor.com/git/owner/repo.git", forge: civ1.Forge_FORGE_CURSOR_ORIGIN, repo: "owner/repo", ok: true},
-		{remoteURL: "https://origin.cursor.com/owner/repo", forge: civ1.Forge_FORGE_CURSOR_ORIGIN, repo: "owner/repo", ok: true},
-		{remoteURL: "git@origin.cursor.com:owner/repo", forge: civ1.Forge_FORGE_CURSOR_ORIGIN, repo: "owner/repo", ok: true},
+		{remoteURL: "https://origin.cursor.com/git/owner/repo.git", forge: civ1.Forge_FORGE_ORIGIN, repo: "owner/repo", ok: true},
+		{remoteURL: "https://origin.cursor.com/owner/repo", forge: civ1.Forge_FORGE_ORIGIN, repo: "owner/repo", ok: true},
+		{remoteURL: "git@origin.cursor.com:owner/repo", forge: civ1.Forge_FORGE_ORIGIN, repo: "owner/repo", ok: true},
 		{remoteURL: "https://gitlab.com/owner/repo.git", ok: false},
 		{remoteURL: "https://github.com/owner/repo/extra", ok: false},
 	}
@@ -36,13 +36,13 @@ func TestParseRunRepository(t *testing.T) {
 	}
 }
 
-func TestResolveRunRepositorySingleCursorOrigin(t *testing.T) {
+func TestResolveRunRepositorySingleOrigin(t *testing.T) {
 	dir := initRunRepositoryGit(t, "https://origin.cursor.com/git/acme/widgets.git")
 	got, err := resolveRunRepository(dir, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.forge != civ1.Forge_FORGE_CURSOR_ORIGIN || got.repo != "acme/widgets" {
+	if got.forge != civ1.Forge_FORGE_ORIGIN || got.repo != "acme/widgets" {
 		t.Fatalf("resolveRunRepository() = %#v", got)
 	}
 }
@@ -73,7 +73,7 @@ func TestResolveRunRepositoryExplicitRepoDefaultsToGitHub(t *testing.T) {
 
 func TestResolveRunRepositoryAmbiguousForges(t *testing.T) {
 	dir := initRunRepositoryGit(t, "https://github.com/acme/widgets.git")
-	run(t, dir, "git", "remote", "add", "cursor", "git@origin.cursor.com:acme/widgets.git")
+	run(t, dir, "git", "remote", "add", "origin-forge", "git@origin.cursor.com:acme/widgets.git")
 
 	_, err := resolveRunRepository(dir, "", "")
 	if err == nil || !strings.Contains(err.Error(), "--forge") {
@@ -84,22 +84,22 @@ func TestResolveRunRepositoryAmbiguousForges(t *testing.T) {
 		t.Fatalf("resolveRunRepository() with --repo error = %v, want --forge guidance", err)
 	}
 
-	got, err := resolveRunRepository(dir, "", "cursor-origin")
+	got, err := resolveRunRepository(dir, "", "origin")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.forge != civ1.Forge_FORGE_CURSOR_ORIGIN || got.repo != "acme/widgets" {
+	if got.forge != civ1.Forge_FORGE_ORIGIN || got.repo != "acme/widgets" {
 		t.Fatalf("resolveRunRepository() with --forge = %#v", got)
 	}
 }
 
 func TestResolveRunRepositoryExplicitRepoAndForge(t *testing.T) {
 	dir := initRunRepositoryGit(t, "https://gitlab.com/acme/widgets.git")
-	got, err := resolveRunRepository(dir, "acme/widgets", "cursor-origin")
+	got, err := resolveRunRepository(dir, "acme/widgets", "origin")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.forge != civ1.Forge_FORGE_CURSOR_ORIGIN || got.repo != "acme/widgets" {
+	if got.forge != civ1.Forge_FORGE_ORIGIN || got.repo != "acme/widgets" {
 		t.Fatalf("resolveRunRepository() = %#v", got)
 	}
 }

@@ -18,10 +18,10 @@ func parseRunForge(value string) (civ1.Forge, error) {
 	switch value {
 	case "github":
 		return civ1.Forge_FORGE_GITHUB, nil
-	case "cursor-origin":
-		return civ1.Forge_FORGE_CURSOR_ORIGIN, nil
+	case "origin":
+		return civ1.Forge_FORGE_ORIGIN, nil
 	default:
-		return civ1.Forge_FORGE_UNSPECIFIED, fmt.Errorf("unsupported forge %q; expected github or cursor-origin", value)
+		return civ1.Forge_FORGE_UNSPECIFIED, fmt.Errorf("unsupported forge %q; expected github or origin", value)
 	}
 }
 
@@ -42,7 +42,7 @@ func parseRunRepository(remoteURL string) (runRepository, bool) {
 	case host == "github.com":
 		forge = civ1.Forge_FORGE_GITHUB
 	case host == "origin.cursor.com":
-		forge = civ1.Forge_FORGE_CURSOR_ORIGIN
+		forge = civ1.Forge_FORGE_ORIGIN
 	default:
 		return runRepository{}, false
 	}
@@ -129,7 +129,7 @@ func resolveRunRepository(dir, explicitRepo, forgeFlag string) (runRepository, e
 			forges[repository.forge] = struct{}{}
 		}
 		if len(forges) > 1 {
-			return runRepository{}, fmt.Errorf("multiple supported forges found in git remotes; use --forge github|cursor-origin")
+			return runRepository{}, fmt.Errorf("multiple supported forges found in git remotes; use --forge github|origin")
 		}
 		for forge := range forges {
 			return runRepository{forge: forge, repo: explicitRepo}, nil
@@ -150,7 +150,7 @@ func resolveRunRepository(dir, explicitRepo, forgeFlag string) (runRepository, e
 		}
 	}
 	if len(detected) == 0 {
-		return runRepository{}, fmt.Errorf("no supported repository found in git remotes; use --repo and optionally --forge (github or cursor-origin)")
+		return runRepository{}, fmt.Errorf("no supported repository found in git remotes; use --repo and optionally --forge (github or origin)")
 	}
 	if len(detected) > 1 {
 		forges := make(map[civ1.Forge]struct{})
@@ -158,7 +158,7 @@ func resolveRunRepository(dir, explicitRepo, forgeFlag string) (runRepository, e
 			forges[repository.forge] = struct{}{}
 		}
 		if len(forges) > 1 {
-			return runRepository{}, fmt.Errorf("multiple supported forges found in git remotes; use --forge github|cursor-origin")
+			return runRepository{}, fmt.Errorf("multiple supported forges found in git remotes; use --forge github|origin")
 		}
 		if origin != nil {
 			return *origin, nil
