@@ -146,7 +146,7 @@ message Installation {
 }
 
 message RunRequest {
-  // repo identifies the target GitHub or Cursor Origin repository in owner/repo format.
+  // repo identifies the target GitHub or Origin repository in owner/repo format.
   string repo = 1;
   // sha points to a snapshot of code, used as context for the run
   // defaults to HEAD of default branch
@@ -1043,5 +1043,5 @@ message ListWorkflowsResponseJobCounts {
 enum Forge {
   FORGE_UNSPECIFIED = 0;
   FORGE_GITHUB = 1;
-  FORGE_CURSOR_ORIGIN = 2;
+  FORGE_ORIGIN = 2;
 }
