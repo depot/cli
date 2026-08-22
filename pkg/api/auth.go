@@ -13,16 +13,24 @@ import (
 	cliv1beta1 "github.com/depot/cli/pkg/proto/depot/cli/v1beta1"
 )
 
-// openURL opens the specified URL in the user's default browser.
+// OpenURL opens the specified URL in the user's default browser.
 // It handles different operating systems appropriately.
-func openURL(url string) error {
+func OpenURL(url string) error {
+	cmd, args, err := browserCommand(runtime.GOOS, url)
+	if err != nil {
+		return err
+	}
+	return exec.Command(cmd, args...).Start()
+}
+
+func browserCommand(goos, url string) (string, []string, error) {
 	var cmd string
 	var args []string
 
-	switch runtime.GOOS {
+	switch goos {
 	case "windows":
-		cmd = "cmd"
-		args = []string{"/c", "start", url}
+		cmd = "rundll32"
+		args = []string{"url.dll,FileProtocolHandler", url}
 	case "darwin":
 		cmd = "open"
 		args = []string{url}
@@ -30,10 +38,9 @@ func openURL(url string) error {
 		cmd = "xdg-open"
 		args = []string{url}
 	default:
-		return fmt.Errorf("unsupported platform")
+		return "", nil, fmt.Errorf("unsupported platform")
 	}
-
-	return exec.Command(cmd, args...).Start()
+	return cmd, args, nil
 }
 
 func AuthorizeDevice(ctx context.Context) (*cliv1beta1.FinishLoginResponse, error) {
@@ -61,7 +68,7 @@ func AuthorizeDevice(ctx context.Context) (*cliv1beta1.FinishLoginResponse, erro
 	} else if openBrowser {
 		// User chose to open browser
 		fmt.Printf("Opening your browser...\n")
-		if err := openURL(response.Msg.ApproveUrl); err != nil {
+		if err := OpenURL(response.Msg.ApproveUrl); err != nil {
 			fmt.Printf("Could not open browser: %v\n", err)
 		}
 	}

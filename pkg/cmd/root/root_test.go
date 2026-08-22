@@ -2,12 +2,16 @@ package root
 
 import "testing"
 
-func TestRootRegistersTestsCommand(t *testing.T) {
+func TestRootRegistersCommands(t *testing.T) {
 	cmd := NewCmdRoot("test-version", "test-date")
+	registered := map[string]bool{}
 	for _, child := range cmd.Commands() {
-		if child.Name() == "tests" {
-			return
+		registered[child.Name()] = true
+	}
+
+	for _, name := range []string{"browse", "tests"} {
+		if !registered[name] {
+			t.Errorf("expected root command to register %s command", name)
 		}
 	}
-	t.Fatal("expected root command to register tests command")
 }
