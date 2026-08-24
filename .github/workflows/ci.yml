@@ -8,24 +8,21 @@ jobs:
     runs-on: depot-ubuntu-latest-16
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.event.pull_request.base.repo.full_name
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version: "1.25.14"
           check-latest: true
           cache: true
 
-      - name: Install pnpm
-        uses: pnpm/action-setup@v5
+      - name: Install pnpm and Node
+        uses: pnpm/setup@v2
         with:
           version: 11.22.0
-
-      - name: Install Node 24
-        uses: actions/setup-node@v7
-        with:
-          node-version: "24"
-          cache: pnpm
+          runtime: node@24
+          cache: true
           cache-dependency-path: npm/pnpm-lock.yaml
+          install: false
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --ignore-scripts
@@ -69,24 +66,21 @@ jobs:
     runs-on: depot-ubuntu-latest-16
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.event.pull_request.base.repo.full_name
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version: "1.25.14"
           check-latest: true
           cache: true
 
-      - name: Install pnpm
-        uses: pnpm/action-setup@v5
+      - name: Install pnpm and Node
+        uses: pnpm/setup@v2
         with:
           version: 11.22.0
-
-      - name: Install Node 24
-        uses: actions/setup-node@v7
-        with:
-          node-version: "24"
-          cache: pnpm
+          runtime: node@24
+          cache: true
           cache-dependency-path: npm/pnpm-lock.yaml
+          install: false
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --ignore-scripts
@@ -104,8 +98,8 @@ jobs:
   test:
     runs-on: depot-ubuntu-latest-16
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version: "1.25"
           check-latest: true
@@ -123,7 +117,7 @@ jobs:
       packages: write
       id-token: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: depot/setup-action@v1
       - uses: docker/metadata-action@v6
         id: meta
