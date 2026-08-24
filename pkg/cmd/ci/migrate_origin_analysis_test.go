@@ -127,7 +127,7 @@ func TestMigrateCommandCursorAnalyzesAndRendersSelectedWorkflows(t *testing.T) {
 		repositoryAnalysisClient: client,
 	})
 	cmd.SetOut(&output)
-	cmd.SetArgs([]string{"--yes", "--forge=cursor", "--token=depot_api_token", "--org=org-id"})
+	cmd.SetArgs([]string{"--yes", "--forge=origin", "--token=depot_api_token", "--org=org-id"})
 	if err := cmd.ExecuteContext(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -191,7 +191,7 @@ func TestMigrateCommandCursorAnalyzesAndRendersSelectedWorkflows(t *testing.T) {
 	if strings.Contains(output.String(), "internal_tracking_DEP-1234") {
 		t.Fatalf("command output exposed machine-only diagnostic metadata:\n%s", output.String())
 	}
-	if !strings.Contains(output.String(), "depot ci migrate secrets-and-vars --forge=cursor") {
+	if !strings.Contains(output.String(), "depot ci migrate secrets-and-vars --forge=origin") {
 		t.Fatalf("Cursor follow-up command dropped the selected forge:\n%s", output.String())
 	}
 	if !strings.Contains(output.String(), "pushing and merging them into trunk") {
@@ -253,7 +253,7 @@ func TestMigrateCommandCompatibleCursorWorkflowStaysQuiet(t *testing.T) {
 		repositoryAnalysisClient: client,
 	})
 	cmd.SetOut(&output)
-	cmd.SetArgs([]string{"--yes", "--forge=cursor", "--token=depot_org_token"})
+	cmd.SetArgs([]string{"--yes", "--forge=origin", "--token=depot_org_token"})
 
 	if err := cmd.ExecuteContext(context.Background()); err != nil {
 		t.Fatal(err)
@@ -277,7 +277,7 @@ func TestCursorMigrationReportsAnalysisFailureBeforeWritingFiles(t *testing.T) {
 	err := workflowsWithContext(context.Background(), migrateOptions{
 		dir:                      dir,
 		yes:                      true,
-		forge:                    migrationForgeCursor,
+		forge:                    migrationForgeOrigin,
 		token:                    "depot_api_token",
 		orgID:                    "org-id",
 		repositoryAnalysisClient: client,
@@ -299,7 +299,7 @@ func TestCursorPreflightUsesOriginAnalysisInsteadOfGitHubCodeAccess(t *testing.T
 	result, err := preflight(context.Background(), migrateOptions{
 		dir:                      dir,
 		stdout:                   &output,
-		forge:                    migrationForgeCursor,
+		forge:                    migrationForgeOrigin,
 		token:                    "depot_org_token",
 		repositoryAnalysisClient: client,
 	})
@@ -328,7 +328,7 @@ func TestCursorMigrationReportsMissingOriginRemote(t *testing.T) {
 	err := workflowsWithContext(context.Background(), migrateOptions{
 		dir:                      dir,
 		yes:                      true,
-		forge:                    migrationForgeCursor,
+		forge:                    migrationForgeOrigin,
 		token:                    "depot_org_token",
 		repositoryAnalysisClient: client,
 	})
@@ -359,7 +359,7 @@ func TestCursorMigrationDoesNotUploadWorkflowOutsideRepository(t *testing.T) {
 	err := workflowsWithContext(context.Background(), migrateOptions{
 		dir:                      dir,
 		yes:                      true,
-		forge:                    migrationForgeCursor,
+		forge:                    migrationForgeOrigin,
 		token:                    "depot_api_token",
 		orgID:                    "org-id",
 		repositoryAnalysisClient: client,
