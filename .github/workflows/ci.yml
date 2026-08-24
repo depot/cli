@@ -15,17 +15,14 @@ jobs:
           check-latest: true
           cache: true
 
-      - name: Install pnpm
-        uses: pnpm/action-setup@v6
+      - name: Install pnpm and Node
+        uses: pnpm/setup@v1
         with:
           version: 11.22.0
-
-      - name: Install Node 24
-        uses: actions/setup-node@v7
-        with:
-          node-version: "24"
-          cache: pnpm
+          runtime: node@24
+          cache: true
           cache-dependency-path: npm/pnpm-lock.yaml
+          install: false
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --ignore-scripts
@@ -76,17 +73,14 @@ jobs:
           check-latest: true
           cache: true
 
-      - name: Install pnpm
-        uses: pnpm/action-setup@v6
+      - name: Install pnpm and Node
+        uses: pnpm/setup@v1
         with:
           version: 11.22.0
-
-      - name: Install Node 24
-        uses: actions/setup-node@v7
-        with:
-          node-version: "24"
-          cache: pnpm
+          runtime: node@24
+          cache: true
           cache-dependency-path: npm/pnpm-lock.yaml
+          install: false
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --ignore-scripts
