@@ -76,7 +76,7 @@ jobs:
           cache: true
 
       - name: Install pnpm
-        uses: pnpm/setup@v1
+        uses: pnpm/setup@v2
         with:
           version: 11.22.0
           install: false
