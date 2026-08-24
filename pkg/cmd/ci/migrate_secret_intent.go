@@ -247,7 +247,7 @@ func detectMigrationRemote(ctx context.Context, dir string, forge migrationForge
 	}
 	forgeName := "GitHub"
 	host := "github.com/owner/repo"
-	if forge == migrationForgeCursor {
+	if forge == migrationForgeOrigin {
 		forgeName = "Cursor Origin"
 		host = "origin.cursor.com/namespace/repo"
 	}
@@ -260,7 +260,7 @@ func detectMigrationRemote(ctx context.Context, dir string, forge migrationForge
 
 func repositoryURLMatchesForge(repositoryURL string, forge migrationForge) bool {
 	switch forge {
-	case migrationForgeCursor:
+	case migrationForgeOrigin:
 		return strings.HasPrefix(repositoryURL, "origin.cursor.com/")
 	default:
 		return strings.HasPrefix(repositoryURL, "github.com/")

@@ -34,6 +34,7 @@ func NewCmdRun() *cobra.Command {
 		sshAfterStep int
 		ssh          bool
 		repoFlag     string
+		forgeFlag    string
 		follow       bool
 	)
 
@@ -45,7 +46,10 @@ func NewCmdRun() *cobra.Command {
 If there are local changes relative to the remote state of your branch, they are
 automatically uploaded as a patch and applied during the workflow run. For pushed
 branches, the patch contains only unpushed changes; for unpushed branches, the
-patch is relative to the default branch.`,
+patch is relative to the default branch.
+
+Repositories are detected from GitHub and Origin git remotes.
+Use --forge when more than one supported source is configured.`,
 		Example: `  # Run a workflow
   depot ci run --workflow .depot/workflows/ci.yml
 
@@ -154,14 +158,9 @@ patch is relative to the default branch.`,
 				workflowDir = filepath.Join(cwd, workflowDir)
 			}
 
-			var repo string
-			if repoFlag != "" {
-				repo = repoFlag
-			} else {
-				repo = detectRepoFromGitRemote(workflowDir)
-				if repo == "" {
-					return fmt.Errorf("failed to resolve repo from git remotes; use --repo owner/repo to specify manually")
-				}
+			repository, err := resolveRunRepository(workflowDir, repoFlag, forgeFlag)
+			if err != nil {
+				return err
 			}
 
 			// Detect local changes as a patch
@@ -197,7 +196,7 @@ patch is relative to the default branch.`,
 				}
 			}
 
-			fmt.Printf("Repo: %s\n", repo)
+			fmt.Printf("Repo: %s\n", repository.repo)
 			if len(jobNames) > 0 {
 				fmt.Printf("Jobs: %s\n", strings.Join(selectedJobs, ", "))
 			} else {
@@ -223,7 +222,8 @@ patch is relative to the default branch.`,
 			}
 
 			req := &civ1.RunRequest{
-				Repo:            repo,
+				Repo:            repository.repo,
+				Forge:           repository.forge,
 				WorkflowContent: []string{string(yamlBytes)},
 			}
 			setRunRequestGitContext(req, patch, headSHA, headOK, workspacePatchKey)
@@ -292,7 +292,8 @@ patch is relative to the default branch.`,
 	cmd.Flags().StringSliceVar(&jobNames, "job", nil, "Job name(s) to run (repeatable; omit to run all)")
 	cmd.Flags().IntVar(&sshAfterStep, "ssh-after-step", 0, "1-based step index to insert a tmate debug step after (requires single --job)")
 	cmd.Flags().BoolVar(&ssh, "ssh", false, "Start the run and connect to the job's sandbox via interactive terminal (requires single --job)")
-	cmd.Flags().StringVar(&repoFlag, "repo", "", "GitHub repository (owner/repo) to use instead of detecting from git remotes")
+	cmd.Flags().StringVar(&repoFlag, "repo", "", "Repository name to use instead of detecting from git remotes")
+	cmd.Flags().StringVar(&forgeFlag, "forge", "", "Repository forge: github or origin")
 	cmd.Flags().BoolVarP(&follow, "follow", "f", false, "Follow live logs")
 
 	cmd.AddCommand(NewCmdRunList())

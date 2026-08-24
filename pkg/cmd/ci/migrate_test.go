@@ -192,7 +192,7 @@ jobs:
 	if !strings.Contains(output, "depot ci migrate secrets-and-vars`") {
 		t.Errorf("expected the default GitHub follow-up command, got:\n%s", output)
 	}
-	if strings.Contains(output, "--forge=cursor") {
+	if strings.Contains(output, "--forge=origin") {
 		t.Errorf("default GitHub migration unexpectedly selected Cursor, got:\n%s", output)
 	}
 }
