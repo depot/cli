@@ -34,7 +34,7 @@ func cursorPreflight(ctx context.Context, opts migrateOptions) (*preflightResult
 		out = os.Stdout
 	}
 	fmt.Fprintf(out, "\nDetected repository: %s\n", analysis.repositoryURL)
-	fmt.Fprintln(out, "Cursor Origin repository is available to this Depot organization.")
+	fmt.Fprintln(out, "Origin repository is available to this Depot organization.")
 	return &preflightResult{token: token, orgID: orgID, repo: analysis.repositoryURL}, nil
 }
 
@@ -73,7 +73,7 @@ func analyzeCursorOriginWorkflows(
 	}), token, orgID)
 	response, err := client.GetRepositoryAnalysis(ctx, request)
 	if err != nil {
-		return nil, fmt.Errorf("failed to analyze Cursor Origin compatibility for %s: %w", repositoryURL, err)
+		return nil, fmt.Errorf("failed to analyze Origin compatibility for %s: %w", repositoryURL, err)
 	}
 	return &cursorOriginAnalysis{response: response, remote: remote, repositoryURL: repositoryURL}, nil
 }

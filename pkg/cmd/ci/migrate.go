@@ -269,7 +269,7 @@ func newCmdPreflight(parentOpts *migrateOptions) *cobra.Command {
 	return &cobra.Command{
 		Use:   "preflight",
 		Short: "Check authentication and repository access for migration",
-		Long:  "Validates authentication, detects a repository for the selected forge, and checks the access required to migrate it. GitHub checks the Depot Code Access app; Cursor checks that the Origin repository is available to the Depot organization.",
+		Long:  "Validates authentication, detects a repository for the selected forge, and checks the access required to migrate it. GitHub checks the Depot Code Access app; Origin checks that the repository is available to the Depot organization.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			opts := migrateCommandOptions(cmd, *parentOpts)
 			_, err := preflight(cmd.Context(), opts)

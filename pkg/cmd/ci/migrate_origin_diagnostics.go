@@ -24,7 +24,7 @@ func renderCursorOriginDiagnostics(out io.Writer, response *civ2.GetRepositoryMi
 		return
 	}
 
-	fmt.Fprintln(out, "\nCursor Origin compatibility findings:")
+	fmt.Fprintln(out, "\nOrigin compatibility findings:")
 	for _, finding := range findings {
 		diagnostic := finding.diagnostic
 		fmt.Fprintf(out, "\n  %s — %s\n", originDiagnosticSeverityLabel(diagnostic.GetSeverity()), originWorkflowDisplayPath(finding.workflow))

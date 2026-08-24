@@ -236,7 +236,7 @@ func TestMigrateCommandGitHubModesDoNotRequestOriginAnalysis(t *testing.T) {
 			if _, err := os.Stat(filepath.Join(dir, ".depot", "workflows", "ci.yml")); err != nil {
 				t.Fatalf("GitHub workflow was not migrated: %v", err)
 			}
-			if !strings.Contains(output.String(), "Migrated 1 workflow(s)") || strings.Contains(output.String(), "Cursor Origin") {
+			if !strings.Contains(output.String(), "Migrated 1 workflow(s)") || strings.Contains(output.String(), "Origin compatibility findings:") {
 				t.Fatalf("unexpected GitHub migration output:\n%s", output.String())
 			}
 		})
@@ -261,7 +261,7 @@ func TestMigrateCommandCompatibleCursorWorkflowStaysQuiet(t *testing.T) {
 	if client.calls != 1 {
 		t.Fatalf("Origin analysis calls = %d, want 1", client.calls)
 	}
-	if strings.Contains(output.String(), "Cursor Origin compatibility findings:") {
+	if strings.Contains(output.String(), "Origin compatibility findings:") {
 		t.Fatalf("compatible workflow produced compatibility output:\n%s", output.String())
 	}
 	if _, err := os.Stat(filepath.Join(dir, ".depot", "workflows", "ci.yml")); err != nil {
@@ -282,7 +282,7 @@ func TestCursorMigrationReportsAnalysisFailureBeforeWritingFiles(t *testing.T) {
 		orgID:                    "org-id",
 		repositoryAnalysisClient: client,
 	})
-	if err == nil || !strings.Contains(err.Error(), "failed to analyze Cursor Origin compatibility for origin.cursor.com/acme/widgets") {
+	if err == nil || !strings.Contains(err.Error(), "failed to analyze Origin compatibility for origin.cursor.com/acme/widgets") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if _, statErr := os.Stat(filepath.Join(dir, ".depot")); !os.IsNotExist(statErr) {
@@ -315,7 +315,7 @@ func TestCursorPreflightUsesOriginAnalysisInsteadOfGitHubCodeAccess(t *testing.T
 	if client.request.Header().Get("Authorization") != "Bearer depot_org_token" || client.request.Header().Get("x-depot-org") != "" {
 		t.Fatalf("unexpected organization-token authentication headers: %#v", client.request.Header())
 	}
-	if !strings.Contains(output.String(), "Cursor Origin repository is available") {
+	if !strings.Contains(output.String(), "Origin repository is available") {
 		t.Fatalf("unexpected output: %s", output.String())
 	}
 }
