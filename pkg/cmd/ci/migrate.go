@@ -31,7 +31,7 @@ type migrationForge string
 
 const (
 	migrationForgeGitHub migrationForge = "github"
-	migrationForgeCursor migrationForge = "cursor"
+	migrationForgeOrigin migrationForge = "origin"
 )
 
 func (f *migrationForge) String() string {
@@ -43,11 +43,11 @@ func (f *migrationForge) String() string {
 
 func (f *migrationForge) Set(value string) error {
 	switch migrationForge(value) {
-	case migrationForgeGitHub, migrationForgeCursor:
+	case migrationForgeGitHub, migrationForgeOrigin:
 		*f = migrationForge(value)
 		return nil
 	default:
-		return fmt.Errorf("must be one of github, cursor")
+		return fmt.Errorf("must be one of github, origin")
 	}
 }
 
@@ -103,7 +103,7 @@ func newCmdMigrate(opts migrateOptions) *cobra.Command {
 	pf := cmd.PersistentFlags()
 	pf.StringVar(&opts.token, "token", "", "Depot API token")
 	pf.StringVar(&opts.orgID, "org", "", "Depot organization ID")
-	pf.Var(&opts.forge, "forge", "Source-code forge to migrate from (github or cursor)")
+	pf.Var(&opts.forge, "forge", "Source-code forge to migrate from (github or origin)")
 	pf.BoolVarP(&opts.yes, "yes", "y", false, "Run in non-interactive mode")
 
 	cmd.Flags().BoolVar(&opts.overwrite, "overwrite", false, "Overwrite existing .depot/ directory")
@@ -317,7 +317,7 @@ type preflightResult struct {
 // Returns nil result (and nil error) when the check fails with a user-facing
 // message that has already been printed.
 func preflight(ctx context.Context, opts migrateOptions) (*preflightResult, error) {
-	if effectiveMigrationForge(opts.forge) == migrationForgeCursor {
+	if effectiveMigrationForge(opts.forge) == migrationForgeOrigin {
 		return cursorPreflight(ctx, opts)
 	}
 	return githubPreflight(ctx, opts)
@@ -403,7 +403,7 @@ func githubPreflight(ctx context.Context, opts migrateOptions) (*preflightResult
 }
 
 func runMigrate(ctx context.Context, opts migrateOptions) error {
-	if effectiveMigrationForge(opts.forge) == migrationForgeCursor {
+	if effectiveMigrationForge(opts.forge) == migrationForgeOrigin {
 		return workflowsWithContext(ctx, opts)
 	}
 
@@ -594,7 +594,7 @@ func workflowsWithContext(ctx context.Context, opts migrateOptions) error {
 		return fmt.Errorf("failed to inspect .depot directory: %w", err)
 	}
 
-	if effectiveMigrationForge(opts.forge) == migrationForgeCursor {
+	if effectiveMigrationForge(opts.forge) == migrationForgeOrigin {
 		analysis, err := analyzeCursorOriginWorkflows(ctx, opts, selectedWorkflows)
 		if err != nil {
 			return err
@@ -724,9 +724,9 @@ func workflowsWithContext(ctx context.Context, opts migrateOptions) error {
 	if len(detectedSecrets) > 0 || len(detectedVariables) > 0 {
 		secretsSource := "GitHub"
 		secretMigrationCommand := "depot ci migrate secrets-and-vars"
-		if effectiveMigrationForge(opts.forge) == migrationForgeCursor {
+		if effectiveMigrationForge(opts.forge) == migrationForgeOrigin {
 			secretsSource = "the source repository"
-			secretMigrationCommand += " --forge=cursor"
+			secretMigrationCommand += " --forge=origin"
 		}
 		fmt.Fprintf(out, "  1. Your workflows depend on %d secret(s) and %d variable(s) which need to be imported from %s:\n", len(detectedSecrets), len(detectedVariables), secretsSource)
 		fmt.Fprintf(out, "     - Import them automatically with `%s`\n", secretMigrationCommand)

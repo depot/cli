@@ -52,7 +52,7 @@ func analyzeCursorOriginWorkflows(
 	if strings.TrimSpace(workDir) == "" {
 		workDir = "."
 	}
-	remote, repositoryURL, err := detectMigrationRemote(ctx, workDir, migrationForgeCursor, false)
+	remote, repositoryURL, err := detectMigrationRemote(ctx, workDir, migrationForgeOrigin, false)
 	if err != nil {
 		return nil, err
 	}
