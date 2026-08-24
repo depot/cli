@@ -246,16 +246,18 @@ func detectMigrationRemote(ctx context.Context, dir string, forge migrationForge
 		}
 	}
 	forgeName := "GitHub"
+	forgeArticle := "a"
 	host := "github.com/owner/repo"
 	if forge == migrationForgeOrigin {
-		forgeName = "Cursor Origin"
+		forgeName = "Origin"
+		forgeArticle = "an"
 		host = "origin.cursor.com/namespace/repo"
 	}
 	remoteKind := "git remotes"
 	if push {
 		remoteKind = "git push remotes"
 	}
-	return "", "", fmt.Errorf("could not detect a %s repository from %s — configure a remote pointing to %s", forgeName, remoteKind, host)
+	return "", "", fmt.Errorf("could not detect %s %s repository from %s — configure a remote pointing to %s", forgeArticle, forgeName, remoteKind, host)
 }
 
 func repositoryURLMatchesForge(repositoryURL string, forge migrationForge) bool {

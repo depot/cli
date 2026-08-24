@@ -58,7 +58,7 @@ func TestRenderCursorOriginDiagnosticsShowsStructuredFindings(t *testing.T) {
 	text := output.String()
 
 	for _, expected := range []string{
-		"Cursor Origin compatibility findings:",
+		"Origin compatibility findings:",
 		"FAILS — .depot/workflows/ci.yml (from .github/workflows/ci.yml)",
 		"SILENT DEGRADATION — .depot/workflows/ci.yml (from .github/workflows/ci.yml)",
 		"CONDITIONALLY UNSUPPORTED — .depot/workflows/ci.yml (from .github/workflows/ci.yml)",
