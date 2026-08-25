@@ -16,6 +16,7 @@ import (
 	"github.com/depot/cli/pkg/proto/depot/cli/v1/cliv1connect"
 	"github.com/depot/cli/pkg/proto/depot/cli/v1beta1/cliv1beta1connect"
 	cliCorev1connect "github.com/depot/cli/pkg/proto/depot/core/v1/corev1connect"
+	"github.com/depot/cli/pkg/proto/depot/sandbox/v1/sandboxv1connect"
 	"golang.org/x/net/http2"
 )
 
@@ -53,6 +54,14 @@ func NewSessionClient() agentv1connect.SessionServiceClient {
 
 func NewSandboxClient() agentv1connect.SandboxServiceClient {
 	return agentv1connect.NewSandboxServiceClient(getHTTPClient(getBaseURL()), getBaseURL(), WithUserAgent())
+}
+
+// NewSandboxV0Client returns a connect client for the depot.sandbox.v1
+// SandboxService — the v0 customer-surface sandbox wire that the @depot/sandbox
+// TS SDK consumes (M33). All `depot sandbox <verb>` commands in M34 use this
+// client (NewSandboxClient is preserved for legacy DEP-4395 callers).
+func NewSandboxV0Client() sandboxv1connect.SandboxServiceClient {
+	return sandboxv1connect.NewSandboxServiceClient(getHTTPClient(getBaseURL()), getBaseURL(), WithUserAgent())
 }
 
 func NewRegistryClient() buildv1connect.RegistryServiceClient {

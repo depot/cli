@@ -1,0 +1,40 @@
+// Describes where a new sandbox's initial filesystem comes from. A sandbox
+// can be created from a Git repository, a snapshot, an OCI image, or a
+// template, and this descriptor carries exactly one of those choices.
+
+syntax = "proto3";
+
+package depot.sandbox.v1;
+
+message Source {
+  oneof variant {
+    GitSource git = 1;            // Clone a Git repository into the sandbox.
+    SnapshotSource snapshot = 2;  // Restore from a previously taken snapshot.
+    ImageSource image = 3;        // Start from an OCI image.
+    TemplateSource template = 4;  // Start from a named template.
+  }
+}
+
+message GitSource {
+  string url = 1;
+  optional string branch = 2;
+  optional string commit = 3;
+  // Name of an organization secret holding the credentials used to clone
+  // the repository. Leave unset for public repositories that need no
+  // authentication; when set, the named secret is resolved at clone time.
+  optional string secret = 4;
+}
+
+message SnapshotSource {
+  string snapshot_id = 1;
+}
+
+message ImageSource {
+  string image_ref = 1;
+  // The registry must be either public or reachable using credentials the
+  // host already provides; per-image authentication is not yet supported.
+}
+
+message TemplateSource {
+  string template_id = 1;
+}
