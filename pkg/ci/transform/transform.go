@@ -49,7 +49,21 @@ type TransformResult struct {
 // migratedWorkflows is a set of workflow relative paths (e.g., "ci.yml") that were
 // selected for migration. When non-nil, only references to these workflows are rewritten.
 // When nil, all .github/workflows/ references are rewritten. Actions are always rewritten.
+//
+// Changes are spliced into the original YAML when safe; unsupported shapes use
+// the existing node-tree fallback.
 func TransformWorkflow(raw []byte, wf *migrate.WorkflowFile, report *compat.CompatibilityReport, migratedWorkflows map[string]bool) (*TransformResult, error) {
+	var changes []ChangeRecord
+
+	// Rewrite paths before parsing so source positions still match the edited text.
+	if rewritten, changed := rewriteGitHubPaths(string(raw), migratedWorkflows); changed {
+		raw = []byte(rewritten)
+		changes = append(changes, ChangeRecord{
+			Type:   ChangePathRewritten,
+			Detail: "Rewrote .github/ path references to .depot/",
+		})
+	}
+
 	var doc yaml.Node
 	if err := yaml.Unmarshal(raw, &doc); err != nil {
 		return nil, fmt.Errorf("failed to parse YAML: %w", err)
@@ -64,40 +78,19 @@ func TransformWorkflow(raw []byte, wf *migrate.WorkflowFile, report *compat.Comp
 		return nil, fmt.Errorf("expected mapping at root, got %d", root.Kind)
 	}
 
-	var changes []ChangeRecord
-
-	// 1. Transform triggers
-	triggerChanges := transformTriggers(root)
-	changes = append(changes, triggerChanges...)
-
-	// 2. Identify jobs that need to be disabled (uncorrectable issues)
+	// Jobs with uncorrectable issues get commented out rather than corrected,
+	// and are skipped by the passes that would otherwise edit them.
 	disabledJobs := findDisabledJobs(wf, report)
 
-	// 3. Transform runs-on labels (skip disabled jobs)
-	runsOnChanges := transformRunsOn(root, disabledJobs)
-	changes = append(changes, runsOnChanges...)
-
-	// 4. Rewrite .github/ path references to .depot/
-	pathChanges := transformGitHubPaths(root, migratedWorkflows)
-	changes = append(changes, pathChanges...)
-
-	// 5. Marshal the node tree back to bytes
-	var buf bytes.Buffer
-	enc := yaml.NewEncoder(&buf)
-	enc.SetIndent(2)
-	if err := enc.Encode(&doc); err != nil {
-		return nil, fmt.Errorf("failed to marshal YAML: %w", err)
+	output, editChanges, ok := transformInPlace(newSource(raw), root, disabledJobs)
+	if !ok {
+		var err error
+		output, editChanges, err = transformByReencoding(&doc, root, disabledJobs)
+		if err != nil {
+			return nil, err
+		}
 	}
-	enc.Close()
-
-	output := buf.Bytes()
-
-	// 6. Post-process: comment out disabled jobs in text
-	if len(disabledJobs) > 0 {
-		var disableChanges []ChangeRecord
-		output, disableChanges = commentOutDisabledJobs(output, disabledJobs)
-		changes = append(changes, disableChanges...)
-	}
+	changes = append(changes, editChanges...)
 
 	hasCritical := false
 	for _, c := range changes {
@@ -107,7 +100,6 @@ func TransformWorkflow(raw []byte, wf *migrate.WorkflowFile, report *compat.Comp
 		}
 	}
 
-	// 7. Prepend header comment
 	header := buildHeaderComment(wf, changes)
 	output = append([]byte(header), output...)
 
@@ -116,6 +108,31 @@ func TransformWorkflow(raw []byte, wf *migrate.WorkflowFile, report *compat.Comp
 		Changes:     changes,
 		HasCritical: hasCritical,
 	}, nil
+}
+
+// transformByReencoding is the existing correctness fallback for unsupported
+// source shapes; it may reformat the file.
+func transformByReencoding(doc, root *yaml.Node, disabledJobs map[string]disabledJobInfo) ([]byte, []ChangeRecord, error) {
+	var changes []ChangeRecord
+	changes = append(changes, transformTriggers(root)...)
+	changes = append(changes, transformRunsOn(root, disabledJobs)...)
+
+	var buf bytes.Buffer
+	enc := yaml.NewEncoder(&buf)
+	enc.SetIndent(2)
+	if err := enc.Encode(doc); err != nil {
+		return nil, nil, fmt.Errorf("failed to marshal YAML: %w", err)
+	}
+	enc.Close()
+
+	output := buf.Bytes()
+	if len(disabledJobs) > 0 {
+		var disableChanges []ChangeRecord
+		output, disableChanges = commentOutDisabledJobs(output, disabledJobs)
+		changes = append(changes, disableChanges...)
+	}
+
+	return output, changes, nil
 }
 
 // transformTriggers removes unsupported triggers from the on: block.
@@ -325,41 +342,6 @@ func transformRunsOnNode(node *yaml.Node, jobName string) []ChangeRecord {
 	return changes
 }
 
-// transformGitHubPaths walks all nodes and rewrites local .github/ references to .depot/
-// in both scalar values and YAML comments (HeadComment, LineComment, FootComment).
-// Remote references like org/repo/.github/workflows/reusable.yml@ref are left untouched.
-func transformGitHubPaths(node *yaml.Node, migratedWorkflows map[string]bool) []ChangeRecord {
-	rewrote := false
-	rewrite := func(s string) string {
-		result, changed := rewriteGitHubPaths(s, migratedWorkflows)
-		if changed {
-			rewrote = true
-		}
-		return result
-	}
-	walkNodes(node, func(n *yaml.Node) {
-		if n.Kind == yaml.ScalarNode {
-			n.Value = rewrite(n.Value)
-		}
-		if n.HeadComment != "" {
-			n.HeadComment = rewrite(n.HeadComment)
-		}
-		if n.LineComment != "" {
-			n.LineComment = rewrite(n.LineComment)
-		}
-		if n.FootComment != "" {
-			n.FootComment = rewrite(n.FootComment)
-		}
-	})
-	if !rewrote {
-		return nil
-	}
-	return []ChangeRecord{{
-		Type:   ChangePathRewritten,
-		Detail: "Rewrote .github/ path references to .depot/",
-	}}
-}
-
 var (
 	// githubPathRe matches .github/actions or .github/workflows references.
 	githubPathRe = regexp.MustCompile(`\.github/(actions|workflows)`)
@@ -487,17 +469,6 @@ func isURL(s string, idx int) bool {
 		}
 	}
 	return false
-}
-
-// walkNodes recursively visits all nodes in a YAML tree.
-func walkNodes(node *yaml.Node, fn func(*yaml.Node)) {
-	if node == nil {
-		return
-	}
-	fn(node)
-	for _, child := range node.Content {
-		walkNodes(child, fn)
-	}
 }
 
 // RewriteGitHubPathsInDir walks a directory and rewrites .github/ → .depot/ references
