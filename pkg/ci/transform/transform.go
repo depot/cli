@@ -27,6 +27,7 @@ const (
 	ChangeTriggerRemoved                   // Unsupported trigger was removed
 	ChangeJobDisabled                      // Entire job was commented out
 	ChangePathRewritten                    // .github/ path was rewritten to .depot/
+	ChangeSparseCheckout                   // .depot/ paths added alongside .github/ in a checkout sparse-checkout
 )
 
 // ChangeRecord describes a single change made during transformation.
@@ -77,11 +78,22 @@ func TransformWorkflow(raw []byte, wf *migrate.WorkflowFile, report *compat.Comp
 	runsOnChanges := transformRunsOn(root, disabledJobs)
 	changes = append(changes, runsOnChanges...)
 
-	// 4. Rewrite .github/ path references to .depot/
-	pathChanges := transformGitHubPaths(root, migratedWorkflows)
+	// 4. Handle actions/checkout sparse-checkout inputs before the generic path
+	//    pass. These keep their .github/ entries and gain .depot/ siblings, so the
+	//    generic pass must skip them (see transformSparseCheckout).
+	sparseSkip, sparseChanges := transformSparseCheckout(root, migratedWorkflows)
+	changes = append(changes, sparseChanges...)
+
+	// 5. Rewrite .github/ path references to .depot/
+	pathChanges := transformGitHubPaths(root, migratedWorkflows, sparseSkip)
 	changes = append(changes, pathChanges...)
 
-	// 5. Marshal the node tree back to bytes
+	// 6. Strip trailing whitespace from POSIX-shell step `run:` block scalars so yaml.v3
+	//    keeps literal/folded style (e.g. `run: |`) instead of flattening to a quoted
+	//    string. Non-shell inputs and non-POSIX shells are left byte-exact.
+	sanitizeRunBlockScalars(root)
+
+	// 7. Marshal the node tree back to bytes
 	var buf bytes.Buffer
 	enc := yaml.NewEncoder(&buf)
 	enc.SetIndent(2)
@@ -92,7 +104,7 @@ func TransformWorkflow(raw []byte, wf *migrate.WorkflowFile, report *compat.Comp
 
 	output := buf.Bytes()
 
-	// 6. Post-process: comment out disabled jobs in text
+	// 8. Post-process: comment out disabled jobs in text
 	if len(disabledJobs) > 0 {
 		var disableChanges []ChangeRecord
 		output, disableChanges = commentOutDisabledJobs(output, disabledJobs)
@@ -107,7 +119,7 @@ func TransformWorkflow(raw []byte, wf *migrate.WorkflowFile, report *compat.Comp
 		}
 	}
 
-	// 7. Prepend header comment
+	// 9. Prepend header comment
 	header := buildHeaderComment(wf, changes)
 	output = append([]byte(header), output...)
 
@@ -328,7 +340,9 @@ func transformRunsOnNode(node *yaml.Node, jobName string) []ChangeRecord {
 // transformGitHubPaths walks all nodes and rewrites local .github/ references to .depot/
 // in both scalar values and YAML comments (HeadComment, LineComment, FootComment).
 // Remote references like org/repo/.github/workflows/reusable.yml@ref are left untouched.
-func transformGitHubPaths(node *yaml.Node, migratedWorkflows map[string]bool) []ChangeRecord {
+// Nodes in skip are left entirely alone; sparse-checkout values handled by
+// transformSparseCheckout live there so their .github/ entries are preserved.
+func transformGitHubPaths(node *yaml.Node, migratedWorkflows map[string]bool, skip map[*yaml.Node]bool) []ChangeRecord {
 	rewrote := false
 	rewrite := func(s string) string {
 		result, changed := rewriteGitHubPaths(s, migratedWorkflows)
@@ -338,6 +352,9 @@ func transformGitHubPaths(node *yaml.Node, migratedWorkflows map[string]bool) []
 		return result
 	}
 	walkNodes(node, func(n *yaml.Node) {
+		if skip[n] {
+			return
+		}
 		if n.Kind == yaml.ScalarNode {
 			n.Value = rewrite(n.Value)
 		}
@@ -361,13 +378,21 @@ func transformGitHubPaths(node *yaml.Node, migratedWorkflows map[string]bool) []
 }
 
 var (
-	// githubPathRe matches .github/actions or .github/workflows references.
-	githubPathRe = regexp.MustCompile(`\.github/(actions|workflows)`)
+	// githubPathRe matches .github/actions or .github/workflows references. The
+	// separator group tolerates a backslash-escaped slash (\/) so paths embedded in
+	// regexes or escaped string literals inside action sources — e.g. \.github\/actions
+	// — are matched the same as plain paths in fixtures. The captured separator is
+	// reused in the replacement so the escaping style is preserved.
+	githubPathRe = regexp.MustCompile(`\.github(\\?/)(actions|workflows)`)
 
 	// remoteRefRe matches owner/repo/.github/(actions|workflows) patterns.
 	// The char class [a-zA-Z0-9_.-] naturally excludes expression characters ($, {, }),
 	// so expression-expanded paths like "${{ workspace }}/.github/" won't match.
-	remoteRefRe = regexp.MustCompile(`[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+/\.github/(?:actions|workflows)`)
+	// Each separator, and the dot before "github", tolerates a backslash-escape (\/
+	// and \.) so escaped remote refs embedded in code strings — e.g.
+	// org\/repo\/\.github\/actions — are still classified as remote and left alone,
+	// matching how githubPathRe treats a preceding backslash as a boundary.
+	remoteRefRe = regexp.MustCompile(`[a-zA-Z0-9_.-]+\\?/[a-zA-Z0-9_.-]+\\?/\\?\.github\\?/(?:actions|workflows)`)
 
 	// pathTailRe captures a file path segment after a / delimiter, stopping at
 	// whitespace or shell metacharacters.
@@ -395,14 +420,15 @@ func rewriteGitHubPaths(s string, migratedWorkflows map[string]bool) (string, bo
 
 	for _, m := range candidates {
 		start, end := m[0], m[1]
-		subdir := s[m[2]:m[3]]
+		sep := s[m[2]:m[3]]
+		subdir := s[m[4]:m[5]]
 
 		if !shouldRewrite(s, start, end, subdir, migratedWorkflows, remoteSpans) {
 			continue
 		}
 
 		b.WriteString(s[last:start])
-		b.WriteString(".depot/" + subdir)
+		b.WriteString(".depot" + sep + subdir)
 		last = end
 		changed = true
 	}
@@ -415,14 +441,28 @@ func rewriteGitHubPaths(s string, migratedWorkflows map[string]bool) (string, bo
 }
 
 // boundaryChars are characters that can validly precede ".github/" as a path reference.
-// Prevents matching inside longer names like "myapp.github/actions".
-const boundaryChars = "/ \t\n\"'();|&="
+// Prevents matching inside longer names like "myapp.github/actions". The backslash is
+// included so regex/escaped-string forms in action sources (\.github/actions) are
+// treated as references, matching how the same paths in fixtures are rewritten.
+const boundaryChars = "/ \t\n\"'();|&=\\"
 
 // shouldRewrite decides whether a .github/(actions|workflows) match at [start:end]
 // should be replaced with .depot/.
 func shouldRewrite(s string, start, end int, subdir string, migratedWorkflows map[string]bool, remoteSpans [][]int) bool {
-	if start > 0 && !strings.ContainsRune(boundaryChars, rune(s[start-1])) {
-		return false
+	if start > 0 {
+		prev := s[start-1]
+		if prev == '\\' {
+			// An escaped dot (\.github) is only a path boundary when the backslash
+			// itself sits at a boundary. If a path character precedes the backslash —
+			// e.g. a regex like `myapp\.github/actions` — this is a longer token, not a
+			// path reference, and must be skipped just as the unescaped form
+			// (myapp.github/actions) is.
+			if start >= 2 && !strings.ContainsRune(boundaryChars, rune(s[start-2])) {
+				return false
+			}
+		} else if !strings.ContainsRune(boundaryChars, rune(prev)) {
+			return false
+		}
 	}
 
 	// Must not continue into a longer dir name (e.g., ".github/actions-custom")
@@ -452,11 +492,27 @@ func shouldRewrite(s string, start, end int, subdir string, migratedWorkflows ma
 	// Bare directory refs (e.g., "ls .github/workflows") are skipped when filtering
 	// is active since the directory still partially lives at .github/.
 	if subdir == "workflows" && migratedWorkflows != nil {
-		if end >= len(s) || s[end] != '/' {
+		// The separator after "workflows" may itself be escaped (\/) when the path
+		// is embedded in a regex or escaped string, so consume either form before
+		// reading the filename tail.
+		rest := s[end:]
+		switch {
+		case strings.HasPrefix(rest, "/"):
+			rest = rest[1:]
+		case strings.HasPrefix(rest, "\\/"):
+			rest = rest[2:]
+		default:
 			return false
 		}
-		tail := pathTailRe.FindString(s[end+1:])
-		if tail == "" || !migratedWorkflows[tail] {
+		tail := pathTailRe.FindString(rest)
+		if tail == "" {
+			return false
+		}
+		// The tail itself may carry escaped separators (scripts\/build.sh) when the
+		// reference is embedded in a regex or escaped string. The allow-list is keyed
+		// by plain slash paths (scripts/build.sh), so unescape before the lookup —
+		// otherwise an escaped nested-sibling reference would be left at .github/.
+		if !migratedWorkflows[strings.ReplaceAll(tail, "\\/", "/")] {
 			return false
 		}
 	}
@@ -485,6 +541,13 @@ func isURL(s string, idx int) bool {
 		if i >= 2 && s[i-2:i+1] == "://" {
 			return true
 		}
+		// Also recognize a backslash-escaped protocol separator (":\/"), which is how
+		// a URL appears when embedded in an escaped string literal or regex — e.g.
+		// "https:\/\/github.com\/org\/repo\/.github\/actions". Without this, the
+		// escaped-slash matching would rewrite .github inside such URLs.
+		if i >= 2 && s[i-2:i+1] == ":\\/" {
+			return true
+		}
 	}
 	return false
 }
@@ -498,6 +561,403 @@ func walkNodes(node *yaml.Node, fn func(*yaml.Node)) {
 	for _, child := range node.Content {
 		walkNodes(child, fn)
 	}
+}
+
+// sanitizeRunBlockScalars strips trailing whitespace from the lines of shell-step `run:`
+// block scalars. yaml.v3's emitter refuses block style for any scalar with a line ending
+// in a space or tab and silently falls back to a double-quoted, single-line string —
+// flattening a readable `run: |` block into "\n"-escaped text. In a POSIX shell that
+// trailing whitespace is inert (modulo the quote and continuation cases
+// trimTrailingWhitespace guards), so trimming it restores the block style, and with it
+// review legibility, without changing what runs.
+//
+// It is deliberately narrow on two axes so it never touches data:
+//   - Only genuine step `run:` fields under jobs.<job>.steps[] are considered. A block
+//     scalar passed to an action input that happens to be named `run` (under `with:`)
+//     is not a shell command and is left byte-exact, as are all other block scalars
+//     (e.g. `with: body: |`, whose trailing spaces may be Markdown hard breaks).
+//   - Only steps whose effective shell is POSIX (bash/sh, including the unset default on
+//     the Linux runners Depot CI targets) are trimmed. Under cmd, PowerShell, python,
+//     and the like trailing spaces can be significant (e.g. cmd `set NAME=value   `), so
+//     those run blocks are left byte-exact and yaml.v3 keeps them via its quoted fallback.
+func sanitizeRunBlockScalars(root *yaml.Node) {
+	_, jobsVal := findMappingKey(root, "jobs")
+	if jobsVal == nil || jobsVal.Kind != yaml.MappingNode {
+		return
+	}
+
+	workflowShell := defaultRunShell(root)
+
+	for i := 1; i < len(jobsVal.Content); i += 2 {
+		job := jobsVal.Content[i]
+		if job.Kind != yaml.MappingNode {
+			continue
+		}
+
+		jobShell := defaultRunShell(job)
+		if jobShell == "" {
+			jobShell = workflowShell
+		}
+
+		_, steps := findMappingKey(job, "steps")
+		if steps == nil || steps.Kind != yaml.SequenceNode {
+			continue
+		}
+		for _, step := range steps.Content {
+			if step.Kind != yaml.MappingNode {
+				continue
+			}
+			_, runVal := findMappingKey(step, "run")
+			if runVal == nil || runVal.Kind != yaml.ScalarNode {
+				continue
+			}
+			if runVal.Style != yaml.LiteralStyle && runVal.Style != yaml.FoldedStyle {
+				continue
+			}
+
+			shell := ""
+			if _, shellVal := findMappingKey(step, "shell"); shellVal != nil && shellVal.Kind == yaml.ScalarNode {
+				shell = shellVal.Value
+			}
+			if shell == "" {
+				shell = jobShell
+			}
+			if !isPOSIXShell(shell) {
+				continue
+			}
+
+			trimTrailingWhitespace(runVal)
+		}
+	}
+}
+
+// defaultRunShell returns the defaults.run.shell value declared on a workflow- or
+// job-level mapping, or "" when unset.
+func defaultRunShell(m *yaml.Node) string {
+	_, defaults := findMappingKey(m, "defaults")
+	if defaults == nil || defaults.Kind != yaml.MappingNode {
+		return ""
+	}
+	_, run := findMappingKey(defaults, "run")
+	if run == nil || run.Kind != yaml.MappingNode {
+		return ""
+	}
+	_, shell := findMappingKey(run, "shell")
+	if shell == nil || shell.Kind != yaml.ScalarNode {
+		return ""
+	}
+	return shell.Value
+}
+
+// isPOSIXShell reports whether a run step's effective shell is one where trailing
+// whitespace in the command text is inert. An empty value is the GitHub Actions default,
+// which is bash (falling back to sh) on the Linux and macOS runners Depot CI targets.
+// Anything else — pwsh, cmd, python, or a custom template like "perl {0}" — may attach
+// meaning to trailing whitespace, so those run blocks are left byte-exact.
+func isPOSIXShell(shell string) bool {
+	switch shell {
+	case "", "bash", "sh":
+		return true
+	default:
+		return false
+	}
+}
+
+// trimTrailingWhitespace strips trailing spaces and tabs from each line of a block
+// scalar's value, but only on lines where that whitespace is provably inert. It leaves
+// bytes untouched in the three cases where trailing whitespace is load-bearing in shell:
+// heredoc bodies, escaped line continuations, and text inside a quote that spans lines.
+func trimTrailingWhitespace(n *yaml.Node) {
+	// A heredoc payload can legitimately depend on trailing whitespace, and we can't
+	// tell a heredoc body from ordinary commands at this layer, so leave any scalar
+	// containing a heredoc operator untouched — yaml.v3's quoted fallback keeps it
+	// byte-exact. Ordinary run blocks (the common case) have no heredoc and are still
+	// tidied back into readable block style.
+	if strings.Contains(n.Value, "<<") {
+		return
+	}
+	lines := strings.Split(n.Value, "\n")
+	inSingle, inDouble := false, false
+	for i := range lines {
+		// A line's trailing whitespace is only safe to trim when the line does not
+		// end inside an open single- or double-quoted string. If a quote is still
+		// open, those spaces are string data continuing onto the next line — e.g.
+		// `printf '%s' 'foo  ` closing as `bar'` two lines down — and trimming them
+		// would change the value the shell sees. Track quote state across lines and
+		// skip any line that ends mid-quote; yaml.v3 then keeps that scalar quoted.
+		openAtEnd := quoteStateAtLineEnd(lines[i], &inSingle, &inDouble)
+		if openAtEnd {
+			continue
+		}
+		trimmed := strings.TrimRight(lines[i], " \t")
+		// Leave a line whose trimmed form ends in a line-continuation escape untouched.
+		// Trimming "foo \   " (a literal escaped space) down to "foo \" would splice
+		// this line onto the next, changing what the migrated workflow executes. The
+		// continuation character is shell-specific — backslash in POSIX sh, backtick in
+		// PowerShell, caret in cmd — so guard all three since a run step may set any of
+		// them via `shell:`. Such a line keeps its trailing whitespace, so yaml.v3 still
+		// quotes that one scalar; correctness wins over tidiness in this rare case.
+		if n := len(trimmed); n > 0 {
+			switch trimmed[n-1] {
+			case '\\', '`', '^':
+				continue
+			}
+		}
+		lines[i] = trimmed
+	}
+	n.Value = strings.Join(lines, "\n")
+}
+
+// quoteStateAtLineEnd scans a single line of shell text, advancing the single- and
+// double-quote state carried across lines, and reports whether a quote is still open
+// at the end of the line. It models the quoting rules that matter here: single quotes
+// are literal (no escapes, only another ' closes them); inside double quotes a backslash
+// (POSIX sh) or backtick (PowerShell) escapes the next character; and a backslash outside
+// quotes escapes the next character too. It is intentionally conservative — exotic forms
+// like $'...' ANSI-C quoting are not modeled — but every simplification errs toward
+// treating a quote as still open, which only ever leaves a scalar quoted (less tidy) and
+// never trims whitespace that was actually inside a quote.
+func quoteStateAtLineEnd(line string, inSingle, inDouble *bool) bool {
+	for i := 0; i < len(line); i++ {
+		c := line[i]
+		switch {
+		case *inSingle:
+			if c == '\'' {
+				*inSingle = false
+			}
+		case *inDouble:
+			switch c {
+			case '\\', '`':
+				i++ // \ (POSIX sh) or ` (PowerShell) escapes the next char inside double quotes
+			case '"':
+				*inDouble = false
+			}
+		default:
+			switch c {
+			case '\'':
+				*inSingle = true
+			case '"':
+				*inDouble = true
+			case '\\':
+				i++ // escaped char outside quotes
+			}
+		}
+	}
+	return *inSingle || *inDouble
+}
+
+// isCheckoutAction reports whether a `uses` value refers to actions/checkout.
+func isCheckoutAction(uses string) bool {
+	name := uses
+	if i := strings.IndexByte(name, '@'); i >= 0 {
+		name = name[:i]
+	}
+	return name == "actions/checkout"
+}
+
+// transformSparseCheckout augments actions/checkout `sparse-checkout` inputs instead of
+// letting the generic path pass rewrite them. Rewriting a sparse-checkout entry from
+// .github/ to .depot/ stops git from materializing .github/, which breaks steps that
+// still reference scripts living under .github/ — only .github/actions and the selected
+// .github/workflows move to .depot/, so everything else legitimately stays. To keep both
+// working, each .github/(actions|workflows) entry is preserved and a .depot/ sibling is
+// added, making the checkout a superset. The returned set marks the handled value nodes
+// (and their sequence items) so transformGitHubPaths leaves the .github/ entries alone.
+func transformSparseCheckout(root *yaml.Node, migratedWorkflows map[string]bool) (map[*yaml.Node]bool, []ChangeRecord) {
+	skip := make(map[*yaml.Node]bool)
+	augmented := false
+
+	_, jobsVal := findMappingKey(root, "jobs")
+	if jobsVal == nil || jobsVal.Kind != yaml.MappingNode {
+		return skip, nil
+	}
+
+	for i := 1; i < len(jobsVal.Content); i += 2 {
+		job := jobsVal.Content[i]
+		if job.Kind != yaml.MappingNode {
+			continue
+		}
+		_, steps := findMappingKey(job, "steps")
+		if steps == nil || steps.Kind != yaml.SequenceNode {
+			continue
+		}
+		for _, step := range steps.Content {
+			if step.Kind != yaml.MappingNode {
+				continue
+			}
+			_, uses := findMappingKey(step, "uses")
+			if uses == nil || uses.Kind != yaml.ScalarNode || !isCheckoutAction(uses.Value) {
+				continue
+			}
+			_, with := findMappingKey(step, "with")
+			if with == nil || with.Kind != yaml.MappingNode {
+				continue
+			}
+			_, sparse := findMappingKey(with, "sparse-checkout")
+			if sparse == nil {
+				continue
+			}
+			// Always skip the sparse-checkout value so the generic pass never
+			// rewrites its .github/ entries, whether or not we add siblings.
+			skip[sparse] = true
+			for _, item := range sparse.Content {
+				skip[item] = true
+			}
+			if augmentSparseCheckout(sparse, migratedWorkflows) {
+				augmented = true
+			}
+		}
+	}
+
+	if !augmented {
+		return skip, nil
+	}
+	return skip, []ChangeRecord{{
+		Type:   ChangeSparseCheckout,
+		Detail: "Added .depot/ paths alongside .github/ in checkout sparse-checkout (kept .github/ so steps that still reference it keep working)",
+	}}
+}
+
+// rewriteSparseEntry computes the .depot/ sibling for a single sparse-checkout entry,
+// preserving a leading "!" negation. In non-cone mode sparse-checkout accepts
+// gitignore-style patterns, so `!.github/actions/cache` excludes that path; mirroring it
+// to `!.depot/actions/cache` keeps the migrated checkout from re-including files the
+// original explicitly excluded.
+//
+// The .depot/ path is computed with the full (nil) filter so that even a bare
+// ".github/workflows" directory entry gains its .depot/workflows counterpart — a
+// partial filter would decline that (correctly, for a run: reference), but sparse-checkout
+// must still materialize the .depot/ tree the migration produced. To avoid the reverse
+// mistake — pointing sparse-checkout at a .depot/workflows/<file> that was never copied —
+// a specific workflow-file entry is only mirrored when that file is actually in the
+// partial allow-list (see sparseWorkflowCovered). Returns whether a sibling exists.
+func rewriteSparseEntry(entry string, migratedWorkflows map[string]bool) (string, bool) {
+	neg := ""
+	body := entry
+	if strings.HasPrefix(body, "!") {
+		neg = "!"
+		body = body[1:]
+	}
+	if migratedWorkflows != nil && !sparseWorkflowCovered(body, migratedWorkflows) {
+		return entry, false
+	}
+	depot, ok := rewriteGitHubPaths(body, nil)
+	if !ok {
+		return entry, false
+	}
+	return neg + depot, true
+}
+
+// sparseWorkflowCovered reports whether a sparse-checkout entry's .depot/ counterpart
+// will actually contain something after a partial migration. Actions always migrate, so
+// any non-workflows entry maps. A bare ".github/workflows" directory maps because it
+// holds the migrated workflows and their copied siblings. A glob under workflows
+// (e.g. ".github/workflows/*.yml") maps because it is self-limiting — it includes only
+// the migrated files that exist under .depot/workflows. A specific literal
+// ".github/workflows/<tail>" maps only when <tail> is a migrated file or a directory
+// prefix of one — otherwise .depot/workflows/<tail> would not exist and the mirrored
+// pattern would match nothing.
+func sparseWorkflowCovered(entry string, migratedWorkflows map[string]bool) bool {
+	const wf = ".github/workflows"
+	idx := strings.Index(entry, wf)
+	if idx < 0 {
+		return true // not a workflows entry (e.g. .github/actions) — always maps
+	}
+	rest := strings.TrimPrefix(entry[idx+len(wf):], "/")
+	tail := strings.TrimSuffix(rest, "/")
+	if tail == "" {
+		return true // the bare .github/workflows directory
+	}
+	// A glob pattern (gitignore-style, as non-cone sparse-checkout accepts) is
+	// self-limiting: mirroring ".github/workflows/*.yml" to ".depot/workflows/*.yml"
+	// includes whatever migrated files landed under .depot/workflows and matches nothing
+	// otherwise. Mirroring it is therefore always safe — and necessary, since the glob is
+	// how the original checked those files out. Only a literal path asserts one specific
+	// file, so only a literal tail is gated on actual coverage below.
+	if strings.ContainsAny(tail, "*?[") {
+		return true
+	}
+	for k := range migratedWorkflows {
+		if k == tail || strings.HasPrefix(k, tail+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+// augmentSparseCheckout adds a .depot/ sibling for each .github/(actions|workflows)
+// entry in a sparse-checkout value, leaving the original entries in place. See
+// rewriteSparseEntry for how the .depot/ path is derived under a partial migration.
+// Returns whether anything was added.
+//
+// The mirror is order-faithful: each .depot/ sibling keeps the relative position of its
+// .github/ source (inserted right after it in a block scalar, appended in source order in
+// a sequence). Non-cone sparse-checkout applies gitignore-style rules where the last
+// matching pattern wins, so preserving order is what makes the .depot/ patterns exclude
+// and include in the same sequence the author intended for .github/ — e.g. a
+// `.depot/actions` include followed by a `!.depot/actions/cache` exclude drops the cache
+// exactly as the original did. Because .github/ and .depot/ patterns live under different
+// top-level directories they never cross-match, so a .github/ line interleaved among the
+// .depot/ lines cannot change which .depot/ paths materialize; the outcome depends only on
+// the order among the .depot/ patterns, which equals the order among their .github/
+// sources. Reordering the mirror (e.g. hoisting includes above excludes) would instead
+// make the migrated checkout diverge from the source's own semantics.
+func augmentSparseCheckout(node *yaml.Node, migratedWorkflows map[string]bool) bool {
+	switch node.Kind {
+	case yaml.ScalarNode:
+		lines := strings.Split(node.Value, "\n")
+		existing := make(map[string]bool, len(lines))
+		for _, l := range lines {
+			existing[strings.TrimSpace(l)] = true
+		}
+		var out []string
+		changed := false
+		for _, l := range lines {
+			out = append(out, l)
+			trimmed := strings.TrimSpace(l)
+			if trimmed == "" {
+				continue
+			}
+			depot, ok := rewriteSparseEntry(trimmed, migratedWorkflows)
+			if !ok || depot == trimmed || existing[depot] {
+				continue
+			}
+			indent := l[:len(l)-len(strings.TrimLeft(l, " \t"))]
+			out = append(out, indent+depot)
+			existing[depot] = true
+			changed = true
+		}
+		if changed {
+			node.Value = strings.Join(out, "\n")
+		}
+		return changed
+
+	case yaml.SequenceNode:
+		existing := make(map[string]bool, len(node.Content))
+		for _, item := range node.Content {
+			if item.Kind == yaml.ScalarNode {
+				existing[item.Value] = true
+			}
+		}
+		var additions []*yaml.Node
+		for _, item := range node.Content {
+			if item.Kind != yaml.ScalarNode {
+				continue
+			}
+			depot, ok := rewriteSparseEntry(item.Value, migratedWorkflows)
+			if !ok || depot == item.Value || existing[depot] {
+				continue
+			}
+			additions = append(additions, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: depot})
+			existing[depot] = true
+		}
+		if len(additions) > 0 {
+			node.Content = append(node.Content, additions...)
+			return true
+		}
+		return false
+	}
+	return false
 }
 
 // RewriteGitHubPathsInDir walks a directory and rewrites .github/ → .depot/ references
@@ -518,33 +978,49 @@ func RewriteGitHubPathsInDir(dir string, migratedWorkflows map[string]bool) (int
 		if d.IsDir() || d.Type()&os.ModeSymlink != 0 {
 			return nil
 		}
-
-		info, err := d.Info()
+		changed, err := RewriteGitHubPathsInFile(path, migratedWorkflows)
 		if err != nil {
-			return fmt.Errorf("failed to stat %s: %w", path, err)
+			return err
 		}
-
-		raw, err := os.ReadFile(path)
-		if err != nil {
-			return fmt.Errorf("failed to read %s: %w", path, err)
+		if changed {
+			rewritten++
 		}
-
-		if isBinary(raw) {
-			return nil
-		}
-
-		result, changed := rewriteGitHubPaths(string(raw), migratedWorkflows)
-		if !changed {
-			return nil
-		}
-
-		if err := os.WriteFile(path, []byte(result), info.Mode().Perm()); err != nil {
-			return fmt.Errorf("failed to write %s: %w", path, err)
-		}
-		rewritten++
 		return nil
 	})
 	return rewritten, err
+}
+
+// RewriteGitHubPathsInFile rewrites .github/ → .depot/ references in a single text
+// file, skipping symlinks and binary files and preserving the file's permissions.
+// It reports whether the file was modified. Used for copied assets (action files and
+// workflow sibling files) that don't pass through the YAML transform pipeline.
+func RewriteGitHubPathsInFile(path string, migratedWorkflows map[string]bool) (bool, error) {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return false, fmt.Errorf("failed to stat %s: %w", path, err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return false, nil
+	}
+
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return false, fmt.Errorf("failed to read %s: %w", path, err)
+	}
+
+	if isBinary(raw) {
+		return false, nil
+	}
+
+	result, changed := rewriteGitHubPaths(string(raw), migratedWorkflows)
+	if !changed {
+		return false, nil
+	}
+
+	if err := os.WriteFile(path, []byte(result), info.Mode().Perm()); err != nil {
+		return false, fmt.Errorf("failed to write %s: %w", path, err)
+	}
+	return true, nil
 }
 
 // commentOutDisabledJobs does a text-level pass to comment out entire job blocks.

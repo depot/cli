@@ -338,3 +338,93 @@ func TestCopyMissingSubDir(t *testing.T) {
 		t.Errorf("workflows/ci.yml not found: %v", err)
 	}
 }
+
+// TestCopyWorkflowSiblings verifies that non-YAML sibling files under
+// .github/workflows/ are mirrored into .depot/workflows/ while YAML workflows and
+// symlinks are skipped.
+func TestCopyWorkflowSiblings(t *testing.T) {
+	tmpDir := t.TempDir()
+	srcDir := filepath.Join(tmpDir, ".github", "workflows")
+	if err := os.MkdirAll(filepath.Join(srcDir, "scripts"), 0755); err != nil {
+		t.Fatalf("failed to create source dir: %v", err)
+	}
+
+	// YAML workflow — should NOT be copied by this helper.
+	if err := os.WriteFile(filepath.Join(srcDir, "ci.yml"), []byte("name: CI\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	// Sibling script at the top level and in a subdirectory — should be copied.
+	if err := os.WriteFile(filepath.Join(srcDir, "helper.sh"), []byte("#!/bin/sh\necho hi\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(srcDir, "scripts", "deploy.sh"), []byte("#!/bin/sh\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	destDir := filepath.Join(tmpDir, ".depot", "workflows")
+	copied, err := CopyWorkflowSiblings(srcDir, destDir)
+	if err != nil {
+		t.Fatalf("CopyWorkflowSiblings failed: %v", err)
+	}
+
+	if len(copied) != 2 {
+		t.Errorf("expected 2 sibling files copied, got %d: %v", len(copied), copied)
+	}
+
+	// YAML must not be mirrored by this helper.
+	if _, err := os.Stat(filepath.Join(destDir, "ci.yml")); !os.IsNotExist(err) {
+		t.Errorf("expected ci.yml NOT to be copied, stat err: %v", err)
+	}
+
+	// Siblings must exist with content and layout preserved.
+	helper := filepath.Join(destDir, "helper.sh")
+	if data, err := os.ReadFile(helper); err != nil {
+		t.Errorf("expected helper.sh copied: %v", err)
+	} else if !strings.Contains(string(data), "echo hi") {
+		t.Errorf("helper.sh content not preserved: %q", data)
+	}
+	// Executable bit preserved.
+	if info, err := os.Stat(helper); err != nil {
+		t.Errorf("stat helper.sh: %v", err)
+	} else if info.Mode().Perm()&0100 == 0 {
+		t.Errorf("expected helper.sh to stay executable, got %v", info.Mode().Perm())
+	}
+	if _, err := os.Stat(filepath.Join(destDir, "scripts", "deploy.sh")); err != nil {
+		t.Errorf("expected scripts/deploy.sh copied preserving layout: %v", err)
+	}
+}
+
+// TestCopyWorkflowSiblings_OverwritePreservesMode verifies that re-copying over an
+// existing destination file resets its mode to match the source, since OpenFile only
+// applies the mode when creating a new file.
+func TestCopyWorkflowSiblings_OverwritePreservesMode(t *testing.T) {
+	tmpDir := t.TempDir()
+	srcDir := filepath.Join(tmpDir, ".github", "workflows")
+	destDir := filepath.Join(tmpDir, ".depot", "workflows")
+	if err := os.MkdirAll(srcDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(destDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Executable source, but a pre-existing non-executable destination.
+	if err := os.WriteFile(filepath.Join(srcDir, "helper.sh"), []byte("#!/bin/sh\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(destDir, "helper.sh"), []byte("stale\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := CopyWorkflowSiblings(srcDir, destDir); err != nil {
+		t.Fatalf("CopyWorkflowSiblings failed: %v", err)
+	}
+
+	info, err := os.Stat(filepath.Join(destDir, "helper.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0755 {
+		t.Errorf("expected overwritten sibling mode 0755, got %v", info.Mode().Perm())
+	}
+}
