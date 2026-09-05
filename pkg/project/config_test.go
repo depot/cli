@@ -3,6 +3,7 @@ package project
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -14,6 +15,16 @@ func TestWriteAndReadConfigJSON(t *testing.T) {
 	err := WriteConfig(filename, cfg)
 	if err != nil {
 		t.Fatalf("WriteConfig failed: %v", err)
+	}
+
+	content, err := os.ReadFile(filename)
+	if err != nil {
+		t.Fatalf("ReadFile failed: %v", err)
+	}
+
+	// Verify JSON is pretty-printed with indent
+	if !strings.Contains(string(content), "  \"id\": \"proj_12345\"") {
+		t.Errorf("expected indented JSON output, got:\n%s", string(content))
 	}
 
 	readCfg, path, err := ReadConfig(dir)
@@ -36,27 +47,21 @@ func TestWriteConfigNilGuard(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error when writing nil config, got nil")
 	}
+	if err.Error() != "config cannot be nil" {
+		t.Errorf("expected 'config cannot be nil' error, got %v", err)
+	}
 }
 
-func TestFindConfigFileUp(t *testing.T) {
-	root := t.TempDir()
-	sub := filepath.Join(root, "a", "b")
-	err := os.MkdirAll(sub, 0755)
-	if err != nil {
-		t.Fatalf("failed to create temp dirs: %v", err)
-	}
+func TestWriteConfigUnsupportedExtension(t *testing.T) {
+	dir := t.TempDir()
+	filename := filepath.Join(dir, "depot.txt")
 
-	target := filepath.Join(root, "depot.yml")
-	err = os.WriteFile(target, []byte("id: test_id\n"), 0644)
-	if err != nil {
-		t.Fatalf("failed to write config: %v", err)
+	cfg := &ProjectConfig{ID: "proj_12345"}
+	err := WriteConfig(filename, cfg)
+	if err == nil {
+		t.Fatal("expected error for unsupported extension, got nil")
 	}
-
-	found, err := FindConfigFileUp(sub)
-	if err != nil {
-		t.Fatalf("FindConfigFileUp failed: %v", err)
-	}
-	if found != target {
-		t.Errorf("expected %s, got %s", target, found)
+	if !strings.Contains(err.Error(), "unsupported config file extension") {
+		t.Errorf("expected error containing 'unsupported config file extension', got %v", err)
 	}
 }
