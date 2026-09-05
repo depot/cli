@@ -40,7 +40,7 @@ func WriteConfig(filename string, config *ProjectConfig) error {
 
 	switch ext {
 	case ".json":
-		data, err = json.Marshal(config)
+		data, err = json.MarshalIndent(config, "", "  ")
 		if err != nil {
 			return err
 		}
