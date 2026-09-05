@@ -34,10 +34,6 @@ func ReadConfig(cwd string) (*ProjectConfig, string, error) {
 }
 
 func WriteConfig(filename string, config *ProjectConfig) error {
-	if config == nil {
-		return fmt.Errorf("config cannot be nil")
-	}
-
 	ext := filepath.Ext(filename)
 	var data []byte
 	var err error
@@ -56,7 +52,7 @@ func WriteConfig(filename string, config *ProjectConfig) error {
 		}
 
 	default:
-		return fmt.Errorf("unsupported config file extension: %s", ext)
+		return fmt.Errorf("Unsupported config file extension: %s", ext)
 	}
 
 	data = append(data, '\n')

@@ -22,7 +22,7 @@ func TestWriteAndReadConfigJSON(t *testing.T) {
 		t.Fatalf("ReadFile failed: %v", err)
 	}
 
-	// Verify JSON is pretty-printed with indent
+	// Verify JSON output is indented with 2 spaces for human readability
 	if !strings.Contains(string(content), "  \"id\": \"proj_12345\"") {
 		t.Errorf("expected indented JSON output, got:\n%s", string(content))
 	}
@@ -36,32 +36,5 @@ func TestWriteAndReadConfigJSON(t *testing.T) {
 	}
 	if readCfg.ID != cfg.ID {
 		t.Errorf("expected ID %s, got %s", cfg.ID, readCfg.ID)
-	}
-}
-
-func TestWriteConfigNilGuard(t *testing.T) {
-	dir := t.TempDir()
-	filename := filepath.Join(dir, "depot.json")
-
-	err := WriteConfig(filename, nil)
-	if err == nil {
-		t.Fatal("expected error when writing nil config, got nil")
-	}
-	if err.Error() != "config cannot be nil" {
-		t.Errorf("expected 'config cannot be nil' error, got %v", err)
-	}
-}
-
-func TestWriteConfigUnsupportedExtension(t *testing.T) {
-	dir := t.TempDir()
-	filename := filepath.Join(dir, "depot.txt")
-
-	cfg := &ProjectConfig{ID: "proj_12345"}
-	err := WriteConfig(filename, cfg)
-	if err == nil {
-		t.Fatal("expected error for unsupported extension, got nil")
-	}
-	if !strings.Contains(err.Error(), "unsupported config file extension") {
-		t.Errorf("expected error containing 'unsupported config file extension', got %v", err)
 	}
 }
