@@ -538,6 +538,11 @@ func injectPatchStep(jobs map[string]interface{}, jobName, mergeBase, workspaceP
 	}
 	stepsRaw, ok := job["steps"]
 	if !ok {
+		if _, ok := job["uses"].(string); ok {
+			fmt.Fprintf(os.Stderr, "Warning: job %q calls a reusable workflow, so your local changes were not applied. This job will run the code at %s.\n", jobName, mergeBase)
+		} else {
+			fmt.Fprintf(os.Stderr, "Warning: job %q has no steps, skipping patch injection.\n", jobName)
+		}
 		return
 	}
 	steps, ok := stepsRaw.([]interface{})
