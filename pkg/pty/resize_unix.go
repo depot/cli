@@ -12,8 +12,8 @@ import (
 	"golang.org/x/term"
 )
 
-// watchTerminalResize listens for SIGWINCH and sends resize messages via sendCh.
-// Stops when ctx is cancelled. Returns a cleanup function to stop watching.
+// watchTerminalResize listens for SIGWINCH and sends civ1 resize messages
+// via sendCh (legacy CI bastion PTY path).
 func watchTerminalResize(
 	ctx context.Context,
 	fd int,

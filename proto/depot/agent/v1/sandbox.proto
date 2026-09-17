@@ -15,7 +15,7 @@ service SandboxService {
   rpc AddSecret(AddSecretRequest) returns (AddSecretResponse);
   rpc RemoveSecret(RemoveSecretRequest) returns (RemoveSecretResponse);
   rpc ListSecrets(ListSecretsRequest) returns (ListSecretsResponse);
-  
+
   // Shutdown is called from within the sandbox to gracefully terminate
   rpc Shutdown(ShutdownRequest) returns (ShutdownResponse);
 }

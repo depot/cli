@@ -1,0 +1,64 @@
+// A durable filesystem snapshot of a sandbox, with the RPCs to create, get,
+// list, and delete one.
+//
+// This file defines the wire surface and the SDK ergonomics for snapshots. The
+// underlying snapshot and restore pipeline is not yet implemented, so the
+// handlers currently return Unimplemented.
+//
+// The selector used to reference a snapshot, SnapshotRef, is defined in
+// refs.proto.
+
+syntax = "proto3";
+
+package depot.sandbox.v1;
+
+import "depot/sandbox/v1/refs.proto";
+import "google/protobuf/duration.proto";
+import "google/protobuf/timestamp.proto";
+
+// A snapshot, as returned by the snapshot RPCs.
+//
+// expires_at is reserved for a future time-to-live feature and is currently
+// left unset.
+message Snapshot {
+  string snapshot_id = 1;
+  string source_sandbox_id = 2;
+  google.protobuf.Timestamp created_at = 3;
+  optional google.protobuf.Timestamp expires_at = 4;
+}
+
+message CreateSnapshotRequest {
+  SandboxRef sandbox = 1;
+  // Requested time-to-live for the snapshot. The server currently ignores this
+  // value; the field exists so the SDK option is available now and a future
+  // version can honor it without a wire break.
+  optional google.protobuf.Duration expiration = 2;
+}
+
+message CreateSnapshotResponse {
+  Snapshot snapshot = 1;
+}
+
+message GetSnapshotRequest {
+  SnapshotRef snapshot = 1;
+}
+
+message GetSnapshotResponse {
+  Snapshot snapshot = 1;
+}
+
+message ListSnapshotsRequest {
+  optional int32 page_size = 1;
+  optional string page_token = 2;
+}
+
+message ListSnapshotsResponse {
+  repeated Snapshot snapshots = 1;
+  optional string next_page_token = 2;
+}
+
+message DeleteSnapshotRequest {
+  SnapshotRef snapshot = 1;
+}
+
+message DeleteSnapshotResponse {}

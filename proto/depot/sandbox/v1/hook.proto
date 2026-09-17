@@ -1,0 +1,54 @@
+// Hook definitions and the request envelope for the RunHook RPC.
+//
+// This file holds the messages a hook needs: the value shapes (HookSpec and
+// HookStage) that a sandbox spec uses to declare hooks, plus RunHookRequest,
+// which the RunHook RPC takes.
+//
+// These messages live here rather than alongside the spec messages so that the
+// service definition can import them without creating an import cycle. The
+// service's proto imports this file for RunHookRequest, and the spec proto
+// imports the service's proto for shared types, so the hook messages must sit
+// in a file that does not depend on either of those.
+//
+// RunHook is reachable on the wire but is not exposed on the public SDK
+// surface; it is invoked internally when a sandbox is created from a spec.
+
+syntax = "proto3";
+
+package depot.sandbox.v1;
+
+import "depot/sandbox/v1/refs.proto";
+
+// A single hook command that runs during one lifecycle stage. A spec may
+// declare a hook as a bare string ("echo hi"), which is normalized into a
+// HookSpec with that string as its command.
+message HookSpec {
+  string command = 1;
+  optional bool detach = 2;
+  optional string name = 3;
+  optional int32 timeout_seconds = 4;
+}
+
+// Names a sandbox lifecycle stage that a hook can run in. The stage is
+// metadata: a hook runs the same way regardless of which stage it belongs to,
+// and the caller decides which stages it fires.
+enum HookStage {
+  HOOK_STAGE_UNSPECIFIED = 0;
+  HOOK_STAGE_CREATE = 1;
+  HOOK_STAGE_START = 2;
+  HOOK_STAGE_EXEC = 3;
+  HOOK_STAGE_SHELL = 4;
+  HOOK_STAGE_SNAPSHOT = 5;
+  HOOK_STAGE_DOWN = 6;
+}
+
+// Request to run a single hook. RunHook is server-streaming and emits the same
+// event shape as RunCommand: a Started event, then stdout/stderr byte chunks,
+// then a Finished event. A detached hook (detach = true) only emits Started and
+// a Finished event with exit code 0; its output is written to a log file under
+// /var/log/depot inside the sandbox instead of streaming back.
+message RunHookRequest {
+  SandboxRef sandbox = 1;
+  HookStage stage = 2;
+  HookSpec hook = 3;
+}

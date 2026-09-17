@@ -1,0 +1,26 @@
+// Value types describing the compute resources and runtime environment
+// requested for a sandbox.
+
+syntax = "proto3";
+
+package depot.sandbox.v1;
+
+// Compute resources a caller can request for a sandbox. Every field is
+// optional; any field left unset falls back to a server-chosen default.
+message Resources {
+  optional int32 vcpus = 1;
+  optional int32 memory_mb = 2;
+  optional int32 disk_gb = 3;
+}
+
+// Selects the runtime environment for a sandbox. Choose exactly one option.
+message Runtime {
+  oneof runtime {
+    // A named, curated runtime resolved by the server, such as "node24".
+    // Any string is accepted on the wire; the server may reject names it
+    // does not recognize.
+    string named = 1;
+    // An OCI image reference to use directly as the runtime.
+    string image_ref = 2;
+  }
+}
