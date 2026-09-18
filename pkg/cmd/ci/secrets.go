@@ -689,12 +689,8 @@ secret.`,
 				}
 			}
 
-			// The selectors describe a job context. Route both the single-secret and list-all cases
-			// through the same context-aware RPC so the server annotates each variant with its
-			// resolution (which one wins, which are shadowed) and orders winners first. The server
-			// also decides which variants are relevant to the context (with the same pattern
-			// semantics it uses at runtime), so we deliberately do not re-filter variants here — a
-			// client-side filter would risk dropping a variant the server just resolved.
+			// Let the server resolve and order variants for the job context; client-side filtering could
+			// drop a pattern-matched variant that the server resolved.
 			hasContext := hasVariantSelectors(repo, environment, branch, workflow)
 			opts := api.CIListSecretVariantsOptions{
 				Repo:        repo,
@@ -712,9 +708,7 @@ secret.`,
 			}
 
 			if len(args) == 1 {
-				// `query` is a substring match, so narrow to the exact secret. Preserve the
-				// direct-lookup behavior of reporting a missing secret as an error rather than an
-				// empty list.
+				// Query is a substring match, so preserve direct lookup's exact-name and missing errors.
 				filtered := result.Secrets[:0]
 				for i := range result.Secrets {
 					if strings.EqualFold(result.Secrets[i].Name, args[0]) {
@@ -726,9 +720,7 @@ secret.`,
 					return fmt.Errorf("secret %q not found", args[0])
 				}
 			} else if hasContext {
-				// With a context, the server returns every secret annotated for that context. Drop
-				// secrets that have no variant relevant to it so the listing stays focused, matching
-				// the behavior of `variables list`.
+				// Keep only secrets with a variant relevant to the supplied context.
 				filtered := result.Secrets[:0]
 				for i := range result.Secrets {
 					if len(result.Secrets[i].Variants) > 0 {
@@ -763,11 +755,7 @@ secret.`,
 	return cmd
 }
 
-// printSecretVariantsTable renders secrets and their variants. When hasContext is true the request
-// carried a job context, so each variant shows a STATUS that reveals which one wins and which are
-// silently overridden. STATUS is the last column because its labels are the widest and variable in
-// length. Without context there is no single winner to report, so the STATUS column is omitted and a
-// hint points at the selector flags.
+// printSecretVariantsTable renders variants and adds STATUS when a job context was supplied.
 func printSecretVariantsTable(secrets []api.CISecretGroup, hasContext bool) {
 	const (
 		nameWidth    = 28

@@ -726,9 +726,7 @@ type CISecretVariant struct {
 	Attributes      []CIVariantAttribute `json:"attributes,omitempty"`
 	LastModified    string               `json:"lastModified,omitempty"`
 	ValueGroupIndex *uint32              `json:"valueGroupIndex,omitempty"`
-	// Resolution is populated by list requests that carry a job context. It reports whether this
-	// variant wins for that context ("resolved"), is outranked by another variant ("lower-priority"),
-	// or could still win with more context ("indeterminate"). Empty when no context was supplied.
+	// Resolution is set for context-aware lists: resolved, lower-priority, or indeterminate.
 	Resolution string `json:"resolution,omitempty"`
 }
 
@@ -765,9 +763,7 @@ type CISetSecretVariantResult struct {
 func CIListSecretVariants(ctx context.Context, token, orgID string, opts CIListSecretVariantsOptions) (CIListSecretVariantsResult, error) {
 	client := newCISecretServiceV3Beta2Client()
 
-	// The selectors describe a job context, so send them as `context`: the server annotates every
-	// variant with its resolution (winner / shadowed / indeterminate) and orders winners first,
-	// rather than filtering variants out. This is what makes variant shadowing visible.
+	// Send selectors as context so the server annotates and orders variants instead of filtering them.
 	context := ciAttributes(opts.Repo, opts.Environment, opts.Branch, opts.Workflow)
 	result := CIListSecretVariantsResult{Secrets: []CISecretGroup{}}
 	for page := uint32(ciDefaultPage); ; page++ {
@@ -948,10 +944,7 @@ type CIVariableGroup struct {
 	Variants     []CIVariableVariant `json:"variants"`
 	VariantCount uint32              `json:"variantCount"`
 	LastModified string              `json:"lastModified,omitempty"`
-	// Resolution is populated by list requests that carry a job context. Unlike secrets, variables
-	// report resolution only at the group level: "resolved" means the first (winner-ordered) variant
-	// is the definite winner for that context and any later variants are shadowed; "indeterminate"
-	// means more context is needed to pick a winner. Empty when no context was supplied.
+	// Resolution is group-level for variables; variants are returned winner-first for resolved groups.
 	Resolution string `json:"resolution,omitempty"`
 }
 
@@ -999,9 +992,7 @@ type CISetVariableVariantResult struct {
 func CIListVariableVariants(ctx context.Context, token, orgID string, opts CIListVariableVariantsOptions) (CIListVariableVariantsResult, error) {
 	client := newCIVariableServiceV3Beta2Client()
 
-	// The selectors describe a job context, so send them as `context`: the server annotates the
-	// variable group with its resolution and orders variants winner-first, rather than filtering
-	// variants out. This is what makes variant shadowing visible (mirrors CIListSecretVariants).
+	// Send selectors as context so the server annotates and orders variants instead of filtering them.
 	context := ciAttributes(opts.Repo, opts.Environment, opts.Branch, opts.Workflow)
 	result := CIListVariableVariantsResult{Variables: []CIVariableGroup{}}
 	for page := uint32(ciDefaultPage); ; page++ {

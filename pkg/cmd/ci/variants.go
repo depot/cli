@@ -11,15 +11,10 @@ import (
 
 const defaultVariantName = "default"
 
-// maxShadowProbes bounds how many distinct sibling scopes the write-path shadow check will probe,
-// so a bulk import can't fan out into an unbounded number of follow-up requests.
+// maxShadowProbes bounds follow-up requests made by a write-path shadow check.
 const maxShadowProbes = 16
 
-// shadowProbeBudget caps the total number of shadow-probe list RPCs a single command may issue.
-// A single set/add gets its own full budget, but a bulk write (many KEY=VALUE pairs, or a dotenv
-// import) shares one budget across every item so a large import can't fan out into hundreds of
-// advisory reads after the writes have already succeeded. A nil budget means "unbounded" (each call
-// is still capped at maxShadowProbes by shadowProbeContexts).
+// shadowProbeBudget shares a probe limit across bulk writes; nil leaves the per-write limit in place.
 type shadowProbeBudget struct {
 	remaining int
 }
@@ -28,7 +23,7 @@ func newShadowProbeBudget(n int) *shadowProbeBudget {
 	return &shadowProbeBudget{remaining: n}
 }
 
-// take reserves up to n probes from the budget and returns how many are allowed.
+// take reserves up to n probes and returns the number allowed.
 func (b *shadowProbeBudget) take(n int) int {
 	if b == nil {
 		return n
@@ -62,9 +57,7 @@ func formatVariantAttributes(attrs []api.CIVariantAttribute) string {
 	return strings.Join(parts, ",")
 }
 
-// variantStatusLabel turns a server-computed resolution into a short column value for the list table.
-// It is only meaningful when the list request carried a job context; without context the resolution is
-// empty and this returns "-".
+// variantStatusLabel maps the server's resolution to the list-table label.
 func variantStatusLabel(resolution string) string {
 	switch resolution {
 	case "resolved":
@@ -78,8 +71,7 @@ func variantStatusLabel(resolution string) string {
 	}
 }
 
-// contextFromAttributes splits stored variant attributes back into the per-dimension selector slices
-// that the list RPC accepts as a job context.
+// contextFromAttributes converts stored attributes into list-RPC context selectors.
 func contextFromAttributes(attrs []api.CIVariantAttribute) (repo, environment, branch, workflow []string) {
 	for _, attr := range attrs {
 		switch attr.Key {
@@ -96,9 +88,7 @@ func contextFromAttributes(attrs []api.CIVariantAttribute) (repo, environment, b
 	return repo, environment, branch, workflow
 }
 
-// selectorHintFromAttributes renders a variant's scope as the flags a user would pass to reproduce it,
-// e.g. `--repo owner/repo --env production`. Used to point at the exact `secrets list` invocation that
-// reveals a shadowing variant.
+// selectorHintFromAttributes renders a variant scope as list-command flags.
 func selectorHintFromAttributes(attrs []api.CIVariantAttribute) string {
 	flagFor := map[string]string{
 		"repository":  "--repo",
@@ -115,15 +105,8 @@ func selectorHintFromAttributes(attrs []api.CIVariantAttribute) string {
 	return strings.Join(parts, " ")
 }
 
-// warnSecretVariantShadowed prints an advisory to stderr when the secret variant that was just written
-// is overridden by a more specific variant in some job context. This closes the "reported success but
-// nothing changed" gap — e.g. re-importing the default value while a repository-scoped variant keeps
-// winning for that repository.
-//
-// Precedence stays server-authoritative: for each sibling variant's scope we ask the server (via a
-// context-aware list) which variant wins there, and only warn when the server marks the variant we
-// just wrote as lower-priority. The CLI never recomputes the specificity weights. The write has
-// already succeeded, so any failure of the follow-up read is swallowed rather than surfaced.
+// warnSecretVariantShadowed warns when the just-written variant is shadowed. Resolution stays
+// server-authoritative, and probe failures are ignored because the write already succeeded.
 func warnSecretVariantShadowed(ctx context.Context, token, orgID string, res api.CISetSecretVariantResult, budget *shadowProbeBudget) {
 	written := res.Variant
 	secretName := res.Secret.Name
@@ -161,10 +144,8 @@ func warnSecretVariantShadowed(ctx context.Context, token, orgID string, res api
 	emitShadowWarning("secrets", secretName, shadowerScopes)
 }
 
-// warnVariableVariantShadowed is the variable-command counterpart of warnSecretVariantShadowed. It
-// works the same way — probe each sibling scope and let the server decide the winner — but variables
-// report resolution only at the group level, so shadowing is read from the server's winner-first
-// ordering rather than a per-row lower-priority flag (see variableShadowingWinner).
+// warnVariableVariantShadowed is the variable counterpart; variables use group-level resolution and
+// winner-first ordering instead of per-variant resolution.
 func warnVariableVariantShadowed(ctx context.Context, token, orgID string, res api.CISetVariableVariantResult, budget *shadowProbeBudget) {
 	written := res.Variant
 	varName := res.Variable.Name
@@ -200,13 +181,9 @@ func warnVariableVariantShadowed(ctx context.Context, token, orgID string, res a
 	emitShadowWarning("vars", varName, shadowerScopes)
 }
 
-// shadowProbeContexts computes the distinct job contexts worth probing for a just-written variant: one
-// per sibling scope that could apply to the same job. A sibling with no attributes is the catch-all
-// default, which can never shadow another variant by specificity, so it is skipped; a sibling whose
-// scope is disjoint from the written variant's can never apply to the same job, so it is skipped too.
-// Each remaining probe context is the written variant's own scope widened with the dimensions the
-// sibling constrains that the written variant leaves open. Results are de-duplicated and capped at
-// maxShadowProbes so a bulk import can't fan out into an unbounded number of follow-up requests.
+// shadowProbeContexts returns distinct, bounded contexts for siblings that could overlap the write.
+// The written scope is widened only by dimensions the sibling adds; catch-all and disjoint siblings
+// cannot shadow it.
 func shadowProbeContexts(written []api.CIVariantAttribute, siblings [][]api.CIVariantAttribute) [][]api.CIVariantAttribute {
 	writtenByKey := map[string]map[string]bool{}
 	for _, attr := range written {
@@ -240,8 +217,7 @@ func shadowProbeContexts(written []api.CIVariantAttribute, siblings [][]api.CIVa
 	return probes
 }
 
-// emitShadowWarning prints the stderr advisory pointing at the list command that reveals the shadowing
-// winner. kind is the CLI noun ("secrets" or "vars") so the hint names the right command.
+// emitShadowWarning prints the list command that reveals the shadowing winner.
 func emitShadowWarning(kind, name string, shadowerScopes []string) {
 	if len(shadowerScopes) == 0 {
 		return
@@ -254,13 +230,8 @@ func emitShadowWarning(kind, name string, shadowerScopes []string) {
 	fmt.Fprintf(os.Stderr, "         Run `depot ci %s list %s %s` to see which variant wins.\n", kind, name, hint)
 }
 
-// scopesDisjoint reports whether a sibling's attributes contradict the written variant on any shared
-// dimension, meaning no single job can match both. A dimension only contradicts when the two constrain
-// it to entirely different value sets; attributes are repeatable, so a shared dimension with any
-// overlapping value (an OR within the dimension) still lets both apply. Selector values may be globs
-// (for example a branch of release/*), which an exact-string comparison would wrongly treat as a
-// mismatch, so a pattern on either side keeps the dimension non-disjoint — the probe errs toward asking
-// the server rather than silently skipping a sibling that could still match.
+// scopesDisjoint reports whether no job can match both scopes. Repeatable values overlap when any value
+// matches; patterns remain potentially overlapping so the probe errs toward asking the server.
 func scopesDisjoint(writtenByKey map[string]map[string]bool, siblingAttrs []api.CIVariantAttribute) bool {
 	siblingByKey := map[string][]string{}
 	for _, attr := range siblingAttrs {
@@ -293,17 +264,12 @@ func scopesDisjoint(writtenByKey map[string]map[string]bool, siblingAttrs []api.
 	return false
 }
 
-// looksLikePattern reports whether an attribute value uses glob syntax, as branch and workflow
-// selectors may. Such a value can match jobs an exact-string comparison would miss, so the disjoint
-// check treats it as potentially overlapping.
+// looksLikePattern reports whether a selector may contain glob syntax.
 func looksLikePattern(value string) bool {
 	return strings.ContainsAny(value, "*?[]{}")
 }
 
-// normalizeScopeValue canonicalizes an attribute value for equality comparison. Repository names match
-// case-insensitively everywhere else in this file (see anyAttributeValueMatches), so the disjoint check
-// must too — otherwise a sibling scoped to owner/Repo would be wrongly judged disjoint from a written
-// owner/repo and its shadowing would go unwarned. Other dimensions compare exactly.
+// normalizeScopeValue applies the same case-insensitive comparison used for repositories elsewhere.
 func normalizeScopeValue(key, value string) string {
 	if key == "repository" {
 		return strings.ToLower(value)
@@ -311,8 +277,7 @@ func normalizeScopeValue(key, value string) string {
 	return value
 }
 
-// mergeScopes returns the written variant's attributes plus any dimension the sibling constrains that
-// the written variant leaves open.
+// mergeScopes adds dimensions constrained only by the sibling.
 func mergeScopes(writtenAttrs, siblingAttrs []api.CIVariantAttribute) []api.CIVariantAttribute {
 	constrained := map[string]bool{}
 	merged := make([]api.CIVariantAttribute, 0, len(writtenAttrs)+len(siblingAttrs))
@@ -328,8 +293,7 @@ func mergeScopes(writtenAttrs, siblingAttrs []api.CIVariantAttribute) []api.CIVa
 	return merged
 }
 
-// shadowingWinner finds, within the server's context-resolved response, the variant that wins over the
-// just-written variant when that written variant came back lower-priority.
+// shadowingWinner returns the server-reported winner when the write is lower priority.
 func shadowingWinner(secrets []api.CISecretGroup, secretName, writtenID string) (api.CISecretVariant, bool) {
 	for _, group := range secrets {
 		if !strings.EqualFold(group.Name, secretName) {
@@ -354,10 +318,8 @@ func shadowingWinner(secrets []api.CISecretGroup, secretName, writtenID string) 
 	return api.CISecretVariant{}, false
 }
 
-// variableShadowingWinner is the variable counterpart of shadowingWinner. Variables carry resolution
-// only at the group level, so instead of a per-row lower-priority flag it reads the server's
-// winner-first ordering: when the group resolved to a definite winner and the just-written variant is
-// present among the candidates but is not that winner, it is shadowed and the winner is the top row.
+// variableShadowingWinner uses a resolved group's winner-first ordering because variables report
+// resolution only at group level.
 func variableShadowingWinner(variables []api.CIVariableGroup, name, writtenID string) (api.CIVariableVariant, bool) {
 	for _, group := range variables {
 		if !strings.EqualFold(group.Name, name) {
@@ -379,12 +341,7 @@ func variableShadowingWinner(variables []api.CIVariableGroup, name, writtenID st
 	return api.CIVariableVariant{}, false
 }
 
-// variableVariantRowResolution derives a per-row resolution string for a variable variant from the
-// group-level resolution and the variant's position in the server's winner-first ordering. Variables
-// do not carry per-variant resolution on the wire (unlike secrets), but the server orders variants
-// winner-first and reports whether the group resolved to a definite winner, which is enough to label
-// each row: when resolved, the first row wins and the rest are shadowed; when indeterminate, any row
-// could still win with more context.
+// variableVariantRowResolution derives row status from group resolution and winner-first ordering.
 func variableVariantRowResolution(groupResolution string, index int) string {
 	switch groupResolution {
 	case "resolved":

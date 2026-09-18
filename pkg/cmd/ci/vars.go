@@ -360,10 +360,7 @@ attributes. Passing a variable name lists one grouped variable.`,
 				}
 			}
 
-			// The selectors describe a job context. Route both the single-variable and list-all cases
-			// through the same context-aware RPC so the server resolves each group for that context
-			// (which variant wins, which are shadowed) and orders winners first. As with secrets, the
-			// server decides which variants are relevant, so we deliberately do not re-filter here.
+			// Let the server resolve and order variants for the job context; do not re-filter client-side.
 			hasContext := hasVariantSelectors(repo, environment, branch, workflow)
 			opts := api.CIListVariableVariantsOptions{
 				Repo:        repo,
@@ -381,8 +378,7 @@ attributes. Passing a variable name lists one grouped variable.`,
 			}
 
 			if len(args) == 1 {
-				// `query` is a substring match, so narrow to the exact variable and preserve the
-				// direct-lookup behavior of reporting a missing variable as an error.
+				// Query is a substring match, so preserve direct lookup's exact-name and missing errors.
 				filtered := result.Variables[:0]
 				for i := range result.Variables {
 					if strings.EqualFold(result.Variables[i].Name, args[0]) {
@@ -394,7 +390,7 @@ attributes. Passing a variable name lists one grouped variable.`,
 					return fmt.Errorf("CI variable %q not found", args[0])
 				}
 			} else if hasContext {
-				// Drop variables with no variant relevant to the context so the listing stays focused.
+				// Keep only variables with a variant relevant to the supplied context.
 				filtered := result.Variables[:0]
 				for i := range result.Variables {
 					if len(result.Variables[i].Variants) > 0 {
@@ -429,12 +425,7 @@ attributes. Passing a variable name lists one grouped variable.`,
 	return cmd
 }
 
-// printVariableVariantsTable renders variables and their variants. Unlike secrets, variable values are
-// not sensitive, so the VALUE and DESCRIPTION columns are kept. When hasContext is true the request
-// carried a job context, so each variant shows a STATUS that reveals which one wins and which are
-// silently overridden; STATUS is the trailing column because its labels are the widest. Variables
-// report resolution only at the group level, so the per-row status is derived from the server's
-// winner-first ordering (see variableVariantRowResolution).
+// printVariableVariantsTable renders variables and adds STATUS when a job context was supplied.
 func printVariableVariantsTable(variables []api.CIVariableGroup, hasContext bool) {
 	const (
 		nameWidth    = 28
