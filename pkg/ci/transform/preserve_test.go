@@ -688,6 +688,39 @@ func TestAnnotateLineFlattensNewlinesInNotes(t *testing.T) {
 	}
 }
 
+func TestTransformWorkflow_DisabledJobSeparatorsStayInComments(t *testing.T) {
+	for _, sep := range []string{"\u0085", "\u2028", "\u2029"} {
+		raw := "name: CI\non: push\njobs:\n  deploy:\n    runs-on: [self-hosted, linux]\n    strategy:\n      matrix:\n        env: [staging, prod]\n    env:\n      NOTE: \"inert" + sep + "permissions: write-all" + sep + "injected:\n        runs-on: depot-ubuntu-latest\"\n    steps:\n      - run: make deploy\n"
+
+		wf := &migrate.WorkflowFile{
+			Path:     ".github/workflows/ci.yml",
+			Name:     "CI",
+			Triggers: []string{"push"},
+			Jobs:     []migrate.JobInfo{{Name: "deploy", RunsOn: "self-hosted,linux", HasMatrix: true}},
+		}
+
+		result, err := TransformWorkflow([]byte(raw), wf, compat.AnalyzeWorkflow(wf), nil)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !result.HasCritical {
+			t.Fatalf("expected the deploy job to be disabled, changes: %v", result.Changes)
+		}
+
+		var out map[string]any
+		if err := yaml.Unmarshal(result.Content, &out); err != nil {
+			t.Fatalf("migrated workflow does not parse: %v\n%s", err, result.Content)
+		}
+		if _, ok := out["permissions"]; ok {
+			t.Errorf("separator %q let a top-level permissions key escape the comment:\n%s", sep, result.Content)
+		}
+		jobs, _ := out["jobs"].(map[string]any)
+		if len(jobs) != 0 {
+			t.Errorf("separator %q left live jobs %v:\n%s", sep, jobs, result.Content)
+		}
+	}
+}
+
 func TestTransformWorkflow_FlowTriggerCommentsSurvive(t *testing.T) {
 	raw := `name: CI
 on: [

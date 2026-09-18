@@ -518,18 +518,21 @@ func quoteLike(n *yaml.Node, value string) string {
 // commentSafe prevents source text from escaping a generated YAML comment.
 // YAML treats U+0085, U+2028 and U+2029 as line breaks in addition to CR/LF.
 func commentSafe(notes []string) []string {
-	flatten := func(r rune) rune {
+	out := make([]string, len(notes))
+	for i, note := range notes {
+		out[i] = commentSafeLine(note)
+	}
+	return out
+}
+
+func commentSafeLine(text string) string {
+	return strings.Map(func(r rune) rune {
 		switch r {
 		case '\n', '\r', '\u0085', '\u2028', '\u2029':
 			return ' '
 		}
 		return r
-	}
-	out := make([]string, len(notes))
-	for i, note := range notes {
-		out[i] = strings.Map(flatten, note)
-	}
-	return out
+	}, text)
 }
 
 // annotateLine appends notes unless the line already has a comment.
@@ -591,9 +594,9 @@ func planDisabledJobEdits(s *source, root *yaml.Node, disabledJobs map[string]di
 		indent := strings.Repeat(" ", jobKey.Column-1)
 		nl := s.newline()
 		var b strings.Builder
-		fmt.Fprintf(&b, "%s# DISABLED: %s%s", indent, info.Reason, nl)
+		fmt.Fprintf(&b, "%s# DISABLED: %s%s", indent, commentSafeLine(info.Reason), nl)
 		for line := first; line < bound; line++ {
-			text := s.line(line)
+			text := commentSafeLine(s.line(line))
 			if strings.TrimSpace(text) == "" {
 				b.WriteString(nl)
 				continue
