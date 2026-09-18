@@ -629,12 +629,16 @@ func workflowsWithContext(ctx context.Context, opts migrateOptions) error {
 		return fmt.Errorf("failed to create .depot/workflows: %w", err)
 	}
 
-	// Mirror non-YAML sibling files living alongside workflows (helper scripts,
-	// configs) into .depot/workflows/ so references to them resolve there. This runs
+	// Mirror workflow sibling files (helper scripts, configs, and non-workflow YAML)
+	// into .depot/workflows/ so references to them resolve there. This runs
 	// before the transform so that, under a partial migration, the copied siblings can
 	// join the rewrite allow-list below — otherwise a selected workflow's reference to
 	// a sibling script would keep pointing at .github/ even though the script was moved.
-	siblings, err := migrate.CopyWorkflowSiblings(workflowsDir, depotWorkflowsDir)
+	workflowPaths := make(map[string]bool, len(workflows))
+	for _, wf := range workflows {
+		workflowPaths[wf.Path] = true
+	}
+	siblings, err := migrate.CopyWorkflowSiblings(workflowsDir, depotWorkflowsDir, workflowPaths)
 	if err != nil {
 		return fmt.Errorf("failed to copy workflow sibling files: %w", err)
 	}

@@ -5,7 +5,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strings"
 )
 
 // CopyMode controls behavior when destination already exists
@@ -167,12 +166,10 @@ func CopyGitHubToDepot(repoRoot string, dirs []string, mode CopyMode) (*CopyResu
 	return result, nil
 }
 
-// CopyWorkflowSiblings mirrors non-YAML files living under .github/workflows/ into
-// .depot/workflows/, preserving relative layout and permissions. The workflow YAML
-// itself is produced by the transform pipeline; this copies sibling assets (helper
-// scripts, configs, templates) that workflows reference so those references resolve
-// after migration. Symlinks are skipped. Returns the destination paths written.
-func CopyWorkflowSiblings(srcWorkflowsDir, destWorkflowsDir string) ([]string, error) {
+// CopyWorkflowSiblings mirrors files living under .github/workflows/ other than
+// the parsed workflow YAML files into .depot/workflows/, preserving relative layout
+// and permissions. Symlinks are skipped. Returns the destination paths written.
+func CopyWorkflowSiblings(srcWorkflowsDir, destWorkflowsDir string, workflowPaths map[string]bool) ([]string, error) {
 	var copied []string
 
 	err := filepath.WalkDir(srcWorkflowsDir, func(path string, d os.DirEntry, err error) error {
@@ -183,8 +180,7 @@ func CopyWorkflowSiblings(srcWorkflowsDir, destWorkflowsDir string) ([]string, e
 			return nil
 		}
 
-		ext := strings.ToLower(filepath.Ext(path))
-		if ext == ".yml" || ext == ".yaml" {
+		if workflowPaths[path] {
 			return nil
 		}
 

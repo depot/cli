@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -1393,6 +1394,40 @@ func TestSanitizeBlockScalars_PreservesQuotedLineSpan(t *testing.T) {
 	}
 }
 
+func TestSanitizeBlockScalars_PreservesAnsiCQuotedLineSpan(t *testing.T) {
+	n := &yaml.Node{
+		Kind:  yaml.ScalarNode,
+		Style: yaml.LiteralStyle,
+		Value: "echo $'foo\\'bar   \nbaz'\necho done   \n",
+	}
+	trimTrailingWhitespace(n)
+
+	lines := strings.Split(n.Value, "\n")
+	if lines[0] != "echo $'foo\\'bar   " {
+		t.Errorf("expected line inside open ANSI-C quote preserved, got %q", lines[0])
+	}
+	if lines[2] != "echo done" {
+		t.Errorf("expected trailing whitespace outside quotes trimmed, got %q", lines[2])
+	}
+}
+
+func TestSanitizeBlockScalars_TrimsAfterAnsiCEscapedBackslash(t *testing.T) {
+	n := &yaml.Node{
+		Kind:  yaml.ScalarNode,
+		Style: yaml.LiteralStyle,
+		Value: "echo $'a\\\\'   \necho done   \n",
+	}
+	trimTrailingWhitespace(n)
+
+	lines := strings.Split(n.Value, "\n")
+	if lines[0] != "echo $'a\\\\'" {
+		t.Errorf("expected closed ANSI-C quote line trimmed, got %q", lines[0])
+	}
+	if lines[1] != "echo done" {
+		t.Errorf("expected ordinary trailing whitespace trimmed, got %q", lines[1])
+	}
+}
+
 func TestSanitizeBlockScalars_PreservesPowerShellContinuation(t *testing.T) {
 	// PowerShell uses a backtick and cmd uses a caret as line-continuation escapes
 	// rather than a backslash. A trailing "escape + spaces" is a literal escaped space,
@@ -1707,6 +1742,79 @@ func TestTransformWorkflow_SparseCheckoutSuperset_MirrorsNegationPreservesSource
 	// Source had the exclude before the include; the mirror must keep that order.
 	if exclLine > inclLine {
 		t.Errorf("expected mirrored !.depot/actions/cache to precede .depot/actions (source order), got:\n%s", content)
+	}
+}
+
+func TestTransformWorkflow_SparseCheckoutSuperset_MirrorsRepeatedPatternsBlockScalar(t *testing.T) {
+	raw := []byte("name: CI\non: push\njobs:\n  build:\n    runs-on: depot-ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n        with:\n          sparse-checkout-cone-mode: false\n          sparse-checkout: |\n            .github/actions\n            !.github/actions/cache\n            .github/actions\n")
+	wf := &migrate.WorkflowFile{
+		Path:     ".github/workflows/ci.yml",
+		Name:     "CI",
+		Triggers: []string{"push"},
+		Jobs:     []migrate.JobInfo{{Name: "build", RunsOn: "depot-ubuntu-latest"}},
+	}
+
+	result, err := TransformWorkflow(raw, wf, compat.AnalyzeWorkflow(wf), nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var mirrored []string
+	for _, line := range strings.Split(string(result.Content), "\n") {
+		switch strings.TrimSpace(line) {
+		case ".depot/actions", "!.depot/actions/cache":
+			mirrored = append(mirrored, strings.TrimSpace(line))
+		}
+	}
+	want := []string{".depot/actions", "!.depot/actions/cache", ".depot/actions"}
+	if !reflect.DeepEqual(mirrored, want) {
+		t.Errorf("expected repeated mirrored patterns %v, got %v\n%s", want, mirrored, result.Content)
+	}
+}
+
+func TestTransformWorkflow_SparseCheckoutSuperset_MirrorsRepeatedPatternsSequence(t *testing.T) {
+	raw := []byte("name: CI\non: push\njobs:\n  build:\n    runs-on: depot-ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n        with:\n          sparse-checkout-cone-mode: false\n          sparse-checkout:\n            - .github/actions\n            - \"!.github/actions/cache\"\n            - .github/actions\n")
+	wf := &migrate.WorkflowFile{
+		Path:     ".github/workflows/ci.yml",
+		Name:     "CI",
+		Triggers: []string{"push"},
+		Jobs:     []migrate.JobInfo{{Name: "build", RunsOn: "depot-ubuntu-latest"}},
+	}
+
+	result, err := TransformWorkflow(raw, wf, compat.AnalyzeWorkflow(wf), nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var mirrored []string
+	for _, line := range strings.Split(string(result.Content), "\n") {
+		switch strings.TrimSpace(line) {
+		case "- .depot/actions", "- '!.depot/actions/cache'":
+			mirrored = append(mirrored, strings.TrimSpace(line))
+		}
+	}
+	want := []string{"- .depot/actions", "- '!.depot/actions/cache'", "- .depot/actions"}
+	if !reflect.DeepEqual(mirrored, want) {
+		t.Errorf("expected repeated mirrored patterns %v, got %v\n%s", want, mirrored, result.Content)
+	}
+}
+
+func TestTransformWorkflow_SparseCheckoutSuperset_DoesNotDuplicateExistingDepotPattern(t *testing.T) {
+	raw := []byte("name: CI\non: push\njobs:\n  build:\n    runs-on: depot-ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n        with:\n          sparse-checkout:\n            - .github/actions\n            - .depot/actions\n")
+	wf := &migrate.WorkflowFile{
+		Path:     ".github/workflows/ci.yml",
+		Name:     "CI",
+		Triggers: []string{"push"},
+		Jobs:     []migrate.JobInfo{{Name: "build", RunsOn: "depot-ubuntu-latest"}},
+	}
+
+	result, err := TransformWorkflow(raw, wf, compat.AnalyzeWorkflow(wf), nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if got := strings.Count(string(result.Content), "- .depot/actions"); got != 1 {
+		t.Errorf("expected existing .depot/actions pattern to remain singular, got %d\n%s", got, result.Content)
 	}
 }
 

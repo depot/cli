@@ -339,9 +339,8 @@ func TestCopyMissingSubDir(t *testing.T) {
 	}
 }
 
-// TestCopyWorkflowSiblings verifies that non-YAML sibling files under
-// .github/workflows/ are mirrored into .depot/workflows/ while YAML workflows and
-// symlinks are skipped.
+// TestCopyWorkflowSiblings verifies that non-workflow files under .github/workflows/
+// are mirrored into .depot/workflows/ while parsed workflows and symlinks are skipped.
 func TestCopyWorkflowSiblings(t *testing.T) {
 	tmpDir := t.TempDir()
 	srcDir := filepath.Join(tmpDir, ".github", "workflows")
@@ -349,8 +348,14 @@ func TestCopyWorkflowSiblings(t *testing.T) {
 		t.Fatalf("failed to create source dir: %v", err)
 	}
 
-	// YAML workflow — should NOT be copied by this helper.
+	// Parsed workflow — should NOT be copied by this helper.
 	if err := os.WriteFile(filepath.Join(srcDir, "ci.yml"), []byte("name: CI\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(srcDir, "data"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(srcDir, "data", "list.yaml"), []byte("- a\n- b\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
 	// Sibling script at the top level and in a subdirectory — should be copied.
@@ -362,18 +367,25 @@ func TestCopyWorkflowSiblings(t *testing.T) {
 	}
 
 	destDir := filepath.Join(tmpDir, ".depot", "workflows")
-	copied, err := CopyWorkflowSiblings(srcDir, destDir)
+	copied, err := CopyWorkflowSiblings(srcDir, destDir, map[string]bool{
+		filepath.Join(srcDir, "ci.yml"): true,
+	})
 	if err != nil {
 		t.Fatalf("CopyWorkflowSiblings failed: %v", err)
 	}
 
-	if len(copied) != 2 {
-		t.Errorf("expected 2 sibling files copied, got %d: %v", len(copied), copied)
+	if len(copied) != 3 {
+		t.Errorf("expected 3 sibling files copied, got %d: %v", len(copied), copied)
 	}
 
 	// YAML must not be mirrored by this helper.
 	if _, err := os.Stat(filepath.Join(destDir, "ci.yml")); !os.IsNotExist(err) {
 		t.Errorf("expected ci.yml NOT to be copied, stat err: %v", err)
+	}
+	if data, err := os.ReadFile(filepath.Join(destDir, "data", "list.yaml")); err != nil {
+		t.Errorf("expected data/list.yaml copied: %v", err)
+	} else if string(data) != "- a\n- b\n" {
+		t.Errorf("data/list.yaml content not preserved: %q", data)
 	}
 
 	// Siblings must exist with content and layout preserved.
@@ -416,7 +428,7 @@ func TestCopyWorkflowSiblings_OverwritePreservesMode(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := CopyWorkflowSiblings(srcDir, destDir); err != nil {
+	if _, err := CopyWorkflowSiblings(srcDir, destDir, nil); err != nil {
 		t.Fatalf("CopyWorkflowSiblings failed: %v", err)
 	}
 

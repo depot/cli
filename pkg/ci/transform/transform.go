@@ -677,7 +677,7 @@ func trimTrailingWhitespace(n *yaml.Node) {
 		return
 	}
 	lines := strings.Split(n.Value, "\n")
-	inSingle, inDouble := false, false
+	var qs shellQuoteState
 	for i := range lines {
 		// A line's trailing whitespace is only safe to trim when the line does not
 		// end inside an open single- or double-quoted string. If a quote is still
@@ -685,7 +685,7 @@ func trimTrailingWhitespace(n *yaml.Node) {
 		// `printf '%s' 'foo  ` closing as `bar'` two lines down — and trimming them
 		// would change the value the shell sees. Track quote state across lines and
 		// skip any line that ends mid-quote; yaml.v3 then keeps that scalar quoted.
-		openAtEnd := quoteStateAtLineEnd(lines[i], &inSingle, &inDouble)
+		openAtEnd := qs.scanLine(lines[i])
 		if openAtEnd {
 			continue
 		}
@@ -708,42 +708,51 @@ func trimTrailingWhitespace(n *yaml.Node) {
 	n.Value = strings.Join(lines, "\n")
 }
 
-// quoteStateAtLineEnd scans a single line of shell text, advancing the single- and
-// double-quote state carried across lines, and reports whether a quote is still open
-// at the end of the line. It models the quoting rules that matter here: single quotes
-// are literal (no escapes, only another ' closes them); inside double quotes a backslash
-// (POSIX sh) or backtick (PowerShell) escapes the next character; and a backslash outside
-// quotes escapes the next character too. It is intentionally conservative — exotic forms
-// like $'...' ANSI-C quoting are not modeled — but every simplification errs toward
-// treating a quote as still open, which only ever leaves a scalar quoted (less tidy) and
-// never trims whitespace that was actually inside a quote.
-func quoteStateAtLineEnd(line string, inSingle, inDouble *bool) bool {
+type shellQuoteState struct {
+	inSingle, inDouble, inAnsiC bool
+}
+
+// scanLine advances shell quote state across one line and reports whether a quote
+// is still open at its end.
+func (s *shellQuoteState) scanLine(line string) bool {
 	for i := 0; i < len(line); i++ {
 		c := line[i]
 		switch {
-		case *inSingle:
+		case s.inSingle:
 			if c == '\'' {
-				*inSingle = false
+				s.inSingle = false
 			}
-		case *inDouble:
+		case s.inDouble:
 			switch c {
 			case '\\', '`':
 				i++ // \ (POSIX sh) or ` (PowerShell) escapes the next char inside double quotes
 			case '"':
-				*inDouble = false
+				s.inDouble = false
+			}
+		case s.inAnsiC:
+			switch c {
+			case '\\':
+				i++
+			case '\'':
+				s.inAnsiC = false
 			}
 		default:
 			switch c {
 			case '\'':
-				*inSingle = true
+				s.inSingle = true
 			case '"':
-				*inDouble = true
+				s.inDouble = true
+			case '$':
+				if i+1 < len(line) && line[i+1] == '\'' {
+					s.inAnsiC = true
+					i++
+				}
 			case '\\':
 				i++ // escaped char outside quotes
 			}
 		}
 	}
-	return *inSingle || *inDouble
+	return s.inSingle || s.inDouble || s.inAnsiC
 }
 
 // isCheckoutAction reports whether a `uses` value refers to actions/checkout.
@@ -902,6 +911,8 @@ func sparseWorkflowCovered(entry string, migratedWorkflows map[string]bool) bool
 // the order among the .depot/ patterns, which equals the order among their .github/
 // sources. Reordering the mirror (e.g. hoisting includes above excludes) would instead
 // make the migrated checkout diverge from the source's own semantics.
+// Repeated source patterns are mirrored once per occurrence because later patterns
+// can override earlier ones.
 func augmentSparseCheckout(node *yaml.Node, migratedWorkflows map[string]bool) bool {
 	switch node.Kind {
 	case yaml.ScalarNode:
@@ -924,7 +935,6 @@ func augmentSparseCheckout(node *yaml.Node, migratedWorkflows map[string]bool) b
 			}
 			indent := l[:len(l)-len(strings.TrimLeft(l, " \t"))]
 			out = append(out, indent+depot)
-			existing[depot] = true
 			changed = true
 		}
 		if changed {
@@ -949,7 +959,6 @@ func augmentSparseCheckout(node *yaml.Node, migratedWorkflows map[string]bool) b
 				continue
 			}
 			additions = append(additions, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: depot})
-			existing[depot] = true
 		}
 		if len(additions) > 0 {
 			node.Content = append(node.Content, additions...)
