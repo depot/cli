@@ -688,6 +688,45 @@ func TestAnnotateLineFlattensNewlinesInNotes(t *testing.T) {
 	}
 }
 
+func TestTransformWorkflow_FlowTriggerCommentsSurvive(t *testing.T) {
+	raw := `name: CI
+on: [
+  push, # why this trigger is needed
+  release,
+]
+jobs:
+  build:
+    runs-on: depot-ubuntu-latest
+`
+	wf := &migrate.WorkflowFile{
+		Path:     ".github/workflows/ci.yml",
+		Name:     "CI",
+		Triggers: []string{"push", "release"},
+		Jobs:     []migrate.JobInfo{{Name: "build", RunsOn: "depot-ubuntu-latest"}},
+	}
+
+	result, err := TransformWorkflow([]byte(raw), wf, compat.AnalyzeWorkflow(wf), nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	content := string(result.Content)
+	if !strings.Contains(content, "# why this trigger is needed") {
+		t.Errorf("comment inside the flow sequence was dropped:\n%s", content)
+	}
+	if strings.Contains(content, "release") && !strings.Contains(content, "Removed unsupported trigger: release") {
+		t.Errorf("release trigger should be removed:\n%s", content)
+	}
+	var out struct {
+		On []string `yaml:"on"`
+	}
+	if err := yaml.Unmarshal(result.Content, &out); err != nil {
+		t.Fatalf("migrated workflow does not parse: %v\n%s", err, content)
+	}
+	if len(out.On) != 1 || out.On[0] != "push" {
+		t.Errorf("expected on: [push], got %v:\n%s", out.On, content)
+	}
+}
+
 func TestTransformWorkflow_NewlineInLabelStaysInComment(t *testing.T) {
 	for _, esc := range []string{`\n`, `\N`, `\L`, `\P`} {
 		t.Run(esc, func(t *testing.T) {

@@ -317,6 +317,8 @@ func nextSibling(mapping *yaml.Node, pairIndex int) *yaml.Node {
 }
 
 // rebuildFlowSequence replaces a flow sequence while preserving kept tokens.
+// Comments between tokens cannot be re-attached, so their presence rejects the
+// edit and lets re-encoding handle the collection.
 func rebuildFlowSequence(s *source, seq *yaml.Node, drop []int) (edit, bool) {
 	start, ok := s.nodeOffset(seq)
 	if !ok || start >= len(s.text) || s.text[start] != '[' {
@@ -336,7 +338,7 @@ func rebuildFlowSequence(s *source, seq *yaml.Node, drop []int) (edit, bool) {
 			return edit{}, false
 		}
 		_, itemEnd, ok := scalarExtent(s.text, item, itemStart, true)
-		if !ok {
+		if !ok || itemStart < lastEnd || strings.IndexByte(s.text[lastEnd:itemStart], '#') >= 0 {
 			return edit{}, false
 		}
 		lastEnd = itemEnd
@@ -346,7 +348,7 @@ func rebuildFlowSequence(s *source, seq *yaml.Node, drop []int) (edit, bool) {
 	}
 
 	closing := strings.IndexByte(s.text[lastEnd:], ']')
-	if closing < 0 {
+	if closing < 0 || strings.IndexByte(s.text[lastEnd:lastEnd+closing], '#') >= 0 {
 		return edit{}, false
 	}
 	end := lastEnd + closing + 1
