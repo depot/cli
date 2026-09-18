@@ -50,66 +50,57 @@ type TransformResult struct {
 // migratedWorkflows is a set of workflow relative paths (e.g., "ci.yml") that were
 // selected for migration. When non-nil, only references to these workflows are rewritten.
 // When nil, all .github/workflows/ references are rewritten. Actions are always rewritten.
+//
+// Changes are spliced into the original YAML when safe; unsupported shapes use
+// the existing node-tree fallback.
 func TransformWorkflow(raw []byte, wf *migrate.WorkflowFile, report *compat.CompatibilityReport, migratedWorkflows map[string]bool) (*TransformResult, error) {
-	var doc yaml.Node
-	if err := yaml.Unmarshal(raw, &doc); err != nil {
-		return nil, fmt.Errorf("failed to parse YAML: %w", err)
-	}
-
-	if doc.Kind != yaml.DocumentNode || len(doc.Content) == 0 {
-		return nil, fmt.Errorf("unexpected YAML structure")
-	}
-
-	root := doc.Content[0]
-	if root.Kind != yaml.MappingNode {
-		return nil, fmt.Errorf("expected mapping at root, got %d", root.Kind)
-	}
-
 	var changes []ChangeRecord
 
-	// 1. Transform triggers
-	triggerChanges := transformTriggers(root)
-	changes = append(changes, triggerChanges...)
+	// Rewrite paths before parsing so source positions still match the edited text.
+	edited := raw
+	if rewritten, changed := rewriteGitHubPaths(string(raw), migratedWorkflows); changed {
+		edited = []byte(rewritten)
+		changes = append(changes, ChangeRecord{
+			Type:   ChangePathRewritten,
+			Detail: "Rewrote .github/ path references to .depot/",
+		})
+	}
 
-	// 2. Identify jobs that need to be disabled (uncorrectable issues)
+	doc, root, err := parseWorkflow(edited)
+	if err != nil {
+		return nil, err
+	}
+
+	// Jobs with uncorrectable issues get commented out rather than corrected,
+	// and are skipped by the passes that would otherwise edit them.
 	disabledJobs := findDisabledJobs(wf, report)
 
-	// 3. Transform runs-on labels (skip disabled jobs)
-	runsOnChanges := transformRunsOn(root, disabledJobs)
-	changes = append(changes, runsOnChanges...)
-
-	// 4. Handle actions/checkout sparse-checkout inputs before the generic path
-	//    pass. These keep their .github/ entries and gain .depot/ siblings, so the
-	//    generic pass must skip them (see transformSparseCheckout).
-	sparseSkip, sparseChanges := transformSparseCheckout(root, migratedWorkflows)
-	changes = append(changes, sparseChanges...)
-
-	// 5. Rewrite .github/ path references to .depot/
-	pathChanges := transformGitHubPaths(root, migratedWorkflows, sparseSkip)
-	changes = append(changes, pathChanges...)
-
-	// 6. Strip trailing whitespace from POSIX-shell step `run:` block scalars so yaml.v3
-	//    keeps literal/folded style (e.g. `run: |`) instead of flattening to a quoted
-	//    string. Non-shell inputs and non-POSIX shells are left byte-exact.
-	sanitizeRunBlockScalars(root)
-
-	// 7. Marshal the node tree back to bytes
-	var buf bytes.Buffer
-	enc := yaml.NewEncoder(&buf)
-	enc.SetIndent(2)
-	if err := enc.Encode(&doc); err != nil {
-		return nil, fmt.Errorf("failed to marshal YAML: %w", err)
+	var output []byte
+	var editChanges []ChangeRecord
+	if hasSparseCheckout(root) {
+		// Sparse-checkout inputs keep their .github/ entries and gain .depot/
+		// siblings, which is only implemented on the node tree. Start over from
+		// the original text so the textual path rewrite above does not apply.
+		doc, root, err = parseWorkflow(raw)
+		if err != nil {
+			return nil, err
+		}
+		changes = nil
+		output, editChanges, err = transformByReencoding(doc, root, disabledJobs, migratedWorkflows, true)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		var ok bool
+		output, editChanges, ok = transformInPlace(newSource(edited), root, disabledJobs)
+		if !ok {
+			output, editChanges, err = transformByReencoding(doc, root, disabledJobs, migratedWorkflows, false)
+			if err != nil {
+				return nil, err
+			}
+		}
 	}
-	enc.Close()
-
-	output := buf.Bytes()
-
-	// 8. Post-process: comment out disabled jobs in text
-	if len(disabledJobs) > 0 {
-		var disableChanges []ChangeRecord
-		output, disableChanges = commentOutDisabledJobs(output, disabledJobs)
-		changes = append(changes, disableChanges...)
-	}
+	changes = append(changes, editChanges...)
 
 	hasCritical := false
 	for _, c := range changes {
@@ -119,7 +110,6 @@ func TransformWorkflow(raw []byte, wf *migrate.WorkflowFile, report *compat.Comp
 		}
 	}
 
-	// 9. Prepend header comment
 	header := buildHeaderComment(wf, changes)
 	output = append([]byte(header), output...)
 
@@ -128,6 +118,97 @@ func TransformWorkflow(raw []byte, wf *migrate.WorkflowFile, report *compat.Comp
 		Changes:     changes,
 		HasCritical: hasCritical,
 	}, nil
+}
+
+func parseWorkflow(raw []byte) (*yaml.Node, *yaml.Node, error) {
+	var doc yaml.Node
+	if err := yaml.Unmarshal(raw, &doc); err != nil {
+		return nil, nil, fmt.Errorf("failed to parse YAML: %w", err)
+	}
+	if doc.Kind != yaml.DocumentNode || len(doc.Content) == 0 {
+		return nil, nil, fmt.Errorf("unexpected YAML structure")
+	}
+	root := doc.Content[0]
+	if root.Kind != yaml.MappingNode {
+		return nil, nil, fmt.Errorf("expected mapping at root, got %d", root.Kind)
+	}
+	return &doc, root, nil
+}
+
+// hasSparseCheckout reports whether any actions/checkout step declares a
+// sparse-checkout input.
+func hasSparseCheckout(root *yaml.Node) bool {
+	_, jobsVal := findMappingKey(root, "jobs")
+	if jobsVal == nil || jobsVal.Kind != yaml.MappingNode {
+		return false
+	}
+	for i := 1; i < len(jobsVal.Content); i += 2 {
+		job := jobsVal.Content[i]
+		if job.Kind != yaml.MappingNode {
+			continue
+		}
+		_, steps := findMappingKey(job, "steps")
+		if steps == nil || steps.Kind != yaml.SequenceNode {
+			continue
+		}
+		for _, step := range steps.Content {
+			if step.Kind != yaml.MappingNode {
+				continue
+			}
+			_, uses := findMappingKey(step, "uses")
+			if uses == nil || uses.Kind != yaml.ScalarNode || !isCheckoutAction(uses.Value) {
+				continue
+			}
+			_, with := findMappingKey(step, "with")
+			if with == nil || with.Kind != yaml.MappingNode {
+				continue
+			}
+			if _, sparse := findMappingKey(with, "sparse-checkout"); sparse != nil {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// transformByReencoding is the existing correctness fallback for unsupported
+// source shapes; it may reformat the file. When rewritePaths is set, .github/
+// references are rewritten on the node tree (with sparse-checkout inputs
+// augmented instead of rewritten); otherwise the caller has already rewritten
+// them in the source text.
+func transformByReencoding(doc, root *yaml.Node, disabledJobs map[string]disabledJobInfo, migratedWorkflows map[string]bool, rewritePaths bool) ([]byte, []ChangeRecord, error) {
+	var changes []ChangeRecord
+	changes = append(changes, transformTriggers(root)...)
+	changes = append(changes, transformRunsOn(root, disabledJobs)...)
+
+	if rewritePaths {
+		// Sparse-checkout values keep their .github/ entries and gain .depot/
+		// siblings, so the generic path pass must skip them.
+		sparseSkip, sparseChanges := transformSparseCheckout(root, migratedWorkflows)
+		changes = append(changes, sparseChanges...)
+		changes = append(changes, transformGitHubPaths(root, migratedWorkflows, sparseSkip)...)
+	}
+
+	// Strip trailing whitespace from POSIX-shell step `run:` block scalars so
+	// yaml.v3 keeps literal/folded style instead of flattening to a quoted string.
+	sanitizeRunBlockScalars(root)
+
+	var buf bytes.Buffer
+	enc := yaml.NewEncoder(&buf)
+	enc.SetIndent(2)
+	if err := enc.Encode(doc); err != nil {
+		return nil, nil, fmt.Errorf("failed to marshal YAML: %w", err)
+	}
+	enc.Close()
+
+	output := buf.Bytes()
+	if len(disabledJobs) > 0 {
+		var disableChanges []ChangeRecord
+		output, disableChanges = commentOutDisabledJobs(output, disabledJobs)
+		changes = append(changes, disableChanges...)
+	}
+
+	return output, changes, nil
 }
 
 // transformTriggers removes unsupported triggers from the on: block.
