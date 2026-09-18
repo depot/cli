@@ -314,7 +314,7 @@ depot exec dagger run ...
 
 Configure Go tools to use Depot Cache. The Go tools will use the remote cache service to store and retrieve build artifacts.
 
-_Note: This requires Go 1.24 or later._
+_Note: This requires Go 1.25 or later._
 
 Set the environment variable `GOCACHEPROG` to `depot gocache` to configure Go to use Depot Cache.
 
@@ -424,17 +424,65 @@ Create a new Depot project. This command creates a new project in your Depot acc
 depot projects create
 
 # Create a project with custom settings
-depot projects create --organization your-org-id --region us-west-2 --cache-storage-policy 100
+depot projects create --organization your-org-id --region us-west-2 --cache-storage-policy 100 --cache-policy-keep-days 30 your-project-name
 ```
 
 #### Flags for `projects create`
 
-| Name                   | Description                                              |
-| ---------------------- | -------------------------------------------------------- |
-| `organization` / `-o`  | Depot organization ID                                    |
-| `region`               | Build data storage region (default: "us-east-1")         |
-| `cache-storage-policy` | Build cache to keep per architecture in GB (default: 50) |
-| `token`                | Depot API token                                          |
+| Name                     | Description                                              |
+| ------------------------ | -------------------------------------------------------- |
+| `organization` / `-o`    | Depot organization ID                                    |
+| `region`                 | Build data storage region (default: "us-east-1")         |
+| `cache-storage-policy`   | Build cache to keep per architecture in GB (default: 50) |
+| `cache-policy-keep-days` | Build cache retention in days (default: 14)              |
+| `token`                  | Depot API token                                          |
+
+#### `depot projects get`
+
+View a Depot project's details and configuration. Pass a project ID as an argument or with `--project-id`. If neither is provided, the command uses `DEPOT_PROJECT_ID` or the project configured in `depot.json`.
+
+**Example**
+
+```shell
+# View the project configured in the current directory
+depot projects get
+
+# View a specific project as JSON
+depot projects get your-project-id --output json
+```
+
+#### Flags for `projects get`
+
+| Name                | Description               |
+| ------------------- | ------------------------- |
+| `project-id` / `-p` | Depot project ID          |
+| `output` / `-o`     | Output format (`json`)    |
+| `token`             | Depot API token           |
+
+#### `depot projects update`
+
+Update a Depot project's name, region, or cache storage policy. Only values passed as flags are changed. Pass a project ID as an argument or with `--project-id`. If neither is provided, the command uses `DEPOT_PROJECT_ID` or the project configured in `depot.json`.
+
+**Example**
+
+```shell
+# Rename the project configured in the current directory
+depot projects update --name "New project name"
+
+# Update a specific project's region and cache storage policy
+depot projects update your-project-id --region eu-central-1 --cache-storage-policy 100
+```
+
+#### Flags for `projects update`
+
+| Name                   | Description                                    |
+| ---------------------- | ---------------------------------------------- |
+| `project-id` / `-p`    | Depot project ID                               |
+| `name`                 | Project name                                   |
+| `region`               | Build data storage region                      |
+| `cache-storage-policy` | Build cache to keep per architecture in GB     |
+| `output` / `-o`        | Output format (`json`)                         |
+| `token`                | Depot API token                                |
 
 #### `depot projects delete`
 

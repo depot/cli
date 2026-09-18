@@ -4,8 +4,8 @@ import (
 	"fmt"
 
 	v1 "buf.build/gen/go/depot/api/protocolbuffers/go/depot/core/v1"
+	"charm.land/huh/v2"
 	"connectrpc.com/connect"
-	"github.com/charmbracelet/huh"
 	"github.com/depot/cli/pkg/api"
 	"github.com/depot/cli/pkg/helpers"
 	"github.com/spf13/cobra"

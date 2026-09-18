@@ -9,10 +9,10 @@ import (
 	"strings"
 	"time"
 
+	"charm.land/bubbles/v2/table"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"connectrpc.com/connect"
-	"github.com/charmbracelet/bubbles/table"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 	"github.com/depot/cli/pkg/api"
 	cliv1 "github.com/depot/cli/pkg/proto/depot/cli/v1"
 	"github.com/depot/cli/pkg/proto/depot/cli/v1/cliv1connect"
@@ -22,7 +22,7 @@ import (
 func SelectBuildID(ctx context.Context, token, projectID string, client cliv1connect.BuildServiceClient) (string, error) {
 	m := NewBuildsModel(projectID, token, client)
 
-	final, err := tea.NewProgram(m, tea.WithAltScreen()).Run()
+	final, err := tea.NewProgram(m).Run()
 	if err != nil {
 		return "", err
 	}
@@ -91,12 +91,8 @@ func (m BuildsModel) Init() tea.Cmd {
 func (m BuildsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	switch msg := msg.(type) {
-	case tea.KeyMsg:
-		if msg.Type == tea.KeyCtrlC || msg.Type == tea.KeyEsc {
-			return m, tea.Quit
-		}
-
-		if msg.String() == "q" {
+	case tea.KeyPressMsg:
+		if msg.String() == "ctrl+c" || msg.String() == "esc" || msg.String() == "q" {
 			return m, tea.Quit
 		}
 
@@ -157,13 +153,15 @@ func (m BuildsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-func (m BuildsModel) View() string {
+func (m BuildsModel) View() tea.View {
 	s := baseStyle.Render(m.table.View()) + "\n"
 	if m.err != nil {
 		s = "Error: " + m.err.Error() + "\n"
 	}
 
-	return s
+	v := tea.NewView(s)
+	v.AltScreen = true
+	return v
 }
 
 type buildRows []table.Row

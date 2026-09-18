@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 	"os"
 
-	"github.com/charmbracelet/bubbles/table"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/table"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/depot/cli/pkg/helpers"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
@@ -79,7 +79,7 @@ func NewCmdList() *cobra.Command {
 				table:   t,
 				columns: columns,
 			}
-			p := tea.NewProgram(m, tea.WithAltScreen())
+			p := tea.NewProgram(m)
 			_, err = p.Run()
 			return err
 		},
@@ -104,7 +104,7 @@ func (m model) Init() tea.Cmd {
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	switch msg := msg.(type) {
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		switch msg.String() {
 		case "q", "ctrl+c", "esc":
 			return m, tea.Quit
@@ -127,12 +127,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-func (m model) View() string {
+func (m model) View() tea.View {
 	s := baseStyle.Render(m.table.View()) + "\n"
 	if m.err != nil {
 		s = "Error: " + m.err.Error() + "\n"
 	}
-	return s
+	v := tea.NewView(s)
+	v.AltScreen = true
+	return v
 }
 
 func writeCSV(orgs []*helpers.Organization) error {

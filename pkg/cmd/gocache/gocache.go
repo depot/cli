@@ -402,6 +402,12 @@ func (c *RemoteCache) Get(ctx context.Context, actionID string) (outputID, diskP
 			return "", "", nil
 		}
 		outputID = string(outputIDBuf)
+		if !validOutputID(outputID) {
+			if c.Verbose {
+				log.Printf("invalid outputID for actionID %s", actionID)
+			}
+			return "", "", nil
+		}
 
 		err = binary.Read(res.Body, binary.LittleEndian, &size)
 		if err != nil {
@@ -438,6 +444,14 @@ func (c *RemoteCache) Get(ctx context.Context, actionID string) (outputID, diskP
 		log.Printf("GET /gocache/v1/%s: %d bytes in %v", actionID, size, dur)
 	}
 	return outputID, diskPath, nil
+}
+
+func validOutputID(outputID string) bool {
+	if len(outputID) < 2 || len(outputID) > 255 {
+		return false
+	}
+	_, err := hex.DecodeString(outputID)
+	return err == nil
 }
 
 func (c *RemoteCache) Put(ctx context.Context, actionID, outputID string, size int64, body io.Reader) (diskPath string, _ error) {

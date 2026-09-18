@@ -5,8 +5,8 @@ import (
 	"errors"
 	"fmt"
 
+	"charm.land/huh/v2"
 	"connectrpc.com/connect"
-	"github.com/charmbracelet/huh"
 	"github.com/depot/cli/pkg/api"
 	"github.com/depot/cli/pkg/config"
 	corev1 "github.com/depot/cli/pkg/proto/depot/core/v1"
@@ -65,6 +65,7 @@ func SelectOrganization() (*Organization, error) {
 	err = huh.NewSelect[*Organization]().
 		Title("Select an organization").
 		Options(huhOptions...).
+		Height(len(huhOptions) + 1).
 		Value(&selectedOrg).
 		Run()
 	if err != nil {

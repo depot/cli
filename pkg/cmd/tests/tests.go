@@ -27,6 +27,7 @@ var (
 	listTestResultsFunc   = api.ListTestResults
 	ciGetRunStatusFunc    = api.CIGetRunStatus
 	isTerminalFunc        = helpers.IsTerminal
+	isStdinTerminalFunc   = helpers.IsStdinTerminal
 )
 
 type options struct {
@@ -94,6 +95,10 @@ Actions job ID.`,
 	flags.Uint32Var(&opts.pageSize, "page-size", 100, "Number of results to return per page (max 500)")
 	flags.StringVar(&opts.pageToken, "page-token", "", "Token to fetch the next page")
 	flags.StringVar(&opts.output, "output", "auto", "Output format (auto, table, json)")
+
+	cmd.AddCommand(newCmdTestsReport())
+	cmd.AddCommand(newCmdTestsRun())
+	cmd.AddCommand(newCmdTestsSplit())
 
 	return cmd
 }

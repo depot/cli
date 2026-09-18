@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
+	"os"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -482,8 +484,18 @@ func executeCommand(args ...string) (string, error) {
 	return out.String(), err
 }
 
+func requireContextDeadline(t *testing.T, ctx context.Context, name string) {
+	t.Helper()
+	if _, ok := ctx.Deadline(); !ok {
+		t.Fatalf("expected %s context to have deadline", name)
+	}
+}
+
 func resetTestHooks(t *testing.T) {
 	t.Helper()
+	t.Setenv("GITHUB_WORKSPACE", "")
+	unsetEnv(t, matrixJobIndexEnv)
+	unsetEnv(t, matrixJobTotalEnv)
 
 	resolveOrgAuthFunc = func(context.Context, string) (string, error) {
 		return "token-1", nil
@@ -497,20 +509,63 @@ func resetTestHooks(t *testing.T) {
 	listTestResultsFunc = func(context.Context, string, string, *testresultsv1.ListTestResultsRequest) (*testresultsv1.ListTestResultsResponse, error) {
 		return &testresultsv1.ListTestResultsResponse{}, nil
 	}
+	reportTestResultsFunc = func(context.Context, string, *testresultsv1.ReportTestResultsRequest) (*testresultsv1.ReportTestResultsResponse, error) {
+		return &testresultsv1.ReportTestResultsResponse{}, nil
+	}
 	ciGetRunStatusFunc = func(context.Context, string, string, string) (*civ1.GetRunStatusResponse, error) {
 		return nil, errors.New("not found")
 	}
+	splitTestsFunc = func(_ context.Context, _ string, req *testresultsv1.SplitTestsRequest) (*testresultsv1.SplitTestsResponse, error) {
+		return &testresultsv1.SplitTestsResponse{
+			Candidates:          req.GetCandidates(),
+			CandidatesRequested: uint32(len(req.GetCandidates())),
+			CandidatesSelected:  uint32(len(req.GetCandidates())),
+		}, nil
+	}
+	resolveOIDCCredentialFunc = func(context.Context) (string, error) {
+		return "oidc-token", nil
+	}
+	runShellCommandFunc = func(context.Context, string, []string, io.Writer, io.Writer) (int, error) {
+		return 0, nil
+	}
+	runCandidatesCommandFunc = runCandidatesCommand
 	isTerminalFunc = func() bool {
 		return true
 	}
+	isStdinTerminalFunc = func() bool {
+		return true
+	}
+	oidcDebugWriter = defaultOIDCDebugWriter
 
 	t.Cleanup(func() {
 		resolveOrgAuthFunc = helpersResolveOrgAuth
 		resolveStaticAuthFunc = staticResolveOrgAuth
 		currentOrgFunc = configCurrentOrg
 		listTestResultsFunc = apiListTestResults
+		reportTestResultsFunc = apiReportTestResults
 		ciGetRunStatusFunc = apiCIGetRunStatus
+		splitTestsFunc = apiSplitTests
+		resolveOIDCCredentialFunc = testsResolveOIDCCredential
+		runShellCommandFunc = testsRunShellCommand
+		runCandidatesCommandFunc = testsRunCandidatesCommand
 		isTerminalFunc = helpersIsTerminal
+		isStdinTerminalFunc = helpersIsStdinTerminal
+		oidcDebugWriter = defaultOIDCDebugWriter
+	})
+}
+
+func unsetEnv(t *testing.T, key string) {
+	t.Helper()
+	value, set := os.LookupEnv(key)
+	if err := os.Unsetenv(key); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if set {
+			_ = os.Setenv(key, value)
+			return
+		}
+		_ = os.Unsetenv(key)
 	})
 }
 
@@ -527,10 +582,17 @@ func equalStatuses(left, right []testresultsv1.TestResultStatus) bool {
 }
 
 var (
-	helpersResolveOrgAuth = resolveOrgAuthFunc
-	staticResolveOrgAuth  = resolveStaticAuthFunc
-	configCurrentOrg      = currentOrgFunc
-	apiListTestResults    = listTestResultsFunc
-	apiCIGetRunStatus     = ciGetRunStatusFunc
-	helpersIsTerminal     = isTerminalFunc
+	helpersResolveOrgAuth      = resolveOrgAuthFunc
+	staticResolveOrgAuth       = resolveStaticAuthFunc
+	configCurrentOrg           = currentOrgFunc
+	apiListTestResults         = listTestResultsFunc
+	apiReportTestResults       = reportTestResultsFunc
+	apiCIGetRunStatus          = ciGetRunStatusFunc
+	apiSplitTests              = splitTestsFunc
+	testsResolveOIDCCredential = resolveOIDCCredentialFunc
+	testsRunShellCommand       = runShellCommandFunc
+	testsRunCandidatesCommand  = runCandidatesCommandFunc
+	helpersIsTerminal          = isTerminalFunc
+	helpersIsStdinTerminal     = isStdinTerminalFunc
+	defaultOIDCDebugWriter     = oidcDebugWriter
 )

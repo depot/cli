@@ -26,6 +26,8 @@ import (
 	"github.com/pkg/errors"
 )
 
+var newRootCmd = root.NewCmdRoot
+
 func main() {
 	// Explicitly set the Docker API version to 1.44 to avoid the Docker daemon breaking change.
 	if os.Getenv("DOCKER_API_VERSION") == "" {
@@ -100,9 +102,20 @@ func runMain() int {
 	}()
 
 	if plugin.RunningStandalone() {
-		rootCmd := root.NewCmdRoot(buildVersion, buildDate)
+		rootCmd := newRootCmd(buildVersion, buildDate)
+		rootCmd.SilenceErrors = true
 
 		if err := rootCmd.Execute(); err != nil {
+			if sterr, ok := err.(cli.StatusError); ok {
+				if sterr.Status != "" {
+					fmt.Fprintln(os.Stderr, sterr.Status)
+				}
+				if sterr.StatusCode == 0 {
+					return 1
+				}
+				return sterr.StatusCode
+			}
+			fmt.Fprintln(os.Stderr, err)
 			return 1
 		}
 	} else {
@@ -112,7 +125,8 @@ func runMain() int {
 			return 1
 		}
 
-		rootCmd := root.NewCmdRoot(buildVersion, buildDate)
+		rootCmd := newRootCmd(buildVersion, buildDate)
+		rootCmd.SilenceErrors = true
 
 		err = plugin.RunPlugin(cmd, rootCmd, manager.Metadata{
 			SchemaVersion: "0.1.0",
@@ -127,7 +141,7 @@ func runMain() int {
 					fmt.Fprintln(cmd.Err(), sterr.Status)
 				}
 				// StatusError should only be used for errors, and all errors should
-				// have a non-zero exit status, so never exit with 0
+				// have a non-zero exit status, so never exit with 0.
 				if sterr.StatusCode == 0 {
 					return 1
 				}

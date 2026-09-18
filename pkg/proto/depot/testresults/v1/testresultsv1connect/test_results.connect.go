@@ -36,6 +36,9 @@ const (
 	// TestResultsServiceReportTestResultsProcedure is the fully-qualified name of the
 	// TestResultsService's ReportTestResults RPC.
 	TestResultsServiceReportTestResultsProcedure = "/depot.testresults.v1.TestResultsService/ReportTestResults"
+	// TestResultsServiceSplitTestsProcedure is the fully-qualified name of the TestResultsService's
+	// SplitTests RPC.
+	TestResultsServiceSplitTestsProcedure = "/depot.testresults.v1.TestResultsService/SplitTests"
 	// TestResultsServiceListTestResultsProcedure is the fully-qualified name of the
 	// TestResultsService's ListTestResults RPC.
 	TestResultsServiceListTestResultsProcedure = "/depot.testresults.v1.TestResultsService/ListTestResults"
@@ -46,6 +49,8 @@ type TestResultsServiceClient interface {
 	// ReportTestResults ingests one or more gzipped JUnit XML files for the
 	// authenticated execution owner and invocation.
 	ReportTestResults(context.Context, *connect.Request[v1.ReportTestResultsRequest]) (*connect.Response[v1.ReportTestResultsResponse], error)
+	// SplitTests returns the runnable candidates assigned to one shard.
+	SplitTests(context.Context, *connect.Request[v1.SplitTestsRequest]) (*connect.Response[v1.SplitTestsResponse], error)
 	// ListTestResults returns parsed test case results for one verified CI or
 	// GitHub Actions owner.
 	ListTestResults(context.Context, *connect.Request[v1.ListTestResultsRequest]) (*connect.Response[v1.ListTestResultsResponse], error)
@@ -66,6 +71,11 @@ func NewTestResultsServiceClient(httpClient connect.HTTPClient, baseURL string, 
 			baseURL+TestResultsServiceReportTestResultsProcedure,
 			opts...,
 		),
+		splitTests: connect.NewClient[v1.SplitTestsRequest, v1.SplitTestsResponse](
+			httpClient,
+			baseURL+TestResultsServiceSplitTestsProcedure,
+			opts...,
+		),
 		listTestResults: connect.NewClient[v1.ListTestResultsRequest, v1.ListTestResultsResponse](
 			httpClient,
 			baseURL+TestResultsServiceListTestResultsProcedure,
@@ -77,12 +87,18 @@ func NewTestResultsServiceClient(httpClient connect.HTTPClient, baseURL string, 
 // testResultsServiceClient implements TestResultsServiceClient.
 type testResultsServiceClient struct {
 	reportTestResults *connect.Client[v1.ReportTestResultsRequest, v1.ReportTestResultsResponse]
+	splitTests        *connect.Client[v1.SplitTestsRequest, v1.SplitTestsResponse]
 	listTestResults   *connect.Client[v1.ListTestResultsRequest, v1.ListTestResultsResponse]
 }
 
 // ReportTestResults calls depot.testresults.v1.TestResultsService.ReportTestResults.
 func (c *testResultsServiceClient) ReportTestResults(ctx context.Context, req *connect.Request[v1.ReportTestResultsRequest]) (*connect.Response[v1.ReportTestResultsResponse], error) {
 	return c.reportTestResults.CallUnary(ctx, req)
+}
+
+// SplitTests calls depot.testresults.v1.TestResultsService.SplitTests.
+func (c *testResultsServiceClient) SplitTests(ctx context.Context, req *connect.Request[v1.SplitTestsRequest]) (*connect.Response[v1.SplitTestsResponse], error) {
+	return c.splitTests.CallUnary(ctx, req)
 }
 
 // ListTestResults calls depot.testresults.v1.TestResultsService.ListTestResults.
@@ -96,6 +112,8 @@ type TestResultsServiceHandler interface {
 	// ReportTestResults ingests one or more gzipped JUnit XML files for the
 	// authenticated execution owner and invocation.
 	ReportTestResults(context.Context, *connect.Request[v1.ReportTestResultsRequest]) (*connect.Response[v1.ReportTestResultsResponse], error)
+	// SplitTests returns the runnable candidates assigned to one shard.
+	SplitTests(context.Context, *connect.Request[v1.SplitTestsRequest]) (*connect.Response[v1.SplitTestsResponse], error)
 	// ListTestResults returns parsed test case results for one verified CI or
 	// GitHub Actions owner.
 	ListTestResults(context.Context, *connect.Request[v1.ListTestResultsRequest]) (*connect.Response[v1.ListTestResultsResponse], error)
@@ -112,6 +130,11 @@ func NewTestResultsServiceHandler(svc TestResultsServiceHandler, opts ...connect
 		svc.ReportTestResults,
 		opts...,
 	)
+	testResultsServiceSplitTestsHandler := connect.NewUnaryHandler(
+		TestResultsServiceSplitTestsProcedure,
+		svc.SplitTests,
+		opts...,
+	)
 	testResultsServiceListTestResultsHandler := connect.NewUnaryHandler(
 		TestResultsServiceListTestResultsProcedure,
 		svc.ListTestResults,
@@ -121,6 +144,8 @@ func NewTestResultsServiceHandler(svc TestResultsServiceHandler, opts ...connect
 		switch r.URL.Path {
 		case TestResultsServiceReportTestResultsProcedure:
 			testResultsServiceReportTestResultsHandler.ServeHTTP(w, r)
+		case TestResultsServiceSplitTestsProcedure:
+			testResultsServiceSplitTestsHandler.ServeHTTP(w, r)
 		case TestResultsServiceListTestResultsProcedure:
 			testResultsServiceListTestResultsHandler.ServeHTTP(w, r)
 		default:
@@ -134,6 +159,10 @@ type UnimplementedTestResultsServiceHandler struct{}
 
 func (UnimplementedTestResultsServiceHandler) ReportTestResults(context.Context, *connect.Request[v1.ReportTestResultsRequest]) (*connect.Response[v1.ReportTestResultsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.testresults.v1.TestResultsService.ReportTestResults is not implemented"))
+}
+
+func (UnimplementedTestResultsServiceHandler) SplitTests(context.Context, *connect.Request[v1.SplitTestsRequest]) (*connect.Response[v1.SplitTestsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.testresults.v1.TestResultsService.SplitTests is not implemented"))
 }
 
 func (UnimplementedTestResultsServiceHandler) ListTestResults(context.Context, *connect.Request[v1.ListTestResultsRequest]) (*connect.Response[v1.ListTestResultsResponse], error) {
