@@ -314,7 +314,7 @@ depot exec dagger run ...
 
 Configure Go tools to use Depot Cache. The Go tools will use the remote cache service to store and retrieve build artifacts.
 
-_Note: This requires Go 1.24 or later._
+_Note: This requires Go 1.25 or later._
 
 Set the environment variable `GOCACHEPROG` to `depot gocache` to configure Go to use Depot Cache.
 

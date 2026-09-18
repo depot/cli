@@ -8,24 +8,21 @@ jobs:
     runs-on: depot-ubuntu-latest-16
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.event.pull_request.base.repo.full_name
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
-          go-version: "1.24.4"
+          go-version: "1.25.14"
           check-latest: true
           cache: true
 
-      - name: Install pnpm
-        uses: pnpm/action-setup@v5
+      - name: Install pnpm and Node
+        uses: pnpm/setup@v2
         with:
-          version: 8.x.x
-
-      - name: Install Node 18
-        uses: actions/setup-node@v6
-        with:
-          node-version: "18"
-          cache: pnpm
+          version: 11.22.0
+          runtime: node@24
+          cache: true
           cache-dependency-path: npm/pnpm-lock.yaml
+          install: false
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --ignore-scripts
@@ -53,7 +50,7 @@ jobs:
 
       - uses: golangci/golangci-lint-action@v9
         with:
-          version: v2.2.1
+          version: v2.4.0
           only-new-issues: false
           skip-cache: false
           args: --timeout 5m
@@ -69,24 +66,21 @@ jobs:
     runs-on: depot-ubuntu-latest-16
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.event.pull_request.base.repo.full_name
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
-          go-version: "1.24.4"
+          go-version: "1.25.14"
           check-latest: true
           cache: true
 
-      - name: Install pnpm
-        uses: pnpm/action-setup@v5
+      - name: Install pnpm and Node
+        uses: pnpm/setup@v2
         with:
-          version: 8.x.x
-
-      - name: Install Node 18
-        uses: actions/setup-node@v6
-        with:
-          node-version: "18"
-          cache: pnpm
+          version: 11.22.0
+          runtime: node@24
+          cache: true
           cache-dependency-path: npm/pnpm-lock.yaml
+          install: false
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --ignore-scripts
@@ -104,10 +98,10 @@ jobs:
   test:
     runs-on: depot-ubuntu-latest-16
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
-          go-version: "1.24"
+          go-version: "1.25"
           check-latest: true
           cache: true
       - run: go install gotest.tools/gotestsum@latest
@@ -123,7 +117,7 @@ jobs:
       packages: write
       id-token: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: depot/setup-action@v1
       - uses: docker/metadata-action@v6
         id: meta

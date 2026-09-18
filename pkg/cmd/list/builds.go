@@ -7,7 +7,7 @@ import (
 	"os"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"github.com/depot/cli/pkg/api"
 	"github.com/depot/cli/pkg/helpers"
 	"github.com/pkg/errors"
@@ -63,7 +63,7 @@ func NewCmdBuilds() *cobra.Command {
 			}
 
 			m := helpers.NewBuildsModel(projectID, token, client)
-			_, err = tea.NewProgram(m, tea.WithAltScreen()).Run()
+			_, err = tea.NewProgram(m).Run()
 			return err
 		},
 	}

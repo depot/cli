@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/erikgeiser/promptkit/confirmation"
+	"charm.land/huh/v2"
 )
 
 // OnboardProject initializes a depot.json and saves it at the CWD if the user confirms.
@@ -33,16 +33,11 @@ func ConfirmSaveProject(p *SelectedProject) bool {
 
 	prompt := fmt.Sprintf("Selected project %s (%s)\nCreate a depot.json file to remember this project for future builds?", p.Name, p.ID)
 
-	input := confirmation.New(prompt, confirmation.NewValue(true))
-	input.Template = confirmation.TemplateArrow
-	input.ResultTemplate = confirmation.ResultTemplateArrow
-
-	// vim
-	input.KeyMap.SelectYes = append(input.KeyMap.SelectYes, "h")
-	input.KeyMap.SelectNo = append(input.KeyMap.SelectNo, "l")
-
-	shouldSave, err := input.RunPrompt()
-	if err != nil {
+	shouldSave := true
+	if err := huh.NewConfirm().
+		Title(prompt).
+		Value(&shouldSave).
+		Run(); err != nil {
 		return false
 	}
 
