@@ -674,20 +674,30 @@ func TestTransformWorkflow_FallsBackWhenExtentUnknown(t *testing.T) {
 func TestAnnotateLineFlattensNewlinesInNotes(t *testing.T) {
 	s := newSource([]byte("jobs:\n  build:\n    runs-on: x\n"))
 
-	e, ok := annotateLine(s, 3, 0, []string{"was: self-hosted\ninjected: pwned. Nonstandard runner."})
-	if !ok {
-		t.Fatalf("annotateLine refused a line it should annotate")
-	}
-	if strings.ContainsAny(e.text, "\n\r") {
-		t.Errorf("note text carries a line break, which would end the comment: %q", e.text)
-	}
-	if !strings.Contains(e.text, "injected: pwned") {
-		t.Errorf("the note's content should be kept, only flattened: %q", e.text)
+	for _, sep := range []string{"\n", "\r", "\u0085", "\u2028", "\u2029"} {
+		e, ok := annotateLine(s, 3, 0, []string{"was: self-hosted" + sep + "injected: pwned. Nonstandard runner."})
+		if !ok {
+			t.Fatalf("annotateLine refused a line it should annotate")
+		}
+		if strings.ContainsAny(e.text, "\n\r\u0085\u2028\u2029") {
+			t.Errorf("note text carries a line break %q, which would end the comment: %q", sep, e.text)
+		}
+		if !strings.Contains(e.text, "injected: pwned") {
+			t.Errorf("the note's content should be kept, only flattened: %q", e.text)
+		}
 	}
 }
 
 func TestTransformWorkflow_NewlineInLabelStaysInComment(t *testing.T) {
-	raw := "name: CI\non: push\njobs:\n  build:\n    runs-on: \"self-hosted\\ninjected: pwned\"\n    steps:\n      - run: make build\n"
+	for _, esc := range []string{`\n`, `\N`, `\L`, `\P`} {
+		t.Run(esc, func(t *testing.T) {
+			newlineInLabelStaysInComment(t, esc)
+		})
+	}
+}
+
+func newlineInLabelStaysInComment(t *testing.T, esc string) {
+	raw := "name: CI\non: push\njobs:\n  build:\n    runs-on: \"self-hosted" + esc + "    permissions: write-all\n    injected: pwned\"\n    steps:\n      - run: make build\n"
 
 	wf := &migrate.WorkflowFile{
 		Path:     ".github/workflows/ci.yml",
@@ -710,6 +720,12 @@ func TestTransformWorkflow_NewlineInLabelStaysInComment(t *testing.T) {
 	}
 	if len(out) != 3 {
 		t.Errorf("expected exactly name, on and jobs, got %v:\n%s", out, result.Content)
+	}
+	job, _ := out["jobs"].(map[string]any)["build"].(map[string]any)
+	for _, key := range []string{"permissions", "injected"} {
+		if _, ok := job[key]; ok {
+			t.Errorf("label content materialized as job key %q:\n%s", key, result.Content)
+		}
 	}
 }
 

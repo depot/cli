@@ -399,7 +399,7 @@ func insertCommentsAbove(s *source, line, indent int, notes []string) (edit, boo
 	}
 	pad := strings.Repeat(" ", indent)
 	var b strings.Builder
-	for _, note := range notes {
+	for _, note := range commentSafe(notes) {
 		b.WriteString(pad)
 		b.WriteString("# ")
 		b.WriteString(note)
@@ -514,9 +514,11 @@ func quoteLike(n *yaml.Node, value string) string {
 }
 
 // commentSafe prevents source text from escaping a generated YAML comment.
+// YAML treats U+0085, U+2028 and U+2029 as line breaks in addition to CR/LF.
 func commentSafe(notes []string) []string {
 	flatten := func(r rune) rune {
-		if r == '\n' || r == '\r' {
+		switch r {
+		case '\n', '\r', '\u0085', '\u2028', '\u2029':
 			return ' '
 		}
 		return r
