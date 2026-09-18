@@ -589,6 +589,24 @@ on: {}
 # trailing note
 `,
 		},
+		{
+			name: "indented marker-like scalar stays inside the entry",
+			raw: `jobs:
+  build:
+    runs-on: depot-ubuntu-latest
+on:
+  release:
+    types:
+      ...
+# trailing note
+`,
+			want: `jobs:
+  build:
+    runs-on: depot-ubuntu-latest
+on: {}
+# trailing note
+`,
+		},
 	}
 
 	for _, tt := range tests {

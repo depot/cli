@@ -49,8 +49,10 @@ func transformInPlace(s *source, root *yaml.Node, disabledJobs map[string]disabl
 func documentEnd(s *source) int {
 	bound := s.lineCount() + 1
 	for bound > 1 {
-		text := strings.TrimSpace(s.line(bound - 1))
-		if text != "" && !strings.HasPrefix(text, "#") && text != "..." && text != "---" {
+		raw := s.line(bound - 1)
+		text := strings.TrimSpace(raw)
+		marker := raw == "..." || raw == "---"
+		if text != "" && !strings.HasPrefix(text, "#") && !marker {
 			break
 		}
 		bound--
