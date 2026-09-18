@@ -655,14 +655,19 @@ func TestTransformWorkflow_FallsBackWhenExtentUnknown(t *testing.T) {
 		t.Errorf("expected label remapped even on the fallback path, got:\n%s", content)
 	}
 
-	if strings.Contains(body(t, content), "\n\n") {
-		t.Errorf("expected re-encoding to drop blank lines, got:\n%s", content)
+	// Re-encoding normalizes indentation and drops blank lines between entries.
+	if !strings.Contains(content, "\n  LOG_LEVEL:") {
+		t.Errorf("expected re-encoding to normalize env indentation, got:\n%s", content)
 	}
-	if !strings.Contains(content, `\n`) {
-		t.Errorf("expected re-encoding to collapse the run block into an escaped string, got:\n%s", content)
+	if strings.Contains(content, "name: CI\n\n") {
+		t.Errorf("expected re-encoding to drop the blank line after name, got:\n%s", content)
 	}
-	if strings.Contains(content, "run: |") {
-		t.Errorf("expected the run block style to be lost on re-encoding, got:\n%s", content)
+	// sanitizeRunBlockScalars keeps the run block readable on the fallback path.
+	if !strings.Contains(content, "run: |") {
+		t.Errorf("expected the run block style to survive re-encoding, got:\n%s", content)
+	}
+	if strings.Contains(content, `\n`) {
+		t.Errorf("expected no escaped newlines in the run block, got:\n%s", content)
 	}
 }
 
