@@ -43,9 +43,19 @@ func transformInPlace(s *source, root *yaml.Node, disabledJobs map[string]disabl
 	return []byte(out), changes, true
 }
 
-// documentEnd returns the exclusive line bound for the document.
+// documentEnd returns the exclusive line bound for the document's content.
+// Trailing blank lines, comments, and document markers belong to the document
+// rather than to its final entry, so they are excluded from the bound.
 func documentEnd(s *source) int {
-	return s.lineCount() + 1
+	bound := s.lineCount() + 1
+	for bound > 1 {
+		text := strings.TrimSpace(s.line(bound - 1))
+		if text != "" && !strings.HasPrefix(text, "#") && text != "..." && text != "---" {
+			break
+		}
+		bound--
+	}
+	return bound
 }
 
 // findMappingEntry finds a mapping pair and its index.
@@ -391,7 +401,7 @@ func insertCommentsAbove(s *source, line, indent int, notes []string) (edit, boo
 		b.WriteString(pad)
 		b.WriteString("# ")
 		b.WriteString(note)
-		b.WriteString("\n")
+		b.WriteString(s.newline())
 	}
 	return edit{start: at, end: at, text: b.String()}, true
 }
@@ -573,18 +583,19 @@ func planDisabledJobEdits(s *source, root *yaml.Node, disabledJobs map[string]di
 		}
 
 		indent := strings.Repeat(" ", jobKey.Column-1)
+		nl := s.newline()
 		var b strings.Builder
-		fmt.Fprintf(&b, "%s# DISABLED: %s\n", indent, info.Reason)
+		fmt.Fprintf(&b, "%s# DISABLED: %s%s", indent, info.Reason, nl)
 		for line := first; line < bound; line++ {
 			text := s.line(line)
 			if strings.TrimSpace(text) == "" {
-				b.WriteString("\n")
+				b.WriteString(nl)
 				continue
 			}
 			b.WriteString(indent)
 			b.WriteString("# ")
 			b.WriteString(text)
-			b.WriteString("\n")
+			b.WriteString(nl)
 		}
 
 		edits = append(edits, edit{start: start, end: end, text: b.String()})

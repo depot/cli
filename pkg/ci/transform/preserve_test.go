@@ -485,6 +485,136 @@ func TestTransformWorkflow_HandlesCRLF(t *testing.T) {
 	}
 }
 
+func TestTransformWorkflow_CRLFGeneratedLinesUseCRLF(t *testing.T) {
+	lf := `name: CI
+
+on:
+  push:
+    branches: [main]
+  release:
+    types: [published]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest # existing
+    steps:
+      - run: make build
+
+  deploy:
+    runs-on: [self-hosted, linux]
+    strategy:
+      matrix:
+        env: [staging, prod]
+    steps:
+      - run: make deploy
+`
+	raw := strings.ReplaceAll(lf, "\n", "\r\n")
+
+	wf := &migrate.WorkflowFile{
+		Path:     ".github/workflows/ci.yml",
+		Name:     "CI",
+		Triggers: []string{"push", "release"},
+		Jobs: []migrate.JobInfo{
+			{Name: "build", RunsOn: "ubuntu-latest"},
+			{Name: "deploy", RunsOn: "self-hosted,linux", HasMatrix: true},
+		},
+	}
+
+	result, err := TransformWorkflow([]byte(raw), wf, compat.AnalyzeWorkflow(wf), nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	got := body(t, string(result.Content))
+	for _, want := range []string{"# Removed unsupported trigger", "# was: ubuntu-latest", "# DISABLED:", "#   deploy:"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("expected %q in body:\n%q", want, got)
+		}
+	}
+	if bare := strings.Count(got, "\n") - strings.Count(got, "\r\n"); bare != 0 {
+		t.Errorf("expected every line to end with CRLF, found %d bare LF:\n%q", bare, got)
+	}
+
+	var parsed map[string]any
+	if err := yaml.Unmarshal(result.Content, &parsed); err != nil {
+		t.Errorf("transformed CRLF workflow does not parse: %v", err)
+	}
+}
+
+func TestTransformWorkflow_TrailingCommentsSurviveFinalEntryEdits(t *testing.T) {
+	tests := []struct {
+		name string
+		raw  string
+		want string
+	}{
+		{
+			name: "last trigger removed",
+			raw: `jobs:
+  build:
+    runs-on: depot-ubuntu-latest
+on:
+  push:
+    branches: [main]
+  release:
+    types: [published]
+
+# trailing note
+...
+`,
+			want: `jobs:
+  build:
+    runs-on: depot-ubuntu-latest
+on:
+  push:
+    branches: [main]
+
+# trailing note
+...
+`,
+		},
+		{
+			name: "every trigger removed",
+			raw: `jobs:
+  build:
+    runs-on: depot-ubuntu-latest
+on:
+  release:
+    types: [published]
+# trailing note
+`,
+			want: `jobs:
+  build:
+    runs-on: depot-ubuntu-latest
+on: {}
+# trailing note
+`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			wf := &migrate.WorkflowFile{
+				Path:     ".github/workflows/ci.yml",
+				Name:     "CI",
+				Triggers: []string{"push", "release"},
+				Jobs:     []migrate.JobInfo{{Name: "build", RunsOn: "depot-ubuntu-latest"}},
+			}
+
+			result, err := TransformWorkflow([]byte(tt.raw), wf, compat.AnalyzeWorkflow(wf), nil)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			got := body(t, string(result.Content))
+			note := "# Removed unsupported trigger: release. " + compat.TriggerRules["release"].Note + "\n"
+			want := strings.Replace(tt.want, "\non:", "\n"+note+"on:", 1)
+			if got != want {
+				t.Errorf("unexpected body\n--- want ---\n%s\n--- got ---\n%s", want, got)
+			}
+		})
+	}
+}
+
 func TestTransformWorkflow_FallsBackWhenExtentUnknown(t *testing.T) {
 	raw := []byte(strings.Replace(fidelityWorkflow,
 		"runs-on: ubuntu-latest", "runs-on: &label ubuntu-latest", 1))

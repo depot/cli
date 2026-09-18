@@ -31,6 +31,14 @@ func (s *source) lineCount() int {
 	return len(s.lineStarts)
 }
 
+// newline returns the line terminator used by the source text.
+func (s *source) newline() string {
+	if i := strings.IndexByte(s.text, '\n'); i > 0 && s.text[i-1] == '\r' {
+		return "\r\n"
+	}
+	return "\n"
+}
+
 // lineStart returns the byte offset where a line begins. One past the last line
 // is accepted as the end of the text.
 func (s *source) lineStart(line int) (int, bool) {
