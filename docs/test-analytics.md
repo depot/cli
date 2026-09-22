@@ -32,4 +32,4 @@ depot tests <owner-id> --ci --status failed --status errored --output json
 
 The sample is the latest failure in the selected window, and may be from a different revision than the revisions
 that made the test qualify as flaky. Text fields are limited to 8 KiB; use the per-owner command to inspect further.
-Store failures return an error rather than an empty result. Recent uploads may take time to appear.
+Recent uploads may take time to appear.
