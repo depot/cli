@@ -276,6 +276,11 @@ message GetPullInfoResponse {
   string password = 3;
   repeated BuildOptions options = 4;
   bool save_for_load = 5;
+  // Canonical registry host for the organization that owns the build. For
+  // example, "5m6p3sp5rj.registry.depot.dev". Pull from this host instead of
+  // the host in `reference`, which stays on the legacy shared host for older
+  // clients.
+  string registry_host = 6;
 }
 
 message GetPullTokenRequest {
@@ -283,4 +288,10 @@ message GetPullTokenRequest {
   optional string build_id = 2;
 }
 
-message GetPullTokenResponse { string token = 1; }
+message GetPullTokenResponse {
+  string token = 1;
+  // Canonical registry host for the organization that owns the project. For
+  // example, "5m6p3sp5rj.registry.depot.dev". Empty only for clients talking to
+  // an API that predates organization registry hosts.
+  string registry_host = 2;
+}

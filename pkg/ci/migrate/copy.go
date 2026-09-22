@@ -165,3 +165,79 @@ func CopyGitHubToDepot(repoRoot string, dirs []string, mode CopyMode) (*CopyResu
 
 	return result, nil
 }
+
+// CopyWorkflowSiblings mirrors files living under .github/workflows/ other than
+// the parsed workflow YAML files into .depot/workflows/, preserving relative layout
+// and permissions. Symlinks are skipped. Returns the destination paths written.
+func CopyWorkflowSiblings(srcWorkflowsDir, destWorkflowsDir string, workflowPaths map[string]bool) ([]string, error) {
+	var copied []string
+
+	err := filepath.WalkDir(srcWorkflowsDir, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+
+		if workflowPaths[path] {
+			return nil
+		}
+
+		info, err := os.Lstat(path)
+		if err != nil {
+			return err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return nil
+		}
+
+		relPath, err := filepath.Rel(srcWorkflowsDir, path)
+		if err != nil {
+			return err
+		}
+		destPath := filepath.Join(destWorkflowsDir, relPath)
+
+		if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
+			return fmt.Errorf("failed to create directory %s: %w", filepath.Dir(destPath), err)
+		}
+		if err := copyFile(path, destPath, info.Mode().Perm()); err != nil {
+			return err
+		}
+
+		copied = append(copied, destPath)
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to walk .github/workflows for sibling files: %w", err)
+	}
+
+	return copied, nil
+}
+
+// copyFile copies a regular file from src to dest, truncating dest if it exists.
+func copyFile(src, dest string, perm os.FileMode) error {
+	srcFile, err := os.Open(src)
+	if err != nil {
+		return fmt.Errorf("failed to open source file %s: %w", src, err)
+	}
+	defer srcFile.Close()
+
+	destFile, err := os.OpenFile(dest, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, perm)
+	if err != nil {
+		return fmt.Errorf("failed to create destination file %s: %w", dest, err)
+	}
+	defer destFile.Close()
+
+	if _, err := io.Copy(destFile, srcFile); err != nil {
+		return fmt.Errorf("failed to copy file %s to %s: %w", src, dest, err)
+	}
+
+	// OpenFile only applies perm when creating the file; when overwriting an
+	// existing sibling (a re-run over an already-migrated tree) the old mode
+	// sticks, so set it explicitly to keep the source's permissions.
+	if err := os.Chmod(dest, perm); err != nil {
+		return fmt.Errorf("failed to set permissions on %s: %w", dest, err)
+	}
+	return nil
+}

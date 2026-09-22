@@ -269,7 +269,7 @@ func newCmdPreflight(parentOpts *migrateOptions) *cobra.Command {
 	return &cobra.Command{
 		Use:   "preflight",
 		Short: "Check authentication and repository access for migration",
-		Long:  "Validates authentication, detects a repository for the selected forge, and checks the access required to migrate it. GitHub checks the Depot Code Access app; Cursor checks that the Origin repository is available to the Depot organization.",
+		Long:  "Validates authentication, detects a repository for the selected forge, and checks the access required to migrate it. GitHub checks the Depot Code Access app; Origin checks that the repository is available to the Depot organization.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			opts := migrateCommandOptions(cmd, *parentOpts)
 			_, err := preflight(cmd.Context(), opts)
@@ -624,18 +624,47 @@ func workflowsWithContext(ctx context.Context, opts migrateOptions) error {
 		}
 	}
 
-	// Rewrite .github/ references in copied action files
+	depotWorkflowsDir := filepath.Join(depotDir, "workflows")
+	if err := os.MkdirAll(depotWorkflowsDir, 0755); err != nil {
+		return fmt.Errorf("failed to create .depot/workflows: %w", err)
+	}
+
+	// Mirror workflow sibling files (helper scripts, configs, and non-workflow YAML)
+	// into .depot/workflows/ so references to them resolve there. This runs
+	// before the transform so that, under a partial migration, the copied siblings can
+	// join the rewrite allow-list below — otherwise a selected workflow's reference to
+	// a sibling script would keep pointing at .github/ even though the script was moved.
+	workflowPaths := make(map[string]bool, len(workflows))
+	for _, wf := range workflows {
+		workflowPaths[wf.Path] = true
+	}
+	siblings, err := migrate.CopyWorkflowSiblings(workflowsDir, depotWorkflowsDir, workflowPaths)
+	if err != nil {
+		return fmt.Errorf("failed to copy workflow sibling files: %w", err)
+	}
+
+	// During a partial migration migratedWorkflows gates which .github/workflows/
+	// references get rewritten (only selected workflows). The copied siblings now live
+	// under .depot/workflows/, so add their relative paths to the set; without this a
+	// reference like ".github/workflows/scripts/build.sh" inside a migrated workflow
+	// would be left pointing at .github/ and the copy would go unused. Full migrations
+	// (nil set) already rewrite every reference, so there is nothing to add there.
+	if migratedWorkflows != nil {
+		for _, sibling := range siblings {
+			rel, err := filepath.Rel(depotWorkflowsDir, sibling)
+			if err != nil {
+				return fmt.Errorf("failed to resolve relative path for %s: %w", sibling, err)
+			}
+			migratedWorkflows[filepath.ToSlash(rel)] = true
+		}
+	}
+
+	// Rewrite .github/ references in copied action files.
 	depotActionsDir := filepath.Join(depotDir, "actions")
 	if info, err := os.Stat(depotActionsDir); err == nil && info.IsDir() {
 		if _, err := transform.RewriteGitHubPathsInDir(depotActionsDir, migratedWorkflows); err != nil {
 			return fmt.Errorf("failed to rewrite paths in action files: %w", err)
 		}
-	}
-
-	// Transform and write each workflow
-	depotWorkflowsDir := filepath.Join(depotDir, "workflows")
-	if err := os.MkdirAll(depotWorkflowsDir, 0755); err != nil {
-		return fmt.Errorf("failed to create .depot/workflows: %w", err)
 	}
 
 	type workflowResult struct {
@@ -676,6 +705,14 @@ func workflowsWithContext(ctx context.Context, opts migrateOptions) error {
 			result:      result,
 			hasCritical: result.HasCritical,
 		})
+	}
+
+	// Now that migratedWorkflows includes the copied siblings, rewrite any .github/
+	// paths inside those sibling files the same way action files are rewritten.
+	for _, sibling := range siblings {
+		if _, err := transform.RewriteGitHubPathsInFile(sibling, migratedWorkflows); err != nil {
+			return fmt.Errorf("failed to rewrite paths in %s: %w", sibling, err)
+		}
 	}
 
 	// Print summary
