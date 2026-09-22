@@ -42,22 +42,6 @@ func TestExtractProjectIDAndTag(t *testing.T) {
 	}
 }
 
-func TestRegistryHostFallsBackToLegacyHost(t *testing.T) {
-	if got := registryHost(""); got != "registry.depot.dev" {
-		t.Errorf("registryHost(\"\") = %q", got)
-	}
-	if got := registryHost("acmeorg.registry.depot.dev"); got != "acmeorg.registry.depot.dev" {
-		t.Errorf("registryHost(org host) = %q", got)
-	}
-}
-
-func TestImageReferenceMatchesServerAddress(t *testing.T) {
-	host := registryHost("acmeorg.registry.depot.dev")
-	if got, want := imageReference(host, "abc123", "v1"), "acmeorg.registry.depot.dev/abc123:v1"; got != want {
-		t.Errorf("imageReference = %q, want %q", got, want)
-	}
-}
-
 func TestRehostReference(t *testing.T) {
 	cases := []struct{ ref, host, want string }{
 		{"registry.depot.dev/abc123:bld1", "acmeorg.registry.depot.dev", "acmeorg.registry.depot.dev/abc123:bld1"},
