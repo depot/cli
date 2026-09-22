@@ -3,7 +3,6 @@ package pull
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"connectrpc.com/connect"
 	depotapi "github.com/depot/cli/pkg/api"
@@ -17,10 +16,6 @@ import (
 	"github.com/docker/cli/cli/command"
 	"github.com/spf13/cobra"
 	"golang.org/x/sync/errgroup"
-)
-
-const (
-	depotRegistry = "registry.depot.dev"
 )
 
 func NewCmdPull() *cobra.Command {
@@ -100,21 +95,10 @@ func NewCmdPull() *cobra.Command {
 				}
 			}
 
-			// Check if the buildID is actually a registry reference or tag
-			if strings.HasPrefix(param, depotRegistry+"/") {
-				// Extract project ID and tag from the reference
-				projectID, tag := extractProjectIDAndTag(param)
-				return pullByTag(ctx, dockerCli, token, projectID, tag, userTags, platform, progress)
-			}
-
-			// Check if the param is in the format "projectID:tag"
-			if strings.Contains(param, ":") && !strings.HasPrefix(param, depotRegistry+"/") {
-				parts := strings.SplitN(param, ":", 2)
-				if len(parts) == 2 {
-					projectID = parts[0]
-					tag := parts[1]
-					return pullByTag(ctx, dockerCli, token, projectID, tag, userTags, platform, progress)
-				}
+			// A registry reference or a "projectID:tag" pair names an image directly. Both
+			// resolve to the organization registry host before pulling.
+			if referencedProjectID, tag, ok := splitRegistryReference(param); ok {
+				return pullByTag(ctx, dockerCli, token, referencedProjectID, tag, userTags, platform, progress)
 			}
 
 			// Try to get build info first (build ID approach)
@@ -157,20 +141,6 @@ func requireNonEmptyArg(_ *cobra.Command, args []string) error {
 	return nil
 }
 
-// extractProjectIDAndTag extracts project ID and tag from a registry reference
-func extractProjectIDAndTag(reference string) (projectID string, tag string) {
-	// Remove the registry prefix
-	projectAndTag := strings.TrimPrefix(reference, depotRegistry+"/")
-
-	// Split on colon to separate project ID and tag
-	parts := strings.SplitN(projectAndTag, ":", 2)
-	if len(parts) != 2 {
-		return "", reference
-	}
-
-	return parts[0], parts[1]
-}
-
 // pullByTag handles pulling an image directly by tag when build ID approach fails
 func pullByTag(ctx context.Context, dockerCli command.Cli, token, projectID, tag string, userTags []string, platform, progress string) error {
 	client := depotapi.NewBuildClient()
@@ -182,11 +152,11 @@ func pullByTag(ctx context.Context, dockerCli command.Cli, token, projectID, tag
 		return fmt.Errorf("failed to get pull token for project %s: %w", projectID, err)
 	}
 
-	// Construct the full image reference
-	imageName := fmt.Sprintf("%s/%s:%s", depotRegistry, projectID, tag)
+	host := registryHost(res.Msg.RegistryHost)
+	imageName := imageReference(host, projectID, tag)
 
 	// Set up pull options
-	serverAddress := depotRegistry
+	serverAddress := host
 	username := "x-token"
 	opts := load.PullOptions{
 		UserTags:      userTags,
