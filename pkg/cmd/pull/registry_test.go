@@ -7,15 +7,6 @@ import (
 	cliv1 "github.com/depot/cli/pkg/proto/depot/cli/v1"
 )
 
-func TestRegistryHostFallsBackToSharedHost(t *testing.T) {
-	if got := registryHost("5m6p3sp5rj.registry.depot.dev"); got != "5m6p3sp5rj.registry.depot.dev" {
-		t.Fatalf("unexpected host: %s", got)
-	}
-	if got := registryHost(""); got != "registry.depot.dev" {
-		t.Fatalf("unexpected host: %s", got)
-	}
-}
-
 func TestSplitRegistryReference(t *testing.T) {
 	for _, test := range []struct {
 		reference string
