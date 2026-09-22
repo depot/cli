@@ -54,8 +54,16 @@ func TestAnalyticsPipedJSONHasFailureContextWithoutPrompt(t *testing.T) {
 func TestAnalyticsRejectsInvalidFlagsBeforeAuthentication(t *testing.T) {
 	analyticsHooks(t)
 	resolveOrgAuthFunc = func(context.Context, string) (string, error) { t.Fatal("must validate first"); return "", nil }
-	for _, args := range [][]string{{"--ci", "--gha"}, {"--ranking", "newest"}, {"--limit", "101"}, {"--start-date", "2026-02-30"},
-		{"--start-date", "2026-01-01", "--end-date", "2026-09-01"}, {"--start-date", "2026-09-02", "--end-date", "2026-09-01"}, {"--output", "csv"}} {
+	resolveStaticAuthFunc = func(string) string { t.Fatal("must validate before static authentication"); return "" }
+	listTestAnalyticsFunc = func(context.Context, string, string, *testresultsv1.ListTestAnalyticsRequest) (*testresultsv1.ListTestAnalyticsResponse, error) {
+		t.Fatal("must validate before requesting analytics")
+		return nil, nil
+	}
+	for _, args := range [][]string{{"--ci", "--gha"}, {"--ranking", "newest"}, {"--limit", "101"},
+		{"--start-date", "2026-02-30"}, {"--end-date", "2026-02-30", "--output", "json"},
+		{"--start-date", "2026-02-29"}, {"--end-date", "2026-04-31"},
+		{"--start-date", "2026-01-01", "--end-date", "2026-04-01"},
+		{"--start-date", "2026-09-02", "--end-date", "2026-09-01"}, {"--output", "csv"}} {
 		cmd := NewCmdTests()
 		cmd.SetArgs(append([]string{"analytics"}, args...))
 		cmd.SilenceErrors = true
@@ -63,6 +71,33 @@ func TestAnalyticsRejectsInvalidFlagsBeforeAuthentication(t *testing.T) {
 		if err := cmd.Execute(); err == nil {
 			t.Fatalf("expected invalid flags: %v", args)
 		}
+	}
+}
+
+func TestAnalyticsAcceptsCalendarBoundaries(t *testing.T) {
+	for _, dates := range [][2]string{{"2024-02-29", "2024-02-29"}, {"2026-01-01", "2026-03-31"}, {"", "2024-02-29"}} {
+		t.Run(strings.Join(dates[:], "/"), func(t *testing.T) {
+			analyticsHooks(t)
+			listTestAnalyticsFunc = func(_ context.Context, _, _ string, req *testresultsv1.ListTestAnalyticsRequest) (*testresultsv1.ListTestAnalyticsResponse, error) {
+				if req.StartDate != dates[0] || req.EndDate != dates[1] {
+					t.Fatalf("dates changed: %q to %q", req.StartDate, req.EndDate)
+				}
+				return &testresultsv1.ListTestAnalyticsResponse{}, nil
+			}
+			cmd := NewCmdTests()
+			var out bytes.Buffer
+			cmd.SetOut(&out)
+			cmd.SetArgs([]string{"analytics", "--start-date", dates[0], "--end-date", dates[1], "--output", "json"})
+			if err := cmd.Execute(); err != nil {
+				t.Fatal(err)
+			}
+			var result struct {
+				Tests []json.RawMessage `json:"tests"`
+			}
+			if err := json.Unmarshal(out.Bytes(), &result); err != nil || result.Tests == nil || len(result.Tests) != 0 {
+				t.Fatalf("expected empty analytics JSON, got %s (error: %v)", out.String(), err)
+			}
+		})
 	}
 }
 
