@@ -1,6 +1,7 @@
 package ci
 
 import (
+	"cmp"
 	"fmt"
 	"net/url"
 	"strings"
@@ -75,7 +76,7 @@ func NewCmdStatus() *cobra.Command {
 				}
 
 				for _, job := range workflow.Jobs {
-					fmt.Printf("    Job: %s [%s] (%s)\n", job.JobId, job.JobKey, job.Status)
+					fmt.Printf("    Job: %s [%s] (%s)\n", job.JobId, cmp.Or(job.GetJobDisplayName(), job.JobKey), job.Status)
 
 					for _, attempt := range job.Attempts {
 						fmt.Printf("      Attempt #%d (%s)\n", attempt.Attempt, attempt.Status)
@@ -119,10 +120,11 @@ type statusWorkflowJSON struct {
 }
 
 type statusJobJSON struct {
-	JobID    string              `json:"job_id"`
-	JobKey   string              `json:"job_key"`
-	Status   string              `json:"status"`
-	Attempts []statusAttemptJSON `json:"attempts"`
+	JobDisplayName string              `json:"job_display_name"`
+	JobID          string              `json:"job_id"`
+	JobKey         string              `json:"job_key"`
+	Status         string              `json:"status"`
+	Attempts       []statusAttemptJSON `json:"attempts"`
 }
 
 type statusAttemptJSON struct {
@@ -159,10 +161,11 @@ func statusToJSON(resp *civ1.GetRunStatusResponse, orgFlag string) statusJSON {
 
 		for _, job := range workflow.GetJobs() {
 			j := statusJobJSON{
-				JobID:    job.GetJobId(),
-				JobKey:   job.GetJobKey(),
-				Status:   job.GetStatus(),
-				Attempts: make([]statusAttemptJSON, 0, len(job.GetAttempts())),
+				JobDisplayName: cmp.Or(job.GetJobDisplayName(), job.GetJobKey()),
+				JobID:          job.GetJobId(),
+				JobKey:         job.GetJobKey(),
+				Status:         job.GetStatus(),
+				Attempts:       make([]statusAttemptJSON, 0, len(job.GetAttempts())),
 			}
 
 			for _, attempt := range job.GetAttempts() {

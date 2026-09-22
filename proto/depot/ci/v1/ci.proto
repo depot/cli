@@ -342,6 +342,8 @@ message JobStatus {
   string job_key = 2;
   string status = 3;
   repeated AttemptStatus attempts = 4;
+  // Resolved job name for display. Falls back to the leaf job name, then `jobKey`, when unavailable. Use `jobId` or `jobKey` to identify the job.
+  string job_display_name = 5;
 }
 
 message AttemptStatus {
@@ -410,6 +412,8 @@ message GetWorkflowJob {
   string finished_at = 5;
   // attempts are per-job attempts, not workflow execution records.
   repeated GetWorkflowJobAttempt attempts = 6;
+  // Resolved job name for display. Falls back to the leaf job name, then `jobKey`, when unavailable. Use `jobId` or `jobKey` to identify the job.
+  string job_display_name = 7;
 }
 
 // GetWorkflowJobAttempt describes one attempt of a job returned by GetWorkflow.

@@ -192,109 +192,136 @@ func TestWorkflowListJSONOutput(t *testing.T) {
 }
 
 func TestWorkflowShowPassesWorkflowIDAndPrintsDetails(t *testing.T) {
-	t.Setenv("DEPOT_TOKEN", "token-from-env")
+	for _, name := range []string{"api-package / checks", ""} {
+		t.Run("display_name="+name, func(t *testing.T) {
+			t.Setenv("DEPOT_TOKEN", "token-from-env")
 
-	originalCIGetWorkflow := ciGetWorkflow
-	t.Cleanup(func() { ciGetWorkflow = originalCIGetWorkflow })
+			originalCIGetWorkflow := ciGetWorkflow
+			t.Cleanup(func() { ciGetWorkflow = originalCIGetWorkflow })
 
-	var capturedToken string
-	var capturedOrgID string
-	var capturedWorkflowID string
-	ciGetWorkflow = func(ctx context.Context, token, orgID, workflowID string) (*civ1.GetWorkflowResponse, error) {
-		capturedToken = token
-		capturedOrgID = orgID
-		capturedWorkflowID = workflowID
-		return sampleGetWorkflowResponse(), nil
-	}
+			var capturedToken string
+			var capturedOrgID string
+			var capturedWorkflowID string
+			ciGetWorkflow = func(ctx context.Context, token, orgID, workflowID string) (*civ1.GetWorkflowResponse, error) {
+				capturedToken = token
+				capturedOrgID = orgID
+				capturedWorkflowID = workflowID
+				response := sampleGetWorkflowResponse()
+				response.Jobs[0].JobDisplayName = name
+				return response, nil
+			}
 
-	cmd := NewCmdWorkflowShow()
-	cmd.SetArgs([]string{"--org", "org-123", "workflow-1"})
-	cmd.SetOut(io.Discard)
-	cmd.SetErr(io.Discard)
+			cmd := NewCmdWorkflowShow()
+			cmd.SetArgs([]string{"--org", "org-123", "workflow-1"})
+			cmd.SetOut(io.Discard)
+			cmd.SetErr(io.Discard)
 
-	stdout, err := captureStdout(t, cmd.Execute)
-	if err != nil {
-		t.Fatal(err)
-	}
+			stdout, err := captureStdout(t, cmd.Execute)
+			if err != nil {
+				t.Fatal(err)
+			}
 
-	if capturedToken != "token-from-env" {
-		t.Fatalf("token = %q, want token-from-env", capturedToken)
-	}
-	if capturedOrgID != "org-123" {
-		t.Fatalf("orgID = %q, want org-123", capturedOrgID)
-	}
-	if capturedWorkflowID != "workflow-1" {
-		t.Fatalf("workflowID = %q, want workflow-1", capturedWorkflowID)
-	}
+			if capturedToken != "token-from-env" {
+				t.Fatalf("token = %q, want token-from-env", capturedToken)
+			}
+			if capturedOrgID != "org-123" {
+				t.Fatalf("orgID = %q, want org-123", capturedOrgID)
+			}
+			if capturedWorkflowID != "workflow-1" {
+				t.Fatalf("workflowID = %q, want workflow-1", capturedWorkflowID)
+			}
 
-	for _, want := range []string{
-		"Org: org-123",
-		"Repo: depot/api",
-		"Run: run-1 (failed)",
-		"Workflow: workflow-1 (failed)",
-		"Name: CI",
-		"Path: .depot/workflows/ci.yml",
-		"#1 finished 8m42s",
-		"#2 failed 3m14s",
-		"build [finished] 4m2s",
-		"Logs: depot ci logs att-build-1 --org org-123",
-		"Download: depot ci logs att-build-1 --output-file logs.txt --org org-123",
-		"test [failed] 2m58s",
-		"Latest attempt: #2 att-test-2 (failed) 2m58s",
-		"Sandbox: sandbox-2",
-		"Session: session-2",
-		"Logs: depot ci logs att-test-2 --org org-123",
-	} {
-		if !strings.Contains(stdout, want) {
-			t.Fatalf("workflow show output missing %q:\n%s", want, stdout)
-		}
-	}
-	if strings.Contains(stdout, "Download: depot ci logs att-test-2") {
-		t.Fatalf("workflow show output advertised download for failed latest attempt:\n%s", stdout)
+			wantName := name
+			if wantName == "" {
+				wantName = "build"
+			}
+			for _, want := range []string{
+				"Org: org-123",
+				"Repo: depot/api",
+				"Run: run-1 (failed)",
+				"Workflow: workflow-1 (failed)",
+				"Name: CI",
+				"Path: .depot/workflows/ci.yml",
+				"#1 finished 8m42s",
+				"#2 failed 3m14s",
+				wantName + " [finished] 4m2s",
+				"Job ID: job-build",
+				"Logs: depot ci logs att-build-1 --org org-123",
+				"Download: depot ci logs att-build-1 --output-file logs.txt --org org-123",
+				"test [failed] 2m58s",
+				"Latest attempt: #2 att-test-2 (failed) 2m58s",
+				"Sandbox: sandbox-2",
+				"Session: session-2",
+				"Logs: depot ci logs att-test-2 --org org-123",
+			} {
+				if !strings.Contains(stdout, want) {
+					t.Fatalf("workflow show output missing %q:\n%s", want, stdout)
+				}
+			}
+			if strings.Contains(stdout, "Download: depot ci logs att-test-2") {
+				t.Fatalf("workflow show output advertised download for failed latest attempt:\n%s", stdout)
+			}
+		})
 	}
 }
 
 func TestWorkflowShowJSONOutput(t *testing.T) {
-	t.Setenv("DEPOT_TOKEN", "token-from-env")
+	for _, name := range []string{"api-package / checks", ""} {
+		t.Run("display_name="+name, func(t *testing.T) {
+			t.Setenv("DEPOT_TOKEN", "token-from-env")
 
-	originalCIGetWorkflow := ciGetWorkflow
-	t.Cleanup(func() { ciGetWorkflow = originalCIGetWorkflow })
+			originalCIGetWorkflow := ciGetWorkflow
+			t.Cleanup(func() { ciGetWorkflow = originalCIGetWorkflow })
 
-	ciGetWorkflow = func(ctx context.Context, token, orgID, workflowID string) (*civ1.GetWorkflowResponse, error) {
-		return sampleGetWorkflowResponse(), nil
-	}
+			ciGetWorkflow = func(ctx context.Context, token, orgID, workflowID string) (*civ1.GetWorkflowResponse, error) {
+				response := sampleGetWorkflowResponse()
+				response.Jobs[0].JobDisplayName = name
+				return response, nil
+			}
 
-	cmd := NewCmdWorkflowShow()
-	cmd.SetArgs([]string{"--org", "org-123", "--output", "json", "workflow-1"})
-	cmd.SetOut(io.Discard)
-	cmd.SetErr(io.Discard)
+			cmd := NewCmdWorkflowShow()
+			cmd.SetArgs([]string{"--org", "org-123", "--output", "json", "workflow-1"})
+			cmd.SetOut(io.Discard)
+			cmd.SetErr(io.Discard)
 
-	stdout, err := captureStdout(t, cmd.Execute)
-	if err != nil {
-		t.Fatal(err)
-	}
+			stdout, err := captureStdout(t, cmd.Execute)
+			if err != nil {
+				t.Fatal(err)
+			}
 
-	var workflow workflowShowJSON
-	if err := json.Unmarshal([]byte(stdout), &workflow); err != nil {
-		t.Fatalf("invalid JSON output: %v\n%s", err, stdout)
-	}
-	if workflow.OrgID != "org-123" {
-		t.Fatalf("org_id = %q, want org-123", workflow.OrgID)
-	}
-	if workflow.Run.RunID != "run-1" || workflow.Run.Status != "failed" {
-		t.Fatalf("unexpected run JSON: %+v", workflow.Run)
-	}
-	if workflow.Workflow.WorkflowID != "workflow-1" || workflow.Workflow.WorkflowPath != ".depot/workflows/ci.yml" {
-		t.Fatalf("unexpected workflow JSON: %+v", workflow.Workflow)
-	}
-	if len(workflow.Executions) != 2 || workflow.Executions[1].ExecutionID != "exec-2" {
-		t.Fatalf("unexpected executions JSON: %+v", workflow.Executions)
-	}
-	if len(workflow.Jobs) != 2 || len(workflow.Jobs[1].Attempts) != 2 {
-		t.Fatalf("unexpected jobs JSON: %+v", workflow.Jobs)
-	}
-	if workflow.Jobs[1].Attempts[1].SessionID != "session-2" {
-		t.Fatalf("unexpected attempt JSON: %+v", workflow.Jobs[1].Attempts[1])
+			var workflow workflowShowJSON
+			if err := json.Unmarshal([]byte(stdout), &workflow); err != nil {
+				t.Fatalf("invalid JSON output: %v\n%s", err, stdout)
+			}
+			if workflow.OrgID != "org-123" {
+				t.Fatalf("org_id = %q, want org-123", workflow.OrgID)
+			}
+			if workflow.Run.RunID != "run-1" || workflow.Run.Status != "failed" {
+				t.Fatalf("unexpected run JSON: %+v", workflow.Run)
+			}
+			if workflow.Workflow.WorkflowID != "workflow-1" || workflow.Workflow.WorkflowPath != ".depot/workflows/ci.yml" {
+				t.Fatalf("unexpected workflow JSON: %+v", workflow.Workflow)
+			}
+			if len(workflow.Executions) != 2 || workflow.Executions[1].ExecutionID != "exec-2" {
+				t.Fatalf("unexpected executions JSON: %+v", workflow.Executions)
+			}
+			if len(workflow.Jobs) != 2 || len(workflow.Jobs[1].Attempts) != 2 {
+				t.Fatalf("unexpected jobs JSON: %+v", workflow.Jobs)
+			}
+			if workflow.Jobs[1].Attempts[1].SessionID != "session-2" {
+				t.Fatalf("unexpected attempt JSON: %+v", workflow.Jobs[1].Attempts[1])
+			}
+			wantName := name
+			if wantName == "" {
+				wantName = "ci.yml:build"
+			}
+			if workflow.Jobs[0].JobDisplayName != wantName || workflow.Jobs[0].JobKey != "ci.yml:build" || workflow.Jobs[0].JobID != "job-build" {
+				t.Fatalf("unexpected job naming: %+v", workflow.Jobs[0])
+			}
+			if !strings.Contains(stdout, `"job_display_name":`) {
+				t.Fatalf("JSON output should include job_display_name:\n%s", stdout)
+			}
+		})
 	}
 }
 
