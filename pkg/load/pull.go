@@ -53,8 +53,7 @@ func ImagePullPrivileged(ctx context.Context, dockerapi docker.APIClient, imageN
 	defer responseBody.Close()
 
 	if opts.Quiet {
-		_, err := io.Copy(io.Discard, responseBody)
-		if err != nil {
+		if err := readQuietPull(responseBody); err != nil {
 			return err
 		}
 	} else {
@@ -87,6 +86,26 @@ func ImagePullPrivileged(ctx context.Context, dockerapi docker.APIClient, imageN
 	}
 
 	return nil
+}
+
+// Docker reports pull failures inside the JSON stream even when the HTTP request succeeds.
+func readQuietPull(r io.Reader) error {
+	dec := json.NewDecoder(r)
+	for {
+		var msg jsonmessage.JSONMessage
+		if err := dec.Decode(&msg); err != nil {
+			if err == io.EOF {
+				return nil
+			}
+			return err
+		}
+		if msg.Error != nil {
+			return msg.Error
+		}
+		if msg.ErrorMessage != "" {
+			return &jsonmessage.JSONError{Message: msg.ErrorMessage}
+		}
+	}
 }
 
 type Status int
