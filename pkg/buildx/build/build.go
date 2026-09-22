@@ -1337,7 +1337,9 @@ func BuildWithResultHandler(ctx context.Context, nodes []builder.Node, opt map[s
 	return resp, nil
 }
 
-// extractIndexAnnotations extracts annotations for the OCI index from export attributes
+// extractIndexAnnotations extracts annotations for the OCI index from export attributes.
+// Bare and manifest annotations are already applied by BuildKit to each platform
+// manifest and must not be passed to Combine, which does not support them.
 func extractIndexAnnotations(exports []client.ExportEntry) ([]string, error) {
 	var annotations []string
 	for _, exp := range exports {
@@ -1346,8 +1348,6 @@ func extractIndexAnnotations(exports []client.ExportEntry) ([]string, error) {
 				annotations = append(annotations, fmt.Sprintf("index:%s=%s", key, v))
 			} else if key, ok := strings.CutPrefix(k, "annotation-manifest-descriptor."); ok {
 				annotations = append(annotations, fmt.Sprintf("manifest-descriptor:%s=%s", key, v))
-			} else if key, ok := strings.CutPrefix(k, "annotation."); ok && !strings.Contains(k, "-") {
-				annotations = append(annotations, fmt.Sprintf("%s=%s", key, v))
 			}
 		}
 	}
