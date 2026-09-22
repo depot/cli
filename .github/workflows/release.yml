@@ -129,15 +129,6 @@ jobs:
     permissions:
       contents: read
     steps:
-      - name: Validate Linear release key
-        env:
-          LINEAR_RELEASES_ACCESS_KEY: ${{ secrets.LINEAR_RELEASES_ACCESS_KEY }}
-        run: |
-          if [ -z "$LINEAR_RELEASES_ACCESS_KEY" ]; then
-            echo "::error::LINEAR_RELEASES_ACCESS_KEY is missing; configure this repository's Linear pipeline access key."
-            exit 1
-          fi
-
       - name: Checkout released revision
         uses: actions/checkout@v7
         with:
