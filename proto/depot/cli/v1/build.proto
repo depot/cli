@@ -276,6 +276,9 @@ message GetPullInfoResponse {
   string password = 3;
   repeated BuildOptions options = 4;
   bool save_for_load = 5;
+  // Registry hostname scoped to the organization that owns the build. For
+  // example, "acme.registry.depot.dev". Empty on older API servers.
+  string registry_host = 6;
 }
 
 message GetPullTokenRequest {
@@ -283,4 +286,9 @@ message GetPullTokenRequest {
   optional string build_id = 2;
 }
 
-message GetPullTokenResponse { string token = 1; }
+message GetPullTokenResponse {
+  string token = 1;
+  // Registry hostname scoped to the organization that owns the project. For
+  // example, "acme.registry.depot.dev". Empty on older API servers.
+  string registry_host = 2;
+}

@@ -101,14 +101,14 @@ func NewCmdPull() *cobra.Command {
 			}
 
 			// Check if the buildID is actually a registry reference or tag
-			if strings.HasPrefix(param, depotRegistry+"/") {
+			if isDepotRegistryReference(param) {
 				// Extract project ID and tag from the reference
 				projectID, tag := extractProjectIDAndTag(param)
 				return pullByTag(ctx, dockerCli, token, projectID, tag, userTags, platform, progress)
 			}
 
 			// Check if the param is in the format "projectID:tag"
-			if strings.Contains(param, ":") && !strings.HasPrefix(param, depotRegistry+"/") {
+			if strings.Contains(param, ":") {
 				parts := strings.SplitN(param, ":", 2)
 				if len(parts) == 2 {
 					projectID = parts[0]
@@ -157,10 +157,48 @@ func requireNonEmptyArg(_ *cobra.Command, args []string) error {
 	return nil
 }
 
+// isDepotRegistryReference reports whether reference targets the Depot registry,
+// either on the legacy host (registry.depot.dev/...) or an org-scoped host
+// (<org>.registry.depot.dev/...).
+func isDepotRegistryReference(reference string) bool {
+	host, _, found := strings.Cut(reference, "/")
+	if !found {
+		return false
+	}
+	return host == depotRegistry || strings.HasSuffix(host, "."+depotRegistry)
+}
+
+// registryHost returns the host to pull from, preferring the org-scoped host
+// reported by the API and falling back to the legacy host when it is absent.
+func registryHost(apiHost string) string {
+	if apiHost == "" {
+		return depotRegistry
+	}
+	return apiHost
+}
+
+// imageReference constructs the full image reference on the given registry host.
+func imageReference(host, projectID, tag string) string {
+	return fmt.Sprintf("%s/%s:%s", host, projectID, tag)
+}
+
+// rehostReference moves a legacy registry.depot.dev reference onto host.
+// References on any other host are returned unchanged.
+func rehostReference(reference, host string) string {
+	path, ok := strings.CutPrefix(reference, depotRegistry+"/")
+	if !ok {
+		return reference
+	}
+	return host + "/" + path
+}
+
 // extractProjectIDAndTag extracts project ID and tag from a registry reference
 func extractProjectIDAndTag(reference string) (projectID string, tag string) {
 	// Remove the registry prefix
-	projectAndTag := strings.TrimPrefix(reference, depotRegistry+"/")
+	_, projectAndTag, found := strings.Cut(reference, "/")
+	if !found {
+		projectAndTag = reference
+	}
 
 	// Split on colon to separate project ID and tag
 	parts := strings.SplitN(projectAndTag, ":", 2)
@@ -183,10 +221,10 @@ func pullByTag(ctx context.Context, dockerCli command.Cli, token, projectID, tag
 	}
 
 	// Construct the full image reference
-	imageName := fmt.Sprintf("%s/%s:%s", depotRegistry, projectID, tag)
+	serverAddress := registryHost(res.Msg.RegistryHost)
+	imageName := imageReference(serverAddress, projectID, tag)
 
 	// Set up pull options
-	serverAddress := depotRegistry
 	username := "x-token"
 	opts := load.PullOptions{
 		UserTags:      userTags,

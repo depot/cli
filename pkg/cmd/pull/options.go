@@ -44,7 +44,7 @@ func buildPullOpt(msg *cliv1.GetPullInfoResponse, userTags []string, platform, p
 		tags = msg.Options[0].Tags
 	}
 
-	serverAddress := "registry.depot.dev"
+	serverAddress := registryHost(msg.RegistryHost)
 	opts := load.PullOptions{
 		UserTags:      tags,
 		Quiet:         progress == prog.PrinterModeQuiet,
@@ -58,7 +58,7 @@ func buildPullOpt(msg *cliv1.GetPullInfoResponse, userTags []string, platform, p
 	}
 
 	return &pull{
-		imageName:   msg.Reference,
+		imageName:   rehostReference(msg.Reference, serverAddress),
 		pullOptions: opts,
 	}
 }
@@ -92,12 +92,14 @@ func bakePullOpts(msg *cliv1.GetPullInfoResponse, targets, userTags []string, pl
 	}
 
 	isPullingMultipleTargets := len(filteredOptions) > 1
+	serverAddress := registryHost(msg.RegistryHost)
+	reference := rehostReference(msg.Reference, serverAddress)
 
 	for _, opt := range filteredOptions {
 		// Bake builds always have a target name.
 		targetName := *opt.TargetName
 
-		imageName := fmt.Sprintf("%s-%s", msg.Reference, targetName)
+		imageName := fmt.Sprintf("%s-%s", reference, targetName)
 
 		// If a user specified tags, we override the tags in the bake file
 		// with <TAG>-<TARGET_NAME> if pulling multiple targets.
@@ -113,7 +115,6 @@ func bakePullOpts(msg *cliv1.GetPullInfoResponse, targets, userTags []string, pl
 			}
 		}
 
-		serverAddress := "registry.depot.dev"
 		opts := load.PullOptions{
 			UserTags:      tags,
 			Quiet:         progress == prog.PrinterModeQuiet,
