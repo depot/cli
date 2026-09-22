@@ -42,6 +42,9 @@ const (
 	// TestResultsServiceListTestResultsProcedure is the fully-qualified name of the
 	// TestResultsService's ListTestResults RPC.
 	TestResultsServiceListTestResultsProcedure = "/depot.testresults.v1.TestResultsService/ListTestResults"
+	// TestResultsServiceListTestAnalyticsProcedure is the fully-qualified name of the
+	// TestResultsService's ListTestAnalytics RPC.
+	TestResultsServiceListTestAnalyticsProcedure = "/depot.testresults.v1.TestResultsService/ListTestAnalytics"
 )
 
 // TestResultsServiceClient is a client for the depot.testresults.v1.TestResultsService service.
@@ -54,6 +57,9 @@ type TestResultsServiceClient interface {
 	// ListTestResults returns parsed test case results for one verified CI or
 	// GitHub Actions owner.
 	ListTestResults(context.Context, *connect.Request[v1.ListTestResultsRequest]) (*connect.Response[v1.ListTestResultsResponse], error)
+	// Lists cross-run flaky or slow tests for the authenticated organization.
+	// Requires an organization API token or a user token with organization membership.
+	ListTestAnalytics(context.Context, *connect.Request[v1.ListTestAnalyticsRequest]) (*connect.Response[v1.ListTestAnalyticsResponse], error)
 }
 
 // NewTestResultsServiceClient constructs a client for the depot.testresults.v1.TestResultsService
@@ -81,6 +87,11 @@ func NewTestResultsServiceClient(httpClient connect.HTTPClient, baseURL string, 
 			baseURL+TestResultsServiceListTestResultsProcedure,
 			opts...,
 		),
+		listTestAnalytics: connect.NewClient[v1.ListTestAnalyticsRequest, v1.ListTestAnalyticsResponse](
+			httpClient,
+			baseURL+TestResultsServiceListTestAnalyticsProcedure,
+			opts...,
+		),
 	}
 }
 
@@ -89,6 +100,7 @@ type testResultsServiceClient struct {
 	reportTestResults *connect.Client[v1.ReportTestResultsRequest, v1.ReportTestResultsResponse]
 	splitTests        *connect.Client[v1.SplitTestsRequest, v1.SplitTestsResponse]
 	listTestResults   *connect.Client[v1.ListTestResultsRequest, v1.ListTestResultsResponse]
+	listTestAnalytics *connect.Client[v1.ListTestAnalyticsRequest, v1.ListTestAnalyticsResponse]
 }
 
 // ReportTestResults calls depot.testresults.v1.TestResultsService.ReportTestResults.
@@ -106,6 +118,11 @@ func (c *testResultsServiceClient) ListTestResults(ctx context.Context, req *con
 	return c.listTestResults.CallUnary(ctx, req)
 }
 
+// ListTestAnalytics calls depot.testresults.v1.TestResultsService.ListTestAnalytics.
+func (c *testResultsServiceClient) ListTestAnalytics(ctx context.Context, req *connect.Request[v1.ListTestAnalyticsRequest]) (*connect.Response[v1.ListTestAnalyticsResponse], error) {
+	return c.listTestAnalytics.CallUnary(ctx, req)
+}
+
 // TestResultsServiceHandler is an implementation of the depot.testresults.v1.TestResultsService
 // service.
 type TestResultsServiceHandler interface {
@@ -117,6 +134,9 @@ type TestResultsServiceHandler interface {
 	// ListTestResults returns parsed test case results for one verified CI or
 	// GitHub Actions owner.
 	ListTestResults(context.Context, *connect.Request[v1.ListTestResultsRequest]) (*connect.Response[v1.ListTestResultsResponse], error)
+	// Lists cross-run flaky or slow tests for the authenticated organization.
+	// Requires an organization API token or a user token with organization membership.
+	ListTestAnalytics(context.Context, *connect.Request[v1.ListTestAnalyticsRequest]) (*connect.Response[v1.ListTestAnalyticsResponse], error)
 }
 
 // NewTestResultsServiceHandler builds an HTTP handler from the service implementation. It returns
@@ -140,6 +160,11 @@ func NewTestResultsServiceHandler(svc TestResultsServiceHandler, opts ...connect
 		svc.ListTestResults,
 		opts...,
 	)
+	testResultsServiceListTestAnalyticsHandler := connect.NewUnaryHandler(
+		TestResultsServiceListTestAnalyticsProcedure,
+		svc.ListTestAnalytics,
+		opts...,
+	)
 	return "/depot.testresults.v1.TestResultsService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case TestResultsServiceReportTestResultsProcedure:
@@ -148,6 +173,8 @@ func NewTestResultsServiceHandler(svc TestResultsServiceHandler, opts ...connect
 			testResultsServiceSplitTestsHandler.ServeHTTP(w, r)
 		case TestResultsServiceListTestResultsProcedure:
 			testResultsServiceListTestResultsHandler.ServeHTTP(w, r)
+		case TestResultsServiceListTestAnalyticsProcedure:
+			testResultsServiceListTestAnalyticsHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -167,4 +194,8 @@ func (UnimplementedTestResultsServiceHandler) SplitTests(context.Context, *conne
 
 func (UnimplementedTestResultsServiceHandler) ListTestResults(context.Context, *connect.Request[v1.ListTestResultsRequest]) (*connect.Response[v1.ListTestResultsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.testresults.v1.TestResultsService.ListTestResults is not implemented"))
+}
+
+func (UnimplementedTestResultsServiceHandler) ListTestAnalytics(context.Context, *connect.Request[v1.ListTestAnalyticsRequest]) (*connect.Response[v1.ListTestAnalyticsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.testresults.v1.TestResultsService.ListTestAnalytics is not implemented"))
 }

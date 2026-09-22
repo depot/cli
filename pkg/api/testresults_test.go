@@ -186,3 +186,21 @@ func (h *testResultsHandler) ListTestResults(
 		OwnerId:   req.Msg.GetOwnerId(),
 	}), nil
 }
+
+func (h *testResultsHandler) ListTestAnalytics(_ context.Context, req *connect.Request[testresultsv1.ListTestAnalyticsRequest]) (*connect.Response[testresultsv1.ListTestAnalyticsResponse], error) {
+	if req.Header().Get("Authorization") != "Bearer token-1" || req.Header().Get("X-Depot-Org") != "org-1" {
+		return nil, connect.NewError(connect.CodeUnauthenticated, nil)
+	}
+	return connect.NewResponse(&testresultsv1.ListTestAnalyticsResponse{Tests: []*testresultsv1.TestAnalytics{{Repo: req.Msg.Repo, Total: 9007199254740993}}}), nil
+}
+
+func TestAnalyticsClientRoundTripPreservesAuthAndLargeCounts(t *testing.T) {
+	setupTestResultsServer(t, &testResultsHandler{})
+	resp, err := ListTestAnalytics(context.Background(), "token-1", "org-1", &testresultsv1.ListTestAnalyticsRequest{Repo: "acme/api"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.Tests) != 1 || resp.Tests[0].Repo != "acme/api" || resp.Tests[0].Total != 9007199254740993 {
+		t.Fatalf("unexpected response: %v", resp)
+	}
+}

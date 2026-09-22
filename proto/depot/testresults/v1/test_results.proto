@@ -24,6 +24,96 @@ service TestResultsService {
   // ListTestResults returns parsed test case results for one verified CI or
   // GitHub Actions owner.
   rpc ListTestResults(ListTestResultsRequest) returns (ListTestResultsResponse) {}
+
+  // Lists cross-run flaky or slow tests for the authenticated organization.
+  // Requires an organization API token or a user token with organization membership.
+  rpc ListTestAnalytics(ListTestAnalyticsRequest) returns (ListTestAnalyticsResponse) {}
+}
+
+enum TestAnalyticsRanking {
+  TEST_ANALYTICS_RANKING_UNSPECIFIED = 0;
+  TEST_ANALYTICS_RANKING_FLAKY = 1;
+  TEST_ANALYTICS_RANKING_SLOWEST = 2;
+}
+
+message ListTestAnalyticsRequest {
+  // Ranking to return. Flaky tests have passing and failing or errored executions
+  // for the same repository, ref, and commit. Slow tests rank by p95 duration.
+  // Default: TEST_ANALYTICS_RANKING_FLAKY.
+  TestAnalyticsRanking ranking = 1;
+  // First UTC calendar date to include, in YYYY-MM-DD format. Maximum range: 90 days.
+  // Default: six days before `endDate`.
+  string start_date = 2;
+  // Last UTC calendar date to include, in YYYY-MM-DD format. Default: today.
+  string end_date = 3;
+  // Result source to include. Leave unspecified to include Depot CI and GitHub Actions.
+  TestResultsOwnerType owner_type = 4;
+  // Exact repository identity recorded with the report. Leave empty to include all repositories.
+  string repo = 5;
+  // Exact source ref. For example, "refs/heads/main". Leave empty to include all refs.
+  string ref = 6;
+  // Exact representative suite name for each test identity. Leave empty to include all suites.
+  string suite_name = 7;
+  // Case-insensitive substring of the representative test name. Leave empty to include all tests.
+  string test_name = 8;
+  // Exact representative class name. Leave empty to include all classes.
+  string class_name = 9;
+  // Exact representative filename. Leave empty to include all files.
+  string file_name = 10;
+  // Number of ranked tests to return. Maximum: 100. Default: 20.
+  uint32 limit = 11;
+}
+
+message ListTestAnalyticsResponse {
+  // Effective first UTC calendar date, in YYYY-MM-DD format.
+  string start_date = 1;
+  // Effective last UTC calendar date, in YYYY-MM-DD format.
+  string end_date = 2;
+  // Applied ranking.
+  TestAnalyticsRanking ranking = 3;
+  // Tests grouped separately by source, repository, and test identity.
+  repeated TestAnalytics tests = 4;
+  // Whether more matching tests exist. Increase `limit` or narrow the filters to explore them.
+  bool has_more = 5;
+}
+
+// Labels for flaky rankings come from the qualifying revision group with the most
+// recent pass. Labels for slow rankings come from the latest selected result.
+message TestAnalytics {
+  // Stable test identity within `ownerType` and `repo`.
+  string test_identity_key = 1;
+  // Source of these results.
+  TestResultsOwnerType owner_type = 2;
+  // Repository identity recorded with the reports. Empty for reports without repository context.
+  string repo = 3;
+  // Representative suite name.
+  string suite_name = 4;
+  // Representative test name.
+  string test_name = 5;
+  // Representative class name.
+  string class_name = 6;
+  // Representative filename.
+  string file_name = 7;
+  // Number of reported test results. For flaky rankings, includes only revision groups
+  // with passing and failing or errored executions; skipped and unknown results are excluded.
+  uint64 total = 8;
+  // Number of passing results included in `total`.
+  uint64 passed = 9;
+  // Number of failing results included in `total`.
+  uint64 failed = 10;
+  // Number of errored results included in `total`.
+  uint64 errored = 11;
+  // Approximate 95th percentile of positive durations, in milliseconds. Present for slow rankings.
+  optional double p95_duration_ms = 12;
+  // Failed and errored results divided by `total`, from 0 to 1. Present for flaky rankings.
+  optional double flake_rate = 13;
+  // Number of repository/ref/commit groups with mixed outcomes across distinct executions.
+  // Flaky rankings sort by this count, then the most recent pass. Zero for slow rankings.
+  uint64 flaky_revisions = 14;
+  // Latest failed or errored result for this test in the selected date and source filters.
+  // Unset when no sample is available. Message, type and stack text are limited to 8 KiB each;
+  // stdout and stderr are omitted. Use its owner and test fields with `ListTestResults` for more context.
+  TestResult latest_failure = 15;
 }
 
 enum TestResultsOwnerType {
@@ -121,7 +211,7 @@ message SplitTestsRequest {
 
   // Per-test-command identity key. Use a distinct value when one job performs
   // more than one independent test split. Maximum: 16384 bytes. Default:
-  // default.
+  // "default".
   string split_key = 6;
 }
 

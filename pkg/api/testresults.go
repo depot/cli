@@ -39,3 +39,12 @@ func SplitTests(ctx context.Context, token string, req *testresultsv1.SplitTests
 	}
 	return resp.Msg, nil
 }
+
+func ListTestAnalytics(ctx context.Context, token, orgID string, req *testresultsv1.ListTestAnalyticsRequest) (*testresultsv1.ListTestAnalyticsResponse, error) {
+	client := newTestResultsServiceClient()
+	resp, err := client.ListTestAnalytics(ctx, WithAuthenticationAndOrg(connect.NewRequest(req), token, orgID))
+	if err != nil {
+		return nil, err
+	}
+	return resp.Msg, nil
+}
