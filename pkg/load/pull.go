@@ -53,7 +53,9 @@ func ImagePullPrivileged(ctx context.Context, dockerapi docker.APIClient, imageN
 	defer responseBody.Close()
 
 	if opts.Quiet {
-		_, err := io.Copy(io.Discard, responseBody)
+		// Docker reports pull failures as an error message within the HTTP 200
+		// progress stream, so the stream must be decoded even when discarded.
+		err := jsonmessage.DisplayJSONMessagesStream(responseBody, io.Discard, 0, false, nil)
 		if err != nil {
 			return err
 		}
@@ -168,8 +170,8 @@ type Message struct {
 }
 
 // decode reads the body of the response from Docker and decodes it into JSON messages as fast
-// as it can.  It does not block on the channel and prefers to drop messages if the channel is full
-// to prevent Docker from blocking on the pull.
+// as it can.  It does not block on the channel and prefers to drop progress messages if the
+// channel is full to prevent Docker from blocking on the pull.  Error messages are never dropped.
 func decode(ctx context.Context, r io.Reader, msgCh chan<- Message) {
 	defer close(msgCh)
 
@@ -177,10 +179,6 @@ func decode(ctx context.Context, r io.Reader, msgCh chan<- Message) {
 	for {
 		select {
 		case <-ctx.Done():
-			select {
-			case msgCh <- Message{err: ctx.Err()}:
-			default:
-			}
 			return
 		default:
 		}
@@ -193,8 +191,17 @@ func decode(ctx context.Context, r io.Reader, msgCh chan<- Message) {
 
 			select {
 			case msgCh <- Message{err: err}:
-			default:
+			case <-ctx.Done():
 			}
+			return
+		}
+
+		if msg.Error != nil {
+			select {
+			case msgCh <- Message{msg: &msg}:
+			case <-ctx.Done():
+			}
+			return
 		}
 
 		// If we block here it is possible for Docker to block on the pull.
