@@ -31,6 +31,8 @@ func resolveOIDCCredentialWithDepotCIEnv(ctx context.Context, providers []oidc.O
 
 func resolveOIDCCredentialWithProviders(ctx context.Context, providers []oidc.OIDCProvider) (string, error) {
 	debug := os.Getenv("DEPOT_DEBUG_OIDC") != ""
+	var lastProviderName string
+	var lastProviderErr error
 	for _, provider := range providers {
 		if debug {
 			fmt.Fprintf(oidcDebugWriter, "Trying OIDC provider %s\n", provider.Name())
@@ -44,11 +46,16 @@ func resolveOIDCCredentialWithProviders(ctx context.Context, providers []oidc.OI
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 				return "", err
 			}
+			lastProviderName = provider.Name()
+			lastProviderErr = err
 			continue
 		}
 		if strings.TrimSpace(token) != "" {
 			return strings.TrimSpace(token), nil
 		}
+	}
+	if lastProviderErr != nil {
+		return "", fmt.Errorf("OIDC provider %s failed: %w", lastProviderName, lastProviderErr)
 	}
 	return "", fmt.Errorf("missing OIDC credential; ensure this command is running in a supported CI environment with OIDC enabled")
 }
