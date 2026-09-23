@@ -165,6 +165,9 @@ message RunRequest {
   optional string workspace_patch_cache_key = 6;
   // forge identifies the source-code host. Unspecified defaults to GitHub for compatibility.
   Forge forge = 7;
+  // Branch or tag the `sha` was checked out from, used to attribute test results. For example, "refs/heads/feature".
+  // It does not change what is checked out. Only valid when `sha` is set.
+  optional string ref = 8;
 }
 
 message RunResponse {
