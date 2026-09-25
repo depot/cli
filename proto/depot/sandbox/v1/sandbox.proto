@@ -1,0 +1,277 @@
+syntax = "proto3";
+
+package depot.sandbox.v1;
+
+import "depot/sandbox/v1/command.proto";
+import "depot/sandbox/v1/filesystem.proto";
+import "depot/sandbox/v1/hook.proto";
+import "depot/sandbox/v1/logs.proto";
+import "depot/sandbox/v1/pty.proto";
+import "depot/sandbox/v1/refs.proto";
+import "depot/sandbox/v1/runtime.proto";
+import "depot/sandbox/v1/snapshot.proto";
+import "depot/sandbox/v1/source.proto";
+import "google/protobuf/timestamp.proto";
+
+// SandboxService is the v1 API for creating and managing sandboxes: isolated
+// virtual machines you can run commands in, attach a filesystem and terminal
+// to, and snapshot.
+//
+// It covers the full sandbox lifecycle (create, inspect, list, stop, kill),
+// command execution (one-shot, streaming, and interactive), a filesystem API,
+// pseudo-terminal access, log streaming, and durable snapshots.
+
+service SandboxService {
+  rpc CreateSandbox(CreateSandboxRequest) returns (CreateSandboxResponse);
+  rpc GetSandbox(SandboxRef) returns (GetSandboxResponse);
+  rpc ListSandboxes(ListSandboxesRequest) returns (ListSandboxesResponse);
+
+  // To create a sandbox from a declarative spec, use CreateSandboxFromSpec on
+  // SandboxSpecService in spec_rpc.proto, not this service. That service is
+  // independent of this one, so existing SandboxService callers are unaffected.
+
+  // StopSandbox shuts a sandbox down gracefully (terminated_by=GRACEFUL);
+  // KillSandbox forces it to stop (terminated_by=FORCED). Calling either on a
+  // sandbox that is already in a terminal state returns FailedPrecondition
+  // rather than acting again.
+  rpc StopSandbox(StopSandboxRequest) returns (StopSandboxResponse);
+  rpc KillSandbox(KillSandboxRequest) returns (KillSandboxResponse);
+
+  // RunCommand runs a command in the sandbox and streams its output. The
+  // response stream begins with a Started event and ends with a Finished
+  // event, or terminates with an error.
+  rpc RunCommand(RunCommandRequest) returns (stream SandboxCommandExecutionEvent);
+
+  // RunCommandPipe runs a command and lets you stream input to it while it
+  // runs. The first request on the stream must carry `init`; later requests
+  // carry `stdin` bytes. The response stream has the same shape as RunCommand.
+  // stdin bytes are delivered to the process but are not persisted.
+  rpc RunCommandPipe(stream RunCommandPipeRequest) returns (stream SandboxCommandExecutionEvent);
+
+  // RunHook runs a lifecycle hook command inside the sandbox. The hook runs
+  // through /bin/sh, with the merged environment exported and the working
+  // directory set to the workspace. It either streams command output in the
+  // foreground or runs detached with output written to a log file. The hook's
+  // stage is a label only and does not change how the command runs.
+  rpc RunHook(RunHookRequest) returns (stream SandboxCommandExecutionEvent);
+
+  // GetCommand and ListCommands return persisted metadata about commands that
+  // have run in the sandbox. AttachCommand replays a command's stored
+  // stdout/stderr and, when the command is still running, tails its live
+  // output.
+  rpc GetCommand(SandboxCommandExecutionRef) returns (GetCommandResponse);
+  rpc ListCommands(ListCommandsRequest) returns (ListCommandsResponse);
+  rpc AttachCommand(AttachCommandRequest) returns (stream SandboxCommandExecutionEvent);
+
+  // StreamSandboxLogs streams a sandbox's logs to the caller. Today it emits
+  // the four boot-output event kinds (boot_stdout, boot_stderr,
+  // boot_finished, evicted_early_data). There is no replay of past output:
+  // terminal sandboxes return FailedPrecondition. See logs.proto.
+  rpc StreamSandboxLogs(StreamSandboxLogsRequest) returns (stream SandboxLogEvent);
+
+  // KillCommand delivers a signal to a running command. The default signal is
+  // SIGTERM; SIGINT is also accepted. SIGKILL is rejected with
+  // InvalidArgument. If the command has already finished or was never
+  // registered, this returns NotFound.
+  rpc KillCommand(KillCommandRequest) returns (KillCommandResponse);
+
+  // OpenPty opens an interactive pseudo-terminal in the sandbox. The first
+  // request carries `start`; later requests carry stdin bytes or window
+  // resize messages. The response stream emits `data` byte chunks until the
+  // shell exits, followed by a single `exit` event carrying the exit code.
+  // The shell is always /bin/sh and is not selectable. Closing the stream
+  // ends the pty; there is no reattach.
+  rpc OpenPty(stream OpenPtyRequest) returns (stream OpenPtyResponse);
+
+  // Filesystem operations on the sandbox (see filesystem.proto). Errors are
+  // returned as Connect errors with a FileSystemErrorDetail attached.
+  rpc Mkdir(MkdirRequest) returns (MkdirResponse);
+  rpc Stat(StatRequest) returns (StatResponse);
+  rpc ReadDir(ReadDirRequest) returns (ReadDirResponse);
+  rpc Remove(RemoveRequest) returns (RemoveResponse);
+  rpc Rename(RenameRequest) returns (RenameResponse);
+  rpc CopyFile(CopyFileRequest) returns (CopyFileResponse);
+  rpc Truncate(TruncateRequest) returns (TruncateResponse);
+  rpc Chmod(ChmodRequest) returns (ChmodResponse);
+  rpc Chown(ChownRequest) returns (ChownResponse);
+  rpc Symlink(SymlinkRequest) returns (SymlinkResponse);
+  rpc Readlink(ReadlinkRequest) returns (ReadlinkResponse);
+  rpc Access(AccessRequest) returns (AccessResponse);
+  rpc ReadFile(ReadFileRequest) returns (stream FileChunk);
+  rpc WriteFile(stream WriteFileRequest) returns (WriteFileResponse);
+
+  // Durable filesystem snapshots of a sandbox (see snapshot.proto). Once a
+  // snapshot is durable, CreateSnapshot also gracefully stops the source
+  // sandbox.
+  rpc CreateSnapshot(CreateSnapshotRequest) returns (CreateSnapshotResponse);
+  rpc GetSnapshot(GetSnapshotRequest) returns (GetSnapshotResponse);
+  rpc ListSnapshots(ListSnapshotsRequest) returns (ListSnapshotsResponse);
+  rpc DeleteSnapshot(DeleteSnapshotRequest) returns (DeleteSnapshotResponse);
+}
+
+// SandboxRef, the selector used to identify a sandbox, lives in refs.proto
+// alongside the other selector messages (SandboxCommandExecutionRef,
+// SnapshotRef).
+
+// SandboxStatus describes where a sandbox is in its lifecycle.
+//
+// CREATED:   the sandbox record exists, but no compute has been assigned yet.
+// ASSIGNED:  compute has been assigned, but the VM has not started.
+// STARTING:  the VM is booting.
+// RUNNING:   the VM has booted and is ready to accept commands.
+// FINISHED:  the sandbox terminated cleanly (graceful stop or normal exit).
+// CANCELLED: the sandbox was forcibly terminated (killed).
+// FAILED:    the sandbox ended with an error (such as an image pull failure,
+//            out-of-memory, or a crash).
+enum SandboxStatus {
+  SANDBOX_STATUS_UNSPECIFIED = 0;
+  SANDBOX_STATUS_CREATED = 1;
+  SANDBOX_STATUS_ASSIGNED = 2;
+  SANDBOX_STATUS_STARTING = 3;
+  SANDBOX_STATUS_RUNNING = 4;
+  SANDBOX_STATUS_FINISHED = 5;
+  SANDBOX_STATUS_CANCELLED = 6;
+  SANDBOX_STATUS_FAILED = 7;
+}
+
+// TerminationReason classifies why a sandbox ended. It is populated only on a
+// terminal status (FINISHED, CANCELLED, or FAILED). UNSPECIFIED is never
+// written by the server; callers should treat it as "unknown".
+//
+//   GRACEFUL:     a clean shutdown the caller requested via StopSandbox.
+//   FORCED:       an immediate termination the caller requested via KillSandbox.
+//   TIMED_OUT:    the sandbox's time-to-live expired and the server ended it.
+//   SYSTEM_FAULT: host failure, out-of-memory, a crash, or another
+//                 server-side error.
+enum TerminationReason {
+  TERMINATION_REASON_UNSPECIFIED = 0;
+  TERMINATION_REASON_GRACEFUL = 1;
+  TERMINATION_REASON_FORCED = 2;
+  TERMINATION_REASON_TIMED_OUT = 3;
+  TERMINATION_REASON_SYSTEM_FAULT = 4;
+}
+
+// The Resources and Runtime messages are defined in runtime.proto.
+
+// Sandbox is the message returned by the lifecycle RPCs and describes a single
+// sandbox and its current state.
+message Sandbox {
+  string sandbox_id = 1;
+  string organization_id = 2;
+  SandboxStatus status = 3;
+
+  // Lifecycle timestamps. created_at is always set; started_at and stopped_at
+  // are set once the sandbox reaches the corresponding state.
+  google.protobuf.Timestamp created_at = 4;
+  optional google.protobuf.Timestamp started_at = 5;
+  optional google.protobuf.Timestamp stopped_at = 6;
+
+  // Time-to-live. expires_at is the stored expiry when known;
+  // timeout_ms_remaining is recomputed on each read against the current time.
+  // Both are unset when the sandbox has no timeout policy.
+  optional google.protobuf.Timestamp expires_at = 7;
+  optional int64 timeout_ms_remaining = 8;
+
+  // Usage metering. Populated only after the sandbox reaches a terminal state,
+  // and only when usage data is available; otherwise both fields are unset.
+  optional int64 active_cpu_usage_ms = 9;
+  optional NetworkUsage network_usage = 10;
+
+  // The resources and runtime the server actually resolved, echoed back from
+  // the request so callers can see what was applied.
+  Resources resources = 11;
+  Runtime runtime = 12;
+
+  // Terminal-state metadata, populated only on a terminal status (FINISHED,
+  // CANCELLED, or FAILED). exit_code is a Unix exit code in the range 0..255;
+  // negative values are reserved for future signal-coded use.
+  optional TerminationReason terminated_by = 13;
+  optional int32 exit_code = 14;
+  optional string error_message = 15;
+
+  // The human-readable label set when the sandbox was created. Empty when the
+  // sandbox was created without one. Returned by GetSandbox and ListSandboxes
+  // so callers can show or filter on the label they chose.
+  optional string name = 17;
+}
+
+// NetworkUsage records bytes transferred over the sandbox's primary network
+// interface, with ingress and egress tracked separately.
+message NetworkUsage {
+  int64 ingress_bytes = 1;
+  int64 egress_bytes = 2;
+}
+
+message CreateSandboxRequest {
+  // Optional human-readable label for the sandbox, scoped to the organization.
+  optional string name = 1;
+  // Requested resources. The server applies defaults for any unset fields.
+  optional Resources resources = 2;
+  // Requested runtime. The server resolves a `named` runtime against its
+  // catalog or pulls an `image_ref` directly.
+  optional Runtime runtime = 3;
+  // Where the sandbox's initial content comes from (git, snapshot, image, or
+  // template). When unset, the sandbox starts with the default content.
+  optional Source source = 4;
+}
+
+message CreateSandboxResponse {
+  Sandbox sandbox = 1;
+}
+
+message GetSandboxResponse {
+  Sandbox sandbox = 1;
+}
+
+// ListSandboxesRequest lists sandboxes, optionally filtered by status and
+// creation time, with cursor-based pagination. page_token is the cursor
+// returned by a previous response.
+message ListSandboxesRequest {
+  optional int32 page_size = 1;
+  optional string page_token = 2;
+  message Filter {
+    // If non-empty, only sandboxes whose status is in this set are returned.
+    repeated SandboxStatus states = 1;
+    optional google.protobuf.Timestamp created_after = 2;
+    optional google.protobuf.Timestamp created_before = 3;
+  }
+  optional Filter filter = 3;
+}
+
+message ListSandboxesResponse {
+  repeated Sandbox sandboxes = 1;
+  optional string next_page_token = 2;
+}
+
+// StopSandboxRequest gracefully shuts a sandbox down. The server records the
+// termination request immediately; when `blocking` is true the RPC waits, up to
+// a server-side limit, for the sandbox to reach a terminal state before
+// returning. To control the signal used, use KillSandbox instead.
+message StopSandboxRequest {
+  SandboxRef sandbox = 1;
+  // If true, the server waits until the sandbox reaches a terminal state (or a
+  // server-side limit is hit) before responding. If false (the default), the
+  // RPC returns as soon as the termination request is recorded.
+  optional bool blocking = 2;
+}
+
+message StopSandboxResponse {
+  // The sandbox after the termination request was recorded. Its status is
+  // either RUNNING (with termination requested) or a terminal status if it
+  // transitioned before the read.
+  Sandbox sandbox = 1;
+}
+
+// KillSandboxRequest forcibly terminates a sandbox. It is fire-and-forget with
+// no blocking option. The `signal` field is accepted but currently ignored; the
+// server always issues a hard cancel.
+message KillSandboxRequest {
+  SandboxRef sandbox = 1;
+  // Signal name (for example "SIGKILL"). Reserved for forward compatibility;
+  // it is currently ignored and a hard cancel is always issued.
+  optional string signal = 2;
+}
+
+message KillSandboxResponse {
+  Sandbox sandbox = 1;
+}
