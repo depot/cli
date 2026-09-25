@@ -226,7 +226,7 @@ Use --forge when more than one supported source is configured.`,
 				Forge:           repository.forge,
 				WorkflowContent: []string{string(yamlBytes)},
 			}
-			setRunRequestGitContext(req, patch, headSHA, headOK, workspacePatchKey)
+			setRunRequestGitContext(req, patch, headSHA, headOK, workspacePatchKey, resolveHEADRef(workflowDir))
 
 			resp, err := api.CIRun(ctx, tokenVal, orgID, req)
 			if err != nil {
@@ -310,6 +310,15 @@ func resolveHEAD(workflowDir string) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
+// resolveHEADRef returns the branch HEAD points at (e.g. "refs/heads/feature"), or "" when detached.
+func resolveHEADRef(workflowDir string) string {
+	out, err := exec.Command("git", "-C", workflowDir, "symbolic-ref", "-q", "HEAD").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
 type patchInfo struct {
 	baseBranch string
 	mergeBase  string
@@ -345,18 +354,20 @@ func patchWorkspaceCacheKey(patch *patchInfo) string {
 
 // setRunRequestGitContext sets RunRequest Sha and, when a workspace patch was uploaded,
 // WorkspacePatchCacheKey. workspacePatchKey must be the exact string passed to UploadCacheEntry
-// and injectPatchStep (empty when patch == nil).
-func setRunRequestGitContext(req *civ1.RunRequest, patch *patchInfo, headSHA string, headOK bool, workspacePatchKey string) {
+// and injectPatchStep (empty when patch == nil). headRef is the local branch, sent for test
+// results attribution only when a sha is sent.
+func setRunRequestGitContext(req *civ1.RunRequest, patch *patchInfo, headSHA string, headOK bool, workspacePatchKey string, headRef string) {
 	if patch != nil {
 		mb := patch.mergeBase
 		req.Sha = &mb
 		key := workspacePatchKey
 		req.WorkspacePatchCacheKey = &key
-		return
-	}
-	if headOK {
+	} else if headOK {
 		sha := headSHA
 		req.Sha = &sha
+	}
+	if req.GetSha() != "" && headRef != "" {
+		req.Ref = &headRef
 	}
 }
 

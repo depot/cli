@@ -235,7 +235,7 @@ func TestSetRunRequestGitContext_withPatch(t *testing.T) {
 	patch := &patchInfo{mergeBase: mergeBase, content: "patch-bytes\n"}
 	explicitKey := "patch/explicit/not-from-helper"
 	req := &civ1.RunRequest{Repo: "o/r"}
-	setRunRequestGitContext(req, patch, "headignored", true, explicitKey)
+	setRunRequestGitContext(req, patch, "headignored", true, explicitKey, "")
 
 	if req.GetSha() != mergeBase {
 		t.Fatalf("Sha = %q, want merge base %q", req.GetSha(), mergeBase)
@@ -247,7 +247,7 @@ func TestSetRunRequestGitContext_withPatch(t *testing.T) {
 
 func TestSetRunRequestGitContext_noPatch_usesHead(t *testing.T) {
 	req := &civ1.RunRequest{Repo: "o/r"}
-	setRunRequestGitContext(req, nil, "deadbeefcafe", true, "")
+	setRunRequestGitContext(req, nil, "deadbeefcafe", true, "", "")
 	if req.GetSha() != "deadbeefcafe" {
 		t.Fatalf("Sha = %q, want head SHA", req.GetSha())
 	}
@@ -258,7 +258,7 @@ func TestSetRunRequestGitContext_noPatch_usesHead(t *testing.T) {
 
 func TestSetRunRequestGitContext_noPatch_headOK_emptySHA(t *testing.T) {
 	req := &civ1.RunRequest{Repo: "o/r"}
-	setRunRequestGitContext(req, nil, "", true, "")
+	setRunRequestGitContext(req, nil, "", true, "", "")
 	if req.GetSha() != "" {
 		t.Fatalf("Sha = %q, want empty when HEAD resolved to empty string", req.GetSha())
 	}
@@ -269,12 +269,47 @@ func TestSetRunRequestGitContext_noPatch_headOK_emptySHA(t *testing.T) {
 
 func TestSetRunRequestGitContext_noPatch_headUnresolved(t *testing.T) {
 	req := &civ1.RunRequest{Repo: "o/r"}
-	setRunRequestGitContext(req, nil, "", false, "")
+	setRunRequestGitContext(req, nil, "", false, "", "")
 	if req.GetSha() != "" {
 		t.Fatalf("Sha should be empty, got %q", req.GetSha())
 	}
 	if req.GetWorkspacePatchCacheKey() != "" {
 		t.Fatalf("WorkspacePatchCacheKey should be unset, got %q", req.GetWorkspacePatchCacheKey())
+	}
+}
+
+func TestSetRunRequestGitContext_sendsRefWithSha(t *testing.T) {
+	patchReq := &civ1.RunRequest{Repo: "o/r"}
+	setRunRequestGitContext(patchReq, &patchInfo{mergeBase: "mb"}, "head", true, "key", "refs/heads/feature")
+	if patchReq.GetRef() != "refs/heads/feature" {
+		t.Fatalf("patch path Ref = %q, want refs/heads/feature", patchReq.GetRef())
+	}
+
+	headReq := &civ1.RunRequest{Repo: "o/r"}
+	setRunRequestGitContext(headReq, nil, "deadbeefcafe", true, "", "refs/heads/feature")
+	if headReq.GetRef() != "refs/heads/feature" {
+		t.Fatalf("head path Ref = %q, want refs/heads/feature", headReq.GetRef())
+	}
+}
+
+func TestSetRunRequestGitContext_omitsRefWithoutSha(t *testing.T) {
+	req := &civ1.RunRequest{Repo: "o/r"}
+	setRunRequestGitContext(req, nil, "", false, "", "refs/heads/feature")
+	if req.Ref != nil {
+		t.Fatalf("Ref should be unset without a sha, got %q", req.GetRef())
+	}
+}
+
+func TestResolveHEADRef(t *testing.T) {
+	clone := cloneRepo(t, initBareRemote(t))
+	run(t, clone, "git", "checkout", "-b", "feature/test")
+	if got := resolveHEADRef(clone); got != "refs/heads/feature/test" {
+		t.Fatalf("resolveHEADRef = %q, want refs/heads/feature/test", got)
+	}
+
+	run(t, clone, "git", "checkout", "--detach")
+	if got := resolveHEADRef(clone); got != "" {
+		t.Fatalf("resolveHEADRef on detached HEAD = %q, want empty", got)
 	}
 }
 
