@@ -32,7 +32,7 @@ func WithDepotSave(buildOpts map[string]buildx.Options, opts SaveOptions) map[st
 		if len(opts.RequestedTargets) > 0 && !slices.Contains(opts.RequestedTargets, target) {
 			continue
 		}
-		buildOpt.Session = ReplaceDockerAuth(opts.AdditionalCredentials, buildOpt.Session)
+		buildOpt.Session = ReplaceDockerAuthForProject(opts.ProjectID, opts.AdditionalCredentials, buildOpt.Session)
 
 		hadPush := false
 		imageExportIndices := []int{}
