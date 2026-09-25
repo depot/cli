@@ -10,13 +10,20 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"time"
 )
 
-const secretMigrationAudiencePrefix = "https://depot.dev/ci/secret-migration/"
-const SecretMigrationBranchPrefix = "depot-migrate-secrets-"
-const SecretMigrationBranchPrefixEnv = "DEPOT_SECRET_MIGRATION_BRANCH_PREFIX"
+const (
+	secretMigrationAudiencePrefix  = "https://depot.dev/ci/secret-migration/"
+	githubOIDCMaxAttempts          = 3
+	githubOIDCRequestTimeout       = 10 * time.Second
+	githubOIDCInitialRetryBackoff  = 100 * time.Millisecond
+	SecretMigrationBranchPrefix    = "depot-migrate-secrets-"
+	SecretMigrationBranchPrefixEnv = "DEPOT_SECRET_MIGRATION_BRANCH_PREFIX"
+)
 
 var SecretMigrationIntentIDPattern = regexp.MustCompile(`^[0123456789bcdfghjklmnpqrstvwxz]{10}$`)
+var githubOIDCHTTPClient = &http.Client{Timeout: githubOIDCRequestTimeout}
 
 func SecretMigrationIntentIDFromGitHubRef(refName string) string {
 	return SecretMigrationIntentIDFromGitHubRefWithPrefix(refName, SecretMigrationBranchPrefix)
@@ -85,21 +92,51 @@ func (p *GitHubOIDCProvider) retrieveToken(ctx context.Context, tokenAudience st
 	query.Set("audience", tokenAudience)
 	requestURL.RawQuery = query.Encode()
 
-	req, err := http.NewRequestWithContext(ctx, "GET", requestURL.String(), nil)
-	if err != nil {
-		return "", err
+	var lastErr error
+	for attempt := 0; attempt < githubOIDCMaxAttempts; attempt++ {
+		req, err := http.NewRequestWithContext(ctx, "GET", requestURL.String(), nil)
+		if err != nil {
+			return "", err
+		}
+		req.Header.Add("Authorization", "bearer "+requestToken)
+
+		resp, err := githubOIDCHTTPClient.Do(req)
+		if err != nil {
+			if ctx.Err() != nil {
+				return "", ctx.Err()
+			}
+			lastErr = fmt.Errorf("GitHub OIDC token request failed: %w", err)
+		} else {
+			token, retryable, err := parseGitHubOIDCResponse(resp)
+			if err == nil {
+				return token, nil
+			}
+			if !retryable {
+				return "", err
+			}
+			lastErr = err
+		}
+
+		if attempt == githubOIDCMaxAttempts-1 {
+			return "", lastErr
+		}
+		if err := waitForGitHubOIDCRetry(ctx, githubOIDCInitialRetryBackoff<<attempt); err != nil {
+			return "", err
+		}
 	}
 
-	req.Header.Add("Authorization", "bearer "+requestToken)
+	return "", lastErr
+}
 
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return "", err
-	}
+func parseGitHubOIDCResponse(resp *http.Response) (string, bool, error) {
 	defer resp.Body.Close()
+
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return "", fmt.Errorf("GitHub OIDC token request failed: %s: %s", resp.Status, strings.TrimSpace(string(body)))
+		err := fmt.Errorf("GitHub OIDC token request failed: %s: %s", resp.Status, strings.TrimSpace(string(body)))
+		retryable := resp.StatusCode == http.StatusTooManyRequests ||
+			(resp.StatusCode >= http.StatusInternalServerError && resp.StatusCode < 600)
+		return "", retryable, err
 	}
 
 	var payload struct {
@@ -108,10 +145,22 @@ func (p *GitHubOIDCProvider) retrieveToken(ctx context.Context, tokenAudience st
 
 	decoder := json.NewDecoder(resp.Body)
 	if err := decoder.Decode(&payload); err != nil {
-		return "", err
+		return "", false, err
 	}
 	if payload.Value == "" {
-		return "", fmt.Errorf("GitHub OIDC token response did not include a token")
+		return "", false, fmt.Errorf("GitHub OIDC token response did not include a token")
 	}
-	return payload.Value, nil
+	return payload.Value, false, nil
+}
+
+func waitForGitHubOIDCRetry(ctx context.Context, delay time.Duration) error {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
