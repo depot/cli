@@ -19,6 +19,18 @@ func TestAnalyzeWorkflowSupportedTriggersOnly(t *testing.T) {
 	}
 }
 
+func TestAnalyzeWorkflowIssueCommentSupported(t *testing.T) {
+	workflow := &migrate.WorkflowFile{
+		Path:     ".github/workflows/comment.yml",
+		Triggers: []string{"issue_comment"},
+	}
+
+	report := AnalyzeWorkflow(workflow)
+	if len(report.Issues) != 0 {
+		t.Fatalf("expected issue_comment to have no compatibility issues, got %v", report.Issues)
+	}
+}
+
 func TestAnalyzeWorkflowUnsupportedReleaseTrigger(t *testing.T) {
 	workflow := &migrate.WorkflowFile{
 		Path:     ".github/workflows/release.yml",

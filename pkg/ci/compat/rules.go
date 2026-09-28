@@ -110,10 +110,9 @@ var TriggerRules = map[string]CompatibilityRule{
 		Suggestion: "Remove this trigger or use a webhook-based alternative.",
 	},
 	"issue_comment": {
-		Feature:    "issue_comment",
-		Supported:  Unsupported,
-		Note:       "Issue comment events are not supported.",
-		Suggestion: "Remove this trigger or use a webhook-based alternative.",
+		Feature:   "issue_comment",
+		Supported: Supported,
+		Note:      "Conversation comments on issues and pull requests are supported.",
 	},
 	"issues": {
 		Feature:    "issues",
