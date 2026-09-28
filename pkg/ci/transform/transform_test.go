@@ -52,6 +52,39 @@ jobs:
 	}
 }
 
+func TestTransformWorkflow_PreservesIssueComment(t *testing.T) {
+	raw := []byte(`name: Comment
+on:
+  issue_comment:
+    types: [created, edited, deleted]
+jobs:
+  smoke:
+    runs-on: depot-ubuntu-latest
+    steps:
+      - run: echo comment
+`)
+	wf := &migrate.WorkflowFile{
+		Path:     ".github/workflows/comment.yml",
+		Name:     "Comment",
+		Triggers: []string{"issue_comment"},
+		Jobs:     []migrate.JobInfo{{Name: "smoke", RunsOn: "depot-ubuntu-latest"}},
+	}
+	report := compat.AnalyzeWorkflow(wf)
+
+	result, err := TransformWorkflow(raw, wf, report, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	for _, change := range result.Changes {
+		if change.Type == ChangeTriggerRemoved {
+			t.Fatalf("issue_comment was removed: %v", result.Changes)
+		}
+	}
+	if !strings.Contains(string(result.Content), "issue_comment:\n    types: [created, edited, deleted]") {
+		t.Fatalf("issue_comment activity types were not preserved:\n%s", result.Content)
+	}
+}
+
 func TestTransformWorkflow_StandardGitHubLabel(t *testing.T) {
 	raw := []byte(`name: CI
 on: push
