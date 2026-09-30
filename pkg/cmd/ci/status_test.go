@@ -1,14 +1,185 @@
 package ci
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"strings"
 	"testing"
+	"testing/synctest"
+	"time"
 
 	civ1 "github.com/depot/cli/pkg/proto/depot/ci/v1"
 )
+
+func TestStatusWaitPollsUntilTerminal(t *testing.T) {
+	for _, output := range []string{"", "json"} {
+		for _, finalStatus := range []string{"finished", "failed", "cancelled"} {
+			t.Run(output+"/"+finalStatus, func(t *testing.T) {
+				synctest.Test(t, func(t *testing.T) {
+					original := ciGetRunStatus
+					t.Cleanup(func() { ciGetRunStatus = original })
+					statuses := []string{"queued", "running", "running", finalStatus}
+					calls := 0
+					start := time.Now()
+					ciGetRunStatus = func(ctx context.Context, token, orgID, runID string) (*civ1.GetRunStatusResponse, error) {
+						if calls >= len(statuses) {
+							t.Fatal("polled after terminal status")
+						}
+						if token != "token-123" || orgID != "org-123" || runID != "run-1" {
+							t.Fatalf("unexpected request: %q %q %q", token, orgID, runID)
+						}
+						if elapsed := time.Since(start); elapsed != time.Duration(calls)*5*time.Second {
+							t.Fatalf("poll %d at %s, want five-second intervals", calls, elapsed)
+						}
+						response := testStatusResponse()
+						response.Status = statuses[calls]
+						calls++
+						return response, nil
+					}
+
+					cmd := NewCmdStatus()
+					cmd.SetArgs([]string{"run-1", "--wait", "--token", "token-123", "--org", "org-123", "--output", output})
+					var progress bytes.Buffer
+					cmd.SetErr(&progress)
+					cmd.SilenceErrors = true
+					cmd.SilenceUsage = true
+					stdout, err := captureStdout(t, cmd.Execute)
+					if finalStatus == "finished" && err != nil {
+						t.Fatal(err)
+					}
+					if finalStatus != "finished" && (err == nil || !strings.Contains(err.Error(), finalStatus)) {
+						t.Fatalf("want %s error, got %v", finalStatus, err)
+					}
+					if calls != len(statuses) {
+						t.Fatalf("made %d polls, want %d", calls, len(statuses))
+					}
+					if !strings.Contains(progress.String(), "Run: run-1 (queued)") || !strings.Contains(progress.String(), "Run: run-1 (running)") {
+						t.Fatalf("missing progress updates: %s", &progress)
+					}
+					if output == "json" {
+						var got statusJSON
+						if err := json.Unmarshal([]byte(stdout), &got); err != nil {
+							t.Fatalf("expected a single JSON document: %v\n%s", err, stdout)
+						}
+						if got.Status != finalStatus || len(got.Workflows) != 1 {
+							t.Fatalf("unexpected final status: %+v", got)
+						}
+					} else if !strings.Contains(stdout, "Run: run-1 ("+finalStatus+")") || !strings.Contains(stdout, "Workflow: workflow-1") || strings.Contains(stdout, "Run: run-1 (running)") {
+						t.Fatalf("unexpected final output: %s", stdout)
+					}
+				})
+			})
+		}
+	}
+}
+
+func TestStatusWaitStopsOnAPIError(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		original := ciGetRunStatus
+		t.Cleanup(func() { ciGetRunStatus = original })
+		wantErr := errors.New("service unavailable")
+		calls := 0
+		ciGetRunStatus = func(context.Context, string, string, string) (*civ1.GetRunStatusResponse, error) {
+			calls++
+			if calls == 1 {
+				return testStatusResponse(), nil
+			}
+			return nil, wantErr
+		}
+		cmd := NewCmdStatus()
+		cmd.SetArgs([]string{"run-1", "--wait", "--token", "token-123", "--org", "org-123"})
+		cmd.SetOut(io.Discard)
+		cmd.SetErr(io.Discard)
+		stdout, err := captureStdout(t, cmd.Execute)
+		if !errors.Is(err, wantErr) || calls != 2 || stdout != "" {
+			t.Fatalf("output=%q, err=%v, calls=%d", stdout, err, calls)
+		}
+	})
+}
+
+func TestStatusTerminalRunReturnsImmediately(t *testing.T) {
+	for _, status := range []string{"finished", "failed", "cancelled"} {
+		for _, wait := range []string{"false", "true"} {
+			t.Run(status+"/wait="+wait, func(t *testing.T) {
+				synctest.Test(t, func(t *testing.T) {
+					original := ciGetRunStatus
+					t.Cleanup(func() { ciGetRunStatus = original })
+					calls := 0
+					ciGetRunStatus = func(context.Context, string, string, string) (*civ1.GetRunStatusResponse, error) {
+						calls++
+						if calls > 1 {
+							t.Fatal("polled an already terminal run")
+						}
+						return &civ1.GetRunStatusResponse{OrgId: "org-123", RunId: "run-1", Status: status}, nil
+					}
+					cmd := NewCmdStatus()
+					cmd.SetArgs([]string{"run-1", "--wait=" + wait, "--token", "token-123", "--org", "org-123"})
+					cmd.SilenceErrors = true
+					cmd.SilenceUsage = true
+					var progress bytes.Buffer
+					cmd.SetErr(&progress)
+					start := time.Now()
+					stdout, err := captureStdout(t, cmd.Execute)
+					wantError := wait == "true" && status != "finished"
+					if (err != nil) != wantError {
+						t.Fatalf("err=%v, want error=%v", err, wantError)
+					}
+					if time.Since(start) != 0 || calls != 1 || progress.Len() != 0 {
+						t.Fatalf("elapsed=%s, calls=%d, progress=%q", time.Since(start), calls, &progress)
+					}
+					if !strings.Contains(stdout, "Run: run-1 ("+status+")") {
+						t.Fatalf("missing final status: %s", stdout)
+					}
+				})
+			})
+		}
+	}
+}
+
+func TestStatusWaitCancellation(t *testing.T) {
+	for _, duringRequest := range []bool{false, true} {
+		name := "during sleep"
+		if duringRequest {
+			name = "during request"
+		}
+		t.Run(name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				original := ciGetRunStatus
+				t.Cleanup(func() { ciGetRunStatus = original })
+				ctx, cancel := context.WithCancel(context.Background())
+				defer cancel()
+				calls := 0
+				ciGetRunStatus = func(ctx context.Context, _, _, _ string) (*civ1.GetRunStatusResponse, error) {
+					calls++
+					if duringRequest {
+						<-ctx.Done()
+						return nil, ctx.Err()
+					}
+					return testStatusResponse(), nil
+				}
+				go func() {
+					select {
+					case <-time.After(time.Second):
+						cancel()
+					case <-ctx.Done():
+					}
+				}()
+				cmd := NewCmdStatus()
+				cmd.SetArgs([]string{"run-1", "--wait", "--token", "token-123", "--org", "org-123"})
+				cmd.SetOut(io.Discard)
+				cmd.SetErr(io.Discard)
+				start := time.Now()
+				stdout, err := captureStdout(t, func() error { return cmd.ExecuteContext(ctx) })
+				if !errors.Is(err, context.Canceled) || calls != 1 || stdout != "" || time.Since(start) != time.Second {
+					t.Fatalf("output=%q, err=%v, calls=%d, elapsed=%s", stdout, err, calls, time.Since(start))
+				}
+			})
+		})
+	}
+}
 
 func testStatusResponse() *civ1.GetRunStatusResponse {
 	return &civ1.GetRunStatusResponse{
