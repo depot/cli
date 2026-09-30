@@ -28,6 +28,7 @@ import (
 	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/api/types/network"
 	dockerclient "github.com/docker/docker/client"
+	"github.com/docker/docker/pkg/jsonmessage"
 	specs "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
@@ -436,7 +437,7 @@ func RemoveDrivers(ctx context.Context, dockerCli command.Cli) error {
 func Bootstrap(ctx context.Context, dockerCli command.Cli, imageName, projectName, token, platform string) error {
 	err := DownloadImage(ctx, dockerCli, imageName)
 	if err != nil {
-		return fmt.Errorf("unable to download image: %w", err)
+		return err
 	}
 
 	return CreateContainer(ctx, dockerCli, projectName, platform, imageName, token)
@@ -452,20 +453,43 @@ func DownloadImage(ctx context.Context, dockerCli command.Cli, imageName string)
 		return nil
 	}
 
+	err = pullImage(ctx, dockerCli, imageName)
+	if err == nil {
+		return nil
+	}
+	if ctx.Err() != nil || !strings.HasPrefix(imageName, "public.ecr.aws/depot/cli:") {
+		return fmt.Errorf("unable to download image %s: %w", imageName, err)
+	}
+
+	// The driver must retain its ECR tag for the saved Buildx configuration.
+	// Both registries publish the same CLI version.
+	fallback := "ghcr.io/depot/cli:" + strings.TrimPrefix(imageName, "public.ecr.aws/depot/cli:")
+	fmt.Fprintf(dockerCli.Err(), "Unable to download Depot driver image %s; trying %s\n", imageName, fallback)
+	if fallbackErr := pullImage(ctx, dockerCli, fallback); fallbackErr != nil {
+		return fmt.Errorf("unable to download image %s: %v; fallback %s failed: %w", imageName, err, fallback, fallbackErr)
+	}
+	if err := client.ImageTag(ctx, fallback, imageName); err != nil {
+		return fmt.Errorf("unable to tag fallback image %s as %s: %w", fallback, imageName, err)
+	}
+	return nil
+}
+
+func pullImage(ctx context.Context, dockerCli command.Cli, imageName string) error {
 	ra, err := imagetools.RegistryAuthForRef(imageName, dockerCli.ConfigFile())
 	if err != nil {
 		return err
 	}
 
-	rc, err := client.ImageCreate(ctx, imageName, dockertypes.ImageCreateOptions{
+	rc, err := dockerCli.Client().ImageCreate(ctx, imageName, dockertypes.ImageCreateOptions{
 		RegistryAuth: ra,
 	})
 	if err != nil {
-		return fmt.Errorf("unable to download image: %w", err)
+		return err
 	}
+	defer rc.Close()
 
-	_, err = io.Copy(io.Discard, rc)
-	return err
+	// Pull failures can be delivered inside Docker's HTTP 200 progress stream.
+	return jsonmessage.DisplayJSONMessagesStream(rc, io.Discard, 0, false, nil)
 }
 
 func CreateContainer(ctx context.Context, dockerCli command.Cli, projectName string, platform string, imageName string, token string) error {
