@@ -6,7 +6,7 @@ on:
 jobs:
   lint:
     runs-on: depot-ubuntu-latest-16
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.event.pull_request.base.repo.full_name
+    if: github.event_name != 'pull_request'
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -64,7 +64,7 @@ jobs:
 
   build:
     runs-on: depot-ubuntu-latest-16
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.event.pull_request.base.repo.full_name
+    if: github.event_name != 'pull_request'
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -97,6 +97,7 @@ jobs:
 
   test:
     runs-on: depot-ubuntu-latest-16
+    if: github.event_name != 'pull_request'
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
