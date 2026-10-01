@@ -182,13 +182,8 @@ func isLocalReusableWorkflow(uses string) bool {
 func hasCustomRunsOn(runsOn string) bool {
 	labels := parseRunsOnLabels(runsOn)
 	for _, label := range labels {
-		if label == "ubuntu-latest" || label == "depot_ubuntu_latest" {
-			continue
-		}
-		if strings.HasPrefix(label, "depot_") {
-			continue
-		}
-		if strings.Contains(label, "${{") {
+		switch migrate.ClassifyLabel(label) {
+		case migrate.LabelDepotNative, migrate.LabelStandardGitHub, migrate.LabelExpression:
 			continue
 		}
 		return true
