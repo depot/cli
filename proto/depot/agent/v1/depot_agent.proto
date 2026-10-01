@@ -1,0 +1,227 @@
+syntax = "proto3";
+
+package depot.agent.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// Runs Depot's own coding agent. A session is a durable conversation: Depot stores everything the
+// agent has done, so the sandbox running it can be replaced at any time and the session continues
+// where it stopped. Every method requires the managed agents feature for the organization.
+service DepotAgentService {
+  // Creates a session and queues its first message. A sandbox starts for it within a minute.
+  rpc CreateSession(CreateSessionRequest) returns (CreateSessionResponse);
+  // Queues a message for a session. A retry with the same `clientRequestId` returns the original.
+  rpc SendInput(SendInputRequest) returns (SendInputResponse);
+  // Returns a session and the latest view of its conversation.
+  rpc GetSession(GetSessionRequest) returns (GetSessionResponse);
+  // Lists the organization's sessions, newest first.
+  rpc ListDepotAgentSessions(ListDepotAgentSessionsRequest) returns (ListDepotAgentSessionsResponse);
+  // Streams the session's view each time it changes.
+  rpc WatchSession(WatchSessionRequest) returns (stream WatchSessionResponse);
+  // Queues an interrupt, which stops whatever the agent is doing before it reads further messages.
+  rpc InterruptSession(InterruptSessionRequest) returns (InterruptSessionResponse);
+  // Archives a session. Its pending messages are cancelled and it never runs again.
+  rpc ArchiveSession(ArchiveSessionRequest) returns (ArchiveSessionResponse);
+  // Creates a trigger, which turns outside events into messages on a session. A "webhook" trigger
+  // returns its URL and signing secret; the secret is shown only in this response.
+  rpc CreateTrigger(CreateTriggerRequest) returns (CreateTriggerResponse);
+  // Lists the organization's triggers, newest first.
+  rpc ListTriggers(ListTriggersRequest) returns (ListTriggersResponse);
+  // Deletes a trigger. Its URL stops accepting deliveries; sessions it started are kept.
+  rpc DeleteTrigger(DeleteTriggerRequest) returns (DeleteTriggerResponse);
+}
+
+message DepotAgentModel {
+  // Model provider. Default: "amazon-bedrock".
+  string provider = 1;
+  // Model at that provider. Default: Depot's current default coding model.
+  string model_id = 2;
+  // Reasoning effort. For example, "low", "medium", or "high". Leave unset for the model's own default.
+  optional string thinking = 3;
+}
+
+message DepotAgentSession {
+  // Unique identifier for the session. Returned by `CreateSession` and `ListDepotAgentSessions`.
+  string session_id = 1;
+  // Human-readable name shown in the Depot app.
+  string title = 2;
+  // Model the agent runs on.
+  DepotAgentModel model = 3;
+  // Repository cloned into the agent's workspace. Empty for a session without one.
+  optional string repo_url = 4;
+  // Git ref checked out in the workspace. Empty for the repository's default branch.
+  optional string ref = 5;
+  // Current state of the session. Can be "idle", "running", "waiting_input", "failed", or "archived".
+  string status = 6;
+  google.protobuf.Timestamp created_at = 7;
+  google.protobuf.Timestamp updated_at = 8;
+  // Empty unless the session is archived.
+  optional google.protobuf.Timestamp archived_at = 9;
+  // Trigger that started the session. Empty for a session started with `CreateSession`.
+  optional string trigger_id = 10;
+}
+
+message DepotAgentInput {
+  // Unique identifier for the message. Returned by `CreateSession` and `SendInput`.
+  string input_id = 1;
+  // Message text.
+  string content = 2;
+  // How the agent receives the message. Can be "followup", "steer", or "interrupt".
+  string mode = 3;
+  // Current state of the message. Can be "pending", "submitted", or "cancelled".
+  string status = 4;
+  google.protobuf.Timestamp created_at = 5;
+}
+
+message CreateSessionRequest {
+  // Human-readable name shown in the Depot app. Default: the first line of `message`.
+  string title = 1;
+  // Model the agent runs on. Default: Depot's current default coding model.
+  optional DepotAgentModel model = 2;
+  // Repository to clone into the agent's workspace. Leave unset for an empty workspace.
+  optional string repo_url = 3;
+  // Git ref to check out. Only valid when `repoUrl` is set. Default: the repository's default branch.
+  optional string ref = 4;
+  // First message to the agent. Required.
+  string message = 5;
+  // Key that makes a retry return the original session and first message instead of creating a second session.
+  // Unique per organization.
+  optional string client_request_id = 6;
+}
+
+message CreateSessionResponse {
+  DepotAgentSession session = 1;
+  // The queued first message.
+  DepotAgentInput input = 2;
+}
+
+message SendInputRequest {
+  // Unique identifier for the session. Returned by `CreateSession` and `ListDepotAgentSessions`.
+  string session_id = 1;
+  // Message text. Required.
+  string content = 2;
+  // How the agent receives the message. Can be "followup", which waits for the current turn, or
+  // "steer", which reaches the agent mid-turn. Use `InterruptSession` to interrupt. Default: "followup".
+  optional string mode = 3;
+  // Key that makes a retry return the original message instead of queuing a second one. Unique per session.
+  optional string client_request_id = 4;
+}
+
+message SendInputResponse {
+  DepotAgentInput input = 1;
+}
+
+message GetSessionRequest {
+  // Unique identifier for the session. Returned by `CreateSession` and `ListDepotAgentSessions`.
+  string session_id = 1;
+}
+
+message GetSessionResponse {
+  DepotAgentSession session = 1;
+  // JSON view of the conversation. Empty until the agent first reports one.
+  string view_json = 2;
+  // Position in the session's history the view reflects. Increases with every change.
+  uint64 view_seq = 3;
+}
+
+message ListDepotAgentSessionsRequest {
+  // Number of sessions to return per page. Maximum: 100. Default: 50.
+  optional int32 page_size = 1;
+  // Token to fetch the next page. Leave empty to fetch the first page.
+  optional string page_token = 2;
+}
+
+message ListDepotAgentSessionsResponse {
+  repeated DepotAgentSession sessions = 1;
+  // Token to fetch the next page. Empty on the last page.
+  optional string next_page_token = 2;
+}
+
+message WatchSessionRequest {
+  // Unique identifier for the session. Returned by `CreateSession` and `ListDepotAgentSessions`.
+  string session_id = 1;
+  // Send only views newer than this `viewSeq`. Default: 0, which sends the current view first.
+  optional uint64 after_seq = 2;
+}
+
+message WatchSessionResponse {
+  DepotAgentSession session = 1;
+  // JSON view of the conversation.
+  string view_json = 2;
+  // Position in the session's history the view reflects. Increases with every change.
+  uint64 view_seq = 3;
+}
+
+message InterruptSessionRequest {
+  // Unique identifier for the session. Returned by `CreateSession` and `ListDepotAgentSessions`.
+  string session_id = 1;
+}
+
+message InterruptSessionResponse {
+  // The queued interrupt.
+  DepotAgentInput input = 1;
+}
+
+message ArchiveSessionRequest {
+  // Unique identifier for the session. Returned by `CreateSession` and `ListDepotAgentSessions`.
+  string session_id = 1;
+}
+
+message ArchiveSessionResponse {
+  DepotAgentSession session = 1;
+}
+
+message DepotAgentTrigger {
+  // Unique identifier for the trigger. Returned by `CreateTrigger` and `ListTriggers`.
+  string trigger_id = 1;
+  // What delivers events. Can be "webhook" or "github".
+  string source = 2;
+  // Human-readable name shown in the Depot app.
+  string name = 3;
+  // Text placed before every event the trigger delivers.
+  optional string instructions = 4;
+  // Model each session the trigger starts runs on.
+  DepotAgentModel model = 5;
+  // Repository cloned into each session the trigger starts.
+  optional string repo_url = 6;
+  // Git ref checked out in each session the trigger starts.
+  optional string ref = 7;
+  // URL a "webhook" trigger accepts signed deliveries at. Empty for other sources.
+  optional string url = 8;
+  google.protobuf.Timestamp created_at = 9;
+}
+
+message CreateTriggerRequest {
+  // What delivers events. Can be "webhook", which accepts Standard Webhooks deliveries signed with
+  // the returned secret, or "github". Required.
+  string source = 1;
+  // Human-readable name shown in the Depot app.
+  string name = 2;
+  // Text placed before every event the trigger delivers, telling the agent what to do with it.
+  optional string instructions = 3;
+  // Model each session the trigger starts runs on. Default: Depot's current default coding model.
+  optional DepotAgentModel model = 4;
+  // Repository to clone into each session the trigger starts.
+  optional string repo_url = 5;
+  // Git ref to check out. Only valid when `repoUrl` is set.
+  optional string ref = 6;
+}
+
+message CreateTriggerResponse {
+  DepotAgentTrigger trigger = 1;
+  // Secret that signs deliveries to a "webhook" trigger, as "whsec_" followed by base64. Shown only here.
+  optional string signing_secret = 2;
+}
+
+message ListTriggersRequest {}
+
+message ListTriggersResponse {
+  repeated DepotAgentTrigger triggers = 1;
+}
+
+message DeleteTriggerRequest {
+  // Unique identifier for the trigger. Returned by `CreateTrigger` and `ListTriggers`.
+  string trigger_id = 1;
+}
+
+message DeleteTriggerResponse {}
