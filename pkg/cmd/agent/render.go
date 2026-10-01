@@ -5,55 +5,69 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 
 	agentv1 "github.com/depot/cli/pkg/proto/depot/agent/v1"
 )
 
 const maxSummaryRunes = 120
 
-// conversationView is the subset of the harness's ConversationView projection
-// that the CLI renders.
-// Entries are immutable once committed,
-// so an entry ID that has been printed never needs printing again.
-type conversationView struct {
-	Entries []viewEntry `json:"entries"`
-}
-
-type viewEntry struct {
-	ID    string        `json:"id"`
-	Kind  string        `json:"kind"`
-	Model []viewMessage `json:"model"`
+// agentView is the bounded projection the harness pushes as view_json.
+// Its source of truth is the runtime's DepotAgentView.
+type agentView struct {
+	Messages  []viewMessage `json:"messages"`
+	Partial   string        `json:"partial"`
+	Retry     *viewRetry    `json:"retry"`
+	Tools     []viewTool    `json:"tools"`
+	Queued    []viewQueued  `json:"queued"`
+	Truncated bool          `json:"truncated"`
 }
 
 type viewMessage struct {
-	Role         string          `json:"role"`
-	Content      json.RawMessage `json:"content"`
-	ToolName     string          `json:"toolName"`
-	IsError      bool            `json:"isError"`
-	StopReason   string          `json:"stopReason"`
-	ErrorMessage string          `json:"errorMessage"`
+	ID       string `json:"id"`
+	Role     string `json:"role"`
+	Text     string `json:"text"`
+	ToolName string `json:"toolName"`
+	IsError  bool   `json:"isError"`
 }
 
-type contentPart struct {
-	Type      string          `json:"type"`
-	Text      string          `json:"text"`
-	Name      string          `json:"name"`
-	Arguments json.RawMessage `json:"arguments"`
+type viewRetry struct {
+	At    int64  `json:"at"`
+	Error string `json:"error"`
 }
 
-// Renderer prints each newly committed transcript entry
-// and each session status change exactly once.
+type viewTool struct {
+	CallID string `json:"callId"`
+	Name   string `json:"name"`
+	Status string `json:"status"`
+}
+
+type viewQueued struct {
+	ID   string `json:"id"`
+	Mode string `json:"mode"`
+	Text string `json:"text"`
+}
+
+// Renderer turns successive views into an append-only transcript.
+// Messages, tool calls, queued inputs, and retries print once by id;
+// the partial response streams as it grows.
 type Renderer struct {
 	w          io.Writer
 	seen       map[string]bool
 	lastStatus string
+	// streamed is the prefix of the partial response already printed,
+	// and open means the cursor is still on its line.
+	// broken means another line cut into it, so it cannot be continued.
+	streamed string
+	open     bool
+	broken   bool
 }
 
 func NewRenderer(w io.Writer) *Renderer {
 	return &Renderer{w: w, seen: map[string]bool{}}
 }
 
-// Render prints the frame's new entries before its status,
+// Render prints the frame's view before its status,
 // so a settled status reads after the turn that produced it.
 func (r *Renderer) Render(resp *agentv1.WatchSessionResponse) error {
 	if err := r.RenderView(resp.GetViewJson()); err != nil {
@@ -61,7 +75,7 @@ func (r *Renderer) Render(resp *agentv1.WatchSessionResponse) error {
 	}
 	if s := resp.GetSession(); s != nil && s.Status != r.lastStatus {
 		r.lastStatus = s.Status
-		fmt.Fprintf(r.w, "[%s]\n", s.Status)
+		r.line("[%s]", s.Status)
 	}
 	return nil
 }
@@ -70,18 +84,33 @@ func (r *Renderer) RenderView(viewJSON string) error {
 	if viewJSON == "" {
 		return nil
 	}
-	var view conversationView
+	var view agentView
 	if err := json.Unmarshal([]byte(viewJSON), &view); err != nil {
 		return fmt.Errorf("decode session view: %w", err)
 	}
-	for _, entry := range view.Entries {
-		if entry.ID == "" || r.seen[entry.ID] {
-			continue
-		}
-		r.seen[entry.ID] = true
-		for _, msg := range entry.Model {
+	if view.Truncated && r.once("truncated") {
+		r.line("(older messages omitted)")
+	}
+	for _, msg := range view.Messages {
+		if msg.ID != "" && r.once("message:"+msg.ID) {
 			r.renderMessage(msg)
 		}
+	}
+	for _, tool := range view.Tools {
+		// A tool first seen done already has its result among the messages.
+		if tool.Status != "done" && r.once("tool:"+tool.CallID) {
+			r.line("→ %s", tool.Name)
+		}
+	}
+	r.streamPartial(view.Partial)
+	for _, q := range view.Queued {
+		if r.once("queued:" + q.ID) {
+			r.line("(queued %s: %s)", queuedMode(q.Mode), truncate(oneLine(q.Text)))
+		}
+	}
+	if view.Retry != nil && r.once(fmt.Sprintf("retry:%d", view.Retry.At)) {
+		at := time.UnixMilli(view.Retry.At).Format(time.TimeOnly)
+		r.line("(retrying at %s: %s)", at, truncate(oneLine(view.Retry.Error)))
 	}
 	return nil
 }
@@ -89,82 +118,109 @@ func (r *Renderer) RenderView(viewJSON string) error {
 func (r *Renderer) renderMessage(msg viewMessage) {
 	switch msg.Role {
 	case "user":
-		text := strings.TrimSpace(contentText(msg.Content))
-		for _, line := range strings.Split(text, "\n") {
-			fmt.Fprintf(r.w, "> %s\n", line)
+		for _, line := range strings.Split(strings.TrimSpace(msg.Text), "\n") {
+			r.line("> %s", line)
 		}
 	case "assistant":
-		for _, part := range contentParts(msg.Content) {
-			switch part.Type {
-			case "text":
-				if text := strings.TrimSpace(part.Text); text != "" {
-					fmt.Fprintln(r.w, text)
-				}
-			case "toolCall":
-				fmt.Fprintf(r.w, "→ %s %s\n", part.Name, summarizeArgs(part.Arguments))
-			}
+		if msg.IsError {
+			r.line("(error: %s)", truncate(oneLine(msg.Text)))
+			return
 		}
-		if msg.StopReason == "error" || msg.StopReason == "aborted" {
-			reason := msg.StopReason
-			if msg.ErrorMessage != "" {
-				reason += ": " + msg.ErrorMessage
-			}
-			fmt.Fprintf(r.w, "(%s)\n", truncate(oneLine(reason)))
-		}
-	case "toolResult":
+		r.finishPartial(msg.Text)
+	case "tool":
 		outcome := "ok"
 		if msg.IsError {
 			outcome = "error"
 		}
-		text := strings.TrimSpace(contentText(msg.Content))
-		lines := strings.Split(text, "\n")
-		summary := truncate(lines[0])
-		if len(lines) > 1 {
-			summary += fmt.Sprintf(" (+%d lines)", len(lines)-1)
-		}
-		fmt.Fprintf(r.w, "  ← %s %s: %s\n", msg.ToolName, outcome, summary)
+		r.line("  ← %s %s: %s", msg.ToolName, outcome, toolSummary(msg.Text))
 	}
 }
 
-// contentParts accepts both content shapes pi-ai uses:
-// a bare string or an array of typed parts.
-func contentParts(raw json.RawMessage) []contentPart {
-	if len(raw) == 0 {
-		return nil
+// streamPartial prints whatever the partial response added since the last frame.
+// A partial that no longer extends what was printed
+// (the projection keeps only its tail),
+// or whose line another line cut into, stops streaming,
+// and the final message prints whole.
+func (r *Renderer) streamPartial(partial string) {
+	if partial == "" {
+		// No response is in flight, so the next partial starts fresh.
+		r.streamed = ""
+		r.broken = false
+		return
 	}
-	var s string
-	if err := json.Unmarshal(raw, &s); err == nil {
-		return []contentPart{{Type: "text", Text: s}}
+	if r.broken || !strings.HasPrefix(partial, r.streamed) {
+		return
 	}
-	var parts []contentPart
-	if err := json.Unmarshal(raw, &parts); err != nil {
-		return nil
+	if suffix := partial[len(r.streamed):]; suffix != "" {
+		fmt.Fprint(r.w, suffix)
+		r.streamed = partial
+		r.open = !strings.HasSuffix(partial, "\n")
 	}
-	return parts
 }
 
-func contentText(raw json.RawMessage) string {
-	var texts []string
-	for _, part := range contentParts(raw) {
-		if part.Type == "text" {
-			texts = append(texts, part.Text)
+// finishPartial prints a completed assistant message,
+// or only its remainder when the partial already streamed its start.
+func (r *Renderer) finishPartial(text string) {
+	streamed, broken := r.streamed, r.broken
+	r.streamed, r.broken = "", false
+	if streamed != "" && !broken && strings.HasPrefix(text, streamed) {
+		rest := strings.TrimRight(text[len(streamed):], " \t\n")
+		fmt.Fprint(r.w, rest)
+		if r.open || rest != "" {
+			fmt.Fprintln(r.w)
 		}
+		r.open = false
+		return
 	}
-	return strings.Join(texts, "\n")
+	if text = strings.TrimSpace(text); text != "" {
+		r.line("%s", text)
+	}
 }
 
-// summarizeArgs prefers the argument a human scans for
-// (a command or a path) over the full JSON object.
-func summarizeArgs(raw json.RawMessage) string {
-	var args map[string]any
-	if err := json.Unmarshal(raw, &args); err == nil {
-		for _, key := range []string{"command", "path", "file_path", "pattern", "url"} {
-			if v, ok := args[key].(string); ok && v != "" {
-				return truncate(oneLine(v))
-			}
+// line prints one line, first ending a partial response left mid-line.
+func (r *Renderer) line(format string, args ...any) {
+	if r.streamed != "" {
+		r.broken = true
+	}
+	if r.open {
+		fmt.Fprintln(r.w)
+		r.open = false
+	}
+	fmt.Fprintf(r.w, format+"\n", args...)
+}
+
+func (r *Renderer) once(key string) bool {
+	if r.seen[key] {
+		return false
+	}
+	r.seen[key] = true
+	return true
+}
+
+func queuedMode(mode string) string {
+	if mode == "followUp" {
+		return "follow-up"
+	}
+	return mode
+}
+
+// toolSummary shows the last line of a tool result,
+// since the projection keeps a long result's tail.
+func toolSummary(text string) string {
+	var lines []string
+	for _, line := range strings.Split(text, "\n") {
+		if strings.TrimSpace(line) != "" {
+			lines = append(lines, line)
 		}
 	}
-	return truncate(oneLine(string(raw)))
+	if len(lines) == 0 {
+		return "(no output)"
+	}
+	summary := truncate(oneLine(lines[len(lines)-1]))
+	if len(lines) > 1 {
+		summary += fmt.Sprintf(" (+%d lines)", len(lines)-1)
+	}
+	return summary
 }
 
 func oneLine(s string) string {

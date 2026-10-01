@@ -121,7 +121,7 @@ func TestWatchUntilSettledWaitsForRunningAndReconnects(t *testing.T) {
 		t.Fatalf("watch sent auth %q", f.auth[0])
 	}
 	got := out.String()
-	if !strings.HasPrefix(got, "[idle]\n") || !strings.Contains(got, "TestX\n[running]\n") || !strings.HasSuffix(got, "by user)\n[idle]\n") {
+	if !strings.HasPrefix(got, "[idle]\n") || !strings.Contains(got, "use go 1.25)\n[running]\n") || !strings.HasSuffix(got, "by user)\n→ edit\n[idle]\n") {
 		t.Fatalf("unexpected status sequence:\n%s", got)
 	}
 	if strings.Count(got, "> fix the test") != 1 {

@@ -2,39 +2,41 @@ package agent
 
 import (
 	"bytes"
+	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	agentv1 "github.com/depot/cli/pkg/proto/depot/agent/v1"
 )
 
+// viewOne and viewTwo follow the runtime's DepotAgentView projection.
 const viewOne = `{
-  "conversation": {"id": "conv_1"},
-  "entries": [
-    {"id": "e1", "kind": "pi.head"},
-    {"id": "e2", "kind": "pi.user", "model": [{"role": "user", "content": "fix the test\nin pkg/foo", "timestamp": 1}]},
-    {"id": "e3", "kind": "pi.assistant", "model": [{"role": "assistant", "content": [
-      {"type": "thinking", "thinking": "hidden"},
-      {"type": "text", "text": "Looking at it."},
-      {"type": "toolCall", "id": "t1", "name": "bash", "arguments": {"command": "go test ./pkg/foo/...\n  -run TestX"}}
-    ], "stopReason": "toolUse"}]}
+  "messages": [
+    {"id": "1", "role": "user", "text": "fix the test\nin pkg/foo"},
+    {"id": "2", "role": "assistant", "text": "Looking at it.\n"}
   ],
-  "docs": {}
+  "tools": [{"callId": "t1", "name": "bash", "status": "running", "output": "=== RUN TestX"}],
+  "queued": [{"id": "q1", "mode": "steer", "text": "use go 1.25"}],
+  "status": "running"
 }`
 
 const viewTwo = `{
-  "entries": [
-    {"id": "e1", "kind": "pi.head"},
-    {"id": "e2", "kind": "pi.user", "model": [{"role": "user", "content": "fix the test\nin pkg/foo"}]},
-    {"id": "e3", "kind": "pi.assistant", "model": [{"role": "assistant", "content": [{"type": "text", "text": "Looking at it."}]}]},
-    {"id": "e4", "kind": "pi.toolResult", "model": [{"role": "toolResult", "toolCallId": "t1", "toolName": "bash", "isError": true,
-      "content": [{"type": "text", "text": "FAIL TestX\nline 2\nline 3"}]}]},
-    {"id": "e5", "kind": "pi.assistant", "model": [{"role": "assistant", "content": [
-      {"type": "toolCall", "id": "t2", "name": "edit", "arguments": {"path": "pkg/foo/foo_test.go", "oldText": "a", "newText": "b"}},
-      {"type": "toolCall", "id": "t3", "name": "custom", "arguments": {"n": 1}}
-    ]}]},
-    {"id": "e6", "kind": "pi.assistant", "model": [{"role": "assistant", "content": [], "stopReason": "aborted", "errorMessage": "interrupted\nby user"}]}
-  ]
+  "messages": [
+    {"id": "1", "role": "user", "text": "fix the test\nin pkg/foo"},
+    {"id": "2", "role": "assistant", "text": "Looking at it.\n"},
+    {"id": "3", "role": "tool", "toolName": "bash", "isError": true, "text": "=== RUN TestX\nFAIL TestX\n"},
+    {"id": "4", "role": "user", "text": "use go 1.25"},
+    {"id": "5.0", "role": "assistant", "isError": true, "text": "interrupted\nby user"}
+  ],
+  "tools": [
+    {"callId": "t1", "name": "bash", "status": "done"},
+    {"callId": "t2", "name": "edit", "status": "running"},
+    {"callId": "t3", "name": "read", "status": "done"}
+  ],
+  "queued": [],
+  "status": "idle",
+  "truncated": true
 }`
 
 func TestRendererPrintsEachEntryOnce(t *testing.T) {
@@ -58,13 +60,50 @@ func TestRendererPrintsEachEntryOnce(t *testing.T) {
 		"> fix the test",
 		"> in pkg/foo",
 		"Looking at it.",
-		"→ bash go test ./pkg/foo/... -run TestX",
+		"→ bash",
+		"(queued steer: use go 1.25)",
 		"[running]",
-		"  ← bash error: FAIL TestX (+2 lines)",
-		"→ edit pkg/foo/foo_test.go",
-		`→ custom {"n": 1}`,
-		"(aborted: interrupted by user)",
+		"(older messages omitted)",
+		"  ← bash error: FAIL TestX (+1 lines)",
+		"> use go 1.25",
+		"(error: interrupted by user)",
+		"→ edit",
 		"[idle]",
+		"",
+	}, "\n")
+	if got := out.String(); got != want {
+		t.Fatalf("rendered output mismatch\n got:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+func TestRendererStreamsPartial(t *testing.T) {
+	var out bytes.Buffer
+	r := NewRenderer(&out)
+	retryAt := time.Date(2026, 10, 1, 12, 0, 0, 0, time.Local)
+	for _, view := range []string{
+		`{"messages": [], "partial": "Hel", "tools": [], "queued": [], "status": "running"}`,
+		`{"messages": [], "partial": "Hello wor", "tools": [], "queued": [], "status": "running"}`,
+		`{"messages": [{"id": "1", "role": "assistant", "text": "Hello world."}], "tools": [], "queued": [], "status": "running"}`,
+		// An aborted response ends the streamed line before its error.
+		`{"messages": [{"id": "1", "role": "assistant", "text": "Hello world."}], "partial": "Nex", "tools": [], "queued": [], "status": "running"}`,
+		`{"messages": [{"id": "2", "role": "assistant", "isError": true, "text": "aborted"}], "tools": [], "queued": [], "status": "running"}`,
+		// A partial that no longer extends what printed stops streaming; the final message prints whole.
+		`{"messages": [], "partial": "Again", "tools": [], "queued": [], "status": "running"}`,
+		fmt.Sprintf(`{"messages": [], "partial": "…tail only", "retry": {"at": %d, "error": "overloaded"}, "tools": [], "queued": [{"id": "q", "mode": "followUp", "text": "then this"}], "status": "running"}`, retryAt.UnixMilli()),
+		`{"messages": [{"id": "3", "role": "assistant", "text": "Again, in full"}], "tools": [], "queued": [], "status": "running"}`,
+	} {
+		if err := r.RenderView(view); err != nil {
+			t.Fatalf("RenderView: %v", err)
+		}
+	}
+	want := strings.Join([]string{
+		"Hello world.",
+		"Nex",
+		"(error: aborted)",
+		"Again",
+		"(queued follow-up: then this)",
+		"(retrying at 12:00:00: overloaded)",
+		"Again, in full",
 		"",
 	}, "\n")
 	if got := out.String(); got != want {
