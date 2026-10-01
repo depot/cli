@@ -41,18 +41,18 @@ func TestResolveOIDCCredentialReturnsFirstToken(t *testing.T) {
 	}
 }
 
-func TestResolveOIDCCredentialIgnoresProviderErrors(t *testing.T) {
+func TestResolveOIDCCredentialSurfacesProviderErrors(t *testing.T) {
 	_, err := resolveOIDCCredentialWithProviders(context.Background(), []oidc.OIDCProvider{
 		fakeOIDCProvider{name: "github", err: errors.New("missing permission")},
 	})
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	if !strings.Contains(err.Error(), "missing OIDC credential") {
-		t.Fatalf("expected missing credential error, got %q", err.Error())
+	if !strings.Contains(err.Error(), "missing permission") {
+		t.Fatalf("expected provider error, got %q", err.Error())
 	}
-	if strings.Contains(strings.ToLower(err.Error()), "github") {
-		t.Fatalf("expected generic missing credential error, got %q", err.Error())
+	if !strings.Contains(strings.ToLower(err.Error()), "github") {
+		t.Fatalf("expected provider name, got %q", err.Error())
 	}
 }
 

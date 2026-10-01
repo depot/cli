@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 )
 
@@ -120,6 +121,78 @@ func TestGitHubOIDCProviderRejectsMalformedSecretMigrationIntentID(t *testing.T)
 
 	if _, err := NewGitHubOIDCProvider().RetrieveSecretMigrationToken(context.Background(), "abc"); err == nil {
 		t.Fatal("expected malformed intent ID to be rejected")
+	}
+}
+
+func TestGitHubOIDCProviderRetriesTransientResponse(t *testing.T) {
+	var attempts atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if attempts.Add(1) == 1 {
+			http.Error(w, "temporarily unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		_, _ = w.Write([]byte(`{"value":"token-1"}`))
+	}))
+	t.Cleanup(server.Close)
+
+	t.Setenv("ACTIONS_ID_TOKEN_REQUEST_TOKEN", "request-token")
+	t.Setenv("ACTIONS_ID_TOKEN_REQUEST_URL", server.URL)
+
+	token, err := NewGitHubOIDCProvider().RetrieveToken(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if token != "token-1" {
+		t.Fatalf("token = %q, want token-1", token)
+	}
+	if got := attempts.Load(); got != 2 {
+		t.Fatalf("attempts = %d, want 2", got)
+	}
+}
+
+func TestGitHubOIDCProviderBoundsRetries(t *testing.T) {
+	var attempts atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		attempts.Add(1)
+		http.Error(w, "temporarily unavailable", http.StatusInternalServerError)
+	}))
+	t.Cleanup(server.Close)
+
+	t.Setenv("ACTIONS_ID_TOKEN_REQUEST_TOKEN", "request-token")
+	t.Setenv("ACTIONS_ID_TOKEN_REQUEST_URL", server.URL)
+
+	token, err := NewGitHubOIDCProvider().RetrieveToken(context.Background())
+	if err == nil {
+		t.Fatalf("expected HTTP failure, got token %q", token)
+	}
+	if got := attempts.Load(); got != githubOIDCMaxAttempts {
+		t.Fatalf("attempts = %d, want %d", got, githubOIDCMaxAttempts)
+	}
+	if !strings.Contains(err.Error(), "500 Internal Server Error") {
+		t.Fatalf("error = %q, want final HTTP failure", err)
+	}
+}
+
+func TestGitHubOIDCProviderDoesNotRetryNonTransientResponse(t *testing.T) {
+	var attempts atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		attempts.Add(1)
+		http.Error(w, "invalid audience", http.StatusBadRequest)
+	}))
+	t.Cleanup(server.Close)
+
+	t.Setenv("ACTIONS_ID_TOKEN_REQUEST_TOKEN", "request-token")
+	t.Setenv("ACTIONS_ID_TOKEN_REQUEST_URL", server.URL)
+
+	token, err := NewGitHubOIDCProvider().RetrieveToken(context.Background())
+	if err == nil {
+		t.Fatalf("expected HTTP failure, got token %q", token)
+	}
+	if got := attempts.Load(); got != 1 {
+		t.Fatalf("attempts = %d, want 1", got)
+	}
+	if !strings.Contains(err.Error(), "400 Bad Request") {
+		t.Fatalf("error = %q, want non-retryable HTTP failure", err)
 	}
 }
 
