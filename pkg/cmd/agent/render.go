@@ -24,11 +24,20 @@ type agentView struct {
 }
 
 type viewMessage struct {
-	ID       string `json:"id"`
-	Role     string `json:"role"`
-	Text     string `json:"text"`
-	ToolName string `json:"toolName"`
-	IsError  bool   `json:"isError"`
+	ID        string         `json:"id"`
+	Role      string         `json:"role"`
+	Text      string         `json:"text"`
+	CallID    string         `json:"callId"`
+	ToolName  string         `json:"toolName"`
+	Summary   string         `json:"summary"`
+	IsError   bool           `json:"isError"`
+	ToolCalls []viewToolCall `json:"toolCalls"`
+}
+
+type viewToolCall struct {
+	CallID  string `json:"callId"`
+	Name    string `json:"name"`
+	Summary string `json:"summary"`
 }
 
 type viewRetry struct {
@@ -37,9 +46,10 @@ type viewRetry struct {
 }
 
 type viewTool struct {
-	CallID string `json:"callId"`
-	Name   string `json:"name"`
-	Status string `json:"status"`
+	CallID  string `json:"callId"`
+	Name    string `json:"name"`
+	Summary string `json:"summary"`
+	Status  string `json:"status"`
 }
 
 type viewQueued struct {
@@ -97,10 +107,7 @@ func (r *Renderer) RenderView(viewJSON string) error {
 		}
 	}
 	for _, tool := range view.Tools {
-		// A tool first seen done already has its result among the messages.
-		if tool.Status != "done" && r.once("tool:"+tool.CallID) {
-			r.line("→ %s", tool.Name)
-		}
+		r.call(tool.CallID, tool.Name, tool.Summary)
 	}
 	r.streamPartial(view.Partial)
 	for _, q := range view.Queued {
@@ -124,10 +131,15 @@ func (r *Renderer) renderMessage(msg viewMessage) {
 	case "assistant":
 		if msg.IsError {
 			r.line("(error: %s)", truncate(oneLine(msg.Text)))
-			return
+		} else {
+			r.finishPartial(msg.Text)
 		}
-		r.finishPartial(msg.Text)
+		for _, call := range msg.ToolCalls {
+			r.call(call.CallID, call.Name, call.Summary)
+		}
 	case "tool":
+		// A result whose call scrolled out of the view still names it first.
+		r.call(msg.CallID, msg.ToolName, msg.Summary)
 		outcome := "ok"
 		if msg.IsError {
 			outcome = "error"
@@ -136,10 +148,22 @@ func (r *Renderer) renderMessage(msg viewMessage) {
 	}
 }
 
-// streamPartial prints whatever the partial response added since the last frame.
-// A partial that no longer extends what was printed
-// (the projection keeps only its tail),
-// or whose line another line cut into, stops streaming,
+// call prints a tool call once by call id,
+// whether its assistant message, live slot, or result shows it first.
+func (r *Renderer) call(callID, name, summary string) {
+	if callID != "" && !r.once("call:"+callID) {
+		return
+	}
+	if summary == "" {
+		r.line("→ %s", name)
+		return
+	}
+	r.line("→ %s %s", name, summary)
+}
+
+// streamPartial prints whatever the partial response added since the last frame;
+// each partial is a prefix of the next and of the final message.
+// Once another line cuts into it, streaming stops
 // and the final message prints whole.
 func (r *Renderer) streamPartial(partial string) {
 	if partial == "" {
@@ -198,7 +222,7 @@ func (r *Renderer) once(key string) bool {
 }
 
 func queuedMode(mode string) string {
-	if mode == "followUp" {
+	if mode == "followup" {
 		return "follow-up"
 	}
 	return mode

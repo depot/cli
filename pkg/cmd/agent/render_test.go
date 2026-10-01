@@ -14,9 +14,10 @@ import (
 const viewOne = `{
   "messages": [
     {"id": "1", "role": "user", "text": "fix the test\nin pkg/foo"},
-    {"id": "2", "role": "assistant", "text": "Looking at it.\n"}
+    {"id": "2", "role": "assistant", "text": "Looking at it.\n",
+      "toolCalls": [{"callId": "t1", "name": "bash", "summary": "go test ./pkg/foo/... -run TestX"}]}
   ],
-  "tools": [{"callId": "t1", "name": "bash", "status": "running", "output": "=== RUN TestX"}],
+  "tools": [{"callId": "t1", "name": "bash", "summary": "go test ./pkg/foo/... -run TestX", "status": "running", "output": "=== RUN TestX"}],
   "queued": [{"id": "q1", "mode": "steer", "text": "use go 1.25"}],
   "status": "running"
 }`
@@ -24,19 +25,18 @@ const viewOne = `{
 const viewTwo = `{
   "messages": [
     {"id": "1", "role": "user", "text": "fix the test\nin pkg/foo"},
-    {"id": "2", "role": "assistant", "text": "Looking at it.\n"},
-    {"id": "3", "role": "tool", "toolName": "bash", "isError": true, "text": "=== RUN TestX\nFAIL TestX\n"},
+    {"id": "2", "role": "assistant", "text": "Looking at it.\n",
+      "toolCalls": [{"callId": "t1", "name": "bash", "summary": "go test ./pkg/foo/... -run TestX"}]},
+    {"id": "3", "role": "tool", "callId": "t1", "toolName": "bash", "summary": "go test ./pkg/foo/... -run TestX", "isError": true,
+      "text": "=== RUN TestX\nFAIL TestX\n"},
     {"id": "4", "role": "user", "text": "use go 1.25"},
-    {"id": "5.0", "role": "assistant", "isError": true, "text": "interrupted\nby user"}
+    {"id": "5", "role": "assistant", "text": "", "toolCalls": [{"callId": "t2", "name": "edit", "summary": "pkg/foo/foo_test.go"}]},
+    {"id": "6", "role": "tool", "callId": "t2", "toolName": "edit", "summary": "pkg/foo/foo_test.go", "text": "applied"},
+    {"id": "7", "role": "assistant", "isError": true, "text": "interrupted\nby user"}
   ],
-  "tools": [
-    {"callId": "t1", "name": "bash", "status": "done"},
-    {"callId": "t2", "name": "edit", "status": "running"},
-    {"callId": "t3", "name": "read", "status": "done"}
-  ],
+  "tools": [{"callId": "t2", "name": "edit", "summary": "pkg/foo/foo_test.go", "status": "done"}],
   "queued": [],
-  "status": "idle",
-  "truncated": true
+  "status": "idle"
 }`
 
 func TestRendererPrintsEachEntryOnce(t *testing.T) {
@@ -60,14 +60,14 @@ func TestRendererPrintsEachEntryOnce(t *testing.T) {
 		"> fix the test",
 		"> in pkg/foo",
 		"Looking at it.",
-		"→ bash",
+		"→ bash go test ./pkg/foo/... -run TestX",
 		"(queued steer: use go 1.25)",
 		"[running]",
-		"(older messages omitted)",
 		"  ← bash error: FAIL TestX (+1 lines)",
 		"> use go 1.25",
+		"→ edit pkg/foo/foo_test.go",
+		"  ← edit ok: applied",
 		"(error: interrupted by user)",
-		"→ edit",
 		"[idle]",
 		"",
 	}, "\n")
@@ -87,10 +87,11 @@ func TestRendererStreamsPartial(t *testing.T) {
 		// An aborted response ends the streamed line before its error.
 		`{"messages": [{"id": "1", "role": "assistant", "text": "Hello world."}], "partial": "Nex", "tools": [], "queued": [], "status": "running"}`,
 		`{"messages": [{"id": "2", "role": "assistant", "isError": true, "text": "aborted"}], "tools": [], "queued": [], "status": "running"}`,
-		// A partial that no longer extends what printed stops streaming; the final message prints whole.
+		// Once another line cuts into a partial, it stops streaming and the final message prints whole.
 		`{"messages": [], "partial": "Again", "tools": [], "queued": [], "status": "running"}`,
-		fmt.Sprintf(`{"messages": [], "partial": "…tail only", "retry": {"at": %d, "error": "overloaded"}, "tools": [], "queued": [{"id": "q", "mode": "followUp", "text": "then this"}], "status": "running"}`, retryAt.UnixMilli()),
-		`{"messages": [{"id": "3", "role": "assistant", "text": "Again, in full"}], "tools": [], "queued": [], "status": "running"}`,
+		fmt.Sprintf(`{"messages": [], "partial": "Again and", "retry": {"at": %d, "error": "overloaded"}, "tools": [], "queued": [{"id": "q", "mode": "followup", "text": "then this"}], "status": "running"}`, retryAt.UnixMilli()),
+		`{"messages": [], "partial": "Again and again", "tools": [], "queued": [], "status": "running"}`,
+		`{"messages": [{"id": "3", "role": "assistant", "text": "Again and again."}], "tools": [], "queued": [], "status": "running"}`,
 	} {
 		if err := r.RenderView(view); err != nil {
 			t.Fatalf("RenderView: %v", err)
@@ -100,12 +101,26 @@ func TestRendererStreamsPartial(t *testing.T) {
 		"Hello world.",
 		"Nex",
 		"(error: aborted)",
-		"Again",
+		"Again and",
 		"(queued follow-up: then this)",
 		"(retrying at 12:00:00: overloaded)",
-		"Again, in full",
+		"Again and again.",
 		"",
 	}, "\n")
+	if got := out.String(); got != want {
+		t.Fatalf("rendered output mismatch\n got:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+func TestRendererNamesACallThatScrolledOut(t *testing.T) {
+	var out bytes.Buffer
+	r := NewRenderer(&out)
+	view := `{"messages": [{"id": "9", "role": "tool", "callId": "t9", "toolName": "read", "summary": "go.mod", "text": "module x"}],
+		"tools": [], "queued": [], "status": "running", "truncated": true}`
+	if err := r.RenderView(view); err != nil {
+		t.Fatalf("RenderView: %v", err)
+	}
+	want := "(older messages omitted)\n→ read go.mod\n  ← read ok: module x\n"
 	if got := out.String(); got != want {
 		t.Fatalf("rendered output mismatch\n got:\n%s\nwant:\n%s", got, want)
 	}
