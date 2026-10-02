@@ -320,3 +320,23 @@ func (b *syncBuffer) String() string {
 	defer b.mu.Unlock()
 	return b.buf.String()
 }
+
+func TestAttachReturnsAStdinReadFailure(t *testing.T) {
+	f := &fakeAgentService{streams: [][]*agentv1.WatchSessionResponse{{frame(running, viewOne)}}}
+	s := startFake(t, f)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	// One line longer than the scanner accepts.
+	in := strings.NewReader(strings.Repeat("x", 2*1024*1024) + "\n")
+	err := attachSession(ctx, s, "s1", in, &syncBuffer{})
+	if err == nil || !strings.Contains(err.Error(), "read stdin") {
+		t.Fatalf("expected a stdin read error, got %v", err)
+	}
+	if ctx.Err() != nil {
+		t.Fatal("attachSession returned only because the test timed out")
+	}
+	if len(f.inputs) != 0 {
+		t.Fatalf("sent %d inputs from an unreadable stdin", len(f.inputs))
+	}
+}

@@ -414,7 +414,8 @@ func retryable(err error) bool {
 
 // attachSession watches the session while forwarding stdin lines as inputs.
 // It returns when ctx is cancelled, on /quit, or when the watch fails;
-// stdin reaching EOF stops sending but keeps watching.
+// stdin reaching EOF stops sending but keeps watching;
+// failing to read it ends the attach, so a line is never dropped silently.
 func attachSession(ctx context.Context, s *session, sessionID string, in io.Reader, out io.Writer) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -425,6 +426,7 @@ func attachSession(ctx context.Context, s *session, sessionID string, in io.Read
 	}()
 
 	lines := make(chan string)
+	readErr := make(chan error, 1)
 	go func() {
 		defer close(lines)
 		scanner := bufio.NewScanner(in)
@@ -436,6 +438,9 @@ func attachSession(ctx context.Context, s *session, sessionID string, in io.Read
 				return
 			}
 		}
+		if err := scanner.Err(); err != nil {
+			readErr <- err
+		}
 	}()
 
 	for {
@@ -444,6 +449,10 @@ func attachSession(ctx context.Context, s *session, sessionID string, in io.Read
 			return <-watchErr
 		case err := <-watchErr:
 			return err
+		case err := <-readErr:
+			cancel()
+			<-watchErr
+			return fmt.Errorf("read stdin: %w", err)
 		case line, ok := <-lines:
 			if !ok {
 				lines = nil
