@@ -32,6 +32,12 @@ type fakeAgentService struct {
 	creates        []*agentv1.CreateSessionRequest
 	// sendFailures SendInput calls fail Unavailable before one succeeds.
 	sendFailures int
+	// stored holds the hashes PrepareAttachmentUploads treats as already uploaded;
+	// it asks for every other file at uploadURL.
+	stored             map[string]bool
+	uploadURL          string
+	maxAttachmentBytes uint64
+	prepares           int
 }
 
 func (f *fakeAgentService) WatchSession(ctx context.Context, req *connect.Request[agentv1.WatchSessionRequest], stream *connect.ServerStream[agentv1.WatchSessionResponse]) error {
@@ -240,7 +246,7 @@ func TestSendRetriesWithOneClientRequestID(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	id, err := sendInput(ctx, s, "s1", "hi", modeFollowup)
+	id, err := sendInput(ctx, s, "s1", "hi", modeFollowup, nil)
 	if err != nil {
 		t.Fatalf("sendInput: %v", err)
 	}

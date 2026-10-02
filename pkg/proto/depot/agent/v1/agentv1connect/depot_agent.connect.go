@@ -63,6 +63,9 @@ const (
 	// DepotAgentServiceDeleteTriggerProcedure is the fully-qualified name of the DepotAgentService's
 	// DeleteTrigger RPC.
 	DepotAgentServiceDeleteTriggerProcedure = "/depot.agent.v1.DepotAgentService/DeleteTrigger"
+	// DepotAgentServicePrepareAttachmentUploadsProcedure is the fully-qualified name of the
+	// DepotAgentService's PrepareAttachmentUploads RPC.
+	DepotAgentServicePrepareAttachmentUploadsProcedure = "/depot.agent.v1.DepotAgentService/PrepareAttachmentUploads"
 )
 
 // DepotAgentServiceClient is a client for the depot.agent.v1.DepotAgentService service.
@@ -88,6 +91,9 @@ type DepotAgentServiceClient interface {
 	ListTriggers(context.Context, *connect.Request[v1.ListTriggersRequest]) (*connect.Response[v1.ListTriggersResponse], error)
 	// Deletes a trigger. Its URL stops accepting deliveries; sessions it started are kept.
 	DeleteTrigger(context.Context, *connect.Request[v1.DeleteTriggerRequest]) (*connect.Response[v1.DeleteTriggerResponse], error)
+	// Prepares files to attach to a message. Returns an upload URL for each file Depot does not already
+	// store; upload those, then pass the attachments to `CreateSession` or `SendInput`.
+	PrepareAttachmentUploads(context.Context, *connect.Request[v1.PrepareAttachmentUploadsRequest]) (*connect.Response[v1.PrepareAttachmentUploadsResponse], error)
 }
 
 // NewDepotAgentServiceClient constructs a client for the depot.agent.v1.DepotAgentService service.
@@ -150,21 +156,27 @@ func NewDepotAgentServiceClient(httpClient connect.HTTPClient, baseURL string, o
 			baseURL+DepotAgentServiceDeleteTriggerProcedure,
 			opts...,
 		),
+		prepareAttachmentUploads: connect.NewClient[v1.PrepareAttachmentUploadsRequest, v1.PrepareAttachmentUploadsResponse](
+			httpClient,
+			baseURL+DepotAgentServicePrepareAttachmentUploadsProcedure,
+			opts...,
+		),
 	}
 }
 
 // depotAgentServiceClient implements DepotAgentServiceClient.
 type depotAgentServiceClient struct {
-	createSession          *connect.Client[v1.CreateSessionRequest, v1.CreateSessionResponse]
-	sendInput              *connect.Client[v1.SendInputRequest, v1.SendInputResponse]
-	getSession             *connect.Client[v1.GetSessionRequest, v1.GetSessionResponse]
-	listDepotAgentSessions *connect.Client[v1.ListDepotAgentSessionsRequest, v1.ListDepotAgentSessionsResponse]
-	watchSession           *connect.Client[v1.WatchSessionRequest, v1.WatchSessionResponse]
-	interruptSession       *connect.Client[v1.InterruptSessionRequest, v1.InterruptSessionResponse]
-	archiveSession         *connect.Client[v1.ArchiveSessionRequest, v1.ArchiveSessionResponse]
-	createTrigger          *connect.Client[v1.CreateTriggerRequest, v1.CreateTriggerResponse]
-	listTriggers           *connect.Client[v1.ListTriggersRequest, v1.ListTriggersResponse]
-	deleteTrigger          *connect.Client[v1.DeleteTriggerRequest, v1.DeleteTriggerResponse]
+	createSession            *connect.Client[v1.CreateSessionRequest, v1.CreateSessionResponse]
+	sendInput                *connect.Client[v1.SendInputRequest, v1.SendInputResponse]
+	getSession               *connect.Client[v1.GetSessionRequest, v1.GetSessionResponse]
+	listDepotAgentSessions   *connect.Client[v1.ListDepotAgentSessionsRequest, v1.ListDepotAgentSessionsResponse]
+	watchSession             *connect.Client[v1.WatchSessionRequest, v1.WatchSessionResponse]
+	interruptSession         *connect.Client[v1.InterruptSessionRequest, v1.InterruptSessionResponse]
+	archiveSession           *connect.Client[v1.ArchiveSessionRequest, v1.ArchiveSessionResponse]
+	createTrigger            *connect.Client[v1.CreateTriggerRequest, v1.CreateTriggerResponse]
+	listTriggers             *connect.Client[v1.ListTriggersRequest, v1.ListTriggersResponse]
+	deleteTrigger            *connect.Client[v1.DeleteTriggerRequest, v1.DeleteTriggerResponse]
+	prepareAttachmentUploads *connect.Client[v1.PrepareAttachmentUploadsRequest, v1.PrepareAttachmentUploadsResponse]
 }
 
 // CreateSession calls depot.agent.v1.DepotAgentService.CreateSession.
@@ -217,6 +229,11 @@ func (c *depotAgentServiceClient) DeleteTrigger(ctx context.Context, req *connec
 	return c.deleteTrigger.CallUnary(ctx, req)
 }
 
+// PrepareAttachmentUploads calls depot.agent.v1.DepotAgentService.PrepareAttachmentUploads.
+func (c *depotAgentServiceClient) PrepareAttachmentUploads(ctx context.Context, req *connect.Request[v1.PrepareAttachmentUploadsRequest]) (*connect.Response[v1.PrepareAttachmentUploadsResponse], error) {
+	return c.prepareAttachmentUploads.CallUnary(ctx, req)
+}
+
 // DepotAgentServiceHandler is an implementation of the depot.agent.v1.DepotAgentService service.
 type DepotAgentServiceHandler interface {
 	// Creates a session and queues its first message. A sandbox starts for it within a minute.
@@ -240,6 +257,9 @@ type DepotAgentServiceHandler interface {
 	ListTriggers(context.Context, *connect.Request[v1.ListTriggersRequest]) (*connect.Response[v1.ListTriggersResponse], error)
 	// Deletes a trigger. Its URL stops accepting deliveries; sessions it started are kept.
 	DeleteTrigger(context.Context, *connect.Request[v1.DeleteTriggerRequest]) (*connect.Response[v1.DeleteTriggerResponse], error)
+	// Prepares files to attach to a message. Returns an upload URL for each file Depot does not already
+	// store; upload those, then pass the attachments to `CreateSession` or `SendInput`.
+	PrepareAttachmentUploads(context.Context, *connect.Request[v1.PrepareAttachmentUploadsRequest]) (*connect.Response[v1.PrepareAttachmentUploadsResponse], error)
 }
 
 // NewDepotAgentServiceHandler builds an HTTP handler from the service implementation. It returns
@@ -298,6 +318,11 @@ func NewDepotAgentServiceHandler(svc DepotAgentServiceHandler, opts ...connect.H
 		svc.DeleteTrigger,
 		opts...,
 	)
+	depotAgentServicePrepareAttachmentUploadsHandler := connect.NewUnaryHandler(
+		DepotAgentServicePrepareAttachmentUploadsProcedure,
+		svc.PrepareAttachmentUploads,
+		opts...,
+	)
 	return "/depot.agent.v1.DepotAgentService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case DepotAgentServiceCreateSessionProcedure:
@@ -320,6 +345,8 @@ func NewDepotAgentServiceHandler(svc DepotAgentServiceHandler, opts ...connect.H
 			depotAgentServiceListTriggersHandler.ServeHTTP(w, r)
 		case DepotAgentServiceDeleteTriggerProcedure:
 			depotAgentServiceDeleteTriggerHandler.ServeHTTP(w, r)
+		case DepotAgentServicePrepareAttachmentUploadsProcedure:
+			depotAgentServicePrepareAttachmentUploadsHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -367,4 +394,8 @@ func (UnimplementedDepotAgentServiceHandler) ListTriggers(context.Context, *conn
 
 func (UnimplementedDepotAgentServiceHandler) DeleteTrigger(context.Context, *connect.Request[v1.DeleteTriggerRequest]) (*connect.Response[v1.DeleteTriggerResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.agent.v1.DepotAgentService.DeleteTrigger is not implemented"))
+}
+
+func (UnimplementedDepotAgentServiceHandler) PrepareAttachmentUploads(context.Context, *connect.Request[v1.PrepareAttachmentUploadsRequest]) (*connect.Response[v1.PrepareAttachmentUploadsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.agent.v1.DepotAgentService.PrepareAttachmentUploads is not implemented"))
 }

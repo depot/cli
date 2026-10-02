@@ -176,6 +176,35 @@ func TestRendererCountsQueuedInputsOutsideTheView(t *testing.T) {
 	}
 }
 
+func TestRendererNamesSendersAndAttachments(t *testing.T) {
+	var out bytes.Buffer
+	r := NewRenderer(&out)
+	view := `{
+		"messages": [
+			{"id": "m1", "role": "user", "text": "first line\nsecond", "sender": {"kind": "user", "name": "ada"},
+			 "attachments": [{"name": "trace.log", "sizeBytes": 2048}]},
+			{"id": "m2", "role": "user", "text": "from chat", "sender": {"kind": "slack", "name": "grace"}},
+			{"id": "m3", "role": "user", "text": "no sender"}
+		],
+		"queued": [{"id": "q1", "mode": "followup", "text": "later", "sender": {"kind": "user", "name": "ada"},
+			"attachments": [{"name": "a.png", "sizeBytes": 1}, {"name": "b.png", "sizeBytes": 1}]}]
+	}`
+	if err := r.RenderView(view); err != nil {
+		t.Fatalf("RenderView: %v", err)
+	}
+	want := strings.Join([]string{
+		"> ada: first line",
+		"> second",
+		"  [file trace.log, 2.048kB]",
+		"> grace (slack): from chat",
+		"> no sender",
+		"(queued follow-up from ada: later [2 files])",
+	}, "\n") + "\n"
+	if got := out.String(); got != want {
+		t.Fatalf("got:\n%s\nwant:\n%s", got, want)
+	}
+}
+
 func TestRendererNamesACallThatScrolledOut(t *testing.T) {
 	var out bytes.Buffer
 	r := NewRenderer(&out)

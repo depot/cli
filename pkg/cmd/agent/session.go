@@ -28,6 +28,7 @@ func newCmdSessionCreate() *cobra.Command {
 		title  string
 		watch  bool
 		output string
+		files  []string
 	)
 
 	cmd := &cobra.Command{
@@ -37,7 +38,10 @@ func newCmdSessionCreate() *cobra.Command {
   depot agent session create --repo https://github.com/org/repo --watch "fix the flaky test in pkg/foo"
 
   # Pick a model explicitly
-  depot agent session create --model claude-opus-5-5 "summarize the README"`,
+  depot agent session create --model claude-opus-5-5 "summarize the README"
+
+  # Attach files to the first message
+  depot agent session create --file screenshot.png --file trace.log "why does this page crash?"`,
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := validateOutput(output); err != nil {
@@ -64,6 +68,9 @@ func newCmdSessionCreate() *cobra.Command {
 			if model != "" {
 				req.Model = parseModel(model)
 			}
+			if req.Attachments, err = uploadAttachments(ctx, s, files, os.Stderr); err != nil {
+				return err
+			}
 
 			resp, err := createSession(ctx, s, req)
 			if err != nil {
@@ -87,6 +94,7 @@ func newCmdSessionCreate() *cobra.Command {
 	cmd.Flags().StringVar(&ref, "ref", "", "Git ref to check out (defaults to the repository's default branch)")
 	cmd.Flags().StringVar(&model, "model", "", "Model as <provider>/<model-id> or <model-id> (defaults to the server's choice)")
 	cmd.Flags().StringVar(&title, "title", "", "Session title")
+	cmd.Flags().StringArrayVar(&files, "file", nil, "Attach a file to the first message (repeatable)")
 	cmd.Flags().BoolVar(&watch, "watch", false, "Stream the session after creating it, until it settles")
 	cmd.Flags().StringVarP(&output, "output", "o", "", "Output format (json)")
 	cmd.MarkFlagsMutuallyExclusive("watch", "output")
@@ -97,6 +105,7 @@ func newCmdSessionSend() *cobra.Command {
 	var (
 		auth  authFlags
 		steer bool
+		files []string
 	)
 
 	cmd := &cobra.Command{
@@ -117,7 +126,11 @@ With --steer it is delivered into the running turn instead.`,
 			if steer {
 				mode = modeSteer
 			}
-			inputID, err := sendInput(ctx, s, args[0], strings.Join(args[1:], " "), mode)
+			attachments, err := uploadAttachments(ctx, s, files, os.Stderr)
+			if err != nil {
+				return err
+			}
+			inputID, err := sendInput(ctx, s, args[0], strings.Join(args[1:], " "), mode, attachments)
 			if err != nil {
 				return err
 			}
@@ -128,6 +141,7 @@ With --steer it is delivered into the running turn instead.`,
 
 	auth.register(cmd)
 	cmd.Flags().BoolVar(&steer, "steer", false, "Deliver the message into the running turn instead of queueing it")
+	cmd.Flags().StringArrayVar(&files, "file", nil, "Attach a file to the message (repeatable)")
 	return cmd
 }
 
@@ -247,9 +261,10 @@ func newCmdSessionAttach() *cobra.Command {
 In a terminal the input line stays editable while the session's output streams above it.
 
 Lines starting with a slash are commands:
-  /steer <message>   deliver the message into the running turn
-  /interrupt         abort the running turn
-  /quit              detach (the session keeps running)`,
+  /file <path> [message]  attach a file; without a message it goes out with your next one
+  /steer <message>        deliver the message into the running turn
+  /interrupt              abort the running turn
+  /quit                   detach (the session keeps running)`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt)
@@ -304,12 +319,13 @@ const (
 	modeSteer    = "steer"
 )
 
-func sendInput(ctx context.Context, s *session, sessionID, content, mode string) (string, error) {
+func sendInput(ctx context.Context, s *session, sessionID, content, mode string, attachments []*agentv1.DepotAgentAttachment) (string, error) {
 	req := &agentv1.SendInputRequest{
 		SessionId:       sessionID,
 		Content:         content,
 		Mode:            ptr(mode),
 		ClientRequestId: ptr(uuid.NewString()),
+		Attachments:     attachments,
 	}
 	resp, err := withRetries(ctx, func() (*connect.Response[agentv1.SendInputResponse], error) {
 		return s.client.SendInput(ctx, authed(s, req))
@@ -458,6 +474,8 @@ func attachLines(ctx context.Context, s *session, sessionID string, lines <-chan
 		watchErr <- watchSession(ctx, s, sessionID, r, untilCancelled)
 	}()
 
+	// pending holds uploaded files that go out with the next message.
+	var pending []*agentv1.DepotAgentAttachment
 	for {
 		select {
 		case <-ctx.Done():
@@ -481,7 +499,10 @@ func attachLines(ctx context.Context, s *session, sessionID string, lines <-chan
 				cancel()
 				return <-watchErr
 			case attachUnknown:
-				fmt.Fprintf(notices, "(unknown command %q; try /steer, /interrupt, /quit)\n", cmd.content)
+				fmt.Fprintf(notices, "(unknown command %q; try /file, /steer, /interrupt, /quit)\n", cmd.content)
+				continue
+			case attachFileUsage:
+				fmt.Fprintln(notices, "(usage: /file <path> [message])")
 				continue
 			case attachInterrupt:
 				if _, err := s.client.InterruptSession(ctx, authed(s, &agentv1.InterruptSessionRequest{SessionId: sessionID})); err != nil {
@@ -489,12 +510,29 @@ func attachLines(ctx context.Context, s *session, sessionID string, lines <-chan
 				}
 				continue
 			}
-			if _, err := sendInput(ctx, s, sessionID, cmd.content, cmd.mode); err != nil {
+			if cmd.kind == attachFile {
+				attachments, err := uploadAttachments(ctx, s, []string{cmd.path}, notices)
+				if errors.Is(err, context.Canceled) {
+					return <-watchErr
+				}
+				if err != nil {
+					fmt.Fprintf(notices, "(%v)\n", err)
+					continue
+				}
+				pending = append(pending, attachments...)
+				if cmd.content == "" {
+					fmt.Fprintf(notices, "(%s goes out with your next message)\n", attachments[0].GetName())
+					continue
+				}
+			}
+			if _, err := sendInput(ctx, s, sessionID, cmd.content, cmd.mode, pending); err != nil {
 				if errors.Is(err, context.Canceled) {
 					return <-watchErr
 				}
 				fmt.Fprintf(notices, "(send failed: %v)\n", err)
+				continue
 			}
+			pending = nil
 		}
 	}
 }
@@ -507,12 +545,15 @@ const (
 	attachInterrupt
 	attachQuit
 	attachUnknown
+	attachFile
+	attachFileUsage
 )
 
 type attachCommand struct {
 	kind    attachKind
 	mode    string
 	content string
+	path    string
 }
 
 func parseAttachLine(line string) attachCommand {
@@ -535,8 +576,28 @@ func parseAttachLine(line string) attachCommand {
 		return attachCommand{kind: attachInterrupt}
 	case "/quit":
 		return attachCommand{kind: attachQuit}
+	case "/file":
+		path, message, ok := cutPath(rest)
+		if !ok {
+			return attachCommand{kind: attachFileUsage}
+		}
+		return attachCommand{kind: attachFile, mode: modeFollowup, path: path, content: message}
 	}
 	return attachCommand{kind: attachUnknown, content: name}
+}
+
+// cutPath splits a leading path, double-quoted if it holds spaces, from the rest of the line.
+func cutPath(s string) (path, rest string, ok bool) {
+	if strings.HasPrefix(s, `"`) {
+		end := strings.Index(s[1:], `"`)
+		if end < 0 {
+			return "", "", false
+		}
+		path, rest = s[1:end+1], s[end+2:]
+	} else {
+		path, rest, _ = strings.Cut(s, " ")
+	}
+	return path, strings.TrimSpace(rest), path != ""
 }
 
 func parseModel(s string) *agentv1.DepotAgentModel {
