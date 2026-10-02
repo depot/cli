@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	agentv1 "github.com/depot/cli/pkg/proto/depot/agent/v1"
 )
@@ -81,7 +82,27 @@ type Renderer struct {
 }
 
 func NewRenderer(w io.Writer) *Renderer {
-	return &Renderer{w: w, seen: map[string]bool{}}
+	return &Renderer{w: safeWriter{w}, seen: map[string]bool{}}
+}
+
+// safeWriter replaces control characters other than newline and tab,
+// so text from a session cannot send escape sequences to the terminal.
+type safeWriter struct{ w io.Writer }
+
+func (s safeWriter) Write(b []byte) (int, error) {
+	if _, err := io.WriteString(s.w, safeText(string(b))); err != nil {
+		return 0, err
+	}
+	return len(b), nil
+}
+
+func safeText(s string) string {
+	return strings.Map(func(r rune) rune {
+		if r != '\n' && r != '\t' && unicode.IsControl(r) {
+			return '_'
+		}
+		return r
+	}, s)
 }
 
 // Render prints a running status before the frame's view, so it cannot cut into the streamed partial,

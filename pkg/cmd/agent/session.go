@@ -191,7 +191,7 @@ func newCmdSessionList() *cobra.Command {
 				return fmt.Errorf("write session table: %w", err)
 			}
 			if next := resp.Msg.GetNextPageToken(); next != "" {
-				fmt.Fprintf(os.Stderr, "More sessions: depot agent session list --page-token %s\n", next)
+				fmt.Fprintf(os.Stderr, "More sessions: depot agent session list --page-token %s\n", safeText(next))
 			}
 			return nil
 		},
@@ -538,14 +538,14 @@ func writeSessionTable(w io.Writer, sessions []*agentv1.DepotAgentSession) error
 		_, err := fmt.Fprintln(w, "No agent sessions found")
 		return err
 	}
-	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	tw := tabwriter.NewWriter(safeWriter{w}, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(tw, "ID\tSTATUS\tTITLE\tREPO\tUPDATED")
 	for _, s := range sessions {
 		updated := ""
 		if s.UpdatedAt != nil {
 			updated = s.UpdatedAt.AsTime().Local().Format(time.DateTime)
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", s.GetSessionId(), s.GetStatus(), truncate(oneLine(s.GetTitle())), s.GetRepoUrl(), updated)
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", oneLine(s.GetSessionId()), oneLine(s.GetStatus()), truncate(oneLine(s.GetTitle())), oneLine(s.GetRepoUrl()), updated)
 	}
 	return tw.Flush()
 }

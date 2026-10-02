@@ -202,6 +202,33 @@ func TestRendererEmptyAndInvalidView(t *testing.T) {
 	}
 }
 
+func TestRendererNeutralizesTerminalEscapes(t *testing.T) {
+	var out bytes.Buffer
+	r := NewRenderer(&out)
+	for _, view := range []string{
+		`{"partial": "ok \u001b]52;c;aGk=\u0007"}`,
+		`{"messages": [{"id": "1", "role": "assistant", "text": "ok \u001b]52;c;aGk=\u0007 done\u009b2J"}]}`,
+	} {
+		if err := r.RenderView(view); err != nil {
+			t.Fatalf("RenderView: %v", err)
+		}
+	}
+	if got, want := out.String(), "ok _]52;c;aGk=_ done_2J\n"; got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
+func TestSessionTableNeutralizesTerminalEscapes(t *testing.T) {
+	var out bytes.Buffer
+	sessions := []*agentv1.DepotAgentSession{{SessionId: "s1", Status: "idle", Title: "t\u001b[2J", RepoUrl: ptr("https://x\u0007\tmore")}}
+	if err := writeSessionTable(&out, sessions); err != nil {
+		t.Fatal(err)
+	}
+	if strings.ContainsAny(out.String(), "\u001b\u0007") || !strings.Contains(out.String(), "https://x_ more") {
+		t.Fatalf("the table should hold no control characters:\n%q", out.String())
+	}
+}
+
 func TestTruncate(t *testing.T) {
 	long := strings.Repeat("é", maxSummaryRunes+5)
 	got := []rune(truncate(long))
