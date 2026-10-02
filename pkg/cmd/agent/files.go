@@ -327,11 +327,14 @@ func readSource(src *source, limit int64) error {
 	return nil
 }
 
-// mediaType guesses from the name, then from the first bytes, so piped images still go to the model as images.
+// mediaType trusts the first bytes over the name, whose mapping varies by machine (.ts can be video/mp2t),
+// and falls back to the name only for bytes it cannot place.
 func mediaType(name string, head []byte) string {
-	t := mime.TypeByExtension(filepath.Ext(name))
-	if t == "" {
-		t = http.DetectContentType(head)
+	t := http.DetectContentType(head)
+	if t == "application/octet-stream" {
+		if byExt := mime.TypeByExtension(filepath.Ext(name)); byExt != "" {
+			t = byExt
+		}
 	}
 	if parsed, _, err := mime.ParseMediaType(t); err == nil {
 		return parsed

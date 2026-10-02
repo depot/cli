@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"io"
+	"mime"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -92,7 +93,8 @@ func names(attachments []*agentv1.DepotAgentAttachment) []string {
 func TestUploadAttachmentsPutsOnlyTheURLsTheServerReturns(t *testing.T) {
 	store, url := startStore(t)
 	dir := t.TempDir()
-	newSum := writeFile(t, filepath.Join(dir, "new.png"), "fresh bytes")
+	fresh := "\x89PNG\r\n\x1a\nabc"
+	newSum := writeFile(t, filepath.Join(dir, "new.png"), fresh)
 	oldSum := writeFile(t, filepath.Join(dir, "old.log"), "already stored")
 	f := &fakeAgentService{stored: map[string]bool{oldSum: true}, uploadURL: url, maxAttachmentBytes: 1024}
 	s := startFake(t, f)
@@ -103,7 +105,7 @@ func TestUploadAttachmentsPutsOnlyTheURLsTheServerReturns(t *testing.T) {
 	if err != nil {
 		t.Fatalf("uploadAttachments: %v", err)
 	}
-	if len(store.puts) != 1 || store.puts[newSum] != "fresh bytes" {
+	if len(store.puts) != 1 || store.puts[newSum] != fresh {
 		t.Fatalf("expected one PUT of the missing file, got %v", store.puts)
 	}
 	if store.hdrs[newSum] != "sum-"+newSum[:8] {
@@ -425,5 +427,20 @@ func TestAttachDoesNotSendAMessageWhoseFileFailed(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "no such file") {
 		t.Fatalf("expected the failure shown, got:\n%s", out.String())
+	}
+}
+
+func TestMediaTypeTrustsTheBytesOverTheName(t *testing.T) {
+	if err := mime.AddExtensionType(".ts", "video/mp2t"); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct{ name, head, want string }{
+		{"main.ts", "export const x = 1\n", "text/plain"},
+		{"shot.ts", "\x89PNG\r\n\x1a\n", "image/png"},
+		{"clip.ts", "\x47\x00\x11\x10\x00\x00\xb0", "video/mp2t"},
+	} {
+		if got := mediaType(tc.name, []byte(tc.head)); got != tc.want {
+			t.Errorf("mediaType(%q) = %q, want %q", tc.name, got, tc.want)
+		}
 	}
 }
