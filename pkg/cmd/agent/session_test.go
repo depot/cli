@@ -36,8 +36,10 @@ type fakeAgentService struct {
 	// it asks for every other file at uploadURL.
 	stored             map[string]bool
 	uploadURL          string
-	maxAttachmentBytes uint64
-	prepares           int
+	maxAttachmentBytes int64
+	maxTotalBytes      int64
+	maxAttachments     int32
+	prepares           []*agentv1.PrepareAttachmentUploadsRequest
 }
 
 func (f *fakeAgentService) WatchSession(ctx context.Context, req *connect.Request[agentv1.WatchSessionRequest], stream *connect.ServerStream[agentv1.WatchSessionResponse]) error {

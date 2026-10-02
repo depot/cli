@@ -38,11 +38,11 @@ message DepotAgentAttachment {
   // Lowercase hex SHA-256 of the file's contents. Identifies the file within the organization.
   string sha256 = 1;
   // Size of the file in bytes.
-  uint64 size_bytes = 2;
-  // File name shown to the agent, without directories.
+  int64 size_bytes = 2;
+  // File name shown to the agent. A base name: no "/", not "." or "..", at most 255 bytes, unique within a message.
   string name = 3;
-  // Media type, for example "image/png". Default: detected from `name`.
-  optional string media_type = 4;
+  // Media type, for example "image/png". Images go to the model as images. Default: "application/octet-stream".
+  string media_type = 4;
 }
 
 message DepotAgentModel {
@@ -104,7 +104,7 @@ message CreateSessionRequest {
   // Unique per organization.
   optional string client_request_id = 6;
   // Files attached to the first message. Each must be uploaded first; see `PrepareAttachmentUploads`.
-  repeated DepotAgentAttachment attachments = 7;
+  repeated DepotAgentAttachment attachments = 8;
 }
 
 message CreateSessionResponse {
@@ -247,7 +247,8 @@ message DeleteTriggerRequest {
 message DeleteTriggerResponse {}
 
 message PrepareAttachmentUploadsRequest {
-  // Files to attach. Fails with InvalidArgument if any is larger than `maxAttachmentBytes`.
+  // Files for one message. Fails with InvalidArgument if they break a limit or a name rule.
+  // Send none to read the limits.
   repeated DepotAgentAttachment attachments = 1;
 }
 
@@ -255,14 +256,18 @@ message PrepareAttachmentUploadsResponse {
   // One upload for each file Depot does not already store. Files it already stores are left out.
   repeated DepotAgentAttachmentUpload uploads = 1;
   // Largest file Depot accepts, in bytes.
-  uint64 max_attachment_bytes = 2;
+  int64 max_attachment_bytes = 2;
+  // Largest total size of one message's files, in bytes.
+  int64 max_total_bytes = 3;
+  // Most files one message can carry.
+  int32 max_attachments = 4;
 }
 
 message DepotAgentAttachmentUpload {
   // SHA-256 of the file this upload is for.
   string sha256 = 1;
-  // URL to upload the file's contents to with an HTTP PUT. Expires after a few minutes.
+  // URL to upload the file's contents to with an HTTP PUT. Expires after 30 minutes.
   string url = 2;
-  // Headers the PUT must send.
+  // Headers the PUT must send unchanged.
   map<string, string> headers = 3;
 }

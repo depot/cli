@@ -21,14 +21,15 @@ import (
 
 func newCmdSessionCreate() *cobra.Command {
 	var (
-		auth   authFlags
-		repo   string
-		ref    string
-		model  string
-		title  string
-		watch  bool
-		output string
-		files  []string
+		auth      authFlags
+		repo      string
+		ref       string
+		model     string
+		title     string
+		watch     bool
+		output    string
+		files     []string
+		stdinFile string
 	)
 
 	cmd := &cobra.Command{
@@ -40,8 +41,8 @@ func newCmdSessionCreate() *cobra.Command {
   # Pick a model explicitly
   depot agent session create --model claude-opus-5-5 "summarize the README"
 
-  # Attach files to the first message
-  depot agent session create --file screenshot.png --file trace.log "why does this page crash?"`,
+  # Attach files or a directory to the first message
+  depot agent session create --file screenshot.png --file ./logs "why does this page crash?"`,
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := validateOutput(output); err != nil {
@@ -68,7 +69,8 @@ func newCmdSessionCreate() *cobra.Command {
 			if model != "" {
 				req.Model = parseModel(model)
 			}
-			if req.Attachments, err = uploadAttachments(ctx, s, files, os.Stderr); err != nil {
+			in := fileInputs{paths: files, stdinName: stdinFile, stdin: os.Stdin}
+			if req.Attachments, err = uploadAttachments(ctx, s, nil, in, os.Stderr); err != nil {
 				return err
 			}
 
@@ -94,7 +96,8 @@ func newCmdSessionCreate() *cobra.Command {
 	cmd.Flags().StringVar(&ref, "ref", "", "Git ref to check out (defaults to the repository's default branch)")
 	cmd.Flags().StringVar(&model, "model", "", "Model as <provider>/<model-id> or <model-id> (defaults to the server's choice)")
 	cmd.Flags().StringVar(&title, "title", "", "Session title")
-	cmd.Flags().StringArrayVar(&files, "file", nil, "Attach a file to the first message (repeatable)")
+	cmd.Flags().StringArrayVar(&files, "file", nil, "Attach a file, or a directory's files minus .gitignored ones, to the first message (repeatable)")
+	cmd.Flags().StringVar(&stdinFile, "stdin-file", "", "Attach stdin as a file with this name")
 	cmd.Flags().BoolVar(&watch, "watch", false, "Stream the session after creating it, until it settles")
 	cmd.Flags().StringVarP(&output, "output", "o", "", "Output format (json)")
 	cmd.MarkFlagsMutuallyExclusive("watch", "output")
@@ -103,9 +106,10 @@ func newCmdSessionCreate() *cobra.Command {
 
 func newCmdSessionSend() *cobra.Command {
 	var (
-		auth  authFlags
-		steer bool
-		files []string
+		auth      authFlags
+		steer     bool
+		files     []string
+		stdinFile string
 	)
 
 	cmd := &cobra.Command{
@@ -114,7 +118,14 @@ func newCmdSessionSend() *cobra.Command {
 		Long: `Send a message to a session.
 
 By default the message is queued as a follow-up after the current turn.
-With --steer it is delivered into the running turn instead.`,
+With --steer it is delivered into the running turn instead.
+
+--file and --stdin-file attach files. Images go to the model as images.`,
+		Example: `  # Attach a screenshot and a directory
+  depot agent session send <session-id> --file shot.png --file ./src "the button is misaligned"
+
+  # Attach a command's output
+  go test ./... 2>&1 | depot agent session send <session-id> --stdin-file test.log "fix these failures"`,
 		Args: cobra.MinimumNArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
@@ -126,7 +137,8 @@ With --steer it is delivered into the running turn instead.`,
 			if steer {
 				mode = modeSteer
 			}
-			attachments, err := uploadAttachments(ctx, s, files, os.Stderr)
+			in := fileInputs{paths: files, stdinName: stdinFile, stdin: os.Stdin}
+			attachments, err := uploadAttachments(ctx, s, nil, in, os.Stderr)
 			if err != nil {
 				return err
 			}
@@ -141,7 +153,8 @@ With --steer it is delivered into the running turn instead.`,
 
 	auth.register(cmd)
 	cmd.Flags().BoolVar(&steer, "steer", false, "Deliver the message into the running turn instead of queueing it")
-	cmd.Flags().StringArrayVar(&files, "file", nil, "Attach a file to the message (repeatable)")
+	cmd.Flags().StringArrayVar(&files, "file", nil, "Attach a file, or a directory's files minus .gitignored ones (repeatable)")
+	cmd.Flags().StringVar(&stdinFile, "stdin-file", "", "Attach stdin as a file with this name")
 	return cmd
 }
 
@@ -511,7 +524,7 @@ func attachLines(ctx context.Context, s *session, sessionID string, lines <-chan
 				continue
 			}
 			if cmd.kind == attachFile {
-				attachments, err := uploadAttachments(ctx, s, []string{cmd.path}, notices)
+				attachments, err := uploadAttachments(ctx, s, pending, fileInputs{paths: []string{cmd.path}}, notices)
 				if errors.Is(err, context.Canceled) {
 					return <-watchErr
 				}
@@ -521,7 +534,7 @@ func attachLines(ctx context.Context, s *session, sessionID string, lines <-chan
 				}
 				pending = append(pending, attachments...)
 				if cmd.content == "" {
-					fmt.Fprintf(notices, "(%s goes out with your next message)\n", attachments[0].GetName())
+					fmt.Fprintf(notices, "(%s goes out with your next message)\n", cmd.path)
 					continue
 				}
 			}
