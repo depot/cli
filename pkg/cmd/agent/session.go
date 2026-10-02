@@ -72,9 +72,9 @@ func newCmdSessionCreate() *cobra.Command {
 				return writeProtoJSON(resp)
 			}
 			sessionID := resp.GetSession().GetSessionId()
-			fmt.Printf("Created session %s\n", sessionID)
+			fmt.Printf("Created session %s\n", safeText(sessionID))
 			if !watch {
-				fmt.Printf("Watch it with: depot agent session watch %s\n", sessionID)
+				fmt.Printf("Watch it with: depot agent session watch %s\n", safeText(sessionID))
 				return nil
 			}
 			return watchSession(ctx, s, sessionID, NewRenderer(os.Stdout), untilTurnDone)
@@ -120,7 +120,7 @@ With --steer it is delivered into the running turn instead.`,
 			if err != nil {
 				return err
 			}
-			fmt.Printf("Sent input %s\n", inputID)
+			fmt.Printf("Sent input %s\n", safeText(inputID))
 			return nil
 		},
 	}
@@ -147,7 +147,7 @@ func newCmdSessionInterrupt() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("interrupt session %s: %w", args[0], err)
 			}
-			fmt.Printf("Interrupt queued as input %s\n", resp.Msg.GetInput().GetInputId())
+			fmt.Printf("Interrupt queued as input %s\n", safeText(resp.Msg.GetInput().GetInputId()))
 			return nil
 		},
 	}

@@ -26,7 +26,22 @@ func NewCmdAgent() *cobra.Command {
 		Short: "Run Depot coding agents",
 	}
 	cmd.AddCommand(newCmdSession())
+	sanitizeErrors(cmd)
 	return cmd
+}
+
+func sanitizeErrors(cmd *cobra.Command) {
+	if run := cmd.RunE; run != nil {
+		cmd.RunE = func(c *cobra.Command, args []string) error {
+			if err := run(c, args); err != nil {
+				return safeError{err}
+			}
+			return nil
+		}
+	}
+	for _, sub := range cmd.Commands() {
+		sanitizeErrors(sub)
+	}
 }
 
 func newCmdSession() *cobra.Command {

@@ -2,12 +2,14 @@ package agent
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
 	"time"
 
 	agentv1 "github.com/depot/cli/pkg/proto/depot/agent/v1"
+	"github.com/spf13/cobra"
 )
 
 // viewOne and viewTwo follow the runtime's DepotAgentView projection.
@@ -226,6 +228,30 @@ func TestSessionTableNeutralizesTerminalEscapes(t *testing.T) {
 	}
 	if strings.ContainsAny(out.String(), "\u001b\u0007") || !strings.Contains(out.String(), "https://x_ more") {
 		t.Fatalf("the table should hold no control characters:\n%q", out.String())
+	}
+}
+
+func TestSafeTextDropsBidiAndZeroWidthCharacters(t *testing.T) {
+	if got, want := safeText("a‮txt.exe⁦b⁩​c\td\n"), "a_txt.exe_b__c\td\n"; got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
+func TestCommandErrorsAreSanitized(t *testing.T) {
+	cause := errors.New("server said \u001b]52;c;aGk=\u0007 ‮ok")
+	root := &cobra.Command{Use: "root"}
+	root.AddCommand(&cobra.Command{Use: "fail", RunE: func(*cobra.Command, []string) error {
+		return fmt.Errorf("watch session s1: %w", cause)
+	}})
+	sanitizeErrors(root)
+	root.SetArgs([]string{"fail"})
+	root.SilenceErrors, root.SilenceUsage = true, true
+	err := root.Execute()
+	if got, want := err.Error(), "watch session s1: server said _]52;c;aGk=_ _ok"; got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+	if !errors.Is(err, cause) {
+		t.Fatal("sanitizing should keep the wrapped error")
 	}
 }
 

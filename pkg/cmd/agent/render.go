@@ -85,8 +85,8 @@ func NewRenderer(w io.Writer) *Renderer {
 	return &Renderer{w: safeWriter{w}, seen: map[string]bool{}}
 }
 
-// safeWriter replaces control characters other than newline and tab,
-// so text from a session cannot send escape sequences to the terminal.
+// safeWriter replaces control and format characters other than newline and tab, so text from a session
+// cannot send escape sequences to the terminal or reorder what it shows with bidi overrides.
 type safeWriter struct{ w io.Writer }
 
 func (s safeWriter) Write(b []byte) (int, error) {
@@ -96,9 +96,15 @@ func (s safeWriter) Write(b []byte) (int, error) {
 	return len(b), nil
 }
 
+// safeError sanitizes an error's text, since server messages reach the terminal through it.
+type safeError struct{ err error }
+
+func (e safeError) Error() string { return safeText(e.err.Error()) }
+func (e safeError) Unwrap() error { return e.err }
+
 func safeText(s string) string {
 	return strings.Map(func(r rune) rune {
-		if r != '\n' && r != '\t' && unicode.IsControl(r) {
+		if r != '\n' && r != '\t' && (unicode.IsControl(r) || unicode.Is(unicode.Cf, r)) {
 			return '_'
 		}
 		return r
