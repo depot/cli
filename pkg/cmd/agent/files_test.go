@@ -347,6 +347,34 @@ func TestAttachCountsQueuedFilesAgainstTheLimit(t *testing.T) {
 	}
 }
 
+func TestAttachDropsQueuedFilesWhenASendIsRejected(t *testing.T) {
+	_, url := startStore(t)
+	dir := t.TempDir()
+	first := filepath.Join(dir, "a.txt")
+	writeFile(t, first, "a")
+	second := filepath.Join(dir, "b.txt")
+	secondSum := writeFile(t, second, "b")
+	f := &fakeAgentService{streams: [][]*agentv1.WatchSessionResponse{{frame(running, viewOne)}}, uploadURL: url, rejectSends: true}
+	s := startFake(t, f)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	in := strings.NewReader("/file " + first + " one\n/file " + second + " two\n/quit\n")
+	var out syncBuffer
+	if err := attachSession(ctx, s, "s1", in, &out); err != nil {
+		t.Fatalf("attachSession: %v", err)
+	}
+	if len(f.inputs) != 2 {
+		t.Fatalf("expected 2 sends, got %d", len(f.inputs))
+	}
+	if got := f.inputs[1].GetAttachments(); len(got) != 1 || got[0].GetSha256() != secondSum {
+		t.Fatalf("the rejected file should not ride along again, got %v", got)
+	}
+	if !strings.Contains(out.String(), "queued files dropped") {
+		t.Fatalf("expected the drop shown, got:\n%s", out.String())
+	}
+}
+
 func TestAttachDoesNotSendAMessageWhoseFileFailed(t *testing.T) {
 	f := &fakeAgentService{streams: [][]*agentv1.WatchSessionResponse{{frame(running, viewOne)}}}
 	s := startFake(t, f)

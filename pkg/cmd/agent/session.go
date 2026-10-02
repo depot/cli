@@ -542,7 +542,13 @@ func attachLines(ctx context.Context, s *session, sessionID string, lines <-chan
 				if errors.Is(err, context.Canceled) {
 					return <-watchErr
 				}
-				fmt.Fprintf(notices, "(send failed: %v)\n", err)
+				// Transient errors were retried, so a queued file may be the cause, e.g. an upload that expired.
+				if len(pending) > 0 {
+					fmt.Fprintf(notices, "(send failed: %v; queued files dropped, /file them again)\n", err)
+					pending = nil
+				} else {
+					fmt.Fprintf(notices, "(send failed: %v)\n", err)
+				}
 				continue
 			}
 			pending = nil

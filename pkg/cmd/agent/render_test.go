@@ -184,7 +184,8 @@ func TestRendererNamesSendersAndAttachments(t *testing.T) {
 			{"id": "m1", "role": "user", "text": "first line\nsecond", "sender": {"kind": "user", "name": "ada"},
 			 "attachments": [{"name": "trace.log", "sizeBytes": 2048}]},
 			{"id": "m2", "role": "user", "text": "from chat", "sender": {"kind": "slack", "name": "grace"}},
-			{"id": "m3", "role": "user", "text": "no sender"}
+			{"id": "m3", "role": "user", "text": "no sender"},
+			{"id": "m4", "role": "user", "text": "report", "sender": {"kind": "subagent", "name": "tests‮"}}
 		],
 		"queued": [{"id": "q1", "mode": "followup", "text": "later", "sender": {"kind": "user", "name": "ada"},
 			"attachments": [{"name": "a.png", "sizeBytes": 1}, {"name": "b.png", "sizeBytes": 1}]}]
@@ -198,6 +199,7 @@ func TestRendererNamesSendersAndAttachments(t *testing.T) {
 		"  [file trace.log, 2.048kB]",
 		"> grace (slack): from chat",
 		"> no sender",
+		"> tests_ (subagent): report",
 		"(queued follow-up from ada: later [2 files])",
 	}, "\n") + "\n"
 	if got := out.String(); got != want {
