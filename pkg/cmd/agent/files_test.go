@@ -16,6 +16,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"connectrpc.com/connect"
 	agentv1 "github.com/depot/cli/pkg/proto/depot/agent/v1"
@@ -203,6 +204,12 @@ func TestUniqueNameFitsTheNameLimit(t *testing.T) {
 	}
 	if !strings.HasSuffix(first, "d_main.go") || !strings.HasSuffix(second, "d_main~2.go") {
 		t.Fatalf("names should keep their tail, got %q and %q", first, second)
+	}
+
+	dotfile := "." + strings.Repeat("é", 127)
+	a, b := uniqueName(dotfile, taken), uniqueName(dotfile, taken)
+	if len(a) > maxNameBytes || len(b) > maxNameBytes || a == b || !strings.HasPrefix(b, "~2.") || !utf8.ValidString(b) {
+		t.Fatalf("a long extension should still fit and stay unique, got %q (%d) and %q (%d)", a, len(a), b, len(b))
 	}
 }
 

@@ -349,11 +349,16 @@ func uniqueName(name string, taken map[string]bool) string {
 	return candidate
 }
 
-// fitName drops the start of stem until stem+suffix fits, keeping the extension and the deepest path parts.
+// fitName drops the start of stem until stem+suffix fits, keeping the extension and the deepest path parts;
+// a suffix too long by itself loses its end, so a leading "~N" survives.
 func fitName(stem, suffix string) string {
 	for len(stem)+len(suffix) > maxNameBytes && stem != "" {
 		_, size := utf8.DecodeRuneInString(stem)
 		stem = stem[size:]
+	}
+	for len(suffix) > maxNameBytes {
+		_, size := utf8.DecodeLastRuneInString(suffix)
+		suffix = suffix[:len(suffix)-size]
 	}
 	return stem + suffix
 }
