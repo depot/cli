@@ -179,6 +179,33 @@ func TestUploadAttachmentsRefusesADirectoryOverTheFileCount(t *testing.T) {
 	}
 }
 
+func TestUploadAttachmentsRefusesAWorkTreeGitCannotList(t *testing.T) {
+	root := t.TempDir()
+	// A .git that is neither a directory nor a valid gitdir file makes git fail inside the tree.
+	writeFile(t, filepath.Join(root, ".git"), "not a git dir")
+	writeFile(t, filepath.Join(root, ".env"), "SECRET=1")
+	s := startFake(t, &fakeAgentService{})
+
+	_, err := uploadAttachments(context.Background(), s, nil, fileInputs{paths: []string{root}}, io.Discard)
+	if err == nil || !strings.Contains(err.Error(), "to respect .gitignore") {
+		t.Fatalf("expected a git error rather than a plain walk, got %v", err)
+	}
+}
+
+func TestUniqueNameFitsTheNameLimit(t *testing.T) {
+	long := strings.Repeat("d_", 200) + "main.go"
+	taken := map[string]bool{}
+	first, second := uniqueName(long, taken), uniqueName(long, taken)
+	for _, name := range []string{first, second} {
+		if len(name) > maxNameBytes || !strings.HasSuffix(name, ".go") {
+			t.Fatalf("name %q is %d bytes", name, len(name))
+		}
+	}
+	if !strings.HasSuffix(first, "d_main.go") || !strings.HasSuffix(second, "d_main~2.go") {
+		t.Fatalf("names should keep their tail, got %q and %q", first, second)
+	}
+}
+
 func TestUploadAttachmentsRefusesAnEmptyDirectory(t *testing.T) {
 	s := startFake(t, &fakeAgentService{})
 	_, err := uploadAttachments(context.Background(), s, nil, fileInputs{paths: []string{t.TempDir()}}, io.Discard)

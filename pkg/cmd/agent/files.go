@@ -15,6 +15,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"unicode/utf8"
 
 	"connectrpc.com/connect"
 	agentv1 "github.com/depot/cli/pkg/proto/depot/agent/v1"
@@ -30,18 +31,11 @@ type fileInputs struct {
 
 func (in fileInputs) empty() bool { return len(in.paths) == 0 && in.stdinName == "" }
 
-// source is one file to attach, read from disk or held in memory.
+// source is one file to attach. data holds its bytes once read, so the upload sends exactly what was hashed.
 type source struct {
 	label      string
 	attachment *agentv1.DepotAgentAttachment
 	data       []byte
-}
-
-func (s source) open() (io.ReadCloser, error) {
-	if s.data != nil {
-		return io.NopCloser(bytes.NewReader(s.data)), nil
-	}
-	return os.Open(s.label)
 }
 
 // uploadAttachments uploads the files in, which go out in one message with pending,
@@ -71,7 +65,7 @@ func uploadAttachments(ctx context.Context, s *session, pending []*agentv1.Depot
 	bySHA := make(map[string]source, len(sources))
 	var total int64
 	for i := range sources {
-		if err := hashSource(&sources[i]); err != nil {
+		if err := readSource(&sources[i], limits.GetMaxAttachmentBytes()); err != nil {
 			return nil, err
 		}
 		a := sources[i].attachment
@@ -185,14 +179,21 @@ func fileSource(path, name string, size int64) source {
 }
 
 // dirSources lists a directory's files, named by their path under the directory's parent with "/" flattened to "_".
-// Inside a git work tree it sends what git would track, so .gitignore applies; elsewhere it skips .git.
+// Inside a git work tree it sends what git would track, so .gitignore applies, and fails if git does;
+// elsewhere it skips .git.
 func dirSources(dir string) ([]source, error) {
-	rels, err := gitFiles(dir)
+	inTree, err := inWorkTree(dir)
 	if err != nil {
+		return nil, fmt.Errorf("attach %s: %w", dir, err)
+	}
+	var rels []string
+	if inTree {
+		rels, err = gitFiles(dir)
+	} else {
 		rels, err = walkFiles(dir)
-		if err != nil {
-			return nil, fmt.Errorf("attach %s: %w", dir, err)
-		}
+	}
+	if err != nil {
+		return nil, fmt.Errorf("attach %s: %w", dir, err)
 	}
 	base := filepath.Base(filepath.Clean(dir))
 	var sources []source
@@ -215,10 +216,30 @@ func dirSources(dir string) ([]source, error) {
 	return sources, nil
 }
 
+// inWorkTree reports whether dir or a parent holds .git, without asking git, so a broken git cannot hide the answer.
+func inWorkTree(dir string) (bool, error) {
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		return false, err
+	}
+	for {
+		if _, err := os.Lstat(filepath.Join(abs, ".git")); err == nil {
+			return true, nil
+		} else if !errors.Is(err, fs.ErrNotExist) {
+			return false, err
+		}
+		parent := filepath.Dir(abs)
+		if parent == abs {
+			return false, nil
+		}
+		abs = parent
+	}
+}
+
 func gitFiles(dir string) ([]string, error) {
 	out, err := exec.Command("git", "-C", dir, "ls-files", "-z", "--cached", "--others", "--exclude-standard").Output()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("list files with git, to respect .gitignore: %w", err)
 	}
 	var rels []string
 	for _, rel := range strings.Split(string(out), "\x00") {
@@ -271,29 +292,32 @@ func checkLimits(pending []*agentv1.DepotAgentAttachment, sources []source, limi
 	return nil
 }
 
-// hashSource sets the source's hash, size, and media type from its contents.
-func hashSource(src *source) error {
-	r, err := src.open()
-	if err != nil {
-		return fmt.Errorf("attach %s: %w", src.label, err)
+// readSource reads the source once, up to limit bytes when limit is set, and sets its hash, size, and media type.
+func readSource(src *source, limit int64) error {
+	if src.data == nil {
+		f, err := os.Open(src.label)
+		if err != nil {
+			return fmt.Errorf("attach %s: %w", src.label, err)
+		}
+		defer f.Close()
+		var r io.Reader = f
+		if limit > 0 {
+			r = io.LimitReader(f, limit+1)
+		}
+		data, err := io.ReadAll(r)
+		if err != nil {
+			return fmt.Errorf("attach %s: %w", src.label, err)
+		}
+		if limit > 0 && int64(len(data)) > limit {
+			return fmt.Errorf("%s grew over the %s limit for attachments", src.label, units.HumanSize(float64(limit)))
+		}
+		src.data = data
 	}
-	defer r.Close()
-	h := sha256.New()
-	head := make([]byte, 512)
-	n, err := io.ReadFull(r, head)
-	if err != nil && !errors.Is(err, io.ErrUnexpectedEOF) && !errors.Is(err, io.EOF) {
-		return fmt.Errorf("attach %s: %w", src.label, err)
-	}
-	head = head[:n]
-	h.Write(head)
-	rest, err := io.Copy(h, r)
-	if err != nil {
-		return fmt.Errorf("attach %s: %w", src.label, err)
-	}
+	sum := sha256.Sum256(src.data)
 	a := src.attachment
-	a.Sha256 = hex.EncodeToString(h.Sum(nil))
-	a.SizeBytes = int64(n) + rest
-	a.MediaType = mediaType(a.GetName(), head)
+	a.Sha256 = hex.EncodeToString(sum[:])
+	a.SizeBytes = int64(len(src.data))
+	a.MediaType = mediaType(a.GetName(), src.data[:min(len(src.data), 512)])
 	return nil
 }
 
@@ -309,25 +333,33 @@ func mediaType(name string, head []byte) string {
 	return t
 }
 
-// uniqueName returns name, or name with a "~N" suffix before its extension if taken already holds it.
+// maxNameBytes is the API's limit on an attachment name.
+const maxNameBytes = 255
+
+// uniqueName returns name, or name with a "~N" suffix before its extension if taken already holds it,
+// within maxNameBytes.
 func uniqueName(name string, taken map[string]bool) string {
 	ext := filepath.Ext(name)
 	stem := strings.TrimSuffix(name, ext)
-	candidate := name
+	candidate := fitName(stem, ext)
 	for i := 2; taken[candidate]; i++ {
-		candidate = fmt.Sprintf("%s~%d%s", stem, i, ext)
+		candidate = fitName(stem, fmt.Sprintf("~%d%s", i, ext))
 	}
 	taken[candidate] = true
 	return candidate
 }
 
-func putSource(ctx context.Context, src source, upload *agentv1.DepotAgentAttachmentUpload) error {
-	body, err := src.open()
-	if err != nil {
-		return fmt.Errorf("upload %s: %w", src.label, err)
+// fitName drops the start of stem until stem+suffix fits, keeping the extension and the deepest path parts.
+func fitName(stem, suffix string) string {
+	for len(stem)+len(suffix) > maxNameBytes && stem != "" {
+		_, size := utf8.DecodeRuneInString(stem)
+		stem = stem[size:]
 	}
-	defer body.Close()
-	req, err := http.NewRequestWithContext(ctx, http.MethodPut, upload.GetUrl(), body)
+	return stem + suffix
+}
+
+func putSource(ctx context.Context, src source, upload *agentv1.DepotAgentAttachmentUpload) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, upload.GetUrl(), bytes.NewReader(src.data))
 	if err != nil {
 		return fmt.Errorf("upload %s: %w", src.label, err)
 	}
