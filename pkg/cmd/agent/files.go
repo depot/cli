@@ -45,8 +45,8 @@ func (s source) open() (io.ReadCloser, error) {
 }
 
 // uploadAttachments uploads the files in, which go out in one message with pending,
-// and returns the new attachments. Only contents Depot does not already store are uploaded,
-// and a set over the server's limits is refused before anything is read in full or uploaded.
+// and returns the new attachments. A set over the server's limits is refused before anything is read in full or uploaded.
+// Every URL Prepare returns is PUT, since a stored copy can expire before the message is sent.
 func uploadAttachments(ctx context.Context, s *session, pending []*agentv1.DepotAgentAttachment, in fileInputs, notices io.Writer) ([]*agentv1.DepotAgentAttachment, error) {
 	if in.empty() {
 		return nil, nil
@@ -86,15 +86,14 @@ func uploadAttachments(ctx context.Context, s *session, pending []*agentv1.Depot
 		fmt.Fprintf(notices, "(attaching %d files, %s)\n", len(sources), units.HumanSize(float64(total)))
 	}
 
-	resp, err := prepareUploads(ctx, s, append(append([]*agentv1.DepotAgentAttachment{}, pending...), attachments...))
+	resp, err := prepareUploads(ctx, s, attachments)
 	if err != nil {
 		return nil, err
 	}
 	for _, upload := range resp.GetUploads() {
 		src, ok := bySHA[upload.GetSha256()]
 		if !ok {
-			// A pending file the store has lost since it was uploaded.
-			return nil, fmt.Errorf("prepare attachments: an earlier file is no longer stored; attach it again")
+			return nil, fmt.Errorf("prepare attachments: upload offered for unknown file %s", upload.GetSha256())
 		}
 		if err := putSource(ctx, src, upload); err != nil {
 			return nil, err

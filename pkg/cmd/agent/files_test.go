@@ -88,7 +88,7 @@ func names(attachments []*agentv1.DepotAgentAttachment) []string {
 	return out
 }
 
-func TestUploadAttachmentsUploadsOnlyMissingFiles(t *testing.T) {
+func TestUploadAttachmentsPutsOnlyTheURLsTheServerReturns(t *testing.T) {
 	store, url := startStore(t)
 	dir := t.TempDir()
 	newSum := writeFile(t, filepath.Join(dir, "new.png"), "fresh bytes")
@@ -216,7 +216,8 @@ func TestUploadAttachmentsKeepsNamesUniqueInAMessage(t *testing.T) {
 	one, two := filepath.Join(t.TempDir(), "x.txt"), filepath.Join(t.TempDir(), "x.txt")
 	writeFile(t, one, "one")
 	writeFile(t, two, "two")
-	s := startFake(t, &fakeAgentService{uploadURL: url, stored: map[string]bool{sha("zero"): true}})
+	f := &fakeAgentService{uploadURL: url}
+	s := startFake(t, f)
 	pending := []*agentv1.DepotAgentAttachment{{Name: "x.txt", Sha256: sha("zero"), SizeBytes: 4}}
 
 	got, err := uploadAttachments(context.Background(), s, pending, fileInputs{paths: []string{one, two}}, io.Discard)
@@ -225,6 +226,9 @@ func TestUploadAttachmentsKeepsNamesUniqueInAMessage(t *testing.T) {
 	}
 	if want := []string{"x~2.txt", "x~3.txt"}; !slices.Equal(names(got), want) {
 		t.Fatalf("names = %v, want %v", names(got), want)
+	}
+	if last := f.prepares[len(f.prepares)-1]; !slices.Equal(names(last.GetAttachments()), names(got)) {
+		t.Fatalf("only the new files should be prepared, got %v", names(last.GetAttachments()))
 	}
 }
 
