@@ -344,7 +344,8 @@ func (r *Renderer) line(format string, args ...any) {
 }
 
 // renderPluginViews prints each plugin view whose rev changed,
-// waiting until no partial response is streaming so a view never cuts into it.
+// waiting while a partial response is still streaming so a view never cuts into it;
+// a partial another line already cut into prints whole at the end, so it does not hold views back.
 func (r *Renderer) renderPluginViews(viewsJSON, sessionID string) {
 	if r.viewMode == viewsNone {
 		return
@@ -353,7 +354,7 @@ func (r *Renderer) renderPluginViews(viewsJSON, sessionID string) {
 		r.viewsJSON = viewsJSON
 		r.viewsDirty = true
 	}
-	if r.streamed != "" || !r.viewsDirty {
+	if (r.streamed != "" && !r.broken) || !r.viewsDirty {
 		return
 	}
 	r.viewsDirty = false

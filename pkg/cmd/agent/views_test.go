@@ -251,6 +251,28 @@ func TestRendererPrintsViewsOnRevChange(t *testing.T) {
 	}
 }
 
+func TestRendererPrintsViewsOnceAnotherLineCutsTheStream(t *testing.T) {
+	var out bytes.Buffer
+	r := NewRenderer(&out)
+	r.width = func() int { return 80 }
+	streaming := &agentv1.WatchSessionResponse{
+		Session: &agentv1.DepotAgentSession{SessionId: "s1", Status: "running"}, ViewJson: `{"partial": "Working"}`, ViewsJson: todosViews,
+	}
+	if err := r.Render(streaming); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out.String(), "── todos: Plan ──") {
+		t.Fatalf("the view cut into the live partial:\n%s", out.String())
+	}
+	fmt.Fprintln(r.Notices(), "(send failed: boom)")
+	if err := r.Render(streaming); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "(send failed: boom)\n── todos: Plan ──") {
+		t.Fatalf("the view waited on a partial that can no longer continue:\n%s", out.String())
+	}
+}
+
 func TestRendererReportsBadViewsOnce(t *testing.T) {
 	var out bytes.Buffer
 	r := NewRenderer(&out)
