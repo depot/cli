@@ -86,7 +86,7 @@ message DepotAgentInput {
   string status = 4;
   google.protobuf.Timestamp created_at = 5;
   // Files attached to the message.
-  repeated DepotAgentAttachment attachments = 6;
+  repeated DepotAgentAttachment attachments = 8;
 }
 
 message CreateSessionRequest {
