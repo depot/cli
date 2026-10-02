@@ -213,6 +213,40 @@ func TestUniqueNameFitsTheNameLimit(t *testing.T) {
 	}
 }
 
+func TestUploadAttachmentsFollowsADirectorySymlink(t *testing.T) {
+	_, url := startStore(t)
+	parent := t.TempDir()
+	writeFile(t, filepath.Join(parent, "real", "a.txt"), "a")
+	link := filepath.Join(parent, "link")
+	if err := os.Symlink(filepath.Join(parent, "real"), link); err != nil {
+		t.Skipf("symlink: %v", err)
+	}
+	s := startFake(t, &fakeAgentService{uploadURL: url})
+
+	got, err := uploadAttachments(context.Background(), s, nil, fileInputs{paths: []string{link}}, io.Discard)
+	if err != nil {
+		t.Fatalf("uploadAttachments: %v", err)
+	}
+	if want := []string{"link_a.txt"}; !slices.Equal(names(got), want) {
+		t.Fatalf("names = %v, want %v", names(got), want)
+	}
+}
+
+func TestUploadAttachmentsSanitizesTheNotice(t *testing.T) {
+	_, url := startStore(t)
+	path := filepath.Join(t.TempDir(), "x\x1b[2Jy\u202E.txt")
+	writeFile(t, path, "a")
+	s := startFake(t, &fakeAgentService{uploadURL: url})
+
+	var notices strings.Builder
+	if _, err := uploadAttachments(context.Background(), s, nil, fileInputs{paths: []string{path}}, &notices); err != nil {
+		t.Fatalf("uploadAttachments: %v", err)
+	}
+	if got := notices.String(); !strings.HasPrefix(got, "(attaching x_[2Jy_.txt, ") {
+		t.Fatalf("notice = %q", got)
+	}
+}
+
 func TestUploadAttachmentsRefusesAnEmptyDirectory(t *testing.T) {
 	s := startFake(t, &fakeAgentService{})
 	_, err := uploadAttachments(context.Background(), s, nil, fileInputs{paths: []string{t.TempDir()}}, io.Discard)

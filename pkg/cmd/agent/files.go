@@ -45,6 +45,7 @@ func uploadAttachments(ctx context.Context, s *session, pending []*agentv1.Depot
 	if in.empty() {
 		return nil, nil
 	}
+	notices = safeWriter{notices}
 	limits, err := prepareUploads(ctx, s, nil)
 	if err != nil {
 		return nil, err
@@ -182,15 +183,20 @@ func fileSource(path, name string, size int64) source {
 // Inside a git work tree it sends what git would track, so .gitignore applies, and fails if git does;
 // elsewhere it skips .git.
 func dirSources(dir string) ([]source, error) {
-	inTree, err := inWorkTree(dir)
+	// WalkDir does not follow a root symlink, so walk the directory it names.
+	root, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		return nil, fmt.Errorf("attach %s: %w", dir, err)
+	}
+	inTree, err := inWorkTree(root)
 	if err != nil {
 		return nil, fmt.Errorf("attach %s: %w", dir, err)
 	}
 	var rels []string
 	if inTree {
-		rels, err = gitFiles(dir)
+		rels, err = gitFiles(root)
 	} else {
-		rels, err = walkFiles(dir)
+		rels, err = walkFiles(root)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("attach %s: %w", dir, err)
@@ -198,7 +204,7 @@ func dirSources(dir string) ([]source, error) {
 	base := filepath.Base(filepath.Clean(dir))
 	var sources []source
 	for _, rel := range rels {
-		path := filepath.Join(dir, rel)
+		path := filepath.Join(root, rel)
 		info, err := os.Lstat(path)
 		if errors.Is(err, fs.ErrNotExist) {
 			// Tracked by git but deleted from the work tree.
