@@ -328,14 +328,30 @@ func readSource(src *source, limit int64) error {
 }
 
 // mediaType trusts the first bytes over the name, whose mapping varies by machine (.ts can be video/mp2t),
-// and falls back to the name only for bytes it cannot place.
+// and takes the name's type only when it narrows what the bytes say, as .docx narrows a zip.
 func mediaType(name string, head []byte) string {
-	t := http.DetectContentType(head)
-	if t == "application/octet-stream" {
-		if byExt := mime.TypeByExtension(filepath.Ext(name)); byExt != "" {
-			t = byExt
-		}
+	sniffed := baseMediaType(http.DetectContentType(head))
+	byExt := baseMediaType(mime.TypeByExtension(filepath.Ext(name)))
+	if byExt != "" && narrows(sniffed, byExt) {
+		return byExt
 	}
+	return sniffed
+}
+
+func narrows(sniffed, byExt string) bool {
+	switch sniffed {
+	case "application/octet-stream":
+		return true
+	case "application/zip":
+		return strings.HasPrefix(byExt, "application/")
+	case "text/plain", "text/xml":
+		return strings.HasPrefix(byExt, "text/") || strings.HasSuffix(byExt, "+xml") || strings.HasSuffix(byExt, "json") ||
+			byExt == "application/xml" || byExt == "application/javascript"
+	}
+	return false
+}
+
+func baseMediaType(t string) string {
 	if parsed, _, err := mime.ParseMediaType(t); err == nil {
 		return parsed
 	}
