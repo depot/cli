@@ -85,13 +85,12 @@ type Renderer struct {
 	sawMessage bool
 
 	// styled takes plugin view lines, which sanitise their own text before styling it.
-	styled      io.Writer
-	width       func() int
-	viewMode    string
-	viewsJSON   string
-	viewsDirty  bool
-	viewRevs    map[string]int64
-	hintedViews bool
+	styled     io.Writer
+	width      func() int
+	viewMode   string
+	viewsJSON  string
+	viewsDirty bool
+	viewRevs   map[string]int64
 }
 
 const (
@@ -374,9 +373,8 @@ func (r *Renderer) renderPluginViews(viewsJSON, sessionID string) {
 		for _, l := range lines {
 			r.styledLine(l)
 		}
-		if len(chips) > 0 && !r.hintedViews {
-			r.hintedViews = true
-			hint := fmt.Sprintf("(run a control: depot agent session action %s <plugin>/<view> <key>)", sessionID)
+		if len(chips) > 0 && r.once("view-hint:"+v.ref()) {
+			hint := fmt.Sprintf("(run a control: depot agent session action %s %s <key>)", sessionID, v.ref())
 			r.styledLine(renderLine(viewLine{span(hint, mutedStyle)}, r.width()))
 		}
 	}

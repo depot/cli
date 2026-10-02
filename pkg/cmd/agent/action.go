@@ -165,6 +165,7 @@ func invokeViewAction(ctx context.Context, s *session, req actionRequest, p *pro
 			return nil, err
 		}
 		call.FormJson = ptr(form)
+		call.Value = c.Value
 	case "select":
 		v, err := selectValue(c, req.value, p)
 		if err != nil {
@@ -204,7 +205,12 @@ func pickChip(chips []chip, name string, value *string) (chip, error) {
 	if len(byAction) > 0 {
 		if value != nil {
 			for _, c := range byAction {
-				if chipTakesValue(c, *value) || c.Kind == "form" {
+				if chipTakesValue(c, *value) {
+					return c, nil
+				}
+			}
+			for _, c := range byAction {
+				if c.Kind != "form" {
 					return c, nil
 				}
 			}

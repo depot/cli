@@ -400,7 +400,6 @@ func (vr *viewRenderer) block(b viewBlock, depth int, indent string) {
 		c := vr.newChip(*b.Submit)
 		c.Kind = "form"
 		c.Inputs = b.Inputs
-		c.Value = nil
 		vr.chips = append(vr.chips, c)
 		var names []string
 		for _, in := range b.Inputs {

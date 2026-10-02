@@ -240,7 +240,7 @@ func TestRendererPrintsViewsOnRevChange(t *testing.T) {
 	if n := strings.Count(got, "── todos: Plan ──"); n != 2 {
 		t.Fatalf("expected the view twice (rev 3, rev 4), got %d:\n%s", n, got)
 	}
-	if strings.Count(got, "session action s1") != 1 {
+	if strings.Count(got, "session action s1 todos/plan <key>") != 1 {
 		t.Fatalf("expected one action hint:\n%s", got)
 	}
 	if !strings.Contains(got, "[running]\nWorking on it\n── todos: Plan ──") {
@@ -383,4 +383,27 @@ type clientRecorder struct {
 func (f *clientRecorder) WatchSession(ctx context.Context, req *connect.Request[agentv1.WatchSessionRequest], stream *connect.ServerStream[agentv1.WatchSessionResponse]) error {
 	f.once.Do(func() { f.client = req.Msg.GetClient() })
 	return f.fakeAgentService.WatchSession(ctx, req, stream)
+}
+
+func TestInvokeViewActionSharedActionName(t *testing.T) {
+	views := `{"views": [{"plugin": "p", "id": "v", "title": "T", "blocks": [
+	  {"type": "form", "id": "f", "inputs": [{"name": "note", "kind": "text"}], "submit": {"type": "button", "label": "Save", "action": "save", "value": "draft"}},
+	  {"type": "actions", "elements": [{"type": "button", "label": "Publish", "action": "save", "value": "final"}]}]}]}`
+	for _, c := range []struct {
+		value, wantValue, wantForm string
+		fields                     []string
+	}{
+		{value: "final", wantValue: "final"},
+		{value: "draft", wantValue: "draft", fields: []string{"note=hi"}, wantForm: `{"note":"hi"}`},
+	} {
+		f := &fakeViewService{viewsJSON: views}
+		s := startFake(t, f)
+		req := actionRequest{sessionID: "s1", plugin: "p", viewID: "v", name: "save", value: ptr(c.value), fields: c.fields}
+		if _, err := invokeViewAction(context.Background(), s, req, newPrompter(strings.NewReader(""), &bytes.Buffer{}, false)); err != nil {
+			t.Fatal(err)
+		}
+		if got := f.invokes[0]; got.GetValue() != c.wantValue || got.GetFormJson() != c.wantForm {
+			t.Fatalf("--value %s sent %v", c.value, got)
+		}
+	}
 }
