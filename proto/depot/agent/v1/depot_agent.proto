@@ -29,6 +29,10 @@ service DepotAgentService {
   rpc ListTriggers(ListTriggersRequest) returns (ListTriggersResponse);
   // Deletes a trigger. Its URL stops accepting deliveries; sessions it started are kept.
   rpc DeleteTrigger(DeleteTriggerRequest) returns (DeleteTriggerResponse);
+  // Runs one action on a plugin view: a button, select or form. The click is queued as a "plugin_call" message,
+  // shown in the transcript, and handled by the plugin inside the sandbox. A retry with the same
+  // `clientRequestId` returns the original.
+  rpc InvokeViewAction(InvokeViewActionRequest) returns (InvokeViewActionResponse);
 }
 
 message DepotAgentModel {
@@ -71,6 +75,27 @@ message DepotAgentInput {
   // Current state of the message. Can be "pending", "submitted", or "cancelled".
   string status = 4;
   google.protobuf.Timestamp created_at = 5;
+  // Set when mode is "plugin_call".
+  optional PluginCall plugin_call = 20;
+}
+
+// What a client can render, so the server sends only view kinds it supports.
+message ViewClient {
+  // Client name. Can be "app", "cli", or "api".
+  string name = 1;
+  // Core block vocabulary version the client renders. Currently 1.
+  uint32 blocks = 2;
+  // Client-specific view kinds the client renders, such as "app-html" or "cli". Other kinds are removed.
+  repeated string view_kinds = 3;
+}
+
+message PluginCall {
+  string plugin = 1;
+  string view_id = 2;
+  string action = 3;
+  optional string value = 4;
+  // JSON object of form field names to string or boolean values, for a form submit.
+  optional string form_json = 5;
 }
 
 message CreateSessionRequest {
@@ -114,6 +139,8 @@ message SendInputResponse {
 message GetSessionRequest {
   // Unique identifier for the session. Returned by `CreateSession` and `ListDepotAgentSessions`.
   string session_id = 1;
+  // What the client renders. Leave unset for core view blocks only.
+  optional ViewClient client = 20;
 }
 
 message GetSessionResponse {
@@ -122,6 +149,8 @@ message GetSessionResponse {
   string view_json = 2;
   // Position in the session's history the view reflects. Increases with every change.
   uint64 view_seq = 3;
+  // JSON plugin views. Empty when no plugin has set a view.
+  string views_json = 20;
 }
 
 message ListDepotAgentSessionsRequest {
@@ -142,6 +171,8 @@ message WatchSessionRequest {
   string session_id = 1;
   // Send only views newer than this `viewSeq`. Default: 0, which sends the current view first.
   optional uint64 after_seq = 2;
+  // What the client renders. Leave unset for core view blocks only.
+  optional ViewClient client = 20;
 }
 
 message WatchSessionResponse {
@@ -150,6 +181,8 @@ message WatchSessionResponse {
   string view_json = 2;
   // Position in the session's history the view reflects. Increases with every change.
   uint64 view_seq = 3;
+  // JSON plugin views. Empty when no plugin has set a view.
+  string views_json = 20;
 }
 
 message InterruptSessionRequest {
@@ -225,3 +258,25 @@ message DeleteTriggerRequest {
 }
 
 message DeleteTriggerResponse {}
+
+message InvokeViewActionRequest {
+  // Unique identifier for the session. Returned by `CreateSession` and `ListDepotAgentSessions`.
+  string session_id = 1;
+  // Plugin that owns the view.
+  string plugin = 2;
+  // View the action belongs to.
+  string view_id = 3;
+  // Action to run, as named by the view's control.
+  string action = 4;
+  // Value from the button or chosen select option.
+  optional string value = 5;
+  // JSON object of form field names to string or boolean values, for a form submit.
+  optional string form_json = 6;
+  // Unique identifier for this call. A retry with the same id returns the original input.
+  optional string client_request_id = 7;
+}
+
+message InvokeViewActionResponse {
+  // The queued "plugin_call" input.
+  DepotAgentInput input = 1;
+}
