@@ -30,7 +30,9 @@ const (
 	localMcpMaxDescription     = 200
 	localMcpMaxToolDescription = 1000
 	localMcpMaxToolName        = 128
-	localMcpStartTimeout       = 30 * time.Second
+	// Depot measures every server's offer together, as JSON; this is measured the same way.
+	localMcpMaxOfferBytes = 256 * 1024
+	localMcpStartTimeout  = 30 * time.Second
 )
 
 var localMcpServerName = regexp.MustCompile(`^[a-z][a-z0-9-]{0,19}$`)
@@ -109,8 +111,9 @@ func startLocalMcp(ctx context.Context, configs []namedMcpServer, notices io.Wri
 	ctx, stop := context.WithCancel(ctx)
 	l := &localMcp{stop: stop, sessions: map[string]*mcp.ClientSession{}}
 	client := mcp.NewClient(&mcp.Implementation{Name: "depot-cli", Version: build.Version}, nil)
+	budget := localMcpMaxOfferBytes
 	for _, c := range configs {
-		cs, offer, err := startServer(ctx, client, c, notices)
+		cs, offer, err := startServer(ctx, client, c, &budget, notices)
 		if err != nil {
 			fmt.Fprintf(notices, "(local MCP server %s is not offered: %v)\n", c.name, err)
 			continue
@@ -121,7 +124,7 @@ func startLocalMcp(ctx context.Context, configs []namedMcpServer, notices io.Wri
 	return l
 }
 
-func startServer(ctx context.Context, client *mcp.Client, c namedMcpServer, notices io.Writer) (*mcp.ClientSession, *agentv1.LocalMcpServer, error) {
+func startServer(ctx context.Context, client *mcp.Client, c namedMcpServer, budget *int, notices io.Writer) (*mcp.ClientSession, *agentv1.LocalMcpServer, error) {
 	cmd := exec.Command(c.Command, c.Args...)
 	cmd.Env = os.Environ()
 	for k, v := range c.Env {
@@ -135,7 +138,7 @@ func startServer(ctx context.Context, client *mcp.Client, c namedMcpServer, noti
 		cancel()
 		return nil, nil, fmt.Errorf("start: %w", err)
 	}
-	offer, err := offerFor(ctx, c.name, cs, notices)
+	offer, err := offerFor(ctx, c.name, cs, budget, notices)
 	if !timer.Stop() {
 		err = cmp.Or(err, fmt.Errorf("did not list its tools within %s", localMcpStartTimeout))
 	}
@@ -147,7 +150,7 @@ func startServer(ctx context.Context, client *mcp.Client, c namedMcpServer, noti
 	return cs, offer, nil
 }
 
-func offerFor(ctx context.Context, name string, cs *mcp.ClientSession, notices io.Writer) (*agentv1.LocalMcpServer, error) {
+func offerFor(ctx context.Context, name string, cs *mcp.ClientSession, budget *int, notices io.Writer) (*agentv1.LocalMcpServer, error) {
 	offer := &agentv1.LocalMcpServer{Name: name}
 	if init := cs.InitializeResult(); init != nil {
 		description := init.Instructions
@@ -156,6 +159,7 @@ func offerFor(ctx context.Context, name string, cs *mcp.ClientSession, notices i
 		}
 		offer.Description = truncateUTF16(description, localMcpMaxDescription)
 	}
+	*budget -= jsonSize(offer)
 	for tool, err := range cs.Tools(ctx, nil) {
 		if err != nil {
 			return nil, fmt.Errorf("list tools: %w", err)
@@ -172,13 +176,26 @@ func offerFor(ctx context.Context, name string, cs *mcp.ClientSession, notices i
 		if err != nil {
 			return nil, fmt.Errorf("encode the input schema of tool %s: %w", tool.Name, err)
 		}
-		offer.Tools = append(offer.Tools, &agentv1.LocalMcpTool{
+		offered := &agentv1.LocalMcpTool{
 			Name:            tool.Name,
 			Description:     truncateUTF16(tool.Description, localMcpMaxToolDescription),
 			InputSchemaJson: string(schema),
-		})
+		}
+		size := jsonSize(offered)
+		if size > *budget {
+			fmt.Fprintf(notices, "(local MCP server %s: skipping tool %s, past Depot's %d KB limit on all servers' tools)\n", name, tool.Name, localMcpMaxOfferBytes/1024)
+			continue
+		}
+		*budget -= size
+		offer.Tools = append(offer.Tools, offered)
 	}
 	return offer, nil
+}
+
+// jsonSize overestimates a little, since Go escapes more characters than Depot does.
+func jsonSize(v any) int {
+	b, _ := json.Marshal(v)
+	return len(b)
 }
 
 // truncateUTF16 cuts s to at most max UTF-16 code units, the unit Depot counts characters in.

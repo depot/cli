@@ -79,6 +79,26 @@ func TestLoadMcpConfigKeepsStdioServersAndExpandsTheEnvironment(t *testing.T) {
 	}
 }
 
+func TestStartServerSkipsToolsPastTheOfferBudget(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	servers, _, err := loadMcpConfig(notesConfig(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := mcp.NewClient(&mcp.Implementation{Name: "test"}, nil)
+	var notices syncBuffer
+	budget := 100
+	cs, offer, err := startServer(ctx, client, servers[0], &budget, &notices)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cs.Close()
+	if len(offer.Tools) != 0 || !strings.Contains(notices.String(), "skipping tool read_file") {
+		t.Fatalf("tools = %v, notices = %q", offer.Tools, notices.String())
+	}
+}
+
 // fakeLocalMcpService plays Depot's side: scripts[i] runs the i-th PullLocalMcpCalls stream.
 type fakeLocalMcpService struct {
 	agentv1connect.UnimplementedDepotAgentServiceHandler
