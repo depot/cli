@@ -211,6 +211,19 @@ func TestUploadAttachmentsRefusesPipedInputOverTheLimit(t *testing.T) {
 	}
 }
 
+func TestUploadAttachmentsReadsStdinOnlyUpToWhatTheMessageHasLeft(t *testing.T) {
+	s := startFake(t, &fakeAgentService{maxAttachmentBytes: 100, maxTotalBytes: 10})
+	pending := []*agentv1.DepotAgentAttachment{{Name: "a", Sha256: sha("a"), SizeBytes: 7}}
+	stdin := strings.NewReader(strings.Repeat("x", 50))
+	_, err := uploadAttachments(context.Background(), s, pending, fileInputs{stdinName: "log", stdin: stdin}, io.Discard)
+	if err == nil || !strings.Contains(err.Error(), "stdin is over the 3B limit") {
+		t.Fatalf("expected the remaining total as the limit, got %v", err)
+	}
+	if read := 50 - stdin.Len(); read > 4 {
+		t.Fatalf("read %d bytes of stdin, want at most the 3 left plus one", read)
+	}
+}
+
 func TestUploadAttachmentsKeepsNamesUniqueInAMessage(t *testing.T) {
 	_, url := startStore(t)
 	one, two := filepath.Join(t.TempDir(), "x.txt"), filepath.Join(t.TempDir(), "x.txt")

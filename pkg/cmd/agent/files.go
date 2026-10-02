@@ -55,7 +55,7 @@ func uploadAttachments(ctx context.Context, s *session, pending []*agentv1.Depot
 	if err != nil {
 		return nil, err
 	}
-	sources, err := collectSources(in, limits)
+	sources, err := collectSources(in, pending, limits)
 	if err != nil {
 		return nil, err
 	}
@@ -113,7 +113,7 @@ func prepareUploads(ctx context.Context, s *session, attachments []*agentv1.Depo
 }
 
 // collectSources expands directories and reads stdin, sizing every file from its metadata.
-func collectSources(in fileInputs, limits *agentv1.PrepareAttachmentUploadsResponse) ([]source, error) {
+func collectSources(in fileInputs, pending []*agentv1.DepotAgentAttachment, limits *agentv1.PrepareAttachmentUploadsResponse) ([]source, error) {
 	var sources []source
 	for _, path := range in.paths {
 		info, err := os.Stat(path)
@@ -137,16 +137,16 @@ func collectSources(in fileInputs, limits *agentv1.PrepareAttachmentUploadsRespo
 		}
 	}
 	if in.stdinName != "" {
-		max := limits.GetMaxAttachmentBytes()
+		max := stdinLimit(pending, sources, limits)
 		r := in.stdin
-		if max > 0 {
+		if max >= 0 {
 			r = io.LimitReader(r, max+1)
 		}
 		data, err := io.ReadAll(r)
 		if err != nil {
 			return nil, fmt.Errorf("attach stdin: %w", err)
 		}
-		if max > 0 && int64(len(data)) > max {
+		if max >= 0 && int64(len(data)) > max {
 			return nil, fmt.Errorf("stdin is over the %s limit for attachments", units.HumanSize(float64(max)))
 		}
 		sources = append(sources, source{
@@ -156,6 +156,28 @@ func collectSources(in fileInputs, limits *agentv1.PrepareAttachmentUploadsRespo
 		})
 	}
 	return sources, nil
+}
+
+// stdinLimit is the most stdin may hold: the per-file limit, or less if the message's other files leave less of the total.
+// It is -1 when the server sets neither limit.
+func stdinLimit(pending []*agentv1.DepotAgentAttachment, sources []source, limits *agentv1.PrepareAttachmentUploadsResponse) int64 {
+	limit := limits.GetMaxAttachmentBytes()
+	if limit <= 0 {
+		limit = -1
+	}
+	if total := limits.GetMaxTotalBytes(); total > 0 {
+		for _, a := range pending {
+			total -= a.GetSizeBytes()
+		}
+		for _, src := range sources {
+			total -= src.attachment.GetSizeBytes()
+		}
+		total = max(total, 0)
+		if limit < 0 || total < limit {
+			limit = total
+		}
+	}
+	return limit
 }
 
 func fileSource(path, name string, size int64) source {

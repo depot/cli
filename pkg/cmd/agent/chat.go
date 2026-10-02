@@ -16,7 +16,9 @@ func chatSession(ctx context.Context, s *session, sessionID string) error {
 	defer cancel()
 
 	lines := make(chan string)
-	p := tea.NewProgram(newChatModel(ctx, lines))
+	queue := newLineQueue()
+	go queue.forward(ctx, lines)
+	p := tea.NewProgram(newChatModel(queue))
 	transcript := &chatWriter{p: p}
 
 	attachErr := make(chan error, 1)
@@ -40,18 +42,17 @@ func chatSession(ctx context.Context, s *session, sessionID string) error {
 type chatPartialMsg string
 
 type chatModel struct {
-	ctx     context.Context
 	input   textinput.Model
-	submit  chan<- string
+	queue   *lineQueue
 	partial string
 }
 
-func newChatModel(ctx context.Context, submit chan<- string) chatModel {
+func newChatModel(queue *lineQueue) chatModel {
 	input := textinput.New()
 	input.Prompt = "> "
 	input.Placeholder = "message, /file <path>, /steer, /interrupt, /quit"
 	input.Focus()
-	return chatModel{ctx: ctx, input: input, submit: submit}
+	return chatModel{input: input, queue: queue}
 }
 
 func (m chatModel) Init() tea.Cmd {
@@ -69,14 +70,16 @@ func (m chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyPressMsg:
 		switch msg.String() {
 		case "ctrl+c", "ctrl+d":
-			return m, m.send("/quit")
+			// Quitting the program cancels attach, even mid-upload.
+			return m, tea.Quit
 		case "enter":
 			line := m.input.Value()
 			m.input.Reset()
 			if strings.TrimSpace(line) == "" {
 				return m, nil
 			}
-			return m, m.send(line)
+			m.queue.push(line)
+			return m, nil
 		}
 	}
 	var cmd tea.Cmd
@@ -84,14 +87,48 @@ func (m chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-// send hands a line to attach without blocking the event loop.
-func (m chatModel) send(line string) tea.Cmd {
-	return func() tea.Msg {
-		select {
-		case m.submit <- line:
-		case <-m.ctx.Done():
+// lineQueue hands submitted lines to attach in order, without blocking the event loop.
+type lineQueue struct {
+	mu    sync.Mutex
+	lines []string
+	ready chan struct{}
+}
+
+func newLineQueue() *lineQueue {
+	return &lineQueue{ready: make(chan struct{}, 1)}
+}
+
+func (q *lineQueue) push(line string) {
+	q.mu.Lock()
+	q.lines = append(q.lines, line)
+	q.mu.Unlock()
+	select {
+	case q.ready <- struct{}{}:
+	default:
+	}
+}
+
+// forward sends queued lines to out, oldest first, until ctx ends.
+func (q *lineQueue) forward(ctx context.Context, out chan<- string) {
+	for {
+		q.mu.Lock()
+		if len(q.lines) == 0 {
+			q.mu.Unlock()
+			select {
+			case <-q.ready:
+				continue
+			case <-ctx.Done():
+				return
+			}
 		}
-		return nil
+		line := q.lines[0]
+		q.lines = q.lines[1:]
+		q.mu.Unlock()
+		select {
+		case out <- line:
+		case <-ctx.Done():
+			return
+		}
 	}
 }
 
