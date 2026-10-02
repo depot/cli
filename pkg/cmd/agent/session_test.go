@@ -124,7 +124,7 @@ func TestWatchUntilSettledWaitsForRunningAndReconnects(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	var out bytes.Buffer
-	if err := watchSession(ctx, s, "s1", NewRenderer(&out), true); err != nil {
+	if err := watchSession(ctx, s, "s1", NewRenderer(&out), untilTurnDone); err != nil {
 		t.Fatalf("watchSession: %v", err)
 	}
 	if ctx.Err() != nil {
@@ -183,11 +183,27 @@ func TestWatchUntilSettledStopsOnAFailureBeforeRunning(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	if err := watchSession(ctx, s, "s1", NewRenderer(&bytes.Buffer{}), true); err != nil {
+	if err := watchSession(ctx, s, "s1", NewRenderer(&bytes.Buffer{}), untilTurnDone); err != nil {
 		t.Fatalf("watchSession: %v", err)
 	}
 	if ctx.Err() != nil {
 		t.Fatal("watchSession returned only because the test timed out")
+	}
+}
+
+func TestWatchUntilSettledReturnsForAnAlreadySettledSession(t *testing.T) {
+	for _, status := range []string{idle, "waiting_input"} {
+		f := &fakeAgentService{streams: [][]*agentv1.WatchSessionResponse{{frame(status, "")}}}
+		s := startFake(t, f)
+
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		if err := watchSession(ctx, s, "s1", NewRenderer(&bytes.Buffer{}), untilSettled); err != nil {
+			t.Fatalf("%s: watchSession: %v", status, err)
+		}
+		if ctx.Err() != nil {
+			t.Fatalf("%s: watchSession returned only because the test timed out", status)
+		}
+		cancel()
 	}
 }
 
@@ -197,7 +213,7 @@ func TestWatchReturnsAnUndecodableView(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	err := watchSession(ctx, s, "s1", NewRenderer(&bytes.Buffer{}), false)
+	err := watchSession(ctx, s, "s1", NewRenderer(&bytes.Buffer{}), untilCancelled)
 	if err == nil || ctx.Err() != nil || f.watches != 1 {
 		t.Fatalf("expected the decode error from the first watch, got %v after %d watches", err, f.watches)
 	}
@@ -230,7 +246,7 @@ func TestWatchReturnsNonRetryableError(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	err := watchSession(ctx, s, "s1", NewRenderer(&bytes.Buffer{}), false)
+	err := watchSession(ctx, s, "s1", NewRenderer(&bytes.Buffer{}), untilCancelled)
 	if connect.CodeOf(err) != connect.CodeUnimplemented {
 		t.Fatalf("expected Unimplemented, got %v", err)
 	}

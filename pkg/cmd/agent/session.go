@@ -77,7 +77,7 @@ func newCmdSessionCreate() *cobra.Command {
 				fmt.Printf("Watch it with: depot agent session watch %s\n", sessionID)
 				return nil
 			}
-			return watchSession(ctx, s, sessionID, NewRenderer(os.Stdout), true)
+			return watchSession(ctx, s, sessionID, NewRenderer(os.Stdout), untilTurnDone)
 		},
 	}
 
@@ -213,7 +213,7 @@ func newCmdSessionWatch() *cobra.Command {
 		Short: "Stream a session's transcript",
 		Long: `Stream a session's transcript: user messages, assistant text, and tool calls.
 
-Runs until interrupted, or with --until-idle until the session finishes a turn.`,
+Runs until interrupted, or with --until-idle until the session is idle, waiting for input, or stopped.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt)
@@ -222,12 +222,16 @@ Runs until interrupted, or with --until-idle until the session finishes a turn.`
 			if err != nil {
 				return err
 			}
-			return watchSession(ctx, s, args[0], NewRenderer(os.Stdout), untilIdle)
+			until := untilCancelled
+			if untilIdle {
+				until = untilSettled
+			}
+			return watchSession(ctx, s, args[0], NewRenderer(os.Stdout), until)
 		},
 	}
 
 	auth.register(cmd)
-	cmd.Flags().BoolVar(&untilIdle, "until-idle", false, "Exit once the session finishes its current turn")
+	cmd.Flags().BoolVar(&untilIdle, "until-idle", false, "Exit once the session is idle, waiting for input, or stopped")
 	return cmd
 }
 
@@ -310,14 +314,27 @@ func sendInput(ctx context.Context, s *session, sessionID, content, mode string)
 	return resp.Msg.GetInput().GetInputId(), nil
 }
 
+// watchUntil says when watchSession stops on its own.
+type watchUntil int
+
+const (
+	// untilCancelled watches until ctx is cancelled.
+	untilCancelled watchUntil = iota
+	// untilSettled stops at the first settled status, including one already settled when the watch starts.
+	untilSettled
+	// untilTurnDone stops once the session settles after being seen running,
+	// so a fresh session that is idle before its first input starts does not count.
+	untilTurnDone
+)
+
 // watchSession streams a session through r,
 // reconnecting when the server ends the stream,
-// until ctx is cancelled or, with untilSettled,
-// until the session settles after being seen running.
-func watchSession(ctx context.Context, s *session, sessionID string, r *Renderer, untilSettled bool) error {
+// until ctx is cancelled or the until condition holds.
+// A terminal status always ends a bounded watch.
+func watchSession(ctx context.Context, s *session, sessionID string, r *Renderer, until watchUntil) error {
 	w := watchState{}
 	for {
-		done, err := watchOnce(ctx, s, sessionID, r, untilSettled, &w)
+		done, err := watchOnce(ctx, s, sessionID, r, until, &w)
 		if done || ctx.Err() != nil {
 			return nil
 		}
@@ -339,7 +356,7 @@ type watchState struct {
 	lastSeq    uint64
 }
 
-func watchOnce(ctx context.Context, s *session, sessionID string, r *Renderer, untilSettled bool, w *watchState) (bool, error) {
+func watchOnce(ctx context.Context, s *session, sessionID string, r *Renderer, until watchUntil, w *watchState) (bool, error) {
 	req := &agentv1.WatchSessionRequest{SessionId: sessionID}
 	if w.lastSeq > 0 {
 		req.AfterSeq = ptr(w.lastSeq)
@@ -367,7 +384,9 @@ func watchOnce(ctx context.Context, s *session, sessionID string, r *Renderer, u
 		if status == "running" {
 			w.sawRunning = true
 		}
-		if untilSettled && (terminal(status) || w.sawRunning && settled(status)) {
+		if until != untilCancelled && terminal(status) ||
+			until == untilSettled && settled(status) ||
+			until == untilTurnDone && w.sawRunning && settled(status) {
 			return true, nil
 		}
 	}
@@ -400,7 +419,7 @@ func attachSession(ctx context.Context, s *session, sessionID string, in io.Read
 
 	watchErr := make(chan error, 1)
 	go func() {
-		watchErr <- watchSession(ctx, s, sessionID, NewRenderer(out), false)
+		watchErr <- watchSession(ctx, s, sessionID, NewRenderer(out), untilCancelled)
 	}()
 
 	lines := make(chan string)
