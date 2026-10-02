@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"github.com/depot/cli/pkg/helpers"
 	agentv1 "github.com/depot/cli/pkg/proto/depot/agent/v1"
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
@@ -241,8 +242,9 @@ func newCmdSessionAttach() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "attach <session-id>",
-		Short: "Watch a session and send each stdin line as a follow-up",
-		Long: `Watch a session and send each line read from stdin as a follow-up message.
+		Short: "Chat with a session: watch it and send follow-ups",
+		Long: `Watch a session and send each line you type, or read from stdin, as a follow-up message.
+In a terminal the input line stays editable while the session's output streams above it.
 
 Lines starting with a slash are commands:
   /steer <message>   deliver the message into the running turn
@@ -255,6 +257,9 @@ Lines starting with a slash are commands:
 			s, err := auth.resolve(ctx)
 			if err != nil {
 				return err
+			}
+			if helpers.IsTerminal() && helpers.IsStdinTerminal() {
+				return chatSession(ctx, s, args[0])
 			}
 			return attachSession(ctx, s, args[0], os.Stdin, os.Stdout)
 		},
@@ -413,19 +418,11 @@ func retryable(err error) bool {
 }
 
 // attachSession watches the session while forwarding stdin lines as inputs.
-// It returns when ctx is cancelled, on /quit, or when the watch fails;
 // stdin reaching EOF stops sending but keeps watching;
 // failing to read it ends the attach, so a line is never dropped silently.
 func attachSession(ctx context.Context, s *session, sessionID string, in io.Reader, out io.Writer) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-
-	r := NewRenderer(out)
-	notices := r.Notices()
-	watchErr := make(chan error, 1)
-	go func() {
-		watchErr <- watchSession(ctx, s, sessionID, r, untilCancelled)
-	}()
 
 	lines := make(chan string)
 	readErr := make(chan error, 1)
@@ -443,6 +440,22 @@ func attachSession(ctx context.Context, s *session, sessionID string, in io.Read
 		if err := scanner.Err(); err != nil {
 			readErr <- err
 		}
+	}()
+	return attachLines(ctx, s, sessionID, lines, readErr, out)
+}
+
+// attachLines renders the session to out while acting on each line,
+// reporting command results and failures between the session's lines.
+// It returns when ctx is cancelled, on /quit, when the watch fails, or when readErr reports a failure.
+func attachLines(ctx context.Context, s *session, sessionID string, lines <-chan string, readErr <-chan error, out io.Writer) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	r := NewRenderer(out)
+	notices := r.Notices()
+	watchErr := make(chan error, 1)
+	go func() {
+		watchErr <- watchSession(ctx, s, sessionID, r, untilCancelled)
 	}()
 
 	for {
