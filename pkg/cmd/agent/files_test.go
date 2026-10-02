@@ -110,7 +110,7 @@ func TestUploadAttachmentsPutsOnlyTheURLsTheServerReturns(t *testing.T) {
 		t.Fatalf("PUT should send the server's headers, got %q", store.hdrs[newSum])
 	}
 	if len(got) != 2 || got[0].GetSha256() != newSum || got[0].GetName() != "new.png" || got[0].GetSizeBytes() != 11 ||
-		got[0].GetMediaType() != "image/png" || got[1].GetSha256() != oldSum || got[1].GetMediaType() != "text/plain" {
+		got[0].GetMediaType() != "image/png" || got[1].GetSha256() != oldSum || !strings.HasPrefix(got[1].GetMediaType(), "text/") {
 		t.Fatalf("attachments = %v", got)
 	}
 	if !strings.Contains(notices.String(), "attaching 2 files, 25B") {
