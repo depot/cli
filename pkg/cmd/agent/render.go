@@ -15,12 +15,14 @@ const maxSummaryRunes = 120
 // agentView is the bounded projection the harness pushes as view_json.
 // Its source of truth is the runtime's DepotAgentView.
 type agentView struct {
-	Messages  []viewMessage `json:"messages"`
-	Partial   string        `json:"partial"`
-	Retry     *viewRetry    `json:"retry"`
-	Tools     []viewTool    `json:"tools"`
-	Queued    []viewQueued  `json:"queued"`
-	Truncated bool          `json:"truncated"`
+	Messages []viewMessage `json:"messages"`
+	Partial  string        `json:"partial"`
+	Retry    *viewRetry    `json:"retry"`
+	Tools    []viewTool    `json:"tools"`
+	Queued   []viewQueued  `json:"queued"`
+	// QueuedCount is the true number of queued inputs; Queued holds at most the first few.
+	QueuedCount int  `json:"queuedCount"`
+	Truncated   bool `json:"truncated"`
 }
 
 type viewMessage struct {
@@ -71,6 +73,8 @@ type Renderer struct {
 	streamed string
 	open     bool
 	broken   bool
+	// sawMessage means a view held a message, so the session's first turn has started.
+	sawMessage bool
 }
 
 func NewRenderer(w io.Writer) *Renderer {
@@ -111,6 +115,9 @@ func (r *Renderer) RenderView(viewJSON string) error {
 	if view.Truncated && r.once("truncated") {
 		r.line("(older messages omitted)")
 	}
+	if len(view.Messages) > 0 {
+		r.sawMessage = true
+	}
 	for _, msg := range view.Messages {
 		if msg.ID != "" && r.once("message:"+msg.ID) {
 			r.renderMessage(msg)
@@ -124,6 +131,9 @@ func (r *Renderer) RenderView(viewJSON string) error {
 		if r.once("queued:" + q.ID) {
 			r.line("(queued %s: %s)", queuedMode(q.Mode), truncate(oneLine(q.Text)))
 		}
+	}
+	if more := view.QueuedCount - len(view.Queued); more > 0 && r.once(fmt.Sprintf("queued-more:%d", view.QueuedCount)) {
+		r.line("(%d more queued)", more)
 	}
 	if view.Retry != nil && r.once(fmt.Sprintf("retry:%d", view.Retry.At)) {
 		at := time.UnixMilli(view.Retry.At).Format(time.TimeOnly)

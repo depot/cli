@@ -132,6 +132,20 @@ func TestRendererStreamsAcrossTheRunningStatus(t *testing.T) {
 	}
 }
 
+func TestRendererCountsQueuedInputsOutsideTheView(t *testing.T) {
+	var out bytes.Buffer
+	r := NewRenderer(&out)
+	view := `{"messages": [], "queued": [{"id": "q1", "mode": "followup", "text": "one"}], "queuedCount": 3}`
+	for range 2 {
+		if err := r.RenderView(view); err != nil {
+			t.Fatalf("RenderView: %v", err)
+		}
+	}
+	if got := out.String(); strings.Count(got, "(2 more queued)") != 1 {
+		t.Fatalf("expected one omission line, got:\n%s", got)
+	}
+}
+
 func TestRendererNamesACallThatScrolledOut(t *testing.T) {
 	var out bytes.Buffer
 	r := NewRenderer(&out)

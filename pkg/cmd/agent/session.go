@@ -88,6 +88,7 @@ func newCmdSessionCreate() *cobra.Command {
 	cmd.Flags().StringVar(&title, "title", "", "Session title")
 	cmd.Flags().BoolVar(&watch, "watch", false, "Stream the session after creating it, until it settles")
 	cmd.Flags().StringVarP(&output, "output", "o", "", "Output format (json)")
+	cmd.MarkFlagsMutuallyExclusive("watch", "output")
 	return cmd
 }
 
@@ -322,7 +323,7 @@ const (
 	untilCancelled watchUntil = iota
 	// untilSettled stops at the first settled status, including one already settled when the watch starts.
 	untilSettled
-	// untilTurnDone stops once the session settles after being seen running,
+	// untilTurnDone stops once the session settles after its first turn has started,
 	// so a fresh session that is idle before its first input starts does not count.
 	untilTurnDone
 )
@@ -352,8 +353,8 @@ func watchSession(ctx context.Context, s *session, sessionID string, r *Renderer
 // watchState carries across reconnects,
 // so a new stream resumes after the last view already rendered.
 type watchState struct {
-	sawRunning bool
-	lastSeq    uint64
+	started bool
+	lastSeq uint64
 }
 
 func watchOnce(ctx context.Context, s *session, sessionID string, r *Renderer, until watchUntil, w *watchState) (bool, error) {
@@ -381,12 +382,13 @@ func watchOnce(ctx context.Context, s *session, sessionID string, r *Renderer, u
 		}
 		w.lastSeq = max(w.lastSeq, msg.GetViewSeq())
 		status := msg.GetSession().GetStatus()
-		if status == "running" {
-			w.sawRunning = true
+		// A turn can finish between watches, so a message in the view also shows it started.
+		if status == "running" || r.sawMessage {
+			w.started = true
 		}
 		if until != untilCancelled && terminal(status) ||
 			until == untilSettled && settled(status) ||
-			until == untilTurnDone && w.sawRunning && settled(status) {
+			until == untilTurnDone && w.started && settled(status) {
 			return true, nil
 		}
 	}

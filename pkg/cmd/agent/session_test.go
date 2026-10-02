@@ -207,6 +207,21 @@ func TestWatchUntilSettledReturnsForAnAlreadySettledSession(t *testing.T) {
 	}
 }
 
+func TestWatchUntilTurnDoneAcceptsATurnThatFinishedUnseen(t *testing.T) {
+	// The first turn ran and finished before the watch connected.
+	f := &fakeAgentService{streams: [][]*agentv1.WatchSessionResponse{{frame(idle, viewOne)}}}
+	s := startFake(t, f)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := watchSession(ctx, s, "s1", NewRenderer(&bytes.Buffer{}), untilTurnDone); err != nil {
+		t.Fatalf("watchSession: %v", err)
+	}
+	if ctx.Err() != nil {
+		t.Fatal("watchSession returned only because the test timed out")
+	}
+}
+
 func TestWatchReturnsAnUndecodableView(t *testing.T) {
 	f := &fakeAgentService{streams: [][]*agentv1.WatchSessionResponse{{frame(running, "{not json")}}}
 	s := startFake(t, f)
