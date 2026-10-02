@@ -420,9 +420,11 @@ func attachSession(ctx context.Context, s *session, sessionID string, in io.Read
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
+	r := NewRenderer(out)
+	notices := r.Notices()
 	watchErr := make(chan error, 1)
 	go func() {
-		watchErr <- watchSession(ctx, s, sessionID, NewRenderer(out), untilCancelled)
+		watchErr <- watchSession(ctx, s, sessionID, r, untilCancelled)
 	}()
 
 	lines := make(chan string)
@@ -466,11 +468,11 @@ func attachSession(ctx context.Context, s *session, sessionID string, in io.Read
 				cancel()
 				return <-watchErr
 			case attachUnknown:
-				fmt.Fprintf(out, "(unknown command %q; try /steer, /interrupt, /quit)\n", cmd.content)
+				fmt.Fprintf(notices, "(unknown command %q; try /steer, /interrupt, /quit)\n", cmd.content)
 				continue
 			case attachInterrupt:
 				if _, err := s.client.InterruptSession(ctx, authed(s, &agentv1.InterruptSessionRequest{SessionId: sessionID})); err != nil {
-					fmt.Fprintf(out, "(interrupt failed: %v)\n", err)
+					fmt.Fprintf(notices, "(interrupt failed: %v)\n", err)
 				}
 				continue
 			}
@@ -478,7 +480,7 @@ func attachSession(ctx context.Context, s *session, sessionID string, in io.Read
 				if errors.Is(err, context.Canceled) {
 					return <-watchErr
 				}
-				fmt.Fprintf(out, "(send failed: %v)\n", err)
+				fmt.Fprintf(notices, "(send failed: %v)\n", err)
 			}
 		}
 	}

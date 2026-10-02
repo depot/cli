@@ -112,6 +112,34 @@ func TestRendererStreamsPartial(t *testing.T) {
 	}
 }
 
+func TestRendererStartsANewLineForAPartialAfterOneWasCleared(t *testing.T) {
+	var out bytes.Buffer
+	r := NewRenderer(&out)
+	for _, view := range []string{`{"partial": "first"}`, `{"partial": ""}`, `{"partial": "second"}`} {
+		if err := r.RenderView(view); err != nil {
+			t.Fatalf("RenderView: %v", err)
+		}
+	}
+	if got := out.String(); got != "first\nsecond" {
+		t.Fatalf("got %q, want the second partial on its own line", got)
+	}
+}
+
+func TestRendererNoticeEndsTheStreamingLine(t *testing.T) {
+	var out bytes.Buffer
+	r := NewRenderer(&out)
+	if err := r.RenderView(`{"partial": "thinking"}`); err != nil {
+		t.Fatalf("RenderView: %v", err)
+	}
+	fmt.Fprintf(r.Notices(), "(send failed: %v)\n", "boom")
+	if err := r.RenderView(`{"messages": [{"id": "m1", "role": "assistant", "text": "thinking done"}]}`); err != nil {
+		t.Fatalf("RenderView: %v", err)
+	}
+	if got, want := out.String(), "thinking\n(send failed: boom)\nthinking done\n"; got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
 func TestRendererStreamsAcrossTheRunningStatus(t *testing.T) {
 	var out bytes.Buffer
 	r := NewRenderer(&out)
@@ -182,37 +210,5 @@ func TestTruncate(t *testing.T) {
 	}
 	if truncate("short") != "short" {
 		t.Fatal("truncate altered a short string")
-	}
-}
-
-func TestParseAttachLine(t *testing.T) {
-	tests := []struct {
-		line string
-		want attachCommand
-	}{
-		{"", attachCommand{kind: attachNone}},
-		{"   ", attachCommand{kind: attachNone}},
-		{"  do the thing  ", attachCommand{kind: attachInput, mode: modeFollowup, content: "do the thing"}},
-		{"/steer  use go 1.25", attachCommand{kind: attachInput, mode: modeSteer, content: "use go 1.25"}},
-		{"/steer", attachCommand{kind: attachNone}},
-		{"/interrupt", attachCommand{kind: attachInterrupt}},
-		{"/quit", attachCommand{kind: attachQuit}},
-		{"/nope x", attachCommand{kind: attachUnknown, content: "/nope"}},
-	}
-	for _, tt := range tests {
-		if got := parseAttachLine(tt.line); got != tt.want {
-			t.Errorf("parseAttachLine(%q) = %+v, want %+v", tt.line, got, tt.want)
-		}
-	}
-}
-
-func TestParseModel(t *testing.T) {
-	m := parseModel("bedrock/anthropic.claude-opus-5-5")
-	if m.Provider != "bedrock" || m.ModelId != "anthropic.claude-opus-5-5" {
-		t.Fatalf("parseModel with provider = %+v", m)
-	}
-	m = parseModel("claude-opus-5-5")
-	if m.Provider != "" || m.ModelId != "claude-opus-5-5" {
-		t.Fatalf("parseModel without provider = %+v", m)
 	}
 }

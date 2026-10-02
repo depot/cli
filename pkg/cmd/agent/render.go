@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"sync"
 	"time"
 
 	agentv1 "github.com/depot/cli/pkg/proto/depot/agent/v1"
@@ -63,7 +64,9 @@ type viewQueued struct {
 // Renderer turns successive views into an append-only transcript.
 // Messages, tool calls, queued inputs, and retries print once by id;
 // the partial response streams as it grows.
+// It is safe to use from several goroutines.
 type Renderer struct {
+	mu         sync.Mutex
 	w          io.Writer
 	seen       map[string]bool
 	lastStatus string
@@ -84,11 +87,13 @@ func NewRenderer(w io.Writer) *Renderer {
 // Render prints a running status before the frame's view, so it cannot cut into the streamed partial,
 // and any other status after it, so a settled status reads after the turn that produced it.
 func (r *Renderer) Render(resp *agentv1.WatchSessionResponse) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	status := resp.GetSession().GetStatus()
 	if status == "running" {
 		r.status(status)
 	}
-	if err := r.RenderView(resp.GetViewJson()); err != nil {
+	if err := r.renderView(resp.GetViewJson()); err != nil {
 		return err
 	}
 	if resp.GetSession() != nil {
@@ -105,6 +110,29 @@ func (r *Renderer) status(status string) {
 }
 
 func (r *Renderer) RenderView(viewJSON string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.renderView(viewJSON)
+}
+
+// Notices returns a writer for whole lines from outside the session, such as command errors,
+// which end a streaming line before printing instead of cutting into it.
+func (r *Renderer) Notices() io.Writer {
+	return noticeWriter{r}
+}
+
+type noticeWriter struct{ r *Renderer }
+
+func (n noticeWriter) Write(b []byte) (int, error) {
+	n.r.mu.Lock()
+	defer n.r.mu.Unlock()
+	for _, l := range strings.Split(strings.TrimSuffix(string(b), "\n"), "\n") {
+		n.r.line("%s", l)
+	}
+	return len(b), nil
+}
+
+func (r *Renderer) renderView(viewJSON string) error {
 	if viewJSON == "" {
 		return nil
 	}
@@ -187,9 +215,13 @@ func (r *Renderer) call(callID, name, summary string) {
 // and the final message prints whole.
 func (r *Renderer) streamPartial(partial string) {
 	if partial == "" {
-		// No response is in flight, so the next partial starts fresh.
+		// No response is in flight, so the next partial starts fresh, on its own line.
 		r.streamed = ""
 		r.broken = false
+		if r.open {
+			fmt.Fprintln(r.w)
+			r.open = false
+		}
 		return
 	}
 	if r.broken || !strings.HasPrefix(partial, r.streamed) {
