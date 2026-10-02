@@ -3,6 +3,7 @@ package agent
 import (
 	"bytes"
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -26,6 +27,9 @@ type fakeAgentService struct {
 	inputs  []*agentv1.SendInputRequest
 	auth    []string
 	after   []uint64
+	// createFailures CreateSession calls fail Unavailable before one succeeds.
+	createFailures int
+	creates        []*agentv1.CreateSessionRequest
 }
 
 func (f *fakeAgentService) WatchSession(ctx context.Context, req *connect.Request[agentv1.WatchSessionRequest], stream *connect.ServerStream[agentv1.WatchSessionResponse]) error {
@@ -49,6 +53,16 @@ func (f *fakeAgentService) WatchSession(ctx context.Context, req *connect.Reques
 		<-ctx.Done()
 	}
 	return nil
+}
+
+func (f *fakeAgentService) CreateSession(_ context.Context, req *connect.Request[agentv1.CreateSessionRequest]) (*connect.Response[agentv1.CreateSessionResponse], error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.creates = append(f.creates, req.Msg)
+	if len(f.creates) <= f.createFailures {
+		return nil, connect.NewError(connect.CodeUnavailable, errors.New("try again"))
+	}
+	return connect.NewResponse(&agentv1.CreateSessionResponse{Session: &agentv1.DepotAgentSession{SessionId: "s1"}}), nil
 }
 
 func (f *fakeAgentService) SendInput(_ context.Context, req *connect.Request[agentv1.SendInputRequest]) (*connect.Response[agentv1.SendInputResponse], error) {
@@ -126,6 +140,35 @@ func TestWatchUntilSettledWaitsForRunningAndReconnects(t *testing.T) {
 	}
 	if strings.Count(got, "> fix the test") != 1 {
 		t.Fatalf("user message rendered more than once:\n%s", got)
+	}
+}
+
+func TestCreateRetriesWithOneClientRequestID(t *testing.T) {
+	f := &fakeAgentService{createFailures: 1}
+	s := startFake(t, f)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	resp, err := createSession(ctx, s, &agentv1.CreateSessionRequest{Message: "hi", ClientRequestId: ptr("key-1")})
+	if err != nil {
+		t.Fatalf("createSession: %v", err)
+	}
+	if resp.GetSession().GetSessionId() != "s1" || len(f.creates) != 2 {
+		t.Fatalf("expected one retry then s1, got %d calls and %v", len(f.creates), resp)
+	}
+	for i, req := range f.creates {
+		if req.GetClientRequestId() != "key-1" {
+			t.Fatalf("attempt %d sent client_request_id %q", i, req.GetClientRequestId())
+		}
+	}
+
+	f = &fakeAgentService{createFailures: createAttempts}
+	s = startFake(t, f)
+	if _, err := createSession(ctx, s, &agentv1.CreateSessionRequest{Message: "hi"}); connect.CodeOf(err) != connect.CodeUnavailable {
+		t.Fatalf("expected Unavailable after %d attempts, got %v", createAttempts, err)
+	}
+	if len(f.creates) != createAttempts {
+		t.Fatalf("expected %d attempts, got %d", createAttempts, len(f.creates))
 	}
 }
 

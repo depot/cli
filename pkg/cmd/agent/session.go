@@ -50,8 +50,9 @@ func newCmdSessionCreate() *cobra.Command {
 				return err
 			}
 			req := &agentv1.CreateSessionRequest{
-				Title:   title,
-				Message: strings.Join(args, " "),
+				Title:           title,
+				Message:         strings.Join(args, " "),
+				ClientRequestId: ptr(uuid.NewString()),
 			}
 			if repo != "" {
 				req.RepoUrl = ptr(repo)
@@ -63,14 +64,14 @@ func newCmdSessionCreate() *cobra.Command {
 				req.Model = parseModel(model)
 			}
 
-			resp, err := s.client.CreateSession(ctx, authed(s, req))
+			resp, err := createSession(ctx, s, req)
 			if err != nil {
-				return fmt.Errorf("create session: %w", err)
+				return err
 			}
 			if output == "json" {
-				return writeProtoJSON(resp.Msg)
+				return writeProtoJSON(resp)
 			}
-			sessionID := resp.Msg.GetSession().GetSessionId()
+			sessionID := resp.GetSession().GetSessionId()
 			fmt.Printf("Created session %s\n", sessionID)
 			if !watch {
 				fmt.Printf("Watch it with: depot agent session watch %s\n", sessionID)
@@ -256,6 +257,27 @@ Lines starting with a slash are commands:
 
 	auth.register(cmd)
 	return cmd
+}
+
+const createAttempts = 3
+
+// createSession retries transient failures with the request's one client_request_id,
+// so a retry of a create that did land returns that session instead of a second one.
+func createSession(ctx context.Context, s *session, req *agentv1.CreateSessionRequest) (*agentv1.CreateSessionResponse, error) {
+	for attempt := 1; ; attempt++ {
+		resp, err := s.client.CreateSession(ctx, authed(s, req))
+		if err == nil {
+			return resp.Msg, nil
+		}
+		if attempt == createAttempts || !retryable(err) {
+			return nil, fmt.Errorf("create session: %w", err)
+		}
+		select {
+		case <-ctx.Done():
+			return nil, fmt.Errorf("create session: %w", ctx.Err())
+		case <-time.After(time.Duration(attempt) * time.Second):
+		}
+	}
 }
 
 const (
