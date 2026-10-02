@@ -57,12 +57,12 @@ func TestRendererPrintsEachEntryOnce(t *testing.T) {
 	}
 
 	want := strings.Join([]string{
+		"[running]",
 		"> fix the test",
 		"> in pkg/foo",
 		"Looking at it.",
 		"→ bash go test ./pkg/foo/... -run TestX",
 		"(queued steer: use go 1.25)",
-		"[running]",
 		"  ← bash error: FAIL TestX (+1 lines)",
 		"> use go 1.25",
 		"→ edit pkg/foo/foo_test.go",
@@ -108,6 +108,26 @@ func TestRendererStreamsPartial(t *testing.T) {
 		"",
 	}, "\n")
 	if got := out.String(); got != want {
+		t.Fatalf("rendered output mismatch\n got:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+func TestRendererStreamsAcrossTheRunningStatus(t *testing.T) {
+	var out bytes.Buffer
+	r := NewRenderer(&out)
+	idle := &agentv1.DepotAgentSession{Status: "idle"}
+	running := &agentv1.DepotAgentSession{Status: "running"}
+	for _, resp := range []*agentv1.WatchSessionResponse{
+		{Session: idle},
+		{Session: running, ViewJson: `{"messages": [], "partial": "Hel"}`},
+		{Session: running, ViewJson: `{"messages": [], "partial": "Hello"}`},
+		{Session: running, ViewJson: `{"messages": [{"id": "1", "role": "assistant", "text": "Hello."}]}`},
+	} {
+		if err := r.Render(resp); err != nil {
+			t.Fatalf("Render: %v", err)
+		}
+	}
+	if got, want := out.String(), "[idle]\n[running]\nHello.\n"; got != want {
 		t.Fatalf("rendered output mismatch\n got:\n%s\nwant:\n%s", got, want)
 	}
 }

@@ -30,6 +30,8 @@ type fakeAgentService struct {
 	// createFailures CreateSession calls fail Unavailable before one succeeds.
 	createFailures int
 	creates        []*agentv1.CreateSessionRequest
+	// sendFailures SendInput calls fail Unavailable before one succeeds.
+	sendFailures int
 }
 
 func (f *fakeAgentService) WatchSession(ctx context.Context, req *connect.Request[agentv1.WatchSessionRequest], stream *connect.ServerStream[agentv1.WatchSessionResponse]) error {
@@ -69,6 +71,9 @@ func (f *fakeAgentService) SendInput(_ context.Context, req *connect.Request[age
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.inputs = append(f.inputs, req.Msg)
+	if len(f.inputs) <= f.sendFailures {
+		return nil, connect.NewError(connect.CodeUnavailable, errors.New("try again"))
+	}
 	return connect.NewResponse(&agentv1.SendInputResponse{Input: &agentv1.DepotAgentInput{InputId: "in_1"}}), nil
 }
 
@@ -135,7 +140,7 @@ func TestWatchUntilSettledWaitsForRunningAndReconnects(t *testing.T) {
 		t.Fatalf("watch sent auth %q", f.auth[0])
 	}
 	got := out.String()
-	if !strings.HasPrefix(got, "[idle]\n") || !strings.Contains(got, "use go 1.25)\n[running]\n") || !strings.HasSuffix(got, "by user)\n[idle]\n") {
+	if !strings.HasPrefix(got, "[idle]\n") || !strings.Contains(got, "[idle]\n[running]\n> fix the test") || !strings.HasSuffix(got, "by user)\n[idle]\n") {
 		t.Fatalf("unexpected status sequence:\n%s", got)
 	}
 	if strings.Count(got, "> fix the test") != 1 {
@@ -162,13 +167,57 @@ func TestCreateRetriesWithOneClientRequestID(t *testing.T) {
 		}
 	}
 
-	f = &fakeAgentService{createFailures: createAttempts}
+	f = &fakeAgentService{createFailures: requestAttempts}
 	s = startFake(t, f)
 	if _, err := createSession(ctx, s, &agentv1.CreateSessionRequest{Message: "hi"}); connect.CodeOf(err) != connect.CodeUnavailable {
-		t.Fatalf("expected Unavailable after %d attempts, got %v", createAttempts, err)
+		t.Fatalf("expected Unavailable after %d attempts, got %v", requestAttempts, err)
 	}
-	if len(f.creates) != createAttempts {
-		t.Fatalf("expected %d attempts, got %d", createAttempts, len(f.creates))
+	if len(f.creates) != requestAttempts {
+		t.Fatalf("expected %d attempts, got %d", requestAttempts, len(f.creates))
+	}
+}
+
+func TestWatchUntilSettledStopsOnAFailureBeforeRunning(t *testing.T) {
+	f := &fakeAgentService{streams: [][]*agentv1.WatchSessionResponse{{frame(idle, ""), frame("failed", "")}}}
+	s := startFake(t, f)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := watchSession(ctx, s, "s1", NewRenderer(&bytes.Buffer{}), true); err != nil {
+		t.Fatalf("watchSession: %v", err)
+	}
+	if ctx.Err() != nil {
+		t.Fatal("watchSession returned only because the test timed out")
+	}
+}
+
+func TestWatchReturnsAnUndecodableView(t *testing.T) {
+	f := &fakeAgentService{streams: [][]*agentv1.WatchSessionResponse{{frame(running, "{not json")}}}
+	s := startFake(t, f)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	err := watchSession(ctx, s, "s1", NewRenderer(&bytes.Buffer{}), false)
+	if err == nil || ctx.Err() != nil || f.watches != 1 {
+		t.Fatalf("expected the decode error from the first watch, got %v after %d watches", err, f.watches)
+	}
+}
+
+func TestSendRetriesWithOneClientRequestID(t *testing.T) {
+	f := &fakeAgentService{sendFailures: 1}
+	s := startFake(t, f)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	id, err := sendInput(ctx, s, "s1", "hi", modeFollowup)
+	if err != nil {
+		t.Fatalf("sendInput: %v", err)
+	}
+	if id != "in_1" || len(f.inputs) != 2 {
+		t.Fatalf("expected one retry then in_1, got %d calls and %q", len(f.inputs), id)
+	}
+	if key := f.inputs[0].GetClientRequestId(); key == "" || f.inputs[1].GetClientRequestId() != key {
+		t.Fatalf("retry sent client_request_id %q after %q", f.inputs[1].GetClientRequestId(), key)
 	}
 }
 

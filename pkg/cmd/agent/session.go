@@ -259,22 +259,31 @@ Lines starting with a slash are commands:
 	return cmd
 }
 
-const createAttempts = 3
+const requestAttempts = 3
 
 // createSession retries transient failures with the request's one client_request_id,
 // so a retry of a create that did land returns that session instead of a second one.
 func createSession(ctx context.Context, s *session, req *agentv1.CreateSessionRequest) (*agentv1.CreateSessionResponse, error) {
+	resp, err := withRetries(ctx, func() (*connect.Response[agentv1.CreateSessionResponse], error) {
+		return s.client.CreateSession(ctx, authed(s, req))
+	})
+	if err != nil {
+		return nil, fmt.Errorf("create session: %w", err)
+	}
+	return resp.Msg, nil
+}
+
+// withRetries calls do until it succeeds, fails for good, or runs out of attempts.
+// do must resend the same request, so its client_request_id makes a retry of a call that landed return the original.
+func withRetries[T any](ctx context.Context, do func() (T, error)) (T, error) {
 	for attempt := 1; ; attempt++ {
-		resp, err := s.client.CreateSession(ctx, authed(s, req))
-		if err == nil {
-			return resp.Msg, nil
-		}
-		if attempt == createAttempts || !retryable(err) {
-			return nil, fmt.Errorf("create session: %w", err)
+		resp, err := do()
+		if err == nil || attempt == requestAttempts || !retryable(err) {
+			return resp, err
 		}
 		select {
 		case <-ctx.Done():
-			return nil, fmt.Errorf("create session: %w", ctx.Err())
+			return resp, ctx.Err()
 		case <-time.After(time.Duration(attempt) * time.Second):
 		}
 	}
@@ -286,12 +295,15 @@ const (
 )
 
 func sendInput(ctx context.Context, s *session, sessionID, content, mode string) (string, error) {
-	resp, err := s.client.SendInput(ctx, authed(s, &agentv1.SendInputRequest{
+	req := &agentv1.SendInputRequest{
 		SessionId:       sessionID,
 		Content:         content,
 		Mode:            ptr(mode),
 		ClientRequestId: ptr(uuid.NewString()),
-	}))
+	}
+	resp, err := withRetries(ctx, func() (*connect.Response[agentv1.SendInputResponse], error) {
+		return s.client.SendInput(ctx, authed(s, req))
+	})
 	if err != nil {
 		return "", fmt.Errorf("send input to session %s: %w", sessionID, err)
 	}
@@ -355,7 +367,7 @@ func watchOnce(ctx context.Context, s *session, sessionID string, r *Renderer, u
 		if status == "running" {
 			w.sawRunning = true
 		}
-		if untilSettled && w.sawRunning && settled(status) {
+		if untilSettled && (terminal(status) || w.sawRunning && settled(status)) {
 			return true, nil
 		}
 	}
@@ -365,8 +377,14 @@ func watchOnce(ctx context.Context, s *session, sessionID string, r *Renderer, u
 	return false, nil
 }
 
+// retryable reports whether err is a transient RPC failure.
+// Any other error, such as a view that fails to decode, would fail the same way again.
 func retryable(err error) bool {
-	switch connect.CodeOf(err) {
+	var connectErr *connect.Error
+	if !errors.As(err, &connectErr) {
+		return false
+	}
+	switch connectErr.Code() {
 	case connect.CodeUnavailable, connect.CodeDeadlineExceeded, connect.CodeUnknown:
 		return true
 	}

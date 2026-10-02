@@ -77,17 +77,27 @@ func NewRenderer(w io.Writer) *Renderer {
 	return &Renderer{w: w, seen: map[string]bool{}}
 }
 
-// Render prints the frame's view before its status,
-// so a settled status reads after the turn that produced it.
+// Render prints a running status before the frame's view, so it cannot cut into the streamed partial,
+// and any other status after it, so a settled status reads after the turn that produced it.
 func (r *Renderer) Render(resp *agentv1.WatchSessionResponse) error {
+	status := resp.GetSession().GetStatus()
+	if status == "running" {
+		r.status(status)
+	}
 	if err := r.RenderView(resp.GetViewJson()); err != nil {
 		return err
 	}
-	if s := resp.GetSession(); s != nil && s.Status != r.lastStatus {
-		r.lastStatus = s.Status
-		r.line("[%s]", s.Status)
+	if resp.GetSession() != nil {
+		r.status(status)
 	}
 	return nil
+}
+
+func (r *Renderer) status(status string) {
+	if status != r.lastStatus {
+		r.lastStatus = status
+		r.line("[%s]", status)
+	}
 }
 
 func (r *Renderer) RenderView(viewJSON string) error {
@@ -267,4 +277,9 @@ func settled(status string) bool {
 		return true
 	}
 	return false
+}
+
+// terminal reports whether a session has stopped and will not run again on its own.
+func terminal(status string) bool {
+	return status == "failed" || status == "archived"
 }
