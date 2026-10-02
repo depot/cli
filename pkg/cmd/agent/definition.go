@@ -27,7 +27,7 @@ const (
 
 const definitionLayout = `A definition directory holds:
   AGENTS.md              instructions added to the agent's system prompt
-  skills/<name>/SKILL.md one skill each, with name and description in YAML front matter
+  skills/<name>/SKILL.md one skill each, with name and description in YAML front matter; skills are sent in name order
   plugins.json           plugins the agent loads, as [{"name": ..., "digest": ...}]
 Every file is optional.`
 
@@ -281,6 +281,7 @@ func readDefinition(dir string) (*agentv1.DepotAgentDefinitionContent, error) {
 
 // parseSkill splits SKILL.md into its front matter and body; the body is everything after the closing "---" line.
 func parseSkill(dirName string, data []byte) (*agentv1.DepotAgentSkill, error) {
+	data = bytes.ReplaceAll(data, []byte("\r\n"), []byte("\n"))
 	rest, ok := bytes.CutPrefix(data, []byte("---\n"))
 	if !ok {
 		return nil, errors.New("must start with YAML front matter holding a description")

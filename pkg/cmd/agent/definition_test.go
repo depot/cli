@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -35,6 +36,41 @@ func TestDefinitionRoundTripsThroughADirectory(t *testing.T) {
 	}
 	if !proto.Equal(got, want) {
 		t.Fatalf("round trip changed the definition:\n got %v\nwant %v", got, want)
+	}
+}
+
+func TestDefinitionDirectoryHoldsSkillsInNameOrder(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "def")
+	content := sampleDefinition()
+	slices.Reverse(content.Skills)
+	if err := writeDefinition(dir, content, false); err != nil {
+		t.Fatalf("writeDefinition: %v", err)
+	}
+	got, err := readDefinition(dir)
+	if err != nil {
+		t.Fatalf("readDefinition: %v", err)
+	}
+	if !proto.Equal(got, sampleDefinition()) {
+		t.Fatalf("expected skills in name order, got %v", got)
+	}
+}
+
+func TestReadDefinitionAcceptsCRLFSkills(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "skills", "triage", "SKILL.md")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("---\r\nname: triage\r\ndescription: Sort new issues\r\n---\r\n# Triage\r\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := readDefinition(dir)
+	if err != nil {
+		t.Fatalf("readDefinition: %v", err)
+	}
+	want := []*agentv1.DepotAgentSkill{{Name: "triage", Description: "Sort new issues", Body: "# Triage\n"}}
+	if len(got.GetSkills()) != 1 || !proto.Equal(got.GetSkills()[0], want[0]) {
+		t.Fatalf("got %v", got.GetSkills())
 	}
 }
 
