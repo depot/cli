@@ -66,6 +66,12 @@ const (
 	// DepotAgentServicePrepareAttachmentUploadsProcedure is the fully-qualified name of the
 	// DepotAgentService's PrepareAttachmentUploads RPC.
 	DepotAgentServicePrepareAttachmentUploadsProcedure = "/depot.agent.v1.DepotAgentService/PrepareAttachmentUploads"
+	// DepotAgentServicePullLocalMcpCallsProcedure is the fully-qualified name of the
+	// DepotAgentService's PullLocalMcpCalls RPC.
+	DepotAgentServicePullLocalMcpCallsProcedure = "/depot.agent.v1.DepotAgentService/PullLocalMcpCalls"
+	// DepotAgentServiceRespondLocalMcpCallProcedure is the fully-qualified name of the
+	// DepotAgentService's RespondLocalMcpCall RPC.
+	DepotAgentServiceRespondLocalMcpCallProcedure = "/depot.agent.v1.DepotAgentService/RespondLocalMcpCall"
 )
 
 // DepotAgentServiceClient is a client for the depot.agent.v1.DepotAgentService service.
@@ -94,6 +100,14 @@ type DepotAgentServiceClient interface {
 	// Prepares files to attach to a message. Returns an upload URL for each file Depot does not already
 	// store; upload those, then pass the attachments to `CreateSession` or `SendInput`.
 	PrepareAttachmentUploads(context.Context, *connect.Request[v1.PrepareAttachmentUploadsRequest]) (*connect.Response[v1.PrepareAttachmentUploadsResponse], error)
+	// Offers the caller's own MCP servers to a session and streams the agent's tool calls to them. The first
+	// message is `attached`. Calls arrive only on turns answering a message the caller wrote, and the servers
+	// leave the session when the stream ends. A newer stream for the same session, from anyone, replaces this
+	// one and ends it. Requires a user token.
+	PullLocalMcpCalls(context.Context, *connect.Request[v1.PullLocalMcpCallsRequest]) (*connect.ServerStreamForClient[v1.PullLocalMcpCallsResponse], error)
+	// Answers one call from `PullLocalMcpCalls`. Answering the same call twice, or one that was cancelled,
+	// succeeds and is ignored. Fails with FAILED_PRECONDITION once the stream the call came from has ended.
+	RespondLocalMcpCall(context.Context, *connect.Request[v1.RespondLocalMcpCallRequest]) (*connect.Response[v1.RespondLocalMcpCallResponse], error)
 }
 
 // NewDepotAgentServiceClient constructs a client for the depot.agent.v1.DepotAgentService service.
@@ -161,6 +175,16 @@ func NewDepotAgentServiceClient(httpClient connect.HTTPClient, baseURL string, o
 			baseURL+DepotAgentServicePrepareAttachmentUploadsProcedure,
 			opts...,
 		),
+		pullLocalMcpCalls: connect.NewClient[v1.PullLocalMcpCallsRequest, v1.PullLocalMcpCallsResponse](
+			httpClient,
+			baseURL+DepotAgentServicePullLocalMcpCallsProcedure,
+			opts...,
+		),
+		respondLocalMcpCall: connect.NewClient[v1.RespondLocalMcpCallRequest, v1.RespondLocalMcpCallResponse](
+			httpClient,
+			baseURL+DepotAgentServiceRespondLocalMcpCallProcedure,
+			opts...,
+		),
 	}
 }
 
@@ -177,6 +201,8 @@ type depotAgentServiceClient struct {
 	listTriggers             *connect.Client[v1.ListTriggersRequest, v1.ListTriggersResponse]
 	deleteTrigger            *connect.Client[v1.DeleteTriggerRequest, v1.DeleteTriggerResponse]
 	prepareAttachmentUploads *connect.Client[v1.PrepareAttachmentUploadsRequest, v1.PrepareAttachmentUploadsResponse]
+	pullLocalMcpCalls        *connect.Client[v1.PullLocalMcpCallsRequest, v1.PullLocalMcpCallsResponse]
+	respondLocalMcpCall      *connect.Client[v1.RespondLocalMcpCallRequest, v1.RespondLocalMcpCallResponse]
 }
 
 // CreateSession calls depot.agent.v1.DepotAgentService.CreateSession.
@@ -234,6 +260,16 @@ func (c *depotAgentServiceClient) PrepareAttachmentUploads(ctx context.Context, 
 	return c.prepareAttachmentUploads.CallUnary(ctx, req)
 }
 
+// PullLocalMcpCalls calls depot.agent.v1.DepotAgentService.PullLocalMcpCalls.
+func (c *depotAgentServiceClient) PullLocalMcpCalls(ctx context.Context, req *connect.Request[v1.PullLocalMcpCallsRequest]) (*connect.ServerStreamForClient[v1.PullLocalMcpCallsResponse], error) {
+	return c.pullLocalMcpCalls.CallServerStream(ctx, req)
+}
+
+// RespondLocalMcpCall calls depot.agent.v1.DepotAgentService.RespondLocalMcpCall.
+func (c *depotAgentServiceClient) RespondLocalMcpCall(ctx context.Context, req *connect.Request[v1.RespondLocalMcpCallRequest]) (*connect.Response[v1.RespondLocalMcpCallResponse], error) {
+	return c.respondLocalMcpCall.CallUnary(ctx, req)
+}
+
 // DepotAgentServiceHandler is an implementation of the depot.agent.v1.DepotAgentService service.
 type DepotAgentServiceHandler interface {
 	// Creates a session and queues its first message. A sandbox starts for it within a minute.
@@ -260,6 +296,14 @@ type DepotAgentServiceHandler interface {
 	// Prepares files to attach to a message. Returns an upload URL for each file Depot does not already
 	// store; upload those, then pass the attachments to `CreateSession` or `SendInput`.
 	PrepareAttachmentUploads(context.Context, *connect.Request[v1.PrepareAttachmentUploadsRequest]) (*connect.Response[v1.PrepareAttachmentUploadsResponse], error)
+	// Offers the caller's own MCP servers to a session and streams the agent's tool calls to them. The first
+	// message is `attached`. Calls arrive only on turns answering a message the caller wrote, and the servers
+	// leave the session when the stream ends. A newer stream for the same session, from anyone, replaces this
+	// one and ends it. Requires a user token.
+	PullLocalMcpCalls(context.Context, *connect.Request[v1.PullLocalMcpCallsRequest], *connect.ServerStream[v1.PullLocalMcpCallsResponse]) error
+	// Answers one call from `PullLocalMcpCalls`. Answering the same call twice, or one that was cancelled,
+	// succeeds and is ignored. Fails with FAILED_PRECONDITION once the stream the call came from has ended.
+	RespondLocalMcpCall(context.Context, *connect.Request[v1.RespondLocalMcpCallRequest]) (*connect.Response[v1.RespondLocalMcpCallResponse], error)
 }
 
 // NewDepotAgentServiceHandler builds an HTTP handler from the service implementation. It returns
@@ -323,6 +367,16 @@ func NewDepotAgentServiceHandler(svc DepotAgentServiceHandler, opts ...connect.H
 		svc.PrepareAttachmentUploads,
 		opts...,
 	)
+	depotAgentServicePullLocalMcpCallsHandler := connect.NewServerStreamHandler(
+		DepotAgentServicePullLocalMcpCallsProcedure,
+		svc.PullLocalMcpCalls,
+		opts...,
+	)
+	depotAgentServiceRespondLocalMcpCallHandler := connect.NewUnaryHandler(
+		DepotAgentServiceRespondLocalMcpCallProcedure,
+		svc.RespondLocalMcpCall,
+		opts...,
+	)
 	return "/depot.agent.v1.DepotAgentService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case DepotAgentServiceCreateSessionProcedure:
@@ -347,6 +401,10 @@ func NewDepotAgentServiceHandler(svc DepotAgentServiceHandler, opts ...connect.H
 			depotAgentServiceDeleteTriggerHandler.ServeHTTP(w, r)
 		case DepotAgentServicePrepareAttachmentUploadsProcedure:
 			depotAgentServicePrepareAttachmentUploadsHandler.ServeHTTP(w, r)
+		case DepotAgentServicePullLocalMcpCallsProcedure:
+			depotAgentServicePullLocalMcpCallsHandler.ServeHTTP(w, r)
+		case DepotAgentServiceRespondLocalMcpCallProcedure:
+			depotAgentServiceRespondLocalMcpCallHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -398,4 +456,12 @@ func (UnimplementedDepotAgentServiceHandler) DeleteTrigger(context.Context, *con
 
 func (UnimplementedDepotAgentServiceHandler) PrepareAttachmentUploads(context.Context, *connect.Request[v1.PrepareAttachmentUploadsRequest]) (*connect.Response[v1.PrepareAttachmentUploadsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.agent.v1.DepotAgentService.PrepareAttachmentUploads is not implemented"))
+}
+
+func (UnimplementedDepotAgentServiceHandler) PullLocalMcpCalls(context.Context, *connect.Request[v1.PullLocalMcpCallsRequest], *connect.ServerStream[v1.PullLocalMcpCallsResponse]) error {
+	return connect.NewError(connect.CodeUnimplemented, errors.New("depot.agent.v1.DepotAgentService.PullLocalMcpCalls is not implemented"))
+}
+
+func (UnimplementedDepotAgentServiceHandler) RespondLocalMcpCall(context.Context, *connect.Request[v1.RespondLocalMcpCallRequest]) (*connect.Response[v1.RespondLocalMcpCallResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.agent.v1.DepotAgentService.RespondLocalMcpCall is not implemented"))
 }
