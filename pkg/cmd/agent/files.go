@@ -344,6 +344,10 @@ func narrows(sniffed, byExt string) bool {
 		return true
 	case "application/zip":
 		return strings.HasPrefix(byExt, "application/")
+	case "video/mp4", "video/webm":
+		// The sniffer does not look at the tracks, so .m4a audio sniffs as video.
+		top, _, _ := strings.Cut(byExt, "/")
+		return top == "audio" || top == "video"
 	case "text/plain", "text/xml":
 		// Text can be any text-based format, but never binary media.
 		top, _, _ := strings.Cut(byExt, "/")

@@ -436,6 +436,7 @@ func TestMediaTypeTrustsTheBytesOverTheName(t *testing.T) {
 		".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 		".md":   "text/markdown",
 		".rtf":  "application/rtf",
+		".m4a":  "audio/mp4",
 	} {
 		if err := mime.AddExtensionType(ext, typ); err != nil {
 			t.Fatal(err)
@@ -451,6 +452,8 @@ func TestMediaTypeTrustsTheBytesOverTheName(t *testing.T) {
 		{"photo.png", "not a png\n", "text/plain"},
 		{"shot.ts", "\x89PNG\r\n\x1a\n", "image/png"},
 		{"clip.ts", "\x47\x00\x11\x10\x00\x00\xb0", "video/mp2t"},
+		{"song.m4a", "\x00\x00\x00\x18ftypM4A \x00\x00\x00\x00mp42isom", "audio/mp4"},
+		{"song.txt", "\x00\x00\x00\x18ftypM4A \x00\x00\x00\x00mp42isom", "video/mp4"},
 	} {
 		if got := mediaType(tc.name, []byte(tc.head)); got != tc.want {
 			t.Errorf("mediaType(%q) = %q, want %q", tc.name, got, tc.want)
