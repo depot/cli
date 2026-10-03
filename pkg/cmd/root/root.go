@@ -5,6 +5,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	agentCmd "github.com/depot/cli/pkg/cmd/agent"
 	bakeCmd "github.com/depot/cli/pkg/cmd/bake"
 	"github.com/depot/cli/pkg/cmd/blog"
 	buildCmd "github.com/depot/cli/pkg/cmd/build"
@@ -63,6 +64,7 @@ func NewCmdRoot(version, buildDate string) *cobra.Command {
 	_ = cmd.PersistentFlags().MarkHidden("config")
 
 	// Child commands
+	cmd.AddCommand(agentCmd.NewCmdAgent())
 	cmd.AddCommand(bakeCmd.NewCmdBake())
 	cmd.AddCommand(blog.NewCmdBlog())
 	cmd.AddCommand(buildCmd.NewCmdBuild())

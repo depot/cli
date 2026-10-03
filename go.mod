@@ -30,6 +30,7 @@ require (
 	github.com/docker/go-units v0.5.0
 	github.com/getsentry/sentry-go v0.13.0
 	github.com/gogo/protobuf v1.3.2
+	github.com/google/uuid v1.6.0
 	github.com/hashicorp/go-cty-funcs v0.0.0-20250210171435-dda779884a9f
 	github.com/hashicorp/go-version v1.2.0
 	github.com/hashicorp/hcl/v2 v2.23.0
@@ -116,7 +117,6 @@ require (
 	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/google/gofuzz v1.2.0 // indirect
 	github.com/google/shlex v0.0.0-20191202100458-e7afc7fbc510 // indirect
-	github.com/google/uuid v1.6.0 // indirect
 	github.com/gorilla/mux v1.8.0 // indirect
 	github.com/grpc-ecosystem/go-grpc-middleware v1.3.0 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.29.0 // indirect
