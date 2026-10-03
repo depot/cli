@@ -35,8 +35,11 @@ func runNotesServer() {
 	server := mcp.NewServer(&mcp.Implementation{Name: "notes", Description: "Notes on this laptop."}, nil)
 	mcp.AddTool(server, &mcp.Tool{Name: "read_file", Description: "Reads a file."},
 		func(_ context.Context, _ *mcp.CallToolRequest, args readFileArgs) (*mcp.CallToolResult, any, error) {
-			if args.Path == "crash" {
+			switch args.Path {
+			case "crash":
 				os.Exit(3)
+			case "hang":
+				select {}
 			}
 			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: os.Getenv("NOTES_PREFIX") + args.Path}}}, nil, nil
 		})
@@ -217,5 +220,51 @@ func TestServeRunsTheAgentsCallsOnARealServerUntilReplaced(t *testing.T) {
 	out := notices.String()
 	if strings.Count(out, "offering 1 local MCP servers") != 1 || !strings.Contains(out, "yours are no longer offered") {
 		t.Errorf("notices = %q", out)
+	}
+}
+
+func TestServeReturnsOnDetachWhileAToolIgnoresCancellation(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	servers, _, err := loadMcpConfig(notesConfig(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var notices syncBuffer
+	local := startLocalMcp(ctx, servers, &notices)
+	defer local.Close()
+
+	sent := make(chan struct{})
+	f := &fakeLocalMcpService{scripts: []func(*connect.ServerStream[agentv1.PullLocalMcpCallsResponse]) error{
+		func(stream *connect.ServerStream[agentv1.PullLocalMcpCallsResponse]) error {
+			for _, msg := range []*agentv1.PullLocalMcpCallsResponse{attachedAs("dala_1"), callTool("dalc_1", "notes", `{"path":"hang"}`)} {
+				if err := stream.Send(msg); err != nil {
+					return err
+				}
+			}
+			close(sent)
+			<-ctx.Done()
+			return ctx.Err()
+		},
+	}}
+	mux := http.NewServeMux()
+	mux.Handle(agentv1connect.NewDepotAgentServiceHandler(f))
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	s := &session{client: agentv1connect.NewDepotAgentServiceClient(srv.Client(), srv.URL), token: "tok", orgID: "org"}
+
+	detach, detached := context.WithCancel(ctx)
+	served := make(chan struct{})
+	go func() {
+		defer close(served)
+		local.serve(detach, s, "s1", &notices)
+	}()
+	<-sent
+	time.Sleep(200 * time.Millisecond)
+	detached()
+	select {
+	case <-served:
+	case <-time.After(5 * time.Second):
+		t.Fatal("serve is still waiting on a tool call after detach")
 	}
 }

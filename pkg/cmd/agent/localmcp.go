@@ -134,6 +134,7 @@ func startServer(ctx context.Context, client *mcp.Client, c namedMcpServer, budg
 		cmd.Env = append(cmd.Env, k+"="+v)
 	}
 	// A server's own stderr would garble the chat, so it is dropped.
+	cmd.Stderr = io.Discard
 	ctx, cancel := context.WithCancel(ctx)
 	timer := time.AfterFunc(localMcpStartTimeout, cancel)
 	cs, err := client.Connect(ctx, &mcp.CommandTransport{Command: cmd}, nil)
@@ -251,8 +252,6 @@ func (l *localMcp) serve(ctx context.Context, s *session, sessionID string, noti
 	if len(l.offers) == 0 {
 		return
 	}
-	var calls sync.WaitGroup
-	defer calls.Wait()
 	announced := false
 	attached := func() {
 		if !announced {
@@ -261,7 +260,7 @@ func (l *localMcp) serve(ctx context.Context, s *session, sessionID string, noti
 		}
 	}
 	for failures := 0; ; {
-		err := l.pull(ctx, s, sessionID, &calls, attached)
+		err := l.pull(ctx, s, sessionID, attached)
 		if ctx.Err() != nil {
 			return
 		}
@@ -289,7 +288,8 @@ func (l *localMcp) serve(ctx context.Context, s *session, sessionID string, noti
 
 // pull holds one stream, running each call it delivers and answering it.
 // Calls still running when the stream ends are cancelled: Depot has already failed them.
-func (l *localMcp) pull(ctx context.Context, s *session, sessionID string, calls *sync.WaitGroup, attached func()) error {
+// Nothing waits for them, so a tool that ignores cancellation cannot hold up a detach.
+func (l *localMcp) pull(ctx context.Context, s *session, sessionID string, attached func()) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	stream, err := s.client.PullLocalMcpCalls(ctx, authed(s, &agentv1.PullLocalMcpCallsRequest{SessionId: sessionID, Servers: l.offers}))
@@ -319,7 +319,7 @@ func (l *localMcp) pull(ctx context.Context, s *session, sessionID string, calls
 			running[call.GetCallId()] = stop
 			mu.Unlock()
 			respond := &agentv1.RespondLocalMcpCallRequest{SessionId: sessionID, AttachmentId: attachmentID, CallId: call.GetCallId()}
-			calls.Go(func() {
+			go func() {
 				defer func() {
 					mu.Lock()
 					delete(running, call.GetCallId())
@@ -334,7 +334,7 @@ func (l *localMcp) pull(ctx context.Context, s *session, sessionID string, calls
 				_, _ = withRetries(callCtx, func() (*connect.Response[agentv1.RespondLocalMcpCallResponse], error) {
 					return s.client.RespondLocalMcpCall(callCtx, authed(s, respond))
 				})
-			})
+			}()
 		}
 	}
 	return stream.Err()
