@@ -42,6 +42,30 @@ type fakeAgentService struct {
 	maxTotalBytes      int64
 	maxAttachments     int32
 	prepares           []*agentv1.PrepareAttachmentUploadsRequest
+	// definitions[i] is version i+1 of the session's definition.
+	definitions []*agentv1.DepotAgentDefinitionContent
+}
+
+func (f *fakeAgentService) PutAgentDefinition(_ context.Context, req *connect.Request[agentv1.PutAgentDefinitionRequest]) (*connect.Response[agentv1.PutAgentDefinitionResponse], error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.definitions = append(f.definitions, req.Msg.GetContent())
+	def := &agentv1.DepotAgentDefinition{SessionId: req.Msg.GetSessionId(), Version: uint32(len(f.definitions)), Content: req.Msg.GetContent()}
+	return connect.NewResponse(&agentv1.PutAgentDefinitionResponse{Definition: def}), nil
+}
+
+func (f *fakeAgentService) GetAgentDefinition(_ context.Context, req *connect.Request[agentv1.GetAgentDefinitionRequest]) (*connect.Response[agentv1.GetAgentDefinitionResponse], error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	version := uint32(len(f.definitions))
+	if req.Msg.Version != nil {
+		version = req.Msg.GetVersion()
+	}
+	if version == 0 || int(version) > len(f.definitions) {
+		return nil, connect.NewError(connect.CodeNotFound, errors.New("definition not found"))
+	}
+	def := &agentv1.DepotAgentDefinition{SessionId: req.Msg.GetSessionId(), Version: version, Content: f.definitions[version-1]}
+	return connect.NewResponse(&agentv1.GetAgentDefinitionResponse{Definition: def}), nil
 }
 
 func (f *fakeAgentService) WatchSession(ctx context.Context, req *connect.Request[agentv1.WatchSessionRequest], stream *connect.ServerStream[agentv1.WatchSessionResponse]) error {

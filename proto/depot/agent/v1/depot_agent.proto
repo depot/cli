@@ -32,6 +32,12 @@ service DepotAgentService {
   // Prepares files to attach to a message. Returns an upload URL for each file Depot does not already
   // store; upload those, then pass the attachments to `CreateSession` or `SendInput`.
   rpc PrepareAttachmentUploads(PrepareAttachmentUploadsRequest) returns (PrepareAttachmentUploadsResponse);
+  // Stores a new version of a session's agent definition, which the agent loads before its next turn.
+  // Sending the same content as the current version returns that version instead of storing a copy.
+  // To roll back, get an earlier version and put it again.
+  rpc PutAgentDefinition(PutAgentDefinitionRequest) returns (PutAgentDefinitionResponse);
+  // Returns one version of a session's agent definition. Default: the current version.
+  rpc GetAgentDefinition(GetAgentDefinitionRequest) returns (GetAgentDefinitionResponse);
 }
 
 message DepotAgentAttachment {
@@ -105,6 +111,9 @@ message CreateSessionRequest {
   optional string client_request_id = 6;
   // Files attached to the first message. Each must be uploaded first; see `PrepareAttachmentUploads`.
   repeated DepotAgentAttachment attachments = 8;
+  // Instructions, skills, and plugins the agent starts with, stored as version 1 of the session's own
+  // definition. Leave unset for Depot's default agent.
+  optional DepotAgentDefinitionContent definition = 10;
 }
 
 message CreateSessionResponse {
@@ -270,4 +279,61 @@ message DepotAgentAttachmentUpload {
   string url = 2;
   // Headers the PUT must send unchanged.
   map<string, string> headers = 3;
+}
+
+message DepotAgentSkill {
+  // Skill name, which the agent sees in its skill index. For example, "release-notes".
+  string name = 1;
+  // One-line summary the agent reads to decide when to open the skill.
+  string description = 2;
+  // Skill instructions, in Markdown.
+  string body = 3;
+}
+
+message DepotAgentPluginRef {
+  // Plugin name, from the bundle's manifest.
+  string name = 1;
+  // Digest of the plugin bundle. Returned by `UploadPluginBundle`.
+  string digest = 2;
+}
+
+message DepotAgentDefinitionContent {
+  // Instructions added to the agent's system prompt, like an AGENTS.md file.
+  string instructions = 1;
+  // Skills the agent can open. Maximum: 32.
+  repeated DepotAgentSkill skills = 2;
+  // Plugins the agent loads. Each must be uploaded first with `UploadPluginBundle`.
+  repeated DepotAgentPluginRef plugins = 3;
+}
+
+message DepotAgentDefinition {
+  // Unique identifier for the session the definition belongs to.
+  string session_id = 1;
+  // Version number, starting at 1.
+  uint32 version = 2;
+  DepotAgentDefinitionContent content = 3;
+  // Who stored this version: "api" for a person, token, or app, or "agent" for the agent editing itself.
+  string source = 4;
+  google.protobuf.Timestamp created_at = 5;
+}
+
+message PutAgentDefinitionRequest {
+  // Unique identifier for the session whose definition to change.
+  string session_id = 1;
+  DepotAgentDefinitionContent content = 2;
+}
+
+message PutAgentDefinitionResponse {
+  DepotAgentDefinition definition = 1;
+}
+
+message GetAgentDefinitionRequest {
+  // Unique identifier for the session.
+  string session_id = 1;
+  // Version to return. Default: the current version.
+  optional uint32 version = 2;
+}
+
+message GetAgentDefinitionResponse {
+  DepotAgentDefinition definition = 1;
 }
