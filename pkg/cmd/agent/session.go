@@ -276,6 +276,7 @@ Runs until interrupted, or with --until-idle until the session is idle, waiting 
 
 func newCmdSessionAttach() *cobra.Command {
 	var auth authFlags
+	var mcpConfig string
 
 	cmd := &cobra.Command{
 		Use:   "attach <session-id>",
@@ -287,7 +288,10 @@ Lines starting with a slash are commands:
   /file <path> [message]  attach a file; without a message it goes out with your next one
   /steer <message>        deliver the message into the running turn
   /interrupt              abort the running turn
-  /quit                   detach (the session keeps running)`,
+  /quit                   detach (the session keeps running)
+
+With --mcp-config, attach starts the stdio MCP servers in that file (the "mcpServers" format of .mcp.json)
+and offers their tools to the agent, on turns answering your own messages, until you detach.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt)
@@ -295,6 +299,17 @@ Lines starting with a slash are commands:
 			s, err := auth.resolve(ctx)
 			if err != nil {
 				return err
+			}
+			if mcpConfig != "" {
+				servers, remote, err := loadMcpConfig(mcpConfig)
+				if err != nil {
+					return err
+				}
+				for _, name := range remote {
+					fmt.Fprintf(os.Stderr, "(skipping remote MCP server %s: add it to your organization instead)\n", name)
+				}
+				s.local = startLocalMcp(ctx, servers, os.Stderr)
+				defer s.local.Close()
 			}
 			if helpers.IsTerminal() && helpers.IsStdinTerminal() {
 				return chatSession(ctx, s, args[0])
@@ -304,6 +319,7 @@ Lines starting with a slash are commands:
 	}
 
 	auth.register(cmd)
+	cmd.Flags().StringVar(&mcpConfig, "mcp-config", "", "MCP config file whose stdio servers to offer the agent while attached")
 	return cmd
 }
 
@@ -492,6 +508,17 @@ func attachLines(ctx context.Context, s *session, sessionID string, lines <-chan
 
 	r := NewRenderer(out)
 	notices := r.Notices()
+	if s.local != nil {
+		served := make(chan struct{})
+		go func() {
+			defer close(served)
+			s.local.serve(ctx, s, sessionID, notices)
+		}()
+		defer func() {
+			cancel()
+			<-served
+		}()
+	}
 	watchErr := make(chan error, 1)
 	go func() {
 		watchErr <- watchSession(ctx, s, sessionID, r, untilCancelled)

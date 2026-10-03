@@ -72,6 +72,12 @@ const (
 	// DepotAgentServiceGetAgentDefinitionProcedure is the fully-qualified name of the
 	// DepotAgentService's GetAgentDefinition RPC.
 	DepotAgentServiceGetAgentDefinitionProcedure = "/depot.agent.v1.DepotAgentService/GetAgentDefinition"
+	// DepotAgentServicePullLocalMcpCallsProcedure is the fully-qualified name of the
+	// DepotAgentService's PullLocalMcpCalls RPC.
+	DepotAgentServicePullLocalMcpCallsProcedure = "/depot.agent.v1.DepotAgentService/PullLocalMcpCalls"
+	// DepotAgentServiceRespondLocalMcpCallProcedure is the fully-qualified name of the
+	// DepotAgentService's RespondLocalMcpCall RPC.
+	DepotAgentServiceRespondLocalMcpCallProcedure = "/depot.agent.v1.DepotAgentService/RespondLocalMcpCall"
 )
 
 // DepotAgentServiceClient is a client for the depot.agent.v1.DepotAgentService service.
@@ -106,6 +112,14 @@ type DepotAgentServiceClient interface {
 	PutAgentDefinition(context.Context, *connect.Request[v1.PutAgentDefinitionRequest]) (*connect.Response[v1.PutAgentDefinitionResponse], error)
 	// Returns one version of a session's agent definition. Default: the current version.
 	GetAgentDefinition(context.Context, *connect.Request[v1.GetAgentDefinitionRequest]) (*connect.Response[v1.GetAgentDefinitionResponse], error)
+	// Offers the caller's own MCP servers to a session and streams the agent's tool calls to them. The first
+	// message is `attached`. Calls arrive only on turns answering a message the caller wrote, and the servers
+	// leave the session when the stream ends. A newer stream for the same session, from anyone, replaces this
+	// one and ends it with FAILED_PRECONDITION; reconnect after any other end. Requires a user token.
+	PullLocalMcpCalls(context.Context, *connect.Request[v1.PullLocalMcpCallsRequest]) (*connect.ServerStreamForClient[v1.PullLocalMcpCallsResponse], error)
+	// Answers one call from `PullLocalMcpCalls`. Answering the same call twice, or one that was cancelled,
+	// succeeds and is ignored. Fails with FAILED_PRECONDITION once the stream the call came from has ended.
+	RespondLocalMcpCall(context.Context, *connect.Request[v1.RespondLocalMcpCallRequest]) (*connect.Response[v1.RespondLocalMcpCallResponse], error)
 }
 
 // NewDepotAgentServiceClient constructs a client for the depot.agent.v1.DepotAgentService service.
@@ -183,6 +197,16 @@ func NewDepotAgentServiceClient(httpClient connect.HTTPClient, baseURL string, o
 			baseURL+DepotAgentServiceGetAgentDefinitionProcedure,
 			opts...,
 		),
+		pullLocalMcpCalls: connect.NewClient[v1.PullLocalMcpCallsRequest, v1.PullLocalMcpCallsResponse](
+			httpClient,
+			baseURL+DepotAgentServicePullLocalMcpCallsProcedure,
+			opts...,
+		),
+		respondLocalMcpCall: connect.NewClient[v1.RespondLocalMcpCallRequest, v1.RespondLocalMcpCallResponse](
+			httpClient,
+			baseURL+DepotAgentServiceRespondLocalMcpCallProcedure,
+			opts...,
+		),
 	}
 }
 
@@ -201,6 +225,8 @@ type depotAgentServiceClient struct {
 	prepareAttachmentUploads *connect.Client[v1.PrepareAttachmentUploadsRequest, v1.PrepareAttachmentUploadsResponse]
 	putAgentDefinition       *connect.Client[v1.PutAgentDefinitionRequest, v1.PutAgentDefinitionResponse]
 	getAgentDefinition       *connect.Client[v1.GetAgentDefinitionRequest, v1.GetAgentDefinitionResponse]
+	pullLocalMcpCalls        *connect.Client[v1.PullLocalMcpCallsRequest, v1.PullLocalMcpCallsResponse]
+	respondLocalMcpCall      *connect.Client[v1.RespondLocalMcpCallRequest, v1.RespondLocalMcpCallResponse]
 }
 
 // CreateSession calls depot.agent.v1.DepotAgentService.CreateSession.
@@ -268,6 +294,16 @@ func (c *depotAgentServiceClient) GetAgentDefinition(ctx context.Context, req *c
 	return c.getAgentDefinition.CallUnary(ctx, req)
 }
 
+// PullLocalMcpCalls calls depot.agent.v1.DepotAgentService.PullLocalMcpCalls.
+func (c *depotAgentServiceClient) PullLocalMcpCalls(ctx context.Context, req *connect.Request[v1.PullLocalMcpCallsRequest]) (*connect.ServerStreamForClient[v1.PullLocalMcpCallsResponse], error) {
+	return c.pullLocalMcpCalls.CallServerStream(ctx, req)
+}
+
+// RespondLocalMcpCall calls depot.agent.v1.DepotAgentService.RespondLocalMcpCall.
+func (c *depotAgentServiceClient) RespondLocalMcpCall(ctx context.Context, req *connect.Request[v1.RespondLocalMcpCallRequest]) (*connect.Response[v1.RespondLocalMcpCallResponse], error) {
+	return c.respondLocalMcpCall.CallUnary(ctx, req)
+}
+
 // DepotAgentServiceHandler is an implementation of the depot.agent.v1.DepotAgentService service.
 type DepotAgentServiceHandler interface {
 	// Creates a session and queues its first message. A sandbox starts for it within a minute.
@@ -300,6 +336,14 @@ type DepotAgentServiceHandler interface {
 	PutAgentDefinition(context.Context, *connect.Request[v1.PutAgentDefinitionRequest]) (*connect.Response[v1.PutAgentDefinitionResponse], error)
 	// Returns one version of a session's agent definition. Default: the current version.
 	GetAgentDefinition(context.Context, *connect.Request[v1.GetAgentDefinitionRequest]) (*connect.Response[v1.GetAgentDefinitionResponse], error)
+	// Offers the caller's own MCP servers to a session and streams the agent's tool calls to them. The first
+	// message is `attached`. Calls arrive only on turns answering a message the caller wrote, and the servers
+	// leave the session when the stream ends. A newer stream for the same session, from anyone, replaces this
+	// one and ends it with FAILED_PRECONDITION; reconnect after any other end. Requires a user token.
+	PullLocalMcpCalls(context.Context, *connect.Request[v1.PullLocalMcpCallsRequest], *connect.ServerStream[v1.PullLocalMcpCallsResponse]) error
+	// Answers one call from `PullLocalMcpCalls`. Answering the same call twice, or one that was cancelled,
+	// succeeds and is ignored. Fails with FAILED_PRECONDITION once the stream the call came from has ended.
+	RespondLocalMcpCall(context.Context, *connect.Request[v1.RespondLocalMcpCallRequest]) (*connect.Response[v1.RespondLocalMcpCallResponse], error)
 }
 
 // NewDepotAgentServiceHandler builds an HTTP handler from the service implementation. It returns
@@ -373,6 +417,16 @@ func NewDepotAgentServiceHandler(svc DepotAgentServiceHandler, opts ...connect.H
 		svc.GetAgentDefinition,
 		opts...,
 	)
+	depotAgentServicePullLocalMcpCallsHandler := connect.NewServerStreamHandler(
+		DepotAgentServicePullLocalMcpCallsProcedure,
+		svc.PullLocalMcpCalls,
+		opts...,
+	)
+	depotAgentServiceRespondLocalMcpCallHandler := connect.NewUnaryHandler(
+		DepotAgentServiceRespondLocalMcpCallProcedure,
+		svc.RespondLocalMcpCall,
+		opts...,
+	)
 	return "/depot.agent.v1.DepotAgentService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case DepotAgentServiceCreateSessionProcedure:
@@ -401,6 +455,10 @@ func NewDepotAgentServiceHandler(svc DepotAgentServiceHandler, opts ...connect.H
 			depotAgentServicePutAgentDefinitionHandler.ServeHTTP(w, r)
 		case DepotAgentServiceGetAgentDefinitionProcedure:
 			depotAgentServiceGetAgentDefinitionHandler.ServeHTTP(w, r)
+		case DepotAgentServicePullLocalMcpCallsProcedure:
+			depotAgentServicePullLocalMcpCallsHandler.ServeHTTP(w, r)
+		case DepotAgentServiceRespondLocalMcpCallProcedure:
+			depotAgentServiceRespondLocalMcpCallHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -460,4 +518,12 @@ func (UnimplementedDepotAgentServiceHandler) PutAgentDefinition(context.Context,
 
 func (UnimplementedDepotAgentServiceHandler) GetAgentDefinition(context.Context, *connect.Request[v1.GetAgentDefinitionRequest]) (*connect.Response[v1.GetAgentDefinitionResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.agent.v1.DepotAgentService.GetAgentDefinition is not implemented"))
+}
+
+func (UnimplementedDepotAgentServiceHandler) PullLocalMcpCalls(context.Context, *connect.Request[v1.PullLocalMcpCallsRequest], *connect.ServerStream[v1.PullLocalMcpCallsResponse]) error {
+	return connect.NewError(connect.CodeUnimplemented, errors.New("depot.agent.v1.DepotAgentService.PullLocalMcpCalls is not implemented"))
+}
+
+func (UnimplementedDepotAgentServiceHandler) RespondLocalMcpCall(context.Context, *connect.Request[v1.RespondLocalMcpCallRequest]) (*connect.Response[v1.RespondLocalMcpCallResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.agent.v1.DepotAgentService.RespondLocalMcpCall is not implemented"))
 }

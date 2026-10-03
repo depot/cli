@@ -38,6 +38,14 @@ service DepotAgentService {
   rpc PutAgentDefinition(PutAgentDefinitionRequest) returns (PutAgentDefinitionResponse);
   // Returns one version of a session's agent definition. Default: the current version.
   rpc GetAgentDefinition(GetAgentDefinitionRequest) returns (GetAgentDefinitionResponse);
+  // Offers the caller's own MCP servers to a session and streams the agent's tool calls to them. The first
+  // message is `attached`. Calls arrive only on turns answering a message the caller wrote, and the servers
+  // leave the session when the stream ends. A newer stream for the same session, from anyone, replaces this
+  // one and ends it with FAILED_PRECONDITION; reconnect after any other end. Requires a user token.
+  rpc PullLocalMcpCalls(PullLocalMcpCallsRequest) returns (stream PullLocalMcpCallsResponse);
+  // Answers one call from `PullLocalMcpCalls`. Answering the same call twice, or one that was cancelled,
+  // succeeds and is ignored. Fails with FAILED_PRECONDITION once the stream the call came from has ended.
+  rpc RespondLocalMcpCall(RespondLocalMcpCallRequest) returns (RespondLocalMcpCallResponse);
 }
 
 message DepotAgentAttachment {
@@ -337,3 +345,81 @@ message GetAgentDefinitionRequest {
 message GetAgentDefinitionResponse {
   DepotAgentDefinition definition = 1;
 }
+message LocalMcpTool {
+  // Name of the tool as the server reports it.
+  string name = 1;
+  // Description of the tool as the server reports it. Maximum: 1000 characters.
+  string description = 2;
+  // JSON Schema of the tool's arguments, as JSON.
+  string input_schema_json = 3;
+}
+
+message LocalMcpServer {
+  // Name of the server, unique among the caller's servers. 1-20 lowercase letters, digits or dashes, starting
+  // with a letter.
+  string name = 1;
+  // Description of the server, shown to the agent. Maximum: 200 characters.
+  string description = 2;
+  // Tools the server provides. Maximum: 50.
+  repeated LocalMcpTool tools = 3;
+}
+
+message PullLocalMcpCallsRequest {
+  // Unique identifier for the session. Returned by `CreateSession` and `ListDepotAgentSessions`.
+  string session_id = 1;
+  // MCP servers to offer the session's agent, running where the caller runs. Maximum: 20, and 256 KB in all.
+  repeated LocalMcpServer servers = 2;
+}
+
+message LocalMcpAttached {
+  // Unique identifier for this stream's attachment. Pass it to `RespondLocalMcpCall`.
+  string attachment_id = 1;
+}
+
+// Sent about every 30 seconds while nothing else is.
+message LocalMcpKeepalive {}
+
+message LocalMcpCancel {
+  // Unique identifier for the call the agent no longer waits for.
+  string call_id = 1;
+}
+
+message LocalMcpToolCall {
+  // Unique identifier for the call. Leave empty in `CallLocalMcp` to send it; Depot assigns it.
+  string call_id = 1;
+  // Name of the server, as offered.
+  string server_name = 2;
+  // Name of the tool as the server reports it.
+  string tool_name = 3;
+  // The call's arguments, as a JSON object.
+  string arguments_json = 4;
+}
+
+message PullLocalMcpCallsResponse {
+  oneof call {
+    LocalMcpAttached attached = 1;
+    LocalMcpKeepalive keepalive = 2;
+    LocalMcpCancel cancel = 3;
+    LocalMcpToolCall call_tool = 4;
+  }
+}
+
+message LocalMcpToolResult {
+  // JSON array of the result's MCP content blocks.
+  string content_json = 1;
+  // True when the tool failed, or the server could not be reached or left before answering.
+  bool is_error = 2;
+}
+
+message RespondLocalMcpCallRequest {
+  // Unique identifier for the session. Returned by `CreateSession` and `ListDepotAgentSessions`.
+  string session_id = 1;
+  // Unique identifier for the attachment. Returned by `PullLocalMcpCalls`.
+  string attachment_id = 2;
+  // Unique identifier for the call. Returned by `PullLocalMcpCalls`.
+  string call_id = 3;
+  // The tool's result. A result larger than 1 MB reaches the agent as an error.
+  LocalMcpToolResult result = 4;
+}
+
+message RespondLocalMcpCallResponse {}

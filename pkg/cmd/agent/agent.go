@@ -77,6 +77,7 @@ type session struct {
 	client agentv1connect.DepotAgentServiceClient
 	token  string
 	orgID  string
+	local  *localMcp
 }
 
 func (f *authFlags) resolve(ctx context.Context) (*session, error) {
