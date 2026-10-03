@@ -32,6 +32,16 @@ type fakeAgentService struct {
 	creates        []*agentv1.CreateSessionRequest
 	// sendFailures SendInput calls fail Unavailable before one succeeds.
 	sendFailures int
+	// rejectSends makes every SendInput fail with an error that is not retried.
+	rejectSends bool
+	// stored holds the hashes PrepareAttachmentUploads treats as already uploaded;
+	// it asks for every other file at uploadURL.
+	stored             map[string]bool
+	uploadURL          string
+	maxAttachmentBytes int64
+	maxTotalBytes      int64
+	maxAttachments     int32
+	prepares           []*agentv1.PrepareAttachmentUploadsRequest
 }
 
 func (f *fakeAgentService) WatchSession(ctx context.Context, req *connect.Request[agentv1.WatchSessionRequest], stream *connect.ServerStream[agentv1.WatchSessionResponse]) error {
@@ -73,6 +83,9 @@ func (f *fakeAgentService) SendInput(_ context.Context, req *connect.Request[age
 	f.inputs = append(f.inputs, req.Msg)
 	if len(f.inputs) <= f.sendFailures {
 		return nil, connect.NewError(connect.CodeUnavailable, errors.New("try again"))
+	}
+	if f.rejectSends {
+		return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("attachment not uploaded"))
 	}
 	return connect.NewResponse(&agentv1.SendInputResponse{Input: &agentv1.DepotAgentInput{InputId: "in_1"}}), nil
 }
@@ -240,7 +253,7 @@ func TestSendRetriesWithOneClientRequestID(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	id, err := sendInput(ctx, s, "s1", "hi", modeFollowup)
+	id, err := sendInput(ctx, s, "s1", "hi", modeFollowup, nil)
 	if err != nil {
 		t.Fatalf("sendInput: %v", err)
 	}

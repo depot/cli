@@ -29,6 +29,20 @@ service DepotAgentService {
   rpc ListTriggers(ListTriggersRequest) returns (ListTriggersResponse);
   // Deletes a trigger. Its URL stops accepting deliveries; sessions it started are kept.
   rpc DeleteTrigger(DeleteTriggerRequest) returns (DeleteTriggerResponse);
+  // Prepares files to attach to a message. Returns an upload URL for each file Depot does not already
+  // store; upload those, then pass the attachments to `CreateSession` or `SendInput`.
+  rpc PrepareAttachmentUploads(PrepareAttachmentUploadsRequest) returns (PrepareAttachmentUploadsResponse);
+}
+
+message DepotAgentAttachment {
+  // Lowercase hex SHA-256 of the file's contents. Identifies the file within the organization.
+  string sha256 = 1;
+  // Size of the file in bytes.
+  int64 size_bytes = 2;
+  // File name shown to the agent. A base name: no "/", not "." or "..", at most 255 bytes, unique within a message.
+  string name = 3;
+  // Media type, for example "image/png". Images go to the model as images. Default: "application/octet-stream".
+  string media_type = 4;
 }
 
 message DepotAgentModel {
@@ -71,6 +85,8 @@ message DepotAgentInput {
   // Current state of the message. Can be "pending", "submitted", or "cancelled".
   string status = 4;
   google.protobuf.Timestamp created_at = 5;
+  // Files attached to the message.
+  repeated DepotAgentAttachment attachments = 8;
 }
 
 message CreateSessionRequest {
@@ -87,6 +103,8 @@ message CreateSessionRequest {
   // Key that makes a retry return the original session and first message instead of creating a second session.
   // Unique per organization.
   optional string client_request_id = 6;
+  // Files attached to the first message. Each must be uploaded first; see `PrepareAttachmentUploads`.
+  repeated DepotAgentAttachment attachments = 8;
 }
 
 message CreateSessionResponse {
@@ -105,6 +123,8 @@ message SendInputRequest {
   optional string mode = 3;
   // Key that makes a retry return the original message instead of queuing a second one. Unique per session.
   optional string client_request_id = 4;
+  // Files attached to the message. Each must be uploaded first; see `PrepareAttachmentUploads`.
+  repeated DepotAgentAttachment attachments = 5;
 }
 
 message SendInputResponse {
@@ -225,3 +245,29 @@ message DeleteTriggerRequest {
 }
 
 message DeleteTriggerResponse {}
+
+message PrepareAttachmentUploadsRequest {
+  // Files for one message. Fails with InvalidArgument if they break a limit or a name rule.
+  // Send none to read the limits.
+  repeated DepotAgentAttachment attachments = 1;
+}
+
+message PrepareAttachmentUploadsResponse {
+  // One upload for each file Depot does not already store. Files it already stores are left out.
+  repeated DepotAgentAttachmentUpload uploads = 1;
+  // Largest file Depot accepts, in bytes.
+  int64 max_attachment_bytes = 2;
+  // Largest total size of one message's files, in bytes.
+  int64 max_total_bytes = 3;
+  // Most files one message can carry.
+  int32 max_attachments = 4;
+}
+
+message DepotAgentAttachmentUpload {
+  // SHA-256 of the file this upload is for.
+  string sha256 = 1;
+  // URL to upload the file's contents to with an HTTP PUT. Expires after 30 minutes.
+  string url = 2;
+  // Headers the PUT must send unchanged.
+  map<string, string> headers = 3;
+}

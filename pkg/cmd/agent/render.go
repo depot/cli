@@ -10,6 +10,7 @@ import (
 	"unicode"
 
 	agentv1 "github.com/depot/cli/pkg/proto/depot/agent/v1"
+	"github.com/docker/go-units"
 )
 
 const maxSummaryRunes = 120
@@ -36,6 +37,20 @@ type viewMessage struct {
 	Summary   string         `json:"summary"`
 	IsError   bool           `json:"isError"`
 	ToolCalls []viewToolCall `json:"toolCalls"`
+	// Sender and Attachments are set on user messages.
+	Sender      *viewSender      `json:"sender"`
+	Attachments []viewAttachment `json:"attachments"`
+}
+
+// viewSender is who sent an input: a Depot user, or someone on a connected service such as Slack.
+type viewSender struct {
+	Kind string `json:"kind"`
+	Name string `json:"name"`
+}
+
+type viewAttachment struct {
+	Name      string `json:"name"`
+	SizeBytes int64  `json:"sizeBytes"`
 }
 
 type viewToolCall struct {
@@ -57,9 +72,11 @@ type viewTool struct {
 }
 
 type viewQueued struct {
-	ID   string `json:"id"`
-	Mode string `json:"mode"`
-	Text string `json:"text"`
+	ID          string           `json:"id"`
+	Mode        string           `json:"mode"`
+	Text        string           `json:"text"`
+	Sender      *viewSender      `json:"sender"`
+	Attachments []viewAttachment `json:"attachments"`
 }
 
 // Renderer turns successive views into an append-only transcript.
@@ -184,7 +201,7 @@ func (r *Renderer) renderView(viewJSON string) error {
 	r.streamPartial(view.Partial)
 	for _, q := range view.Queued {
 		if r.once("queued:" + q.ID) {
-			r.line("(queued %s: %s)", queuedMode(q.Mode), truncate(oneLine(q.Text)))
+			r.line("(queued %s%s: %s%s)", queuedMode(q.Mode), from(q.Sender), truncate(oneLine(q.Text)), fileCount(q.Attachments))
 		}
 	}
 	if more := view.QueuedCount - len(view.Queued); more > 0 && r.once(fmt.Sprintf("queued-more:%d", view.QueuedCount)) {
@@ -200,8 +217,16 @@ func (r *Renderer) renderView(viewJSON string) error {
 func (r *Renderer) renderMessage(msg viewMessage) {
 	switch msg.Role {
 	case "user":
+		prefix := ""
+		if name := senderName(msg.Sender); name != "" {
+			prefix = name + ": "
+		}
 		for _, line := range strings.Split(strings.TrimSpace(msg.Text), "\n") {
-			r.line("> %s", line)
+			r.line("> %s%s", prefix, line)
+			prefix = ""
+		}
+		for _, a := range msg.Attachments {
+			r.line("  [file %s, %s]", a.Name, units.HumanSize(float64(a.SizeBytes)))
 		}
 	case "assistant":
 		if msg.IsError {
@@ -351,4 +376,32 @@ func settled(status string) bool {
 // terminal reports whether a session has stopped and will not run again on its own.
 func terminal(status string) bool {
 	return status == "failed" || status == "archived"
+}
+
+// senderName labels a sender, naming the service when it is not Depot itself.
+func senderName(s *viewSender) string {
+	if s == nil || s.Name == "" {
+		return ""
+	}
+	if s.Kind == "" || s.Kind == "user" {
+		return s.Name
+	}
+	return fmt.Sprintf("%s (%s)", s.Name, s.Kind)
+}
+
+func from(s *viewSender) string {
+	if name := senderName(s); name != "" {
+		return " from " + name
+	}
+	return ""
+}
+
+func fileCount(attachments []viewAttachment) string {
+	switch len(attachments) {
+	case 0:
+		return ""
+	case 1:
+		return " [1 file]"
+	}
+	return fmt.Sprintf(" [%d files]", len(attachments))
 }
