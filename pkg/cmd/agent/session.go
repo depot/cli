@@ -27,6 +27,7 @@ func newCmdSessionCreate() *cobra.Command {
 		title  string
 		watch  bool
 		output string
+		views  string
 	)
 
 	cmd := &cobra.Command{
@@ -40,6 +41,9 @@ func newCmdSessionCreate() *cobra.Command {
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := validateOutput(output); err != nil {
+				return err
+			}
+			if err := validateViewMode(views); err != nil {
 				return err
 			}
 			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt)
@@ -77,7 +81,9 @@ func newCmdSessionCreate() *cobra.Command {
 				fmt.Printf("Watch it with: depot agent session watch %s\n", safeText(sessionID))
 				return nil
 			}
-			return watchSession(ctx, s, sessionID, NewRenderer(os.Stdout), untilTurnDone)
+			r := NewRenderer(os.Stdout)
+			r.SetViewMode(views)
+			return watchSession(ctx, s, sessionID, r, untilTurnDone)
 		},
 	}
 
@@ -88,6 +94,7 @@ func newCmdSessionCreate() *cobra.Command {
 	cmd.Flags().StringVar(&title, "title", "", "Session title")
 	cmd.Flags().BoolVar(&watch, "watch", false, "Stream the session after creating it, until it settles")
 	cmd.Flags().StringVarP(&output, "output", "o", "", "Output format (json)")
+	registerViewsFlag(cmd, &views)
 	cmd.MarkFlagsMutuallyExclusive("watch", "output")
 	return cmd
 }
@@ -207,6 +214,7 @@ func newCmdSessionWatch() *cobra.Command {
 	var (
 		auth      authFlags
 		untilIdle bool
+		views     string
 	)
 
 	cmd := &cobra.Command{
@@ -217,6 +225,9 @@ func newCmdSessionWatch() *cobra.Command {
 Runs until interrupted, or with --until-idle until the session is idle, waiting for input, or stopped.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := validateViewMode(views); err != nil {
+				return err
+			}
 			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt)
 			defer stop()
 			s, err := auth.resolve(ctx)
@@ -227,17 +238,23 @@ Runs until interrupted, or with --until-idle until the session is idle, waiting 
 			if untilIdle {
 				until = untilSettled
 			}
-			return watchSession(ctx, s, args[0], NewRenderer(os.Stdout), until)
+			r := NewRenderer(os.Stdout)
+			r.SetViewMode(views)
+			return watchSession(ctx, s, args[0], r, until)
 		},
 	}
 
 	auth.register(cmd)
+	registerViewsFlag(cmd, &views)
 	cmd.Flags().BoolVar(&untilIdle, "until-idle", false, "Exit once the session is idle, waiting for input, or stopped")
 	return cmd
 }
 
 func newCmdSessionAttach() *cobra.Command {
-	var auth authFlags
+	var (
+		auth  authFlags
+		views string
+	)
 
 	cmd := &cobra.Command{
 		Use:   "attach <session-id>",
@@ -247,21 +264,31 @@ func newCmdSessionAttach() *cobra.Command {
 Lines starting with a slash are commands:
   /steer <message>   deliver the message into the running turn
   /interrupt         abort the running turn
-  /quit              detach (the session keeps running)`,
+  /quit              detach (the session keeps running)
+
+Plugin view controls run with: depot agent session action <session-id> <plugin>/<view> <key>`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := validateViewMode(views); err != nil {
+				return err
+			}
 			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt)
 			defer stop()
 			s, err := auth.resolve(ctx)
 			if err != nil {
 				return err
 			}
-			return attachSession(ctx, s, args[0], os.Stdin, os.Stdout)
+			return attachSession(ctx, s, args[0], os.Stdin, os.Stdout, views)
 		},
 	}
 
 	auth.register(cmd)
+	registerViewsFlag(cmd, &views)
 	return cmd
+}
+
+func registerViewsFlag(cmd *cobra.Command, views *string) {
+	cmd.Flags().StringVar(views, "views", viewsFull, "How plugin views print: full, compact, or none")
 }
 
 const requestAttempts = 3
@@ -358,7 +385,7 @@ type watchState struct {
 }
 
 func watchOnce(ctx context.Context, s *session, sessionID string, r *Renderer, until watchUntil, w *watchState) (bool, error) {
-	req := &agentv1.WatchSessionRequest{SessionId: sessionID}
+	req := &agentv1.WatchSessionRequest{SessionId: sessionID, Client: cliViewClient()}
 	if w.lastSeq > 0 {
 		req.AfterSeq = ptr(w.lastSeq)
 	}
@@ -416,11 +443,12 @@ func retryable(err error) bool {
 // It returns when ctx is cancelled, on /quit, or when the watch fails;
 // stdin reaching EOF stops sending but keeps watching;
 // failing to read it ends the attach, so a line is never dropped silently.
-func attachSession(ctx context.Context, s *session, sessionID string, in io.Reader, out io.Writer) error {
+func attachSession(ctx context.Context, s *session, sessionID string, in io.Reader, out io.Writer, viewMode string) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
 	r := NewRenderer(out)
+	r.SetViewMode(viewMode)
 	notices := r.Notices()
 	watchErr := make(chan error, 1)
 	go func() {

@@ -4,12 +4,16 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 	"unicode"
 
+	"github.com/charmbracelet/colorprofile"
 	agentv1 "github.com/depot/cli/pkg/proto/depot/agent/v1"
+	"golang.org/x/term"
 )
 
 const maxSummaryRunes = 120
@@ -79,10 +83,54 @@ type Renderer struct {
 	broken   bool
 	// sawMessage means a view held a message, so the session's first turn has started.
 	sawMessage bool
+
+	// styled takes plugin view lines, which sanitise their own text before styling it.
+	styled   io.Writer
+	width    func() int
+	viewMode string
+	viewRevs map[string]int64
 }
 
+const (
+	viewsFull    = "full"
+	viewsCompact = "compact"
+	viewsNone    = "none"
+)
+
 func NewRenderer(w io.Writer) *Renderer {
-	return &Renderer{w: safeWriter{w}, seen: map[string]bool{}}
+	return &Renderer{
+		w:        safeWriter{w},
+		seen:     map[string]bool{},
+		styled:   colorprofile.NewWriter(w, os.Environ()),
+		width:    func() int { return terminalWidth(w) },
+		viewMode: viewsFull,
+		viewRevs: map[string]int64{},
+	}
+}
+
+// SetViewMode picks how plugin views print: full, compact, or none.
+func (r *Renderer) SetViewMode(mode string) {
+	r.viewMode = mode
+}
+
+func validateViewMode(mode string) error {
+	switch mode {
+	case viewsFull, viewsCompact, viewsNone:
+		return nil
+	}
+	return fmt.Errorf("unsupported --views %q (valid: full, compact, none)", mode)
+}
+
+func terminalWidth(w io.Writer) int {
+	if f, ok := w.(*os.File); ok && term.IsTerminal(int(f.Fd())) {
+		if width, _, err := term.GetSize(int(f.Fd())); err == nil && width > 0 {
+			return width
+		}
+	}
+	if n, err := strconv.Atoi(os.Getenv("COLUMNS")); err == nil && n > 0 {
+		return n
+	}
+	return 80
 }
 
 // safeWriter replaces control and format characters other than newline and tab, so text from a session
@@ -123,6 +171,7 @@ func (r *Renderer) Render(resp *agentv1.WatchSessionResponse) error {
 	if err := r.renderView(resp.GetViewJson()); err != nil {
 		return err
 	}
+	r.renderPluginViews(resp.GetViewsJson(), resp.GetSession().GetSessionId())
 	if resp.GetSession() != nil {
 		r.status(status)
 	}
@@ -290,6 +339,47 @@ func (r *Renderer) line(format string, args ...any) {
 		r.open = false
 	}
 	fmt.Fprintf(r.w, format+"\n", args...)
+}
+
+// renderPluginViews prints each plugin view whose rev changed,
+// waiting while a partial response is still streaming so a view never cuts into it;
+// a partial another line already cut into prints whole at the end, so it does not hold views back.
+func (r *Renderer) renderPluginViews(viewsJSON, sessionID string) {
+	if r.viewMode == viewsNone {
+		return
+	}
+	if r.streamed != "" && !r.broken {
+		return
+	}
+	views, err := parsePluginViews(viewsJSON)
+	if err != nil {
+		if r.once("views-error") {
+			r.line("(plugin views not shown: %v)", err)
+		}
+		return
+	}
+	for _, v := range views.Views {
+		if rev, ok := r.viewRevs[v.ref()]; ok && rev == v.Rev {
+			continue
+		}
+		r.viewRevs[v.ref()] = v.Rev
+		lines, chips := renderView(v, r.width(), r.viewMode == viewsCompact)
+		for _, l := range lines {
+			r.styledLine(l)
+		}
+		if len(chips) > 0 && r.once("view-hint:"+v.ref()) {
+			hint := fmt.Sprintf("(run a control: depot agent session action %s %s <key>)", sessionID, v.ref())
+			r.styledLine(renderLine(viewLine{span(hint, mutedStyle)}, r.width()))
+		}
+	}
+}
+
+func (r *Renderer) styledLine(s string) {
+	if r.open {
+		fmt.Fprintln(r.w)
+		r.open = false
+	}
+	fmt.Fprintln(r.styled, s)
 }
 
 func (r *Renderer) once(key string) bool {

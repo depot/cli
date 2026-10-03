@@ -63,6 +63,9 @@ const (
 	// DepotAgentServiceDeleteTriggerProcedure is the fully-qualified name of the DepotAgentService's
 	// DeleteTrigger RPC.
 	DepotAgentServiceDeleteTriggerProcedure = "/depot.agent.v1.DepotAgentService/DeleteTrigger"
+	// DepotAgentServiceInvokeViewActionProcedure is the fully-qualified name of the DepotAgentService's
+	// InvokeViewAction RPC.
+	DepotAgentServiceInvokeViewActionProcedure = "/depot.agent.v1.DepotAgentService/InvokeViewAction"
 )
 
 // DepotAgentServiceClient is a client for the depot.agent.v1.DepotAgentService service.
@@ -88,6 +91,10 @@ type DepotAgentServiceClient interface {
 	ListTriggers(context.Context, *connect.Request[v1.ListTriggersRequest]) (*connect.Response[v1.ListTriggersResponse], error)
 	// Deletes a trigger. Its URL stops accepting deliveries; sessions it started are kept.
 	DeleteTrigger(context.Context, *connect.Request[v1.DeleteTriggerRequest]) (*connect.Response[v1.DeleteTriggerResponse], error)
+	// Runs one action on a plugin view: a button, select or form. The click is queued as a "plugin_call" message,
+	// shown in the transcript, and handled by the plugin inside the sandbox. A retry with the same
+	// `clientRequestId` returns the original.
+	InvokeViewAction(context.Context, *connect.Request[v1.InvokeViewActionRequest]) (*connect.Response[v1.InvokeViewActionResponse], error)
 }
 
 // NewDepotAgentServiceClient constructs a client for the depot.agent.v1.DepotAgentService service.
@@ -150,6 +157,11 @@ func NewDepotAgentServiceClient(httpClient connect.HTTPClient, baseURL string, o
 			baseURL+DepotAgentServiceDeleteTriggerProcedure,
 			opts...,
 		),
+		invokeViewAction: connect.NewClient[v1.InvokeViewActionRequest, v1.InvokeViewActionResponse](
+			httpClient,
+			baseURL+DepotAgentServiceInvokeViewActionProcedure,
+			opts...,
+		),
 	}
 }
 
@@ -165,6 +177,7 @@ type depotAgentServiceClient struct {
 	createTrigger          *connect.Client[v1.CreateTriggerRequest, v1.CreateTriggerResponse]
 	listTriggers           *connect.Client[v1.ListTriggersRequest, v1.ListTriggersResponse]
 	deleteTrigger          *connect.Client[v1.DeleteTriggerRequest, v1.DeleteTriggerResponse]
+	invokeViewAction       *connect.Client[v1.InvokeViewActionRequest, v1.InvokeViewActionResponse]
 }
 
 // CreateSession calls depot.agent.v1.DepotAgentService.CreateSession.
@@ -217,6 +230,11 @@ func (c *depotAgentServiceClient) DeleteTrigger(ctx context.Context, req *connec
 	return c.deleteTrigger.CallUnary(ctx, req)
 }
 
+// InvokeViewAction calls depot.agent.v1.DepotAgentService.InvokeViewAction.
+func (c *depotAgentServiceClient) InvokeViewAction(ctx context.Context, req *connect.Request[v1.InvokeViewActionRequest]) (*connect.Response[v1.InvokeViewActionResponse], error) {
+	return c.invokeViewAction.CallUnary(ctx, req)
+}
+
 // DepotAgentServiceHandler is an implementation of the depot.agent.v1.DepotAgentService service.
 type DepotAgentServiceHandler interface {
 	// Creates a session and queues its first message. A sandbox starts for it within a minute.
@@ -240,6 +258,10 @@ type DepotAgentServiceHandler interface {
 	ListTriggers(context.Context, *connect.Request[v1.ListTriggersRequest]) (*connect.Response[v1.ListTriggersResponse], error)
 	// Deletes a trigger. Its URL stops accepting deliveries; sessions it started are kept.
 	DeleteTrigger(context.Context, *connect.Request[v1.DeleteTriggerRequest]) (*connect.Response[v1.DeleteTriggerResponse], error)
+	// Runs one action on a plugin view: a button, select or form. The click is queued as a "plugin_call" message,
+	// shown in the transcript, and handled by the plugin inside the sandbox. A retry with the same
+	// `clientRequestId` returns the original.
+	InvokeViewAction(context.Context, *connect.Request[v1.InvokeViewActionRequest]) (*connect.Response[v1.InvokeViewActionResponse], error)
 }
 
 // NewDepotAgentServiceHandler builds an HTTP handler from the service implementation. It returns
@@ -298,6 +320,11 @@ func NewDepotAgentServiceHandler(svc DepotAgentServiceHandler, opts ...connect.H
 		svc.DeleteTrigger,
 		opts...,
 	)
+	depotAgentServiceInvokeViewActionHandler := connect.NewUnaryHandler(
+		DepotAgentServiceInvokeViewActionProcedure,
+		svc.InvokeViewAction,
+		opts...,
+	)
 	return "/depot.agent.v1.DepotAgentService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case DepotAgentServiceCreateSessionProcedure:
@@ -320,6 +347,8 @@ func NewDepotAgentServiceHandler(svc DepotAgentServiceHandler, opts ...connect.H
 			depotAgentServiceListTriggersHandler.ServeHTTP(w, r)
 		case DepotAgentServiceDeleteTriggerProcedure:
 			depotAgentServiceDeleteTriggerHandler.ServeHTTP(w, r)
+		case DepotAgentServiceInvokeViewActionProcedure:
+			depotAgentServiceInvokeViewActionHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -367,4 +396,8 @@ func (UnimplementedDepotAgentServiceHandler) ListTriggers(context.Context, *conn
 
 func (UnimplementedDepotAgentServiceHandler) DeleteTrigger(context.Context, *connect.Request[v1.DeleteTriggerRequest]) (*connect.Response[v1.DeleteTriggerResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.agent.v1.DepotAgentService.DeleteTrigger is not implemented"))
+}
+
+func (UnimplementedDepotAgentServiceHandler) InvokeViewAction(context.Context, *connect.Request[v1.InvokeViewActionRequest]) (*connect.Response[v1.InvokeViewActionResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.agent.v1.DepotAgentService.InvokeViewAction is not implemented"))
 }
