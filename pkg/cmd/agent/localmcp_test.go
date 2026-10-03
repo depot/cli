@@ -79,7 +79,7 @@ func TestLoadMcpConfigKeepsStdioServersAndExpandsTheEnvironment(t *testing.T) {
 	}
 }
 
-func TestStartServerSkipsToolsPastTheOfferBudget(t *testing.T) {
+func TestStartServerKeepsWithinTheOfferBudget(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	servers, _, err := loadMcpConfig(notesConfig(t))
@@ -88,14 +88,17 @@ func TestStartServerSkipsToolsPastTheOfferBudget(t *testing.T) {
 	}
 	client := mcp.NewClient(&mcp.Implementation{Name: "test"}, nil)
 	var notices syncBuffer
-	budget := 100
-	cs, offer, err := startServer(ctx, client, servers[0], &budget, &notices)
+	// Room for the server but not its tool.
+	cs, offer, err := startServer(ctx, client, servers[0], 150, &notices)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer cs.Close()
 	if len(offer.Tools) != 0 || !strings.Contains(notices.String(), "skipping tool read_file") {
 		t.Fatalf("tools = %v, notices = %q", offer.Tools, notices.String())
+	}
+	if _, _, err := startServer(ctx, client, servers[0], 50, &notices); err == nil || !strings.Contains(err.Error(), "KB limit") {
+		t.Fatalf("err = %v, want the server left out", err)
 	}
 }
 
