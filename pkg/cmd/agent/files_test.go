@@ -435,6 +435,7 @@ func TestMediaTypeTrustsTheBytesOverTheName(t *testing.T) {
 		".ts":   "video/mp2t",
 		".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 		".md":   "text/markdown",
+		".rtf":  "application/rtf",
 	} {
 		if err := mime.AddExtensionType(ext, typ); err != nil {
 			t.Fatal(err)
@@ -446,6 +447,8 @@ func TestMediaTypeTrustsTheBytesOverTheName(t *testing.T) {
 		{"logo.svg", `<svg xmlns="http://www.w3.org/2000/svg"></svg>`, "image/svg+xml"},
 		{"spec.docx", "PK\x03\x04\x14\x00", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"},
 		{"spec.md", "PK\x03\x04\x14\x00", "application/zip"},
+		{"memo.rtf", `{\rtf1\ansi hello}`, "application/rtf"},
+		{"photo.png", "not a png\n", "text/plain"},
 		{"shot.ts", "\x89PNG\r\n\x1a\n", "image/png"},
 		{"clip.ts", "\x47\x00\x11\x10\x00\x00\xb0", "video/mp2t"},
 	} {

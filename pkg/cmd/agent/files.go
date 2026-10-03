@@ -345,8 +345,9 @@ func narrows(sniffed, byExt string) bool {
 	case "application/zip":
 		return strings.HasPrefix(byExt, "application/")
 	case "text/plain", "text/xml":
-		return strings.HasPrefix(byExt, "text/") || strings.HasSuffix(byExt, "+xml") || strings.HasSuffix(byExt, "json") ||
-			byExt == "application/xml" || byExt == "application/javascript"
+		// Text can be any text-based format, but never binary media.
+		top, _, _ := strings.Cut(byExt, "/")
+		return byExt == "image/svg+xml" || (top != "image" && top != "video" && top != "audio" && top != "font")
 	}
 	return false
 }
