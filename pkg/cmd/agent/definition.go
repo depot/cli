@@ -177,6 +177,12 @@ type pluginRef struct {
 
 // writeDefinition refuses to mix a pulled definition into one already there, since push would send the leftovers.
 func writeDefinition(dir string, content *agentv1.DepotAgentDefinitionContent, force bool) error {
+	// Refuse before --force removes anything, so a bad pull never costs the existing definition.
+	for _, skill := range content.GetSkills() {
+		if !validSkillName(skill.GetName()) {
+			return fmt.Errorf("skill name %q is not a directory name", safeText(skill.GetName()))
+		}
+	}
 	for _, name := range []string{instructionsFile, skillsDir, pluginsFile} {
 		path := filepath.Join(dir, name)
 		if _, err := os.Lstat(path); err == nil {
@@ -199,9 +205,6 @@ func writeDefinition(dir string, content *agentv1.DepotAgentDefinitionContent, f
 		}
 	}
 	for _, skill := range content.GetSkills() {
-		if !validSkillName(skill.GetName()) {
-			return fmt.Errorf("skill name %q is not a directory name", safeText(skill.GetName()))
-		}
 		front, err := yaml.Marshal(skillFrontMatter{Name: skill.GetName(), Description: skill.GetDescription()})
 		if err != nil {
 			return err
