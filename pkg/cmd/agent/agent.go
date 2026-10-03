@@ -27,6 +27,7 @@ func NewCmdAgent() *cobra.Command {
 	}
 	cmd.AddCommand(newCmdSession())
 	cmd.AddCommand(newCmdMcp())
+	cmd.AddCommand(newCmdCredentials())
 	sanitizeErrors(cmd)
 	return cmd
 }

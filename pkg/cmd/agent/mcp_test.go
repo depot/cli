@@ -18,14 +18,16 @@ import (
 type fakeMcpService struct {
 	agentv1connect.UnimplementedDepotAgentServiceHandler
 
-	mu         sync.Mutex
-	servers    []*agentv1.DepotAgentMcpServer
-	creates    []*agentv1.CreateMcpServerRequest
-	tokens     []*agentv1.SetMcpServerTokenRequest
-	deletes    []string
-	createErr  error
-	loginURL   string
-	loginCalls int
+	mu        sync.Mutex
+	servers   []*agentv1.DepotAgentMcpServer
+	creates   []*agentv1.CreateMcpServerRequest
+	tokens    []*agentv1.SetMcpServerTokenRequest
+	deletes   []string
+	createErr error
+	loginURL  string
+	logins    []*agentv1.StartMcpLoginRequest
+	credSets  []*agentv1.SetAgentCredentialRequest
+	credDels  []*agentv1.DeleteAgentCredentialRequest
 }
 
 func (f *fakeMcpService) CreateMcpServer(_ context.Context, req *connect.Request[agentv1.CreateMcpServerRequest]) (*connect.Response[agentv1.CreateMcpServerResponse], error) {
@@ -56,15 +58,34 @@ func (f *fakeMcpService) SetMcpServerToken(_ context.Context, req *connect.Reque
 	return connect.NewResponse(&agentv1.SetMcpServerTokenResponse{McpServer: &agentv1.DepotAgentMcpServer{Auth: "none"}}), nil
 }
 
-func (f *fakeMcpService) StartMcpLogin(context.Context, *connect.Request[agentv1.StartMcpLoginRequest]) (*connect.Response[agentv1.StartMcpLoginResponse], error) {
+func (f *fakeMcpService) StartMcpLogin(_ context.Context, req *connect.Request[agentv1.StartMcpLoginRequest]) (*connect.Response[agentv1.StartMcpLoginResponse], error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.loginCalls++
+	f.logins = append(f.logins, req.Msg)
 	return connect.NewResponse(&agentv1.StartMcpLoginResponse{AuthorizationUrl: f.loginURL}), nil
+}
+
+func (f *fakeMcpService) SetAgentCredential(_ context.Context, req *connect.Request[agentv1.SetAgentCredentialRequest]) (*connect.Response[agentv1.SetAgentCredentialResponse], error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.credSets = append(f.credSets, req.Msg)
+	return connect.NewResponse(&agentv1.SetAgentCredentialResponse{Credential: &agentv1.DepotAgentCredential{Name: req.Msg.Name, Scope: req.Msg.GetScope(), Hosts: req.Msg.Hosts}}), nil
+}
+
+func (f *fakeMcpService) DeleteAgentCredential(_ context.Context, req *connect.Request[agentv1.DeleteAgentCredentialRequest]) (*connect.Response[agentv1.DeleteAgentCredentialResponse], error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.credDels = append(f.credDels, req.Msg)
+	return connect.NewResponse(&agentv1.DeleteAgentCredentialResponse{}), nil
 }
 
 // runMcp runs `depot agent mcp <args>` against f, with stdin as the command's input.
 func runMcp(t *testing.T, f *fakeMcpService, stdin string, args ...string) error {
+	t.Helper()
+	return runAgent(t, f, stdin, append([]string{"mcp"}, args...)...)
+}
+
+func runAgent(t *testing.T, f *fakeMcpService, stdin string, args ...string) error {
 	t.Helper()
 	mux := http.NewServeMux()
 	mux.Handle(agentv1connect.NewDepotAgentServiceHandler(f))
@@ -77,7 +98,7 @@ func runMcp(t *testing.T, f *fakeMcpService, stdin string, args ...string) error
 	t.Cleanup(func() { newClient = prev })
 
 	root := NewCmdAgent()
-	root.SetArgs(append(append([]string{"mcp"}, args...), "--token", "tok", "--org", "org"))
+	root.SetArgs(append(args, "--token", "tok", "--org", "org"))
 	root.SetIn(strings.NewReader(stdin))
 	root.SetOut(&bytes.Buffer{})
 	root.SetErr(&bytes.Buffer{})
@@ -86,9 +107,9 @@ func runMcp(t *testing.T, f *fakeMcpService, stdin string, args ...string) error
 }
 
 var twoLinears = []*agentv1.DepotAgentMcpServer{
-	{McpServerId: "org1", Name: "linear", Scope: "organization", Auth: "oauth"},
-	{McpServerId: "usr1", Name: "linear", Scope: "user", Auth: "none"},
-	{McpServerId: "usr2", Name: "sentry", Scope: "user", Auth: "token"},
+	{McpServerId: "org1", Name: "linear", Scope: "organization", Auth: "oauth", CredentialName: "MCP_LINEAR", CredentialScope: "organization"},
+	{McpServerId: "usr1", Name: "linear", Scope: "user", Auth: "none", CredentialName: "MCP_LINEAR"},
+	{McpServerId: "usr2", Name: "sentry", Scope: "user", Auth: "token", CredentialName: "SENTRY_TOKEN", CredentialScope: "user"},
 }
 
 func TestMcpAddSendsScopeAndHeaders(t *testing.T) {
@@ -159,8 +180,8 @@ func TestMcpTokenClearSendsAnEmptyTokenAndRefusesAnEmptyOne(t *testing.T) {
 
 func TestMcpRemoveNeedsScopeWhenANameIsShared(t *testing.T) {
 	f := &fakeMcpService{servers: twoLinears}
-	if err := runMcp(t, f, "", "remove", "linear"); err == nil || !strings.Contains(err.Error(), "--scope") {
-		t.Fatalf("got %v, want a hint to pass --scope", err)
+	if err := runMcp(t, f, "", "remove", "linear"); err == nil || !strings.Contains(err.Error(), "ID") {
+		t.Fatalf("got %v, want a hint to pass the ID", err)
 	}
 	if err := runMcp(t, f, "", "remove", "linear", "--scope", "user"); err != nil {
 		t.Fatal(err)
@@ -182,8 +203,58 @@ func TestMcpLoginRefusesANonHTTPSURL(t *testing.T) {
 	if err := runMcp(t, f, "", "login", "sentry", "--no-browser"); err != nil {
 		t.Fatal(err)
 	}
-	if f.loginCalls != 2 {
-		t.Fatalf("login calls = %d", f.loginCalls)
+	if err := runMcp(t, f, "", "login", "linear", "--scope", "organization", "--no-browser"); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.logins) != 3 || f.logins[1].Scope != nil || f.logins[2].McpServerId != "org1" || f.logins[2].GetScope() != "organization" {
+		t.Fatalf("got %v", f.logins)
+	}
+}
+
+func TestMcpTokenOrganizationScopePicksTheOrganizationServer(t *testing.T) {
+	f := &fakeMcpService{servers: twoLinears}
+	if err := runMcp(t, f, "s3cret", "token", "linear"); err == nil {
+		t.Fatal("a shared name without --scope organization should be ambiguous")
+	}
+	if err := runMcp(t, f, "s3cret", "token", "linear", "--scope", "organization"); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.tokens) != 1 || f.tokens[0].McpServerId != "org1" || f.tokens[0].GetScope() != "organization" {
+		t.Fatalf("got %v", f.tokens)
+	}
+}
+
+func TestCredentialsSetReadsStdinAndNeedsAHost(t *testing.T) {
+	f := &fakeMcpService{}
+	if err := runAgent(t, f, "s3cret-value", "credentials", "set", "LINEAR_TOKEN"); err == nil {
+		t.Fatal("want an error without --host")
+	}
+	if err := runAgent(t, f, "s3cret-value\n", "credentials", "set", "LINEAR_TOKEN", "--host", "mcp.linear.app", "--scope", "organization"); err != nil {
+		t.Fatal(err)
+	}
+	if err := runAgent(t, f, "", "credentials", "rm", "LINEAR_TOKEN"); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.credSets) != 1 {
+		t.Fatalf("sent %d sets, want 1", len(f.credSets))
+	}
+	got := f.credSets[0]
+	if got.Value != "s3cret-value" || got.GetScope() != "organization" || strings.Join(got.Hosts, ",") != "mcp.linear.app" {
+		t.Fatalf("got %v", got)
+	}
+	if len(f.credDels) != 1 || f.credDels[0].Name != "LINEAR_TOKEN" || f.credDels[0].Scope != nil {
+		t.Fatalf("got %v", f.credDels)
+	}
+}
+
+func TestCredentialsTableHasNoValues(t *testing.T) {
+	var buf bytes.Buffer
+	creds := []*agentv1.DepotAgentCredential{{Name: "LINEAR_TOKEN", Scope: "user", Kind: "static", Hosts: []string{"mcp.linear.app", "api.linear.app"}}}
+	if err := writeCredentialsTable(&buf, creds); err != nil {
+		t.Fatal(err)
+	}
+	if out := buf.String(); !strings.Contains(out, "LINEAR_TOKEN  user   static  mcp.linear.app,api.linear.app") {
+		t.Fatalf("table:\n%s", out)
 	}
 }
 
@@ -194,7 +265,7 @@ func TestMcpTableShowsScopeAndAuth(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := buf.String()
-	for _, want := range []string{"SCOPE", "AUTH", "organization  oauth", "user          token"} {
+	for _, want := range []string{"SCOPE", "AUTH", "organization  oauth", "user          token", "MCP_LINEAR (organization)", "MCP_LINEAR (not connected)", "SENTRY_TOKEN (user)"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("table lacks %q:\n%s", want, out)
 		}
@@ -204,11 +275,11 @@ func TestMcpTableShowsScopeAndAuth(t *testing.T) {
 	}
 }
 
-func TestReadTokenBoundsPipedInput(t *testing.T) {
-	if _, err := readToken(strings.NewReader(strings.Repeat("a", maxTokenBytes+1)), &bytes.Buffer{}); err == nil {
+func TestReadSecretBoundsPipedInput(t *testing.T) {
+	if _, err := readSecret(strings.NewReader(strings.Repeat("a", maxSecretBytes+1)), &bytes.Buffer{}, "token"); err == nil {
 		t.Fatal("want an error for an oversized token")
 	}
-	got, err := readToken(strings.NewReader("  tok\r\n"), &bytes.Buffer{})
+	got, err := readSecret(strings.NewReader("  tok\r\n"), &bytes.Buffer{}, "token")
 	if err != nil || got != "tok" {
 		t.Fatalf("got %q, %v", got, err)
 	}

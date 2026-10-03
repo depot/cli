@@ -18,7 +18,7 @@ import (
 	"golang.org/x/term"
 )
 
-const maxTokenBytes = 64 << 10
+const maxSecretBytes = 64 << 10
 
 func newCmdMcp() *cobra.Command {
 	cmd := &cobra.Command{
@@ -52,13 +52,14 @@ An organization server, the default, serves every message sent in the organizati
 only an owner can add one. A user server (--scope user) serves only the messages you send.
 
 Depot calls the server for the agent, so its credentials never reach a sandbox.
-If the server needs a login, run "depot agent mcp login <name>",
-or store a token with "depot agent mcp token <name>".`,
+A header can reference a credential as ${secrets.NAME}: the sender's own, then the organization's
+(see "depot agent credentials"), then the CI secret NAME. Without an Authorization header,
+log in with "depot agent mcp login <name>" or store a token with "depot agent mcp token <name>".`,
 		Example: `  # Add a server for your own messages, then log in to it
   depot agent mcp add linear https://mcp.linear.app/mcp --scope user
   depot agent mcp login linear
 
-  # Add a server for the whole organization that authenticates with a CI secret
+  # Add a server for the whole organization; each member connects their own SENTRY_TOKEN
   depot agent mcp add sentry https://mcp.sentry.dev/mcp --header 'Authorization: Bearer ${secrets.SENTRY_TOKEN}'`,
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -118,9 +119,9 @@ or store a token with "depot agent mcp token <name>".`,
 
 	auth.register(cmd)
 	cmd.Flags().StringVar(&scope, "scope", "", `Whose messages the server serves: "organization" (default, owners only) or "user"`)
-	cmd.Flags().StringArrayVarP(&headers, "header", "H", nil, "Header to send, as \"Name: value\", whose value references a CI secret as ${secrets.NAME} (repeatable; organization servers only)")
+	cmd.Flags().StringArrayVarP(&headers, "header", "H", nil, "Header to send, as \"Name: value\", whose value references a credential as ${secrets.NAME} (repeatable)")
 	cmd.Flags().StringVar(&clientID, "oauth-client-id", "", "OAuth client ID, for a server that does not register clients itself")
-	cmd.Flags().StringVar(&clientSecret, "oauth-client-secret", "", "OAuth client secret, as a CI secret reference such as ${secrets.NAME}")
+	cmd.Flags().StringVar(&clientSecret, "oauth-client-secret", "", "OAuth client secret, as a CI secret reference such as ${secrets.NAME}, bound to the token endpoint's host")
 	cmd.Flags().StringVarP(&output, "output", "o", "", "Output format (json)")
 	return cmd
 }
@@ -206,8 +207,8 @@ func newCmdMcpToken() *cobra.Command {
 		Long: `Store the token Depot sends to an MCP server as "Authorization: Bearer".
 
 The token is read from stdin, or prompted for without echoing it. Depot never returns it.
-While a token is stored, Depot sends it instead of an OAuth login.
-An owner sets an organization server's token; a user server's token is your own.`,
+The token is your own, unless an owner passes --scope organization for an organization server.
+It replaces an OAuth login stored at the same scope.`,
 		Example: `  # Prompt for the token
   depot agent mcp token linear
 
@@ -218,14 +219,17 @@ An owner sets an organization server's token; a user server's token is your own.
   depot agent mcp token linear --clear`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := validateScope(scope); err != nil {
+				return err
+			}
 			ctx := cmd.Context()
-			s, srv, err := resolveMcpServer(ctx, &auth, args[0], scope)
+			s, srv, err := resolveMcpServer(ctx, &auth, args[0], credentialServerFilter(scope))
 			if err != nil {
 				return err
 			}
 			token := ""
 			if !clearToken {
-				if token, err = readToken(cmd.InOrStdin(), cmd.ErrOrStderr()); err != nil {
+				if token, err = readSecret(cmd.InOrStdin(), cmd.ErrOrStderr(), "token"); err != nil {
 					return err
 				}
 				if token == "" {
@@ -233,6 +237,9 @@ An owner sets an organization server's token; a user server's token is your own.
 				}
 			}
 			req := &agentv1.SetMcpServerTokenRequest{McpServerId: srv.GetMcpServerId(), Token: token}
+			if scope != "" {
+				req.Scope = ptr(scope)
+			}
 			resp, err := s.client.SetMcpServerToken(ctx, authed(s, req))
 			if err != nil {
 				return fmt.Errorf("set token for MCP server %s: %w", args[0], err)
@@ -248,7 +255,7 @@ An owner sets an organization server's token; a user server's token is your own.
 	}
 
 	auth.register(cmd)
-	registerScopeFilter(cmd, &scope)
+	registerCredentialScope(cmd, &scope)
 	cmd.Flags().BoolVar(&clearToken, "clear", false, "Remove the stored token")
 	return cmd
 }
@@ -265,16 +272,23 @@ func newCmdMcpLogin() *cobra.Command {
 		Short: "Log in to an MCP server with OAuth",
 		Long: `Log in to an MCP server with OAuth, in your browser.
 
-An owner's login to an organization server serves everyone; your login to a user server is your own.
-The login finishes in the browser, signed in to Depot, within 10 minutes.`,
+The login is your own, unless an owner passes --scope organization for an organization server.
+It finishes in the browser, signed in to Depot, within 10 minutes.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := validateScope(scope); err != nil {
+				return err
+			}
 			ctx := cmd.Context()
-			s, srv, err := resolveMcpServer(ctx, &auth, args[0], scope)
+			s, srv, err := resolveMcpServer(ctx, &auth, args[0], credentialServerFilter(scope))
 			if err != nil {
 				return err
 			}
-			resp, err := s.client.StartMcpLogin(ctx, authed(s, &agentv1.StartMcpLoginRequest{McpServerId: srv.GetMcpServerId()}))
+			req := &agentv1.StartMcpLoginRequest{McpServerId: srv.GetMcpServerId()}
+			if scope != "" {
+				req.Scope = ptr(scope)
+			}
+			resp, err := s.client.StartMcpLogin(ctx, authed(s, req))
 			if err != nil {
 				return fmt.Errorf("start login to MCP server %s: %w", args[0], err)
 			}
@@ -290,15 +304,12 @@ The login finishes in the browser, signed in to Depot, within 10 minutes.`,
 				}
 			}
 			fmt.Printf("Finish logging in in your browser; then \"depot agent mcp list\" shows %s with auth oauth.\n", name)
-			if srv.GetAuth() == "token" {
-				fmt.Fprintf(os.Stderr, "%s has a stored token, which Depot sends instead of this login until you run \"depot agent mcp token %s --clear\".\n", name, name)
-			}
 			return nil
 		},
 	}
 
 	auth.register(cmd)
-	registerScopeFilter(cmd, &scope)
+	registerCredentialScope(cmd, &scope)
 	cmd.Flags().BoolVar(&noBrowser, "no-browser", false, "Print the login URL without opening a browser")
 	return cmd
 }
@@ -312,6 +323,17 @@ func validateScope(scope string) error {
 
 func registerScopeFilter(cmd *cobra.Command, scope *string) {
 	cmd.Flags().StringVar(scope, "scope", "", `Pick the "organization" or "user" server when both have the name`)
+}
+
+func registerCredentialScope(cmd *cobra.Command, scope *string) {
+	cmd.Flags().StringVar(scope, "scope", "", `Whose credential: "user" (default, your own) or "organization" (owners, organization servers only)`)
+}
+
+func credentialServerFilter(scope string) string {
+	if scope == "organization" {
+		return scope
+	}
+	return ""
 }
 
 // resolveMcpServer accepts a name as well as an ID, since the name is what users know a server by.
@@ -350,26 +372,26 @@ func findMcpServer(servers []*agentv1.DepotAgentMcpServer, ref, scope string) (*
 	case 1:
 		return named[0], nil
 	}
-	return nil, fmt.Errorf("an organization and a user MCP server are both named %q: pass --scope", ref)
+	return nil, fmt.Errorf("an organization and a user MCP server are both named %q: pass its ID from depot agent mcp list", ref)
 }
 
-// readToken reads a piped token, or prompts on a terminal without echoing it, so it never lands in argv or shell history.
-func readToken(in io.Reader, prompt io.Writer) (string, error) {
+// readSecret reads a piped secret, or prompts on a terminal without echoing it, so it never lands in argv or shell history.
+func readSecret(in io.Reader, prompt io.Writer, what string) (string, error) {
 	if f, ok := in.(*os.File); ok && term.IsTerminal(int(f.Fd())) {
-		fmt.Fprint(prompt, "Token: ")
+		fmt.Fprintf(prompt, "%s: ", strings.ToUpper(what[:1])+what[1:])
 		b, err := term.ReadPassword(int(f.Fd()))
 		fmt.Fprintln(prompt)
 		if err != nil {
-			return "", fmt.Errorf("read token: %w", err)
+			return "", fmt.Errorf("read %s: %w", what, err)
 		}
 		return strings.TrimSpace(string(b)), nil
 	}
-	b, err := io.ReadAll(io.LimitReader(in, maxTokenBytes+1))
+	b, err := io.ReadAll(io.LimitReader(in, maxSecretBytes+1))
 	if err != nil {
-		return "", fmt.Errorf("read token from stdin: %w", err)
+		return "", fmt.Errorf("read %s from stdin: %w", what, err)
 	}
-	if len(b) > maxTokenBytes {
-		return "", fmt.Errorf("token is over %d bytes", maxTokenBytes)
+	if len(b) > maxSecretBytes {
+		return "", fmt.Errorf("%s is over %d bytes", what, maxSecretBytes)
 	}
 	return strings.TrimSpace(string(b)), nil
 }
@@ -380,9 +402,19 @@ func writeMcpTable(w io.Writer, servers []*agentv1.DepotAgentMcpServer) error {
 		return err
 	}
 	tw := tabwriter.NewWriter(safeWriter{w}, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "NAME\tSCOPE\tAUTH\tURL\tID")
+	fmt.Fprintln(tw, "NAME\tSCOPE\tAUTH\tCREDENTIAL\tURL\tID")
 	for _, srv := range servers {
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", oneLine(srv.GetName()), oneLine(srv.GetScope()), oneLine(srv.GetAuth()), oneLine(srv.GetUrl()), oneLine(srv.GetMcpServerId()))
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", oneLine(srv.GetName()), oneLine(srv.GetScope()), oneLine(srv.GetAuth()), credentialCell(srv), oneLine(srv.GetUrl()), oneLine(srv.GetMcpServerId()))
 	}
 	return tw.Flush()
+}
+
+func credentialCell(srv *agentv1.DepotAgentMcpServer) string {
+	switch {
+	case srv.GetCredentialName() == "":
+		return "-"
+	case srv.GetCredentialScope() == "":
+		return oneLine(srv.GetCredentialName()) + " (not connected)"
+	}
+	return fmt.Sprintf("%s (%s)", oneLine(srv.GetCredentialName()), oneLine(srv.GetCredentialScope()))
 }
