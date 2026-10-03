@@ -50,13 +50,22 @@ service DepotAgentService {
   // taken after the delete leave it out, and later calls to it fail, even from a turn whose tools were listed
   // before. A call that is already being sent may still complete.
   rpc DeleteMcpServer(DeleteMcpServerRequest) returns (DeleteMcpServerResponse);
-  // Stores a token Depot sends to an MCP server as `Authorization: Bearer`, or clears it. An owner sets an
-  // organization server's token; a user server's creator sets its own. The token is never returned.
+  // Stores a token as an MCP server's credential, which Depot sends as `Authorization: Bearer`, or clears it.
+  // Any member who can use the server sets their own; an owner can set the organization's for an organization
+  // server. The token is never returned.
   rpc SetMcpServerToken(SetMcpServerTokenRequest) returns (SetMcpServerTokenResponse);
-  // Returns a URL that logs in to an MCP server with OAuth, for the caller to open in a browser. An owner logs
-  // in to an organization server for everyone; a user server's creator logs in as themselves. Only the caller
-  // can finish the login, with `FinishMcpLogin`, within 10 minutes.
+  // Returns a URL that logs in to an MCP server with OAuth, for the caller to open in a browser. The login is
+  // stored as the server's credential: the caller's own, or as an owner the organization's. Only the caller can
+  // finish the login, with `FinishMcpLogin`, within 10 minutes.
   rpc StartMcpLogin(StartMcpLoginRequest) returns (StartMcpLoginResponse);
+  // Lists the organization's credentials, then the caller's own. Values are never returned.
+  rpc ListAgentCredentials(ListAgentCredentialsRequest) returns (ListAgentCredentialsResponse);
+  // Stores a named credential, or replaces the one of the same name and scope. A `${secrets.NAME}` reference
+  // in an MCP server's headers resolves to the credential of the member who sent the message, then the
+  // organization's, then the CI secret NAME. Depot sends it only to its hosts, and never to a sandbox.
+  rpc SetAgentCredential(SetAgentCredentialRequest) returns (SetAgentCredentialResponse);
+  // Deletes a named credential.
+  rpc DeleteAgentCredential(DeleteAgentCredentialRequest) returns (DeleteAgentCredentialResponse);
 }
 
 message DepotAgentAttachment {
@@ -399,9 +408,14 @@ message DepotAgentMcpServer {
   // sessions, or "user", for the messages its creator sends. A message from a trigger or Slack can use only
   // organization servers.
   string scope = 10;
-  // What Depot authenticates to the server with. Can be "headers", "token", "oauth", or "none". "oauth" means
-  // someone has logged in: an owner for an organization server, the creator for a user server.
+  // What Depot authenticates to the server with for the caller. Can be "headers", "token", "oauth", or "none".
   string auth = 11;
+  // Name of the credential the server signs in with: the one its `authorization` header references, else
+  // `MCP_<NAME>`. Empty when its `authorization` header has another form.
+  string credential_name = 12;
+  // Where the caller's credential comes from. Can be "user", "organization", "ci" for a CI secret, or empty
+  // when the caller has none.
+  string credential_scope = 13;
 }
 
 message CreateMcpServerRequest {
@@ -410,15 +424,16 @@ message CreateMcpServerRequest {
   // user server. An organization server hides a user server of the same name. Required.
   string name = 1;
   // URL of the server's MCP endpoint. Must be https and must not contain a username, a password, or a fragment.
-  // A query value can reference a CI secret as `${secrets.NAME}`, bound to the URL's host like a header's; a
+  // A query value can be a `${secrets.NAME}` reference, resolved and host-checked like a header's; a
   // literal value under a credential-like name, such as `token` or `api_key`, is refused. Required.
   string url = 2;
   // How the server is reached. Can be "streamable_http". Default: "streamable_http".
   optional string transport = 3;
-  // Headers sent with every request to the server. Each value must reference a CI secret in the "agents"
-  // environment as `${secrets.NAME}`, optionally after one scheme word, such as `Bearer ${secrets.LINEAR_TOKEN}`.
-  // Store a value that is not secret as a CI secret too. The secret must be bound to the URL's host with
-  // `SetMcpSecretHosts`. Only valid when `scope` is "organization".
+  // Headers sent with every request to the server. Each value must be one `${secrets.NAME}` reference, optionally
+  // after one scheme word, such as `Bearer ${secrets.LINEAR_TOKEN}`. A reference resolves to the sender's
+  // credential of that name, then the organization's, both set with `SetAgentCredential` and sent only to the hosts
+  // stored with them; then to the CI secret NAME in the "agents" environment, bound to the URL's host with
+  // `SetMcpSecretHosts`. Store a value that is not secret the same way.
   map<string, string> headers = 4;
   // Whose messages the server serves. Can be "organization", which requires the owner role, or "user", for
   // the messages the caller sends. Default: "organization".
@@ -434,8 +449,7 @@ message McpOAuthClient {
   // Client ID the authorization server issued. Required.
   string client_id = 1;
   // Client secret, as a CI secret reference such as `${secrets.LINEAR_CLIENT_SECRET}`, bound to the
-  // authorization server's host with `SetMcpSecretHosts`. Only valid when `scope` is "organization". Leave
-  // empty for a public client.
+  // authorization server's host with `SetMcpSecretHosts`. Leave empty for a public client.
   optional string client_secret = 2;
 }
 
@@ -464,9 +478,12 @@ message DeleteMcpServerResponse {}
 message SetMcpServerTokenRequest {
   // Unique identifier for the MCP server. Returned by `CreateMcpServer` and `ListMcpServers`.
   string mcp_server_id = 1;
-  // Token to send as `Authorization: Bearer`. While one is set, Depot sends it instead of an OAuth login.
-  // Leave empty to clear it.
+  // Token to send as `Authorization: Bearer`. It replaces an OAuth login stored at the same scope. Leave empty
+  // to clear it.
   string token = 2;
+  // Whose credential to set. Can be "user", for the caller's own, or "organization", which requires the owner
+  // role and an organization server. Default: "user".
+  optional string scope = 3;
 }
 
 message SetMcpServerTokenResponse {
@@ -476,9 +493,56 @@ message SetMcpServerTokenResponse {
 message StartMcpLoginRequest {
   // Unique identifier for the MCP server. Returned by `CreateMcpServer` and `ListMcpServers`.
   string mcp_server_id = 1;
+  // Whose credential the login is stored as. Can be "user", for the caller's own, or "organization", which
+  // requires the owner role and an organization server. Default: "user".
+  optional string scope = 2;
 }
 
 message StartMcpLoginResponse {
   // URL of the authorization server's login page. Open it in a browser, signed in to Depot as the caller.
   string authorization_url = 1;
 }
+
+message DepotAgentCredential {
+  // Name a `${secrets.NAME}` reference uses, such as "LINEAR_TOKEN".
+  string name = 1;
+  // Whose credential it is. Can be "organization" or "user".
+  string scope = 2;
+  // Can be "static", for a stored value, or "oauth", for an OAuth login Depot refreshes.
+  string kind = 3;
+  // An array of host names Depot sends the credential to.
+  repeated string hosts = 4;
+  // User who stored the credential. Unset when an organization token did.
+  optional string created_by_user_id = 5;
+  google.protobuf.Timestamp updated_at = 6;
+}
+
+message ListAgentCredentialsRequest {}
+
+message ListAgentCredentialsResponse {
+  repeated DepotAgentCredential credentials = 1;
+}
+
+message SetAgentCredentialRequest {
+  // Letters, digits, and underscores, starting with a letter or underscore. Case-insensitive. Required.
+  string name = 1;
+  // Value, of 8 to 8192 printable characters. Never returned. Required.
+  string value = 2;
+  // An array of exact host names Depot may send the credential to, without scheme, port, or path. Required.
+  repeated string hosts = 3;
+  // Can be "user", for the caller's own, or "organization", which requires the owner role. Default: "user".
+  optional string scope = 4;
+}
+
+message SetAgentCredentialResponse {
+  DepotAgentCredential credential = 1;
+}
+
+message DeleteAgentCredentialRequest {
+  // Name of the credential. Required.
+  string name = 1;
+  // Can be "user" or "organization", which requires the owner role. Default: "user".
+  optional string scope = 2;
+}
+
+message DeleteAgentCredentialResponse {}

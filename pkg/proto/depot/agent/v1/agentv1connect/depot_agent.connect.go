@@ -87,6 +87,15 @@ const (
 	// DepotAgentServiceStartMcpLoginProcedure is the fully-qualified name of the DepotAgentService's
 	// StartMcpLogin RPC.
 	DepotAgentServiceStartMcpLoginProcedure = "/depot.agent.v1.DepotAgentService/StartMcpLogin"
+	// DepotAgentServiceListAgentCredentialsProcedure is the fully-qualified name of the
+	// DepotAgentService's ListAgentCredentials RPC.
+	DepotAgentServiceListAgentCredentialsProcedure = "/depot.agent.v1.DepotAgentService/ListAgentCredentials"
+	// DepotAgentServiceSetAgentCredentialProcedure is the fully-qualified name of the
+	// DepotAgentService's SetAgentCredential RPC.
+	DepotAgentServiceSetAgentCredentialProcedure = "/depot.agent.v1.DepotAgentService/SetAgentCredential"
+	// DepotAgentServiceDeleteAgentCredentialProcedure is the fully-qualified name of the
+	// DepotAgentService's DeleteAgentCredential RPC.
+	DepotAgentServiceDeleteAgentCredentialProcedure = "/depot.agent.v1.DepotAgentService/DeleteAgentCredential"
 )
 
 // DepotAgentServiceClient is a client for the depot.agent.v1.DepotAgentService service.
@@ -133,13 +142,22 @@ type DepotAgentServiceClient interface {
 	// taken after the delete leave it out, and later calls to it fail, even from a turn whose tools were listed
 	// before. A call that is already being sent may still complete.
 	DeleteMcpServer(context.Context, *connect.Request[v1.DeleteMcpServerRequest]) (*connect.Response[v1.DeleteMcpServerResponse], error)
-	// Stores a token Depot sends to an MCP server as `Authorization: Bearer`, or clears it. An owner sets an
-	// organization server's token; a user server's creator sets its own. The token is never returned.
+	// Stores a token as an MCP server's credential, which Depot sends as `Authorization: Bearer`, or clears it.
+	// Any member who can use the server sets their own; an owner can set the organization's for an organization
+	// server. The token is never returned.
 	SetMcpServerToken(context.Context, *connect.Request[v1.SetMcpServerTokenRequest]) (*connect.Response[v1.SetMcpServerTokenResponse], error)
-	// Returns a URL that logs in to an MCP server with OAuth, for the caller to open in a browser. An owner logs
-	// in to an organization server for everyone; a user server's creator logs in as themselves. Only the caller
-	// can finish the login, with `FinishMcpLogin`, within 10 minutes.
+	// Returns a URL that logs in to an MCP server with OAuth, for the caller to open in a browser. The login is
+	// stored as the server's credential: the caller's own, or as an owner the organization's. Only the caller can
+	// finish the login, with `FinishMcpLogin`, within 10 minutes.
 	StartMcpLogin(context.Context, *connect.Request[v1.StartMcpLoginRequest]) (*connect.Response[v1.StartMcpLoginResponse], error)
+	// Lists the organization's credentials, then the caller's own. Values are never returned.
+	ListAgentCredentials(context.Context, *connect.Request[v1.ListAgentCredentialsRequest]) (*connect.Response[v1.ListAgentCredentialsResponse], error)
+	// Stores a named credential, or replaces the one of the same name and scope. A `${secrets.NAME}` reference
+	// in an MCP server's headers resolves to the credential of the member who sent the message, then the
+	// organization's, then the CI secret NAME. Depot sends it only to its hosts, and never to a sandbox.
+	SetAgentCredential(context.Context, *connect.Request[v1.SetAgentCredentialRequest]) (*connect.Response[v1.SetAgentCredentialResponse], error)
+	// Deletes a named credential.
+	DeleteAgentCredential(context.Context, *connect.Request[v1.DeleteAgentCredentialRequest]) (*connect.Response[v1.DeleteAgentCredentialResponse], error)
 }
 
 // NewDepotAgentServiceClient constructs a client for the depot.agent.v1.DepotAgentService service.
@@ -242,6 +260,21 @@ func NewDepotAgentServiceClient(httpClient connect.HTTPClient, baseURL string, o
 			baseURL+DepotAgentServiceStartMcpLoginProcedure,
 			opts...,
 		),
+		listAgentCredentials: connect.NewClient[v1.ListAgentCredentialsRequest, v1.ListAgentCredentialsResponse](
+			httpClient,
+			baseURL+DepotAgentServiceListAgentCredentialsProcedure,
+			opts...,
+		),
+		setAgentCredential: connect.NewClient[v1.SetAgentCredentialRequest, v1.SetAgentCredentialResponse](
+			httpClient,
+			baseURL+DepotAgentServiceSetAgentCredentialProcedure,
+			opts...,
+		),
+		deleteAgentCredential: connect.NewClient[v1.DeleteAgentCredentialRequest, v1.DeleteAgentCredentialResponse](
+			httpClient,
+			baseURL+DepotAgentServiceDeleteAgentCredentialProcedure,
+			opts...,
+		),
 	}
 }
 
@@ -265,6 +298,9 @@ type depotAgentServiceClient struct {
 	deleteMcpServer          *connect.Client[v1.DeleteMcpServerRequest, v1.DeleteMcpServerResponse]
 	setMcpServerToken        *connect.Client[v1.SetMcpServerTokenRequest, v1.SetMcpServerTokenResponse]
 	startMcpLogin            *connect.Client[v1.StartMcpLoginRequest, v1.StartMcpLoginResponse]
+	listAgentCredentials     *connect.Client[v1.ListAgentCredentialsRequest, v1.ListAgentCredentialsResponse]
+	setAgentCredential       *connect.Client[v1.SetAgentCredentialRequest, v1.SetAgentCredentialResponse]
+	deleteAgentCredential    *connect.Client[v1.DeleteAgentCredentialRequest, v1.DeleteAgentCredentialResponse]
 }
 
 // CreateSession calls depot.agent.v1.DepotAgentService.CreateSession.
@@ -357,6 +393,21 @@ func (c *depotAgentServiceClient) StartMcpLogin(ctx context.Context, req *connec
 	return c.startMcpLogin.CallUnary(ctx, req)
 }
 
+// ListAgentCredentials calls depot.agent.v1.DepotAgentService.ListAgentCredentials.
+func (c *depotAgentServiceClient) ListAgentCredentials(ctx context.Context, req *connect.Request[v1.ListAgentCredentialsRequest]) (*connect.Response[v1.ListAgentCredentialsResponse], error) {
+	return c.listAgentCredentials.CallUnary(ctx, req)
+}
+
+// SetAgentCredential calls depot.agent.v1.DepotAgentService.SetAgentCredential.
+func (c *depotAgentServiceClient) SetAgentCredential(ctx context.Context, req *connect.Request[v1.SetAgentCredentialRequest]) (*connect.Response[v1.SetAgentCredentialResponse], error) {
+	return c.setAgentCredential.CallUnary(ctx, req)
+}
+
+// DeleteAgentCredential calls depot.agent.v1.DepotAgentService.DeleteAgentCredential.
+func (c *depotAgentServiceClient) DeleteAgentCredential(ctx context.Context, req *connect.Request[v1.DeleteAgentCredentialRequest]) (*connect.Response[v1.DeleteAgentCredentialResponse], error) {
+	return c.deleteAgentCredential.CallUnary(ctx, req)
+}
+
 // DepotAgentServiceHandler is an implementation of the depot.agent.v1.DepotAgentService service.
 type DepotAgentServiceHandler interface {
 	// Creates a session and queues its first message. A sandbox starts for it within a minute.
@@ -401,13 +452,22 @@ type DepotAgentServiceHandler interface {
 	// taken after the delete leave it out, and later calls to it fail, even from a turn whose tools were listed
 	// before. A call that is already being sent may still complete.
 	DeleteMcpServer(context.Context, *connect.Request[v1.DeleteMcpServerRequest]) (*connect.Response[v1.DeleteMcpServerResponse], error)
-	// Stores a token Depot sends to an MCP server as `Authorization: Bearer`, or clears it. An owner sets an
-	// organization server's token; a user server's creator sets its own. The token is never returned.
+	// Stores a token as an MCP server's credential, which Depot sends as `Authorization: Bearer`, or clears it.
+	// Any member who can use the server sets their own; an owner can set the organization's for an organization
+	// server. The token is never returned.
 	SetMcpServerToken(context.Context, *connect.Request[v1.SetMcpServerTokenRequest]) (*connect.Response[v1.SetMcpServerTokenResponse], error)
-	// Returns a URL that logs in to an MCP server with OAuth, for the caller to open in a browser. An owner logs
-	// in to an organization server for everyone; a user server's creator logs in as themselves. Only the caller
-	// can finish the login, with `FinishMcpLogin`, within 10 minutes.
+	// Returns a URL that logs in to an MCP server with OAuth, for the caller to open in a browser. The login is
+	// stored as the server's credential: the caller's own, or as an owner the organization's. Only the caller can
+	// finish the login, with `FinishMcpLogin`, within 10 minutes.
 	StartMcpLogin(context.Context, *connect.Request[v1.StartMcpLoginRequest]) (*connect.Response[v1.StartMcpLoginResponse], error)
+	// Lists the organization's credentials, then the caller's own. Values are never returned.
+	ListAgentCredentials(context.Context, *connect.Request[v1.ListAgentCredentialsRequest]) (*connect.Response[v1.ListAgentCredentialsResponse], error)
+	// Stores a named credential, or replaces the one of the same name and scope. A `${secrets.NAME}` reference
+	// in an MCP server's headers resolves to the credential of the member who sent the message, then the
+	// organization's, then the CI secret NAME. Depot sends it only to its hosts, and never to a sandbox.
+	SetAgentCredential(context.Context, *connect.Request[v1.SetAgentCredentialRequest]) (*connect.Response[v1.SetAgentCredentialResponse], error)
+	// Deletes a named credential.
+	DeleteAgentCredential(context.Context, *connect.Request[v1.DeleteAgentCredentialRequest]) (*connect.Response[v1.DeleteAgentCredentialResponse], error)
 }
 
 // NewDepotAgentServiceHandler builds an HTTP handler from the service implementation. It returns
@@ -506,6 +566,21 @@ func NewDepotAgentServiceHandler(svc DepotAgentServiceHandler, opts ...connect.H
 		svc.StartMcpLogin,
 		opts...,
 	)
+	depotAgentServiceListAgentCredentialsHandler := connect.NewUnaryHandler(
+		DepotAgentServiceListAgentCredentialsProcedure,
+		svc.ListAgentCredentials,
+		opts...,
+	)
+	depotAgentServiceSetAgentCredentialHandler := connect.NewUnaryHandler(
+		DepotAgentServiceSetAgentCredentialProcedure,
+		svc.SetAgentCredential,
+		opts...,
+	)
+	depotAgentServiceDeleteAgentCredentialHandler := connect.NewUnaryHandler(
+		DepotAgentServiceDeleteAgentCredentialProcedure,
+		svc.DeleteAgentCredential,
+		opts...,
+	)
 	return "/depot.agent.v1.DepotAgentService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case DepotAgentServiceCreateSessionProcedure:
@@ -544,6 +619,12 @@ func NewDepotAgentServiceHandler(svc DepotAgentServiceHandler, opts ...connect.H
 			depotAgentServiceSetMcpServerTokenHandler.ServeHTTP(w, r)
 		case DepotAgentServiceStartMcpLoginProcedure:
 			depotAgentServiceStartMcpLoginHandler.ServeHTTP(w, r)
+		case DepotAgentServiceListAgentCredentialsProcedure:
+			depotAgentServiceListAgentCredentialsHandler.ServeHTTP(w, r)
+		case DepotAgentServiceSetAgentCredentialProcedure:
+			depotAgentServiceSetAgentCredentialHandler.ServeHTTP(w, r)
+		case DepotAgentServiceDeleteAgentCredentialProcedure:
+			depotAgentServiceDeleteAgentCredentialHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -623,4 +704,16 @@ func (UnimplementedDepotAgentServiceHandler) SetMcpServerToken(context.Context, 
 
 func (UnimplementedDepotAgentServiceHandler) StartMcpLogin(context.Context, *connect.Request[v1.StartMcpLoginRequest]) (*connect.Response[v1.StartMcpLoginResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.agent.v1.DepotAgentService.StartMcpLogin is not implemented"))
+}
+
+func (UnimplementedDepotAgentServiceHandler) ListAgentCredentials(context.Context, *connect.Request[v1.ListAgentCredentialsRequest]) (*connect.Response[v1.ListAgentCredentialsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.agent.v1.DepotAgentService.ListAgentCredentials is not implemented"))
+}
+
+func (UnimplementedDepotAgentServiceHandler) SetAgentCredential(context.Context, *connect.Request[v1.SetAgentCredentialRequest]) (*connect.Response[v1.SetAgentCredentialResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.agent.v1.DepotAgentService.SetAgentCredential is not implemented"))
+}
+
+func (UnimplementedDepotAgentServiceHandler) DeleteAgentCredential(context.Context, *connect.Request[v1.DeleteAgentCredentialRequest]) (*connect.Response[v1.DeleteAgentCredentialResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.agent.v1.DepotAgentService.DeleteAgentCredential is not implemented"))
 }
