@@ -129,18 +129,15 @@ func invokeViewAction(ctx context.Context, s *session, req actionRequest) (*agen
 			return nil, err
 		}
 		call.FormJson = ptr(form)
-		call.Value = c.Value
 	case "select":
-		v, err := selectValue(c, req.value)
-		if err != nil {
+		if err := needSelectValue(c, req.value); err != nil {
 			return nil, err
 		}
-		call.Value = ptr(v)
-	default:
-		call.Value = c.Value
-		if req.value != nil {
-			call.Value = req.value
-		}
+	}
+	// An explicit --value is sent as given, so the server rejects one that matches no control.
+	call.Value = c.Value
+	if req.value != nil {
+		call.Value = req.value
 	}
 
 	resp, err := withRetries(ctx, func() (*connect.Response[agentv1.InvokeViewActionResponse], error) {
@@ -196,15 +193,15 @@ func pickChip(chips []chip, name string, value *string) (chip, error) {
 	return chip{}, fmt.Errorf("no action or key %q (controls: %s)", name, strings.Join(avail, ", "))
 }
 
-func selectValue(c chip, value *string) (string, error) {
+func needSelectValue(c chip, value *string) error {
 	if value != nil {
-		return *value, nil
+		return nil
 	}
 	var opts []string
 	for _, o := range c.Options {
 		opts = append(opts, o.Value)
 	}
-	return "", fmt.Errorf("%s is a select; pass --value (options: %s)", c.Action, strings.Join(opts, ", "))
+	return fmt.Errorf("%s is a select; pass --value (options: %s)", c.Action, strings.Join(opts, ", "))
 }
 
 func formValues(inputs []formInput, fields []string) (string, error) {

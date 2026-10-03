@@ -308,12 +308,12 @@ func (f *fakeViewService) InvokeViewAction(_ context.Context, req *connect.Reque
 
 func TestInvokeViewAction(t *testing.T) {
 	type tc struct {
-		name        string
-		req         actionRequest
-		wantErr     string
-		wantAction  string
-		wantValue   string
-		wantForm    string
+		name       string
+		req        actionRequest
+		wantErr    string
+		wantAction string
+		wantValue  string
+		wantForm   string
 	}
 	cases := []tc{
 		{name: "chip number", req: actionRequest{name: "1"}, wantAction: "complete", wantValue: "t3"},
@@ -402,6 +402,7 @@ func TestInvokeViewActionSharedActionName(t *testing.T) {
 	}{
 		{value: "final", wantValue: "final"},
 		{value: "draft", wantValue: "draft", fields: []string{"note=hi"}, wantForm: `{"note":"hi"}`},
+		{value: "typo", wantValue: "typo", fields: []string{"note=hi"}, wantForm: `{"note":"hi"}`},
 	} {
 		f := &fakeViewService{viewsJSON: views}
 		s := startFake(t, f)
