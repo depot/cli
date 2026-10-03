@@ -85,12 +85,10 @@ type Renderer struct {
 	sawMessage bool
 
 	// styled takes plugin view lines, which sanitise their own text before styling it.
-	styled     io.Writer
-	width      func() int
-	viewMode   string
-	viewsJSON  string
-	viewsDirty bool
-	viewRevs   map[string]int64
+	styled   io.Writer
+	width    func() int
+	viewMode string
+	viewRevs map[string]int64
 }
 
 const (
@@ -350,15 +348,10 @@ func (r *Renderer) renderPluginViews(viewsJSON, sessionID string) {
 	if r.viewMode == viewsNone {
 		return
 	}
-	if viewsJSON != r.viewsJSON {
-		r.viewsJSON = viewsJSON
-		r.viewsDirty = true
-	}
-	if (r.streamed != "" && !r.broken) || !r.viewsDirty {
+	if r.streamed != "" && !r.broken {
 		return
 	}
-	r.viewsDirty = false
-	views, err := parsePluginViews(r.viewsJSON)
+	views, err := parsePluginViews(viewsJSON)
 	if err != nil {
 		if r.once("views-error") {
 			r.line("(plugin views not shown: %v)", err)

@@ -20,7 +20,6 @@ const (
 	maxViewKeyLen  = 8
 	maxChipValue   = 24
 	statusBarWidth = 10
-	maxBlockDepth  = 2
 )
 
 func cliViewClient() *agentv1.ViewClient {
@@ -28,16 +27,15 @@ func cliViewClient() *agentv1.ViewClient {
 }
 
 type pluginViews struct {
-	Rev   int64        `json:"rev"`
 	Views []pluginView `json:"views"`
 }
 
 type pluginView struct {
-	Plugin string    `json:"plugin"`
-	ID     string    `json:"id"`
-	Rev    int64     `json:"rev"`
-	Title  string    `json:"title"`
-	Blocks blockList `json:"blocks"`
+	Plugin string      `json:"plugin"`
+	ID     string      `json:"id"`
+	Rev    int64       `json:"rev"`
+	Title  string      `json:"title"`
+	Blocks []viewBlock `json:"blocks"`
 	Kinds  struct {
 		CLI *cliKind `json:"cli"`
 	} `json:"kinds"`
@@ -61,7 +59,7 @@ type viewBlock struct {
 	Text      string       `json:"text"`
 	Tone      string       `json:"tone"`
 	Muted     bool         `json:"muted"`
-	Blocks    blockList    `json:"blocks"`
+	Blocks    []viewBlock  `json:"blocks"`
 	Accessory *viewElement `json:"accessory"`
 	Collapsed bool         `json:"collapsed"`
 	Items     []blockItem  `json:"items"`
@@ -79,8 +77,6 @@ type viewBlock struct {
 	ID       string        `json:"id"`
 	Inputs   []formInput   `json:"inputs"`
 	Submit   *viewElement  `json:"submit"`
-	// invalid marks a block that failed to decode, so it renders like an unknown type.
-	invalid bool
 }
 
 // blockItem covers both list items and fields items.
@@ -100,14 +96,8 @@ type viewElement struct {
 	Action      string         `json:"action"`
 	Value       *string        `json:"value"`
 	Style       string         `json:"style"`
-	Confirm     *viewConfirm   `json:"confirm"`
 	Placeholder string         `json:"placeholder"`
 	Options     []selectOption `json:"options"`
-}
-
-type viewConfirm struct {
-	Title string `json:"title"`
-	Text  string `json:"text"`
 }
 
 type selectOption struct {
@@ -116,35 +106,11 @@ type selectOption struct {
 }
 
 type formInput struct {
-	Name      string         `json:"name"`
-	Label     string         `json:"label"`
-	Kind      string         `json:"kind"`
-	Options   []selectOption `json:"options"`
-	Required  bool           `json:"required"`
-	MaxLength int            `json:"maxLength"`
-}
-
-// blockList decodes each block on its own, so one malformed block shows as "not shown"
-// instead of hiding the whole view.
-type blockList []viewBlock
-
-func (l *blockList) UnmarshalJSON(b []byte) error {
-	var raw []json.RawMessage
-	if err := json.Unmarshal(b, &raw); err != nil {
-		return err
-	}
-	out := make(blockList, len(raw))
-	for i, r := range raw {
-		if err := json.Unmarshal(r, &out[i]); err != nil {
-			var alt struct {
-				Alt string `json:"alt"`
-			}
-			_ = json.Unmarshal(r, &alt)
-			out[i] = viewBlock{invalid: true, Alt: alt.Alt}
-		}
-	}
-	*l = out
-	return nil
+	Name     string         `json:"name"`
+	Label    string         `json:"label"`
+	Kind     string         `json:"kind"`
+	Options  []selectOption `json:"options"`
+	Required bool           `json:"required"`
 }
 
 func parsePluginViews(s string) (pluginViews, error) {
@@ -168,12 +134,9 @@ type chip struct {
 	Kind    string // "button", "select", "form" or "key"
 	Label   string
 	Style   string
-	Confirm *viewConfirm
 	Options []selectOption
 	Inputs  []formInput
 }
-
-func (c chip) needsConfirm() bool { return c.Confirm != nil || c.Style == "danger" }
 
 type seg struct {
 	text  string
@@ -227,7 +190,7 @@ func layoutView(v pluginView, width int) ([]viewLine, []chip) {
 		vr.keys = v.Kinds.CLI.Keys
 		vr.taken = make([]bool, len(vr.keys))
 	}
-	vr.blocks(v.Blocks, 0, "")
+	vr.blocks(v.Blocks, "")
 	var extra viewLine
 	for i, k := range vr.keys {
 		if vr.taken[i] {
@@ -298,17 +261,13 @@ func (vr *viewRenderer) add(indent string, segs ...seg) {
 	vr.out = append(vr.out, segs)
 }
 
-func (vr *viewRenderer) blocks(bs []viewBlock, depth int, indent string) {
+func (vr *viewRenderer) blocks(bs []viewBlock, indent string) {
 	for _, b := range bs {
-		vr.block(b, depth, indent)
+		vr.block(b, indent)
 	}
 }
 
-func (vr *viewRenderer) block(b viewBlock, depth int, indent string) {
-	if b.invalid {
-		vr.unknown(b, indent)
-		return
-	}
+func (vr *viewRenderer) block(b viewBlock, indent string) {
 	switch b.Type {
 	case "section":
 		title := viewLine{}
@@ -333,13 +292,7 @@ func (vr *viewRenderer) block(b viewBlock, depth int, indent string) {
 				vr.add(indent, span(l, plainStyle))
 			}
 		}
-		if depth+1 >= maxBlockDepth {
-			for range b.Blocks {
-				vr.add(indent+"  ", span("1 item not shown", mutedStyle))
-			}
-			return
-		}
-		vr.blocks(b.Blocks, depth+1, indent+"  ")
+		vr.blocks(b.Blocks, indent+"  ")
 	case "text":
 		for _, l := range lines(b.Text) {
 			vr.add(indent, span(l, toneStyle(b.Tone, b.Muted)))
@@ -465,14 +418,10 @@ func (vr *viewRenderer) table(b viewBlock, indent string) {
 	for _, r := range b.Rows {
 		cols = max(cols, len(r))
 	}
-	cols = min(cols, 8)
 	if cols == 0 {
 		return
 	}
 	rows := b.Rows
-	if len(rows) > 100 {
-		rows = rows[:100]
-	}
 	cell := func(r []string, i int) string {
 		if i < len(r) {
 			return span(r[i], plainStyle).text
@@ -576,7 +525,7 @@ func (vr *viewRenderer) element(el viewElement) viewLine {
 }
 
 func (vr *viewRenderer) newChip(el viewElement) chip {
-	c := chip{Action: el.Action, Value: el.Value, Kind: el.Type, Label: el.Label, Style: el.Style, Confirm: el.Confirm, Options: el.Options}
+	c := chip{Action: el.Action, Value: el.Value, Kind: el.Type, Label: el.Label, Style: el.Style, Options: el.Options}
 	if el.Type == "select" {
 		c.Label, c.Value = el.Placeholder, nil
 	}
@@ -597,7 +546,6 @@ func (vr *viewRenderer) matchKey(c chip) string {
 		if k.Value != nil && !chipTakesValue(c, *k.Value) {
 			continue
 		}
-		vr.taken[i] = true
 		return vr.chipKey(k, i)
 	}
 	return vr.nextNumber()

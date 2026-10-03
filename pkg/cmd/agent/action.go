@@ -1,13 +1,9 @@
 package agent
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"io"
-	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -16,7 +12,6 @@ import (
 	agentv1 "github.com/depot/cli/pkg/proto/depot/agent/v1"
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
-	"golang.org/x/term"
 )
 
 func newCmdSessionAction() *cobra.Command {
@@ -24,7 +19,6 @@ func newCmdSessionAction() *cobra.Command {
 		auth   authFlags
 		value  string
 		fields []string
-		yes    bool
 		output string
 	)
 
@@ -34,8 +28,7 @@ func newCmdSessionAction() *cobra.Command {
 		Long: `Run a button, select, or form on a plugin view, as if it were clicked in the Depot app.
 
 The control is named by its action, or by the key its chip shows in watch output, such as 1 or a.
-A select needs --value; a form takes --field name=value for each input.
-Missing values are prompted for when stdin is a terminal.`,
+A select needs --value; a form takes --field name=value for each input.`,
 		Example: `  # Press the chip shown as [1] on the todos plugin's plan view
   depot agent session action <session-id> todos/plan 1
 
@@ -55,16 +48,11 @@ Missing values are prompted for when stdin is a terminal.`,
 			if err != nil {
 				return err
 			}
-			req := actionRequest{sessionID: args[0], plugin: plugin, viewID: viewID, name: args[2], fields: fields, yes: yes}
+			req := actionRequest{sessionID: args[0], plugin: plugin, viewID: viewID, name: args[2], fields: fields}
 			if cmd.Flags().Changed("value") {
 				req.value = &value
 			}
-			p := newPrompter(os.Stdin, os.Stderr, term.IsTerminal(int(os.Stdin.Fd())))
-			resp, err := invokeViewAction(ctx, s, req, p)
-			if errors.Is(err, errNotConfirmed) {
-				fmt.Fprintln(os.Stderr, "Not confirmed; nothing was sent.")
-				return nil
-			}
+			resp, err := invokeViewAction(ctx, s, req)
 			if err != nil {
 				return err
 			}
@@ -79,7 +67,6 @@ Missing values are prompted for when stdin is a terminal.`,
 	auth.register(cmd)
 	cmd.Flags().StringVar(&value, "value", "", "Value for the action, such as a select option")
 	cmd.Flags().StringArrayVar(&fields, "field", nil, "Form field as name=value (repeatable)")
-	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "Skip the confirmation prompt")
 	cmd.Flags().StringVarP(&output, "output", "o", "", "Output format (json)")
 	return cmd
 }
@@ -91,32 +78,9 @@ type actionRequest struct {
 	name      string
 	value     *string
 	fields    []string
-	yes       bool
 }
 
-var errNotConfirmed = errors.New("not confirmed")
-
-// prompter asks for missing values and confirmations, but only on an interactive stdin.
-type prompter struct {
-	in          *bufio.Reader
-	out         io.Writer
-	interactive bool
-}
-
-func newPrompter(in io.Reader, out io.Writer, interactive bool) *prompter {
-	return &prompter{in: bufio.NewReader(in), out: out, interactive: interactive}
-}
-
-func (p *prompter) ask(question string) (string, error) {
-	fmt.Fprint(p.out, safeText(question))
-	line, err := p.in.ReadString('\n')
-	if err != nil && (line == "" || !errors.Is(err, io.EOF)) {
-		return "", fmt.Errorf("read answer: %w", err)
-	}
-	return strings.TrimRight(line, "\r\n"), nil
-}
-
-func invokeViewAction(ctx context.Context, s *session, req actionRequest, p *prompter) (*agentv1.InvokeViewActionResponse, error) {
+func invokeViewAction(ctx context.Context, s *session, req actionRequest) (*agentv1.InvokeViewActionResponse, error) {
 	got, err := withRetries(ctx, func() (*connect.Response[agentv1.GetSessionResponse], error) {
 		return s.client.GetSession(ctx, authed(s, &agentv1.GetSessionRequest{SessionId: req.sessionID, Client: cliViewClient()}))
 	})
@@ -160,14 +124,14 @@ func invokeViewAction(ctx context.Context, s *session, req actionRequest, p *pro
 	}
 	switch c.Kind {
 	case "form":
-		form, err := formValues(c.Inputs, req.fields, p)
+		form, err := formValues(c.Inputs, req.fields)
 		if err != nil {
 			return nil, err
 		}
 		call.FormJson = ptr(form)
 		call.Value = c.Value
 	case "select":
-		v, err := selectValue(c, req.value, p)
+		v, err := selectValue(c, req.value)
 		if err != nil {
 			return nil, err
 		}
@@ -176,11 +140,6 @@ func invokeViewAction(ctx context.Context, s *session, req actionRequest, p *pro
 		call.Value = c.Value
 		if req.value != nil {
 			call.Value = req.value
-		}
-	}
-	if c.needsConfirm() && !req.yes {
-		if err := confirmAction(c, p); err != nil {
-			return nil, err
 		}
 	}
 
@@ -206,11 +165,6 @@ func pickChip(chips []chip, name string, value *string) (chip, error) {
 		if value != nil {
 			for _, c := range byAction {
 				if chipTakesValue(c, *value) {
-					return c, nil
-				}
-			}
-			for _, c := range byAction {
-				if c.Kind != "form" {
 					return c, nil
 				}
 			}
@@ -242,110 +196,48 @@ func pickChip(chips []chip, name string, value *string) (chip, error) {
 	return chip{}, fmt.Errorf("no action or key %q (controls: %s)", name, strings.Join(avail, ", "))
 }
 
-func selectValue(c chip, value *string, p *prompter) (string, error) {
-	if value == nil {
-		if !p.interactive {
-			return "", fmt.Errorf("%s is a select; pass --value", c.Action)
-		}
-		for i, o := range c.Options {
-			fmt.Fprintf(p.out, "  %d) %s\n", i+1, span(o.Label, plainStyle).text)
-		}
-		answer, err := p.ask(c.Label + ": ")
-		if err != nil {
-			return "", err
-		}
-		if n, err := strconv.Atoi(strings.TrimSpace(answer)); err == nil && n >= 1 && n <= len(c.Options) {
-			return c.Options[n-1].Value, nil
-		}
-		value = &answer
-	}
-	for _, o := range c.Options {
-		if o.Value == *value {
-			return o.Value, nil
-		}
+func selectValue(c chip, value *string) (string, error) {
+	if value != nil {
+		return *value, nil
 	}
 	var opts []string
 	for _, o := range c.Options {
 		opts = append(opts, o.Value)
 	}
-	return "", fmt.Errorf("%q is not an option for %s (options: %s)", *value, c.Action, strings.Join(opts, ", "))
+	return "", fmt.Errorf("%s is a select; pass --value (options: %s)", c.Action, strings.Join(opts, ", "))
 }
 
-func formValues(inputs []formInput, fields []string, p *prompter) (string, error) {
+func formValues(inputs []formInput, fields []string) (string, error) {
 	given := map[string]string{}
 	for _, f := range fields {
 		name, v, ok := strings.Cut(f, "=")
 		if !ok {
 			return "", fmt.Errorf("--field must be name=value, got %q", f)
 		}
-		if !slices.ContainsFunc(inputs, func(in formInput) bool { return in.Name == name }) {
-			return "", fmt.Errorf("form has no field %q", name)
-		}
 		given[name] = v
 	}
-	form := map[string]any{}
+	kinds := map[string]string{}
 	for _, in := range inputs {
-		v, ok := given[in.Name]
-		if !ok && in.Required {
-			if !p.interactive {
-				return "", fmt.Errorf("form field %s is required; pass --field %s=...", in.Name, in.Name)
-			}
-			label := in.Label
-			if label == "" {
-				label = in.Name
-			}
-			answer, err := p.ask(label + ": ")
-			if err != nil {
-				return "", err
-			}
-			v, ok = answer, true
+		kinds[in.Name] = in.Kind
+		if _, ok := given[in.Name]; !ok && in.Required {
+			return "", fmt.Errorf("form field %s is required; pass --field %s=...", in.Name, in.Name)
 		}
-		if !ok {
+	}
+	form := map[string]any{}
+	for name, v := range given {
+		if kinds[name] != "checkbox" {
+			form[name] = v
 			continue
 		}
-		switch in.Kind {
-		case "checkbox":
-			b, err := strconv.ParseBool(v)
-			if err != nil {
-				return "", fmt.Errorf("form field %s is a checkbox; use true or false", in.Name)
-			}
-			form[in.Name] = b
-			continue
-		case "select":
-			if !slices.ContainsFunc(in.Options, func(o selectOption) bool { return o.Value == v }) {
-				return "", fmt.Errorf("%q is not an option for form field %s", v, in.Name)
-			}
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return "", fmt.Errorf("form field %s is a checkbox; use true or false", name)
 		}
-		if in.MaxLength > 0 && len([]rune(v)) > in.MaxLength {
-			return "", fmt.Errorf("form field %s is longer than %d characters", in.Name, in.MaxLength)
-		}
-		form[in.Name] = v
+		form[name] = b
 	}
 	out, err := json.Marshal(form)
 	if err != nil {
 		return "", fmt.Errorf("encode form: %w", err)
 	}
 	return string(out), nil
-}
-
-func confirmAction(c chip, p *prompter) error {
-	if !p.interactive {
-		return fmt.Errorf("%s asks for confirmation; pass --yes to run it", c.Action)
-	}
-	question := "Run " + c.Label + "?"
-	if c.Confirm != nil {
-		question = c.Confirm.Title
-		if c.Confirm.Text != "" {
-			question += " " + c.Confirm.Text
-		}
-	}
-	answer, err := p.ask(span(question, plainStyle).text + " [y/N] ")
-	if err != nil {
-		return err
-	}
-	switch strings.ToLower(strings.TrimSpace(answer)) {
-	case "y", "yes":
-		return nil
-	}
-	return errNotConfirmed
 }

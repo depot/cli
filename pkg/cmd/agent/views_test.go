@@ -71,9 +71,6 @@ func TestRenderTodosView(t *testing.T) {
 	if got := strings.Join(keys, " "); got != "1=complete/button 2=set_owner/select a=add/form 3=clear/button" {
 		t.Fatalf("chips: %s", got)
 	}
-	if !chips[3].needsConfirm() || chips[0].needsConfirm() {
-		t.Fatal("only the danger button should need confirmation")
-	}
 
 	compact, _ := renderView(todosView(t), 80, true)
 	if got := plain(compact); got != "── todos: Plan ── 2/4 done" {
@@ -95,8 +92,7 @@ func TestRenderViewBlocks(t *testing.T) {
 	  {"type": "image", "src": "data:image/png;base64,AAAA", "alt": "chart"},
 	  {"type": "divider"},
 	  {"type": "carousel", "alt": "3 slides"},
-	  {"type": "carousel"},
-	  {"type": "text", "text": 42, "alt": "broken text"}
+	  {"type": "carousel"}
 	]`), &v.Blocks); err != nil {
 		t.Fatal(err)
 	}
@@ -121,7 +117,6 @@ func TestRenderViewBlocks(t *testing.T) {
 		strings.Repeat("─", 24),
 		"3 slides",
 		"1 item not shown",
-		"broken text",
 	}, "\n")
 	if got := plain(lines); got != want {
 		t.Fatalf("got:\n%s\nwant:\n%s", got, want)
@@ -315,8 +310,6 @@ func TestInvokeViewAction(t *testing.T) {
 	type tc struct {
 		name        string
 		req         actionRequest
-		stdin       string
-		interactive bool
 		wantErr     string
 		wantAction  string
 		wantValue   string
@@ -326,17 +319,10 @@ func TestInvokeViewAction(t *testing.T) {
 		{name: "chip number", req: actionRequest{name: "1"}, wantAction: "complete", wantValue: "t3"},
 		{name: "action name", req: actionRequest{name: "complete"}, wantAction: "complete", wantValue: "t3"},
 		{name: "select by value", req: actionRequest{name: "2", value: ptr("me")}, wantAction: "set_owner", wantValue: "me"},
-		{name: "select not an option", req: actionRequest{name: "set_owner", value: ptr("bob")}, wantErr: "not an option"},
-		{name: "select needs value", req: actionRequest{name: "set_owner"}, wantErr: "pass --value"},
-		{name: "select prompt", req: actionRequest{name: "set_owner"}, stdin: "1\n", interactive: true, wantAction: "set_owner", wantValue: "agent"},
+		{name: "select needs value", req: actionRequest{name: "set_owner"}, wantErr: "pass --value (options: agent, me)"},
 		{name: "form by key", req: actionRequest{name: "a", fields: []string{"text=Write docs"}}, wantAction: "add", wantForm: `{"text":"Write docs"}`},
-		{name: "form unknown field", req: actionRequest{name: "add", fields: []string{"nope=1"}}, wantErr: `no field "nope"`},
-		{name: "form too long", req: actionRequest{name: "add", fields: []string{"text=" + strings.Repeat("x", 201)}}, wantErr: "longer than 200"},
 		{name: "field on a button", req: actionRequest{name: "1", fields: []string{"text=x"}}, wantErr: "only for a form"},
-		{name: "confirm needs yes", req: actionRequest{name: "clear"}, wantErr: "pass --yes"},
-		{name: "confirm declined", req: actionRequest{name: "clear"}, stdin: "n\n", interactive: true, wantErr: "not confirmed"},
-		{name: "confirm accepted", req: actionRequest{name: "clear"}, stdin: "y\n", interactive: true, wantAction: "clear"},
-		{name: "yes skips confirm", req: actionRequest{name: "3", yes: true}, wantAction: "clear"},
+		{name: "danger button runs", req: actionRequest{name: "3"}, wantAction: "clear"},
 		{name: "unknown control", req: actionRequest{name: "zap"}, wantErr: "no action or key"},
 		{name: "unknown view", req: actionRequest{name: "1", viewID: "other"}, wantErr: "no view todos/other (views: todos/plan)"},
 	}
@@ -349,10 +335,9 @@ func TestInvokeViewAction(t *testing.T) {
 			if req.viewID == "" {
 				req.viewID = "plan"
 			}
-			var prompts bytes.Buffer
 			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 			defer cancel()
-			resp, err := invokeViewAction(ctx, s, req, newPrompter(strings.NewReader(c.stdin), &prompts, c.interactive))
+			resp, err := invokeViewAction(ctx, s, req)
 			if c.wantErr != "" {
 				if err == nil || !strings.Contains(err.Error(), c.wantErr) {
 					t.Fatalf("expected error containing %q, got %v", c.wantErr, err)
@@ -421,7 +406,7 @@ func TestInvokeViewActionSharedActionName(t *testing.T) {
 		f := &fakeViewService{viewsJSON: views}
 		s := startFake(t, f)
 		req := actionRequest{sessionID: "s1", plugin: "p", viewID: "v", name: "save", value: ptr(c.value), fields: c.fields}
-		if _, err := invokeViewAction(context.Background(), s, req, newPrompter(strings.NewReader(""), &bytes.Buffer{}, false)); err != nil {
+		if _, err := invokeViewAction(context.Background(), s, req); err != nil {
 			t.Fatal(err)
 		}
 		if got := f.invokes[0]; got.GetValue() != c.wantValue || got.GetFormJson() != c.wantForm {
