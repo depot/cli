@@ -106,6 +106,18 @@ func TestPullRefusesASkillNameThatEscapesTheDirectory(t *testing.T) {
 	}
 }
 
+func TestForcedPullWithABadSkillNameKeepsTheExistingDefinition(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, instructionsFile), "keep me")
+	bad := &agentv1.DepotAgentDefinitionContent{Instructions: "new", Skills: []*agentv1.DepotAgentSkill{{Name: "../escape", Description: "d"}}}
+	if err := writeDefinition(dir, bad, true); err == nil {
+		t.Fatal("expected a refusal")
+	}
+	if data, err := os.ReadFile(filepath.Join(dir, instructionsFile)); err != nil || string(data) != "keep me" {
+		t.Fatalf("existing definition was touched: %q, %v", data, err)
+	}
+}
+
 func TestReadDefinitionRejectsBadSkills(t *testing.T) {
 	for name, tc := range map[string]struct{ dir, body, want string }{
 		"no front matter": {"a", "just text", "front matter"},
