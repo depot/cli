@@ -78,6 +78,9 @@ const (
 	// DepotAgentServiceRespondLocalMcpCallProcedure is the fully-qualified name of the
 	// DepotAgentService's RespondLocalMcpCall RPC.
 	DepotAgentServiceRespondLocalMcpCallProcedure = "/depot.agent.v1.DepotAgentService/RespondLocalMcpCall"
+	// DepotAgentServiceInvokeViewActionProcedure is the fully-qualified name of the DepotAgentService's
+	// InvokeViewAction RPC.
+	DepotAgentServiceInvokeViewActionProcedure = "/depot.agent.v1.DepotAgentService/InvokeViewAction"
 )
 
 // DepotAgentServiceClient is a client for the depot.agent.v1.DepotAgentService service.
@@ -120,6 +123,10 @@ type DepotAgentServiceClient interface {
 	// Answers one call from `PullLocalMcpCalls`. Answering the same call twice, or one that was cancelled,
 	// succeeds and is ignored. Fails with FAILED_PRECONDITION once the stream the call came from has ended.
 	RespondLocalMcpCall(context.Context, *connect.Request[v1.RespondLocalMcpCallRequest]) (*connect.Response[v1.RespondLocalMcpCallResponse], error)
+	// Runs one action on a plugin view: a button, select or form. The click is queued as a "plugin_call" message,
+	// shown in the transcript, and handled by the plugin inside the sandbox. A retry with the same
+	// `clientRequestId` returns the original.
+	InvokeViewAction(context.Context, *connect.Request[v1.InvokeViewActionRequest]) (*connect.Response[v1.InvokeViewActionResponse], error)
 }
 
 // NewDepotAgentServiceClient constructs a client for the depot.agent.v1.DepotAgentService service.
@@ -207,6 +214,11 @@ func NewDepotAgentServiceClient(httpClient connect.HTTPClient, baseURL string, o
 			baseURL+DepotAgentServiceRespondLocalMcpCallProcedure,
 			opts...,
 		),
+		invokeViewAction: connect.NewClient[v1.InvokeViewActionRequest, v1.InvokeViewActionResponse](
+			httpClient,
+			baseURL+DepotAgentServiceInvokeViewActionProcedure,
+			opts...,
+		),
 	}
 }
 
@@ -227,6 +239,7 @@ type depotAgentServiceClient struct {
 	getAgentDefinition       *connect.Client[v1.GetAgentDefinitionRequest, v1.GetAgentDefinitionResponse]
 	pullLocalMcpCalls        *connect.Client[v1.PullLocalMcpCallsRequest, v1.PullLocalMcpCallsResponse]
 	respondLocalMcpCall      *connect.Client[v1.RespondLocalMcpCallRequest, v1.RespondLocalMcpCallResponse]
+	invokeViewAction         *connect.Client[v1.InvokeViewActionRequest, v1.InvokeViewActionResponse]
 }
 
 // CreateSession calls depot.agent.v1.DepotAgentService.CreateSession.
@@ -304,6 +317,11 @@ func (c *depotAgentServiceClient) RespondLocalMcpCall(ctx context.Context, req *
 	return c.respondLocalMcpCall.CallUnary(ctx, req)
 }
 
+// InvokeViewAction calls depot.agent.v1.DepotAgentService.InvokeViewAction.
+func (c *depotAgentServiceClient) InvokeViewAction(ctx context.Context, req *connect.Request[v1.InvokeViewActionRequest]) (*connect.Response[v1.InvokeViewActionResponse], error) {
+	return c.invokeViewAction.CallUnary(ctx, req)
+}
+
 // DepotAgentServiceHandler is an implementation of the depot.agent.v1.DepotAgentService service.
 type DepotAgentServiceHandler interface {
 	// Creates a session and queues its first message. A sandbox starts for it within a minute.
@@ -344,6 +362,10 @@ type DepotAgentServiceHandler interface {
 	// Answers one call from `PullLocalMcpCalls`. Answering the same call twice, or one that was cancelled,
 	// succeeds and is ignored. Fails with FAILED_PRECONDITION once the stream the call came from has ended.
 	RespondLocalMcpCall(context.Context, *connect.Request[v1.RespondLocalMcpCallRequest]) (*connect.Response[v1.RespondLocalMcpCallResponse], error)
+	// Runs one action on a plugin view: a button, select or form. The click is queued as a "plugin_call" message,
+	// shown in the transcript, and handled by the plugin inside the sandbox. A retry with the same
+	// `clientRequestId` returns the original.
+	InvokeViewAction(context.Context, *connect.Request[v1.InvokeViewActionRequest]) (*connect.Response[v1.InvokeViewActionResponse], error)
 }
 
 // NewDepotAgentServiceHandler builds an HTTP handler from the service implementation. It returns
@@ -427,6 +449,11 @@ func NewDepotAgentServiceHandler(svc DepotAgentServiceHandler, opts ...connect.H
 		svc.RespondLocalMcpCall,
 		opts...,
 	)
+	depotAgentServiceInvokeViewActionHandler := connect.NewUnaryHandler(
+		DepotAgentServiceInvokeViewActionProcedure,
+		svc.InvokeViewAction,
+		opts...,
+	)
 	return "/depot.agent.v1.DepotAgentService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case DepotAgentServiceCreateSessionProcedure:
@@ -459,6 +486,8 @@ func NewDepotAgentServiceHandler(svc DepotAgentServiceHandler, opts ...connect.H
 			depotAgentServicePullLocalMcpCallsHandler.ServeHTTP(w, r)
 		case DepotAgentServiceRespondLocalMcpCallProcedure:
 			depotAgentServiceRespondLocalMcpCallHandler.ServeHTTP(w, r)
+		case DepotAgentServiceInvokeViewActionProcedure:
+			depotAgentServiceInvokeViewActionHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -526,4 +555,8 @@ func (UnimplementedDepotAgentServiceHandler) PullLocalMcpCalls(context.Context, 
 
 func (UnimplementedDepotAgentServiceHandler) RespondLocalMcpCall(context.Context, *connect.Request[v1.RespondLocalMcpCallRequest]) (*connect.Response[v1.RespondLocalMcpCallResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.agent.v1.DepotAgentService.RespondLocalMcpCall is not implemented"))
+}
+
+func (UnimplementedDepotAgentServiceHandler) InvokeViewAction(context.Context, *connect.Request[v1.InvokeViewActionRequest]) (*connect.Response[v1.InvokeViewActionResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.agent.v1.DepotAgentService.InvokeViewAction is not implemented"))
 }

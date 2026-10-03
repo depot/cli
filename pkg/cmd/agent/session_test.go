@@ -124,7 +124,7 @@ func (f *fakeAgentService) InterruptSession(_ context.Context, req *connect.Requ
 	return connect.NewResponse(&agentv1.InterruptSessionResponse{Input: &agentv1.DepotAgentInput{InputId: "in_2"}}), nil
 }
 
-func startFake(t *testing.T, f *fakeAgentService) *session {
+func startFake(t *testing.T, f agentv1connect.DepotAgentServiceHandler) *session {
 	t.Helper()
 	mux := http.NewServeMux()
 	mux.Handle(agentv1connect.NewDepotAgentServiceHandler(f))
@@ -312,7 +312,7 @@ func TestAttachForwardsLinesAndQuits(t *testing.T) {
 	defer cancel()
 	in := strings.NewReader("first\n\n/steer go faster\n/interrupt\n/bogus\n/quit\nnever sent\n")
 	var out syncBuffer
-	if err := attachSession(ctx, s, "s1", in, &out); err != nil {
+	if err := attachSession(ctx, s, "s1", in, &out, viewsFull); err != nil {
 		t.Fatalf("attachSession: %v", err)
 	}
 	if ctx.Err() != nil {
@@ -366,7 +366,7 @@ func TestAttachReturnsAStdinReadFailure(t *testing.T) {
 	defer cancel()
 	// One line longer than the scanner accepts.
 	in := strings.NewReader(strings.Repeat("x", 2*1024*1024) + "\n")
-	err := attachSession(ctx, s, "s1", in, &syncBuffer{})
+	err := attachSession(ctx, s, "s1", in, &syncBuffer{}, viewsFull)
 	if err == nil || !strings.Contains(err.Error(), "read stdin") {
 		t.Fatalf("expected a stdin read error, got %v", err)
 	}

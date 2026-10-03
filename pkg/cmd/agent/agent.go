@@ -59,6 +59,7 @@ func newCmdSession() *cobra.Command {
 	cmd.AddCommand(newCmdSessionList())
 	cmd.AddCommand(newCmdSessionWatch())
 	cmd.AddCommand(newCmdSessionAttach())
+	cmd.AddCommand(newCmdSessionAction())
 	return cmd
 }
 

@@ -31,6 +31,7 @@ func newCmdSessionCreate() *cobra.Command {
 		files      []string
 		stdinFile  string
 		definition string
+		views      string
 	)
 
 	cmd := &cobra.Command{
@@ -50,6 +51,9 @@ func newCmdSessionCreate() *cobra.Command {
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := validateOutput(output); err != nil {
+				return err
+			}
+			if err := validateViewMode(views); err != nil {
 				return err
 			}
 			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt)
@@ -96,7 +100,9 @@ func newCmdSessionCreate() *cobra.Command {
 				fmt.Printf("Watch it with: depot agent session watch %s\n", safeText(sessionID))
 				return nil
 			}
-			return watchSession(ctx, s, sessionID, NewRenderer(os.Stdout), untilTurnDone)
+			r := NewRenderer(os.Stdout)
+			r.SetViewMode(views)
+			return watchSession(ctx, s, sessionID, r, untilTurnDone)
 		},
 	}
 
@@ -110,6 +116,7 @@ func newCmdSessionCreate() *cobra.Command {
 	cmd.Flags().StringVar(&definition, "definition", "", "Directory holding the agent's instructions, skills, and plugins, as depot agent pull writes it")
 	cmd.Flags().BoolVar(&watch, "watch", false, "Stream the session after creating it, until it settles")
 	cmd.Flags().StringVarP(&output, "output", "o", "", "Output format (json)")
+	registerViewsFlag(cmd, &views)
 	cmd.MarkFlagsMutuallyExclusive("watch", "output")
 	return cmd
 }
@@ -245,6 +252,7 @@ func newCmdSessionWatch() *cobra.Command {
 	var (
 		auth      authFlags
 		untilIdle bool
+		views     string
 	)
 
 	cmd := &cobra.Command{
@@ -255,6 +263,9 @@ func newCmdSessionWatch() *cobra.Command {
 Runs until interrupted, or with --until-idle until the session is idle, waiting for input, or stopped.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := validateViewMode(views); err != nil {
+				return err
+			}
 			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt)
 			defer stop()
 			s, err := auth.resolve(ctx)
@@ -265,18 +276,24 @@ Runs until interrupted, or with --until-idle until the session is idle, waiting 
 			if untilIdle {
 				until = untilSettled
 			}
-			return watchSession(ctx, s, args[0], NewRenderer(os.Stdout), until)
+			r := NewRenderer(os.Stdout)
+			r.SetViewMode(views)
+			return watchSession(ctx, s, args[0], r, until)
 		},
 	}
 
 	auth.register(cmd)
+	registerViewsFlag(cmd, &views)
 	cmd.Flags().BoolVar(&untilIdle, "until-idle", false, "Exit once the session is idle, waiting for input, or stopped")
 	return cmd
 }
 
 func newCmdSessionAttach() *cobra.Command {
-	var auth authFlags
-	var mcpConfig string
+	var (
+		auth      authFlags
+		mcpConfig string
+		views     string
+	)
 
 	cmd := &cobra.Command{
 		Use:   "attach <session-id>",
@@ -291,9 +308,14 @@ Lines starting with a slash are commands:
   /quit                   detach (the session keeps running)
 
 With --mcp-config, attach starts the stdio MCP servers in that file (the "mcpServers" format of .mcp.json)
-and offers their tools to the agent, on turns answering your own messages, until you detach.`,
+and offers their tools to the agent, on turns answering your own messages, until you detach.
+
+Plugin view controls run with: depot agent session action <session-id> <plugin>/<view> <key>`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := validateViewMode(views); err != nil {
+				return err
+			}
 			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt)
 			defer stop()
 			s, err := auth.resolve(ctx)
@@ -312,15 +334,20 @@ and offers their tools to the agent, on turns answering your own messages, until
 				defer s.local.Close()
 			}
 			if helpers.IsTerminal() && helpers.IsStdinTerminal() {
-				return chatSession(ctx, s, args[0])
+				return chatSession(ctx, s, args[0], views)
 			}
-			return attachSession(ctx, s, args[0], os.Stdin, os.Stdout)
+			return attachSession(ctx, s, args[0], os.Stdin, os.Stdout, views)
 		},
 	}
 
 	auth.register(cmd)
 	cmd.Flags().StringVar(&mcpConfig, "mcp-config", "", "MCP config file whose stdio servers to offer the agent while attached")
+	registerViewsFlag(cmd, &views)
 	return cmd
+}
+
+func registerViewsFlag(cmd *cobra.Command, views *string) {
+	cmd.Flags().StringVar(views, "views", viewsFull, "How plugin views print: full, compact, or none")
 }
 
 const requestAttempts = 3
@@ -418,7 +445,7 @@ type watchState struct {
 }
 
 func watchOnce(ctx context.Context, s *session, sessionID string, r *Renderer, until watchUntil, w *watchState) (bool, error) {
-	req := &agentv1.WatchSessionRequest{SessionId: sessionID}
+	req := &agentv1.WatchSessionRequest{SessionId: sessionID, Client: cliViewClient()}
 	if w.lastSeq > 0 {
 		req.AfterSeq = ptr(w.lastSeq)
 	}
@@ -475,7 +502,7 @@ func retryable(err error) bool {
 // attachSession watches the session while forwarding stdin lines as inputs.
 // stdin reaching EOF stops sending but keeps watching;
 // failing to read it ends the attach, so a line is never dropped silently.
-func attachSession(ctx context.Context, s *session, sessionID string, in io.Reader, out io.Writer) error {
+func attachSession(ctx context.Context, s *session, sessionID string, in io.Reader, out io.Writer, viewMode string) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -496,17 +523,18 @@ func attachSession(ctx context.Context, s *session, sessionID string, in io.Read
 			readErr <- err
 		}
 	}()
-	return attachLines(ctx, s, sessionID, lines, readErr, out)
+	return attachLines(ctx, s, sessionID, lines, readErr, out, viewMode)
 }
 
 // attachLines renders the session to out while acting on each line,
 // reporting command results and failures between the session's lines.
 // It returns when ctx is cancelled, on /quit, when the watch fails, or when readErr reports a failure.
-func attachLines(ctx context.Context, s *session, sessionID string, lines <-chan string, readErr <-chan error, out io.Writer) error {
+func attachLines(ctx context.Context, s *session, sessionID string, lines <-chan string, readErr <-chan error, out io.Writer, viewMode string) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
 	r := NewRenderer(out)
+	r.SetViewMode(viewMode)
 	notices := r.Notices()
 	if s.local != nil {
 		served := make(chan struct{})

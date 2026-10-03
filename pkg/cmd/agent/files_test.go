@@ -329,7 +329,7 @@ func TestAttachQueuesAFileForTheNextMessage(t *testing.T) {
 	defer cancel()
 	in := strings.NewReader(`/file "` + spaced + `"` + "\nlook at this\n/file " + other + " and this\nplain\n/file\n/quit\n")
 	var out syncBuffer
-	if err := attachSession(ctx, s, "s1", in, &out); err != nil {
+	if err := attachSession(ctx, s, "s1", in, &out, viewsFull); err != nil {
 		t.Fatalf("attachSession: %v", err)
 	}
 
@@ -372,7 +372,7 @@ func TestAttachCountsQueuedFilesAgainstTheLimit(t *testing.T) {
 	defer cancel()
 	in := strings.NewReader("/file " + filepath.Join(dir, "a") + "\n/file " + filepath.Join(dir, "b") + "\nsend\n/quit\n")
 	var out syncBuffer
-	if err := attachSession(ctx, s, "s1", in, &out); err != nil {
+	if err := attachSession(ctx, s, "s1", in, &out, viewsFull); err != nil {
 		t.Fatalf("attachSession: %v", err)
 	}
 	if len(f.inputs) != 1 || !slices.Equal(names(f.inputs[0].GetAttachments()), []string{"a"}) {
@@ -397,7 +397,7 @@ func TestAttachDropsQueuedFilesWhenASendIsRejected(t *testing.T) {
 	defer cancel()
 	in := strings.NewReader("/file " + first + " one\n/file " + second + " two\n/quit\n")
 	var out syncBuffer
-	if err := attachSession(ctx, s, "s1", in, &out); err != nil {
+	if err := attachSession(ctx, s, "s1", in, &out, viewsFull); err != nil {
 		t.Fatalf("attachSession: %v", err)
 	}
 	if len(f.inputs) != 2 {
@@ -419,7 +419,7 @@ func TestAttachDoesNotSendAMessageWhoseFileFailed(t *testing.T) {
 	defer cancel()
 	in := strings.NewReader("/file " + filepath.Join(t.TempDir(), "missing") + " hello\n/quit\n")
 	var out syncBuffer
-	if err := attachSession(ctx, s, "s1", in, &out); err != nil {
+	if err := attachSession(ctx, s, "s1", in, &out, viewsFull); err != nil {
 		t.Fatalf("attachSession: %v", err)
 	}
 	if len(f.inputs) != 0 {

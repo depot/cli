@@ -11,7 +11,7 @@ import (
 
 // chatSession runs attach as an inline chat:
 // the transcript prints above an input line that stays editable while output streams.
-func chatSession(ctx context.Context, s *session, sessionID string) error {
+func chatSession(ctx context.Context, s *session, sessionID string, viewMode string) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -23,7 +23,7 @@ func chatSession(ctx context.Context, s *session, sessionID string) error {
 
 	attachErr := make(chan error, 1)
 	go func() {
-		err := attachLines(ctx, s, sessionID, lines, nil, transcript)
+		err := attachLines(ctx, s, sessionID, lines, nil, transcript, viewMode)
 		transcript.Flush()
 		p.Quit()
 		attachErr <- err
