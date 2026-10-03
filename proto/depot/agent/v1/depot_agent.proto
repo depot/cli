@@ -40,6 +40,23 @@ service DepotAgentService {
   // Answers one call from `PullLocalMcpCalls`. Answering the same call twice, or one that was cancelled,
   // succeeds and is ignored. Fails with FAILED_PRECONDITION once the stream the call came from has ended.
   rpc RespondLocalMcpCall(RespondLocalMcpCallRequest) returns (RespondLocalMcpCallResponse);
+  // Adds a remote MCP server. An organization server, which only an owner can add, serves every message
+  // sent in the organization's sessions; a user server, which any member can add, serves only the messages
+  // its creator sends. Depot calls the server on the agent's behalf, so its credentials never reach a sandbox.
+  rpc CreateMcpServer(CreateMcpServerRequest) returns (CreateMcpServerResponse);
+  // Lists the organization's MCP servers, then the caller's own; newest first within each.
+  rpc ListMcpServers(ListMcpServersRequest) returns (ListMcpServersResponse);
+  // Removes an MCP server: an organization server for an owner, a user server for its creator. Tool listings
+  // taken after the delete leave it out, and later calls to it fail, even from a turn whose tools were listed
+  // before. A call that is already being sent may still complete.
+  rpc DeleteMcpServer(DeleteMcpServerRequest) returns (DeleteMcpServerResponse);
+  // Stores a token Depot sends to an MCP server as `Authorization: Bearer`, or clears it. An owner sets an
+  // organization server's token; a user server's creator sets its own. The token is never returned.
+  rpc SetMcpServerToken(SetMcpServerTokenRequest) returns (SetMcpServerTokenResponse);
+  // Returns a URL that logs in to an MCP server with OAuth, for the caller to open in a browser. An owner logs
+  // in to an organization server for everyone; a user server's creator logs in as themselves. Only the caller
+  // can finish the login, with `FinishMcpLogin`, within 10 minutes.
+  rpc StartMcpLogin(StartMcpLoginRequest) returns (StartMcpLoginResponse);
 }
 
 message DepotAgentAttachment {
@@ -358,3 +375,110 @@ message RespondLocalMcpCallRequest {
 }
 
 message RespondLocalMcpCallResponse {}
+
+message DepotAgentMcpServer {
+  // Unique identifier for the MCP server. Returned by `CreateMcpServer` and `ListMcpServers`.
+  string mcp_server_id = 1;
+  // Prefix of the server's tool names as the agent sees them, such as "linear".
+  string name = 2;
+  // URL of the server's MCP endpoint. A literal query value is shown as `[hidden]`.
+  string url = 3;
+  // How the server is reached. Can be "streamable_http".
+  string transport = 4;
+  // True when requests to the server carry headers.
+  bool has_headers = 5;
+  google.protobuf.Timestamp created_at = 6;
+  // Headers sent with every request. Each value is a `${secrets.NAME}` reference, optionally after a
+  // scheme word such as `Bearer`.
+  map<string, string> headers = 7;
+  reserved 8;
+  reserved "session_id";
+  // User who added the server. Unset when an organization token added it.
+  optional string created_by_user_id = 9;
+  // Whose messages the server serves. Can be "organization", for every message sent in the organization's
+  // sessions, or "user", for the messages its creator sends. A message from a trigger or Slack can use only
+  // organization servers.
+  string scope = 10;
+  // What Depot authenticates to the server with. Can be "headers", "token", "oauth", or "none". "oauth" means
+  // someone has logged in: an owner for an organization server, the creator for a user server.
+  string auth = 11;
+}
+
+message CreateMcpServerRequest {
+  // Prefix of the server's tool names: lowercase letters, digits, and hyphens, starting with a
+  // letter, at most 20 characters. Unique among the organization's servers, or among the caller's own for a
+  // user server. An organization server hides a user server of the same name. Required.
+  string name = 1;
+  // URL of the server's MCP endpoint. Must be https and must not contain a username, a password, or a fragment.
+  // A query value can reference a CI secret as `${secrets.NAME}`, bound to the URL's host like a header's; a
+  // literal value under a credential-like name, such as `token` or `api_key`, is refused. Required.
+  string url = 2;
+  // How the server is reached. Can be "streamable_http". Default: "streamable_http".
+  optional string transport = 3;
+  // Headers sent with every request to the server. Each value must reference a CI secret in the "agents"
+  // environment as `${secrets.NAME}`, optionally after one scheme word, such as `Bearer ${secrets.LINEAR_TOKEN}`.
+  // Store a value that is not secret as a CI secret too. The secret must be bound to the URL's host with
+  // `SetMcpSecretHosts`. Only valid when `scope` is "organization".
+  map<string, string> headers = 4;
+  // Whose messages the server serves. Can be "organization", which requires the owner role, or "user", for
+  // the messages the caller sends. Default: "organization".
+  optional string scope = 5;
+  // OAuth client to log in with, for a server whose authorization server does not register clients itself.
+  // Register `https://depot.dev/orgs/<orgId>/agents/mcp/callback` with it as the redirect URL. Leave unset to
+  // have Depot register its own client when someone first logs in. Cannot be set with an `authorization`
+  // header.
+  optional McpOAuthClient oauth = 6;
+}
+
+message McpOAuthClient {
+  // Client ID the authorization server issued. Required.
+  string client_id = 1;
+  // Client secret, as a CI secret reference such as `${secrets.LINEAR_CLIENT_SECRET}`, bound to the
+  // authorization server's host with `SetMcpSecretHosts`. Only valid when `scope` is "organization". Leave
+  // empty for a public client.
+  optional string client_secret = 2;
+}
+
+message CreateMcpServerResponse {
+  DepotAgentMcpServer mcp_server = 1;
+}
+
+message ListMcpServersRequest {
+  reserved 1;
+  reserved "session_id";
+}
+
+message ListMcpServersResponse {
+  repeated DepotAgentMcpServer mcp_servers = 1;
+  reserved 2;
+  reserved "auto_add_enabled";
+}
+
+message DeleteMcpServerRequest {
+  // Unique identifier for the MCP server. Returned by `CreateMcpServer` and `ListMcpServers`.
+  string mcp_server_id = 1;
+}
+
+message DeleteMcpServerResponse {}
+
+message SetMcpServerTokenRequest {
+  // Unique identifier for the MCP server. Returned by `CreateMcpServer` and `ListMcpServers`.
+  string mcp_server_id = 1;
+  // Token to send as `Authorization: Bearer`. While one is set, Depot sends it instead of an OAuth login.
+  // Leave empty to clear it.
+  string token = 2;
+}
+
+message SetMcpServerTokenResponse {
+  DepotAgentMcpServer mcp_server = 1;
+}
+
+message StartMcpLoginRequest {
+  // Unique identifier for the MCP server. Returned by `CreateMcpServer` and `ListMcpServers`.
+  string mcp_server_id = 1;
+}
+
+message StartMcpLoginResponse {
+  // URL of the authorization server's login page. Open it in a browser, signed in to Depot as the caller.
+  string authorization_url = 1;
+}
