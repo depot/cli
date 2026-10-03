@@ -24,6 +24,8 @@ func NewCmdAgent() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "agent",
 		Short: "Run Depot coding agents",
+		// Kept out of `depot --help` until GA; `depot agent --help` still works.
+		Hidden: true,
 	}
 	cmd.AddCommand(newCmdSession())
 	sanitizeErrors(cmd)
