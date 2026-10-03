@@ -72,6 +72,21 @@ const (
 	// DepotAgentServiceRespondLocalMcpCallProcedure is the fully-qualified name of the
 	// DepotAgentService's RespondLocalMcpCall RPC.
 	DepotAgentServiceRespondLocalMcpCallProcedure = "/depot.agent.v1.DepotAgentService/RespondLocalMcpCall"
+	// DepotAgentServiceCreateMcpServerProcedure is the fully-qualified name of the DepotAgentService's
+	// CreateMcpServer RPC.
+	DepotAgentServiceCreateMcpServerProcedure = "/depot.agent.v1.DepotAgentService/CreateMcpServer"
+	// DepotAgentServiceListMcpServersProcedure is the fully-qualified name of the DepotAgentService's
+	// ListMcpServers RPC.
+	DepotAgentServiceListMcpServersProcedure = "/depot.agent.v1.DepotAgentService/ListMcpServers"
+	// DepotAgentServiceDeleteMcpServerProcedure is the fully-qualified name of the DepotAgentService's
+	// DeleteMcpServer RPC.
+	DepotAgentServiceDeleteMcpServerProcedure = "/depot.agent.v1.DepotAgentService/DeleteMcpServer"
+	// DepotAgentServiceSetMcpServerTokenProcedure is the fully-qualified name of the
+	// DepotAgentService's SetMcpServerToken RPC.
+	DepotAgentServiceSetMcpServerTokenProcedure = "/depot.agent.v1.DepotAgentService/SetMcpServerToken"
+	// DepotAgentServiceStartMcpLoginProcedure is the fully-qualified name of the DepotAgentService's
+	// StartMcpLogin RPC.
+	DepotAgentServiceStartMcpLoginProcedure = "/depot.agent.v1.DepotAgentService/StartMcpLogin"
 )
 
 // DepotAgentServiceClient is a client for the depot.agent.v1.DepotAgentService service.
@@ -103,11 +118,28 @@ type DepotAgentServiceClient interface {
 	// Offers the caller's own MCP servers to a session and streams the agent's tool calls to them. The first
 	// message is `attached`. Calls arrive only on turns answering a message the caller wrote, and the servers
 	// leave the session when the stream ends. A newer stream for the same session, from anyone, replaces this
-	// one and ends it. Requires a user token.
+	// one and ends it with FAILED_PRECONDITION; reconnect after any other end. Requires a user token.
 	PullLocalMcpCalls(context.Context, *connect.Request[v1.PullLocalMcpCallsRequest]) (*connect.ServerStreamForClient[v1.PullLocalMcpCallsResponse], error)
 	// Answers one call from `PullLocalMcpCalls`. Answering the same call twice, or one that was cancelled,
 	// succeeds and is ignored. Fails with FAILED_PRECONDITION once the stream the call came from has ended.
 	RespondLocalMcpCall(context.Context, *connect.Request[v1.RespondLocalMcpCallRequest]) (*connect.Response[v1.RespondLocalMcpCallResponse], error)
+	// Adds a remote MCP server. An organization server, which only an owner can add, serves every message
+	// sent in the organization's sessions; a user server, which any member can add, serves only the messages
+	// its creator sends. Depot calls the server on the agent's behalf, so its credentials never reach a sandbox.
+	CreateMcpServer(context.Context, *connect.Request[v1.CreateMcpServerRequest]) (*connect.Response[v1.CreateMcpServerResponse], error)
+	// Lists the organization's MCP servers, then the caller's own; newest first within each.
+	ListMcpServers(context.Context, *connect.Request[v1.ListMcpServersRequest]) (*connect.Response[v1.ListMcpServersResponse], error)
+	// Removes an MCP server: an organization server for an owner, a user server for its creator. Tool listings
+	// taken after the delete leave it out, and later calls to it fail, even from a turn whose tools were listed
+	// before. A call that is already being sent may still complete.
+	DeleteMcpServer(context.Context, *connect.Request[v1.DeleteMcpServerRequest]) (*connect.Response[v1.DeleteMcpServerResponse], error)
+	// Stores a token Depot sends to an MCP server as `Authorization: Bearer`, or clears it. An owner sets an
+	// organization server's token; a user server's creator sets its own. The token is never returned.
+	SetMcpServerToken(context.Context, *connect.Request[v1.SetMcpServerTokenRequest]) (*connect.Response[v1.SetMcpServerTokenResponse], error)
+	// Returns a URL that logs in to an MCP server with OAuth, for the caller to open in a browser. An owner logs
+	// in to an organization server for everyone; a user server's creator logs in as themselves. Only the caller
+	// can finish the login, with `FinishMcpLogin`, within 10 minutes.
+	StartMcpLogin(context.Context, *connect.Request[v1.StartMcpLoginRequest]) (*connect.Response[v1.StartMcpLoginResponse], error)
 }
 
 // NewDepotAgentServiceClient constructs a client for the depot.agent.v1.DepotAgentService service.
@@ -185,6 +217,31 @@ func NewDepotAgentServiceClient(httpClient connect.HTTPClient, baseURL string, o
 			baseURL+DepotAgentServiceRespondLocalMcpCallProcedure,
 			opts...,
 		),
+		createMcpServer: connect.NewClient[v1.CreateMcpServerRequest, v1.CreateMcpServerResponse](
+			httpClient,
+			baseURL+DepotAgentServiceCreateMcpServerProcedure,
+			opts...,
+		),
+		listMcpServers: connect.NewClient[v1.ListMcpServersRequest, v1.ListMcpServersResponse](
+			httpClient,
+			baseURL+DepotAgentServiceListMcpServersProcedure,
+			opts...,
+		),
+		deleteMcpServer: connect.NewClient[v1.DeleteMcpServerRequest, v1.DeleteMcpServerResponse](
+			httpClient,
+			baseURL+DepotAgentServiceDeleteMcpServerProcedure,
+			opts...,
+		),
+		setMcpServerToken: connect.NewClient[v1.SetMcpServerTokenRequest, v1.SetMcpServerTokenResponse](
+			httpClient,
+			baseURL+DepotAgentServiceSetMcpServerTokenProcedure,
+			opts...,
+		),
+		startMcpLogin: connect.NewClient[v1.StartMcpLoginRequest, v1.StartMcpLoginResponse](
+			httpClient,
+			baseURL+DepotAgentServiceStartMcpLoginProcedure,
+			opts...,
+		),
 	}
 }
 
@@ -203,6 +260,11 @@ type depotAgentServiceClient struct {
 	prepareAttachmentUploads *connect.Client[v1.PrepareAttachmentUploadsRequest, v1.PrepareAttachmentUploadsResponse]
 	pullLocalMcpCalls        *connect.Client[v1.PullLocalMcpCallsRequest, v1.PullLocalMcpCallsResponse]
 	respondLocalMcpCall      *connect.Client[v1.RespondLocalMcpCallRequest, v1.RespondLocalMcpCallResponse]
+	createMcpServer          *connect.Client[v1.CreateMcpServerRequest, v1.CreateMcpServerResponse]
+	listMcpServers           *connect.Client[v1.ListMcpServersRequest, v1.ListMcpServersResponse]
+	deleteMcpServer          *connect.Client[v1.DeleteMcpServerRequest, v1.DeleteMcpServerResponse]
+	setMcpServerToken        *connect.Client[v1.SetMcpServerTokenRequest, v1.SetMcpServerTokenResponse]
+	startMcpLogin            *connect.Client[v1.StartMcpLoginRequest, v1.StartMcpLoginResponse]
 }
 
 // CreateSession calls depot.agent.v1.DepotAgentService.CreateSession.
@@ -270,6 +332,31 @@ func (c *depotAgentServiceClient) RespondLocalMcpCall(ctx context.Context, req *
 	return c.respondLocalMcpCall.CallUnary(ctx, req)
 }
 
+// CreateMcpServer calls depot.agent.v1.DepotAgentService.CreateMcpServer.
+func (c *depotAgentServiceClient) CreateMcpServer(ctx context.Context, req *connect.Request[v1.CreateMcpServerRequest]) (*connect.Response[v1.CreateMcpServerResponse], error) {
+	return c.createMcpServer.CallUnary(ctx, req)
+}
+
+// ListMcpServers calls depot.agent.v1.DepotAgentService.ListMcpServers.
+func (c *depotAgentServiceClient) ListMcpServers(ctx context.Context, req *connect.Request[v1.ListMcpServersRequest]) (*connect.Response[v1.ListMcpServersResponse], error) {
+	return c.listMcpServers.CallUnary(ctx, req)
+}
+
+// DeleteMcpServer calls depot.agent.v1.DepotAgentService.DeleteMcpServer.
+func (c *depotAgentServiceClient) DeleteMcpServer(ctx context.Context, req *connect.Request[v1.DeleteMcpServerRequest]) (*connect.Response[v1.DeleteMcpServerResponse], error) {
+	return c.deleteMcpServer.CallUnary(ctx, req)
+}
+
+// SetMcpServerToken calls depot.agent.v1.DepotAgentService.SetMcpServerToken.
+func (c *depotAgentServiceClient) SetMcpServerToken(ctx context.Context, req *connect.Request[v1.SetMcpServerTokenRequest]) (*connect.Response[v1.SetMcpServerTokenResponse], error) {
+	return c.setMcpServerToken.CallUnary(ctx, req)
+}
+
+// StartMcpLogin calls depot.agent.v1.DepotAgentService.StartMcpLogin.
+func (c *depotAgentServiceClient) StartMcpLogin(ctx context.Context, req *connect.Request[v1.StartMcpLoginRequest]) (*connect.Response[v1.StartMcpLoginResponse], error) {
+	return c.startMcpLogin.CallUnary(ctx, req)
+}
+
 // DepotAgentServiceHandler is an implementation of the depot.agent.v1.DepotAgentService service.
 type DepotAgentServiceHandler interface {
 	// Creates a session and queues its first message. A sandbox starts for it within a minute.
@@ -299,11 +386,28 @@ type DepotAgentServiceHandler interface {
 	// Offers the caller's own MCP servers to a session and streams the agent's tool calls to them. The first
 	// message is `attached`. Calls arrive only on turns answering a message the caller wrote, and the servers
 	// leave the session when the stream ends. A newer stream for the same session, from anyone, replaces this
-	// one and ends it. Requires a user token.
+	// one and ends it with FAILED_PRECONDITION; reconnect after any other end. Requires a user token.
 	PullLocalMcpCalls(context.Context, *connect.Request[v1.PullLocalMcpCallsRequest], *connect.ServerStream[v1.PullLocalMcpCallsResponse]) error
 	// Answers one call from `PullLocalMcpCalls`. Answering the same call twice, or one that was cancelled,
 	// succeeds and is ignored. Fails with FAILED_PRECONDITION once the stream the call came from has ended.
 	RespondLocalMcpCall(context.Context, *connect.Request[v1.RespondLocalMcpCallRequest]) (*connect.Response[v1.RespondLocalMcpCallResponse], error)
+	// Adds a remote MCP server. An organization server, which only an owner can add, serves every message
+	// sent in the organization's sessions; a user server, which any member can add, serves only the messages
+	// its creator sends. Depot calls the server on the agent's behalf, so its credentials never reach a sandbox.
+	CreateMcpServer(context.Context, *connect.Request[v1.CreateMcpServerRequest]) (*connect.Response[v1.CreateMcpServerResponse], error)
+	// Lists the organization's MCP servers, then the caller's own; newest first within each.
+	ListMcpServers(context.Context, *connect.Request[v1.ListMcpServersRequest]) (*connect.Response[v1.ListMcpServersResponse], error)
+	// Removes an MCP server: an organization server for an owner, a user server for its creator. Tool listings
+	// taken after the delete leave it out, and later calls to it fail, even from a turn whose tools were listed
+	// before. A call that is already being sent may still complete.
+	DeleteMcpServer(context.Context, *connect.Request[v1.DeleteMcpServerRequest]) (*connect.Response[v1.DeleteMcpServerResponse], error)
+	// Stores a token Depot sends to an MCP server as `Authorization: Bearer`, or clears it. An owner sets an
+	// organization server's token; a user server's creator sets its own. The token is never returned.
+	SetMcpServerToken(context.Context, *connect.Request[v1.SetMcpServerTokenRequest]) (*connect.Response[v1.SetMcpServerTokenResponse], error)
+	// Returns a URL that logs in to an MCP server with OAuth, for the caller to open in a browser. An owner logs
+	// in to an organization server for everyone; a user server's creator logs in as themselves. Only the caller
+	// can finish the login, with `FinishMcpLogin`, within 10 minutes.
+	StartMcpLogin(context.Context, *connect.Request[v1.StartMcpLoginRequest]) (*connect.Response[v1.StartMcpLoginResponse], error)
 }
 
 // NewDepotAgentServiceHandler builds an HTTP handler from the service implementation. It returns
@@ -377,6 +481,31 @@ func NewDepotAgentServiceHandler(svc DepotAgentServiceHandler, opts ...connect.H
 		svc.RespondLocalMcpCall,
 		opts...,
 	)
+	depotAgentServiceCreateMcpServerHandler := connect.NewUnaryHandler(
+		DepotAgentServiceCreateMcpServerProcedure,
+		svc.CreateMcpServer,
+		opts...,
+	)
+	depotAgentServiceListMcpServersHandler := connect.NewUnaryHandler(
+		DepotAgentServiceListMcpServersProcedure,
+		svc.ListMcpServers,
+		opts...,
+	)
+	depotAgentServiceDeleteMcpServerHandler := connect.NewUnaryHandler(
+		DepotAgentServiceDeleteMcpServerProcedure,
+		svc.DeleteMcpServer,
+		opts...,
+	)
+	depotAgentServiceSetMcpServerTokenHandler := connect.NewUnaryHandler(
+		DepotAgentServiceSetMcpServerTokenProcedure,
+		svc.SetMcpServerToken,
+		opts...,
+	)
+	depotAgentServiceStartMcpLoginHandler := connect.NewUnaryHandler(
+		DepotAgentServiceStartMcpLoginProcedure,
+		svc.StartMcpLogin,
+		opts...,
+	)
 	return "/depot.agent.v1.DepotAgentService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case DepotAgentServiceCreateSessionProcedure:
@@ -405,6 +534,16 @@ func NewDepotAgentServiceHandler(svc DepotAgentServiceHandler, opts ...connect.H
 			depotAgentServicePullLocalMcpCallsHandler.ServeHTTP(w, r)
 		case DepotAgentServiceRespondLocalMcpCallProcedure:
 			depotAgentServiceRespondLocalMcpCallHandler.ServeHTTP(w, r)
+		case DepotAgentServiceCreateMcpServerProcedure:
+			depotAgentServiceCreateMcpServerHandler.ServeHTTP(w, r)
+		case DepotAgentServiceListMcpServersProcedure:
+			depotAgentServiceListMcpServersHandler.ServeHTTP(w, r)
+		case DepotAgentServiceDeleteMcpServerProcedure:
+			depotAgentServiceDeleteMcpServerHandler.ServeHTTP(w, r)
+		case DepotAgentServiceSetMcpServerTokenProcedure:
+			depotAgentServiceSetMcpServerTokenHandler.ServeHTTP(w, r)
+		case DepotAgentServiceStartMcpLoginProcedure:
+			depotAgentServiceStartMcpLoginHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -464,4 +603,24 @@ func (UnimplementedDepotAgentServiceHandler) PullLocalMcpCalls(context.Context, 
 
 func (UnimplementedDepotAgentServiceHandler) RespondLocalMcpCall(context.Context, *connect.Request[v1.RespondLocalMcpCallRequest]) (*connect.Response[v1.RespondLocalMcpCallResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.agent.v1.DepotAgentService.RespondLocalMcpCall is not implemented"))
+}
+
+func (UnimplementedDepotAgentServiceHandler) CreateMcpServer(context.Context, *connect.Request[v1.CreateMcpServerRequest]) (*connect.Response[v1.CreateMcpServerResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.agent.v1.DepotAgentService.CreateMcpServer is not implemented"))
+}
+
+func (UnimplementedDepotAgentServiceHandler) ListMcpServers(context.Context, *connect.Request[v1.ListMcpServersRequest]) (*connect.Response[v1.ListMcpServersResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.agent.v1.DepotAgentService.ListMcpServers is not implemented"))
+}
+
+func (UnimplementedDepotAgentServiceHandler) DeleteMcpServer(context.Context, *connect.Request[v1.DeleteMcpServerRequest]) (*connect.Response[v1.DeleteMcpServerResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.agent.v1.DepotAgentService.DeleteMcpServer is not implemented"))
+}
+
+func (UnimplementedDepotAgentServiceHandler) SetMcpServerToken(context.Context, *connect.Request[v1.SetMcpServerTokenRequest]) (*connect.Response[v1.SetMcpServerTokenResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.agent.v1.DepotAgentService.SetMcpServerToken is not implemented"))
+}
+
+func (UnimplementedDepotAgentServiceHandler) StartMcpLogin(context.Context, *connect.Request[v1.StartMcpLoginRequest]) (*connect.Response[v1.StartMcpLoginResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.agent.v1.DepotAgentService.StartMcpLogin is not implemented"))
 }

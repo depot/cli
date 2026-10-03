@@ -26,6 +26,7 @@ func NewCmdAgent() *cobra.Command {
 		Short: "Run Depot coding agents",
 	}
 	cmd.AddCommand(newCmdSession())
+	cmd.AddCommand(newCmdMcp())
 	sanitizeErrors(cmd)
 	return cmd
 }

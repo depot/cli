@@ -13,9 +13,9 @@ import (
 	cliv1beta1 "github.com/depot/cli/pkg/proto/depot/cli/v1beta1"
 )
 
-// openURL opens the specified URL in the user's default browser.
+// OpenURL opens the specified URL in the user's default browser.
 // It handles different operating systems appropriately.
-func openURL(url string) error {
+func OpenURL(url string) error {
 	var cmd string
 	var args []string
 
@@ -61,7 +61,7 @@ func AuthorizeDevice(ctx context.Context) (*cliv1beta1.FinishLoginResponse, erro
 	} else if openBrowser {
 		// User chose to open browser
 		fmt.Printf("Opening your browser...\n")
-		if err := openURL(response.Msg.ApproveUrl); err != nil {
+		if err := OpenURL(response.Msg.ApproveUrl); err != nil {
 			fmt.Printf("Could not open browser: %v\n", err)
 		}
 	}
