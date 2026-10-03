@@ -21,15 +21,16 @@ import (
 
 func newCmdSessionCreate() *cobra.Command {
 	var (
-		auth      authFlags
-		repo      string
-		ref       string
-		model     string
-		title     string
-		watch     bool
-		output    string
-		files     []string
-		stdinFile string
+		auth       authFlags
+		repo       string
+		ref        string
+		model      string
+		title      string
+		watch      bool
+		output     string
+		files      []string
+		stdinFile  string
+		definition string
 	)
 
 	cmd := &cobra.Command{
@@ -42,7 +43,10 @@ func newCmdSessionCreate() *cobra.Command {
   depot agent session create --model claude-opus-5-5 "summarize the README"
 
   # Attach files or a directory to the first message
-  depot agent session create --file screenshot.png --file ./logs "why does this page crash?"`,
+  depot agent session create --file screenshot.png --file ./logs "why does this page crash?"
+
+  # Start from a definition directory written by depot agent pull
+  depot agent session create --definition ./depot-agent "triage the open issues"`,
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := validateOutput(output); err != nil {
@@ -68,6 +72,11 @@ func newCmdSessionCreate() *cobra.Command {
 			}
 			if model != "" {
 				req.Model = parseModel(model)
+			}
+			if definition != "" {
+				if req.Definition, err = readDefinition(definition); err != nil {
+					return err
+				}
 			}
 			in := fileInputs{paths: files, stdinName: stdinFile, stdin: os.Stdin}
 			if req.Attachments, err = uploadAttachments(ctx, s, nil, in, os.Stderr); err != nil {
@@ -98,6 +107,7 @@ func newCmdSessionCreate() *cobra.Command {
 	cmd.Flags().StringVar(&title, "title", "", "Session title")
 	cmd.Flags().StringArrayVar(&files, "file", nil, "Attach a file, or a directory's files minus .gitignored ones, to the first message (repeatable)")
 	cmd.Flags().StringVar(&stdinFile, "stdin-file", "", "Attach stdin as a file with this name")
+	cmd.Flags().StringVar(&definition, "definition", "", "Directory holding the agent's instructions, skills, and plugins, as depot agent pull writes it")
 	cmd.Flags().BoolVar(&watch, "watch", false, "Stream the session after creating it, until it settles")
 	cmd.Flags().StringVarP(&output, "output", "o", "", "Output format (json)")
 	cmd.MarkFlagsMutuallyExclusive("watch", "output")

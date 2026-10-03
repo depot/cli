@@ -66,6 +66,12 @@ const (
 	// DepotAgentServicePrepareAttachmentUploadsProcedure is the fully-qualified name of the
 	// DepotAgentService's PrepareAttachmentUploads RPC.
 	DepotAgentServicePrepareAttachmentUploadsProcedure = "/depot.agent.v1.DepotAgentService/PrepareAttachmentUploads"
+	// DepotAgentServicePutAgentDefinitionProcedure is the fully-qualified name of the
+	// DepotAgentService's PutAgentDefinition RPC.
+	DepotAgentServicePutAgentDefinitionProcedure = "/depot.agent.v1.DepotAgentService/PutAgentDefinition"
+	// DepotAgentServiceGetAgentDefinitionProcedure is the fully-qualified name of the
+	// DepotAgentService's GetAgentDefinition RPC.
+	DepotAgentServiceGetAgentDefinitionProcedure = "/depot.agent.v1.DepotAgentService/GetAgentDefinition"
 )
 
 // DepotAgentServiceClient is a client for the depot.agent.v1.DepotAgentService service.
@@ -94,6 +100,12 @@ type DepotAgentServiceClient interface {
 	// Prepares files to attach to a message. Returns an upload URL for each file Depot does not already
 	// store; upload those, then pass the attachments to `CreateSession` or `SendInput`.
 	PrepareAttachmentUploads(context.Context, *connect.Request[v1.PrepareAttachmentUploadsRequest]) (*connect.Response[v1.PrepareAttachmentUploadsResponse], error)
+	// Stores a new version of a session's agent definition, which the agent loads before its next turn.
+	// Sending the same content as the current version returns that version instead of storing a copy.
+	// To roll back, get an earlier version and put it again.
+	PutAgentDefinition(context.Context, *connect.Request[v1.PutAgentDefinitionRequest]) (*connect.Response[v1.PutAgentDefinitionResponse], error)
+	// Returns one version of a session's agent definition. Default: the current version.
+	GetAgentDefinition(context.Context, *connect.Request[v1.GetAgentDefinitionRequest]) (*connect.Response[v1.GetAgentDefinitionResponse], error)
 }
 
 // NewDepotAgentServiceClient constructs a client for the depot.agent.v1.DepotAgentService service.
@@ -161,6 +173,16 @@ func NewDepotAgentServiceClient(httpClient connect.HTTPClient, baseURL string, o
 			baseURL+DepotAgentServicePrepareAttachmentUploadsProcedure,
 			opts...,
 		),
+		putAgentDefinition: connect.NewClient[v1.PutAgentDefinitionRequest, v1.PutAgentDefinitionResponse](
+			httpClient,
+			baseURL+DepotAgentServicePutAgentDefinitionProcedure,
+			opts...,
+		),
+		getAgentDefinition: connect.NewClient[v1.GetAgentDefinitionRequest, v1.GetAgentDefinitionResponse](
+			httpClient,
+			baseURL+DepotAgentServiceGetAgentDefinitionProcedure,
+			opts...,
+		),
 	}
 }
 
@@ -177,6 +199,8 @@ type depotAgentServiceClient struct {
 	listTriggers             *connect.Client[v1.ListTriggersRequest, v1.ListTriggersResponse]
 	deleteTrigger            *connect.Client[v1.DeleteTriggerRequest, v1.DeleteTriggerResponse]
 	prepareAttachmentUploads *connect.Client[v1.PrepareAttachmentUploadsRequest, v1.PrepareAttachmentUploadsResponse]
+	putAgentDefinition       *connect.Client[v1.PutAgentDefinitionRequest, v1.PutAgentDefinitionResponse]
+	getAgentDefinition       *connect.Client[v1.GetAgentDefinitionRequest, v1.GetAgentDefinitionResponse]
 }
 
 // CreateSession calls depot.agent.v1.DepotAgentService.CreateSession.
@@ -234,6 +258,16 @@ func (c *depotAgentServiceClient) PrepareAttachmentUploads(ctx context.Context, 
 	return c.prepareAttachmentUploads.CallUnary(ctx, req)
 }
 
+// PutAgentDefinition calls depot.agent.v1.DepotAgentService.PutAgentDefinition.
+func (c *depotAgentServiceClient) PutAgentDefinition(ctx context.Context, req *connect.Request[v1.PutAgentDefinitionRequest]) (*connect.Response[v1.PutAgentDefinitionResponse], error) {
+	return c.putAgentDefinition.CallUnary(ctx, req)
+}
+
+// GetAgentDefinition calls depot.agent.v1.DepotAgentService.GetAgentDefinition.
+func (c *depotAgentServiceClient) GetAgentDefinition(ctx context.Context, req *connect.Request[v1.GetAgentDefinitionRequest]) (*connect.Response[v1.GetAgentDefinitionResponse], error) {
+	return c.getAgentDefinition.CallUnary(ctx, req)
+}
+
 // DepotAgentServiceHandler is an implementation of the depot.agent.v1.DepotAgentService service.
 type DepotAgentServiceHandler interface {
 	// Creates a session and queues its first message. A sandbox starts for it within a minute.
@@ -260,6 +294,12 @@ type DepotAgentServiceHandler interface {
 	// Prepares files to attach to a message. Returns an upload URL for each file Depot does not already
 	// store; upload those, then pass the attachments to `CreateSession` or `SendInput`.
 	PrepareAttachmentUploads(context.Context, *connect.Request[v1.PrepareAttachmentUploadsRequest]) (*connect.Response[v1.PrepareAttachmentUploadsResponse], error)
+	// Stores a new version of a session's agent definition, which the agent loads before its next turn.
+	// Sending the same content as the current version returns that version instead of storing a copy.
+	// To roll back, get an earlier version and put it again.
+	PutAgentDefinition(context.Context, *connect.Request[v1.PutAgentDefinitionRequest]) (*connect.Response[v1.PutAgentDefinitionResponse], error)
+	// Returns one version of a session's agent definition. Default: the current version.
+	GetAgentDefinition(context.Context, *connect.Request[v1.GetAgentDefinitionRequest]) (*connect.Response[v1.GetAgentDefinitionResponse], error)
 }
 
 // NewDepotAgentServiceHandler builds an HTTP handler from the service implementation. It returns
@@ -323,6 +363,16 @@ func NewDepotAgentServiceHandler(svc DepotAgentServiceHandler, opts ...connect.H
 		svc.PrepareAttachmentUploads,
 		opts...,
 	)
+	depotAgentServicePutAgentDefinitionHandler := connect.NewUnaryHandler(
+		DepotAgentServicePutAgentDefinitionProcedure,
+		svc.PutAgentDefinition,
+		opts...,
+	)
+	depotAgentServiceGetAgentDefinitionHandler := connect.NewUnaryHandler(
+		DepotAgentServiceGetAgentDefinitionProcedure,
+		svc.GetAgentDefinition,
+		opts...,
+	)
 	return "/depot.agent.v1.DepotAgentService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case DepotAgentServiceCreateSessionProcedure:
@@ -347,6 +397,10 @@ func NewDepotAgentServiceHandler(svc DepotAgentServiceHandler, opts ...connect.H
 			depotAgentServiceDeleteTriggerHandler.ServeHTTP(w, r)
 		case DepotAgentServicePrepareAttachmentUploadsProcedure:
 			depotAgentServicePrepareAttachmentUploadsHandler.ServeHTTP(w, r)
+		case DepotAgentServicePutAgentDefinitionProcedure:
+			depotAgentServicePutAgentDefinitionHandler.ServeHTTP(w, r)
+		case DepotAgentServiceGetAgentDefinitionProcedure:
+			depotAgentServiceGetAgentDefinitionHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -398,4 +452,12 @@ func (UnimplementedDepotAgentServiceHandler) DeleteTrigger(context.Context, *con
 
 func (UnimplementedDepotAgentServiceHandler) PrepareAttachmentUploads(context.Context, *connect.Request[v1.PrepareAttachmentUploadsRequest]) (*connect.Response[v1.PrepareAttachmentUploadsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.agent.v1.DepotAgentService.PrepareAttachmentUploads is not implemented"))
+}
+
+func (UnimplementedDepotAgentServiceHandler) PutAgentDefinition(context.Context, *connect.Request[v1.PutAgentDefinitionRequest]) (*connect.Response[v1.PutAgentDefinitionResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.agent.v1.DepotAgentService.PutAgentDefinition is not implemented"))
+}
+
+func (UnimplementedDepotAgentServiceHandler) GetAgentDefinition(context.Context, *connect.Request[v1.GetAgentDefinitionRequest]) (*connect.Response[v1.GetAgentDefinitionResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.agent.v1.DepotAgentService.GetAgentDefinition is not implemented"))
 }
