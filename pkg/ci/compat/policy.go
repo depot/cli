@@ -46,7 +46,6 @@ type runnerPolicySource struct {
 type runnerPolicyLabel struct {
 	Label     string `json:"label"`
 	Supported *bool  `json:"supported"`
-	Reason    string `json:"reason"`
 }
 
 var gitRevision = regexp.MustCompile(`^[0-9a-f]{40}$`)
@@ -67,13 +66,16 @@ func parseRunnerPolicy(data []byte) (map[string]bool, error) {
 	if file.SchemaVersion != 1 {
 		return nil, fmt.Errorf("unsupported schemaVersion %d", file.SchemaVersion)
 	}
-	if source := file.Source; source != nil {
-		if source.Repository != "depot/api" {
-			return nil, fmt.Errorf("unexpected source repository %q", source.Repository)
-		}
-		if !gitRevision.MatchString(source.Revision) {
-			return nil, fmt.Errorf("source revision %q is not a full commit SHA", source.Revision)
-		}
+	// the CLI copy must cite the api commit it came from; the sync job repairs a copy that does not.
+	source := file.Source
+	if source == nil {
+		return nil, errors.New("missing source")
+	}
+	if source.Repository != "depot/api" {
+		return nil, fmt.Errorf("unexpected source repository %q", source.Repository)
+	}
+	if !gitRevision.MatchString(source.Revision) {
+		return nil, fmt.Errorf("source revision %q is not a full commit SHA", source.Revision)
 	}
 	if len(file.Labels) == 0 {
 		return nil, errors.New("no labels")
@@ -89,9 +91,6 @@ func parseRunnerPolicy(data []byte) (map[string]bool, error) {
 		}
 		if entry.Supported == nil {
 			return nil, fmt.Errorf("label %q is missing supported", entry.Label)
-		}
-		if *entry.Supported == (entry.Reason != "") {
-			return nil, fmt.Errorf("label %q must have a reason only when unsupported", entry.Label)
 		}
 		policy[entry.Label] = *entry.Supported
 	}

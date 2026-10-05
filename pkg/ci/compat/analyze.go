@@ -58,6 +58,12 @@ func AnalyzeTriggers(triggers []string) []CompatibilityIssue {
 }
 
 func AnalyzeJobs(jobs []migrate.JobInfo) []CompatibilityIssue {
+	return analyzeJobs(jobs, runnerPolicy())
+}
+
+// analyzeJobs takes the runner policy so tests can pin label support instead of
+// depending on the backend's current decisions.
+func analyzeJobs(jobs []migrate.JobInfo, policy map[string]bool) []CompatibilityIssue {
 	issues := make([]CompatibilityIssue, 0)
 
 	containerRule := JobFeatureRules["container"]
@@ -110,7 +116,7 @@ func AnalyzeJobs(jobs []migrate.JobInfo) []CompatibilityIssue {
 			})
 		}
 
-		if hasCustomRunsOn(runsOn) {
+		if hasCustomRunsOn(runsOn, policy) {
 			issues = append(issues, CompatibilityIssue{
 				Feature:    "runs-on (custom labels)",
 				Level:      runsOnRule.Supported,
@@ -198,7 +204,7 @@ func jobRunsOnLabels(job migrate.JobInfo) []string {
 // depot- elements are secondary labels; the backend ignores them, so they only
 // matter when no element selects a runner. Expressions resolve at run time, so
 // a job using them is never reported for lacking a runner.
-func hasCustomRunsOn(labels []string) bool {
+func hasCustomRunsOn(labels []string, policy map[string]bool) bool {
 	// primaries records, per selected runner, whether an element carrying
 	// secondary labels already selected it.
 	primaries := make(map[string]bool)
@@ -226,7 +232,7 @@ func hasCustomRunsOn(labels []string) bool {
 
 		parts := strings.Split(label, ",")
 		primary := strings.TrimSpace(parts[0])
-		supported, known := runnerPolicy()[primary]
+		supported, known := policy[primary]
 		if !known {
 			hasSecondary = true
 			continue

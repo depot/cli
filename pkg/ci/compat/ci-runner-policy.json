@@ -2,33 +2,28 @@
   "schemaVersion": 1,
   "source": {
     "repository": "depot/api",
-    "revision": "c4c2eb9c887d041b0b5939b2ae6329a33f9db886"
+    "revision": "328b5089223f08abaf65d62d55ce5114fd535ea2"
   },
   "labels": [
     {
       "label": "depot-macos-14",
-      "supported": false,
-      "reason": "Support for depot-macos-14 is coming soon."
+      "supported": false
     },
     {
       "label": "depot-macos-15",
-      "supported": false,
-      "reason": "Support for depot-macos-15 is coming soon."
+      "supported": false
     },
     {
       "label": "depot-macos-26",
-      "supported": false,
-      "reason": "Support for depot-macos-26 is coming soon."
+      "supported": false
     },
     {
       "label": "depot-macos-beta",
-      "supported": false,
-      "reason": "Support for depot-macos-beta is coming soon."
+      "supported": false
     },
     {
       "label": "depot-macos-latest",
-      "supported": false,
-      "reason": "Support for depot-macos-latest is coming soon."
+      "supported": false
     },
     {
       "label": "depot-ubuntu-22.04",
@@ -60,8 +55,7 @@
     },
     {
       "label": "depot-ubuntu-22.04-192",
-      "supported": false,
-      "reason": "96, 192 CPU machines are not supported yet. Please choose a smaller runner type."
+      "supported": false
     },
     {
       "label": "depot-ubuntu-22.04-192-gpu",
@@ -149,8 +143,7 @@
     },
     {
       "label": "depot-ubuntu-22.04-96",
-      "supported": false,
-      "reason": "96, 192 CPU machines are not supported yet. Please choose a smaller runner type."
+      "supported": false
     },
     {
       "label": "depot-ubuntu-22.04-arm",
@@ -166,8 +159,7 @@
     },
     {
       "label": "depot-ubuntu-22.04-arm-192",
-      "supported": false,
-      "reason": "96, 192 CPU machines are not supported yet. Please choose a smaller runner type."
+      "supported": false
     },
     {
       "label": "depot-ubuntu-22.04-arm-2",
@@ -239,8 +231,7 @@
     },
     {
       "label": "depot-ubuntu-24.04-192",
-      "supported": false,
-      "reason": "96, 192 CPU machines are not supported yet. Please choose a smaller runner type."
+      "supported": false
     },
     {
       "label": "depot-ubuntu-24.04-2",
@@ -280,13 +271,11 @@
     },
     {
       "label": "depot-ubuntu-24.04-96",
-      "supported": false,
-      "reason": "96, 192 CPU machines are not supported yet. Please choose a smaller runner type."
+      "supported": false
     },
     {
       "label": "depot-ubuntu-24.04-96-metal",
-      "supported": false,
-      "reason": "96, 192 CPU machines are not supported yet. Please choose a smaller runner type."
+      "supported": false
     },
     {
       "label": "depot-ubuntu-24.04-arm",
@@ -302,8 +291,7 @@
     },
     {
       "label": "depot-ubuntu-24.04-arm-192",
-      "supported": false,
-      "reason": "96, 192 CPU machines are not supported yet. Please choose a smaller runner type."
+      "supported": false
     },
     {
       "label": "depot-ubuntu-24.04-arm-2",
@@ -363,8 +351,7 @@
     },
     {
       "label": "depot-ubuntu-latest-192",
-      "supported": false,
-      "reason": "96, 192 CPU machines are not supported yet. Please choose a smaller runner type."
+      "supported": false
     },
     {
       "label": "depot-ubuntu-latest-2",
@@ -404,8 +391,7 @@
     },
     {
       "label": "depot-ubuntu-latest-96",
-      "supported": false,
-      "reason": "96, 192 CPU machines are not supported yet. Please choose a smaller runner type."
+      "supported": false
     },
     {
       "label": "depot-ubuntu-latest-arm",
@@ -421,8 +407,7 @@
     },
     {
       "label": "depot-ubuntu-latest-arm-192",
-      "supported": false,
-      "reason": "96, 192 CPU machines are not supported yet. Please choose a smaller runner type."
+      "supported": false
     },
     {
       "label": "depot-ubuntu-latest-arm-2",
@@ -478,123 +463,99 @@
     },
     {
       "label": "depot-windows-2022",
-      "supported": false,
-      "reason": "Non-linux runs-on label: windows2022-x86-2x8"
+      "supported": false
     },
     {
       "label": "depot-windows-2022-16",
-      "supported": false,
-      "reason": "Non-linux runs-on label: windows2022-x86-16x64"
+      "supported": false
     },
     {
       "label": "depot-windows-2022-2",
-      "supported": false,
-      "reason": "Non-linux runs-on label: windows2022-x86-2x8"
+      "supported": false
     },
     {
       "label": "depot-windows-2022-32",
-      "supported": false,
-      "reason": "Non-linux runs-on label: windows2022-x86-32x128"
+      "supported": false
     },
     {
       "label": "depot-windows-2022-4",
-      "supported": false,
-      "reason": "Non-linux runs-on label: windows2022-x86-4x16"
+      "supported": false
     },
     {
       "label": "depot-windows-2022-64",
-      "supported": false,
-      "reason": "Non-linux runs-on label: windows2022-x86-64x256"
+      "supported": false
     },
     {
       "label": "depot-windows-2022-8",
-      "supported": false,
-      "reason": "Non-linux runs-on label: windows2022-x86-8x32"
+      "supported": false
     },
     {
       "label": "depot-windows-2022-small",
-      "supported": false,
-      "reason": "Non-linux runs-on label: windows2022-x86-2x2"
+      "supported": false
     },
     {
       "label": "depot-windows-2025",
-      "supported": false,
-      "reason": "Non-linux runs-on label: windows2025-x86-2x8"
+      "supported": false
     },
     {
       "label": "depot-windows-2025-16",
-      "supported": false,
-      "reason": "Non-linux runs-on label: windows2025-x86-16x64"
+      "supported": false
     },
     {
       "label": "depot-windows-2025-2",
-      "supported": false,
-      "reason": "Non-linux runs-on label: windows2025-x86-2x8"
+      "supported": false
     },
     {
       "label": "depot-windows-2025-32",
-      "supported": false,
-      "reason": "Non-linux runs-on label: windows2025-x86-32x128"
+      "supported": false
     },
     {
       "label": "depot-windows-2025-4",
-      "supported": false,
-      "reason": "Non-linux runs-on label: windows2025-x86-4x16"
+      "supported": false
     },
     {
       "label": "depot-windows-2025-64",
-      "supported": false,
-      "reason": "Non-linux runs-on label: windows2025-x86-64x256"
+      "supported": false
     },
     {
       "label": "depot-windows-2025-8",
-      "supported": false,
-      "reason": "Non-linux runs-on label: windows2025-x86-8x32"
+      "supported": false
     },
     {
       "label": "depot-windows-2025-small",
-      "supported": false,
-      "reason": "Non-linux runs-on label: windows2025-x86-2x2"
+      "supported": false
     },
     {
       "label": "depot-windows-latest",
-      "supported": false,
-      "reason": "Non-linux runs-on label: windows2022-x86-2x8"
+      "supported": false
     },
     {
       "label": "depot-windows-latest-16",
-      "supported": false,
-      "reason": "Non-linux runs-on label: windows2022-x86-16x64"
+      "supported": false
     },
     {
       "label": "depot-windows-latest-2",
-      "supported": false,
-      "reason": "Non-linux runs-on label: windows2022-x86-2x8"
+      "supported": false
     },
     {
       "label": "depot-windows-latest-32",
-      "supported": false,
-      "reason": "Non-linux runs-on label: windows2022-x86-32x128"
+      "supported": false
     },
     {
       "label": "depot-windows-latest-4",
-      "supported": false,
-      "reason": "Non-linux runs-on label: windows2022-x86-4x16"
+      "supported": false
     },
     {
       "label": "depot-windows-latest-64",
-      "supported": false,
-      "reason": "Non-linux runs-on label: windows2022-x86-64x256"
+      "supported": false
     },
     {
       "label": "depot-windows-latest-8",
-      "supported": false,
-      "reason": "Non-linux runs-on label: windows2022-x86-8x32"
+      "supported": false
     },
     {
       "label": "depot-windows-latest-small",
-      "supported": false,
-      "reason": "Non-linux runs-on label: windows2022-x86-2x2"
+      "supported": false
     }
   ]
 }
