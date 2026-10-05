@@ -179,21 +179,37 @@ func isLocalReusableWorkflow(uses string) bool {
 	return strings.HasPrefix(strings.TrimSpace(uses), "./")
 }
 
+// unsupportedDepotRunnerPrefixes excludes depot-* families that
+// migrate.ClassifyLabel treats as Depot-native but Depot CI cannot run:
+// sandboxes are Linux-only (https://depot.dev/docs/ci/overview#depot-ci-sandboxes).
+// Prefixes cover version and size suffixes such as depot-windows-2022-8.
+var unsupportedDepotRunnerPrefixes = []string{"depot-macos", "depot-windows"}
+
 func hasCustomRunsOn(runsOn string) bool {
 	labels := parseRunsOnLabels(runsOn)
 	for _, label := range labels {
-		if label == "ubuntu-latest" || label == "depot_ubuntu_latest" {
+		switch migrate.ClassifyLabel(label) {
+		case migrate.LabelDepotNative:
+			if isUnsupportedDepotRunner(label) {
+				return true
+			}
 			continue
-		}
-		if strings.HasPrefix(label, "depot_") {
-			continue
-		}
-		if strings.Contains(label, "${{") {
+		case migrate.LabelStandardGitHub, migrate.LabelExpression:
 			continue
 		}
 		return true
 	}
 
+	return false
+}
+
+// isUnsupportedDepotRunner expects a label normalized by parseRunsOnLabels.
+func isUnsupportedDepotRunner(label string) bool {
+	for _, prefix := range unsupportedDepotRunnerPrefixes {
+		if strings.HasPrefix(label, prefix) {
+			return true
+		}
+	}
 	return false
 }
 

@@ -173,3 +173,53 @@ func TestHasCriticalIssues(t *testing.T) {
 		t.Fatal("expected critical issues to be false")
 	}
 }
+
+func TestAnalyzeJobsRunnerLabels(t *testing.T) {
+	cases := []struct {
+		name       string
+		runsOn     string
+		wantCustom bool
+	}{
+		{"empty", "", false},
+		{"latest", "ubuntu-latest", false},
+		{"ubuntu24", "ubuntu-24.04", false},
+		{"ubuntu22", "ubuntu-22.04", false},
+		{"ubuntu20", "ubuntu-20.04", false},
+		{"depotLatest", "depot-ubuntu-latest", false},
+		{"depotSized", "depot-ubuntu-latest-16", false},
+		{"depotArm", "depot-ubuntu-24.04-arm", false},
+		{"caseWhitespace", "  DEPOT-UBUNTU-LATEST , Ubuntu-24.04 ", false},
+		{"expression", "${{ matrix.runner }}", false},
+		{"supportedList", "ubuntu-22.04,depot-ubuntu-latest", false},
+		{"unknown", "custom-runner", true},
+		{"windows", "windows-latest", true},
+		{"macos", "macos-latest", true},
+		{"selfHosted", "ubuntu-latest,self-hosted", true},
+		{"mixed", "depot-ubuntu-latest,custom-runner", true},
+		{"expressionMixed", "${{ matrix.runner }},custom-runner", true},
+		{"legacyUnderscore", "depot_ubuntu_latest", true},
+		// Depot CI sandboxes are Linux-only; depot macOS/Windows labels belong to
+		// Depot GitHub Actions runners, not Depot CI.
+		{"depotMacos", "depot-macos-latest", true},
+		{"depotWindows", "depot-windows-latest", true},
+		{"depotMacosVersion", "depot-macos-15", true},
+		{"depotWindowsVersionSized", "depot-windows-2022-8", true},
+		{"depotMacosCaseWhitespace", "  DEPOT-MACOS-LATEST ", true},
+		{"depotWindowsMixed", "depot-ubuntu-latest,depot-windows-latest", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			issues := AnalyzeJobs([]migrate.JobInfo{{Name: "build", RunsOn: tc.runsOn}})
+			want := 0
+			if tc.wantCustom {
+				want = 1
+			}
+			if len(issues) != want {
+				t.Fatalf("AnalyzeJobs(%q) = %v, want %d issues", tc.runsOn, issues, want)
+			}
+			if tc.wantCustom && (issues[0].Feature != "runs-on (custom labels)" || issues[0].Level != Partial) {
+				t.Fatalf("unexpected custom runner issue: %v", issues[0])
+			}
+		})
+	}
+}
