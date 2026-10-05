@@ -202,8 +202,9 @@ func jobRunsOnLabels(job migrate.JobInfo) []string {
 // depot- (case-sensitive) selects its first comma-separated part as the
 // primary runner when that part is a known label. Remaining parts and unknown
 // depot- elements are secondary labels; the backend ignores them, so they only
-// matter when no element selects a runner. Expressions resolve at run time, so
-// a job using them is never reported for lacking a runner.
+// matter when no element selects a runner. An element whose first part
+// contains an expression selects its runner at run time, so a job using one is
+// never reported for lacking a runner.
 func hasCustomRunsOn(labels []string, policy map[string]bool) bool {
 	// primaries records, per selected runner, whether an element carrying
 	// secondary labels already selected it.
@@ -214,10 +215,16 @@ func hasCustomRunsOn(labels []string, policy map[string]bool) bool {
 			continue
 		}
 
-		switch migrate.ClassifyLabel(label) {
-		case migrate.LabelExpression:
+		// a literal comma before an expression fixes the primary runner and
+		// guarantees secondaries, regardless of what the suffix expands to.
+		if head, _, _ := strings.Cut(label, ","); strings.Contains(head, "${{") {
 			hasExpression = true
 			continue
+		}
+
+		// MapLabel leaves expression-containing elements untouched, so a
+		// standard GitHub primary with a dynamic secondary stays unmapped.
+		switch migrate.ClassifyLabel(label) {
 		case migrate.LabelNonstandard:
 			return true
 		case migrate.LabelStandardGitHub:

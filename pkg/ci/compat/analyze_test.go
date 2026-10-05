@@ -230,6 +230,21 @@ func TestAnalyzeJobsRunnerLabels(t *testing.T) {
 		{"expressionWithPrimary", "['${{ matrix.runner }}', depot-ok]", false},
 		{"expressionWithUnknownDepot", "['${{ matrix.runner }}', depot-made-up]", false},
 		{"expressionWithCustom", "['${{ matrix.runner }}', custom-runner]", true},
+		// Commas inside an expression in the first part still leave the
+		// primary runner dynamic.
+		{"expressionFormatComma", `"${{ format('{0},{1}', matrix.a, matrix.b) }}"`, false},
+		{"expressionJoinComma", `"depot-${{ join(matrix.x, ',') }}"`, false},
+		// An expression after the first literal comma only affects secondary
+		// labels, so the literal primary is still checked.
+		{"dynamicSecondarySupported", "'depot-ok,dagger=${{ matrix.version }}'", false},
+		{"dynamicSecondaryUnsupported", "'depot-no,dagger=${{ matrix.version }}'", true},
+		{"dynamicSecondaryUnknownDepot", "'depot-made-up,x=${{ matrix.v }}'", true},
+		{"dynamicSecondaryUnknownDepotWithPrimary", "['depot-made-up,x=${{ matrix.v }}', depot-ok]", false},
+		{"dynamicSecondaryGitHub", "'ubuntu-latest,x=${{ matrix.v }}'", true},
+		{"dynamicSecondaryUppercase", "'DEPOT-OK,x=${{ matrix.v }}'", true},
+		{"dynamicSecondaryThenQualified", "['depot-ok,x=${{ matrix.v }}', 'depot-ok,dagger=2']", true},
+		{"dynamicSecondaryThenPlain", "['depot-ok,x=${{ matrix.v }}', depot-ok]", false},
+		{"dynamicSecondaryDistinctPrimaries", "['depot-ok,x=${{ matrix.v }}', depot-ok-2]", true},
 		{"emptyArray", "[]", false},
 	}
 	for _, tc := range cases {
