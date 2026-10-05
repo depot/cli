@@ -66,6 +66,12 @@ const (
 	// DepotAgentServicePrepareAttachmentUploadsProcedure is the fully-qualified name of the
 	// DepotAgentService's PrepareAttachmentUploads RPC.
 	DepotAgentServicePrepareAttachmentUploadsProcedure = "/depot.agent.v1.DepotAgentService/PrepareAttachmentUploads"
+	// DepotAgentServicePutAgentDefinitionProcedure is the fully-qualified name of the
+	// DepotAgentService's PutAgentDefinition RPC.
+	DepotAgentServicePutAgentDefinitionProcedure = "/depot.agent.v1.DepotAgentService/PutAgentDefinition"
+	// DepotAgentServiceGetAgentDefinitionProcedure is the fully-qualified name of the
+	// DepotAgentService's GetAgentDefinition RPC.
+	DepotAgentServiceGetAgentDefinitionProcedure = "/depot.agent.v1.DepotAgentService/GetAgentDefinition"
 	// DepotAgentServicePullLocalMcpCallsProcedure is the fully-qualified name of the
 	// DepotAgentService's PullLocalMcpCalls RPC.
 	DepotAgentServicePullLocalMcpCallsProcedure = "/depot.agent.v1.DepotAgentService/PullLocalMcpCalls"
@@ -96,6 +102,9 @@ const (
 	// DepotAgentServiceDeleteAgentCredentialProcedure is the fully-qualified name of the
 	// DepotAgentService's DeleteAgentCredential RPC.
 	DepotAgentServiceDeleteAgentCredentialProcedure = "/depot.agent.v1.DepotAgentService/DeleteAgentCredential"
+	// DepotAgentServiceInvokeViewActionProcedure is the fully-qualified name of the DepotAgentService's
+	// InvokeViewAction RPC.
+	DepotAgentServiceInvokeViewActionProcedure = "/depot.agent.v1.DepotAgentService/InvokeViewAction"
 )
 
 // DepotAgentServiceClient is a client for the depot.agent.v1.DepotAgentService service.
@@ -124,6 +133,12 @@ type DepotAgentServiceClient interface {
 	// Prepares files to attach to a message. Returns an upload URL for each file Depot does not already
 	// store; upload those, then pass the attachments to `CreateSession` or `SendInput`.
 	PrepareAttachmentUploads(context.Context, *connect.Request[v1.PrepareAttachmentUploadsRequest]) (*connect.Response[v1.PrepareAttachmentUploadsResponse], error)
+	// Stores a new version of a session's agent definition, which the agent loads before its next turn.
+	// Sending the same content as the current version returns that version instead of storing a copy.
+	// To roll back, get an earlier version and put it again.
+	PutAgentDefinition(context.Context, *connect.Request[v1.PutAgentDefinitionRequest]) (*connect.Response[v1.PutAgentDefinitionResponse], error)
+	// Returns one version of a session's agent definition. Default: the current version.
+	GetAgentDefinition(context.Context, *connect.Request[v1.GetAgentDefinitionRequest]) (*connect.Response[v1.GetAgentDefinitionResponse], error)
 	// Offers the caller's own MCP servers to a session and streams the agent's tool calls to them. The first
 	// message is `attached`. Calls arrive only on turns answering a message the caller wrote, and the servers
 	// leave the session when the stream ends. A newer stream for the same session, from anyone, replaces this
@@ -158,6 +173,10 @@ type DepotAgentServiceClient interface {
 	SetAgentCredential(context.Context, *connect.Request[v1.SetAgentCredentialRequest]) (*connect.Response[v1.SetAgentCredentialResponse], error)
 	// Deletes a named credential.
 	DeleteAgentCredential(context.Context, *connect.Request[v1.DeleteAgentCredentialRequest]) (*connect.Response[v1.DeleteAgentCredentialResponse], error)
+	// Runs one action on a plugin view: a button, select or form. The click is queued as a "plugin_call" message,
+	// shown in the transcript, and handled by the plugin inside the sandbox. A retry with the same
+	// `clientRequestId` returns the original.
+	InvokeViewAction(context.Context, *connect.Request[v1.InvokeViewActionRequest]) (*connect.Response[v1.InvokeViewActionResponse], error)
 }
 
 // NewDepotAgentServiceClient constructs a client for the depot.agent.v1.DepotAgentService service.
@@ -225,6 +244,16 @@ func NewDepotAgentServiceClient(httpClient connect.HTTPClient, baseURL string, o
 			baseURL+DepotAgentServicePrepareAttachmentUploadsProcedure,
 			opts...,
 		),
+		putAgentDefinition: connect.NewClient[v1.PutAgentDefinitionRequest, v1.PutAgentDefinitionResponse](
+			httpClient,
+			baseURL+DepotAgentServicePutAgentDefinitionProcedure,
+			opts...,
+		),
+		getAgentDefinition: connect.NewClient[v1.GetAgentDefinitionRequest, v1.GetAgentDefinitionResponse](
+			httpClient,
+			baseURL+DepotAgentServiceGetAgentDefinitionProcedure,
+			opts...,
+		),
 		pullLocalMcpCalls: connect.NewClient[v1.PullLocalMcpCallsRequest, v1.PullLocalMcpCallsResponse](
 			httpClient,
 			baseURL+DepotAgentServicePullLocalMcpCallsProcedure,
@@ -275,6 +304,11 @@ func NewDepotAgentServiceClient(httpClient connect.HTTPClient, baseURL string, o
 			baseURL+DepotAgentServiceDeleteAgentCredentialProcedure,
 			opts...,
 		),
+		invokeViewAction: connect.NewClient[v1.InvokeViewActionRequest, v1.InvokeViewActionResponse](
+			httpClient,
+			baseURL+DepotAgentServiceInvokeViewActionProcedure,
+			opts...,
+		),
 	}
 }
 
@@ -291,6 +325,8 @@ type depotAgentServiceClient struct {
 	listTriggers             *connect.Client[v1.ListTriggersRequest, v1.ListTriggersResponse]
 	deleteTrigger            *connect.Client[v1.DeleteTriggerRequest, v1.DeleteTriggerResponse]
 	prepareAttachmentUploads *connect.Client[v1.PrepareAttachmentUploadsRequest, v1.PrepareAttachmentUploadsResponse]
+	putAgentDefinition       *connect.Client[v1.PutAgentDefinitionRequest, v1.PutAgentDefinitionResponse]
+	getAgentDefinition       *connect.Client[v1.GetAgentDefinitionRequest, v1.GetAgentDefinitionResponse]
 	pullLocalMcpCalls        *connect.Client[v1.PullLocalMcpCallsRequest, v1.PullLocalMcpCallsResponse]
 	respondLocalMcpCall      *connect.Client[v1.RespondLocalMcpCallRequest, v1.RespondLocalMcpCallResponse]
 	createMcpServer          *connect.Client[v1.CreateMcpServerRequest, v1.CreateMcpServerResponse]
@@ -301,6 +337,7 @@ type depotAgentServiceClient struct {
 	listAgentCredentials     *connect.Client[v1.ListAgentCredentialsRequest, v1.ListAgentCredentialsResponse]
 	setAgentCredential       *connect.Client[v1.SetAgentCredentialRequest, v1.SetAgentCredentialResponse]
 	deleteAgentCredential    *connect.Client[v1.DeleteAgentCredentialRequest, v1.DeleteAgentCredentialResponse]
+	invokeViewAction         *connect.Client[v1.InvokeViewActionRequest, v1.InvokeViewActionResponse]
 }
 
 // CreateSession calls depot.agent.v1.DepotAgentService.CreateSession.
@@ -358,6 +395,16 @@ func (c *depotAgentServiceClient) PrepareAttachmentUploads(ctx context.Context, 
 	return c.prepareAttachmentUploads.CallUnary(ctx, req)
 }
 
+// PutAgentDefinition calls depot.agent.v1.DepotAgentService.PutAgentDefinition.
+func (c *depotAgentServiceClient) PutAgentDefinition(ctx context.Context, req *connect.Request[v1.PutAgentDefinitionRequest]) (*connect.Response[v1.PutAgentDefinitionResponse], error) {
+	return c.putAgentDefinition.CallUnary(ctx, req)
+}
+
+// GetAgentDefinition calls depot.agent.v1.DepotAgentService.GetAgentDefinition.
+func (c *depotAgentServiceClient) GetAgentDefinition(ctx context.Context, req *connect.Request[v1.GetAgentDefinitionRequest]) (*connect.Response[v1.GetAgentDefinitionResponse], error) {
+	return c.getAgentDefinition.CallUnary(ctx, req)
+}
+
 // PullLocalMcpCalls calls depot.agent.v1.DepotAgentService.PullLocalMcpCalls.
 func (c *depotAgentServiceClient) PullLocalMcpCalls(ctx context.Context, req *connect.Request[v1.PullLocalMcpCallsRequest]) (*connect.ServerStreamForClient[v1.PullLocalMcpCallsResponse], error) {
 	return c.pullLocalMcpCalls.CallServerStream(ctx, req)
@@ -408,6 +455,11 @@ func (c *depotAgentServiceClient) DeleteAgentCredential(ctx context.Context, req
 	return c.deleteAgentCredential.CallUnary(ctx, req)
 }
 
+// InvokeViewAction calls depot.agent.v1.DepotAgentService.InvokeViewAction.
+func (c *depotAgentServiceClient) InvokeViewAction(ctx context.Context, req *connect.Request[v1.InvokeViewActionRequest]) (*connect.Response[v1.InvokeViewActionResponse], error) {
+	return c.invokeViewAction.CallUnary(ctx, req)
+}
+
 // DepotAgentServiceHandler is an implementation of the depot.agent.v1.DepotAgentService service.
 type DepotAgentServiceHandler interface {
 	// Creates a session and queues its first message. A sandbox starts for it within a minute.
@@ -434,6 +486,12 @@ type DepotAgentServiceHandler interface {
 	// Prepares files to attach to a message. Returns an upload URL for each file Depot does not already
 	// store; upload those, then pass the attachments to `CreateSession` or `SendInput`.
 	PrepareAttachmentUploads(context.Context, *connect.Request[v1.PrepareAttachmentUploadsRequest]) (*connect.Response[v1.PrepareAttachmentUploadsResponse], error)
+	// Stores a new version of a session's agent definition, which the agent loads before its next turn.
+	// Sending the same content as the current version returns that version instead of storing a copy.
+	// To roll back, get an earlier version and put it again.
+	PutAgentDefinition(context.Context, *connect.Request[v1.PutAgentDefinitionRequest]) (*connect.Response[v1.PutAgentDefinitionResponse], error)
+	// Returns one version of a session's agent definition. Default: the current version.
+	GetAgentDefinition(context.Context, *connect.Request[v1.GetAgentDefinitionRequest]) (*connect.Response[v1.GetAgentDefinitionResponse], error)
 	// Offers the caller's own MCP servers to a session and streams the agent's tool calls to them. The first
 	// message is `attached`. Calls arrive only on turns answering a message the caller wrote, and the servers
 	// leave the session when the stream ends. A newer stream for the same session, from anyone, replaces this
@@ -468,6 +526,10 @@ type DepotAgentServiceHandler interface {
 	SetAgentCredential(context.Context, *connect.Request[v1.SetAgentCredentialRequest]) (*connect.Response[v1.SetAgentCredentialResponse], error)
 	// Deletes a named credential.
 	DeleteAgentCredential(context.Context, *connect.Request[v1.DeleteAgentCredentialRequest]) (*connect.Response[v1.DeleteAgentCredentialResponse], error)
+	// Runs one action on a plugin view: a button, select or form. The click is queued as a "plugin_call" message,
+	// shown in the transcript, and handled by the plugin inside the sandbox. A retry with the same
+	// `clientRequestId` returns the original.
+	InvokeViewAction(context.Context, *connect.Request[v1.InvokeViewActionRequest]) (*connect.Response[v1.InvokeViewActionResponse], error)
 }
 
 // NewDepotAgentServiceHandler builds an HTTP handler from the service implementation. It returns
@@ -531,6 +593,16 @@ func NewDepotAgentServiceHandler(svc DepotAgentServiceHandler, opts ...connect.H
 		svc.PrepareAttachmentUploads,
 		opts...,
 	)
+	depotAgentServicePutAgentDefinitionHandler := connect.NewUnaryHandler(
+		DepotAgentServicePutAgentDefinitionProcedure,
+		svc.PutAgentDefinition,
+		opts...,
+	)
+	depotAgentServiceGetAgentDefinitionHandler := connect.NewUnaryHandler(
+		DepotAgentServiceGetAgentDefinitionProcedure,
+		svc.GetAgentDefinition,
+		opts...,
+	)
 	depotAgentServicePullLocalMcpCallsHandler := connect.NewServerStreamHandler(
 		DepotAgentServicePullLocalMcpCallsProcedure,
 		svc.PullLocalMcpCalls,
@@ -581,6 +653,11 @@ func NewDepotAgentServiceHandler(svc DepotAgentServiceHandler, opts ...connect.H
 		svc.DeleteAgentCredential,
 		opts...,
 	)
+	depotAgentServiceInvokeViewActionHandler := connect.NewUnaryHandler(
+		DepotAgentServiceInvokeViewActionProcedure,
+		svc.InvokeViewAction,
+		opts...,
+	)
 	return "/depot.agent.v1.DepotAgentService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case DepotAgentServiceCreateSessionProcedure:
@@ -605,6 +682,10 @@ func NewDepotAgentServiceHandler(svc DepotAgentServiceHandler, opts ...connect.H
 			depotAgentServiceDeleteTriggerHandler.ServeHTTP(w, r)
 		case DepotAgentServicePrepareAttachmentUploadsProcedure:
 			depotAgentServicePrepareAttachmentUploadsHandler.ServeHTTP(w, r)
+		case DepotAgentServicePutAgentDefinitionProcedure:
+			depotAgentServicePutAgentDefinitionHandler.ServeHTTP(w, r)
+		case DepotAgentServiceGetAgentDefinitionProcedure:
+			depotAgentServiceGetAgentDefinitionHandler.ServeHTTP(w, r)
 		case DepotAgentServicePullLocalMcpCallsProcedure:
 			depotAgentServicePullLocalMcpCallsHandler.ServeHTTP(w, r)
 		case DepotAgentServiceRespondLocalMcpCallProcedure:
@@ -625,6 +706,8 @@ func NewDepotAgentServiceHandler(svc DepotAgentServiceHandler, opts ...connect.H
 			depotAgentServiceSetAgentCredentialHandler.ServeHTTP(w, r)
 		case DepotAgentServiceDeleteAgentCredentialProcedure:
 			depotAgentServiceDeleteAgentCredentialHandler.ServeHTTP(w, r)
+		case DepotAgentServiceInvokeViewActionProcedure:
+			depotAgentServiceInvokeViewActionHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -678,6 +761,14 @@ func (UnimplementedDepotAgentServiceHandler) PrepareAttachmentUploads(context.Co
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.agent.v1.DepotAgentService.PrepareAttachmentUploads is not implemented"))
 }
 
+func (UnimplementedDepotAgentServiceHandler) PutAgentDefinition(context.Context, *connect.Request[v1.PutAgentDefinitionRequest]) (*connect.Response[v1.PutAgentDefinitionResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.agent.v1.DepotAgentService.PutAgentDefinition is not implemented"))
+}
+
+func (UnimplementedDepotAgentServiceHandler) GetAgentDefinition(context.Context, *connect.Request[v1.GetAgentDefinitionRequest]) (*connect.Response[v1.GetAgentDefinitionResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.agent.v1.DepotAgentService.GetAgentDefinition is not implemented"))
+}
+
 func (UnimplementedDepotAgentServiceHandler) PullLocalMcpCalls(context.Context, *connect.Request[v1.PullLocalMcpCallsRequest], *connect.ServerStream[v1.PullLocalMcpCallsResponse]) error {
 	return connect.NewError(connect.CodeUnimplemented, errors.New("depot.agent.v1.DepotAgentService.PullLocalMcpCalls is not implemented"))
 }
@@ -716,4 +807,8 @@ func (UnimplementedDepotAgentServiceHandler) SetAgentCredential(context.Context,
 
 func (UnimplementedDepotAgentServiceHandler) DeleteAgentCredential(context.Context, *connect.Request[v1.DeleteAgentCredentialRequest]) (*connect.Response[v1.DeleteAgentCredentialResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.agent.v1.DepotAgentService.DeleteAgentCredential is not implemented"))
+}
+
+func (UnimplementedDepotAgentServiceHandler) InvokeViewAction(context.Context, *connect.Request[v1.InvokeViewActionRequest]) (*connect.Response[v1.InvokeViewActionResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.agent.v1.DepotAgentService.InvokeViewAction is not implemented"))
 }

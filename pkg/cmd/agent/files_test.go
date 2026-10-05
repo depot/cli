@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"io"
+	"mime"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -92,7 +93,8 @@ func names(attachments []*agentv1.DepotAgentAttachment) []string {
 func TestUploadAttachmentsPutsOnlyTheURLsTheServerReturns(t *testing.T) {
 	store, url := startStore(t)
 	dir := t.TempDir()
-	newSum := writeFile(t, filepath.Join(dir, "new.png"), "fresh bytes")
+	fresh := "\x89PNG\r\n\x1a\nabc"
+	newSum := writeFile(t, filepath.Join(dir, "new.png"), fresh)
 	oldSum := writeFile(t, filepath.Join(dir, "old.log"), "already stored")
 	f := &fakeAgentService{stored: map[string]bool{oldSum: true}, uploadURL: url, maxAttachmentBytes: 1024}
 	s := startFake(t, f)
@@ -103,7 +105,7 @@ func TestUploadAttachmentsPutsOnlyTheURLsTheServerReturns(t *testing.T) {
 	if err != nil {
 		t.Fatalf("uploadAttachments: %v", err)
 	}
-	if len(store.puts) != 1 || store.puts[newSum] != "fresh bytes" {
+	if len(store.puts) != 1 || store.puts[newSum] != fresh {
 		t.Fatalf("expected one PUT of the missing file, got %v", store.puts)
 	}
 	if store.hdrs[newSum] != "sum-"+newSum[:8] {
@@ -327,7 +329,7 @@ func TestAttachQueuesAFileForTheNextMessage(t *testing.T) {
 	defer cancel()
 	in := strings.NewReader(`/file "` + spaced + `"` + "\nlook at this\n/file " + other + " and this\nplain\n/file\n/quit\n")
 	var out syncBuffer
-	if err := attachSession(ctx, s, "s1", in, &out); err != nil {
+	if err := attachSession(ctx, s, "s1", in, &out, viewsFull); err != nil {
 		t.Fatalf("attachSession: %v", err)
 	}
 
@@ -370,7 +372,7 @@ func TestAttachCountsQueuedFilesAgainstTheLimit(t *testing.T) {
 	defer cancel()
 	in := strings.NewReader("/file " + filepath.Join(dir, "a") + "\n/file " + filepath.Join(dir, "b") + "\nsend\n/quit\n")
 	var out syncBuffer
-	if err := attachSession(ctx, s, "s1", in, &out); err != nil {
+	if err := attachSession(ctx, s, "s1", in, &out, viewsFull); err != nil {
 		t.Fatalf("attachSession: %v", err)
 	}
 	if len(f.inputs) != 1 || !slices.Equal(names(f.inputs[0].GetAttachments()), []string{"a"}) {
@@ -395,7 +397,7 @@ func TestAttachDropsQueuedFilesWhenASendIsRejected(t *testing.T) {
 	defer cancel()
 	in := strings.NewReader("/file " + first + " one\n/file " + second + " two\n/quit\n")
 	var out syncBuffer
-	if err := attachSession(ctx, s, "s1", in, &out); err != nil {
+	if err := attachSession(ctx, s, "s1", in, &out, viewsFull); err != nil {
 		t.Fatalf("attachSession: %v", err)
 	}
 	if len(f.inputs) != 2 {
@@ -417,7 +419,7 @@ func TestAttachDoesNotSendAMessageWhoseFileFailed(t *testing.T) {
 	defer cancel()
 	in := strings.NewReader("/file " + filepath.Join(t.TempDir(), "missing") + " hello\n/quit\n")
 	var out syncBuffer
-	if err := attachSession(ctx, s, "s1", in, &out); err != nil {
+	if err := attachSession(ctx, s, "s1", in, &out, viewsFull); err != nil {
 		t.Fatalf("attachSession: %v", err)
 	}
 	if len(f.inputs) != 0 {
@@ -425,5 +427,36 @@ func TestAttachDoesNotSendAMessageWhoseFileFailed(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "no such file") {
 		t.Fatalf("expected the failure shown, got:\n%s", out.String())
+	}
+}
+
+func TestMediaTypeTrustsTheBytesOverTheName(t *testing.T) {
+	for ext, typ := range map[string]string{
+		".ts":   "video/mp2t",
+		".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+		".md":   "text/markdown",
+		".rtf":  "application/rtf",
+		".m4a":  "audio/mp4",
+	} {
+		if err := mime.AddExtensionType(ext, typ); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, tc := range []struct{ name, head, want string }{
+		{"main.ts", "export const x = 1\n", "text/plain"},
+		{"notes.md", "# Notes\n", "text/markdown"},
+		{"logo.svg", `<svg xmlns="http://www.w3.org/2000/svg"></svg>`, "image/svg+xml"},
+		{"spec.docx", "PK\x03\x04\x14\x00", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"},
+		{"spec.md", "PK\x03\x04\x14\x00", "application/zip"},
+		{"memo.rtf", `{\rtf1\ansi hello}`, "application/rtf"},
+		{"photo.png", "not a png\n", "text/plain"},
+		{"shot.ts", "\x89PNG\r\n\x1a\n", "image/png"},
+		{"clip.ts", "\x47\x00\x11\x10\x00\x00\xb0", "video/mp2t"},
+		{"song.m4a", "\x00\x00\x00\x18ftypM4A \x00\x00\x00\x00mp42isom", "audio/mp4"},
+		{"song.txt", "\x00\x00\x00\x18ftypM4A \x00\x00\x00\x00mp42isom", "video/mp4"},
+	} {
+		if got := mediaType(tc.name, []byte(tc.head)); got != tc.want {
+			t.Errorf("mediaType(%q) = %q, want %q", tc.name, got, tc.want)
+		}
 	}
 }

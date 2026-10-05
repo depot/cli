@@ -327,12 +327,36 @@ func readSource(src *source, limit int64) error {
 	return nil
 }
 
-// mediaType guesses from the name, then from the first bytes, so piped images still go to the model as images.
+// mediaType trusts the first bytes over the name, whose mapping varies by machine (.ts can be video/mp2t),
+// and takes the name's type only when it narrows what the bytes say, as .docx narrows a zip.
 func mediaType(name string, head []byte) string {
-	t := mime.TypeByExtension(filepath.Ext(name))
-	if t == "" {
-		t = http.DetectContentType(head)
+	sniffed := baseMediaType(http.DetectContentType(head))
+	byExt := baseMediaType(mime.TypeByExtension(filepath.Ext(name)))
+	if byExt != "" && narrows(sniffed, byExt) {
+		return byExt
 	}
+	return sniffed
+}
+
+func narrows(sniffed, byExt string) bool {
+	switch sniffed {
+	case "application/octet-stream":
+		return true
+	case "application/zip":
+		return strings.HasPrefix(byExt, "application/")
+	case "video/mp4", "video/webm":
+		// The sniffer does not look at the tracks, so .m4a audio sniffs as video.
+		top, _, _ := strings.Cut(byExt, "/")
+		return top == "audio" || top == "video"
+	case "text/plain", "text/xml":
+		// Text can be any text-based format, but never binary media.
+		top, _, _ := strings.Cut(byExt, "/")
+		return byExt == "image/svg+xml" || (top != "image" && top != "video" && top != "audio" && top != "font")
+	}
+	return false
+}
+
+func baseMediaType(t string) string {
 	if parsed, _, err := mime.ParseMediaType(t); err == nil {
 		return parsed
 	}

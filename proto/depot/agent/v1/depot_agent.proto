@@ -32,6 +32,12 @@ service DepotAgentService {
   // Prepares files to attach to a message. Returns an upload URL for each file Depot does not already
   // store; upload those, then pass the attachments to `CreateSession` or `SendInput`.
   rpc PrepareAttachmentUploads(PrepareAttachmentUploadsRequest) returns (PrepareAttachmentUploadsResponse);
+  // Stores a new version of a session's agent definition, which the agent loads before its next turn.
+  // Sending the same content as the current version returns that version instead of storing a copy.
+  // To roll back, get an earlier version and put it again.
+  rpc PutAgentDefinition(PutAgentDefinitionRequest) returns (PutAgentDefinitionResponse);
+  // Returns one version of a session's agent definition. Default: the current version.
+  rpc GetAgentDefinition(GetAgentDefinitionRequest) returns (GetAgentDefinitionResponse);
   // Offers the caller's own MCP servers to a session and streams the agent's tool calls to them. The first
   // message is `attached`. Calls arrive only on turns answering a message the caller wrote, and the servers
   // leave the session when the stream ends. A newer stream for the same session, from anyone, replaces this
@@ -66,6 +72,11 @@ service DepotAgentService {
   rpc SetAgentCredential(SetAgentCredentialRequest) returns (SetAgentCredentialResponse);
   // Deletes a named credential.
   rpc DeleteAgentCredential(DeleteAgentCredentialRequest) returns (DeleteAgentCredentialResponse);
+
+  // Runs one action on a plugin view: a button, select or form. The click is queued as a "plugin_call" message,
+  // shown in the transcript, and handled by the plugin inside the sandbox. A retry with the same
+  // `clientRequestId` returns the original.
+  rpc InvokeViewAction(InvokeViewActionRequest) returns (InvokeViewActionResponse);
 }
 
 message DepotAgentAttachment {
@@ -121,6 +132,27 @@ message DepotAgentInput {
   google.protobuf.Timestamp created_at = 5;
   // Files attached to the message.
   repeated DepotAgentAttachment attachments = 8;
+  // Set when mode is "plugin_call".
+  optional PluginCall plugin_call = 20;
+}
+
+// What a client can render, so the server sends only view kinds it supports.
+message ViewClient {
+  // Client name. Can be "app", "cli", or "api".
+  string name = 1;
+  // Core block vocabulary version the client renders. Currently 1.
+  uint32 blocks = 2;
+  // Client-specific view kinds the client renders, such as "app-html" or "cli". Other kinds are removed.
+  repeated string view_kinds = 3;
+}
+
+message PluginCall {
+  string plugin = 1;
+  string view_id = 2;
+  string action = 3;
+  optional string value = 4;
+  // JSON object of form field names to string or boolean values, for a form submit.
+  optional string form_json = 5;
 }
 
 message CreateSessionRequest {
@@ -139,6 +171,9 @@ message CreateSessionRequest {
   optional string client_request_id = 6;
   // Files attached to the first message. Each must be uploaded first; see `PrepareAttachmentUploads`.
   repeated DepotAgentAttachment attachments = 8;
+  // Instructions, skills, and plugins the agent starts with, stored as version 1 of the session's own
+  // definition. Leave unset for Depot's default agent.
+  optional DepotAgentDefinitionContent definition = 10;
 }
 
 message CreateSessionResponse {
@@ -168,6 +203,8 @@ message SendInputResponse {
 message GetSessionRequest {
   // Unique identifier for the session. Returned by `CreateSession` and `ListDepotAgentSessions`.
   string session_id = 1;
+  // What the client renders. Leave unset for core view blocks only.
+  optional ViewClient client = 20;
 }
 
 message GetSessionResponse {
@@ -176,6 +213,8 @@ message GetSessionResponse {
   string view_json = 2;
   // Position in the session's history the view reflects. Increases with every change.
   uint64 view_seq = 3;
+  // JSON plugin views. Empty when no plugin has set a view.
+  string views_json = 20;
 }
 
 message ListDepotAgentSessionsRequest {
@@ -196,6 +235,8 @@ message WatchSessionRequest {
   string session_id = 1;
   // Send only views newer than this `viewSeq`. Default: 0, which sends the current view first.
   optional uint64 after_seq = 2;
+  // What the client renders. Leave unset for core view blocks only.
+  optional ViewClient client = 20;
 }
 
 message WatchSessionResponse {
@@ -204,6 +245,8 @@ message WatchSessionResponse {
   string view_json = 2;
   // Position in the session's history the view reflects. Increases with every change.
   uint64 view_seq = 3;
+  // JSON plugin views. Empty when no plugin has set a view.
+  string views_json = 20;
 }
 
 message InterruptSessionRequest {
@@ -304,6 +347,63 @@ message DepotAgentAttachmentUpload {
   string url = 2;
   // Headers the PUT must send unchanged.
   map<string, string> headers = 3;
+}
+
+message DepotAgentSkill {
+  // Skill name, which the agent sees in its skill index. For example, "release-notes".
+  string name = 1;
+  // One-line summary the agent reads to decide when to open the skill.
+  string description = 2;
+  // Skill instructions, in Markdown.
+  string body = 3;
+}
+
+message DepotAgentPluginRef {
+  // Plugin name, from the bundle's manifest.
+  string name = 1;
+  // Digest of the plugin bundle. Returned by `UploadPluginBundle`.
+  string digest = 2;
+}
+
+message DepotAgentDefinitionContent {
+  // Instructions added to the agent's system prompt, like an AGENTS.md file.
+  string instructions = 1;
+  // Skills the agent can open. Maximum: 32.
+  repeated DepotAgentSkill skills = 2;
+  // Plugins the agent loads. Each must be uploaded first with `UploadPluginBundle`.
+  repeated DepotAgentPluginRef plugins = 3;
+}
+
+message DepotAgentDefinition {
+  // Unique identifier for the session the definition belongs to.
+  string session_id = 1;
+  // Version number, starting at 1.
+  uint32 version = 2;
+  DepotAgentDefinitionContent content = 3;
+  // Who stored this version: "api" for a person, token, or app, or "agent" for the agent editing itself.
+  string source = 4;
+  google.protobuf.Timestamp created_at = 5;
+}
+
+message PutAgentDefinitionRequest {
+  // Unique identifier for the session whose definition to change.
+  string session_id = 1;
+  DepotAgentDefinitionContent content = 2;
+}
+
+message PutAgentDefinitionResponse {
+  DepotAgentDefinition definition = 1;
+}
+
+message GetAgentDefinitionRequest {
+  // Unique identifier for the session.
+  string session_id = 1;
+  // Version to return. Default: the current version.
+  optional uint32 version = 2;
+}
+
+message GetAgentDefinitionResponse {
+  DepotAgentDefinition definition = 1;
 }
 
 message LocalMcpTool {
@@ -546,3 +646,25 @@ message DeleteAgentCredentialRequest {
 }
 
 message DeleteAgentCredentialResponse {}
+
+message InvokeViewActionRequest {
+  // Unique identifier for the session. Returned by `CreateSession` and `ListDepotAgentSessions`.
+  string session_id = 1;
+  // Plugin that owns the view.
+  string plugin = 2;
+  // View the action belongs to.
+  string view_id = 3;
+  // Action to run, as named by the view's control.
+  string action = 4;
+  // Value from the button or chosen select option.
+  optional string value = 5;
+  // JSON object of form field names to string or boolean values, for a form submit.
+  optional string form_json = 6;
+  // Unique identifier for this call. A retry with the same id returns the original input.
+  optional string client_request_id = 7;
+}
+
+message InvokeViewActionResponse {
+  // The queued "plugin_call" input.
+  DepotAgentInput input = 1;
+}

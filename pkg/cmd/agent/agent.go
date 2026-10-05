@@ -24,10 +24,14 @@ func NewCmdAgent() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "agent",
 		Short: "Run Depot coding agents",
+		// Kept out of `depot --help` until GA; `depot agent --help` still works.
+		Hidden: true,
 	}
 	cmd.AddCommand(newCmdSession())
 	cmd.AddCommand(newCmdMcp())
 	cmd.AddCommand(newCmdCredentials())
+	cmd.AddCommand(newCmdPull())
+	cmd.AddCommand(newCmdPush())
 	sanitizeErrors(cmd)
 	return cmd
 }
@@ -57,6 +61,7 @@ func newCmdSession() *cobra.Command {
 	cmd.AddCommand(newCmdSessionList())
 	cmd.AddCommand(newCmdSessionWatch())
 	cmd.AddCommand(newCmdSessionAttach())
+	cmd.AddCommand(newCmdSessionAction())
 	return cmd
 }
 
