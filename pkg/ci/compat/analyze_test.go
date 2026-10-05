@@ -198,6 +198,14 @@ func TestAnalyzeJobsRunnerLabels(t *testing.T) {
 		{"mixed", "depot-ubuntu-latest,custom-runner", true},
 		{"expressionMixed", "${{ matrix.runner }},custom-runner", true},
 		{"legacyUnderscore", "depot_ubuntu_latest", true},
+		// Depot CI sandboxes are Linux-only; depot macOS/Windows labels belong to
+		// Depot GitHub Actions runners, not Depot CI.
+		{"depotMacos", "depot-macos-latest", true},
+		{"depotWindows", "depot-windows-latest", true},
+		{"depotMacosVersion", "depot-macos-15", true},
+		{"depotWindowsVersionSized", "depot-windows-2022-8", true},
+		{"depotMacosCaseWhitespace", "  DEPOT-MACOS-LATEST ", true},
+		{"depotWindowsMixed", "depot-ubuntu-latest,depot-windows-latest", true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
