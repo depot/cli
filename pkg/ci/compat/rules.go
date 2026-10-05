@@ -259,8 +259,8 @@ var JobFeatureRules = map[string]CompatibilityRule{
 	"runs-on (custom labels)": {
 		Feature:    "runs-on (custom labels)",
 		Supported:  Partial,
-		Note:       "Custom, self-hosted, and non-Linux runner labels may not run as expected on Depot CI.",
-		Suggestion: "Use supported Depot Ubuntu runner labels (for example depot-ubuntu-latest) for predictable behavior.",
+		Note:       "Custom, unsupported, or conflicting runner labels may not run as expected on Depot CI.",
+		Suggestion: "Use one supported Depot Ubuntu runner label (for example depot-ubuntu-latest) for predictable behavior.",
 	},
 	"strategy.matrix + self-hosted": {
 		Feature:    "strategy.matrix + self-hosted",

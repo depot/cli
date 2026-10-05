@@ -99,7 +99,9 @@ func AnalyzeJobs(jobs []migrate.JobInfo) []CompatibilityIssue {
 			})
 		}
 
-		if job.HasMatrix && hasSelfHostedRunsOn(job.RunsOn) {
+		runsOn := jobRunsOnLabels(job)
+
+		if job.HasMatrix && hasSelfHostedRunsOn(runsOn) {
 			issues = append(issues, CompatibilityIssue{
 				Feature:    "strategy.matrix + self-hosted",
 				Level:      matrixSelfHostedRule.Supported,
@@ -108,7 +110,7 @@ func AnalyzeJobs(jobs []migrate.JobInfo) []CompatibilityIssue {
 			})
 		}
 
-		if hasCustomRunsOn(job.RunsOn) {
+		if hasCustomRunsOn(runsOn) {
 			issues = append(issues, CompatibilityIssue{
 				Feature:    "runs-on (custom labels)",
 				Level:      runsOnRule.Supported,
@@ -179,64 +181,79 @@ func isLocalReusableWorkflow(uses string) bool {
 	return strings.HasPrefix(strings.TrimSpace(uses), "./")
 }
 
-// unsupportedDepotRunnerPrefixes excludes depot-* families that
-// migrate.ClassifyLabel treats as Depot-native but Depot CI cannot run:
-// sandboxes are Linux-only (https://depot.dev/docs/ci/overview#depot-ci-sandboxes).
-// Prefixes cover version and size suffixes such as depot-windows-2022-8.
-var unsupportedDepotRunnerPrefixes = []string{"depot-macos", "depot-windows"}
+// jobRunsOnLabels reads a JobInfo without RunsOnLabels as one scalar runs-on.
+func jobRunsOnLabels(job migrate.JobInfo) []string {
+	if job.RunsOnLabels != nil {
+		return job.RunsOnLabels
+	}
+	return []string{job.RunsOn}
+}
 
-func hasCustomRunsOn(runsOn string) bool {
-	labels := parseRunsOnLabels(runsOn)
+// hasCustomRunsOn reports whether Depot CI may not run a job on the runner its
+// runs-on labels request, after migration rewrites standard GitHub labels.
+//
+// It mirrors the backend's label selection: each element that starts with
+// depot- (case-sensitive) selects its first comma-separated part as the
+// primary runner when that part is a known label. Remaining parts and unknown
+// depot- elements are secondary labels; the backend ignores them, so they only
+// matter when no element selects a runner. Expressions resolve at run time, so
+// a job using them is never reported for lacking a runner.
+func hasCustomRunsOn(labels []string) bool {
+	// primaries records, per selected runner, whether an element carrying
+	// secondary labels already selected it.
+	primaries := make(map[string]bool)
+	hasSecondary, hasExpression := false, false
 	for _, label := range labels {
+		if strings.TrimSpace(label) == "" {
+			continue
+		}
+
 		switch migrate.ClassifyLabel(label) {
-		case migrate.LabelDepotNative:
-			if isUnsupportedDepotRunner(label) {
+		case migrate.LabelExpression:
+			hasExpression = true
+			continue
+		case migrate.LabelNonstandard:
+			return true
+		case migrate.LabelStandardGitHub:
+			label, _, _ = migrate.MapLabel(label)
+		}
+
+		// ClassifyLabel ignores case and surrounding whitespace, but the backend
+		// does not: "DEPOT-UBUNTU-24.04-32" silently runs on depot-ubuntu-latest.
+		if !strings.HasPrefix(label, "depot-") {
+			return true
+		}
+
+		parts := strings.Split(label, ",")
+		primary := strings.TrimSpace(parts[0])
+		supported, known := runnerPolicy()[primary]
+		if !known {
+			hasSecondary = true
+			continue
+		}
+		if !supported {
+			return true
+		}
+		// The backend rejects a runner selected twice with secondary labels. Like
+		// the backend, a trailing comma counts as having secondaries.
+		qualified := len(parts) > 1
+		if qualified && primaries[primary] {
+			return true
+		}
+		primaries[primary] = primaries[primary] || qualified
+	}
+
+	// The backend rejects jobs that select more than one distinct runner, or none.
+	return len(primaries) > 1 || (len(primaries) == 0 && hasSecondary && !hasExpression)
+}
+
+func hasSelfHostedRunsOn(labels []string) bool {
+	for _, label := range labels {
+		for _, part := range strings.Split(label, ",") {
+			if strings.ToLower(strings.TrimSpace(part)) == "self-hosted" {
 				return true
 			}
-			continue
-		case migrate.LabelStandardGitHub, migrate.LabelExpression:
-			continue
-		}
-		return true
-	}
-
-	return false
-}
-
-// isUnsupportedDepotRunner expects a label normalized by parseRunsOnLabels.
-func isUnsupportedDepotRunner(label string) bool {
-	for _, prefix := range unsupportedDepotRunnerPrefixes {
-		if strings.HasPrefix(label, prefix) {
-			return true
 		}
 	}
 	return false
-}
-
-func hasSelfHostedRunsOn(runsOn string) bool {
-	labels := parseRunsOnLabels(runsOn)
-	for _, label := range labels {
-		if label == "self-hosted" {
-			return true
-		}
-	}
-	return false
-}
-
-func parseRunsOnLabels(runsOn string) []string {
-	trimmed := strings.TrimSpace(runsOn)
-	if trimmed == "" {
-		return nil
-	}
-
-	parts := strings.Split(trimmed, ",")
-	labels := make([]string, 0, len(parts))
-	for _, part := range parts {
-		label := strings.ToLower(strings.TrimSpace(part))
-		if label != "" {
-			labels = append(labels, label)
-		}
-	}
-
-	return labels
 }

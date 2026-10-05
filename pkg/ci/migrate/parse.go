@@ -158,9 +158,11 @@ func extractJobs(jobsMap map[string]ghJob) []JobInfo {
 	jobs := make([]JobInfo, 0, len(names))
 	for _, name := range names {
 		job := jobsMap[name]
+		labels := runsOnLabels(job.RunsOn)
 		jobs = append(jobs, JobInfo{
 			Name:         name,
-			RunsOn:       stringifyRunsOn(job.RunsOn),
+			RunsOn:       strings.Join(labels, ","),
+			RunsOnLabels: labels,
 			UsesReusable: job.Uses,
 			HasMatrix:    job.Strategy != nil && job.Strategy.Matrix != nil,
 			HasContainer: job.Container != nil,
@@ -171,21 +173,23 @@ func extractJobs(jobsMap map[string]ghJob) []JobInfo {
 	return jobs
 }
 
-func stringifyRunsOn(runsOn interface{}) string {
+// runsOnLabels returns the string elements of a runs-on value; a scalar is a
+// single element. Non-string elements and object-form runs-on are dropped.
+func runsOnLabels(runsOn interface{}) []string {
 	switch v := runsOn.(type) {
 	case string:
-		return v
+		return []string{v}
 	case []string:
-		return strings.Join(v, ",")
+		return v
 	case []interface{}:
-		parts := make([]string, 0, len(v))
+		labels := make([]string, 0, len(v))
 		for _, item := range v {
 			if s, ok := item.(string); ok {
-				parts = append(parts, s)
+				labels = append(labels, s)
 			}
 		}
-		return strings.Join(parts, ",")
+		return labels
 	default:
-		return ""
+		return nil
 	}
 }

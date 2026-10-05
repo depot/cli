@@ -1,6 +1,8 @@
 package compat
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -174,52 +176,94 @@ func TestHasCriticalIssues(t *testing.T) {
 	}
 }
 
-func TestAnalyzeJobsRunnerLabels(t *testing.T) {
+func TestAnalyzeWorkflowRunnerLabels(t *testing.T) {
 	cases := []struct {
 		name       string
-		runsOn     string
+		runsOn     string // YAML value of the job's runs-on
 		wantCustom bool
 	}{
-		{"empty", "", false},
-		{"latest", "ubuntu-latest", false},
-		{"ubuntu24", "ubuntu-24.04", false},
-		{"ubuntu22", "ubuntu-22.04", false},
-		{"ubuntu20", "ubuntu-20.04", false},
+		{"githubLatest", "ubuntu-latest", false},
+		{"githubVersion", "ubuntu-24.04", false},
+		{"githubCaseWhitespace", "'  Ubuntu-22.04 '", false},
 		{"depotLatest", "depot-ubuntu-latest", false},
-		{"depotSized", "depot-ubuntu-latest-16", false},
-		{"depotArm", "depot-ubuntu-24.04-arm", false},
-		{"caseWhitespace", "  DEPOT-UBUNTU-LATEST , Ubuntu-24.04 ", false},
-		{"expression", "${{ matrix.runner }}", false},
-		{"supportedList", "ubuntu-22.04,depot-ubuntu-latest", false},
-		{"unknown", "custom-runner", true},
-		{"windows", "windows-latest", true},
-		{"macos", "macos-latest", true},
-		{"selfHosted", "ubuntu-latest,self-hosted", true},
-		{"mixed", "depot-ubuntu-latest,custom-runner", true},
-		{"expressionMixed", "${{ matrix.runner }},custom-runner", true},
-		{"legacyUnderscore", "depot_ubuntu_latest", true},
-		// Depot CI sandboxes are Linux-only; depot macOS/Windows labels belong to
-		// Depot GitHub Actions runners, not Depot CI.
+		{"depotSmall", "depot-ubuntu-22.04-small", false},
+		{"depotTwoCPU", "depot-ubuntu-24.04-2", false},
+		{"depotIO", "depot-ubuntu-latest-16-io", false},
+		{"depotGPU", "depot-ubuntu-22.04-8-gpu", false},
+		{"depotArmSized", "depot-ubuntu-24.04-arm-64", false},
+		{"depot96CPU", "depot-ubuntu-latest-96", true},
+		{"depot192CPU", "depot-ubuntu-24.04-arm-192", true},
 		{"depotMacos", "depot-macos-latest", true},
-		{"depotWindows", "depot-windows-latest", true},
-		{"depotMacosVersion", "depot-macos-15", true},
-		{"depotWindowsVersionSized", "depot-windows-2022-8", true},
-		{"depotMacosCaseWhitespace", "  DEPOT-MACOS-LATEST ", true},
-		{"depotWindowsMixed", "depot-ubuntu-latest,depot-windows-latest", true},
+		{"depotWindowsSized", "depot-windows-2022-8", true},
+		{"githubWindows", "windows-latest", true},
+		{"unknown", "custom-runner", true},
+		{"legacyUnderscore", "depot_ubuntu_latest", true},
+		{"depotUnknownAlone", "depot-made-up", true},
+		{"depotUndocumentedSize", "depot-ubuntu-24.04-3", true},
+		// The backend matches depot- labels case-sensitively and replaces the
+		// rest with depot-ubuntu-latest, silently dropping the requested size.
+		{"depotUppercase", "DEPOT-UBUNTU-24.04-32", true},
+		{"depotLeadingWhitespace", "'  depot-ubuntu-latest'", true},
+		// Within one element, only the first comma-separated part selects a
+		// runner; the rest are secondary labels the backend ignores.
+		{"commaSecondary", "depot-ubuntu-24.04 , dagger=0.18.6", false},
+		{"commaSecondaryDepotLabel", "depot-ubuntu-latest,depot-windows-latest", false},
+		{"commaUnsupportedPrimary", "depot-windows-latest,depot-ubuntu-latest", true},
+		{"arrayUnknownDepotSecondary", "[depot-ubuntu-latest, depot-made-up]", false},
+		{"arrayDistinctPrimaries", "[depot-ubuntu-latest, depot-windows-latest]", true},
+		{"arrayDistinctSupportedPrimaries", "[depot-ubuntu-latest, depot-ubuntu-24.04-8]", true},
+		{"arrayMappedDistinctPrimaries", "[ubuntu-latest, depot-ubuntu-24.04-8]", true},
+		{"arrayIdenticalPrimaries", "[depot-ubuntu-latest, depot-ubuntu-latest]", false},
+		{"arrayMappedIdenticalPrimaries", "[ubuntu-latest, depot-ubuntu-latest]", false},
+		// The backend allows one element with secondaries per primary runner.
+		{"arrayPlainThenQualified", "[depot-ubuntu-latest, 'depot-ubuntu-latest,dagger=1']", false},
+		{"arrayQualifiedThenPlain", "['depot-ubuntu-latest,dagger=1', depot-ubuntu-latest]", false},
+		{"arrayDoubleQualified", "['depot-ubuntu-latest,dagger=1', 'depot-ubuntu-latest,dagger=2']", true},
+		{"arrayTrailingCommaQualified", "['depot-ubuntu-latest,', 'depot-ubuntu-latest, ']", true},
+		{"arrayCustom", "[depot-ubuntu-latest, custom-runner]", true},
+		{"expression", "${{ matrix.runner }}", false},
+		{"expressionDepotPrefixed", "depot-${{ matrix.size }}", false},
+		{"expressionCommaScalar", "${{ matrix.runner }},custom-runner", false},
+		{"expressionWithPrimary", "['${{ matrix.runner }}', depot-ubuntu-latest]", false},
+		{"expressionWithUnknownDepot", "['${{ matrix.runner }}', depot-made-up]", false},
+		{"expressionWithCustom", "['${{ matrix.runner }}', custom-runner]", true},
+		{"emptyArray", "[]", false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			issues := AnalyzeJobs([]migrate.JobInfo{{Name: "build", RunsOn: tc.runsOn}})
+			wf := parseTestWorkflow(t, "jobs:\n  build:\n    runs-on: "+tc.runsOn+"\n")
+			report := AnalyzeWorkflow(wf)
 			want := 0
 			if tc.wantCustom {
 				want = 1
 			}
-			if len(issues) != want {
-				t.Fatalf("AnalyzeJobs(%q) = %v, want %d issues", tc.runsOn, issues, want)
+			if len(report.Issues) != want {
+				t.Fatalf("runs-on %s: got %+v, want %d issues", tc.runsOn, report.Issues, want)
 			}
-			if tc.wantCustom && (issues[0].Feature != "runs-on (custom labels)" || issues[0].Level != Partial) {
-				t.Fatalf("unexpected custom runner issue: %v", issues[0])
+			if tc.wantCustom && (report.Issues[0].Feature != "runs-on (custom labels)" || report.Issues[0].Level != Partial) {
+				t.Fatalf("unexpected custom runner issue: %+v", report.Issues[0])
 			}
 		})
 	}
+}
+
+func TestAnalyzeWorkflowMatrixSelfHostedFromArray(t *testing.T) {
+	wf := parseTestWorkflow(t, "jobs:\n  build:\n    runs-on: [self-hosted, linux]\n    strategy:\n      matrix:\n        go: [1, 2]\n")
+	report := AnalyzeWorkflow(wf)
+	if !HasCriticalIssues(report) {
+		t.Fatalf("expected matrix + self-hosted issue, got %+v", report.Issues)
+	}
+}
+
+func parseTestWorkflow(t *testing.T, jobs string) *migrate.WorkflowFile {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "ci.yml")
+	if err := os.WriteFile(path, []byte("on: push\n"+jobs), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	wf, err := migrate.ParseWorkflowFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return wf
 }
