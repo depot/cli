@@ -394,6 +394,8 @@ func transformRunsOnNode(node *yaml.Node, jobName string) []ChangeRecord {
 				JobName: jobName,
 				Detail:  fmt.Sprintf("Changed runs-on from %q to %q in job %q", original, newLabel, jobName),
 			})
+		} else if reason != "" {
+			node.LineComment = fmt.Sprintf("kept: %s. %s", original, reason)
 		}
 
 	case yaml.SequenceNode:
@@ -411,6 +413,8 @@ func transformRunsOnNode(node *yaml.Node, jobName string) []ChangeRecord {
 					JobName: jobName,
 					Detail:  fmt.Sprintf("Changed runs-on from %q to %q in job %q", original, newLabel, jobName),
 				})
+			} else if reason != "" {
+				item.LineComment = fmt.Sprintf("kept: %s. %s", original, reason)
 			}
 		}
 	}
@@ -1197,7 +1201,7 @@ func buildHeaderComment(wf *migrate.WorkflowFile, changes []ChangeRecord) string
 	b.WriteString("#\n")
 
 	if len(changes) == 0 {
-		b.WriteString("# No changes were necessary.\n")
+		b.WriteString("# No automatic rewrites were applied; review any notes below.\n")
 	} else {
 		b.WriteString("# Changes made:\n")
 		for _, line := range summarizeChanges(changes) {

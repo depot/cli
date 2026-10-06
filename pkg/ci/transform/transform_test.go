@@ -43,8 +43,8 @@ jobs:
 	}
 
 	content := string(result.Content)
-	if !strings.Contains(content, "No changes were necessary") {
-		t.Errorf("expected 'No changes were necessary' in header, got:\n%s", content)
+	if !strings.Contains(content, "No automatic rewrites were applied; review any notes below") {
+		t.Errorf("expected 'No automatic rewrites were applied; review any notes below' in header, got:\n%s", content)
 	}
 
 	if !strings.Contains(content, "runs-on: depot-ubuntu-latest") {
@@ -1344,7 +1344,7 @@ runs:
 func TestBuildHeaderComment_NoChanges(t *testing.T) {
 	wf := &migrate.WorkflowFile{Path: ".github/workflows/ci.yml"}
 	header := buildHeaderComment(wf, nil)
-	if !strings.Contains(header, "No changes were necessary") {
+	if !strings.Contains(header, "No automatic rewrites were applied; review any notes below") {
 		t.Errorf("expected no-changes header, got: %s", header)
 	}
 }

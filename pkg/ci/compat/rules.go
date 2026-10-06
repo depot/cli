@@ -262,6 +262,12 @@ var JobFeatureRules = map[string]CompatibilityRule{
 		Note:       "Custom, unsupported, or conflicting runner labels may not run as expected on Depot CI.",
 		Suggestion: "Use one supported Depot Ubuntu runner label (for example depot-ubuntu-latest) for predictable behavior.",
 	},
+	"runs-on (unavailable labels)": {
+		Feature:    "runs-on (unavailable labels)",
+		Supported:  Partial,
+		Note:       "Depot CI has no runner for this GitHub-hosted label, so migration kept it unchanged. Depot CI runs jobs without a depot-* label on depot-ubuntu-latest.",
+		Suggestion: "Choose a supported Depot runner label for this job before activating the workflow.",
+	},
 	"strategy.matrix + self-hosted": {
 		Feature:    "strategy.matrix + self-hosted",
 		Supported:  Unsupported,
