@@ -415,7 +415,7 @@ func isUnsupportedTrigger(trigger string) bool {
 	return ok && rule.Supported == compat.Unsupported
 }
 
-// planRunsOnEdits remaps runs-on labels and annotates each replacement.
+// planRunsOnEdits remaps runs-on labels and annotates each replacement or kept label that needs review.
 func planRunsOnEdits(s *source, root *yaml.Node, disabledJobs map[string]disabledJobInfo) ([]edit, []ChangeRecord, bool) {
 	_, _, jobsVal := findMappingEntry(root, "jobs")
 	if jobsVal == nil || jobsVal.Kind != yaml.MappingNode {
@@ -462,7 +462,7 @@ func planRunsOnEdits(s *source, root *yaml.Node, disabledJobs map[string]disable
 			}
 			original := item.Value
 			newLabel, changed, reason := migrate.MapLabel(original)
-			if !changed {
+			if reason == "" {
 				continue
 			}
 
@@ -474,21 +474,25 @@ func planRunsOnEdits(s *source, root *yaml.Node, disabledJobs map[string]disable
 			if !ok {
 				return nil, nil, false
 			}
-			edits = append(edits, edit{start: start, end: end, text: quoteLike(item, newLabel)})
+
+			note := fmt.Sprintf("kept: %s. %s", original, reason)
+			if changed {
+				edits = append(edits, edit{start: start, end: end, text: quoteLike(item, newLabel)})
+				note = fmt.Sprintf("was: %s. %s", original, reason)
+				changes = append(changes, ChangeRecord{
+					Type:    ChangeRunsOn,
+					JobName: jobKey.Value,
+					Detail:  fmt.Sprintf("Changed runs-on from %q to %q in job %q", original, newLabel, jobKey.Value),
+				})
+			}
 
 			if _, seen := notesByLine[item.Line]; !seen {
 				noteLines = append(noteLines, item.Line)
 			}
-			notesByLine[item.Line] = append(notesByLine[item.Line], fmt.Sprintf("was: %s. %s", original, reason))
+			notesByLine[item.Line] = append(notesByLine[item.Line], note)
 			if end > tokenEndByLine[item.Line] {
 				tokenEndByLine[item.Line] = end
 			}
-
-			changes = append(changes, ChangeRecord{
-				Type:    ChangeRunsOn,
-				JobName: jobKey.Value,
-				Detail:  fmt.Sprintf("Changed runs-on from %q to %q in job %q", original, newLabel, jobKey.Value),
-			})
 		}
 	}
 

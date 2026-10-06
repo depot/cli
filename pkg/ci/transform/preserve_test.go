@@ -1,6 +1,8 @@
 package transform
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -853,5 +855,103 @@ jobs:
 	}
 	if !rewrote {
 		t.Errorf("expected a ChangePathRewritten record, got %v", result.Changes)
+	}
+}
+
+func TestTransformWorkflow_KeepsUnavailableRunnerWithReviewNote(t *testing.T) {
+	raw := `name: CI
+
+on: push
+
+jobs:
+  legacy:
+    runs-on: ubuntu-20.04
+    steps:
+      - run: make legacy
+  mixed:
+    runs-on: [ubuntu-22.04, ubuntu-20.04]
+    steps:
+      - run: make mixed
+  latest:
+    runs-on: ubuntu-latest
+    steps:
+      - run: make latest
+  dynamic:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-24.04]
+    steps:
+      - run: make dynamic
+`
+	path := filepath.Join(t.TempDir(), "ci.yml")
+	if err := os.WriteFile(path, []byte(raw), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	wf, err := migrate.ParseWorkflowFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	report := compat.AnalyzeWorkflow(wf)
+
+	result, err := TransformWorkflow([]byte(raw), wf, report, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	_, _, keptReason := migrate.MapLabel("ubuntu-20.04")
+	kept := "# kept: ubuntu-20.04. " + keptReason
+	label22, note22 := runsOnNote(t, "ubuntu-22.04")
+	labelLatest, noteLatest := runsOnNote(t, "ubuntu-latest")
+	want := strings.NewReplacer(
+		"runs-on: ubuntu-20.04", "runs-on: ubuntu-20.04 "+kept,
+		"runs-on: [ubuntu-22.04, ubuntu-20.04]", "runs-on: ["+label22+", ubuntu-20.04] "+note22+" "+strings.TrimPrefix(kept, "# "),
+		"runs-on: ubuntu-latest", "runs-on: "+labelLatest+" "+noteLatest,
+	).Replace(raw)
+	if got := body(t, string(result.Content)); got != want {
+		t.Errorf("unexpected body\n--- want ---\n%s\n--- got ---\n%s", want, got)
+	}
+	if len(result.Changes) != 2 {
+		t.Errorf("expected only the 22.04 and latest remaps as changes, got %v", result.Changes)
+	}
+
+	var flagged []string
+	for _, issue := range report.Issues {
+		if issue.Feature == "runs-on (unavailable labels)" {
+			flagged = append(flagged, issue.Message)
+		}
+	}
+	if len(flagged) != 2 || !strings.Contains(flagged[0], `"legacy"`) || !strings.Contains(flagged[1], `"mixed"`) {
+		t.Errorf("expected unavailable runner issues for legacy and mixed jobs, got %v", report.Issues)
+	}
+}
+
+func TestTransformWorkflow_KeepsUnavailableRunnerWhenReencoding(t *testing.T) {
+	// sparse-checkout forces the node-tree fallback.
+	raw := []byte("name: CI\non: push\njobs:\n  build:\n    runs-on: ubuntu-20.04\n    steps:\n      - uses: actions/checkout@v4\n        with:\n          sparse-checkout: src\n")
+	wf := &migrate.WorkflowFile{
+		Path:     ".github/workflows/ci.yml",
+		Triggers: []string{"push"},
+		Jobs:     []migrate.JobInfo{{Name: "build", RunsOn: "ubuntu-20.04"}},
+	}
+
+	result, err := TransformWorkflow(raw, wf, compat.AnalyzeWorkflow(wf), nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var parsed struct {
+		Jobs map[string]struct {
+			RunsOn string `yaml:"runs-on"`
+		}
+	}
+	if err := yaml.Unmarshal(result.Content, &parsed); err != nil {
+		t.Fatalf("output is not valid YAML: %v", err)
+	}
+	if got := parsed.Jobs["build"].RunsOn; got != "ubuntu-20.04" {
+		t.Errorf("runs-on = %q, want ubuntu-20.04", got)
+	}
+	if !strings.Contains(string(result.Content), "# kept: ubuntu-20.04.") {
+		t.Errorf("expected review note on kept runner, got:\n%s", result.Content)
 	}
 }

@@ -668,9 +668,10 @@ func workflowsWithContext(ctx context.Context, opts migrateOptions) error {
 	}
 
 	type workflowResult struct {
-		filename    string
-		result      *transform.TransformResult
-		hasCritical bool
+		filename     string
+		result       *transform.TransformResult
+		hasCritical  bool
+		runnerIssues []compat.CompatibilityIssue
 	}
 	var results []workflowResult
 
@@ -700,10 +701,18 @@ func workflowsWithContext(ctx context.Context, opts migrateOptions) error {
 			return fmt.Errorf("failed to write %s: %w", destPath, err)
 		}
 
+		var runnerIssues []compat.CompatibilityIssue
+		for _, issue := range report.Issues {
+			if issue.Feature == "runs-on (unavailable labels)" {
+				runnerIssues = append(runnerIssues, issue)
+			}
+		}
+
 		results = append(results, workflowResult{
-			filename:    filepath.Base(wf.Path),
-			result:      result,
-			hasCritical: result.HasCritical,
+			filename:     filepath.Base(wf.Path),
+			result:       result,
+			hasCritical:  result.HasCritical,
+			runnerIssues: runnerIssues,
 		})
 	}
 
@@ -733,10 +742,15 @@ func workflowsWithContext(ctx context.Context, opts migrateOptions) error {
 				}
 			}
 			status = fmt.Sprintf("%d job(s) disabled (needs review)", disabledCount)
+		} else if len(r.runnerIssues) > 0 {
+			status = fmt.Sprintf("%d runner label(s) kept (needs review)", len(r.runnerIssues))
 		} else if len(r.result.Changes) > 0 {
 			status = fmt.Sprintf("%d change(s) applied", len(r.result.Changes))
 		}
 		fmt.Fprintf(out, "  %s — %s\n", r.filename, status)
+		for _, issue := range r.runnerIssues {
+			fmt.Fprintf(out, "    - %s\n      %s\n", issue.Message, issue.Suggestion)
+		}
 	}
 	if originAnalysis != nil && originAnalysis.response != nil {
 		renderCursorOriginDiagnostics(out, originAnalysis.response.Msg)
