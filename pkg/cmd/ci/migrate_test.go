@@ -248,6 +248,81 @@ jobs:
 	}
 }
 
+func TestRunMigrate_UnavailableRunnerNeedsReview(t *testing.T) {
+	dir := t.TempDir()
+	workflowsDir := filepath.Join(dir, ".github", "workflows")
+	os.MkdirAll(workflowsDir, 0755)
+
+	legacy := `name: Legacy
+on: push
+jobs:
+  build:
+    runs-on: ubuntu-20.04
+    steps:
+      - run: make
+`
+	// A disabled job still takes priority in the status line, but the kept runner must be listed.
+	mixed := `name: Mixed
+on: push
+jobs:
+  test:
+    runs-on: ubuntu-20.04
+    steps:
+      - run: make test
+  deploy:
+    runs-on: [self-hosted, linux]
+    strategy:
+      matrix:
+        env: [staging, prod]
+    steps:
+      - run: make deploy
+`
+	os.WriteFile(filepath.Join(workflowsDir, "legacy.yml"), []byte(legacy), 0644)
+	os.WriteFile(filepath.Join(workflowsDir, "mixed.yml"), []byte(mixed), 0644)
+
+	var buf bytes.Buffer
+	opts := migrateOptions{
+		yes:    true,
+		dir:    dir,
+		stdout: &buf,
+	}
+
+	if err := workflows(opts); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	original, err := os.ReadFile(filepath.Join(workflowsDir, "legacy.yml"))
+	if err != nil || string(original) != legacy {
+		t.Errorf("expected .github workflow unchanged, got %q (err %v)", original, err)
+	}
+	migrated, err := os.ReadFile(filepath.Join(dir, ".depot", "workflows", "legacy.yml"))
+	if err != nil {
+		t.Fatalf("expected output file: %v", err)
+	}
+	if !strings.Contains(string(migrated), "runs-on: ubuntu-20.04 # kept: ubuntu-20.04.") {
+		t.Errorf("expected ubuntu-20.04 kept with a review note, got:\n%s", migrated)
+	}
+	if strings.Contains(string(migrated), "depot-ubuntu-20.04") || strings.Contains(string(migrated), "runs-on: depot-ubuntu-latest") {
+		t.Errorf("expected no invented or upgraded runner, got:\n%s", migrated)
+	}
+
+	output := buf.String()
+	for _, want := range []string{
+		"legacy.yml — 1 runner label(s) kept (needs review)",
+		`Job "build" uses runs-on "ubuntu-20.04"`,
+		"mixed.yml — 1 job(s) disabled (needs review)",
+		`Job "test" uses runs-on "ubuntu-20.04"`,
+		"Choose a supported Depot runner label for this job before activating the workflow.",
+	} {
+		if !strings.Contains(output, want) {
+			t.Errorf("expected %q in summary, got:\n%s", want, output)
+		}
+	}
+	if strings.Contains(output, "migrated as is") {
+		t.Errorf("expected kept runner not to be reported as migrated as is, got:\n%s", output)
+	}
+}
+
 func TestRunMigrate_OverwriteExisting(t *testing.T) {
 	dir := t.TempDir()
 	workflowsDir := filepath.Join(dir, ".github", "workflows")

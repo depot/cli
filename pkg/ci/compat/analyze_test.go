@@ -184,7 +184,6 @@ func TestAnalyzeJobsRunnerLabels(t *testing.T) {
 		{"latest", "ubuntu-latest", false},
 		{"ubuntu24", "ubuntu-24.04", false},
 		{"ubuntu22", "ubuntu-22.04", false},
-		{"ubuntu20", "ubuntu-20.04", false},
 		{"depotLatest", "depot-ubuntu-latest", false},
 		{"depotSized", "depot-ubuntu-latest-16", false},
 		{"depotArm", "depot-ubuntu-24.04-arm", false},
@@ -219,6 +218,36 @@ func TestAnalyzeJobsRunnerLabels(t *testing.T) {
 			}
 			if tc.wantCustom && (issues[0].Feature != "runs-on (custom labels)" || issues[0].Level != Partial) {
 				t.Fatalf("unexpected custom runner issue: %v", issues[0])
+			}
+		})
+	}
+}
+
+func TestAnalyzeJobsUnavailableRunnerLabels(t *testing.T) {
+	cases := []struct {
+		name         string
+		runsOn       string
+		wantFeatures []string
+	}{
+		{"ubuntu20", "ubuntu-20.04", []string{"runs-on (unavailable labels)"}},
+		{"caseWhitespace", " Ubuntu-20.04 ", []string{"runs-on (unavailable labels)"}},
+		{"supportedList", "ubuntu-22.04,ubuntu-20.04", []string{"runs-on (unavailable labels)"}},
+		{"customList", "ubuntu-20.04,custom-runner", []string{"runs-on (custom labels)", "runs-on (unavailable labels)"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			issues := AnalyzeJobs([]migrate.JobInfo{{Name: "build", RunsOn: tc.runsOn}})
+			if len(issues) != len(tc.wantFeatures) {
+				t.Fatalf("AnalyzeJobs(%q) = %v, want features %v", tc.runsOn, issues, tc.wantFeatures)
+			}
+			for i, issue := range issues {
+				if issue.Feature != tc.wantFeatures[i] || issue.Level != Partial {
+					t.Fatalf("issue %d = %v, want Partial %q", i, issue, tc.wantFeatures[i])
+				}
+			}
+			last := issues[len(issues)-1]
+			if !strings.Contains(last.Message, `"ubuntu-20.04"`) || !strings.Contains(last.Suggestion, "Choose a supported Depot runner label") {
+				t.Fatalf("unavailable runner issue does not ask for a runner choice: %v", last)
 			}
 		})
 	}

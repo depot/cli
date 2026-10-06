@@ -65,6 +65,7 @@ func AnalyzeJobs(jobs []migrate.JobInfo) []CompatibilityIssue {
 	matrixSelfHostedRule := JobFeatureRules["strategy.matrix + self-hosted"]
 	reusableRule := JobFeatureRules["uses"]
 	runsOnRule := JobFeatureRules["runs-on (custom labels)"]
+	unavailableRunsOnRule := JobFeatureRules["runs-on (unavailable labels)"]
 
 	for _, job := range jobs {
 		jobLabel := job.Name
@@ -114,6 +115,18 @@ func AnalyzeJobs(jobs []migrate.JobInfo) []CompatibilityIssue {
 				Level:      runsOnRule.Supported,
 				Message:    fmt.Sprintf("Job %q uses runs-on %q: %s", jobLabel, job.RunsOn, runsOnRule.Note),
 				Suggestion: runsOnRule.Suggestion,
+			})
+		}
+
+		for _, label := range parseRunsOnLabels(job.RunsOn) {
+			if migrate.ClassifyLabel(label) != migrate.LabelUnavailableGitHub {
+				continue
+			}
+			issues = append(issues, CompatibilityIssue{
+				Feature:    "runs-on (unavailable labels)",
+				Level:      unavailableRunsOnRule.Supported,
+				Message:    fmt.Sprintf("Job %q uses runs-on %q: %s", jobLabel, label, unavailableRunsOnRule.Note),
+				Suggestion: unavailableRunsOnRule.Suggestion,
 			})
 		}
 	}
@@ -194,7 +207,7 @@ func hasCustomRunsOn(runsOn string) bool {
 				return true
 			}
 			continue
-		case migrate.LabelStandardGitHub, migrate.LabelExpression:
+		case migrate.LabelStandardGitHub, migrate.LabelExpression, migrate.LabelUnavailableGitHub:
 			continue
 		}
 		return true
