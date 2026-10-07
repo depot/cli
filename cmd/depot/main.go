@@ -153,7 +153,7 @@ func runMain() int {
 	}
 
 	newRelease := <-updateMessageChan
-	if newRelease != nil && os.Getenv("DEPOT_NO_SUMMARY_LINK") == "" {
+	if newRelease != nil && os.Getenv("DEPOT_NO_SUMMARY_LINK") == "" && os.Getenv("DEPOT_IN_AUTOMATION") == "" {
 		isHomebrew := update.IsUnderHomebrew()
 		fmt.Fprintf(os.Stderr, "\n\n%s%s%s %s → %s\n",
 			ansi.Color("A new release of depot is available, released on ", "yellow"),
@@ -228,7 +228,7 @@ func checkForUpdate(currentVersion string) (*api.ReleaseResponse, error) {
 }
 
 func shouldCheckForUpdate() bool {
-	if os.Getenv("DEPOT_NO_UPDATE_NOTIFIER") != "" {
+	if os.Getenv("DEPOT_NO_UPDATE_NOTIFIER") != "" || os.Getenv("DEPOT_IN_AUTOMATION") != "" {
 		return false
 	}
 	return helpers.IsTerminal()

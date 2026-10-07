@@ -225,7 +225,7 @@ func (p *ControlProxy) Status(in *control.StatusRequest, toBuildx control.Contro
 		for {
 			msg, err := fromBuildkit.Recv()
 			if err != nil {
-				if os.Getenv("DEPOT_NO_SUMMARY_LINK") == "" {
+				if os.Getenv("DEPOT_NO_SUMMARY_LINK") == "" && os.Getenv("DEPOT_IN_AUTOMATION") == "" {
 					progresshelper.Log(state.Reporter, "Build summary: "+state.SummaryURL, nil)
 				}
 

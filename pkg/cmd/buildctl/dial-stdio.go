@@ -151,7 +151,7 @@ func run() error {
 			state.SummaryURL = build.BuildURL
 			buildFinish = build.Finish
 
-			if os.Getenv("DEPOT_NO_SUMMARY_LINK") == "" {
+			if os.Getenv("DEPOT_NO_SUMMARY_LINK") == "" && os.Getenv("DEPOT_IN_AUTOMATION") == "" {
 				progresshelper.Log(state.Reporter, "[depot] build: "+state.SummaryURL, nil)
 			}
 
