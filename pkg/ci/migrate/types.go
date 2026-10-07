@@ -18,6 +18,12 @@ type JobInfo struct {
 	HasMatrix    bool   `json:"has_matrix"`
 	HasContainer bool   `json:"has_container"`
 	HasServices  bool   `json:"has_services"`
+
+	// RunsOnLabels keeps each string runs-on element as written; RunsOn joins
+	// them with commas. Depot CI splits commas within an element into primary
+	// and secondary labels, while separate elements are each candidate primary
+	// runners, so only RunsOnLabels can be checked against runner policy.
+	RunsOnLabels []string `json:"runs_on_labels,omitempty"`
 }
 
 // MigrationPlan contains the plan for migrating workflows

@@ -1,0 +1,561 @@
+{
+  "schemaVersion": 1,
+  "source": {
+    "repository": "depot/api",
+    "revision": "861876fcf8c066b746dac8733efcd053011125d4"
+  },
+  "labels": [
+    {
+      "label": "depot-macos-14",
+      "supported": false
+    },
+    {
+      "label": "depot-macos-15",
+      "supported": false
+    },
+    {
+      "label": "depot-macos-26",
+      "supported": false
+    },
+    {
+      "label": "depot-macos-beta",
+      "supported": false
+    },
+    {
+      "label": "depot-macos-latest",
+      "supported": false
+    },
+    {
+      "label": "depot-ubuntu-22.04",
+      "supported": true
+    },
+    {
+      "label": "depot-ubuntu-22.04-16",
+      "supported": true
+    },
+    {
+      "label": "depot-ubuntu-22.04-16-2tb",
+      "supported": true
+    },
+    {
+      "label": "depot-ubuntu-22.04-16-gpu",
+      "supported": true
+    },
+    {
+      "label": "depot-ubuntu-22.04-16-gpu-p5",
+      "supported": true
+    },
+    {
+      "label": "depot-ubuntu-22.04-16-io",
+      "supported": true
+    },
+    {
+      "label": "depot-ubuntu-22.04-16-ramdisk",
+      "supported": true
+    },
+    {
+      "label": "depot-ubuntu-22.04-192",
+      "supported": false
+    },
+    {
+      "label": "depot-ubuntu-22.04-192-gpu",
+      "supported": true
+    },
+    {
+      "label": "depot-ubuntu-22.04-2",
+      "supported": true
+    },
+    {
+      "label": "depot-ubuntu-22.04-2-ramdisk",
+      "supported": true
+    },
+    {
+      "label": "depot-ubuntu-22.04-32",
+      "supported": true
+    },
+    {
+      "label": "depot-ubuntu-22.04-32-gpu",
+      "supported": true
+    },
+    {
+      "label": "depot-ubuntu-22.04-32-io",
+      "supported": true
+    },
+    {
+      "label": "depot-ubuntu-22.04-32-ramdisk",
+      "supported": true
+    },
+    {
+      "label": "depot-ubuntu-22.04-4",
+      "supported": true
+    },
+    {
+      "label": "depot-ubuntu-22.04-4-gpu",
+      "supported": true
+    },
+    {
+      "label": "depot-ubuntu-22.04-4-io",
+      "supported": true
+    },
+    {
+      "label": "depot-ubuntu-22.04-4-ramdisk",
+      "supported": true
+    },
+    {
+      "label": "depot-ubuntu-22.04-48-gpu-g7",
+      "supported": true
+    },
+    {
+      "label": "depot-ubuntu-22.04-48-gpu-g7e",
+      "supported": true
+    },
+    {
+      "label": "depot-ubuntu-22.04-64",
+      "supported": true
+    },
+    {
+      "label": "depot-ubuntu-22.04-64-gpu",
+      "supported": true
+    },
+    {
+      "label": "depot-ubuntu-22.04-64-io",
+      "supported": true
+    },
+    {
+      "label": "depot-ubuntu-22.04-64-ramdisk",
+      "supported": true
+    },
+    {
+      "label": "depot-ubuntu-22.04-8",
+      "supported": true
+    },
+    {
+      "label": "depot-ubuntu-22.04-8-gpu",
+      "supported": true
+    },
+    {
+      "label": "depot-ubuntu-22.04-8-io",
+      "supported": true
+    },
+    {
+      "label": "depot-ubuntu-22.04-8-ramdisk",
+      "supported": true
+    },
+    {
+      "label": "depot-ubuntu-22.04-96",
+      "supported": false
+    },
+    {
+      "label": "depot-ubuntu-22.04-arm",
+      "supported": true
+    },
+    {
+      "label": "depot-ubuntu-22.04-arm-16",
+      "supported": true
+    },
+    {
+      "label": "depot-ubuntu-22.04-arm-16-io",
+      "supported": true
+    },
+    {
+      "label": "depot-ubuntu-22.04-arm-192",
+      "supported": false
+    },
+    {
+      "label": "depot-ubuntu-22.04-arm-2",
+      "supported": true
+    },
+    {
+      "label": "depot-ubuntu-22.04-arm-32",
+      "supported": true
+    },
+    {
+      "label": "depot-ubuntu-22.04-arm-32-io",
+      "supported": true
+    },
+    {
+      "label": "depot-ubuntu-22.04-arm-4",
+      "supported": true
+    },
+    {
+      "label": "depot-ubuntu-22.04-arm-4-io",
+      "supported": true
+    },
+    {
+      "label": "depot-ubuntu-22.04-arm-64",
+      "supported": true
+    },
+    {
+      "label": "depot-ubuntu-22.04-arm-64-io",
+      "supported": true
+    },
+    {
+      "label": "depot-ubuntu-22.04-arm-8",
+      "supported": true
+    },
+    {
+      "label": "depot-ubuntu-22.04-arm-8-io",
+      "supported": true
+    },
+    {
+      "label": "depot-ubuntu-22.04-arm-io",
+      "supported": true
+    },
+    {
+      "label": "depot-ubuntu-22.04-arm-small",
+      "supported": true
+    },
+    {
+      "label": "depot-ubuntu-22.04-io",
+      "supported": true
+    },
+    {
+      "label": "depot-ubuntu-22.04-ramdisk",
+      "supported": true
+    },
+    {
+      "label": "depot-ubuntu-22.04-small",
+      "supported": true
+    },
+    {
+      "label": "depot-ubuntu-24.04",
+      "supported": true
+    },
+    {
+      "label": "depot-ubuntu-24.04-16",
+      "supported": true
+    },
+    {
+      "label": "depot-ubuntu-24.04-16-io",
+      "supported": true
+    },
+    {
+      "label": "depot-ubuntu-24.04-192",
+      "supported": false
+    },
+    {
+      "label": "depot-ubuntu-24.04-2",
+      "supported": true
+    },
+    {
+      "label": "depot-ubuntu-24.04-32",
+      "supported": true
+    },
+    {
+      "label": "depot-ubuntu-24.04-32-io",
+      "supported": true
+    },
+    {
+      "label": "depot-ubuntu-24.04-4",
+      "supported": true
+    },
+    {
+      "label": "depot-ubuntu-24.04-4-io",
+      "supported": true
+    },
+    {
+      "label": "depot-ubuntu-24.04-64",
+      "supported": true
+    },
+    {
+      "label": "depot-ubuntu-24.04-64-io",
+      "supported": true
+    },
+    {
+      "label": "depot-ubuntu-24.04-8",
+      "supported": true
+    },
+    {
+      "label": "depot-ubuntu-24.04-8-io",
+      "supported": true
+    },
+    {
+      "label": "depot-ubuntu-24.04-96",
+      "supported": false
+    },
+    {
+      "label": "depot-ubuntu-24.04-96-metal",
+      "supported": false
+    },
+    {
+      "label": "depot-ubuntu-24.04-arm",
+      "supported": true
+    },
+    {
+      "label": "depot-ubuntu-24.04-arm-16",
+      "supported": true
+    },
+    {
+      "label": "depot-ubuntu-24.04-arm-16-io",
+      "supported": true
+    },
+    {
+      "label": "depot-ubuntu-24.04-arm-192",
+      "supported": false
+    },
+    {
+      "label": "depot-ubuntu-24.04-arm-2",
+      "supported": true
+    },
+    {
+      "label": "depot-ubuntu-24.04-arm-32",
+      "supported": true
+    },
+    {
+      "label": "depot-ubuntu-24.04-arm-32-io",
+      "supported": true
+    },
+    {
+      "label": "depot-ubuntu-24.04-arm-4",
+      "supported": true
+    },
+    {
+      "label": "depot-ubuntu-24.04-arm-4-io",
+      "supported": true
+    },
+    {
+      "label": "depot-ubuntu-24.04-arm-64",
+      "supported": true
+    },
+    {
+      "label": "depot-ubuntu-24.04-arm-64-io",
+      "supported": true
+    },
+    {
+      "label": "depot-ubuntu-24.04-arm-8",
+      "supported": true
+    },
+    {
+      "label": "depot-ubuntu-24.04-arm-8-io",
+      "supported": true
+    },
+    {
+      "label": "depot-ubuntu-24.04-arm-small",
+      "supported": true
+    },
+    {
+      "label": "depot-ubuntu-24.04-small",
+      "supported": true
+    },
+    {
+      "label": "depot-ubuntu-latest",
+      "supported": true
+    },
+    {
+      "label": "depot-ubuntu-latest-16",
+      "supported": true
+    },
+    {
+      "label": "depot-ubuntu-latest-16-io",
+      "supported": true
+    },
+    {
+      "label": "depot-ubuntu-latest-192",
+      "supported": false
+    },
+    {
+      "label": "depot-ubuntu-latest-2",
+      "supported": true
+    },
+    {
+      "label": "depot-ubuntu-latest-32",
+      "supported": true
+    },
+    {
+      "label": "depot-ubuntu-latest-32-io",
+      "supported": true
+    },
+    {
+      "label": "depot-ubuntu-latest-4",
+      "supported": true
+    },
+    {
+      "label": "depot-ubuntu-latest-4-io",
+      "supported": true
+    },
+    {
+      "label": "depot-ubuntu-latest-64",
+      "supported": true
+    },
+    {
+      "label": "depot-ubuntu-latest-64-io",
+      "supported": true
+    },
+    {
+      "label": "depot-ubuntu-latest-8",
+      "supported": true
+    },
+    {
+      "label": "depot-ubuntu-latest-8-io",
+      "supported": true
+    },
+    {
+      "label": "depot-ubuntu-latest-96",
+      "supported": false
+    },
+    {
+      "label": "depot-ubuntu-latest-arm",
+      "supported": true
+    },
+    {
+      "label": "depot-ubuntu-latest-arm-16",
+      "supported": true
+    },
+    {
+      "label": "depot-ubuntu-latest-arm-16-io",
+      "supported": true
+    },
+    {
+      "label": "depot-ubuntu-latest-arm-192",
+      "supported": false
+    },
+    {
+      "label": "depot-ubuntu-latest-arm-2",
+      "supported": true
+    },
+    {
+      "label": "depot-ubuntu-latest-arm-32",
+      "supported": true
+    },
+    {
+      "label": "depot-ubuntu-latest-arm-32-io",
+      "supported": true
+    },
+    {
+      "label": "depot-ubuntu-latest-arm-4",
+      "supported": true
+    },
+    {
+      "label": "depot-ubuntu-latest-arm-4-io",
+      "supported": true
+    },
+    {
+      "label": "depot-ubuntu-latest-arm-64",
+      "supported": true
+    },
+    {
+      "label": "depot-ubuntu-latest-arm-64-io",
+      "supported": true
+    },
+    {
+      "label": "depot-ubuntu-latest-arm-8",
+      "supported": true
+    },
+    {
+      "label": "depot-ubuntu-latest-arm-8-io",
+      "supported": true
+    },
+    {
+      "label": "depot-ubuntu-latest-arm-io",
+      "supported": true
+    },
+    {
+      "label": "depot-ubuntu-latest-arm-small",
+      "supported": true
+    },
+    {
+      "label": "depot-ubuntu-latest-io",
+      "supported": true
+    },
+    {
+      "label": "depot-ubuntu-latest-small",
+      "supported": true
+    },
+    {
+      "label": "depot-windows-2022",
+      "supported": false
+    },
+    {
+      "label": "depot-windows-2022-16",
+      "supported": false
+    },
+    {
+      "label": "depot-windows-2022-2",
+      "supported": false
+    },
+    {
+      "label": "depot-windows-2022-32",
+      "supported": false
+    },
+    {
+      "label": "depot-windows-2022-4",
+      "supported": false
+    },
+    {
+      "label": "depot-windows-2022-64",
+      "supported": false
+    },
+    {
+      "label": "depot-windows-2022-8",
+      "supported": false
+    },
+    {
+      "label": "depot-windows-2022-small",
+      "supported": false
+    },
+    {
+      "label": "depot-windows-2025",
+      "supported": false
+    },
+    {
+      "label": "depot-windows-2025-16",
+      "supported": false
+    },
+    {
+      "label": "depot-windows-2025-2",
+      "supported": false
+    },
+    {
+      "label": "depot-windows-2025-32",
+      "supported": false
+    },
+    {
+      "label": "depot-windows-2025-4",
+      "supported": false
+    },
+    {
+      "label": "depot-windows-2025-64",
+      "supported": false
+    },
+    {
+      "label": "depot-windows-2025-8",
+      "supported": false
+    },
+    {
+      "label": "depot-windows-2025-small",
+      "supported": false
+    },
+    {
+      "label": "depot-windows-latest",
+      "supported": false
+    },
+    {
+      "label": "depot-windows-latest-16",
+      "supported": false
+    },
+    {
+      "label": "depot-windows-latest-2",
+      "supported": false
+    },
+    {
+      "label": "depot-windows-latest-32",
+      "supported": false
+    },
+    {
+      "label": "depot-windows-latest-4",
+      "supported": false
+    },
+    {
+      "label": "depot-windows-latest-64",
+      "supported": false
+    },
+    {
+      "label": "depot-windows-latest-8",
+      "supported": false
+    },
+    {
+      "label": "depot-windows-latest-small",
+      "supported": false
+    }
+  ]
+}

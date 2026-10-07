@@ -3,6 +3,8 @@ package migrate
 import (
 	"os"
 	"path/filepath"
+	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -96,6 +98,37 @@ func TestParseWorkflowFileMultipleJobs(t *testing.T) {
 
 	if wf.Jobs[1].RunsOn != "ubuntu-latest,self-hosted" {
 		t.Fatalf("unexpected runs-on for test job: %q", wf.Jobs[1].RunsOn)
+	}
+}
+
+func TestParseWorkflowFileRunsOnLabelsKeepStructure(t *testing.T) {
+	path := writeTempWorkflow(t, t.TempDir(), "runs-on.yml", `on: push
+jobs:
+  array:
+    runs-on: [depot-ubuntu-latest, depot-windows-latest]
+  missing:
+    steps: []
+  scalar:
+    runs-on: depot-ubuntu-latest,depot-windows-latest
+`)
+
+	wf, err := ParseWorkflowFile(path)
+	if err != nil {
+		t.Fatalf("ParseWorkflowFile failed: %v", err)
+	}
+
+	want := map[string][]string{
+		"array":   {"depot-ubuntu-latest", "depot-windows-latest"},
+		"missing": nil,
+		"scalar":  {"depot-ubuntu-latest,depot-windows-latest"},
+	}
+	for _, job := range wf.Jobs {
+		if !reflect.DeepEqual(job.RunsOnLabels, want[job.Name]) {
+			t.Fatalf("job %q RunsOnLabels = %#v, want %#v", job.Name, job.RunsOnLabels, want[job.Name])
+		}
+		if job.RunsOn != strings.Join(want[job.Name], ",") {
+			t.Fatalf("job %q RunsOn = %q", job.Name, job.RunsOn)
+		}
 	}
 }
 
