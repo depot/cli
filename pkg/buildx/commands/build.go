@@ -216,7 +216,7 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.No
 	}
 	defer cancel()
 
-	if os.Getenv("DEPOT_NO_SUMMARY_LINK") == "" {
+	if os.Getenv("DEPOT_NO_SUMMARY_LINK") == "" && os.Getenv("DEPOT_IN_AUTOMATION") == "" {
 		progress.Write(printer, "[depot] build: "+depotOpts.buildURL, func() error { return err })
 	}
 

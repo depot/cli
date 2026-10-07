@@ -56,7 +56,7 @@ func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator, pri
 		end(err)
 	}()
 
-	if os.Getenv("DEPOT_NO_SUMMARY_LINK") == "" {
+	if os.Getenv("DEPOT_NO_SUMMARY_LINK") == "" && os.Getenv("DEPOT_IN_AUTOMATION") == "" {
 		progress.Write(printer, "[depot] build: "+in.buildURL, func() error { return err })
 	}
 
@@ -673,7 +673,7 @@ func parseBakeTargets(targets []string) (bkt bakeTargets) {
 
 // printSaveHelp prints instructions to pull or push the saved targets.
 func printSaveHelp(project, buildID, progressMode string, requestedTargets, additionalTags []string) {
-	if progressMode != progress.PrinterModeQuiet && os.Getenv("DEPOT_NO_SUMMARY_LINK") == "" {
+	if progressMode != progress.PrinterModeQuiet && os.Getenv("DEPOT_NO_SUMMARY_LINK") == "" && os.Getenv("DEPOT_IN_AUTOMATION") == "" {
 		fmt.Fprintln(os.Stderr)
 		saved := "target"
 		if len(requestedTargets) > 1 {
