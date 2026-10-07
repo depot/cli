@@ -80,6 +80,8 @@ For all other platforms, you can download the binary directly from [the latest r
 
 ## Usage
 
+Set `DEPOT_IN_AUTOMATION=1` to suppress build summary URLs, saved-image pull/push hints, and new-version notifications in scripts and CI. Any non-empty value enables this behavior; build progress and errors are still printed.
+
 ### `depot bake`
 
 Run a Docker build from a HCL, JSON, or Compose file using Depot's remote builder infrastructure. This command accepts all the command line flags as Docker's `docker buildx bake` command, you can run `depot bake --help` for the full list.
