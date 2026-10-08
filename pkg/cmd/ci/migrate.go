@@ -703,7 +703,7 @@ func workflowsWithContext(ctx context.Context, opts migrateOptions) error {
 
 		var runnerIssues []compat.CompatibilityIssue
 		for _, issue := range report.Issues {
-			if issue.Feature == "runs-on (unavailable labels)" {
+			if issue.Feature == "runs-on (unavailable labels)" || issue.Feature == "runs-on (custom labels)" {
 				runnerIssues = append(runnerIssues, issue)
 			}
 		}
@@ -743,7 +743,7 @@ func workflowsWithContext(ctx context.Context, opts migrateOptions) error {
 			}
 			status = fmt.Sprintf("%d job(s) disabled (needs review)", disabledCount)
 		} else if len(r.runnerIssues) > 0 {
-			status = fmt.Sprintf("%d runner label(s) kept (needs review)", len(r.runnerIssues))
+			status = fmt.Sprintf("%d runner warning(s) (needs review)", len(r.runnerIssues))
 		} else if len(r.result.Changes) > 0 {
 			status = fmt.Sprintf("%d change(s) applied", len(r.result.Changes))
 		}
