@@ -32,7 +32,7 @@ import (
 //     effect on a build, so these files are used for the build too.
 //   - descriptionFiles keeps the descriptions of the user for bake --print,
 //     and uses as the carrier an attribute that no expression in the files
-//     appears to read. Only the descriptions of this read are used.
+//     reads. Only the descriptions of this read are used.
 //
 // Compose services select a project with the x-depot.project-id build
 // extension. Compose has no field that bake reads as a description, so
@@ -88,19 +88,52 @@ func descriptionFiles(files []bake.File) []bake.File {
 	return rewriteFiles(files, descriptionCarrier(files))
 }
 
-// descriptionCarrier returns the first of descriptionCarriers that no file
-// appears to read, such as with target.base.call. A false match only selects
-// the next attribute.
+// descriptionCarrier returns the first of descriptionCarriers that no
+// expression in the files reads, such as with target.base.call.
 func descriptionCarrier(files []bake.File) string {
 	for _, carrier := range descriptionCarriers {
-		read := func(f bake.File) bool {
-			return bytes.Contains(f.Data, []byte("."+carrier)) || bytes.Contains(f.Data, []byte(`"`+carrier+`"]`)) || bytes.Contains(f.Data, []byte(`\"`+carrier+`\"]`))
-		}
-		if !slices.ContainsFunc(files, read) {
+		if !slices.ContainsFunc(files, func(f bake.File) bool { return readsTargetAttribute(f, carrier) }) {
 			return carrier
 		}
 	}
 	return descriptionCarriers[0]
+}
+
+// readsTargetAttribute reports whether an expression in the file reads an
+// attribute of a target. It reports true for a file that it cannot parse
+// and that contains the name of the attribute.
+func readsTargetAttribute(f bake.File, attribute string) bool {
+	if !strings.HasSuffix(f.Name, ".json") {
+		if file, diags := hclsyntax.ParseConfig(f.Data, f.Name, hcl.InitialPos); !diags.HasErrors() {
+			return len(targetAttributeReads(file.Body.(*hclsyntax.Body), attribute)) > 0
+		}
+	}
+	var root any
+	if err := json.Unmarshal(f.Data, &root); err != nil {
+		return bytes.Contains(f.Data, []byte(attribute))
+	}
+	reads := false
+	visitJSONStrings(root, func(s string) {
+		if expr, diags := hclsyntax.ParseTemplate([]byte(s), "", hcl.InitialPos); !diags.HasErrors() {
+			reads = reads || len(targetAttributeReads(expr, attribute)) > 0
+		}
+	})
+	return reads
+}
+
+func visitJSONStrings(value any, visit func(string)) {
+	switch v := value.(type) {
+	case string:
+		visit(v)
+	case map[string]any:
+		for _, element := range v {
+			visitJSONStrings(element, visit)
+		}
+	case []any:
+		for _, element := range v {
+			visitJSONStrings(element, visit)
+		}
+	}
 }
 
 // targetProjects returns the project of each target that has one, and
@@ -226,29 +259,38 @@ func rewriteHCL(data []byte, name, carrier string) ([]byte, int, bool) {
 // the earlier Depot bake schema.
 func projectIDReferences(node hclsyntax.Node, carrier string) []replacement {
 	var out []replacement
-	_ = hclsyntax.VisitAll(node, func(node hclsyntax.Node) hcl.Diagnostics {
-		expr, ok := node.(*hclsyntax.ScopeTraversalExpr)
-		if !ok || expr.Traversal.RootName() != "target" || len(expr.Traversal) < 3 || !readsProjectID(expr.Traversal[2]) {
-			return nil
-		}
+	for _, expr := range targetAttributeReads(node, projectIDAttribute) {
 		if name, ok := expr.Traversal[1].(hcl.TraverseAttr); ok && len(expr.Traversal) == 3 {
 			ref := "target." + name.Name + "." + carrier
 			out = append(out, replacement{start: expr.SrcRange.Start.Byte, end: expr.SrcRange.End.Byte, text: []byte(`(` + ref + ` == null ? "" : ` + ref + `)`)})
-			return nil
+			continue
 		}
 		step := expr.Traversal[2].SourceRange()
 		out = append(out, replacement{start: step.Start.Byte, end: step.End.Byte, text: []byte(`["` + carrier + `"]`)})
+	}
+	return out
+}
+
+// targetAttributeReads returns the expressions in node that read an
+// attribute of a target.
+func targetAttributeReads(node hclsyntax.Node, attribute string) []*hclsyntax.ScopeTraversalExpr {
+	var out []*hclsyntax.ScopeTraversalExpr
+	_ = hclsyntax.VisitAll(node, func(node hclsyntax.Node) hcl.Diagnostics {
+		expr, ok := node.(*hclsyntax.ScopeTraversalExpr)
+		if ok && expr.Traversal.RootName() == "target" && len(expr.Traversal) >= 3 && traversesTo(expr.Traversal[2], attribute) {
+			out = append(out, expr)
+		}
 		return nil
 	})
 	return out
 }
 
-func readsProjectID(step hcl.Traverser) bool {
+func traversesTo(step hcl.Traverser, attribute string) bool {
 	switch step := step.(type) {
 	case hcl.TraverseAttr:
-		return step.Name == projectIDAttribute
+		return step.Name == attribute
 	case hcl.TraverseIndex:
-		return step.Key.Type() == cty.String && step.Key.IsKnown() && !step.Key.IsNull() && step.Key.AsString() == projectIDAttribute
+		return step.Key.Type() == cty.String && step.Key.IsKnown() && !step.Key.IsNull() && step.Key.AsString() == attribute
 	}
 	return false
 }
