@@ -1,0 +1,481 @@
+syntax = "proto3";
+
+package depot.agent.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// Runs Depot's own coding agent. A session is a durable conversation: Depot stores everything the
+// agent has done, so the sandbox running it can be replaced at any time and the session continues
+// where it stopped. Every method requires the managed agents feature for the organization.
+service DepotAgentService {
+  // Creates a session and queues its first message. A sandbox starts for it within a minute.
+  rpc CreateSession(CreateSessionRequest) returns (CreateSessionResponse);
+  // Queues a message for a session. A retry with the same `clientRequestId` returns the original.
+  rpc SendInput(SendInputRequest) returns (SendInputResponse);
+  // Returns a session and the latest view of its conversation.
+  rpc GetSession(GetSessionRequest) returns (GetSessionResponse);
+  // Lists the organization's sessions, newest first.
+  rpc ListDepotAgentSessions(ListDepotAgentSessionsRequest) returns (ListDepotAgentSessionsResponse);
+  // Streams the session's view each time it changes.
+  rpc WatchSession(WatchSessionRequest) returns (stream WatchSessionResponse);
+  // Queues an interrupt, which stops whatever the agent is doing before it reads further messages.
+  rpc InterruptSession(InterruptSessionRequest) returns (InterruptSessionResponse);
+  // Archives a session. Its pending messages are cancelled and it never runs again.
+  rpc ArchiveSession(ArchiveSessionRequest) returns (ArchiveSessionResponse);
+  // Creates a trigger, which turns outside events into messages on a session. A "webhook" trigger
+  // returns its URL and signing secret; the secret is shown only in this response.
+  rpc CreateTrigger(CreateTriggerRequest) returns (CreateTriggerResponse);
+  // Lists the organization's triggers, newest first.
+  rpc ListTriggers(ListTriggersRequest) returns (ListTriggersResponse);
+  // Deletes a trigger. Its URL stops accepting deliveries; sessions it started are kept.
+  rpc DeleteTrigger(DeleteTriggerRequest) returns (DeleteTriggerResponse);
+  // Prepares files to attach to a message. Returns an upload URL for each file Depot does not already
+  // store; upload those, then pass the attachments to `CreateSession` or `SendInput`.
+  rpc PrepareAttachmentUploads(PrepareAttachmentUploadsRequest) returns (PrepareAttachmentUploadsResponse);
+  // Stores a new version of a session's agent definition, which the agent loads before its next turn.
+  // Sending the same content as the current version returns that version instead of storing a copy.
+  // To roll back, get an earlier version and put it again.
+  rpc PutAgentDefinition(PutAgentDefinitionRequest) returns (PutAgentDefinitionResponse);
+  // Returns one version of a session's agent definition. Default: the current version.
+  rpc GetAgentDefinition(GetAgentDefinitionRequest) returns (GetAgentDefinitionResponse);
+  // Offers the caller's own MCP servers to a session and streams the agent's tool calls to them. The first
+  // message is `attached`. Calls arrive only on turns answering a message the caller wrote, and the servers
+  // leave the session when the stream ends. A newer stream for the same session, from anyone, replaces this
+  // one and ends it with FAILED_PRECONDITION; reconnect after any other end. Requires a user token.
+  rpc PullLocalMcpCalls(PullLocalMcpCallsRequest) returns (stream PullLocalMcpCallsResponse);
+  // Answers one call from `PullLocalMcpCalls`. Answering the same call twice, or one that was cancelled,
+  // succeeds and is ignored. Fails with FAILED_PRECONDITION once the stream the call came from has ended.
+  rpc RespondLocalMcpCall(RespondLocalMcpCallRequest) returns (RespondLocalMcpCallResponse);
+  // Runs one action on a plugin view: a button, select or form. The click is queued as a "plugin_call" message,
+  // shown in the transcript, and handled by the plugin inside the sandbox. A retry with the same
+  // `clientRequestId` returns the original.
+  rpc InvokeViewAction(InvokeViewActionRequest) returns (InvokeViewActionResponse);
+}
+
+message DepotAgentAttachment {
+  // Lowercase hex SHA-256 of the file's contents. Identifies the file within the organization.
+  string sha256 = 1;
+  // Size of the file in bytes.
+  int64 size_bytes = 2;
+  // File name shown to the agent. A base name: no "/", not "." or "..", at most 255 bytes, unique within a message.
+  string name = 3;
+  // Media type, for example "image/png". Images go to the model as images. Default: "application/octet-stream".
+  string media_type = 4;
+}
+
+message DepotAgentModel {
+  // Model provider. Default: "amazon-bedrock".
+  string provider = 1;
+  // Model at that provider. Default: Depot's current default coding model.
+  string model_id = 2;
+  // Reasoning effort. For example, "low", "medium", or "high". Leave unset for the model's own default.
+  optional string thinking = 3;
+}
+
+message DepotAgentSession {
+  // Unique identifier for the session. Returned by `CreateSession` and `ListDepotAgentSessions`.
+  string session_id = 1;
+  // Human-readable name shown in the Depot app.
+  string title = 2;
+  // Model the agent runs on.
+  DepotAgentModel model = 3;
+  // Repository cloned into the agent's workspace. Empty for a session without one.
+  optional string repo_url = 4;
+  // Git ref checked out in the workspace. Empty for the repository's default branch.
+  optional string ref = 5;
+  // Current state of the session. Can be "idle", "running", "waiting_input", "failed", or "archived".
+  string status = 6;
+  google.protobuf.Timestamp created_at = 7;
+  google.protobuf.Timestamp updated_at = 8;
+  // Empty unless the session is archived.
+  optional google.protobuf.Timestamp archived_at = 9;
+  // Trigger that started the session. Empty for a session started with `CreateSession`.
+  optional string trigger_id = 10;
+}
+
+message DepotAgentInput {
+  // Unique identifier for the message. Returned by `CreateSession` and `SendInput`.
+  string input_id = 1;
+  // Message text.
+  string content = 2;
+  // How the agent receives the message. Can be "followup", "steer", or "interrupt".
+  string mode = 3;
+  // Current state of the message. Can be "pending", "submitted", or "cancelled".
+  string status = 4;
+  google.protobuf.Timestamp created_at = 5;
+  // Files attached to the message.
+  repeated DepotAgentAttachment attachments = 8;
+  // Set when mode is "plugin_call".
+  optional PluginCall plugin_call = 20;
+}
+
+// What a client can render, so the server sends only view kinds it supports.
+message ViewClient {
+  // Client name. Can be "app", "cli", or "api".
+  string name = 1;
+  // Core block vocabulary version the client renders. Currently 1.
+  uint32 blocks = 2;
+  // Client-specific view kinds the client renders, such as "app-html" or "cli". Other kinds are removed.
+  repeated string view_kinds = 3;
+}
+
+message PluginCall {
+  string plugin = 1;
+  string view_id = 2;
+  string action = 3;
+  optional string value = 4;
+  // JSON object of form field names to string or boolean values, for a form submit.
+  optional string form_json = 5;
+}
+
+message CreateSessionRequest {
+  // Human-readable name shown in the Depot app. Default: the first line of `message`.
+  string title = 1;
+  // Model the agent runs on. Default: Depot's current default coding model.
+  optional DepotAgentModel model = 2;
+  // Repository to clone into the agent's workspace. Leave unset for an empty workspace.
+  optional string repo_url = 3;
+  // Git ref to check out. Only valid when `repoUrl` is set. Default: the repository's default branch.
+  optional string ref = 4;
+  // First message to the agent. Required.
+  string message = 5;
+  // Key that makes a retry return the original session and first message instead of creating a second session.
+  // Unique per organization.
+  optional string client_request_id = 6;
+  // Files attached to the first message. Each must be uploaded first; see `PrepareAttachmentUploads`.
+  repeated DepotAgentAttachment attachments = 8;
+  // Instructions, skills, and plugins the agent starts with, stored as version 1 of the session's own
+  // definition. Leave unset for Depot's default agent.
+  optional DepotAgentDefinitionContent definition = 10;
+}
+
+message CreateSessionResponse {
+  DepotAgentSession session = 1;
+  // The queued first message.
+  DepotAgentInput input = 2;
+}
+
+message SendInputRequest {
+  // Unique identifier for the session. Returned by `CreateSession` and `ListDepotAgentSessions`.
+  string session_id = 1;
+  // Message text. Required.
+  string content = 2;
+  // How the agent receives the message. Can be "followup", which waits for the current turn, or
+  // "steer", which reaches the agent mid-turn. Use `InterruptSession` to interrupt. Default: "followup".
+  optional string mode = 3;
+  // Key that makes a retry return the original message instead of queuing a second one. Unique per session.
+  optional string client_request_id = 4;
+  // Files attached to the message. Each must be uploaded first; see `PrepareAttachmentUploads`.
+  repeated DepotAgentAttachment attachments = 5;
+}
+
+message SendInputResponse {
+  DepotAgentInput input = 1;
+}
+
+message GetSessionRequest {
+  // Unique identifier for the session. Returned by `CreateSession` and `ListDepotAgentSessions`.
+  string session_id = 1;
+  // What the client renders. Leave unset for core view blocks only.
+  optional ViewClient client = 20;
+}
+
+message GetSessionResponse {
+  DepotAgentSession session = 1;
+  // JSON view of the conversation. Empty until the agent first reports one.
+  string view_json = 2;
+  // Position in the session's history the view reflects. Increases with every change.
+  uint64 view_seq = 3;
+  // JSON plugin views. Empty when no plugin has set a view.
+  string views_json = 20;
+}
+
+message ListDepotAgentSessionsRequest {
+  // Number of sessions to return per page. Maximum: 100. Default: 50.
+  optional int32 page_size = 1;
+  // Token to fetch the next page. Leave empty to fetch the first page.
+  optional string page_token = 2;
+}
+
+message ListDepotAgentSessionsResponse {
+  repeated DepotAgentSession sessions = 1;
+  // Token to fetch the next page. Empty on the last page.
+  optional string next_page_token = 2;
+}
+
+message WatchSessionRequest {
+  // Unique identifier for the session. Returned by `CreateSession` and `ListDepotAgentSessions`.
+  string session_id = 1;
+  // Send only views newer than this `viewSeq`. Default: 0, which sends the current view first.
+  optional uint64 after_seq = 2;
+  // What the client renders. Leave unset for core view blocks only.
+  optional ViewClient client = 20;
+}
+
+message WatchSessionResponse {
+  DepotAgentSession session = 1;
+  // JSON view of the conversation.
+  string view_json = 2;
+  // Position in the session's history the view reflects. Increases with every change.
+  uint64 view_seq = 3;
+  // JSON plugin views. Empty when no plugin has set a view.
+  string views_json = 20;
+}
+
+message InterruptSessionRequest {
+  // Unique identifier for the session. Returned by `CreateSession` and `ListDepotAgentSessions`.
+  string session_id = 1;
+}
+
+message InterruptSessionResponse {
+  // The queued interrupt.
+  DepotAgentInput input = 1;
+}
+
+message ArchiveSessionRequest {
+  // Unique identifier for the session. Returned by `CreateSession` and `ListDepotAgentSessions`.
+  string session_id = 1;
+}
+
+message ArchiveSessionResponse {
+  DepotAgentSession session = 1;
+}
+
+message DepotAgentTrigger {
+  // Unique identifier for the trigger. Returned by `CreateTrigger` and `ListTriggers`.
+  string trigger_id = 1;
+  // What delivers events. Can be "webhook" or "github".
+  string source = 2;
+  // Human-readable name shown in the Depot app.
+  string name = 3;
+  // Text placed before every event the trigger delivers.
+  optional string instructions = 4;
+  // Model each session the trigger starts runs on.
+  DepotAgentModel model = 5;
+  // Repository cloned into each session the trigger starts.
+  optional string repo_url = 6;
+  // Git ref checked out in each session the trigger starts.
+  optional string ref = 7;
+  // URL a "webhook" trigger accepts signed deliveries at. Empty for other sources.
+  optional string url = 8;
+  google.protobuf.Timestamp created_at = 9;
+}
+
+message CreateTriggerRequest {
+  // What delivers events. Can be "webhook", which accepts Standard Webhooks deliveries signed with
+  // the returned secret, or "github". Required.
+  string source = 1;
+  // Human-readable name shown in the Depot app.
+  string name = 2;
+  // Text placed before every event the trigger delivers, telling the agent what to do with it.
+  optional string instructions = 3;
+  // Model each session the trigger starts runs on. Default: Depot's current default coding model.
+  optional DepotAgentModel model = 4;
+  // Repository to clone into each session the trigger starts.
+  optional string repo_url = 5;
+  // Git ref to check out. Only valid when `repoUrl` is set.
+  optional string ref = 6;
+}
+
+message CreateTriggerResponse {
+  DepotAgentTrigger trigger = 1;
+  // Secret that signs deliveries to a "webhook" trigger, as "whsec_" followed by base64. Shown only here.
+  optional string signing_secret = 2;
+}
+
+message ListTriggersRequest {}
+
+message ListTriggersResponse {
+  repeated DepotAgentTrigger triggers = 1;
+}
+
+message DeleteTriggerRequest {
+  // Unique identifier for the trigger. Returned by `CreateTrigger` and `ListTriggers`.
+  string trigger_id = 1;
+}
+
+message DeleteTriggerResponse {}
+
+message PrepareAttachmentUploadsRequest {
+  // Files for one message. Fails with InvalidArgument if they break a limit or a name rule.
+  // Send none to read the limits.
+  repeated DepotAgentAttachment attachments = 1;
+}
+
+message PrepareAttachmentUploadsResponse {
+  // One upload for each file Depot does not already store. Files it already stores are left out.
+  repeated DepotAgentAttachmentUpload uploads = 1;
+  // Largest file Depot accepts, in bytes.
+  int64 max_attachment_bytes = 2;
+  // Largest total size of one message's files, in bytes.
+  int64 max_total_bytes = 3;
+  // Most files one message can carry.
+  int32 max_attachments = 4;
+}
+
+message DepotAgentAttachmentUpload {
+  // SHA-256 of the file this upload is for.
+  string sha256 = 1;
+  // URL to upload the file's contents to with an HTTP PUT. Expires after 30 minutes.
+  string url = 2;
+  // Headers the PUT must send unchanged.
+  map<string, string> headers = 3;
+}
+
+message DepotAgentSkill {
+  // Skill name, which the agent sees in its skill index. For example, "release-notes".
+  string name = 1;
+  // One-line summary the agent reads to decide when to open the skill.
+  string description = 2;
+  // Skill instructions, in Markdown.
+  string body = 3;
+}
+
+message DepotAgentPluginRef {
+  // Plugin name, from the bundle's manifest.
+  string name = 1;
+  // Digest of the plugin bundle. Returned by `UploadPluginBundle`.
+  string digest = 2;
+}
+
+message DepotAgentDefinitionContent {
+  // Instructions added to the agent's system prompt, like an AGENTS.md file.
+  string instructions = 1;
+  // Skills the agent can open. Maximum: 32.
+  repeated DepotAgentSkill skills = 2;
+  // Plugins the agent loads. Each must be uploaded first with `UploadPluginBundle`.
+  repeated DepotAgentPluginRef plugins = 3;
+}
+
+message DepotAgentDefinition {
+  // Unique identifier for the session the definition belongs to.
+  string session_id = 1;
+  // Version number, starting at 1.
+  uint32 version = 2;
+  DepotAgentDefinitionContent content = 3;
+  // Who stored this version: "api" for a person, token, or app, or "agent" for the agent editing itself.
+  string source = 4;
+  google.protobuf.Timestamp created_at = 5;
+}
+
+message PutAgentDefinitionRequest {
+  // Unique identifier for the session whose definition to change.
+  string session_id = 1;
+  DepotAgentDefinitionContent content = 2;
+}
+
+message PutAgentDefinitionResponse {
+  DepotAgentDefinition definition = 1;
+}
+
+message GetAgentDefinitionRequest {
+  // Unique identifier for the session.
+  string session_id = 1;
+  // Version to return. Default: the current version.
+  optional uint32 version = 2;
+}
+
+message GetAgentDefinitionResponse {
+  DepotAgentDefinition definition = 1;
+}
+
+message LocalMcpTool {
+  // Name of the tool as the server reports it.
+  string name = 1;
+  // Description of the tool as the server reports it. Maximum: 1000 characters.
+  string description = 2;
+  // JSON Schema of the tool's arguments, as JSON.
+  string input_schema_json = 3;
+}
+
+message LocalMcpServer {
+  // Name of the server, unique among the caller's servers. 1-20 lowercase letters, digits or dashes, starting
+  // with a letter.
+  string name = 1;
+  // Description of the server, shown to the agent. Maximum: 200 characters.
+  string description = 2;
+  // Tools the server provides. Maximum: 50.
+  repeated LocalMcpTool tools = 3;
+}
+
+message PullLocalMcpCallsRequest {
+  // Unique identifier for the session. Returned by `CreateSession` and `ListDepotAgentSessions`.
+  string session_id = 1;
+  // MCP servers to offer the session's agent, running where the caller runs. Maximum: 20, and 256 KB in all.
+  repeated LocalMcpServer servers = 2;
+}
+
+message LocalMcpAttached {
+  // Unique identifier for this stream's attachment. Pass it to `RespondLocalMcpCall`.
+  string attachment_id = 1;
+}
+
+// Sent about every 30 seconds while nothing else is.
+message LocalMcpKeepalive {}
+
+message LocalMcpCancel {
+  // Unique identifier for the call the agent no longer waits for.
+  string call_id = 1;
+}
+
+message LocalMcpToolCall {
+  // Unique identifier for the call. Leave empty in `CallLocalMcp` to send it; Depot assigns it.
+  string call_id = 1;
+  // Name of the server, as offered.
+  string server_name = 2;
+  // Name of the tool as the server reports it.
+  string tool_name = 3;
+  // The call's arguments, as a JSON object.
+  string arguments_json = 4;
+}
+
+message PullLocalMcpCallsResponse {
+  oneof call {
+    LocalMcpAttached attached = 1;
+    LocalMcpKeepalive keepalive = 2;
+    LocalMcpCancel cancel = 3;
+    LocalMcpToolCall call_tool = 4;
+  }
+}
+
+message LocalMcpToolResult {
+  // JSON array of the result's MCP content blocks.
+  string content_json = 1;
+  // True when the tool failed, or the server could not be reached or left before answering.
+  bool is_error = 2;
+}
+
+message RespondLocalMcpCallRequest {
+  // Unique identifier for the session. Returned by `CreateSession` and `ListDepotAgentSessions`.
+  string session_id = 1;
+  // Unique identifier for the attachment. Returned by `PullLocalMcpCalls`.
+  string attachment_id = 2;
+  // Unique identifier for the call. Returned by `PullLocalMcpCalls`.
+  string call_id = 3;
+  // The tool's result. A result larger than 1 MB reaches the agent as an error.
+  LocalMcpToolResult result = 4;
+}
+
+message RespondLocalMcpCallResponse {}
+
+message InvokeViewActionRequest {
+  // Unique identifier for the session. Returned by `CreateSession` and `ListDepotAgentSessions`.
+  string session_id = 1;
+  // Plugin that owns the view.
+  string plugin = 2;
+  // View the action belongs to.
+  string view_id = 3;
+  // Action to run, as named by the view's control.
+  string action = 4;
+  // Value from the button or chosen select option.
+  optional string value = 5;
+  // JSON object of form field names to string or boolean values, for a form submit.
+  optional string form_json = 6;
+  // Unique identifier for this call. A retry with the same id returns the original input.
+  optional string client_request_id = 7;
+}
+
+message InvokeViewActionResponse {
+  // The queued "plugin_call" input.
+  DepotAgentInput input = 1;
+}

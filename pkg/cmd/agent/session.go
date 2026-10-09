@@ -1,0 +1,713 @@
+package agent
+
+import (
+	"bufio"
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"os/signal"
+	"strings"
+	"text/tabwriter"
+	"time"
+
+	"connectrpc.com/connect"
+	"github.com/depot/cli/pkg/helpers"
+	agentv1 "github.com/depot/cli/pkg/proto/depot/agent/v1"
+	"github.com/google/uuid"
+	"github.com/spf13/cobra"
+)
+
+func newCmdSessionCreate() *cobra.Command {
+	var (
+		auth       authFlags
+		repo       string
+		ref        string
+		model      string
+		title      string
+		watch      bool
+		output     string
+		files      []string
+		stdinFile  string
+		definition string
+		views      string
+	)
+
+	cmd := &cobra.Command{
+		Use:   "create [flags] <message>",
+		Short: "Start a new agent session with a first message",
+		Example: `  # Start a session against a repository and stream it until it settles
+  depot agent session create --repo https://github.com/org/repo --watch "fix the flaky test in pkg/foo"
+
+  # Pick a model explicitly
+  depot agent session create --model claude-opus-5-5 "summarize the README"
+
+  # Attach files or a directory to the first message
+  depot agent session create --file screenshot.png --file ./logs "why does this page crash?"
+
+  # Start from a definition directory written by depot agent pull
+  depot agent session create --definition ./depot-agent "triage the open issues"`,
+		Args: cobra.MinimumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := validateOutput(output); err != nil {
+				return err
+			}
+			if err := validateViewMode(views); err != nil {
+				return err
+			}
+			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt)
+			defer stop()
+
+			s, err := auth.resolve(ctx)
+			if err != nil {
+				return err
+			}
+			req := &agentv1.CreateSessionRequest{
+				Title:           title,
+				Message:         strings.Join(args, " "),
+				ClientRequestId: ptr(uuid.NewString()),
+			}
+			if repo != "" {
+				req.RepoUrl = ptr(repo)
+			}
+			if ref != "" {
+				req.Ref = ptr(ref)
+			}
+			if model != "" {
+				req.Model = parseModel(model)
+			}
+			if definition != "" {
+				if req.Definition, err = readDefinition(definition); err != nil {
+					return err
+				}
+			}
+			in := fileInputs{paths: files, stdinName: stdinFile, stdin: os.Stdin}
+			if req.Attachments, err = uploadAttachments(ctx, s, nil, in, os.Stderr); err != nil {
+				return err
+			}
+
+			resp, err := createSession(ctx, s, req)
+			if err != nil {
+				return err
+			}
+			if output == "json" {
+				return writeProtoJSON(resp)
+			}
+			sessionID := resp.GetSession().GetSessionId()
+			fmt.Printf("Created session %s\n", safeText(sessionID))
+			if !watch {
+				fmt.Printf("Watch it with: depot agent session watch %s\n", safeText(sessionID))
+				return nil
+			}
+			r := NewRenderer(os.Stdout)
+			r.SetViewMode(views)
+			return watchSession(ctx, s, sessionID, r, untilTurnDone)
+		},
+	}
+
+	auth.register(cmd)
+	cmd.Flags().StringVar(&repo, "repo", "", "Git repository URL to clone into the agent workspace")
+	cmd.Flags().StringVar(&ref, "ref", "", "Git ref to check out (defaults to the repository's default branch)")
+	cmd.Flags().StringVar(&model, "model", "", "Model as <provider>/<model-id> or <model-id> (defaults to the server's choice)")
+	cmd.Flags().StringVar(&title, "title", "", "Session title")
+	cmd.Flags().StringArrayVar(&files, "file", nil, "Attach a file, or a directory's files minus .gitignored ones, to the first message (repeatable)")
+	cmd.Flags().StringVar(&stdinFile, "stdin-file", "", "Attach stdin as a file with this name")
+	cmd.Flags().StringVar(&definition, "definition", "", "Directory holding the agent's instructions, skills, and plugins, as depot agent pull writes it")
+	cmd.Flags().BoolVar(&watch, "watch", false, "Stream the session after creating it, until it settles")
+	cmd.Flags().StringVarP(&output, "output", "o", "", "Output format (json)")
+	registerViewsFlag(cmd, &views)
+	cmd.MarkFlagsMutuallyExclusive("watch", "output")
+	return cmd
+}
+
+func newCmdSessionSend() *cobra.Command {
+	var (
+		auth      authFlags
+		steer     bool
+		files     []string
+		stdinFile string
+	)
+
+	cmd := &cobra.Command{
+		Use:   "send [flags] <session-id> <message>",
+		Short: "Send a message to a session",
+		Long: `Send a message to a session.
+
+By default the message is queued as a follow-up after the current turn.
+With --steer it is delivered into the running turn instead.
+
+--file and --stdin-file attach files. Images go to the model as images.`,
+		Example: `  # Attach a screenshot and a directory
+  depot agent session send <session-id> --file shot.png --file ./src "the button is misaligned"
+
+  # Attach a command's output
+  go test ./... 2>&1 | depot agent session send <session-id> --stdin-file test.log "fix these failures"`,
+		Args: cobra.MinimumNArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := cmd.Context()
+			s, err := auth.resolve(ctx)
+			if err != nil {
+				return err
+			}
+			mode := modeFollowup
+			if steer {
+				mode = modeSteer
+			}
+			in := fileInputs{paths: files, stdinName: stdinFile, stdin: os.Stdin}
+			attachments, err := uploadAttachments(ctx, s, nil, in, os.Stderr)
+			if err != nil {
+				return err
+			}
+			inputID, err := sendInput(ctx, s, args[0], strings.Join(args[1:], " "), mode, attachments)
+			if err != nil {
+				return err
+			}
+			fmt.Printf("Sent input %s\n", safeText(inputID))
+			return nil
+		},
+	}
+
+	auth.register(cmd)
+	cmd.Flags().BoolVar(&steer, "steer", false, "Deliver the message into the running turn instead of queueing it")
+	cmd.Flags().StringArrayVar(&files, "file", nil, "Attach a file, or a directory's files minus .gitignored ones (repeatable)")
+	cmd.Flags().StringVar(&stdinFile, "stdin-file", "", "Attach stdin as a file with this name")
+	return cmd
+}
+
+func newCmdSessionInterrupt() *cobra.Command {
+	var auth authFlags
+
+	cmd := &cobra.Command{
+		Use:   "interrupt <session-id>",
+		Short: "Abort the session's running turn",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := cmd.Context()
+			s, err := auth.resolve(ctx)
+			if err != nil {
+				return err
+			}
+			resp, err := s.client.InterruptSession(ctx, authed(s, &agentv1.InterruptSessionRequest{SessionId: args[0]}))
+			if err != nil {
+				return fmt.Errorf("interrupt session %s: %w", args[0], err)
+			}
+			fmt.Printf("Interrupt queued as input %s\n", safeText(resp.Msg.GetInput().GetInputId()))
+			return nil
+		},
+	}
+
+	auth.register(cmd)
+	return cmd
+}
+
+func newCmdSessionList() *cobra.Command {
+	var (
+		auth      authFlags
+		pageToken string
+		output    string
+	)
+
+	cmd := &cobra.Command{
+		Use:   "list",
+		Short: "List agent sessions",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := validateOutput(output); err != nil {
+				return err
+			}
+			ctx := cmd.Context()
+			s, err := auth.resolve(ctx)
+			if err != nil {
+				return err
+			}
+			req := &agentv1.ListDepotAgentSessionsRequest{}
+			if pageToken != "" {
+				req.PageToken = ptr(pageToken)
+			}
+			resp, err := s.client.ListDepotAgentSessions(ctx, authed(s, req))
+			if err != nil {
+				return fmt.Errorf("list sessions: %w", err)
+			}
+			if output == "json" {
+				return writeProtoJSON(resp.Msg)
+			}
+			if err := writeSessionTable(os.Stdout, resp.Msg.GetSessions()); err != nil {
+				return fmt.Errorf("write session table: %w", err)
+			}
+			if next := resp.Msg.GetNextPageToken(); next != "" {
+				fmt.Fprintf(os.Stderr, "More sessions: depot agent session list --page-token %s\n", safeText(next))
+			}
+			return nil
+		},
+	}
+
+	auth.register(cmd)
+	cmd.Flags().StringVar(&pageToken, "page-token", "", "Page token from a previous list")
+	cmd.Flags().StringVarP(&output, "output", "o", "", "Output format (json)")
+	return cmd
+}
+
+func newCmdSessionWatch() *cobra.Command {
+	var (
+		auth      authFlags
+		untilIdle bool
+		views     string
+	)
+
+	cmd := &cobra.Command{
+		Use:   "watch [flags] <session-id>",
+		Short: "Stream a session's transcript",
+		Long: `Stream a session's transcript: user messages, assistant text, and tool calls.
+
+Runs until interrupted, or with --until-idle until the session is idle, waiting for input, or stopped.`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := validateViewMode(views); err != nil {
+				return err
+			}
+			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt)
+			defer stop()
+			s, err := auth.resolve(ctx)
+			if err != nil {
+				return err
+			}
+			until := untilCancelled
+			if untilIdle {
+				until = untilSettled
+			}
+			r := NewRenderer(os.Stdout)
+			r.SetViewMode(views)
+			return watchSession(ctx, s, args[0], r, until)
+		},
+	}
+
+	auth.register(cmd)
+	registerViewsFlag(cmd, &views)
+	cmd.Flags().BoolVar(&untilIdle, "until-idle", false, "Exit once the session is idle, waiting for input, or stopped")
+	return cmd
+}
+
+func newCmdSessionAttach() *cobra.Command {
+	var (
+		auth      authFlags
+		mcpConfig string
+		views     string
+	)
+
+	cmd := &cobra.Command{
+		Use:   "attach <session-id>",
+		Short: "Chat with a session: watch it and send follow-ups",
+		Long: `Watch a session and send each line you type, or read from stdin, as a follow-up message.
+In a terminal the input line stays editable while the session's output streams above it.
+
+Lines starting with a slash are commands:
+  /file <path> [message]  attach a file; without a message it goes out with your next one
+  /steer <message>        deliver the message into the running turn
+  /interrupt              abort the running turn
+  /quit                   detach (the session keeps running)
+
+With --mcp-config, attach starts the stdio MCP servers in that file (the "mcpServers" format of .mcp.json)
+and offers their tools to the agent, on turns answering your own messages, until you detach.
+
+Plugin view controls run with: depot agent session action <session-id> <plugin>/<view> <key>`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := validateViewMode(views); err != nil {
+				return err
+			}
+			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt)
+			defer stop()
+			s, err := auth.resolve(ctx)
+			if err != nil {
+				return err
+			}
+			if mcpConfig != "" {
+				servers, remote, err := loadMcpConfig(mcpConfig)
+				if err != nil {
+					return err
+				}
+				for _, name := range remote {
+					fmt.Fprintf(os.Stderr, "(skipping remote MCP server %s: add it to your organization instead)\n", name)
+				}
+				s.local = startLocalMcp(ctx, servers, os.Stderr)
+				defer s.local.Close()
+			}
+			if helpers.IsTerminal() && helpers.IsStdinTerminal() {
+				return chatSession(ctx, s, args[0], views)
+			}
+			return attachSession(ctx, s, args[0], os.Stdin, os.Stdout, views)
+		},
+	}
+
+	auth.register(cmd)
+	cmd.Flags().StringVar(&mcpConfig, "mcp-config", "", "MCP config file whose stdio servers to offer the agent while attached")
+	registerViewsFlag(cmd, &views)
+	return cmd
+}
+
+func registerViewsFlag(cmd *cobra.Command, views *string) {
+	cmd.Flags().StringVar(views, "views", viewsFull, "How plugin views print: full, compact, or none")
+}
+
+const requestAttempts = 3
+
+// createSession retries transient failures with the request's one client_request_id,
+// so a retry of a create that did land returns that session instead of a second one.
+func createSession(ctx context.Context, s *session, req *agentv1.CreateSessionRequest) (*agentv1.CreateSessionResponse, error) {
+	resp, err := withRetries(ctx, func() (*connect.Response[agentv1.CreateSessionResponse], error) {
+		return s.client.CreateSession(ctx, authed(s, req))
+	})
+	if err != nil {
+		return nil, fmt.Errorf("create session: %w", err)
+	}
+	return resp.Msg, nil
+}
+
+// withRetries calls do until it succeeds, fails for good, or runs out of attempts.
+// do must resend the same request, so its client_request_id makes a retry of a call that landed return the original.
+func withRetries[T any](ctx context.Context, do func() (T, error)) (T, error) {
+	for attempt := 1; ; attempt++ {
+		resp, err := do()
+		if err == nil || attempt == requestAttempts || !retryable(err) {
+			return resp, err
+		}
+		select {
+		case <-ctx.Done():
+			return resp, ctx.Err()
+		case <-time.After(time.Duration(attempt) * time.Second):
+		}
+	}
+}
+
+const (
+	modeFollowup = "followup"
+	modeSteer    = "steer"
+)
+
+func sendInput(ctx context.Context, s *session, sessionID, content, mode string, attachments []*agentv1.DepotAgentAttachment) (string, error) {
+	req := &agentv1.SendInputRequest{
+		SessionId:       sessionID,
+		Content:         content,
+		Mode:            ptr(mode),
+		ClientRequestId: ptr(uuid.NewString()),
+		Attachments:     attachments,
+	}
+	resp, err := withRetries(ctx, func() (*connect.Response[agentv1.SendInputResponse], error) {
+		return s.client.SendInput(ctx, authed(s, req))
+	})
+	if err != nil {
+		return "", fmt.Errorf("send input to session %s: %w", sessionID, err)
+	}
+	return resp.Msg.GetInput().GetInputId(), nil
+}
+
+// watchUntil says when watchSession stops on its own.
+type watchUntil int
+
+const (
+	// untilCancelled watches until ctx is cancelled.
+	untilCancelled watchUntil = iota
+	// untilSettled stops at the first settled status, including one already settled when the watch starts.
+	untilSettled
+	// untilTurnDone stops once the session settles after its first turn has started,
+	// so a fresh session that is idle before its first input starts does not count.
+	untilTurnDone
+)
+
+// watchSession streams a session through r,
+// reconnecting when the server ends the stream,
+// until ctx is cancelled or the until condition holds.
+// A terminal status always ends a bounded watch.
+func watchSession(ctx context.Context, s *session, sessionID string, r *Renderer, until watchUntil) error {
+	w := watchState{}
+	for {
+		done, err := watchOnce(ctx, s, sessionID, r, until, &w)
+		if done || ctx.Err() != nil {
+			return nil
+		}
+		if err != nil && !retryable(err) {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-time.After(time.Second):
+		}
+	}
+}
+
+// watchState carries across reconnects,
+// so a new stream resumes after the last view already rendered.
+type watchState struct {
+	started bool
+	lastSeq uint64
+}
+
+func watchOnce(ctx context.Context, s *session, sessionID string, r *Renderer, until watchUntil, w *watchState) (bool, error) {
+	req := &agentv1.WatchSessionRequest{SessionId: sessionID, Client: cliViewClient()}
+	if w.lastSeq > 0 {
+		req.AfterSeq = ptr(w.lastSeq)
+	}
+	streamCtx, cancel := context.WithCancel(ctx)
+	stream, err := s.client.WatchSession(streamCtx, authed(s, req))
+	if err != nil {
+		cancel()
+		return false, fmt.Errorf("watch session %s: %w", sessionID, err)
+	}
+	// Close drains unread messages,
+	// so a live stream must be cancelled first or Close blocks forever.
+	defer func() {
+		cancel()
+		_ = stream.Close()
+	}()
+
+	for stream.Receive() {
+		msg := stream.Msg()
+		if err := r.Render(msg); err != nil {
+			return false, err
+		}
+		w.lastSeq = max(w.lastSeq, msg.GetViewSeq())
+		status := msg.GetSession().GetStatus()
+		// A turn can finish between watches, so a message in the view also shows it started.
+		if status == "running" || r.sawMessage {
+			w.started = true
+		}
+		if until != untilCancelled && terminal(status) ||
+			until == untilSettled && settled(status) ||
+			until == untilTurnDone && w.started && settled(status) {
+			return true, nil
+		}
+	}
+	if err := stream.Err(); err != nil {
+		return false, fmt.Errorf("watch session %s: %w", sessionID, err)
+	}
+	return false, nil
+}
+
+// retryable reports whether err is a transient RPC failure.
+// Any other error, such as a view that fails to decode, would fail the same way again.
+func retryable(err error) bool {
+	var connectErr *connect.Error
+	if !errors.As(err, &connectErr) {
+		return false
+	}
+	switch connectErr.Code() {
+	case connect.CodeUnavailable, connect.CodeDeadlineExceeded, connect.CodeUnknown:
+		return true
+	}
+	return false
+}
+
+// attachSession watches the session while forwarding stdin lines as inputs.
+// stdin reaching EOF stops sending but keeps watching;
+// failing to read it ends the attach, so a line is never dropped silently.
+func attachSession(ctx context.Context, s *session, sessionID string, in io.Reader, out io.Writer, viewMode string) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	lines := make(chan string)
+	readErr := make(chan error, 1)
+	go func() {
+		defer close(lines)
+		scanner := bufio.NewScanner(in)
+		scanner.Buffer(make([]byte, 64*1024), 1024*1024)
+		for scanner.Scan() {
+			select {
+			case lines <- scanner.Text():
+			case <-ctx.Done():
+				return
+			}
+		}
+		if err := scanner.Err(); err != nil {
+			readErr <- err
+		}
+	}()
+	return attachLines(ctx, s, sessionID, lines, readErr, out, viewMode)
+}
+
+// attachLines renders the session to out while acting on each line,
+// reporting command results and failures between the session's lines.
+// It returns when ctx is cancelled, on /quit, when the watch fails, or when readErr reports a failure.
+func attachLines(ctx context.Context, s *session, sessionID string, lines <-chan string, readErr <-chan error, out io.Writer, viewMode string) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	r := NewRenderer(out)
+	r.SetViewMode(viewMode)
+	notices := r.Notices()
+	if s.local != nil {
+		served := make(chan struct{})
+		go func() {
+			defer close(served)
+			s.local.serve(ctx, s, sessionID, notices)
+		}()
+		defer func() {
+			cancel()
+			<-served
+		}()
+	}
+	watchErr := make(chan error, 1)
+	go func() {
+		watchErr <- watchSession(ctx, s, sessionID, r, untilCancelled)
+	}()
+
+	// pending holds uploaded files that go out with the next message.
+	var pending []*agentv1.DepotAgentAttachment
+	for {
+		select {
+		case <-ctx.Done():
+			return <-watchErr
+		case err := <-watchErr:
+			return err
+		case err := <-readErr:
+			cancel()
+			<-watchErr
+			return fmt.Errorf("read stdin: %w", err)
+		case line, ok := <-lines:
+			if !ok {
+				lines = nil
+				continue
+			}
+			cmd := parseAttachLine(line)
+			switch cmd.kind {
+			case attachNone:
+				continue
+			case attachQuit:
+				cancel()
+				return <-watchErr
+			case attachUnknown:
+				fmt.Fprintf(notices, "(unknown command %q; try /file, /steer, /interrupt, /quit)\n", cmd.content)
+				continue
+			case attachFileUsage:
+				fmt.Fprintln(notices, "(usage: /file <path> [message])")
+				continue
+			case attachInterrupt:
+				if _, err := s.client.InterruptSession(ctx, authed(s, &agentv1.InterruptSessionRequest{SessionId: sessionID})); err != nil {
+					fmt.Fprintf(notices, "(interrupt failed: %v)\n", err)
+				}
+				continue
+			}
+			if cmd.kind == attachFile {
+				attachments, err := uploadAttachments(ctx, s, pending, fileInputs{paths: []string{cmd.path}}, notices)
+				if errors.Is(err, context.Canceled) {
+					return <-watchErr
+				}
+				if err != nil {
+					fmt.Fprintf(notices, "(%v)\n", err)
+					continue
+				}
+				pending = append(pending, attachments...)
+				if cmd.content == "" {
+					fmt.Fprintf(notices, "(%s goes out with your next message)\n", cmd.path)
+					continue
+				}
+			}
+			if _, err := sendInput(ctx, s, sessionID, cmd.content, cmd.mode, pending); err != nil {
+				if errors.Is(err, context.Canceled) {
+					return <-watchErr
+				}
+				// Transient errors were retried, so a queued file may be the cause, e.g. an upload that expired.
+				if len(pending) > 0 {
+					fmt.Fprintf(notices, "(send failed: %v; queued files dropped, /file them again)\n", err)
+					pending = nil
+				} else {
+					fmt.Fprintf(notices, "(send failed: %v)\n", err)
+				}
+				continue
+			}
+			pending = nil
+		}
+	}
+}
+
+type attachKind int
+
+const (
+	attachNone attachKind = iota
+	attachInput
+	attachInterrupt
+	attachQuit
+	attachUnknown
+	attachFile
+	attachFileUsage
+)
+
+type attachCommand struct {
+	kind    attachKind
+	mode    string
+	content string
+	path    string
+}
+
+func parseAttachLine(line string) attachCommand {
+	line = strings.TrimSpace(line)
+	if line == "" {
+		return attachCommand{kind: attachNone}
+	}
+	if !strings.HasPrefix(line, "/") {
+		return attachCommand{kind: attachInput, mode: modeFollowup, content: line}
+	}
+	name, rest, _ := strings.Cut(line, " ")
+	rest = strings.TrimSpace(rest)
+	switch name {
+	case "/steer":
+		if rest == "" {
+			return attachCommand{kind: attachNone}
+		}
+		return attachCommand{kind: attachInput, mode: modeSteer, content: rest}
+	case "/interrupt":
+		return attachCommand{kind: attachInterrupt}
+	case "/quit":
+		return attachCommand{kind: attachQuit}
+	case "/file":
+		path, message, ok := cutPath(rest)
+		if !ok {
+			return attachCommand{kind: attachFileUsage}
+		}
+		return attachCommand{kind: attachFile, mode: modeFollowup, path: path, content: message}
+	}
+	return attachCommand{kind: attachUnknown, content: name}
+}
+
+// cutPath splits a leading path, double-quoted if it holds spaces, from the rest of the line.
+func cutPath(s string) (path, rest string, ok bool) {
+	if strings.HasPrefix(s, `"`) {
+		end := strings.Index(s[1:], `"`)
+		if end < 0 {
+			return "", "", false
+		}
+		path, rest = s[1:end+1], s[end+2:]
+	} else {
+		path, rest, _ = strings.Cut(s, " ")
+	}
+	return path, strings.TrimSpace(rest), path != ""
+}
+
+func parseModel(s string) *agentv1.DepotAgentModel {
+	if provider, modelID, ok := strings.Cut(s, "/"); ok {
+		return &agentv1.DepotAgentModel{Provider: provider, ModelId: modelID}
+	}
+	return &agentv1.DepotAgentModel{ModelId: s}
+}
+
+func writeSessionTable(w io.Writer, sessions []*agentv1.DepotAgentSession) error {
+	if len(sessions) == 0 {
+		_, err := fmt.Fprintln(w, "No agent sessions found")
+		return err
+	}
+	tw := tabwriter.NewWriter(safeWriter{w}, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(tw, "ID\tSTATUS\tTITLE\tREPO\tUPDATED")
+	for _, s := range sessions {
+		updated := ""
+		if s.UpdatedAt != nil {
+			updated = s.UpdatedAt.AsTime().Local().Format(time.DateTime)
+		}
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", oneLine(s.GetSessionId()), oneLine(s.GetStatus()), truncate(oneLine(s.GetTitle())), oneLine(s.GetRepoUrl()), updated)
+	}
+	return tw.Flush()
+}
+
+func ptr[T any](v T) *T {
+	return &v
+}

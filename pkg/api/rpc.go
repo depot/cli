@@ -55,6 +55,10 @@ func NewSandboxClient() agentv1connect.SandboxServiceClient {
 	return agentv1connect.NewSandboxServiceClient(getHTTPClient(getBaseURL()), getBaseURL(), WithUserAgent())
 }
 
+func NewDepotAgentClient() agentv1connect.DepotAgentServiceClient {
+	return agentv1connect.NewDepotAgentServiceClient(getHTTPClient(getBaseURL()), getBaseURL(), WithUserAgent())
+}
+
 func NewRegistryClient() buildv1connect.RegistryServiceClient {
 	return buildv1connect.NewRegistryServiceClient(getHTTPClient(getBaseURL()), getBaseURL(), WithUserAgent())
 }
