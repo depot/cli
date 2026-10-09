@@ -591,6 +591,9 @@ func readBakeTargets(ctx context.Context, files []bake.File, inp *bake.Input, op
 		return nil, nil, err
 	}
 	for name, opt := range opts {
+		if slices.ContainsFunc(opt.Policy, func(p buildflags.PolicyConfig) bool { return !p.Disabled }) {
+			return nil, nil, errors.Errorf("target %q sets a source policy, but Depot builders do not support source policies", name)
+		}
 		// A call of "check" is the "lint" request, and a call of "build"
 		// is a normal build, as in buildx bake.
 		if opt.CallFunc != nil {

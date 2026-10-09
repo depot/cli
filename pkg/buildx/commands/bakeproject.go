@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"maps"
-	"regexp"
 	"slices"
 	"strings"
 
@@ -65,8 +64,10 @@ func readProjectTargets(ctx context.Context, files []bake.File, composeTargets m
 	return targets, groups, targetProjects(targets), nil
 }
 
+// selectsProjects reports whether a target sets project_id, an expression
+// reads it, or a compose service sets x-depot.project-id.
 func selectsProjects(files []bake.File, composeTargets map[string]compose.Target) bool {
-	return slices.ContainsFunc(files, func(f bake.File) bool { return bytes.Contains(f.Data, []byte(projectIDAttribute)) }) ||
+	return slices.ContainsFunc(files, func(f bake.File) bool { return !bytes.Equal(rewriteFile(f, removeProjectID), f.Data) }) ||
 		slices.ContainsFunc(slices.Collect(maps.Values(composeTargets)), func(t compose.Target) bool { return t.ProjectID != "" })
 }
 
@@ -201,8 +202,23 @@ func rewriteHCL(data []byte, name string, mode projectRewrite) ([]byte, bool) {
 			}
 		}
 	}
+	renames = append(renames, projectIDReferences(body, mode)...)
 
-	_ = hclsyntax.VisitAll(body, func(node hclsyntax.Node) hcl.Diagnostics {
+	replacements := blanks
+	for _, r := range renames {
+		inBlank := slices.ContainsFunc(blanks, func(b replacement) bool { return r.start >= b.start && r.end <= b.end })
+		if !inBlank {
+			replacements = append(replacements, r)
+		}
+	}
+	return replace(data, replacements), true
+}
+
+// projectIDReferences returns the replacements for the expressions in node
+// that read the project_id of a target.
+func projectIDReferences(node hclsyntax.Node, mode projectRewrite) []replacement {
+	var out []replacement
+	_ = hclsyntax.VisitAll(node, func(node hclsyntax.Node) hcl.Diagnostics {
 		expr, ok := node.(*hclsyntax.ScopeTraversalExpr)
 		if !ok || expr.Traversal.RootName() != "target" || len(expr.Traversal) < 3 {
 			return nil
@@ -213,27 +229,23 @@ func rewriteHCL(data []byte, name string, mode projectRewrite) ([]byte, bool) {
 		}
 		switch mode {
 		case removeProjectID:
-			renames = append(renames, replacement{start: expr.SrcRange.Start.Byte, end: expr.SrcRange.End.Byte, text: []byte(`""`)})
+			out = append(out, replacement{start: expr.SrcRange.Start.Byte, end: expr.SrcRange.End.Byte, text: []byte(`""`)})
 		case projectIDToDescription:
 			end := attr.SrcRange.End.Byte
-			renames = append(renames, replacement{start: end - len(projectIDAttribute), end: end, text: []byte("description")})
+			out = append(out, replacement{start: end - len(projectIDAttribute), end: end, text: []byte("description")})
 		}
 		return nil
 	})
+	return out
+}
 
-	replacements := blanks
-	for _, r := range renames {
-		inBlank := slices.ContainsFunc(blanks, func(b replacement) bool { return r.start >= b.start && r.end <= b.end })
-		if !inBlank {
-			replacements = append(replacements, r)
-		}
-	}
+func replace(data []byte, replacements []replacement) []byte {
 	slices.SortFunc(replacements, func(a, b replacement) int { return b.start - a.start })
 	out := slices.Clone(data)
 	for _, r := range replacements {
 		out = slices.Concat(out[:r.start], r.text, out[r.end:])
 	}
-	return out, true
+	return out
 }
 
 // blank replaces a range with spaces and keeps line breaks, so that the
@@ -248,29 +260,23 @@ func blank(data []byte, rng hcl.Range) replacement {
 	return replacement{start: rng.Start.Byte, end: rng.End.Byte, text: text}
 }
 
-// templateExpression matches an interpolation or a directive in a string of
-// a JSON definition. Text outside these is a literal value.
-var templateExpression = regexp.MustCompile(`[$%]\{[^}]*\}`)
-
-// projectIDReference matches a reference to the project_id of a target.
-var projectIDReference = regexp.MustCompile(`(target\.[A-Za-z0-9_-]+)\.project_id\b`)
-
+// rewriteJSON rewrites a JSON definition. It returns the data unchanged when
+// nothing is rewritten, so that the positions in error messages stay correct.
 func rewriteJSON(data []byte, mode projectRewrite) ([]byte, bool) {
-	var root map[string]json.RawMessage
-	if err := json.Unmarshal(data, &root); err != nil {
-		return nil, false
-	}
-	rawTargets, ok := root["target"]
-	if !ok {
-		return data, true
-	}
-	var targets map[string]map[string]json.RawMessage
-	if err := json.Unmarshal(rawTargets, &targets); err != nil {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	var root map[string]any
+	if err := decoder.Decode(&root); err != nil {
 		return nil, false
 	}
 
 	changed := false
-	for _, target := range targets {
+	targets, _ := root["target"].(map[string]any)
+	for _, value := range targets {
+		target, ok := value.(map[string]any)
+		if !ok {
+			continue
+		}
 		projectID, hasProjectID := target[projectIDAttribute]
 		_, hasDescription := target["description"]
 		switch mode {
@@ -291,38 +297,57 @@ func rewriteJSON(data []byte, mode projectRewrite) ([]byte, bool) {
 			}
 		}
 	}
-
-	out := data
-	if changed {
-		encodedTargets, err := json.Marshal(targets)
-		if err != nil {
-			return nil, false
-		}
-		root["target"] = encodedTargets
-		if out, err = json.Marshal(root); err != nil {
-			return nil, false
-		}
+	if rewriteJSONTemplates(root, mode) {
+		changed = true
 	}
-	replacement := []byte("$1.description")
-	if mode == removeProjectID {
-		replacement = []byte(`\"\"`)
+	if !changed {
+		return data, true
 	}
-	return replaceInTemplateExpressions(out, projectIDReference, replacement), true
+	out, err := json.Marshal(root)
+	if err != nil {
+		return nil, false
+	}
+	return out, true
 }
 
-// replaceInTemplateExpressions replaces the matches of re that are inside
-// template expressions. An escaped sequence such as $${ starts literal text.
-func replaceInTemplateExpressions(data []byte, re *regexp.Regexp, replacement []byte) []byte {
-	var out []byte
-	last := 0
-	for _, loc := range templateExpression.FindAllIndex(data, -1) {
-		start, end := loc[0], loc[1]
-		if start > 0 && data[start-1] == data[start] {
-			continue
+// rewriteJSONTemplates rewrites the references to project_id in every
+// string of a decoded JSON value. Bake reads each string as a template.
+func rewriteJSONTemplates(value any, mode projectRewrite) bool {
+	changed := false
+	rewrite := func(element any, set func(any)) {
+		if s, ok := element.(string); ok {
+			if out, ok := rewriteTemplate(s, mode); ok {
+				set(out)
+				changed = true
+			}
+		} else if rewriteJSONTemplates(element, mode) {
+			changed = true
 		}
-		out = append(out, data[last:start]...)
-		out = append(out, re.ReplaceAll(data[start:end], replacement)...)
-		last = end
 	}
-	return append(out, data[last:]...)
+	switch v := value.(type) {
+	case map[string]any:
+		for key, element := range v {
+			rewrite(element, func(out any) { v[key] = out })
+		}
+	case []any:
+		for i, element := range v {
+			rewrite(element, func(out any) { v[i] = out })
+		}
+	}
+	return changed
+}
+
+func rewriteTemplate(s string, mode projectRewrite) (string, bool) {
+	if !strings.Contains(s, projectIDAttribute) {
+		return s, false
+	}
+	expr, diags := hclsyntax.ParseTemplate([]byte(s), "", hcl.InitialPos)
+	if diags.HasErrors() {
+		return s, false
+	}
+	replacements := projectIDReferences(expr, mode)
+	if len(replacements) == 0 {
+		return s, false
+	}
+	return string(replace([]byte(s), replacements)), true
 }

@@ -22,6 +22,7 @@ var (
 		{OS: "linux", Architecture: "amd64"},
 		{OS: "linux", Architecture: "amd64", Variant: "v2"},
 		{OS: "linux", Architecture: "amd64", Variant: "v3"},
+		{OS: "linux", Architecture: "amd64", Variant: "v4"},
 		{OS: "linux", Architecture: "386"},
 	}
 	arm64Platforms = []ocispecs.Platform{
