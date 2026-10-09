@@ -8,6 +8,7 @@ import (
 	"log"
 	"net"
 	"strings"
+	"sync"
 	"time"
 
 	"connectrpc.com/connect"
@@ -43,6 +44,8 @@ type Machine struct {
 	conn             *grpc.ClientConn
 	useGzip          bool
 	reportHealthDone chan struct{}
+	releaseOnce      sync.Once
+	releaseErr       error
 }
 
 // Platform can be "amd64" or "arm64".
@@ -162,15 +165,19 @@ func (m *Machine) doReportHealth(ctx context.Context, client cliv1connect.BuildS
 	return res.Msg.GetCancelsAt(), nil
 }
 
+// Release stops the health reports and closes the connections. Only the
+// first call has an effect.
 func (m *Machine) Release() error {
-	close(m.reportHealthDone)
-	if m.conn != nil {
-		_ = m.conn.Close()
-	}
-	if m.client != nil {
-		return m.client.Close()
-	}
-	return nil
+	m.releaseOnce.Do(func() {
+		close(m.reportHealthDone)
+		if m.conn != nil {
+			_ = m.conn.Close()
+		}
+		if m.client != nil {
+			m.releaseErr = m.client.Close()
+		}
+	})
+	return m.releaseErr
 }
 
 // TLSConfig returns the client TLS configuration, or nil when the machine
