@@ -594,11 +594,6 @@ func readBakeTargets(ctx context.Context, files []bake.File, inp *bake.Input, op
 	if err != nil {
 		return nil, nil, err
 	}
-	for name, target := range composeTargets {
-		if target.ProjectID != "" {
-			targetProjects[name] = target.ProjectID
-		}
-	}
 
 	projects, err := newProjectBuildOptions(options.project, opts, targetProjects)
 	return projects, requestedTargets, err

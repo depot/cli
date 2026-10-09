@@ -1,0 +1,17 @@
+services:
+  api:
+    build:
+      context: .
+      target: artifact
+      args:
+        MESSAGE: api
+      x-depot:
+        project-id: vtproject-compose
+  worker:
+    build:
+      context: .
+      target: artifact
+      args:
+        MESSAGE: worker
+      x-depot:
+        project-id: vtproject-compose

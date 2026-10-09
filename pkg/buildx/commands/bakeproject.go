@@ -4,12 +4,16 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"maps"
 	"slices"
 	"strings"
 
+	"github.com/depot/cli/pkg/compose"
 	"github.com/docker/buildx/bake"
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
+	"github.com/hashicorp/hcl/v2/hclwrite"
+	"github.com/zclconf/go-cty/cty"
 )
 
 // Depot extends bake targets with a project_id attribute that selects the
@@ -20,7 +24,15 @@ import (
 //   - projectIDsAsDescriptions moves the attribute into the description
 //     attribute, so that upstream bake evaluates it with the same variables,
 //     functions, inheritance, and matrix expansion as every other attribute.
+//
+// Compose services select a project with the x-depot.project-id build
+// extension. Compose has no field that bake reads as a description, so
+// composeProjectFile writes the project of each service as an HCL target
+// description. Bake merges compose files before HCL files, so that HCL file
+// comes first among the HCL files.
 const projectIDAttribute = "project_id"
+
+const composeProjectFileName = "depot-compose-projects.hcl"
 
 type projectRewrite int
 
@@ -176,25 +188,55 @@ func rewriteJSON(data []byte, mode projectRewrite) ([]byte, bool) {
 	return out, true
 }
 
+// composeProjectFile returns an HCL file that sets the description of each
+// compose service with an x-depot.project-id to that project. It returns
+// false when no compose service selects a project.
+func composeProjectFile(files []bake.File) (bake.File, bool, error) {
+	composeTargets, err := compose.Targets(files)
+	if err != nil {
+		return bake.File{}, false, err
+	}
+	f := hclwrite.NewEmptyFile()
+	found := false
+	for _, name := range slices.Sorted(maps.Keys(composeTargets)) {
+		projectID := composeTargets[name].ProjectID
+		if projectID == "" {
+			continue
+		}
+		f.Body().AppendNewBlock("target", []string{name}).Body().SetAttributeValue("description", cty.StringVal(projectID))
+		found = true
+	}
+	return bake.File{Name: composeProjectFileName, Data: f.Bytes()}, found, nil
+}
+
 // readTargetProjects returns the project_id of each target. Targets
 // without a project_id are not in the map.
 func readTargetProjects(ctx context.Context, files []bake.File, targets []string, defaults map[string]string) (map[string]string, error) {
 	projects := map[string]string{}
 
+	projectFile, hasComposeProjects, err := composeProjectFile(files)
+	if err != nil {
+		return nil, err
+	}
 	hasProjectID := slices.ContainsFunc(files, func(f bake.File) bool {
 		return bytes.Contains(f.Data, []byte(projectIDAttribute))
 	})
-	if hasProjectID {
-		resolved, _, err := bake.ReadTargets(ctx, projectIDsAsDescriptions(files), targets, nil, defaults, nil, &bake.EntitlementConf{})
-		if err != nil {
-			return nil, err
-		}
-		for name, t := range resolved {
-			if t.Description != "" {
-				projects[name] = t.Description
-			}
-		}
+	if !hasProjectID && !hasComposeProjects {
+		return projects, nil
 	}
 
+	projectFiles := projectIDsAsDescriptions(files)
+	if hasComposeProjects {
+		projectFiles = append([]bake.File{projectFile}, projectFiles...)
+	}
+	resolved, _, err := bake.ReadTargets(ctx, projectFiles, targets, nil, defaults, nil, &bake.EntitlementConf{})
+	if err != nil {
+		return nil, err
+	}
+	for name, t := range resolved {
+		if t.Description != "" {
+			projects[name] = t.Description
+		}
+	}
 	return projects, nil
 }

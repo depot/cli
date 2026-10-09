@@ -39,6 +39,7 @@ require (
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.0.10
 	github.com/spf13/viper v1.21.0
+	github.com/zclconf/go-cty v1.17.0
 	go.opentelemetry.io/proto/otlp v1.11.0
 	golang.org/x/net v0.59.0
 	golang.org/x/sync v0.23.0
@@ -61,7 +62,6 @@ require (
 	github.com/lestrrat-go/dsig-secp256k1 v1.0.0 // indirect
 	github.com/segmentio/asm v1.2.1 // indirect
 	github.com/tonistiigi/go-csvvalue v0.0.0-20240814133006-030d3b2625d0 // indirect
-	github.com/zclconf/go-cty v1.17.0 // indirect
 	go.opentelemetry.io/otel/trace v1.46.0 // indirect
 )
 

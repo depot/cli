@@ -10,7 +10,6 @@ import (
 	"log"
 	"os"
 
-	"github.com/depot/cli/pkg/compose"
 	"github.com/docker/buildx/bake"
 	"github.com/docker/buildx/build"
 	"github.com/docker/cli/cli/command"
@@ -45,15 +44,6 @@ func BakePrint(dockerCli command.Cli, targets []string, in BakeOptions) error {
 	projects, err := readTargetProjects(context.Background(), files, targets, defaults)
 	if err != nil {
 		return err
-	}
-	composeTargets, err := compose.Targets(files)
-	if err != nil {
-		return err
-	}
-	for name, target := range composeTargets {
-		if target.ProjectID != "" {
-			projects[name] = target.ProjectID
-		}
 	}
 
 	printedTargets := make(map[string]json.RawMessage, len(tgts))

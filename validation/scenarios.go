@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -78,6 +80,9 @@ func commandLineScenarios() []scenario {
 		withEnv(offline("bake-print-variable-env", "bake --print reads variables from the environment", "bake", "bake", "--print", "app"), "TAG", "from-env", "REGISTRY", "registry.example"),
 		offline("bake-print-file", "bake --print with an explicit -f file", "bake", "bake", "-f", "docker-bake.hcl", "--print", "artifact"),
 		accept(offline("bake-print-compose", "bake --print converts a compose file", "compose", "bake", "--print"),
+			"stdout", "buildx v0.38 omits the empty network field"),
+		accept(offline("bake-print-compose-project", "bake --print resolves x-depot.project-id through inheritance and file order", "composeproject",
+			"bake", "--print", "api", "fromcompose", "worker"),
 			"stdout", "buildx v0.38 omits the empty network field"),
 		offline("bake-print-multiproject", "bake --print shows per-target project identifiers", "multiproject", "bake", "--print"),
 		accept(offline("bake-print-linked", "bake --print with target contexts", "linked", "bake", "--print", "child"),
@@ -178,6 +183,32 @@ func writeBzip2Context(dockerfile string) func(ctx context.Context, r *runInfo) 
 		}
 		_, err := r.command(ctx, "sh", "-c", "tar -C "+dir+" -c . | bzip2 > "+filepath.Join(r.WorkDir, "context.tar.bz2"))
 		return err
+	}
+}
+
+// requireTargetProjects checks the project of the build that each target
+// was created in.
+func requireTargetProjects(want map[string]string) func(o *observation) error {
+	return func(o *observation) error {
+		got := map[string]string{}
+		for _, raw := range o.API.CreateBuild {
+			var req struct {
+				ProjectID string `json:"projectId"`
+				Options   []struct {
+					TargetName string `json:"targetName"`
+				} `json:"options"`
+			}
+			if err := json.Unmarshal(raw, &req); err != nil {
+				return err
+			}
+			for _, opt := range req.Options {
+				got[opt.TargetName] = req.ProjectID
+			}
+		}
+		if !maps.Equal(got, want) {
+			return fmt.Errorf("target projects are %v, want %v", got, want)
+		}
+		return nil
 	}
 }
 
@@ -329,6 +360,9 @@ func bakeScenarios() []scenario {
 			"--set", "*.platform=linux/amd64"), "out"), "success", "success"),
 		accept(withFiles(bake("bake-linked", "a target that uses another target as a context", "linked", "child", "--set", "*.platform=linux/amd64"), "out"),
 			"api", "buildx v0.38 gives linked targets a cacheonly output"),
+		expectCheck(expectFinish(withFiles(bake("bake-compose-project", "x-depot.project-id applies to inheriting targets, and HCL project_id overrides it", "composeproject",
+			"api", "fromcompose", "worker", "--set", "*.platform=linux/amd64"), "out"), "success", "success"),
+			requireTargetProjects(map[string]string{"api": "vtproject-compose", "fromcompose": "vtproject-compose", "worker": "vtproject-hcl"})),
 		withImages(expectFinish(bake("bake-compose", "bake builds compose services across projects", "compose", "--load",
 			"--set", "web.tags=validation-{{run}}-web:latest", "--set", "worker.tags=validation-{{run}}-worker:latest", "--set", "worker.platform=linux/amd64"),
 			"success", "success"), "validation-{{run}}-web:latest", "validation-{{run}}-worker:latest"),
