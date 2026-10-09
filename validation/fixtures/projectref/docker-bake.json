@@ -1,0 +1,15 @@
+{
+  "target": {
+    "_json": {
+      "project_id": "vtproject-json"
+    },
+    "json": {
+      "target": "artifact",
+      "description": "reads the project of _json",
+      "args": {
+        "MESSAGE": "${target._json.project_id}"
+      },
+      "output": ["type=local,dest=out-json"]
+    }
+  }
+}

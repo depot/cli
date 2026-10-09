@@ -88,6 +88,10 @@ func commandLineScenarios() []scenario {
 			"stdout", "buildx v0.38 omits the empty network field"),
 		expectStdout(withEnv(offline("bake-print-source-date-epoch", "bake --print shows SOURCE_DATE_EPOCH from the environment", "epoch",
 			"bake", "--print", "default", "pinned"), "SOURCE_DATE_EPOCH", "1700000000"), `"SOURCE_DATE_EPOCH": "1700000000"`, `"SOURCE_DATE_EPOCH": "1600000000"`),
+		offline("bake-print-project-reference", "bake --print with an argument that reads the project_id of another target", "projectref",
+			"bake", "-f", "docker-bake.hcl", "--print", "artifact"),
+		offline("bake-print-project-reference-json", "bake --print with a JSON argument that reads the project_id of another target", "projectref",
+			"bake", "-f", "docker-bake.json", "--print", "json"),
 		offline("bake-print-multiproject", "bake --print shows per-target project identifiers", "multiproject", "bake", "--print"),
 		accept(offline("bake-print-linked", "bake --print with target contexts", "linked", "bake", "--print", "child"),
 			"stdout", "buildx v0.38 shows the cacheonly output that it gives to linked targets"),
@@ -208,6 +212,39 @@ func allOf(checks ...func(o *observation) error) func(o *observation) error {
 			if err := check(o); err != nil {
 				return err
 			}
+		}
+		return nil
+	}
+}
+
+// requireImagesPresent checks that a number of the recorded images are in
+// Docker.
+func requireImagesPresent(n int) func(o *observation) error {
+	return func(o *observation) error {
+		present := 0
+		for _, image := range o.Images {
+			if image.Present {
+				present++
+			}
+		}
+		if present != n {
+			return fmt.Errorf("%d images are in Docker, want %d", present, n)
+		}
+		return nil
+	}
+}
+
+// requireStderrCount checks how many lines of standard error contain a text.
+func requireStderrCount(text string, n int) func(o *observation) error {
+	return func(o *observation) error {
+		count := 0
+		for _, line := range strings.Split(o.Stderr, "\n") {
+			if strings.Contains(line, text) {
+				count++
+			}
+		}
+		if count != n {
+			return fmt.Errorf("%d lines of standard error contain %q, want %d", count, text, n)
 		}
 		return nil
 	}
@@ -415,6 +452,23 @@ func bakeScenarios() []scenario {
 		expectCheck(withEnv(withFiles(bake("bake-source-date-epoch", "bake passes SOURCE_DATE_EPOCH from the environment unless the target sets it", "epoch",
 			"default", "pinned", "--set", "*.platform=linux/amd64"), "out"), "SOURCE_DATE_EPOCH", "1700000000"),
 			allOf(requireFileContent("out", "default/s", "sde=1700000000\n"), requireFileContent("out", "pinned/s", "sde=1600000000\n"))),
+		baselineDefect(expectStdout(bake("bake-call-outline", "a target with call = outline prints the outline", "call", "outline", "--set", "*.platform=linux/amd64"),
+			"TARGET: artifact"), "the old CLI ignored the call attribute and ran a normal build"),
+		baselineDefect(expectStdout(bake("bake-call-targets", "a target with call = targets prints the targets", "call", "targets", "--set", "*.platform=linux/amd64"),
+			"artifact (default)"), "the old CLI ignored the call attribute and ran a normal build"),
+		baselineDefect(expectStdout(failing(bake("bake-call-check", "a target with call = check prints the warnings and fails", "call", "check", "--set", "*.platform=linux/amd64"), 1),
+			"Check complete, 1 warning has been found!", "FromAsCasing"), "the old CLI ignored the call attribute and ran a normal build"),
+		baselineDefect(expectStdout(failing(bake("bake-call-check-builtin", "call = check without a syntax directive", "call", "check-builtin", "--set", "*.platform=linux/amd64"), 1),
+			"FromAsCasing"), "the old CLI ignored the call attribute and ran a normal build"),
+		withFiles(bake("bake-call-build", "a target with call = build builds normally", "call", "build", "--set", "*.platform=linux/amd64"), "out"),
+		baselineDefect(expectCheck(withFiles(withImages(withAPI(withEnv(bake("bake-load-pattern", "bake --load with a target pattern loads every matching target", "pattern",
+			"mx-*", "--load", "--metadata-file", "metadata.json", "--set", "*.platform=linux/amd64"), "RUN", "{{run}}"), apiBehavior{LoadUsingRegistry: true}),
+			"validation-{{run}}-a:latest", "validation-{{run}}-b:latest"), "metadata.json"),
+			allOf(requireFileContains("metadata.json", `"mx-a"`), requireFileContains("metadata.json", `"mx-b"`), requireImagesPresent(2))),
+			"the old CLI did not accept target patterns"),
+		expectCheck(withFiles(bake("bake-project-reference", "a build argument reads the project_id of another target", "projectref",
+			"-f", "docker-bake.hcl", "artifact", "--set", "*.platform=linux/amd64"), "out"),
+			requireFileContent("out", "message.txt", "vtproject-ref\n")),
 		withRegistry(bake("bake-save", "bake --save pushes each target to the Depot registry", "bake", "app", "--save",
 			"--set", "app.platform=linux/amd64"), "{{registry}}/{{project}}:{{run}}-b1-app"),
 		accept(withFiles(bake("bake-metadata", "bake --metadata-file", "bake", "artifact", "app", "--metadata-file", "metadata.json",
