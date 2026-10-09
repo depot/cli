@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -15,8 +16,15 @@ import (
 	"syscall"
 )
 
+// errScenariosFailed reports that a scenario has the status FAIL or DIFFER.
+var errScenariosFailed = errors.New("scenarios failed")
+
 func main() {
-	if err := run(); err != nil {
+	err := run()
+	switch {
+	case errors.Is(err, errScenariosFailed):
+		os.Exit(1)
+	case err != nil:
 		fmt.Fprintln(os.Stderr, "validation:", err)
 		os.Exit(2)
 	}
@@ -176,7 +184,7 @@ func run() error {
 	}
 	for _, r := range results {
 		if r.Status == statusFail || r.Status == statusDiffer {
-			os.Exit(1)
+			return errScenariosFailed
 		}
 	}
 	return nil
