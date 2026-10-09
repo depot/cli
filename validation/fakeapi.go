@@ -29,6 +29,7 @@ type apiBehavior struct {
 	PendingConnections int
 	Gzip               bool
 	LoadUsingRegistry  bool
+	PullFails          bool
 	CancelAfter        time.Duration
 	CreateBuildCode    connect.Code
 	ConnectionCode     connect.Code
@@ -334,8 +335,12 @@ func (a *fakeAPI) GetPullInfo(ctx context.Context, req *connect.Request[cliv1.Ge
 		return nil, err
 	}
 	s.record("GetPullInfo", req.Msg)
+	repository := s.project
+	if s.behavior.PullFails {
+		repository = "missing/" + s.project
+	}
 	return connect.NewResponse(&cliv1.GetPullInfoResponse{
-		Reference:    fmt.Sprintf("%s/%s:%s", a.env.registryPullHost(), s.project, req.Msg.BuildId),
+		Reference:    fmt.Sprintf("%s/%s:%s", a.env.registryPullHost(), repository, req.Msg.BuildId),
 		Username:     "x-token",
 		Password:     "validation",
 		RegistryHost: a.env.registryPullHost(),
