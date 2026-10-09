@@ -98,6 +98,8 @@ func commandLineScenarios() []scenario {
 			"bake", "-f", "trailing.json", "--print", "trailing"), 1, "Extraneous data after value"),
 		expectStdout(offline("bake-print-project-reference-forms", "bake --print with a description, an index, and a target without a project that read project_id", "projectref",
 			"bake", "-f", "references.hcl", "--print", "references"), `"description": "built in <project>-ref"`, `"INDEX": "<project>-ref"`, `"EMPTY": "none:"`),
+		baselineDefect(expectStdout(offline("bake-print-call-reference", "bake --print with a description that reads project_id and call", "projectref",
+			"bake", "-f", "callref.hcl", "--print", "described"), `"description": "built in <project>-ref with outline"`), "the old CLI did not support the call attribute"),
 		expectStdout(offline("bake-print-description-reference", "bake --print with an argument that reads the description of another target", "description",
 			"bake", "--print", "artifact"), `"MESSAGE": "described by _base"`),
 		offline("bake-print-multiproject", "bake --print shows per-target project identifiers", "multiproject", "bake", "--print"),
