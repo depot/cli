@@ -48,17 +48,12 @@ func BakePrint(dockerCli command.Cli, targets []string, in BakeOptions) error {
 		return err
 	}
 	defaults := bakeDefaults("cwd://")
-	tgts, grps, err := bake.ReadTargets(context.Background(), projectFiles(files, composeTargets), targets, overrides(in), defaults, nil, &bake.EntitlementConf{})
+	tgts, grps, projects, err := readProjectTargets(context.Background(), files, composeTargets, targets, overrides(in), defaults)
 	if err != nil {
 		return err
 	}
-	projects := targetProjects(tgts)
-	descriptions, err := targetDescriptions(context.Background(), files, targets, overrides(in), defaults)
-	if err != nil {
+	if err := readTargetDescriptions(context.Background(), files, composeTargets, tgts, targets, overrides(in), defaults); err != nil {
 		return err
-	}
-	for name, t := range tgts {
-		t.Description = descriptions[name]
 	}
 	setSourceDateEpoch(tgts)
 

@@ -40,6 +40,7 @@ type Machine struct {
 
 	ClientOptions []client.ClientOpt
 
+	mu               sync.Mutex
 	client           *client.Client
 	conn             *grpc.ClientConn
 	useGzip          bool
@@ -170,6 +171,8 @@ func (m *Machine) doReportHealth(ctx context.Context, client cliv1connect.BuildS
 func (m *Machine) Release() error {
 	m.releaseOnce.Do(func() {
 		close(m.reportHealthDone)
+		m.mu.Lock()
+		defer m.mu.Unlock()
 		if m.conn != nil {
 			_ = m.conn.Close()
 		}
@@ -218,6 +221,8 @@ func dialTCP(ctx context.Context, addr string) (net.Conn, error) {
 }
 
 func (m *Machine) Client(ctx context.Context) (*client.Client, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if m.client != nil {
 		return m.client, nil
 	}
@@ -244,6 +249,8 @@ func (m *Machine) Client(ctx context.Context) (*client.Client, error) {
 // Conn returns a gRPC connection to buildkitd for the services that the
 // buildkit client does not expose, such as leases.
 func (m *Machine) Conn(ctx context.Context) (*grpc.ClientConn, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if m.conn != nil {
 		return m.conn, nil
 	}

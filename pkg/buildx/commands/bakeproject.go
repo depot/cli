@@ -37,6 +37,9 @@ import (
 // projectFiles adds an HCL file that sets the description of each service to
 // its project. Bake merges compose files before HCL files, so that HCL file
 // comes first among the HCL files.
+//
+// Files that select no project are read without changes, so that their
+// descriptions stay available to expressions.
 const projectIDAttribute = "project_id"
 
 const composeProjectFileName = "depot-compose-projects.hcl"
@@ -47,6 +50,25 @@ const (
 	removeProjectID projectRewrite = iota
 	projectIDToDescription
 )
+
+// readProjectTargets reads the targets and groups, and the project of each
+// target that selects one.
+func readProjectTargets(ctx context.Context, files []bake.File, composeTargets map[string]compose.Target, names, overrides []string, defaults map[string]string) (map[string]*bake.Target, map[string]*bake.Group, map[string]string, error) {
+	if !selectsProjects(files, composeTargets) {
+		targets, groups, err := bake.ReadTargets(ctx, files, names, overrides, defaults, nil, &bake.EntitlementConf{})
+		return targets, groups, map[string]string{}, err
+	}
+	targets, groups, err := bake.ReadTargets(ctx, projectFiles(files, composeTargets), names, overrides, defaults, nil, &bake.EntitlementConf{})
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	return targets, groups, targetProjects(targets), nil
+}
+
+func selectsProjects(files []bake.File, composeTargets map[string]compose.Target) bool {
+	return slices.ContainsFunc(files, func(f bake.File) bool { return bytes.Contains(f.Data, []byte(projectIDAttribute)) }) ||
+		slices.ContainsFunc(slices.Collect(maps.Values(composeTargets)), func(t compose.Target) bool { return t.ProjectID != "" })
+}
 
 // projectFiles returns the files with the project of each target in its
 // description.
@@ -76,20 +98,23 @@ func targetProjects(targets map[string]*bake.Target) map[string]string {
 	return projects
 }
 
-// targetDescriptions reads the description of each target, for bake --print.
-func targetDescriptions(ctx context.Context, files []bake.File, targets, overrides []string, defaults map[string]string) (map[string]string, error) {
-	descriptions := map[string]string{}
-	if !slices.ContainsFunc(files, func(f bake.File) bool { return bytes.Contains(f.Data, []byte("description")) }) {
-		return descriptions, nil
+// readTargetDescriptions sets the description of each target to the value
+// in the files, for bake --print. readProjectTargets clears the descriptions
+// when the files select projects.
+func readTargetDescriptions(ctx context.Context, files []bake.File, composeTargets map[string]compose.Target, targets map[string]*bake.Target, names, overrides []string, defaults map[string]string) error {
+	if !selectsProjects(files, composeTargets) || !slices.ContainsFunc(files, func(f bake.File) bool { return bytes.Contains(f.Data, []byte("description")) }) {
+		return nil
 	}
-	resolved, _, err := bake.ReadTargets(ctx, descriptionFiles(files), targets, overrides, defaults, nil, &bake.EntitlementConf{})
+	resolved, _, err := bake.ReadTargets(ctx, descriptionFiles(files), names, overrides, defaults, nil, &bake.EntitlementConf{})
 	if err != nil {
-		return nil, err
+		return err
 	}
-	for name, t := range resolved {
-		descriptions[name] = t.Description
+	for name, t := range targets {
+		if r, ok := resolved[name]; ok {
+			t.Description = r.Description
+		}
 	}
-	return descriptions, nil
+	return nil
 }
 
 // composeProjectFile returns an HCL file that sets the description of each
@@ -223,8 +248,11 @@ func blank(data []byte, rng hcl.Range) replacement {
 	return replacement{start: rng.Start.Byte, end: rng.End.Byte, text: text}
 }
 
-// projectIDReference matches a reference to the project_id of a target in
-// an interpolation of a JSON definition.
+// templateExpression matches an interpolation or a directive in a string of
+// a JSON definition. Text outside these is a literal value.
+var templateExpression = regexp.MustCompile(`[$%]\{[^}]*\}`)
+
+// projectIDReference matches a reference to the project_id of a target.
 var projectIDReference = regexp.MustCompile(`(target\.[A-Za-z0-9_-]+)\.project_id\b`)
 
 func rewriteJSON(data []byte, mode projectRewrite) ([]byte, bool) {
@@ -275,11 +303,26 @@ func rewriteJSON(data []byte, mode projectRewrite) ([]byte, bool) {
 			return nil, false
 		}
 	}
-	switch mode {
-	case removeProjectID:
-		out = projectIDReference.ReplaceAll(out, []byte(`\"\"`))
-	case projectIDToDescription:
-		out = projectIDReference.ReplaceAll(out, []byte("$1.description"))
+	replacement := []byte("$1.description")
+	if mode == removeProjectID {
+		replacement = []byte(`\"\"`)
 	}
-	return out, true
+	return replaceInTemplateExpressions(out, projectIDReference, replacement), true
+}
+
+// replaceInTemplateExpressions replaces the matches of re that are inside
+// template expressions. An escaped sequence such as $${ starts literal text.
+func replaceInTemplateExpressions(data []byte, re *regexp.Regexp, replacement []byte) []byte {
+	var out []byte
+	last := 0
+	for _, loc := range templateExpression.FindAllIndex(data, -1) {
+		start, end := loc[0], loc[1]
+		if start > 0 && data[start-1] == data[start] {
+			continue
+		}
+		out = append(out, data[last:start]...)
+		out = append(out, re.ReplaceAll(data[start:end], replacement)...)
+		last = end
+	}
+	return append(out, data[last:]...)
 }

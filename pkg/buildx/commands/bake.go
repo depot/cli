@@ -571,11 +571,10 @@ func readBakeTargets(ctx context.Context, files []bake.File, inp *bake.Input, op
 		return nil, nil, err
 	}
 
-	targets, groups, err := bake.ReadTargets(ctx, projectFiles(files, composeTargets), bakeTargets.Targets, overrides(options), bakeDefaults(bakeTargets.CmdContext), nil, &bake.EntitlementConf{})
+	targets, groups, projects, err := readProjectTargets(ctx, files, composeTargets, bakeTargets.Targets, overrides(options), bakeDefaults(bakeTargets.CmdContext))
 	if err != nil {
 		return nil, nil, err
 	}
-	projects := targetProjects(targets)
 	requestedTargets := requestedTargetNames(targets, groups)
 	setSourceDateEpoch(targets)
 
@@ -602,7 +601,7 @@ func readBakeTargets(ctx context.Context, files []bake.File, inp *bake.Input, op
 			if cf == nil {
 				opt.CallFunc = nil
 			} else {
-				opt.CallFunc.Name = cf.Name
+				opt.CallFunc = &build.CallFunc{Name: cf.Name, Format: cf.Format, IgnoreStatus: cf.IgnoreStatus}
 			}
 		}
 		opt.Session = append(opt.Session, registry.NewDockerAuthProviderWithDepotAuth())
