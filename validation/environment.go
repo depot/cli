@@ -212,6 +212,10 @@ func waitForPort(ctx context.Context, address string) error {
 // the dumb HTTP protocol, so that scenarios can use remote build contexts
 // and bake definitions. It also serves the files of each fixture under
 // "/files/<fixture>/", for remote Dockerfiles.
+// gitAuthToken is the token that the git server requires for repositories
+// under /private, as buildkit sends it from the GIT_AUTH_TOKEN secret.
+const gitAuthToken = "validation-token"
+
 func startGitServer(ctx context.Context, env *environment, workDir string) error {
 	fixtures, err := fixturesDir(ctx)
 	if err != nil {
@@ -256,13 +260,23 @@ func startGitServer(ctx context.Context, env *environment, workDir string) error
 	if err := copyTree(fixtures, filepath.Join(repos, "files")); err != nil {
 		return err
 	}
+	if err := copyTree(filepath.Join(repos, "lint.git"), filepath.Join(repos, "private", "lint.git")); err != nil {
+		return err
+	}
+	httpdConfig := filepath.Join(workDir, "httpd.conf")
+	if err := os.WriteFile(httpdConfig, []byte("/private:x-access-token:"+gitAuthToken+"\n"), 0o644); err != nil {
+		return err
+	}
 
 	name := containerPrefix + "git"
 	if _, err := dockerCommand(ctx, "create", "--name", name, "-p", "127.0.0.1::"+gitPort, "busybox:1.36",
-		"httpd", "-f", "-p", gitPort, "-h", "/git"); err != nil {
+		"httpd", "-f", "-p", gitPort, "-h", "/git", "-c", "/etc/httpd.conf"); err != nil {
 		return err
 	}
 	if _, err := dockerCommand(ctx, "cp", repos, name+":/"); err != nil {
+		return err
+	}
+	if _, err := dockerCommand(ctx, "cp", httpdConfig, name+":/etc/httpd.conf"); err != nil {
 		return err
 	}
 	if _, err := dockerCommand(ctx, "start", name); err != nil {

@@ -92,6 +92,8 @@ func commandLineScenarios() []scenario {
 			"bake", "-f", "docker-bake.hcl", "--print", "artifact"),
 		expectStdout(offline("bake-print-project-reference-json", "bake --print with a JSON argument that reads the project_id of another target", "projectref",
 			"bake", "-f", "docker-bake.json", "--print", "json"), `"LITERAL": "target._json.project_id"`, `"NESTED": "<project>-json"`),
+		failing(offline("bake-print-set-project-id", "bake --set cannot set project_id", "multiproject",
+			"bake", "--print", "--set", "*.project_id=vtproject-set"), 1, "unknown key: project_id"),
 		failing(offline("bake-print-json-trailing-data", "bake --print rejects a JSON definition with data after the first value", "projectref",
 			"bake", "-f", "trailing.json", "--print", "trailing"), 1, "Extraneous data after value"),
 		expectStdout(offline("bake-print-description-reference", "bake --print with an argument that reads the description of another target", "description",
@@ -464,6 +466,15 @@ func buildScenarios() []scenario {
 			Name: "build-lint-remote-git-context", Description: "--lint reads the Dockerfile from a git repository context", Fixture: "basic",
 			Args: []string{"build", "{{git}}/lint.git", "--progress=plain", "--lint", "--lint-fail-on", "warn", "--platform", "linux/amd64", "-o", "type=local,dest=out"},
 		}, 1, "DL4000"), "the old CLI linted ./Dockerfile instead of the Dockerfile in the repository"),
+		accept(failing(scenario{
+			Name: "build-remote-git-auth-missing", Description: "a git repository that requires a token fails without the GIT_AUTH_TOKEN secret", Fixture: "basic",
+			Args: []string{"build", "{{git}}/private/lint.git", "--progress=plain", "--platform", "linux/amd64", "-o", "type=local,dest=out"},
+		}, 1, "could not read Username"), "stderr", "buildx v0.38 shows the log lines of the failed step in the error summary"),
+		withEnv(baselineDefect(failing(scenario{
+			Name: "build-lint-remote-git-context-auth", Description: "--lint reads the Dockerfile from a git repository that requires the GIT_AUTH_TOKEN secret", Fixture: "basic",
+			Args: []string{"build", "{{git}}/private/lint.git", "--progress=plain", "--lint", "--lint-fail-on", "warn", "--secret", "id=GIT_AUTH_TOKEN,env=GIT_AUTH_TOKEN",
+				"--platform", "linux/amd64", "-o", "type=local,dest=out"},
+		}, 1, "DL4000"), "the old CLI linted ./Dockerfile instead of the Dockerfile in the repository"), "GIT_AUTH_TOKEN", gitAuthToken),
 		baselineDefect(failing(scenario{
 			Name: "build-lint-remote-http-context", Description: "--lint reads a Dockerfile given as an HTTP context", Fixture: "basic",
 			Args: []string{"build", "{{git}}/files/lint/Dockerfile", "--progress=plain", "--lint", "--lint-fail-on", "warn", "--platform", "linux/amd64", "-o", "type=local,dest=out"},
