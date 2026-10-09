@@ -123,6 +123,9 @@ func (l *Linter) Run(ctx context.Context, opts map[string]build.Options, stdin [
 		if err != nil {
 			return err
 		}
+		if dockerfile.URL != "" {
+			dockerfile.Content, dockerfile.Err = downloadDockerfile(ctx, c, dockerfile.URL)
+		}
 		if err := l.handle(ctx, target, c, node.Platforms[0], dockerfile); err != nil {
 			return err
 		}

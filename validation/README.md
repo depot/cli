@@ -13,7 +13,7 @@ Use it to check that a change keeps the behavior of the CLI the same. It replace
    - Two buildkitd daemons with mutual TLS. They stand in for the amd64 and arm64 Depot builders.
    - A TLS container registry.
    - A second TLS registry that requires a password, for `depot push`.
-   - A git server. It serves each fixture directory as a repository.
+   - A git server. It serves each fixture directory as a repository, and the files of each fixture under `/files/<fixture>/`.
 5. Starts a local server that implements the Depot build and push APIs.
 6. Runs every scenario with both CLIs. Each run executes in a new container that shares the network of the builders, and has its own home directory and Docker configuration.
 7. Records these observations for each run:
@@ -94,7 +94,7 @@ Arguments can contain these placeholders:
 | `{{registry}}` | The address of the test registry. |
 | `{{registry-auth}}` | The address of the registry that requires a password. |
 | `{{project}}` | The project of the run. |
-| `{{git}}` | The URL of the git server. Append `/<fixture>.git` to name a repository. |
+| `{{git}}` | The URL of the git server. Append `/<fixture>.git` to name a repository, or `/files/<fixture>/<file>` to name a file. |
 | `{{workdir}}` | The directory of the run. |
 
 A scenario can also:

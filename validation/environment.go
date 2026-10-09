@@ -210,7 +210,8 @@ func waitForPort(ctx context.Context, address string) error {
 
 // startGitServer serves every fixture directory as a git repository over
 // the dumb HTTP protocol, so that scenarios can use remote build contexts
-// and bake definitions.
+// and bake definitions. It also serves the files of each fixture under
+// "/files/<fixture>/", for remote Dockerfiles.
 func startGitServer(ctx context.Context, env *environment, workDir string) error {
 	fixtures, err := fixturesDir(ctx)
 	if err != nil {
@@ -250,6 +251,10 @@ func startGitServer(ctx context.Context, env *environment, workDir string) error
 				return err
 			}
 		}
+	}
+
+	if err := copyTree(fixtures, filepath.Join(repos, "files")); err != nil {
+		return err
 	}
 
 	name := containerPrefix + "git"

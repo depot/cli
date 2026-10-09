@@ -22,6 +22,9 @@ type TargetResponse struct {
 	// target. When buildx merged the images of several machines into one
 	// image index, the response for the index is the last entry.
 	NodeResponses []NodeResponse
+	// IndexDigest is the digest of the image index that buildx pushed after
+	// it merged the images of several machines. It is empty otherwise.
+	IndexDigest string
 }
 
 // NodeResponse holds the solve response of one machine.
@@ -48,6 +51,7 @@ func TargetResponses(nodes []builder.Node, opts map[string]build.Options, merged
 		}
 
 		if index, ok := mergedIndex(target.NodeResponses, merged[name]); ok {
+			target.IndexDigest = index
 			if names := pushNames(opt); names != "" {
 				for _, nodeRes := range target.NodeResponses {
 					nodeRes.SolveResponse.ExporterResponse["image.name"] = names

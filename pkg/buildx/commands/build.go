@@ -296,6 +296,9 @@ func retryableWithoutStdin(opts map[string]build.Options) bool {
 
 func writeImageIDFile(path string, targets []buildxdriver.TargetResponse) error {
 	for _, target := range targets {
+		if target.IndexDigest != "" {
+			return os.WriteFile(path, []byte(target.IndexDigest), 0644)
+		}
 		if len(target.NodeResponses) != 1 {
 			continue
 		}

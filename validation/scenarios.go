@@ -202,6 +202,9 @@ func buildScenarios() []scenario {
 			"--platform", "linux/amd64", "--target", "artifact", "-o", "type=local,dest=out", "--metadata-file", "metadata.json"), "metadata.json"),
 		withFiles(withImages(build("build-iidfile", "--iidfile writes the image identifier", "basic",
 			"--platform", "linux/amd64", "--load", "-t", "validation-{{run}}:latest", "--iidfile", "iid.txt"), "validation-{{run}}:latest"), "iid.txt"),
+		expectCheck(withFiles(withRegistry(build("build-iidfile-push-multiplatform", "--iidfile after a multi-platform push writes the index digest", "basic",
+			"--platform", "linux/amd64,linux/arm64", "-t", push, "--push", "--iidfile", "iid.txt"), push), "iid.txt"),
+			requireFileContains("iid.txt", "<digest>")),
 		expectStdout(withImages(scenario{
 			Name: "build-quiet", Description: "--quiet prints only the image identifier", Fixture: "basic",
 			Args:   []string{"build", ".", "-q", "--platform", "linux/amd64", "--load", "-t", "validation-{{run}}:latest"},
@@ -258,6 +261,12 @@ func buildScenarios() []scenario {
 		withFiles(build("build-lint-pass", "--lint with a clean Dockerfile", "basic", "--lint", "--platform", "linux/amd64", "--target", "artifact", "-o", "type=local,dest=out"), "out"),
 		withFiles(build("build-lint-warn", "--lint reports problems without failing", "lint", "--lint", "--lint-fail-on", "none", "--platform", "linux/amd64", "-o", "type=local,dest=out"), "out"),
 		failing(build("build-lint-fail", "--lint-fail-on=warn fails the build", "lint", "--lint", "--lint-fail-on", "warn", "--platform", "linux/amd64", "-o", "type=local,dest=out"), 1),
+		failing(build("build-lint-remote-dockerfile", "--lint downloads a Dockerfile given as a URL", "lint",
+			"--lint", "--lint-fail-on", "warn", "-f", "{{git}}/files/lint/Dockerfile", "--platform", "linux/amd64", "-o", "type=local,dest=out"), 1),
+		withStdin(failing(scenario{
+			Name: "build-lint-remote-context-stdin", Description: "--lint with a git repository context and a Dockerfile from standard input", Fixture: "basic",
+			Args: []string{"build", "{{git}}/basic.git", "--progress=plain", "--lint", "--lint-fail-on", "warn", "-f", "-", "--platform", "linux/amd64", "-o", "type=local,dest=out"},
+		}, 1), "FROM busybox:1.36 as build\nMAINTAINER validation@example.com\nRUN echo lint > /lint.txt\n"),
 		withEnv(withFiles(build("build-print-outline", "--print outline in experimental mode", "basic", "--print", "outline"), "out"), "BUILDX_EXPERIMENTAL", "1"),
 		expectFinish(failing(scenario{
 			Name: "build-interrupt", Description: "an interrupt during a build cancels it", Fixture: "slow",
