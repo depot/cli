@@ -2,6 +2,7 @@ package load
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	depotbuild "github.com/depot/cli/pkg/build"
@@ -54,11 +55,12 @@ func WithDepotImagePull(buildOpts map[string]build.Options, loadOpts DepotLoadOp
 			}
 		}
 
-		// If the user did not specify an image export, we add one.
-		// This happens when the user specifies `--load` rather than an `--output`
-		if len(buildOpt.Exports) == 0 {
+		// Without an image export, add one to load from. --load then works
+		// together with other outputs, as in buildx.
+		isCacheOnly := func(e client.ExportEntry) bool { return e.Type == "cacheonly" }
+		if !shouldPull && !slices.ContainsFunc(buildOpt.Exports, isCacheOnly) {
 			shouldPull = true
-			buildOpt.Exports = []client.ExportEntry{{Type: "image"}}
+			buildOpt.Exports = append(buildOpt.Exports, client.ExportEntry{Type: "image"})
 		}
 
 		buildOpts[target] = buildOpt

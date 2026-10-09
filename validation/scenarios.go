@@ -3,10 +3,12 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 )
@@ -84,6 +86,8 @@ func commandLineScenarios() []scenario {
 		accept(offline("bake-print-compose-project", "bake --print resolves x-depot.project-id through inheritance and file order", "composeproject",
 			"bake", "--print", "api", "fromcompose", "worker"),
 			"stdout", "buildx v0.38 omits the empty network field"),
+		expectStdout(withEnv(offline("bake-print-source-date-epoch", "bake --print shows SOURCE_DATE_EPOCH from the environment", "epoch",
+			"bake", "--print", "default", "pinned"), "SOURCE_DATE_EPOCH", "1700000000"), `"SOURCE_DATE_EPOCH": "1700000000"`, `"SOURCE_DATE_EPOCH": "1600000000"`),
 		offline("bake-print-multiproject", "bake --print shows per-target project identifiers", "multiproject", "bake", "--print"),
 		accept(offline("bake-print-linked", "bake --print with target contexts", "linked", "bake", "--print", "child"),
 			"stdout", "buildx v0.38 shows the cacheonly output that it gives to linked targets"),
@@ -186,6 +190,42 @@ func writeBzip2Context(dockerfile string) func(ctx context.Context, r *runInfo) 
 	}
 }
 
+// requireFileContent checks the content of a file inside a recorded
+// directory.
+func requireFileContent(dir, path, content string) func(o *observation) error {
+	return func(o *observation) error {
+		want := path + " " + shortHash([]byte(content))
+		if !slices.Contains(strings.Split(o.Files[dir], "\n"), want) {
+			return fmt.Errorf("%s/%s does not contain %q:\n%s", dir, path, content, o.Files[dir])
+		}
+		return nil
+	}
+}
+
+func allOf(checks ...func(o *observation) error) func(o *observation) error {
+	return func(o *observation) error {
+		for _, check := range checks {
+			if err := check(o); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+}
+
+// loadsImage records the image validation-{{run}}:latest and requires it
+// to be in Docker after the run.
+func loadsImage(s scenario) scenario {
+	return expectCheck(withImages(s, "validation-{{run}}:latest"), func(o *observation) error {
+		for _, image := range o.Images {
+			if image.Present {
+				return nil
+			}
+		}
+		return errors.New("the image is not in Docker")
+	})
+}
+
 // requireTargetProjects checks the project of the build that each target
 // was created in.
 func requireTargetProjects(want map[string]string) func(o *observation) error {
@@ -243,6 +283,15 @@ func buildScenarios() []scenario {
 			"--platform", "linux/amd64,linux/arm64", "--load", "-t", "validation-{{run}}:latest"), "validation-{{run}}:latest"),
 		withImages(withAPI(build("build-load-registry", "--load through the Depot registry when the API requests it", "basic",
 			"--platform", "linux/amd64", "--load", "-t", "validation-{{run}}:latest"), apiBehavior{LoadUsingRegistry: true}), "validation-{{run}}:latest"),
+		baselineDefect(loadsImage(withFiles(build("build-load-local-output", "--load with a local output loads the image and writes the output", "basic",
+			"--platform", "linux/amd64", "--load", "-t", "validation-{{run}}:latest", "-o", "type=local,dest=out"), "out")),
+			"the old CLI ignored --load when another output was set"),
+		baselineDefect(loadsImage(withFiles(withAPI(build("build-load-registry-local-output", "--load through the Depot registry with a local output", "basic",
+			"--platform", "linux/amd64", "--load", "-t", "validation-{{run}}:latest", "-o", "type=local,dest=out"), apiBehavior{LoadUsingRegistry: true}), "out")),
+			"the old CLI rejected --load through the Depot registry together with another output"),
+		baselineDefect(loadsImage(withFiles(withAPI(build("build-load-registry-docker-output", "--load through the Depot registry with a docker tar output", "basic",
+			"--platform", "linux/amd64", "--load", "-t", "validation-{{run}}:latest", "-o", "type=docker,dest=out.tar"), apiBehavior{LoadUsingRegistry: true}), "out.tar")),
+			"the old CLI rejected --load through the Depot registry together with another output"),
 		withImages(build("build-load-untagged", "--load without a tag", "basic", "--platform", "linux/arm64", "--load")),
 		expectStderr(withRegistry(build("build-save", "--save pushes the image to the Depot registry", "basic",
 			"--platform", "linux/amd64", "--save"), "{{registry}}/{{project}}:{{run}}-b1"), "depot pull"),
@@ -266,6 +315,12 @@ func buildScenarios() []scenario {
 		expectCheck(withEnv(withFiles(build("build-secrets", "secrets from a file and from an environment variable", "secrets",
 			"--platform", "linux/amd64", "--secret", "id=token,src=token.txt", "--secret", "id=envsecret,env=VT_SECRET", "-o", "type=local,dest=out"), "out"),
 			"VT_SECRET", "env-secret-value"), requireFileContains("out", "env.txt")),
+		expectCheck(withEnv(withFiles(build("build-source-date-epoch", "SOURCE_DATE_EPOCH from the environment becomes a build argument", "epoch",
+			"--platform", "linux/amd64", "-o", "type=local,dest=out"), "out"), "SOURCE_DATE_EPOCH", "1700000000"),
+			requireFileContent("out", "s", "sde=1700000000\n")),
+		expectCheck(withEnv(withFiles(build("build-source-date-epoch-build-arg", "--build-arg SOURCE_DATE_EPOCH takes precedence over the environment", "epoch",
+			"--platform", "linux/amd64", "--build-arg", "SOURCE_DATE_EPOCH=1600000000", "-o", "type=local,dest=out"), "out"), "SOURCE_DATE_EPOCH", "1700000000"),
+			requireFileContent("out", "s", "sde=1600000000\n")),
 		withFiles(build("build-named-context", "--build-context adds a named context", "contexts",
 			"--platform", "linux/amd64", "--build-context", "extra=extra", "-o", "type=local,dest=out"), "out"),
 		withFiles(scenario{
@@ -351,6 +406,15 @@ func bakeScenarios() []scenario {
 			"--set", "app.tags=validation-{{run}}:latest", "--set", "app.platform=linux/amd64"), "validation-{{run}}:latest"),
 		withImages(withAPI(bake("bake-load-registry", "bake --load through the Depot registry", "bake", "app", "--load",
 			"--set", "app.tags=validation-{{run}}:latest", "--set", "app.platform=linux/amd64"), apiBehavior{LoadUsingRegistry: true}), "validation-{{run}}:latest"),
+		baselineDefect(loadsImage(withFiles(withAPI(bake("bake-load-registry-local-output", "bake --load through the Depot registry with a target that has a local output", "bake", "app", "--load",
+			"--set", "app.tags=validation-{{run}}:latest", "--set", "app.platform=linux/amd64", "--set", "app.output=type=local,dest=out"), apiBehavior{LoadUsingRegistry: true}), "out")),
+			"the old CLI rejected --load through the Depot registry together with another output"),
+		baselineDefect(loadsImage(withFiles(bake("bake-load-local-output", "bake --load with a target that has a local output", "bake", "app", "--load",
+			"--set", "app.tags=validation-{{run}}:latest", "--set", "app.platform=linux/amd64", "--set", "app.output=type=local,dest=out"), "out")),
+			"the old CLI ignored --load when another output was set"),
+		expectCheck(withEnv(withFiles(bake("bake-source-date-epoch", "bake passes SOURCE_DATE_EPOCH from the environment unless the target sets it", "epoch",
+			"default", "pinned", "--set", "*.platform=linux/amd64"), "out"), "SOURCE_DATE_EPOCH", "1700000000"),
+			allOf(requireFileContent("out", "default/s", "sde=1700000000\n"), requireFileContent("out", "pinned/s", "sde=1600000000\n"))),
 		withRegistry(bake("bake-save", "bake --save pushes each target to the Depot registry", "bake", "app", "--save",
 			"--set", "app.platform=linux/amd64"), "{{registry}}/{{project}}:{{run}}-b1-app"),
 		accept(withFiles(bake("bake-metadata", "bake --metadata-file", "bake", "artifact", "app", "--metadata-file", "metadata.json",
