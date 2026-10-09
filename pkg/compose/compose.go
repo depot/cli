@@ -11,6 +11,7 @@ import (
 	"github.com/compose-spec/compose-go/v2/consts"
 	"github.com/compose-spec/compose-go/v2/dotenv"
 	"github.com/compose-spec/compose-go/v2/loader"
+	"github.com/compose-spec/compose-go/v2/template"
 	"github.com/compose-spec/compose-go/v2/types"
 	compose "github.com/compose-spec/compose-go/v2/types"
 	"github.com/docker/buildx/bake"
@@ -64,6 +65,7 @@ func Targets(files []bake.File) (map[string]Target, error) {
 		Environment: envs,
 	}
 	opts := func(options *loader.Options) {
+		options.Interpolate.Substitute = substituteWithoutWarnings
 		if nameFromEnv, ok := envs[consts.ComposeProjectName]; ok && nameFromEnv != "" {
 			options.SetProjectName(nameFromEnv, true)
 		} else {
@@ -173,6 +175,7 @@ func isComposeFile(file string, content []byte) bool {
 	}
 
 	opts := func(options *loader.Options) {
+		options.Interpolate.Substitute = substituteWithoutWarnings
 		projectName := "bake"
 		if v, ok := envs[consts.ComposeProjectName]; ok && v != "" {
 			projectName = v
@@ -249,4 +252,10 @@ func loadDotEnv(curenv map[string]string, workingDir string) (map[string]string,
 	}
 
 	return curenv, nil
+}
+
+// substituteWithoutWarnings interpolates variables without the warnings for
+// unset variables. buildx bake parses the same files and prints them once.
+func substituteWithoutWarnings(value string, mapping template.Mapping) (string, error) {
+	return template.SubstituteWithOptions(value, mapping, template.WithoutLogging)
 }

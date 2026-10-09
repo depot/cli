@@ -272,15 +272,8 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, opts map[string]bu
 	}
 	linter.Print(os.Stderr, progressMode)
 
-	for name, opt := range opts {
-		if opt.CallFunc == nil {
-			continue
-		}
-		if res, ok := resp.merged[name]; ok && res != nil {
-			if err := printResult(opt.CallFunc, res.ExporterResponse); err != nil {
-				return nil, err
-			}
-		}
+	if err := printCallResults(os.Stdout, opts, resp.merged, false); err != nil {
+		return nil, err
 	}
 
 	return imageIDs, err

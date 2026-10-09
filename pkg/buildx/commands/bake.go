@@ -78,7 +78,7 @@ func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator, pri
 
 	var targetsToLoad []string
 	for target, opts := range buildOpts {
-		shouldLoad := !slices.ContainsFunc(opts.Exports, func(e client.ExportEntry) bool { return e.Type == "cacheonly" })
+		shouldLoad := opts.CallFunc == nil && !slices.ContainsFunc(opts.Exports, func(e client.ExportEntry) bool { return e.Type == "cacheonly" })
 		if in.exportLoad {
 			shouldLoad = shouldLoad && slices.Contains(requestedTargets, target)
 		}
@@ -180,6 +180,9 @@ func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator, pri
 		}
 	}
 
+	if err := printCallResults(os.Stdout, buildOpts, resp.merged, true); err != nil {
+		return linter, requestedTargets, err
+	}
 	return linter, requestedTargets, nil
 }
 
@@ -563,34 +566,19 @@ func setSourceDateEpoch(targets map[string]*bake.Target) {
 // build options grouped by Depot project, and returns the targets that the
 // requested targets and groups expand to.
 func readBakeTargets(ctx context.Context, files []bake.File, inp *bake.Input, options BakeOptions, bakeTargets bakeTargets, defaultComposeTags bool) (*projectBuildOptions, []string, error) {
-	defaults := bakeDefaults(bakeTargets.CmdContext)
-	buildFiles := withoutProjectIDs(files)
-
-	targets, _, err := bake.ReadTargets(ctx, buildFiles, bakeTargets.Targets, overrides(options), defaults, nil, &bake.EntitlementConf{})
-	if err != nil {
-		return nil, nil, err
-	}
-	setSourceDateEpoch(targets)
-
-	cfg, _, err := bake.ParseFiles(buildFiles, defaults, nil)
-	if err != nil {
-		return nil, nil, err
-	}
-	resolved := map[string]struct{}{}
-	for _, target := range bakeTargets.Targets {
-		names, _ := cfg.ResolveGroup(target)
-		for _, name := range names {
-			if _, ok := targets[name]; ok {
-				resolved[name] = struct{}{}
-			}
-		}
-	}
-	requestedTargets := slices.Sorted(maps.Keys(resolved))
-
 	composeTargets, err := compose.Targets(files)
 	if err != nil {
 		return nil, nil, err
 	}
+
+	targets, groups, err := bake.ReadTargets(ctx, projectFiles(files, composeTargets), bakeTargets.Targets, overrides(options), bakeDefaults(bakeTargets.CmdContext), nil, &bake.EntitlementConf{})
+	if err != nil {
+		return nil, nil, err
+	}
+	projects := targetProjects(targets)
+	requestedTargets := requestedTargetNames(targets, groups)
+	setSourceDateEpoch(targets)
+
 	if defaultComposeTags {
 		for name, target := range targets {
 			if ct, ok := composeTargets[name]; ok && len(target.Tags) == 0 {
@@ -604,19 +592,51 @@ func readBakeTargets(ctx context.Context, files []bake.File, inp *bake.Input, op
 		return nil, nil, err
 	}
 	for name, opt := range opts {
+		// A call of "check" is the "lint" request, and a call of "build"
+		// is a normal build, as in buildx bake.
+		if opt.CallFunc != nil {
+			cf, err := buildflags.ParseCallFunc(opt.CallFunc.Name)
+			if err != nil {
+				return nil, nil, err
+			}
+			if cf == nil {
+				opt.CallFunc = nil
+			} else {
+				opt.CallFunc.Name = cf.Name
+			}
+		}
 		opt.Session = append(opt.Session, registry.NewDockerAuthProviderWithDepotAuth())
 		opt.CacheFrom = filterGHACaches(opt.CacheFrom, "cache-from")
 		opt.CacheTo = filterGHACaches(opt.CacheTo, "cache-to")
 		opts[name] = opt
 	}
 
-	targetProjects, err := readTargetProjects(ctx, files, bakeTargets.Targets, defaults)
-	if err != nil {
-		return nil, nil, err
-	}
+	projectOpts, err := newProjectBuildOptions(options.project, opts, projects)
+	return projectOpts, requestedTargets, err
+}
 
-	projects, err := newProjectBuildOptions(options.project, opts, targetProjects)
-	return projects, requestedTargets, err
+// requestedTargetNames returns the targets that the requested names, groups,
+// and patterns expand to. bake.ReadTargets adds every requested name to the
+// default group, unless the default group itself is requested. Targets that
+// are only built as a context of another target are not included.
+func requestedTargetNames(targets map[string]*bake.Target, groups map[string]*bake.Group) []string {
+	requested := map[string]struct{}{}
+	expanded := map[string]bool{}
+	var expand func(name string)
+	expand = func(name string) {
+		if group, ok := groups[name]; ok && !expanded[name] {
+			expanded[name] = true
+			for _, member := range group.Targets {
+				expand(member)
+			}
+			return
+		}
+		if _, ok := targets[name]; ok {
+			requested[name] = struct{}{}
+		}
+	}
+	expand("default")
+	return slices.Sorted(maps.Keys(requested))
 }
 
 type bakeTargets struct {

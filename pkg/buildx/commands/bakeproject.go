@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"maps"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -17,18 +18,24 @@ import (
 )
 
 // Depot extends bake targets with a project_id attribute that selects the
-// Depot project of the target. Upstream bake rejects unknown attributes, so
-// the files are rewritten before upstream bake parses them:
+// Depot project of the target. Upstream bake rejects unknown attributes, and
+// a reference such as target.base.project_id can only read attributes that
+// upstream bake knows. So the files are rewritten before upstream bake reads
+// them:
 //
-//   - withoutProjectIDs removes the attribute, for the build itself.
-//   - projectIDsAsDescriptions moves the attribute into the description
-//     attribute, so that upstream bake evaluates it with the same variables,
-//     functions, inheritance, and matrix expansion as every other attribute.
+//   - projectFiles moves project_id into the description attribute of each
+//     target, and changes references to project_id into references to
+//     description. Upstream bake then evaluates the project with the same
+//     variables, functions, inheritance, and matrix expansion as every other
+//     attribute. The description has no effect on a build, so these files
+//     are used for the build too.
+//   - descriptionFiles removes project_id and keeps the descriptions of the
+//     user, for bake --print.
 //
 // Compose services select a project with the x-depot.project-id build
 // extension. Compose has no field that bake reads as a description, so
-// composeProjectFile writes the project of each service as an HCL target
-// description. Bake merges compose files before HCL files, so that HCL file
+// projectFiles adds an HCL file that sets the description of each service to
+// its project. Bake merges compose files before HCL files, so that HCL file
 // comes first among the HCL files.
 const projectIDAttribute = "project_id"
 
@@ -41,12 +48,65 @@ const (
 	projectIDToDescription
 )
 
-func withoutProjectIDs(files []bake.File) []bake.File {
+// projectFiles returns the files with the project of each target in its
+// description.
+func projectFiles(files []bake.File, composeTargets map[string]compose.Target) []bake.File {
+	out := rewriteFiles(files, projectIDToDescription)
+	if f, ok := composeProjectFile(composeTargets); ok {
+		out = append([]bake.File{f}, out...)
+	}
+	return out
+}
+
+// descriptionFiles returns the files without project_id.
+func descriptionFiles(files []bake.File) []bake.File {
 	return rewriteFiles(files, removeProjectID)
 }
 
-func projectIDsAsDescriptions(files []bake.File) []bake.File {
-	return rewriteFiles(files, projectIDToDescription)
+// targetProjects returns the project of each target that has one, and
+// clears the descriptions that carried them.
+func targetProjects(targets map[string]*bake.Target) map[string]string {
+	projects := map[string]string{}
+	for name, t := range targets {
+		if t.Description != "" {
+			projects[name] = t.Description
+		}
+		t.Description = ""
+	}
+	return projects
+}
+
+// targetDescriptions reads the description of each target, for bake --print.
+func targetDescriptions(ctx context.Context, files []bake.File, targets, overrides []string, defaults map[string]string) (map[string]string, error) {
+	descriptions := map[string]string{}
+	if !slices.ContainsFunc(files, func(f bake.File) bool { return bytes.Contains(f.Data, []byte("description")) }) {
+		return descriptions, nil
+	}
+	resolved, _, err := bake.ReadTargets(ctx, descriptionFiles(files), targets, overrides, defaults, nil, &bake.EntitlementConf{})
+	if err != nil {
+		return nil, err
+	}
+	for name, t := range resolved {
+		descriptions[name] = t.Description
+	}
+	return descriptions, nil
+}
+
+// composeProjectFile returns an HCL file that sets the description of each
+// compose service with an x-depot.project-id to that project. It returns
+// false when no compose service selects a project.
+func composeProjectFile(composeTargets map[string]compose.Target) (bake.File, bool) {
+	f := hclwrite.NewEmptyFile()
+	found := false
+	for _, name := range slices.Sorted(maps.Keys(composeTargets)) {
+		projectID := composeTargets[name].ProjectID
+		if projectID == "" {
+			continue
+		}
+		f.Body().AppendNewBlock("target", []string{name}).Body().SetAttributeValue("description", cty.StringVal(projectID))
+		found = true
+	}
+	return bake.File{Name: composeProjectFileName, Data: f.Bytes()}, found
 }
 
 func rewriteFiles(files []bake.File, mode projectRewrite) []bake.File {
@@ -91,7 +151,7 @@ func rewriteHCL(data []byte, name string, mode projectRewrite) ([]byte, bool) {
 		return nil, false
 	}
 
-	var replacements []replacement
+	var blanks, renames []replacement
 	for _, block := range body.Blocks {
 		if block.Type != "target" {
 			continue
@@ -101,14 +161,14 @@ func rewriteHCL(data []byte, name string, mode projectRewrite) ([]byte, bool) {
 		switch mode {
 		case removeProjectID:
 			if hasProjectID {
-				replacements = append(replacements, blank(data, projectID.SrcRange))
+				blanks = append(blanks, blank(data, projectID.SrcRange))
 			}
 		case projectIDToDescription:
 			if hasDescription {
-				replacements = append(replacements, blank(data, description.SrcRange))
+				blanks = append(blanks, blank(data, description.SrcRange))
 			}
 			if hasProjectID {
-				replacements = append(replacements, replacement{
+				renames = append(renames, replacement{
 					start: projectID.NameRange.Start.Byte,
 					end:   projectID.NameRange.End.Byte,
 					text:  []byte("description"),
@@ -117,6 +177,32 @@ func rewriteHCL(data []byte, name string, mode projectRewrite) ([]byte, bool) {
 		}
 	}
 
+	_ = hclsyntax.VisitAll(body, func(node hclsyntax.Node) hcl.Diagnostics {
+		expr, ok := node.(*hclsyntax.ScopeTraversalExpr)
+		if !ok || expr.Traversal.RootName() != "target" || len(expr.Traversal) < 3 {
+			return nil
+		}
+		attr, ok := expr.Traversal[2].(hcl.TraverseAttr)
+		if !ok || attr.Name != projectIDAttribute {
+			return nil
+		}
+		switch mode {
+		case removeProjectID:
+			renames = append(renames, replacement{start: expr.SrcRange.Start.Byte, end: expr.SrcRange.End.Byte, text: []byte(`""`)})
+		case projectIDToDescription:
+			end := attr.SrcRange.End.Byte
+			renames = append(renames, replacement{start: end - len(projectIDAttribute), end: end, text: []byte("description")})
+		}
+		return nil
+	})
+
+	replacements := blanks
+	for _, r := range renames {
+		inBlank := slices.ContainsFunc(blanks, func(b replacement) bool { return r.start >= b.start && r.end <= b.end })
+		if !inBlank {
+			replacements = append(replacements, r)
+		}
+	}
 	slices.SortFunc(replacements, func(a, b replacement) int { return b.start - a.start })
 	out := slices.Clone(data)
 	for _, r := range replacements {
@@ -137,6 +223,10 @@ func blank(data []byte, rng hcl.Range) replacement {
 	return replacement{start: rng.Start.Byte, end: rng.End.Byte, text: text}
 }
 
+// projectIDReference matches a reference to the project_id of a target in
+// an interpolation of a JSON definition.
+var projectIDReference = regexp.MustCompile(`(target\.[A-Za-z0-9_-]+)\.project_id\b`)
+
 func rewriteJSON(data []byte, mode projectRewrite) ([]byte, bool) {
 	var root map[string]json.RawMessage
 	if err := json.Unmarshal(data, &root); err != nil {
@@ -154,6 +244,7 @@ func rewriteJSON(data []byte, mode projectRewrite) ([]byte, bool) {
 	changed := false
 	for _, target := range targets {
 		projectID, hasProjectID := target[projectIDAttribute]
+		_, hasDescription := target["description"]
 		switch mode {
 		case removeProjectID:
 			if hasProjectID {
@@ -161,7 +252,7 @@ func rewriteJSON(data []byte, mode projectRewrite) ([]byte, bool) {
 				changed = true
 			}
 		case projectIDToDescription:
-			if _, ok := target["description"]; ok {
+			if hasDescription {
 				delete(target, "description")
 				changed = true
 			}
@@ -172,71 +263,23 @@ func rewriteJSON(data []byte, mode projectRewrite) ([]byte, bool) {
 			}
 		}
 	}
-	if !changed {
-		return data, true
-	}
 
-	encodedTargets, err := json.Marshal(targets)
-	if err != nil {
-		return nil, false
+	out := data
+	if changed {
+		encodedTargets, err := json.Marshal(targets)
+		if err != nil {
+			return nil, false
+		}
+		root["target"] = encodedTargets
+		if out, err = json.Marshal(root); err != nil {
+			return nil, false
+		}
 	}
-	root["target"] = encodedTargets
-	out, err := json.Marshal(root)
-	if err != nil {
-		return nil, false
+	switch mode {
+	case removeProjectID:
+		out = projectIDReference.ReplaceAll(out, []byte(`\"\"`))
+	case projectIDToDescription:
+		out = projectIDReference.ReplaceAll(out, []byte("$1.description"))
 	}
 	return out, true
-}
-
-// composeProjectFile returns an HCL file that sets the description of each
-// compose service with an x-depot.project-id to that project. It returns
-// false when no compose service selects a project.
-func composeProjectFile(files []bake.File) (bake.File, bool, error) {
-	composeTargets, err := compose.Targets(files)
-	if err != nil {
-		return bake.File{}, false, err
-	}
-	f := hclwrite.NewEmptyFile()
-	found := false
-	for _, name := range slices.Sorted(maps.Keys(composeTargets)) {
-		projectID := composeTargets[name].ProjectID
-		if projectID == "" {
-			continue
-		}
-		f.Body().AppendNewBlock("target", []string{name}).Body().SetAttributeValue("description", cty.StringVal(projectID))
-		found = true
-	}
-	return bake.File{Name: composeProjectFileName, Data: f.Bytes()}, found, nil
-}
-
-// readTargetProjects returns the project_id of each target. Targets
-// without a project_id are not in the map.
-func readTargetProjects(ctx context.Context, files []bake.File, targets []string, defaults map[string]string) (map[string]string, error) {
-	projects := map[string]string{}
-
-	projectFile, hasComposeProjects, err := composeProjectFile(files)
-	if err != nil {
-		return nil, err
-	}
-	hasProjectID := slices.ContainsFunc(files, func(f bake.File) bool {
-		return bytes.Contains(f.Data, []byte(projectIDAttribute))
-	})
-	if !hasProjectID && !hasComposeProjects {
-		return projects, nil
-	}
-
-	projectFiles := projectIDsAsDescriptions(files)
-	if hasComposeProjects {
-		projectFiles = append([]bake.File{projectFile}, projectFiles...)
-	}
-	resolved, _, err := bake.ReadTargets(ctx, projectFiles, targets, nil, defaults, nil, &bake.EntitlementConf{})
-	if err != nil {
-		return nil, err
-	}
-	for name, t := range resolved {
-		if t.Description != "" {
-			projects[name] = t.Description
-		}
-	}
-	return projects, nil
 }

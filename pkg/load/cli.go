@@ -39,6 +39,9 @@ type PullOptions struct {
 func WithDepotImagePull(buildOpts map[string]build.Options, loadOpts DepotLoadOptions) (map[string]build.Options, map[string]PullOptions) {
 	toPull := make(map[string]PullOptions)
 	for target, buildOpt := range buildOpts {
+		if buildOpt.CallFunc != nil {
+			continue
+		}
 		// Gather all tags the user specifies for this image.
 		userTags := buildOpt.Tags
 
