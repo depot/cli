@@ -26,14 +26,17 @@ type scenario struct {
 	Args        []string
 	Env         map[string]string
 	Stdin       string
-	API         apiBehavior
-	Timeout     time.Duration
-	Interrupt   time.Duration
-	Images      []string
-	Registry    []string
-	Files       []string
-	Expect      expectation
-	Accept      map[string]string
+	// StdinFile names a file in the run directory to send on standard
+	// input instead of Stdin.
+	StdinFile string
+	API       apiBehavior
+	Timeout   time.Duration
+	Interrupt time.Duration
+	Images    []string
+	Registry  []string
+	Files     []string
+	Expect    expectation
+	Accept    map[string]string
 	// Exclusive runs the scenario alone, after the other scenarios, because
 	// its result depends on the load of the machine.
 	Exclusive bool
@@ -212,7 +215,15 @@ func (rc *runContext) execute(ctx context.Context, s scenario, bin *binary) (*ob
 	}
 	cmd := runnerCommand(runCtx, info, runID, program, args)
 	defer func() { _, _ = dockerCommand(context.Background(), "rm", "-f", runID) }()
-	if s.Stdin != "" {
+	switch {
+	case s.StdinFile != "":
+		f, err := os.Open(filepath.Join(workDir, s.StdinFile))
+		if err != nil {
+			return nil, err
+		}
+		defer f.Close()
+		cmd.Stdin = f
+	case s.Stdin != "":
 		cmd.Stdin = strings.NewReader(expand(s.Stdin))
 	}
 	var stdout, stderr bytes.Buffer

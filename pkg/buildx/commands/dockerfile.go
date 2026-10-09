@@ -3,7 +3,6 @@ package commands
 import (
 	"archive/tar"
 	"bytes"
-	"compress/gzip"
 	"context"
 	"errors"
 	"io"
@@ -15,6 +14,8 @@ import (
 	"github.com/moby/buildkit/client"
 	"github.com/moby/buildkit/client/llb"
 	gateway "github.com/moby/buildkit/frontend/gateway/client"
+	"github.com/moby/buildkit/util/archiveutil"
+	"github.com/moby/go-archive/compression"
 )
 
 // dockerfileSource is the Dockerfile of a build target as the client sees it.
@@ -41,7 +42,7 @@ func readDockerfile(inp build.Inputs, stdin []byte) *dockerfileSource {
 		return nil
 	}
 	if inp.ContextPath == "-" {
-		if !isArchive(stdin) {
+		if !archiveutil.IsArchive(stdin) {
 			return &dockerfileSource{Filename: "Dockerfile", Content: stdin}
 		}
 		name := inp.DockerfilePath
@@ -95,23 +96,12 @@ func lowercaseDockerfile(path string) string {
 	return path
 }
 
-func isArchive(data []byte) bool {
-	if len(data) >= 2 && data[0] == 0x1f && data[1] == 0x8b {
-		return true
-	}
-	return len(data) >= 262 && bytes.Equal(data[257:262], []byte("ustar"))
-}
-
 func readArchiveFile(data []byte, name string) ([]byte, error) {
-	var r io.Reader = bytes.NewReader(data)
-	if len(data) >= 2 && data[0] == 0x1f && data[1] == 0x8b {
-		gz, err := gzip.NewReader(r)
-		if err != nil {
-			return nil, err
-		}
-		defer gz.Close()
-		r = gz
+	r, err := compression.DecompressStream(bytes.NewReader(data))
+	if err != nil {
+		return nil, err
 	}
+	defer r.Close()
 	tr := tar.NewReader(r)
 	want := filepath.Clean(name)
 	for {

@@ -524,7 +524,20 @@ func (t *RemoteBakeValidator) Validate(ctx context.Context, nodes []builder.Node
 	if err != nil {
 		return nil, nil, err
 	}
-	return readBakeTargets(ctx, files, inp, t.options, t.bakeTargets, false)
+	projects, requestedTargets, err := readBakeTargets(ctx, files, inp, t.options, t.bakeTargets, false)
+	if err != nil {
+		return nil, nil, err
+	}
+	// The build of a remote definition starts before the definition is
+	// read, so it can build targets of only one project.
+	for _, projectID := range projects.ProjectIDs() {
+		if projectID == t.options.project {
+			continue
+		}
+		target := slices.Sorted(maps.Keys(projects.ProjectOpts(projectID)))[0]
+		return nil, nil, errors.Errorf("target %s sets project_id %s, but a remote bake definition can build targets of only one project (%s); run bake with a local copy of the definition to build several projects", target, projectID, t.options.project)
+	}
+	return projects, requestedTargets, nil
 }
 
 // readBakeTargets resolves the requested targets of a bake definition into

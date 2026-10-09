@@ -1,7 +1,10 @@
 package main
 
 import (
+	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -159,6 +162,25 @@ func requireFileContains(path, want string) func(o *observation) error {
 	}
 }
 
+// lintDockerfile has a MAINTAINER instruction, which the linters report.
+const lintDockerfile = "FROM busybox:1.36 as build\nMAINTAINER validation@example.com\nRUN echo lint > /lint.txt\nFROM scratch\nCOPY --from=build /lint.txt /\n"
+
+// writeBzip2Context writes a bzip2 tar archive that contains only the given
+// Dockerfile to context.tar.bz2 in the run directory.
+func writeBzip2Context(dockerfile string) func(ctx context.Context, r *runInfo) error {
+	return func(ctx context.Context, r *runInfo) error {
+		dir := filepath.Join(r.WorkDir, "archive")
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return err
+		}
+		if err := os.WriteFile(filepath.Join(dir, "Dockerfile"), []byte(dockerfile), 0o644); err != nil {
+			return err
+		}
+		_, err := r.command(ctx, "sh", "-c", "tar -C "+dir+" -c . | bzip2 > "+filepath.Join(r.WorkDir, "context.tar.bz2"))
+		return err
+	}
+}
+
 func buildScenarios() []scenario {
 	push := "{{registry}}/validation/{{run}}:latest"
 	return []scenario{
@@ -262,11 +284,17 @@ func buildScenarios() []scenario {
 		withFiles(build("build-lint-warn", "--lint reports problems without failing", "lint", "--lint", "--lint-fail-on", "none", "--platform", "linux/amd64", "-o", "type=local,dest=out"), "out"),
 		failing(build("build-lint-fail", "--lint-fail-on=warn fails the build", "lint", "--lint", "--lint-fail-on", "warn", "--platform", "linux/amd64", "-o", "type=local,dest=out"), 1),
 		failing(build("build-lint-remote-dockerfile", "--lint downloads a Dockerfile given as a URL", "lint",
-			"--lint", "--lint-fail-on", "warn", "-f", "{{git}}/files/lint/Dockerfile", "--platform", "linux/amd64", "-o", "type=local,dest=out"), 1),
+			"--lint", "--lint-fail-on", "warn", "-f", "{{git}}/files/lint/Dockerfile", "--platform", "linux/amd64", "-o", "type=local,dest=out"), 1, "DL4000"),
 		withStdin(failing(scenario{
 			Name: "build-lint-remote-context-stdin", Description: "--lint with a git repository context and a Dockerfile from standard input", Fixture: "basic",
 			Args: []string{"build", "{{git}}/basic.git", "--progress=plain", "--lint", "--lint-fail-on", "warn", "-f", "-", "--platform", "linux/amd64", "-o", "type=local,dest=out"},
-		}, 1), "FROM busybox:1.36 as build\nMAINTAINER validation@example.com\nRUN echo lint > /lint.txt\n"),
+		}, 1, "DL4000"), lintDockerfile),
+		baselineDefect(failing(scenario{
+			Name: "build-lint-stdin-bzip2-context", Description: "--lint reads the Dockerfile from a bzip2 context archive on standard input", Fixture: "basic",
+			Args:      []string{"build", "-", "--progress=plain", "--lint", "--lint-fail-on", "warn", "--platform", "linux/amd64", "-o", "type=local,dest=out"},
+			StdinFile: "context.tar.bz2",
+			Prepare:   writeBzip2Context(lintDockerfile),
+		}, 1, "DL4000"), "the old CLI linted ./Dockerfile instead of the Dockerfile in the archive"),
 		withEnv(withFiles(build("build-print-outline", "--print outline in experimental mode", "basic", "--print", "outline"), "out"), "BUILDX_EXPERIMENTAL", "1"),
 		expectFinish(failing(scenario{
 			Name: "build-interrupt", Description: "an interrupt during a build cancels it", Fixture: "slow",
@@ -313,6 +341,8 @@ func bakeScenarios() []scenario {
 			"--set", "*.platform=linux/amd64"), "out"), "success", "success"),
 		baselineDefect(withFiles(bake("bake-remote", "bake a definition from a git repository", "basic", "{{git}}/remote.git", "artifact",
 			"--set", "artifact.platform=linux/amd64"), "out"), "the CLI dereferenced nil project options for a remote definition"),
+		baselineDefect(failing(bake("bake-remote-multiproject", "a remote definition with targets of another project is rejected", "basic", "{{git}}/multiproject.git",
+			"--set", "*.platform=linux/amd64"), 1, "a remote bake definition can build targets of only one project"), "the CLI dereferenced nil project options for a remote definition"),
 		withFiles(withEnv(bake("bake-variable-env", "bake reads variables from the environment", "bake", "artifact",
 			"--set", "artifact.platform=linux/amd64", "--set", "artifact.args.MESSAGE=${TAG}"), "TAG", "from-env"), "out"),
 	}
