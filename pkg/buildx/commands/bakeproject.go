@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"maps"
 	"slices"
 	"strings"
@@ -267,6 +268,9 @@ func rewriteJSON(data []byte, mode projectRewrite) ([]byte, bool) {
 	decoder.UseNumber()
 	var root map[string]any
 	if err := decoder.Decode(&root); err != nil {
+		return nil, false
+	}
+	if _, err := decoder.Token(); err != io.EOF {
 		return nil, false
 	}
 

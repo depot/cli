@@ -5,9 +5,12 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
+	"strings"
 
 	"github.com/docker/buildx/build"
 	"github.com/docker/buildx/util/urlutil"
@@ -96,24 +99,67 @@ func lowercaseDockerfile(path string) string {
 	return path
 }
 
+// readArchiveFile reads a file from a tar archive in the same way as the
+// archive is extracted: a later entry replaces an earlier entry with the same
+// path, and links are followed.
 func readArchiveFile(data []byte, name string) ([]byte, error) {
-	r, err := compression.DecompressStream(bytes.NewReader(data))
-	if err != nil {
-		return nil, err
-	}
-	defer r.Close()
-	tr := tar.NewReader(r)
-	want := filepath.Clean(name)
-	for {
-		hdr, err := tr.Next()
-		if err == io.EOF {
-			return nil, os.ErrNotExist
-		}
+	want := archivePath(name)
+	for range maxArchiveLinks {
+		hdr, content, err := lastArchiveEntry(data, want)
 		if err != nil {
 			return nil, err
 		}
-		if filepath.Clean(hdr.Name) == want {
-			return io.ReadAll(tr)
+		switch hdr.Typeflag {
+		case tar.TypeSymlink:
+			if path.IsAbs(hdr.Linkname) {
+				want = archivePath(hdr.Linkname)
+			} else {
+				want = archivePath(path.Join(path.Dir(want), hdr.Linkname))
+			}
+		case tar.TypeLink:
+			want = archivePath(hdr.Linkname)
+		default:
+			return content, nil
 		}
 	}
+	return nil, fmt.Errorf("%s: too many links", name)
+}
+
+const maxArchiveLinks = 40
+
+func archivePath(name string) string {
+	return strings.TrimPrefix(path.Clean("/"+filepath.ToSlash(name)), "/")
+}
+
+func lastArchiveEntry(data []byte, name string) (*tar.Header, []byte, error) {
+	r, err := compression.DecompressStream(bytes.NewReader(data))
+	if err != nil {
+		return nil, nil, err
+	}
+	defer r.Close()
+
+	var (
+		found   *tar.Header
+		content []byte
+	)
+	tr := tar.NewReader(r)
+	for {
+		hdr, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, nil, err
+		}
+		if archivePath(hdr.Name) == name {
+			found = hdr
+			if content, err = io.ReadAll(tr); err != nil {
+				return nil, nil, err
+			}
+		}
+	}
+	if found == nil {
+		return nil, nil, os.ErrNotExist
+	}
+	return found, content, nil
 }

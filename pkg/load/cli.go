@@ -161,25 +161,19 @@ func WithDockerLoad(buildOpts map[string]build.Options) map[string]build.Options
 	return WithSelectiveDockerLoad(buildOpts, targetsToLoad)
 }
 
-// WithSelectiveDockerLoad adds docker export only to specified targets
+// WithSelectiveDockerLoad returns the options to build again after a fast
+// load failed. The first build already wrote every other output, so each
+// target to load exports only to Docker and the other targets export nothing.
 func WithSelectiveDockerLoad(buildOpts map[string]build.Options, targetsToLoad []string) map[string]build.Options {
-	targetSet := make(map[string]bool)
-	for _, target := range targetsToLoad {
-		targetSet[target] = true
-	}
-
 	for key, buildOpt := range buildOpts {
-		if !targetSet[key] {
+		if buildOpt.CallFunc != nil {
 			continue
 		}
-
-		loadsImage := func(e client.ExportEntry) bool {
-			return e.Type == "cacheonly" || (e.Type == "docker" && e.Attrs["dest"] == "")
+		if slices.Contains(targetsToLoad, key) {
+			buildOpt.Exports = []client.ExportEntry{{Type: "docker", Attrs: map[string]string{}}}
+		} else {
+			buildOpt.Exports = []client.ExportEntry{{Type: "cacheonly"}}
 		}
-		if buildOpt.CallFunc != nil || slices.ContainsFunc(buildOpt.Exports, loadsImage) {
-			continue
-		}
-		buildOpt.Exports = append(slices.Clone(buildOpt.Exports), client.ExportEntry{Type: "docker", Attrs: map[string]string{}})
 		buildOpts[key] = buildOpt
 	}
 	return buildOpts
