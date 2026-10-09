@@ -30,9 +30,9 @@ import (
 //
 //   - projectFiles uses description as the carrier. The description has no
 //     effect on a build, so these files are used for the build too.
-//   - descriptionFiles uses call as the carrier, and keeps the descriptions
-//     of the user for bake --print. Only the descriptions of this read are
-//     used.
+//   - descriptionFiles keeps the descriptions of the user for bake --print,
+//     and uses as the carrier an attribute that no expression in the files
+//     appears to read. Only the descriptions of this read are used.
 //
 // Compose services select a project with the x-depot.project-id build
 // extension. Compose has no field that bake reads as a description, so
@@ -44,10 +44,11 @@ import (
 // descriptions stay available to expressions.
 const projectIDAttribute = "project_id"
 
-const (
-	buildCarrier       = "description"
-	descriptionCarrier = "call"
-)
+const buildCarrier = "description"
+
+// descriptionCarriers are the attributes that descriptionFiles can use as the
+// carrier, in order of preference.
+var descriptionCarriers = []string{"call", "network", "target"}
 
 const composeProjectFileName = "depot-compose-projects.hcl"
 
@@ -84,7 +85,22 @@ func projectFiles(files []bake.File, composeTargets map[string]compose.Target) [
 
 // descriptionFiles returns the files with the descriptions of the user.
 func descriptionFiles(files []bake.File) []bake.File {
-	return rewriteFiles(files, descriptionCarrier)
+	return rewriteFiles(files, descriptionCarrier(files))
+}
+
+// descriptionCarrier returns the first of descriptionCarriers that no file
+// appears to read, such as with target.base.call. A false match only selects
+// the next attribute.
+func descriptionCarrier(files []bake.File) string {
+	for _, carrier := range descriptionCarriers {
+		read := func(f bake.File) bool {
+			return bytes.Contains(f.Data, []byte("."+carrier)) || bytes.Contains(f.Data, []byte(`"`+carrier+`"]`)) || bytes.Contains(f.Data, []byte(`\"`+carrier+`\"]`))
+		}
+		if !slices.ContainsFunc(files, read) {
+			return carrier
+		}
+	}
+	return descriptionCarriers[0]
 }
 
 // targetProjects returns the project of each target that has one, and
