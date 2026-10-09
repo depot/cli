@@ -7,9 +7,12 @@
       "target": "artifact",
       "description": "reads the project of _json",
       "args": {
-        "MESSAGE": "${target._json.project_id}"
+        "MESSAGE": "${target._json.project_id}",
+        "LITERAL": "target._json.project_id"
       },
-      "output": ["type=local,dest=out-json"]
+      "output": [
+        "type=local,dest=out-json"
+      ]
     }
   }
 }

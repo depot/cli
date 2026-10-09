@@ -20,3 +20,11 @@ target "build" {
   target = "artifact"
   output = ["type=local,dest=out"]
 }
+
+target "check-json" {
+  call = "check,format=json"
+}
+
+target "check-ignorestatus" {
+  call = "check,ignorestatus=true"
+}
