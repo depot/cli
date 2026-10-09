@@ -5,5 +5,5 @@ target "_project" {
 
 target "described" {
   target      = "artifact"
-  description = "built in ${target._project.project_id} with ${target._project.call}"
+  description = "built in ${target._project.project_id} with ${target._project["call" ]}"
 }
