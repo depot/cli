@@ -78,6 +78,30 @@ const (
 	// DepotAgentServiceRespondLocalMcpCallProcedure is the fully-qualified name of the
 	// DepotAgentService's RespondLocalMcpCall RPC.
 	DepotAgentServiceRespondLocalMcpCallProcedure = "/depot.agent.v1.DepotAgentService/RespondLocalMcpCall"
+	// DepotAgentServiceCreateMcpServerProcedure is the fully-qualified name of the DepotAgentService's
+	// CreateMcpServer RPC.
+	DepotAgentServiceCreateMcpServerProcedure = "/depot.agent.v1.DepotAgentService/CreateMcpServer"
+	// DepotAgentServiceListMcpServersProcedure is the fully-qualified name of the DepotAgentService's
+	// ListMcpServers RPC.
+	DepotAgentServiceListMcpServersProcedure = "/depot.agent.v1.DepotAgentService/ListMcpServers"
+	// DepotAgentServiceDeleteMcpServerProcedure is the fully-qualified name of the DepotAgentService's
+	// DeleteMcpServer RPC.
+	DepotAgentServiceDeleteMcpServerProcedure = "/depot.agent.v1.DepotAgentService/DeleteMcpServer"
+	// DepotAgentServiceSetMcpServerTokenProcedure is the fully-qualified name of the
+	// DepotAgentService's SetMcpServerToken RPC.
+	DepotAgentServiceSetMcpServerTokenProcedure = "/depot.agent.v1.DepotAgentService/SetMcpServerToken"
+	// DepotAgentServiceStartMcpLoginProcedure is the fully-qualified name of the DepotAgentService's
+	// StartMcpLogin RPC.
+	DepotAgentServiceStartMcpLoginProcedure = "/depot.agent.v1.DepotAgentService/StartMcpLogin"
+	// DepotAgentServiceListAgentCredentialsProcedure is the fully-qualified name of the
+	// DepotAgentService's ListAgentCredentials RPC.
+	DepotAgentServiceListAgentCredentialsProcedure = "/depot.agent.v1.DepotAgentService/ListAgentCredentials"
+	// DepotAgentServiceSetAgentCredentialProcedure is the fully-qualified name of the
+	// DepotAgentService's SetAgentCredential RPC.
+	DepotAgentServiceSetAgentCredentialProcedure = "/depot.agent.v1.DepotAgentService/SetAgentCredential"
+	// DepotAgentServiceDeleteAgentCredentialProcedure is the fully-qualified name of the
+	// DepotAgentService's DeleteAgentCredential RPC.
+	DepotAgentServiceDeleteAgentCredentialProcedure = "/depot.agent.v1.DepotAgentService/DeleteAgentCredential"
 	// DepotAgentServiceInvokeViewActionProcedure is the fully-qualified name of the DepotAgentService's
 	// InvokeViewAction RPC.
 	DepotAgentServiceInvokeViewActionProcedure = "/depot.agent.v1.DepotAgentService/InvokeViewAction"
@@ -123,6 +147,32 @@ type DepotAgentServiceClient interface {
 	// Answers one call from `PullLocalMcpCalls`. Answering the same call twice, or one that was cancelled,
 	// succeeds and is ignored. Fails with FAILED_PRECONDITION once the stream the call came from has ended.
 	RespondLocalMcpCall(context.Context, *connect.Request[v1.RespondLocalMcpCallRequest]) (*connect.Response[v1.RespondLocalMcpCallResponse], error)
+	// Adds a remote MCP server. An organization server, which only an owner can add, serves every message
+	// sent in the organization's sessions; a user server, which any member can add, serves only the messages
+	// its creator sends. Depot calls the server on the agent's behalf, so its credentials never reach a sandbox.
+	CreateMcpServer(context.Context, *connect.Request[v1.CreateMcpServerRequest]) (*connect.Response[v1.CreateMcpServerResponse], error)
+	// Lists the organization's MCP servers, then the caller's own; newest first within each.
+	ListMcpServers(context.Context, *connect.Request[v1.ListMcpServersRequest]) (*connect.Response[v1.ListMcpServersResponse], error)
+	// Removes an MCP server: an organization server for an owner, a user server for its creator. Tool listings
+	// taken after the delete leave it out, and later calls to it fail, even from a turn whose tools were listed
+	// before. A call that is already being sent may still complete.
+	DeleteMcpServer(context.Context, *connect.Request[v1.DeleteMcpServerRequest]) (*connect.Response[v1.DeleteMcpServerResponse], error)
+	// Stores a token as an MCP server's credential, which Depot sends as `Authorization: Bearer`, or clears it.
+	// Any member who can use the server sets their own; an owner can set the organization's for an organization
+	// server. The token is never returned.
+	SetMcpServerToken(context.Context, *connect.Request[v1.SetMcpServerTokenRequest]) (*connect.Response[v1.SetMcpServerTokenResponse], error)
+	// Returns a URL that logs in to an MCP server with OAuth, for the caller to open in a browser. The login is
+	// stored as the server's credential: the caller's own, or as an owner the organization's. Only the caller can
+	// finish the login, with `FinishMcpLogin`, within 10 minutes.
+	StartMcpLogin(context.Context, *connect.Request[v1.StartMcpLoginRequest]) (*connect.Response[v1.StartMcpLoginResponse], error)
+	// Lists the organization's credentials, then the caller's own. Values are never returned.
+	ListAgentCredentials(context.Context, *connect.Request[v1.ListAgentCredentialsRequest]) (*connect.Response[v1.ListAgentCredentialsResponse], error)
+	// Stores a named credential, or replaces the one of the same name and scope. A `${secrets.NAME}` reference
+	// in an MCP server's headers resolves to the credential of the member who sent the message, then the
+	// organization's, then the CI secret NAME. Depot sends it only to its hosts, and never to a sandbox.
+	SetAgentCredential(context.Context, *connect.Request[v1.SetAgentCredentialRequest]) (*connect.Response[v1.SetAgentCredentialResponse], error)
+	// Deletes a named credential.
+	DeleteAgentCredential(context.Context, *connect.Request[v1.DeleteAgentCredentialRequest]) (*connect.Response[v1.DeleteAgentCredentialResponse], error)
 	// Runs one action on a plugin view: a button, select or form. The click is queued as a "plugin_call" message,
 	// shown in the transcript, and handled by the plugin inside the sandbox. A retry with the same
 	// `clientRequestId` returns the original.
@@ -214,6 +264,46 @@ func NewDepotAgentServiceClient(httpClient connect.HTTPClient, baseURL string, o
 			baseURL+DepotAgentServiceRespondLocalMcpCallProcedure,
 			opts...,
 		),
+		createMcpServer: connect.NewClient[v1.CreateMcpServerRequest, v1.CreateMcpServerResponse](
+			httpClient,
+			baseURL+DepotAgentServiceCreateMcpServerProcedure,
+			opts...,
+		),
+		listMcpServers: connect.NewClient[v1.ListMcpServersRequest, v1.ListMcpServersResponse](
+			httpClient,
+			baseURL+DepotAgentServiceListMcpServersProcedure,
+			opts...,
+		),
+		deleteMcpServer: connect.NewClient[v1.DeleteMcpServerRequest, v1.DeleteMcpServerResponse](
+			httpClient,
+			baseURL+DepotAgentServiceDeleteMcpServerProcedure,
+			opts...,
+		),
+		setMcpServerToken: connect.NewClient[v1.SetMcpServerTokenRequest, v1.SetMcpServerTokenResponse](
+			httpClient,
+			baseURL+DepotAgentServiceSetMcpServerTokenProcedure,
+			opts...,
+		),
+		startMcpLogin: connect.NewClient[v1.StartMcpLoginRequest, v1.StartMcpLoginResponse](
+			httpClient,
+			baseURL+DepotAgentServiceStartMcpLoginProcedure,
+			opts...,
+		),
+		listAgentCredentials: connect.NewClient[v1.ListAgentCredentialsRequest, v1.ListAgentCredentialsResponse](
+			httpClient,
+			baseURL+DepotAgentServiceListAgentCredentialsProcedure,
+			opts...,
+		),
+		setAgentCredential: connect.NewClient[v1.SetAgentCredentialRequest, v1.SetAgentCredentialResponse](
+			httpClient,
+			baseURL+DepotAgentServiceSetAgentCredentialProcedure,
+			opts...,
+		),
+		deleteAgentCredential: connect.NewClient[v1.DeleteAgentCredentialRequest, v1.DeleteAgentCredentialResponse](
+			httpClient,
+			baseURL+DepotAgentServiceDeleteAgentCredentialProcedure,
+			opts...,
+		),
 		invokeViewAction: connect.NewClient[v1.InvokeViewActionRequest, v1.InvokeViewActionResponse](
 			httpClient,
 			baseURL+DepotAgentServiceInvokeViewActionProcedure,
@@ -239,6 +329,14 @@ type depotAgentServiceClient struct {
 	getAgentDefinition       *connect.Client[v1.GetAgentDefinitionRequest, v1.GetAgentDefinitionResponse]
 	pullLocalMcpCalls        *connect.Client[v1.PullLocalMcpCallsRequest, v1.PullLocalMcpCallsResponse]
 	respondLocalMcpCall      *connect.Client[v1.RespondLocalMcpCallRequest, v1.RespondLocalMcpCallResponse]
+	createMcpServer          *connect.Client[v1.CreateMcpServerRequest, v1.CreateMcpServerResponse]
+	listMcpServers           *connect.Client[v1.ListMcpServersRequest, v1.ListMcpServersResponse]
+	deleteMcpServer          *connect.Client[v1.DeleteMcpServerRequest, v1.DeleteMcpServerResponse]
+	setMcpServerToken        *connect.Client[v1.SetMcpServerTokenRequest, v1.SetMcpServerTokenResponse]
+	startMcpLogin            *connect.Client[v1.StartMcpLoginRequest, v1.StartMcpLoginResponse]
+	listAgentCredentials     *connect.Client[v1.ListAgentCredentialsRequest, v1.ListAgentCredentialsResponse]
+	setAgentCredential       *connect.Client[v1.SetAgentCredentialRequest, v1.SetAgentCredentialResponse]
+	deleteAgentCredential    *connect.Client[v1.DeleteAgentCredentialRequest, v1.DeleteAgentCredentialResponse]
 	invokeViewAction         *connect.Client[v1.InvokeViewActionRequest, v1.InvokeViewActionResponse]
 }
 
@@ -317,6 +415,46 @@ func (c *depotAgentServiceClient) RespondLocalMcpCall(ctx context.Context, req *
 	return c.respondLocalMcpCall.CallUnary(ctx, req)
 }
 
+// CreateMcpServer calls depot.agent.v1.DepotAgentService.CreateMcpServer.
+func (c *depotAgentServiceClient) CreateMcpServer(ctx context.Context, req *connect.Request[v1.CreateMcpServerRequest]) (*connect.Response[v1.CreateMcpServerResponse], error) {
+	return c.createMcpServer.CallUnary(ctx, req)
+}
+
+// ListMcpServers calls depot.agent.v1.DepotAgentService.ListMcpServers.
+func (c *depotAgentServiceClient) ListMcpServers(ctx context.Context, req *connect.Request[v1.ListMcpServersRequest]) (*connect.Response[v1.ListMcpServersResponse], error) {
+	return c.listMcpServers.CallUnary(ctx, req)
+}
+
+// DeleteMcpServer calls depot.agent.v1.DepotAgentService.DeleteMcpServer.
+func (c *depotAgentServiceClient) DeleteMcpServer(ctx context.Context, req *connect.Request[v1.DeleteMcpServerRequest]) (*connect.Response[v1.DeleteMcpServerResponse], error) {
+	return c.deleteMcpServer.CallUnary(ctx, req)
+}
+
+// SetMcpServerToken calls depot.agent.v1.DepotAgentService.SetMcpServerToken.
+func (c *depotAgentServiceClient) SetMcpServerToken(ctx context.Context, req *connect.Request[v1.SetMcpServerTokenRequest]) (*connect.Response[v1.SetMcpServerTokenResponse], error) {
+	return c.setMcpServerToken.CallUnary(ctx, req)
+}
+
+// StartMcpLogin calls depot.agent.v1.DepotAgentService.StartMcpLogin.
+func (c *depotAgentServiceClient) StartMcpLogin(ctx context.Context, req *connect.Request[v1.StartMcpLoginRequest]) (*connect.Response[v1.StartMcpLoginResponse], error) {
+	return c.startMcpLogin.CallUnary(ctx, req)
+}
+
+// ListAgentCredentials calls depot.agent.v1.DepotAgentService.ListAgentCredentials.
+func (c *depotAgentServiceClient) ListAgentCredentials(ctx context.Context, req *connect.Request[v1.ListAgentCredentialsRequest]) (*connect.Response[v1.ListAgentCredentialsResponse], error) {
+	return c.listAgentCredentials.CallUnary(ctx, req)
+}
+
+// SetAgentCredential calls depot.agent.v1.DepotAgentService.SetAgentCredential.
+func (c *depotAgentServiceClient) SetAgentCredential(ctx context.Context, req *connect.Request[v1.SetAgentCredentialRequest]) (*connect.Response[v1.SetAgentCredentialResponse], error) {
+	return c.setAgentCredential.CallUnary(ctx, req)
+}
+
+// DeleteAgentCredential calls depot.agent.v1.DepotAgentService.DeleteAgentCredential.
+func (c *depotAgentServiceClient) DeleteAgentCredential(ctx context.Context, req *connect.Request[v1.DeleteAgentCredentialRequest]) (*connect.Response[v1.DeleteAgentCredentialResponse], error) {
+	return c.deleteAgentCredential.CallUnary(ctx, req)
+}
+
 // InvokeViewAction calls depot.agent.v1.DepotAgentService.InvokeViewAction.
 func (c *depotAgentServiceClient) InvokeViewAction(ctx context.Context, req *connect.Request[v1.InvokeViewActionRequest]) (*connect.Response[v1.InvokeViewActionResponse], error) {
 	return c.invokeViewAction.CallUnary(ctx, req)
@@ -362,6 +500,32 @@ type DepotAgentServiceHandler interface {
 	// Answers one call from `PullLocalMcpCalls`. Answering the same call twice, or one that was cancelled,
 	// succeeds and is ignored. Fails with FAILED_PRECONDITION once the stream the call came from has ended.
 	RespondLocalMcpCall(context.Context, *connect.Request[v1.RespondLocalMcpCallRequest]) (*connect.Response[v1.RespondLocalMcpCallResponse], error)
+	// Adds a remote MCP server. An organization server, which only an owner can add, serves every message
+	// sent in the organization's sessions; a user server, which any member can add, serves only the messages
+	// its creator sends. Depot calls the server on the agent's behalf, so its credentials never reach a sandbox.
+	CreateMcpServer(context.Context, *connect.Request[v1.CreateMcpServerRequest]) (*connect.Response[v1.CreateMcpServerResponse], error)
+	// Lists the organization's MCP servers, then the caller's own; newest first within each.
+	ListMcpServers(context.Context, *connect.Request[v1.ListMcpServersRequest]) (*connect.Response[v1.ListMcpServersResponse], error)
+	// Removes an MCP server: an organization server for an owner, a user server for its creator. Tool listings
+	// taken after the delete leave it out, and later calls to it fail, even from a turn whose tools were listed
+	// before. A call that is already being sent may still complete.
+	DeleteMcpServer(context.Context, *connect.Request[v1.DeleteMcpServerRequest]) (*connect.Response[v1.DeleteMcpServerResponse], error)
+	// Stores a token as an MCP server's credential, which Depot sends as `Authorization: Bearer`, or clears it.
+	// Any member who can use the server sets their own; an owner can set the organization's for an organization
+	// server. The token is never returned.
+	SetMcpServerToken(context.Context, *connect.Request[v1.SetMcpServerTokenRequest]) (*connect.Response[v1.SetMcpServerTokenResponse], error)
+	// Returns a URL that logs in to an MCP server with OAuth, for the caller to open in a browser. The login is
+	// stored as the server's credential: the caller's own, or as an owner the organization's. Only the caller can
+	// finish the login, with `FinishMcpLogin`, within 10 minutes.
+	StartMcpLogin(context.Context, *connect.Request[v1.StartMcpLoginRequest]) (*connect.Response[v1.StartMcpLoginResponse], error)
+	// Lists the organization's credentials, then the caller's own. Values are never returned.
+	ListAgentCredentials(context.Context, *connect.Request[v1.ListAgentCredentialsRequest]) (*connect.Response[v1.ListAgentCredentialsResponse], error)
+	// Stores a named credential, or replaces the one of the same name and scope. A `${secrets.NAME}` reference
+	// in an MCP server's headers resolves to the credential of the member who sent the message, then the
+	// organization's, then the CI secret NAME. Depot sends it only to its hosts, and never to a sandbox.
+	SetAgentCredential(context.Context, *connect.Request[v1.SetAgentCredentialRequest]) (*connect.Response[v1.SetAgentCredentialResponse], error)
+	// Deletes a named credential.
+	DeleteAgentCredential(context.Context, *connect.Request[v1.DeleteAgentCredentialRequest]) (*connect.Response[v1.DeleteAgentCredentialResponse], error)
 	// Runs one action on a plugin view: a button, select or form. The click is queued as a "plugin_call" message,
 	// shown in the transcript, and handled by the plugin inside the sandbox. A retry with the same
 	// `clientRequestId` returns the original.
@@ -449,6 +613,46 @@ func NewDepotAgentServiceHandler(svc DepotAgentServiceHandler, opts ...connect.H
 		svc.RespondLocalMcpCall,
 		opts...,
 	)
+	depotAgentServiceCreateMcpServerHandler := connect.NewUnaryHandler(
+		DepotAgentServiceCreateMcpServerProcedure,
+		svc.CreateMcpServer,
+		opts...,
+	)
+	depotAgentServiceListMcpServersHandler := connect.NewUnaryHandler(
+		DepotAgentServiceListMcpServersProcedure,
+		svc.ListMcpServers,
+		opts...,
+	)
+	depotAgentServiceDeleteMcpServerHandler := connect.NewUnaryHandler(
+		DepotAgentServiceDeleteMcpServerProcedure,
+		svc.DeleteMcpServer,
+		opts...,
+	)
+	depotAgentServiceSetMcpServerTokenHandler := connect.NewUnaryHandler(
+		DepotAgentServiceSetMcpServerTokenProcedure,
+		svc.SetMcpServerToken,
+		opts...,
+	)
+	depotAgentServiceStartMcpLoginHandler := connect.NewUnaryHandler(
+		DepotAgentServiceStartMcpLoginProcedure,
+		svc.StartMcpLogin,
+		opts...,
+	)
+	depotAgentServiceListAgentCredentialsHandler := connect.NewUnaryHandler(
+		DepotAgentServiceListAgentCredentialsProcedure,
+		svc.ListAgentCredentials,
+		opts...,
+	)
+	depotAgentServiceSetAgentCredentialHandler := connect.NewUnaryHandler(
+		DepotAgentServiceSetAgentCredentialProcedure,
+		svc.SetAgentCredential,
+		opts...,
+	)
+	depotAgentServiceDeleteAgentCredentialHandler := connect.NewUnaryHandler(
+		DepotAgentServiceDeleteAgentCredentialProcedure,
+		svc.DeleteAgentCredential,
+		opts...,
+	)
 	depotAgentServiceInvokeViewActionHandler := connect.NewUnaryHandler(
 		DepotAgentServiceInvokeViewActionProcedure,
 		svc.InvokeViewAction,
@@ -486,6 +690,22 @@ func NewDepotAgentServiceHandler(svc DepotAgentServiceHandler, opts ...connect.H
 			depotAgentServicePullLocalMcpCallsHandler.ServeHTTP(w, r)
 		case DepotAgentServiceRespondLocalMcpCallProcedure:
 			depotAgentServiceRespondLocalMcpCallHandler.ServeHTTP(w, r)
+		case DepotAgentServiceCreateMcpServerProcedure:
+			depotAgentServiceCreateMcpServerHandler.ServeHTTP(w, r)
+		case DepotAgentServiceListMcpServersProcedure:
+			depotAgentServiceListMcpServersHandler.ServeHTTP(w, r)
+		case DepotAgentServiceDeleteMcpServerProcedure:
+			depotAgentServiceDeleteMcpServerHandler.ServeHTTP(w, r)
+		case DepotAgentServiceSetMcpServerTokenProcedure:
+			depotAgentServiceSetMcpServerTokenHandler.ServeHTTP(w, r)
+		case DepotAgentServiceStartMcpLoginProcedure:
+			depotAgentServiceStartMcpLoginHandler.ServeHTTP(w, r)
+		case DepotAgentServiceListAgentCredentialsProcedure:
+			depotAgentServiceListAgentCredentialsHandler.ServeHTTP(w, r)
+		case DepotAgentServiceSetAgentCredentialProcedure:
+			depotAgentServiceSetAgentCredentialHandler.ServeHTTP(w, r)
+		case DepotAgentServiceDeleteAgentCredentialProcedure:
+			depotAgentServiceDeleteAgentCredentialHandler.ServeHTTP(w, r)
 		case DepotAgentServiceInvokeViewActionProcedure:
 			depotAgentServiceInvokeViewActionHandler.ServeHTTP(w, r)
 		default:
@@ -555,6 +775,38 @@ func (UnimplementedDepotAgentServiceHandler) PullLocalMcpCalls(context.Context, 
 
 func (UnimplementedDepotAgentServiceHandler) RespondLocalMcpCall(context.Context, *connect.Request[v1.RespondLocalMcpCallRequest]) (*connect.Response[v1.RespondLocalMcpCallResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.agent.v1.DepotAgentService.RespondLocalMcpCall is not implemented"))
+}
+
+func (UnimplementedDepotAgentServiceHandler) CreateMcpServer(context.Context, *connect.Request[v1.CreateMcpServerRequest]) (*connect.Response[v1.CreateMcpServerResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.agent.v1.DepotAgentService.CreateMcpServer is not implemented"))
+}
+
+func (UnimplementedDepotAgentServiceHandler) ListMcpServers(context.Context, *connect.Request[v1.ListMcpServersRequest]) (*connect.Response[v1.ListMcpServersResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.agent.v1.DepotAgentService.ListMcpServers is not implemented"))
+}
+
+func (UnimplementedDepotAgentServiceHandler) DeleteMcpServer(context.Context, *connect.Request[v1.DeleteMcpServerRequest]) (*connect.Response[v1.DeleteMcpServerResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.agent.v1.DepotAgentService.DeleteMcpServer is not implemented"))
+}
+
+func (UnimplementedDepotAgentServiceHandler) SetMcpServerToken(context.Context, *connect.Request[v1.SetMcpServerTokenRequest]) (*connect.Response[v1.SetMcpServerTokenResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.agent.v1.DepotAgentService.SetMcpServerToken is not implemented"))
+}
+
+func (UnimplementedDepotAgentServiceHandler) StartMcpLogin(context.Context, *connect.Request[v1.StartMcpLoginRequest]) (*connect.Response[v1.StartMcpLoginResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.agent.v1.DepotAgentService.StartMcpLogin is not implemented"))
+}
+
+func (UnimplementedDepotAgentServiceHandler) ListAgentCredentials(context.Context, *connect.Request[v1.ListAgentCredentialsRequest]) (*connect.Response[v1.ListAgentCredentialsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.agent.v1.DepotAgentService.ListAgentCredentials is not implemented"))
+}
+
+func (UnimplementedDepotAgentServiceHandler) SetAgentCredential(context.Context, *connect.Request[v1.SetAgentCredentialRequest]) (*connect.Response[v1.SetAgentCredentialResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.agent.v1.DepotAgentService.SetAgentCredential is not implemented"))
+}
+
+func (UnimplementedDepotAgentServiceHandler) DeleteAgentCredential(context.Context, *connect.Request[v1.DeleteAgentCredentialRequest]) (*connect.Response[v1.DeleteAgentCredentialResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.agent.v1.DepotAgentService.DeleteAgentCredential is not implemented"))
 }
 
 func (UnimplementedDepotAgentServiceHandler) InvokeViewAction(context.Context, *connect.Request[v1.InvokeViewActionRequest]) (*connect.Response[v1.InvokeViewActionResponse], error) {

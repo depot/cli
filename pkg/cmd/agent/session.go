@@ -328,7 +328,7 @@ Plugin view controls run with: depot agent session action <session-id> <plugin>/
 					return err
 				}
 				for _, name := range remote {
-					fmt.Fprintf(os.Stderr, "(skipping remote MCP server %s: add it to your organization instead)\n", name)
+					fmt.Fprintf(os.Stderr, "(skipping remote MCP server %s: add it with depot agent mcp add)\n", name)
 				}
 				s.local = startLocalMcp(ctx, servers, os.Stderr)
 				defer s.local.Close()
