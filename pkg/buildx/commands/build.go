@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/containerd/containerd/v2/pkg/epoch"
 	"github.com/depot/cli/pkg/arguments"
 	depotbuild "github.com/depot/cli/pkg/build"
 	"github.com/depot/cli/pkg/buildxdriver"
@@ -451,6 +452,11 @@ func validateBuildOptions(in *buildOptions) (map[string]build.Options, error) {
 		Tags:          in.tags,
 		Target:        in.target,
 		Ulimits:       in.ulimits,
+	}
+	if _, ok := opts.BuildArgs[epoch.SourceDateEpochEnv]; !ok {
+		if v := os.Getenv(epoch.SourceDateEpochEnv); v != "" {
+			opts.BuildArgs[epoch.SourceDateEpochEnv] = v
+		}
 	}
 	if callFunc != nil {
 		opts.CallFunc = &build.CallFunc{Name: callFunc.Name, Format: callFunc.Format, IgnoreStatus: callFunc.IgnoreStatus}

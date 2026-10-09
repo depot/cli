@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/containerd/containerd/v2/pkg/epoch"
 	"github.com/containerd/platforms"
 	depotbuild "github.com/depot/cli/pkg/build"
 	"github.com/depot/cli/pkg/buildxdriver"
@@ -540,6 +541,24 @@ func (t *RemoteBakeValidator) Validate(ctx context.Context, nodes []builder.Node
 	return projects, requestedTargets, nil
 }
 
+// setSourceDateEpoch sets the SOURCE_DATE_EPOCH build argument of each
+// target from the environment, unless the target sets it.
+func setSourceDateEpoch(targets map[string]*bake.Target) {
+	v := os.Getenv(epoch.SourceDateEpochEnv)
+	if v == "" {
+		return
+	}
+	for _, t := range targets {
+		if _, ok := t.Args[epoch.SourceDateEpochEnv]; ok {
+			continue
+		}
+		if t.Args == nil {
+			t.Args = map[string]*string{}
+		}
+		t.Args[epoch.SourceDateEpochEnv] = &v
+	}
+}
+
 // readBakeTargets resolves the requested targets of a bake definition into
 // build options grouped by Depot project, and returns the targets that the
 // requested targets and groups expand to.
@@ -551,6 +570,7 @@ func readBakeTargets(ctx context.Context, files []bake.File, inp *bake.Input, op
 	if err != nil {
 		return nil, nil, err
 	}
+	setSourceDateEpoch(targets)
 
 	cfg, _, err := bake.ParseFiles(buildFiles, defaults, nil)
 	if err != nil {

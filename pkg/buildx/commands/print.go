@@ -40,6 +40,7 @@ func BakePrint(dockerCli command.Cli, targets []string, in BakeOptions) error {
 	if err != nil {
 		return err
 	}
+	setSourceDateEpoch(tgts)
 
 	projects, err := readTargetProjects(context.Background(), files, targets, defaults)
 	if err != nil {
