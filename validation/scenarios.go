@@ -96,6 +96,8 @@ func commandLineScenarios() []scenario {
 			"bake", "--print", "--set", "*.project_id=vtproject-set"), 1, "unknown key: project_id"),
 		failing(offline("bake-print-json-trailing-data", "bake --print rejects a JSON definition with data after the first value", "projectref",
 			"bake", "-f", "trailing.json", "--print", "trailing"), 1, "Extraneous data after value"),
+		expectStdout(offline("bake-print-project-reference-forms", "bake --print with a description, an index, and a target without a project that read project_id", "projectref",
+			"bake", "-f", "references.hcl", "--print", "references"), `"description": "built in <project>-ref"`, `"INDEX": "<project>-ref"`, `"EMPTY": "none:"`),
 		expectStdout(offline("bake-print-description-reference", "bake --print with an argument that reads the description of another target", "description",
 			"bake", "--print", "artifact"), `"MESSAGE": "described by _base"`),
 		offline("bake-print-multiproject", "bake --print shows per-target project identifiers", "multiproject", "bake", "--print"),
