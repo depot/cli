@@ -460,6 +460,14 @@ func buildScenarios() []scenario {
 		failing(build("build-lint-fail", "--lint-fail-on=warn fails the build", "lint", "--lint", "--lint-fail-on", "warn", "--platform", "linux/amd64", "-o", "type=local,dest=out"), 1),
 		failing(build("build-lint-remote-dockerfile", "--lint downloads a Dockerfile given as a URL", "lint",
 			"--lint", "--lint-fail-on", "warn", "-f", "{{git}}/files/lint/Dockerfile", "--platform", "linux/amd64", "-o", "type=local,dest=out"), 1, "DL4000"),
+		baselineDefect(failing(scenario{
+			Name: "build-lint-remote-git-context", Description: "--lint reads the Dockerfile from a git repository context", Fixture: "basic",
+			Args: []string{"build", "{{git}}/lint.git", "--progress=plain", "--lint", "--lint-fail-on", "warn", "--platform", "linux/amd64", "-o", "type=local,dest=out"},
+		}, 1, "DL4000"), "the old CLI linted ./Dockerfile instead of the Dockerfile in the repository"),
+		baselineDefect(failing(scenario{
+			Name: "build-lint-remote-http-context", Description: "--lint reads a Dockerfile given as an HTTP context", Fixture: "basic",
+			Args: []string{"build", "{{git}}/files/lint/Dockerfile", "--progress=plain", "--lint", "--lint-fail-on", "warn", "--platform", "linux/amd64", "-o", "type=local,dest=out"},
+		}, 1, "DL4000"), "the old CLI linted ./Dockerfile instead of the Dockerfile at the URL"),
 		withStdin(failing(scenario{
 			Name: "build-lint-remote-context-stdin", Description: "--lint with a git repository context and a Dockerfile from standard input", Fixture: "basic",
 			Args: []string{"build", "{{git}}/basic.git", "--progress=plain", "--lint", "--lint-fail-on", "warn", "-f", "-", "--platform", "linux/amd64", "-o", "type=local,dest=out"},
