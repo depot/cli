@@ -20,17 +20,19 @@ import (
 // Depot extends bake targets with a project_id attribute that selects the
 // Depot project of the target. Upstream bake rejects unknown attributes, and
 // a reference such as target.base.project_id can only read attributes that
-// upstream bake knows. So the files are rewritten before upstream bake reads
-// them:
+// upstream bake knows. So, before upstream bake reads the files, project_id is
+// moved into an attribute that upstream bake knows, the carrier, and the
+// references to project_id become references to the carrier. Upstream bake
+// then evaluates the project with the same variables, functions,
+// inheritance, and matrix expansion as every other attribute. Each read
+// blanks the values of the carrier in the files, so that only projects reach
+// it:
 //
-//   - projectFiles moves project_id into the description attribute of each
-//     target, and changes references to project_id into references to
-//     description. Upstream bake then evaluates the project with the same
-//     variables, functions, inheritance, and matrix expansion as every other
-//     attribute. The description has no effect on a build, so these files
-//     are used for the build too.
-//   - descriptionFiles removes project_id and keeps the descriptions of the
-//     user, for bake --print.
+//   - projectFiles uses description as the carrier. The description has no
+//     effect on a build, so these files are used for the build too.
+//   - descriptionFiles uses call as the carrier, and keeps the descriptions
+//     of the user for bake --print. Only the descriptions of this read are
+//     used.
 //
 // Compose services select a project with the x-depot.project-id build
 // extension. Compose has no field that bake reads as a description, so
@@ -42,14 +44,12 @@ import (
 // descriptions stay available to expressions.
 const projectIDAttribute = "project_id"
 
-const composeProjectFileName = "depot-compose-projects.hcl"
-
-type projectRewrite int
-
 const (
-	removeProjectID projectRewrite = iota
-	projectIDToDescription
+	buildCarrier       = "description"
+	descriptionCarrier = "call"
 )
+
+const composeProjectFileName = "depot-compose-projects.hcl"
 
 // readProjectTargets reads the targets and groups, and the project of each
 // target that selects one.
@@ -68,23 +68,23 @@ func readProjectTargets(ctx context.Context, files []bake.File, composeTargets m
 // selectsProjects reports whether a target sets project_id, an expression
 // reads it, or a compose service sets x-depot.project-id.
 func selectsProjects(files []bake.File, composeTargets map[string]compose.Target) bool {
-	return slices.ContainsFunc(files, func(f bake.File) bool { return !bytes.Equal(rewriteFile(f, removeProjectID), f.Data) }) ||
+	return slices.ContainsFunc(files, func(f bake.File) bool { _, uses := rewriteFile(f, buildCarrier); return uses > 0 }) ||
 		slices.ContainsFunc(slices.Collect(maps.Values(composeTargets)), func(t compose.Target) bool { return t.ProjectID != "" })
 }
 
 // projectFiles returns the files with the project of each target in its
 // description.
 func projectFiles(files []bake.File, composeTargets map[string]compose.Target) []bake.File {
-	out := rewriteFiles(files, projectIDToDescription)
+	out := rewriteFiles(files, buildCarrier)
 	if f, ok := composeProjectFile(composeTargets); ok {
 		out = append([]bake.File{f}, out...)
 	}
 	return out
 }
 
-// descriptionFiles returns the files without project_id.
+// descriptionFiles returns the files with the descriptions of the user.
 func descriptionFiles(files []bake.File) []bake.File {
-	return rewriteFiles(files, removeProjectID)
+	return rewriteFiles(files, descriptionCarrier)
 }
 
 // targetProjects returns the project of each target that has one, and
@@ -130,37 +130,38 @@ func composeProjectFile(composeTargets map[string]compose.Target) (bake.File, bo
 		if projectID == "" {
 			continue
 		}
-		f.Body().AppendNewBlock("target", []string{name}).Body().SetAttributeValue("description", cty.StringVal(projectID))
+		f.Body().AppendNewBlock("target", []string{name}).Body().SetAttributeValue(buildCarrier, cty.StringVal(projectID))
 		found = true
 	}
 	return bake.File{Name: composeProjectFileName, Data: f.Bytes()}, found
 }
 
-func rewriteFiles(files []bake.File, mode projectRewrite) []bake.File {
+func rewriteFiles(files []bake.File, carrier string) []bake.File {
 	out := make([]bake.File, len(files))
 	for i, f := range files {
-		out[i] = bake.File{Name: f.Name, Data: rewriteFile(f, mode)}
+		data, _ := rewriteFile(f, carrier)
+		out[i] = bake.File{Name: f.Name, Data: data}
 	}
 	return out
 }
 
-func rewriteFile(f bake.File, mode projectRewrite) []byte {
-	if !bytes.Contains(f.Data, []byte(projectIDAttribute)) && mode == removeProjectID {
-		return f.Data
-	}
+// rewriteFile moves project_id into the carrier. It returns the file and the
+// number of project_id attributes and references that it moved. A file that
+// is neither HCL nor JSON is returned unchanged.
+func rewriteFile(f bake.File, carrier string) ([]byte, int) {
 	if strings.HasSuffix(f.Name, ".json") {
-		if data, ok := rewriteJSON(f.Data, mode); ok {
-			return data
+		if data, uses, ok := rewriteJSON(f.Data, carrier); ok {
+			return data, uses
 		}
-		return f.Data
+		return f.Data, 0
 	}
-	if data, ok := rewriteHCL(f.Data, f.Name, mode); ok {
-		return data
+	if data, uses, ok := rewriteHCL(f.Data, f.Name, carrier); ok {
+		return data, uses
 	}
-	if data, ok := rewriteJSON(f.Data, mode); ok {
-		return data
+	if data, uses, ok := rewriteJSON(f.Data, carrier); ok {
+		return data, uses
 	}
-	return f.Data
+	return f.Data, 0
 }
 
 type replacement struct {
@@ -168,14 +169,14 @@ type replacement struct {
 	text       []byte
 }
 
-func rewriteHCL(data []byte, name string, mode projectRewrite) ([]byte, bool) {
+func rewriteHCL(data []byte, name, carrier string) ([]byte, int, bool) {
 	file, diags := hclsyntax.ParseConfig(data, name, hcl.InitialPos)
 	if diags.HasErrors() {
-		return nil, false
+		return nil, 0, false
 	}
 	body, ok := file.Body.(*hclsyntax.Body)
 	if !ok {
-		return nil, false
+		return nil, 0, false
 	}
 
 	var blanks, renames []replacement
@@ -183,27 +184,14 @@ func rewriteHCL(data []byte, name string, mode projectRewrite) ([]byte, bool) {
 		if block.Type != "target" {
 			continue
 		}
-		projectID, hasProjectID := block.Body.Attributes[projectIDAttribute]
-		description, hasDescription := block.Body.Attributes["description"]
-		switch mode {
-		case removeProjectID:
-			if hasProjectID {
-				blanks = append(blanks, blank(data, projectID.SrcRange))
-			}
-		case projectIDToDescription:
-			if hasDescription {
-				blanks = append(blanks, blank(data, description.SrcRange))
-			}
-			if hasProjectID {
-				renames = append(renames, replacement{
-					start: projectID.NameRange.Start.Byte,
-					end:   projectID.NameRange.End.Byte,
-					text:  []byte("description"),
-				})
-			}
+		if attr, ok := block.Body.Attributes[carrier]; ok {
+			blanks = append(blanks, blank(data, attr.SrcRange))
+		}
+		if attr, ok := block.Body.Attributes[projectIDAttribute]; ok {
+			renames = append(renames, replacement{start: attr.NameRange.Start.Byte, end: attr.NameRange.End.Byte, text: []byte(carrier)})
 		}
 	}
-	renames = append(renames, projectIDReferences(body, mode)...)
+	renames = append(renames, projectIDReferences(body, carrier)...)
 
 	replacements := blanks
 	for _, r := range renames {
@@ -212,32 +200,41 @@ func rewriteHCL(data []byte, name string, mode projectRewrite) ([]byte, bool) {
 			replacements = append(replacements, r)
 		}
 	}
-	return replace(data, replacements), true
+	return replace(data, replacements), len(renames), true
 }
 
-// projectIDReferences returns the replacements for the expressions in node
-// that read the project_id of a target.
-func projectIDReferences(node hclsyntax.Node, mode projectRewrite) []replacement {
+// projectIDReferences returns the replacements that change the expressions
+// in node that read the project_id of a target, such as
+// target.base.project_id or target.base["project_id"], into reads of the
+// carrier. A target without project_id reads as an empty string, as with
+// the earlier Depot bake schema.
+func projectIDReferences(node hclsyntax.Node, carrier string) []replacement {
 	var out []replacement
 	_ = hclsyntax.VisitAll(node, func(node hclsyntax.Node) hcl.Diagnostics {
 		expr, ok := node.(*hclsyntax.ScopeTraversalExpr)
-		if !ok || expr.Traversal.RootName() != "target" || len(expr.Traversal) < 3 {
+		if !ok || expr.Traversal.RootName() != "target" || len(expr.Traversal) < 3 || !readsProjectID(expr.Traversal[2]) {
 			return nil
 		}
-		attr, ok := expr.Traversal[2].(hcl.TraverseAttr)
-		if !ok || attr.Name != projectIDAttribute {
+		if name, ok := expr.Traversal[1].(hcl.TraverseAttr); ok && len(expr.Traversal) == 3 {
+			ref := "target." + name.Name + "." + carrier
+			out = append(out, replacement{start: expr.SrcRange.Start.Byte, end: expr.SrcRange.End.Byte, text: []byte(`(` + ref + ` == null ? "" : ` + ref + `)`)})
 			return nil
 		}
-		switch mode {
-		case removeProjectID:
-			out = append(out, replacement{start: expr.SrcRange.Start.Byte, end: expr.SrcRange.End.Byte, text: []byte(`""`)})
-		case projectIDToDescription:
-			end := attr.SrcRange.End.Byte
-			out = append(out, replacement{start: end - len(projectIDAttribute), end: end, text: []byte("description")})
-		}
+		step := expr.Traversal[2].SourceRange()
+		out = append(out, replacement{start: step.Start.Byte, end: step.End.Byte, text: []byte(`["` + carrier + `"]`)})
 		return nil
 	})
 	return out
+}
+
+func readsProjectID(step hcl.Traverser) bool {
+	switch step := step.(type) {
+	case hcl.TraverseAttr:
+		return step.Name == projectIDAttribute
+	case hcl.TraverseIndex:
+		return step.Key.Type() == cty.String && step.Key.IsKnown() && !step.Key.IsNull() && step.Key.AsString() == projectIDAttribute
+	}
+	return false
 }
 
 func replace(data []byte, replacements []replacement) []byte {
@@ -263,69 +260,61 @@ func blank(data []byte, rng hcl.Range) replacement {
 
 // rewriteJSON rewrites a JSON definition. It returns the data unchanged when
 // nothing is rewritten, so that the positions in error messages stay correct.
-func rewriteJSON(data []byte, mode projectRewrite) ([]byte, bool) {
+func rewriteJSON(data []byte, carrier string) ([]byte, int, bool) {
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.UseNumber()
 	var root map[string]any
 	if err := decoder.Decode(&root); err != nil {
-		return nil, false
+		return nil, 0, false
 	}
 	if _, err := decoder.Token(); err != io.EOF {
-		return nil, false
+		return nil, 0, false
 	}
 
 	changed := false
+	uses := 0
 	targets, _ := root["target"].(map[string]any)
 	for _, value := range targets {
 		target, ok := value.(map[string]any)
 		if !ok {
 			continue
 		}
-		projectID, hasProjectID := target[projectIDAttribute]
-		_, hasDescription := target["description"]
-		switch mode {
-		case removeProjectID:
-			if hasProjectID {
-				delete(target, projectIDAttribute)
-				changed = true
-			}
-		case projectIDToDescription:
-			if hasDescription {
-				delete(target, "description")
-				changed = true
-			}
-			if hasProjectID {
-				delete(target, projectIDAttribute)
-				target["description"] = projectID
-				changed = true
-			}
+		if _, ok := target[carrier]; ok {
+			delete(target, carrier)
+			changed = true
+		}
+		if projectID, ok := target[projectIDAttribute]; ok {
+			delete(target, projectIDAttribute)
+			target[carrier] = projectID
+			changed = true
+			uses++
 		}
 	}
-	if rewriteJSONTemplates(root, mode) {
-		changed = true
-	}
-	if !changed {
-		return data, true
+	uses += rewriteJSONTemplates(root, carrier)
+	if !changed && uses == 0 {
+		return data, 0, true
 	}
 	out, err := json.Marshal(root)
 	if err != nil {
-		return nil, false
+		return nil, 0, false
 	}
-	return out, true
+	return out, uses, true
 }
 
 // rewriteJSONTemplates rewrites the references to project_id in every
-// string of a decoded JSON value. Bake reads each string as a template.
-func rewriteJSONTemplates(value any, mode projectRewrite) bool {
-	changed := false
+// string of a decoded JSON value, and returns their number. Bake reads each
+// string as a template.
+func rewriteJSONTemplates(value any, carrier string) int {
+	uses := 0
 	rewrite := func(element any, set func(any)) {
 		if s, ok := element.(string); ok {
-			if out, ok := rewriteTemplate(s, mode); ok {
+			out, n := rewriteTemplate(s, carrier)
+			if n > 0 {
 				set(out)
-				changed = true
+				uses += n
 			}
-		} else if rewriteJSONTemplates(element, mode) {
-			changed = true
+		} else {
+			uses += rewriteJSONTemplates(element, carrier)
 		}
 	}
 	switch v := value.(type) {
@@ -338,20 +327,17 @@ func rewriteJSONTemplates(value any, mode projectRewrite) bool {
 			rewrite(element, func(out any) { v[i] = out })
 		}
 	}
-	return changed
+	return uses
 }
 
-func rewriteTemplate(s string, mode projectRewrite) (string, bool) {
+func rewriteTemplate(s, carrier string) (string, int) {
 	if !strings.Contains(s, projectIDAttribute) {
-		return s, false
+		return s, 0
 	}
 	expr, diags := hclsyntax.ParseTemplate([]byte(s), "", hcl.InitialPos)
 	if diags.HasErrors() {
-		return s, false
+		return s, 0
 	}
-	replacements := projectIDReferences(expr, mode)
-	if len(replacements) == 0 {
-		return s, false
-	}
-	return string(replace([]byte(s), replacements)), true
+	replacements := projectIDReferences(expr, carrier)
+	return string(replace([]byte(s), replacements)), len(replacements)
 }
