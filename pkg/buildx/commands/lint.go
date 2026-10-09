@@ -121,7 +121,7 @@ func (l *Linter) Run(ctx context.Context, opts map[string]build.Options, stdin [
 			return err
 		}
 		if dockerfile.Fetch != nil {
-			dockerfile.Content, dockerfile.Err = dockerfile.Fetch(ctx, c)
+			dockerfile.Content, dockerfile.Err = dockerfile.Fetch(ctx, c, opt.Session)
 		}
 		if err := l.handle(ctx, target, c, node.Platforms[0], dockerfile); err != nil {
 			return err
