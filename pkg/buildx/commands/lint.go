@@ -115,16 +115,13 @@ func (l *Linter) Run(ctx context.Context, opts map[string]build.Options, stdin [
 	for _, target := range slices.Sorted(maps.Keys(opts)) {
 		opt := opts[target]
 		dockerfile := readDockerfile(opt.Inputs, stdin)
-		if dockerfile == nil {
-			continue
-		}
 		node := lintNode(l.nodes, opt.Platforms)
 		c, err := driver.Boot(ctx, ctx, node.Driver, l.printer)
 		if err != nil {
 			return err
 		}
-		if dockerfile.URL != "" {
-			dockerfile.Content, dockerfile.Err = downloadDockerfile(ctx, c, dockerfile.URL)
+		if dockerfile.Fetch != nil {
+			dockerfile.Content, dockerfile.Err = dockerfile.Fetch(ctx, c)
 		}
 		if err := l.handle(ctx, target, c, node.Platforms[0], dockerfile); err != nil {
 			return err

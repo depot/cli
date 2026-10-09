@@ -16,6 +16,7 @@ import (
 	"github.com/docker/buildx/util/urlutil"
 	"github.com/moby/buildkit/client"
 	"github.com/moby/buildkit/client/llb"
+	"github.com/moby/buildkit/frontend/dockerfile/dfgitutil"
 	gateway "github.com/moby/buildkit/frontend/gateway/client"
 	"github.com/moby/buildkit/util/archiveutil"
 	"github.com/moby/go-archive/compression"
@@ -27,22 +28,30 @@ type dockerfileSource struct {
 	Filename string
 	Content  []byte
 	Err      error
-	// URL is the address of a Dockerfile that the builder must download.
-	URL string
+	// Fetch reads a Dockerfile that only the builder can download. It is nil
+	// when Content holds the Dockerfile.
+	Fetch func(ctx context.Context, c *client.Client) ([]byte, error)
 }
 
-// readDockerfile reads the Dockerfile of a build target. It returns nil when
-// the Dockerfile is in a remote context.
+// readDockerfile reads the Dockerfile of a build target.
 func readDockerfile(inp build.Inputs, stdin []byte) *dockerfileSource {
 	switch {
 	case urlutil.IsHTTPURL(inp.DockerfilePath):
-		return &dockerfileSource{Filename: "Dockerfile", URL: inp.DockerfilePath}
+		return &dockerfileSource{Filename: "Dockerfile", Fetch: func(ctx context.Context, c *client.Client) ([]byte, error) {
+			return readBuilderFile(ctx, c, llb.HTTP(inp.DockerfilePath, llb.Filename("Dockerfile")), "Dockerfile")
+		}}
 	case inp.DockerfileInline != "":
 		return &dockerfileSource{Filename: "Dockerfile", Content: []byte(inp.DockerfileInline)}
 	case inp.DockerfilePath == "-":
 		return &dockerfileSource{Filename: "Dockerfile", Content: stdin}
 	case urlutil.IsRemoteURL(inp.ContextPath):
-		return nil
+		name := inp.DockerfilePath
+		if name == "" {
+			name = "Dockerfile"
+		}
+		return &dockerfileSource{Filename: path.Base(name), Fetch: func(ctx context.Context, c *client.Client) ([]byte, error) {
+			return readRemoteContextFile(ctx, c, inp.ContextPath, name)
+		}}
 	}
 	if inp.ContextPath == "-" {
 		if !archiveutil.IsArchive(stdin) {
@@ -64,12 +73,31 @@ func readDockerfile(inp build.Inputs, stdin []byte) *dockerfileSource {
 	return &dockerfileSource{Filename: filepath.Base(path), Content: content, Err: err}
 }
 
-// downloadDockerfile downloads a Dockerfile on the builder, in the same way
-// as buildx downloads it for the build.
-func downloadDockerfile(ctx context.Context, c *client.Client, url string) ([]byte, error) {
+// readRemoteContextFile reads a file from a git repository or HTTP context
+// on the builder. An HTTP context is either an archive or a Dockerfile.
+func readRemoteContextFile(ctx context.Context, c *client.Client, contextURL, name string) ([]byte, error) {
+	if ref, isGit, err := dfgitutil.ParseGitRef(contextURL); isGit {
+		if err != nil {
+			return nil, err
+		}
+		commit := ref.Ref
+		if commit == "" {
+			commit = ref.Checksum
+		}
+		return readBuilderFile(ctx, c, llb.Git(ref.Remote, commit), path.Join(ref.SubDir, name))
+	}
+	data, err := readBuilderFile(ctx, c, llb.HTTP(contextURL, llb.Filename("context")), "context")
+	if err != nil || !archiveutil.IsArchive(data) {
+		return data, err
+	}
+	return readArchiveFile(data, name)
+}
+
+// readBuilderFile reads a file from a state that the builder solves.
+func readBuilderFile(ctx context.Context, c *client.Client, st llb.State, name string) ([]byte, error) {
 	var content []byte
 	_, err := c.Build(ctx, client.SolveOpt{Internal: true}, "buildx", func(ctx context.Context, c gateway.Client) (*gateway.Result, error) {
-		def, err := llb.HTTP(url, llb.Filename("Dockerfile")).Marshal(ctx)
+		def, err := st.Marshal(ctx)
 		if err != nil {
 			return nil, err
 		}
@@ -81,7 +109,7 @@ func downloadDockerfile(ctx context.Context, c *client.Client, url string) ([]by
 		if err != nil {
 			return nil, err
 		}
-		content, err = ref.ReadFile(ctx, gateway.ReadRequest{Filename: "Dockerfile"})
+		content, err = ref.ReadFile(ctx, gateway.ReadRequest{Filename: name})
 		return nil, err
 	}, nil)
 	return content, err
