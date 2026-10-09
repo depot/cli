@@ -100,8 +100,8 @@ func descriptionCarrier(files []bake.File) string {
 }
 
 // readsTargetAttribute reports whether an expression in the file reads an
-// attribute of a target. It reports true for a file that it cannot parse
-// and that contains the name of the attribute.
+// attribute of a target. Bake evaluates such expressions only in HCL and
+// JSON files, so it reports false for other files, such as compose files.
 func readsTargetAttribute(f bake.File, attribute string) bool {
 	if !strings.HasSuffix(f.Name, ".json") {
 		if file, diags := hclsyntax.ParseConfig(f.Data, f.Name, hcl.InitialPos); !diags.HasErrors() {
@@ -110,7 +110,7 @@ func readsTargetAttribute(f bake.File, attribute string) bool {
 	}
 	var root any
 	if err := json.Unmarshal(f.Data, &root); err != nil {
-		return bytes.Contains(f.Data, []byte(attribute))
+		return false
 	}
 	reads := false
 	visitJSONStrings(root, func(s string) {
