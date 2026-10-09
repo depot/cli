@@ -1,0 +1,81 @@
+syntax = "proto3";
+
+package depot.sandbox.v1;
+
+import "depot/sandbox/v1/refs.proto";
+import "google/protobuf/timestamp.proto";
+
+// Log streaming for sandboxes.
+//
+// StreamSandboxLogs lets clients subscribe to a sandbox's startup output. The
+// server reads from a per-sandbox in-memory log buffer and delivers entries to
+// each subscriber as SandboxLogEvent messages.
+//
+// The current event kinds cover sandbox startup: stdout, stderr, a
+// finished signal, and a notice that early data was dropped. Additional event
+// kinds may be added later without changing the existing wire format.
+
+// A single event emitted by the StreamSandboxLogs RPC.
+//
+// Output data is carried as raw bytes; callers decode text (such as UTF-8) as
+// needed. Exactly one of the event fields is set per message.
+//
+// EvictedEarlyData is sent when the log buffer had to drop the oldest output
+// before this subscriber connected. Its byte count covers both stdout and
+// stderr combined, since the buffer orders entries by arrival rather than by
+// stream.
+message SandboxLogEvent {
+  oneof event {
+    BootStdout boot_stdout = 1;
+    BootStderr boot_stderr = 2;
+    BootFinished boot_finished = 3;
+    EvictedEarlyData evicted_early_data = 4;
+  }
+
+  // Tags 5..15 are reserved for future event kinds so they can be added
+  // without changing the existing wire format.
+  reserved 5 to 15;
+
+  message BootStdout {
+    bytes data = 1;
+    // Total number of stdout bytes emitted up to and including the end of
+    // this chunk. Clients can use it to deduplicate output across their own
+    // resubscriptions. Note that this is a per-stream byte count and is
+    // distinct from the request's since_offset, which is a buffer position.
+    int64 byte_offset = 2;
+    google.protobuf.Timestamp timestamp = 3;
+  }
+  message BootStderr {
+    bytes data = 1;
+    // Total number of stderr bytes emitted up to and including the end of
+    // this chunk; see BootStdout.byte_offset.
+    int64 byte_offset = 2;
+    google.protobuf.Timestamp timestamp = 3;
+  }
+  message BootFinished {
+    int32 exit_code = 1;
+    google.protobuf.Timestamp finished_at = 2;
+  }
+  // Sent when the buffer dropped the oldest output before this subscriber
+  // connected. Carries the number of bytes that were dropped so the
+  // subscriber knows there is a gap in the output it receives.
+  message EvictedEarlyData {
+    int64 dropped_bytes = 1;
+  }
+}
+
+// Request for the StreamSandboxLogs server-streaming RPC. The response is a
+// sequence of SandboxLogEvent messages read from the sandbox's log buffer. The
+// stream ends when the sandbox finishes, or with an error.
+//
+// since_offset selects where in the buffer to begin. The server replays events
+// at or after that position. If the requested position is older than the oldest
+// entry still held in the buffer, the stream begins with a single
+// EvictedEarlyData event before the replayed events.
+message StreamSandboxLogsRequest {
+  SandboxRef sandbox = 1;
+  // Buffer position to start streaming from. The server replays events at or
+  // after this position. Leave unset (or 0) to start from the oldest entry
+  // still held in the buffer.
+  optional int64 since_offset = 2;
+}
