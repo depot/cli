@@ -62,16 +62,20 @@ func (d *Driver) Bootstrap(ctx context.Context, reporter progress.Logger) error 
 	}
 	m.ClientOptions = d.interceptor.clientOptions()
 
-	d.mu.Lock()
-	d.machine = m
-	d.mu.Unlock()
-
 	finishLog := progresshelper.StartLog(reportingLogger, "[depot] connecting to "+d.platform+" machine")
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
 	_, err = m.Connect(ctx)
 	finishLog(err)
-	return err
+	if err != nil {
+		_ = m.Release()
+		return err
+	}
+
+	d.mu.Lock()
+	d.machine = m
+	d.mu.Unlock()
+	return nil
 }
 
 func (d *Driver) currentMachine() *machine.Machine {
