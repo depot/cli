@@ -1,0 +1,5 @@
+services:
+  app:
+    build:
+      args:
+        MESSAGE: compose-override

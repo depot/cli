@@ -1,0 +1,94 @@
+package main
+
+// extendedScenarios cover output formats, platform selection, entitlements,
+// environment switches, and error paths.
+func extendedScenarios() []scenario {
+	push := "{{registry}}/validation/{{run}}:latest"
+	bakeStdin := `target "artifact" {
+  target = "artifact"
+  args   = { MESSAGE = "stdin" }
+  output = ["type=local,dest=out"]
+}
+`
+	return []scenario{
+		withFiles(build("build-output-oci-tar", "build exported as an OCI layout tar file", "basic",
+			"--platform", "linux/amd64", "-o", "type=oci,dest=out.tar"), "out.tar"),
+		withFiles(build("build-output-docker-tar", "build exported as a Docker image tar file", "basic",
+			"--platform", "linux/amd64", "-o", "type=docker,dest=out.tar"), "out.tar"),
+		withRegistry(build("build-output-image-attributes", "image output with a name and push attribute instead of tags", "basic",
+			"--platform", "linux/amd64", "-o", "type=image,name="+push+",push=true"), push),
+		failing(build("build-push-without-tag", "--push without a tag fails", "basic", "--platform", "linux/amd64", "--push"), 1, "tag is needed when pushing to registry"),
+		failing(build("build-unknown-target", "an unknown --target fails", "basic", "--platform", "linux/amd64", "--target", "missing"), 1, "missing"),
+		withEnv(withFiles(build("build-arg-from-environment", "--build-arg without a value reads the environment", "basic",
+			"--platform", "linux/amd64", "--target", "artifact", "--build-arg", "MESSAGE", "-o", "type=local,dest=out"), "out"), "MESSAGE", "from-environment"),
+		withRegistry(build("build-labels-annotations", "--label and --annotation on a single-platform push", "basic",
+			"--platform", "linux/amd64", "-t", push, "--push", "--label", "org.depot.validation.label=value",
+			"--annotation", "org.opencontainers.image.title=validation", "--annotation", "manifest:org.opencontainers.image.vendor=depot"), push),
+		withRegistry(build("build-attest-flags", "--attest for SBOM and maximum provenance", "basic",
+			"--platform", "linux/arm64", "-t", push, "--push", "--attest", "type=sbom", "--attest", "type=provenance,mode=max"), push),
+		withFiles(build("build-platform-arm-v7", "linux/arm/v7 runs on the arm64 builder", "basic",
+			"--platform", "linux/arm/v7", "--target", "artifact", "-o", "type=local,dest=out"), "out"),
+		withFiles(build("build-platform-386", "linux/386 runs on the amd64 builder", "basic",
+			"--platform", "linux/386", "--target", "artifact", "-o", "type=local,dest=out"), "out"),
+		withFiles(build("build-platform-riscv64", "a platform that no builder lists starts every builder", "basic",
+			"--platform", "linux/riscv64", "--target", "artifact", "-o", "type=local,dest=out"), "out"),
+		withFiles(build("build-syntax-directive", "a Dockerfile with a syntax directive, cache mount, and heredoc", "syntax",
+			"--platform", "linux/amd64", "-o", "type=local,dest=out"), "out"),
+		withFiles(build("build-entitlements", "--allow security.insecure and network.host", "insecure",
+			"--platform", "linux/amd64", "--allow", "security.insecure", "--allow", "network.host", "-o", "type=local,dest=out"), "out"),
+		withFiles(scenario{
+			Name: "build-progress-quiet", Description: "--progress=quiet prints no progress", Fixture: "basic",
+			Args:   []string{"build", ".", "--progress=quiet", "--platform", "linux/amd64", "--target", "artifact", "-o", "type=local,dest=out"},
+			Expect: expectation{FinishBuild: []string{"success"}},
+		}, "out"),
+		withFiles(scenario{
+			Name: "build-progress-unknown", Description: "an unknown --progress value shows plain output", Fixture: "basic",
+			Args:   []string{"build", ".", "--progress=unknown", "--platform", "linux/amd64", "--target", "artifact", "-o", "type=local,dest=out"},
+			Expect: expectation{FinishBuild: []string{"success"}, StderrContains: []string{"[depot] build:"}},
+		}, "out"),
+		failing(scenario{
+			Name: "build-progress-tty-without-terminal", Description: "--progress=tty without a terminal fails", Fixture: "basic",
+			Args: []string{"build", ".", "--progress=tty", "--platform", "linux/amd64", "--target", "artifact", "-o", "type=local,dest=out"},
+		}, 1),
+		withEnv(withFiles(build("build-summary-suppressed", "DEPOT_NO_SUMMARY_LINK hides the build link", "basic",
+			"--platform", "linux/amd64", "--target", "artifact", "-o", "type=local,dest=out"), "out"), "DEPOT_NO_SUMMARY_LINK", "1"),
+		withEnv(withRegistry(build("build-in-automation", "DEPOT_IN_AUTOMATION hides the build link and the save help", "basic",
+			"--platform", "linux/amd64", "--save"), "{{registry}}/{{project}}:{{run}}-b1"), "DEPOT_IN_AUTOMATION", "1"),
+		withEnv(withFiles(build("build-existing-build", "DEPOT_BUILD_ID attaches to a build that already exists", "basic",
+			"--platform", "linux/amd64", "--target", "artifact", "-o", "type=local,dest=out"), "out"), "DEPOT_BUILD_ID", "{{run}}-existing"),
+		failing(withAPI(build("build-no-builder", "the API does not return a builder", "basic", "--platform", "linux/amd64"),
+			apiBehavior{ConnectionCode: 14}), 1),
+		withFiles(scenario{
+			Name: "bake-stdin-definition", Description: "bake reads its definition from standard input", Fixture: "basic",
+			Args:   []string{"bake", "-f", "-", "artifact", "--progress=plain", "--set", "*.platform=linux/amd64"},
+			Stdin:  bakeStdin,
+			Expect: expectation{FinishBuild: []string{"success"}},
+		}, "out"),
+		withStdin(offline("bake-print-stdin-definition", "bake --print with a definition from standard input", "basic", "bake", "-f", "-", "--print", "artifact"), bakeStdin),
+		offline("bake-print-cwd-prefix", "bake --print with a cwd:// file name", "bake", "bake", "-f", "cwd://docker-bake.hcl", "--print", "artifact"),
+		offline("bake-print-append", "bake --print with a += override", "bake", "bake", "--print", "app", "--set", "app.tags+=registry.invalid/extra:1"),
+		accept(offline("bake-print-compose-override", "bake --print merges compose.override.yaml", "override", "bake", "--print"),
+			"stdout", "buildx v0.38 omits the empty network field"),
+		withFiles(bake("bake-compose-override", "bake builds a service from compose files with an override", "override",
+			"--set", "app.platform=linux/amd64", "--set", "app.output=type=local,dest=out"), "out"),
+		withRegistry(bake("bake-attestation-flags", "bake --sbom and --provenance", "bake", "app", "--push",
+			"--sbom=true", "--provenance=mode=max", "--set", "app.tags="+push, "--set", "app.platform=linux/amd64"), push),
+		withFiles(bake("bake-no-cache-pull", "bake --no-cache and --pull", "bake", "artifact", "--no-cache", "--pull",
+			"--set", "artifact.platform=linux/amd64"), "out"),
+		withEnv(withImages(bake("bake-compose-default-tags", "compose services without image names get the tag <project>-<service>", "compose",
+			"worker", "--load", "--set", "worker.platform=linux/amd64"), "{{run}}-worker"), "COMPOSE_PROJECT_NAME", "{{run}}"),
+		withRegistry(bake("bake-save-tags", "bake --save with --save-tag", "bake", "app", "--save", "--save-tag", "{{run}}-custom",
+			"--set", "app.platform=linux/amd64"), "{{registry}}/{{project}}:{{run}}-b1-app", "{{registry}}/{{project}}:{{run}}-custom-app"),
+		withRegistry(build("build-save-and-push", "--save together with --push pushes to both registries", "basic",
+			"--platform", "linux/amd64", "--save", "--push", "-t", push), push, "{{registry}}/{{project}}:{{run}}-b1"),
+		withImages(withRegistry(build("build-load-and-push", "--load together with --push", "basic",
+			"--platform", "linux/amd64", "--load", "--push", "-t", push), push), push),
+		withImages(withRegistry(bake("bake-load-and-push", "bake --load together with --push", "bake", "app", "--load", "--push",
+			"--set", "app.tags="+push, "--set", "app.platform=linux/amd64"), push), push),
+		{
+			Name: "exec-buildkit-host", Description: "depot exec gives a command a BuildKit connection", Fixture: "basic",
+			Args:   []string{"exec", "--platform", "linux/arm64", "--progress=plain", "sh", "-c", `case "$BUILDKIT_HOST" in tcp://*) echo connected ;; *) exit 9 ;; esac`},
+			Expect: expectation{StdoutContains: []string{"connected"}},
+		},
+	}
+}
