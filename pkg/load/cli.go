@@ -173,15 +173,13 @@ func WithSelectiveDockerLoad(buildOpts map[string]build.Options, targetsToLoad [
 			continue
 		}
 
-		if len(buildOpt.Exports) != 0 {
+		loadsImage := func(e client.ExportEntry) bool {
+			return e.Type == "cacheonly" || (e.Type == "docker" && e.Attrs["dest"] == "")
+		}
+		if buildOpt.CallFunc != nil || slices.ContainsFunc(buildOpt.Exports, loadsImage) {
 			continue
 		}
-		buildOpt.Exports = []client.ExportEntry{
-			{
-				Type:  "docker",
-				Attrs: map[string]string{},
-			},
-		}
+		buildOpt.Exports = append(slices.Clone(buildOpt.Exports), client.ExportEntry{Type: "docker", Attrs: map[string]string{}})
 		buildOpts[key] = buildOpt
 	}
 	return buildOpts
