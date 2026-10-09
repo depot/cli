@@ -21,8 +21,7 @@ import (
 	"time"
 
 	contentv1 "github.com/containerd/containerd/api/services/content/v1"
-	"github.com/containerd/containerd/defaults"
-	"github.com/opencontainers/go-digest"
+	"github.com/containerd/containerd/v2/defaults"
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -291,7 +290,7 @@ func (r *Registry) handleBlobs(resp http.ResponseWriter, req *http.Request) {
 	childCtx, cancel := context.WithCancel(req.Context())
 	defer cancel()
 
-	rc, err := r.ContentClient.Read(childCtx, &contentv1.ReadContentRequest{Digest: digest.Digest(blobSHA)})
+	rc, err := r.ContentClient.Read(childCtx, &contentv1.ReadContentRequest{Digest: blobSHA})
 	if err != nil {
 		writeError(resp, http.StatusInternalServerError, "INTERNAL_SERVER_ERROR", "unable to get blob")
 		return

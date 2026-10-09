@@ -1,19 +1,17 @@
-// Source: https://github.com/docker/buildx/blob/v0.10/commands/bake.go
-
 package commands
 
 import (
 	"context"
 	"fmt"
+	"maps"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 
-	"github.com/containerd/containerd/platforms"
+	"github.com/containerd/platforms"
 	depotbuild "github.com/depot/cli/pkg/build"
-	"github.com/depot/cli/pkg/buildx/bake"
-	"github.com/depot/cli/pkg/buildx/build"
-	"github.com/depot/cli/pkg/buildx/builder"
+	"github.com/depot/cli/pkg/buildxdriver"
 	"github.com/depot/cli/pkg/compose"
 	"github.com/depot/cli/pkg/dockerclient"
 	"github.com/depot/cli/pkg/helpers"
@@ -21,18 +19,18 @@ import (
 	"github.com/depot/cli/pkg/progresshelper"
 	"github.com/depot/cli/pkg/registry"
 	"github.com/depot/cli/pkg/sbom"
-	buildx "github.com/docker/buildx/build"
+	"github.com/docker/buildx/bake"
+	"github.com/docker/buildx/build"
+	"github.com/docker/buildx/builder"
 	"github.com/docker/buildx/util/buildflags"
-	"github.com/docker/buildx/util/confutil"
-	"github.com/docker/buildx/util/dockerutil"
 	"github.com/docker/buildx/util/progress"
-	"github.com/docker/buildx/util/tracing"
+	"github.com/docker/buildx/util/urlutil"
 	"github.com/docker/cli/cli/command"
+	"github.com/moby/buildkit/client"
 	"github.com/moby/buildkit/util/appcontext"
+	"github.com/moby/buildkit/util/progress/progressui"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
-	"golang.org/x/exp/maps"
-	"golang.org/x/exp/slices"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -48,32 +46,11 @@ type BakeOptions struct {
 func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator, printer *progresshelper.SharedPrinter) (linter *Linter, requestedTargets []string, err error) {
 	ctx := appcontext.Context()
 
-	ctx, end, err := tracing.TraceCurrentCommand(ctx, "bake")
-	if err != nil {
-		return nil, nil, wrapBuildError(err, true)
-	}
-	defer func() {
-		end(err)
-	}()
-
 	if os.Getenv("DEPOT_NO_SUMMARY_LINK") == "" && os.Getenv("DEPOT_IN_AUTOMATION") == "" {
-		progress.Write(printer, "[depot] build: "+in.buildURL, func() error { return err })
+		_ = progress.Write(printer, "[depot] build: "+in.buildURL, func() error { return err })
 	}
 
-	contextPathHash, _ := os.Getwd()
-	builderOpts := append([]builder.Option{builder.WithName(in.builder),
-		builder.WithContextPathHash(contextPathHash)}, in.builderOptions...)
-	b, err := builder.New(dockerCli, builderOpts...)
-	if err != nil {
-		return nil, nil, err
-	}
-	if err = updateLastActivity(dockerCli, b.NodeGroup); err != nil {
-		return nil, nil, errors.Wrapf(err, "failed to update builder last activity time")
-	}
-	nodes, err := b.LoadNodes(ctx, false)
-	if err != nil {
-		return nil, nil, err
-	}
+	nodes := buildxdriver.Nodes(dockerCli, in.build, in.buildPlatform)
 
 	validatedOpts, requestedTargets, err := validator.Validate(ctx, nodes, printer)
 	if err != nil {
@@ -88,9 +65,9 @@ func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator, pri
 	if buildOpts == nil {
 		return nil, nil, fmt.Errorf("project %s build options not found", in.project)
 	}
+	buildOpts = cloneOptions(buildOpts)
 
-	// Filter requestedTargets to only include targets for the current project
-	projectRequestedTargets := make([]string, 0)
+	projectRequestedTargets := make([]string, 0, len(requestedTargets))
 	for _, target := range requestedTargets {
 		if _, exists := buildOpts[target]; exists {
 			projectRequestedTargets = append(projectRequestedTargets, target)
@@ -98,76 +75,46 @@ func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator, pri
 	}
 	requestedTargets = projectRequestedTargets
 
-	targetsToLoad := make([]string, 0)
+	var targetsToLoad []string
 	for target, opts := range buildOpts {
-		shouldLoad := true
-		for _, export := range opts.Exports {
-			if export.Type == "cacheonly" {
-				shouldLoad = false
-				break
-			}
-		}
-
-		// When using --load, only load originally requested targets, not dependencies
+		shouldLoad := !slices.ContainsFunc(opts.Exports, func(e client.ExportEntry) bool { return e.Type == "cacheonly" })
 		if in.exportLoad {
 			shouldLoad = shouldLoad && slices.Contains(requestedTargets, target)
 		}
-
 		if shouldLoad {
 			targetsToLoad = append(targetsToLoad, target)
 		}
 	}
 
 	var (
-		pullOpts map[string]load.PullOptions
-		// Only used for failures to pull images.
-		fallbackOpts map[string]buildx.Options
+		pullOpts     map[string]load.PullOptions
+		fallbackOpts map[string]build.Options
 	)
 	if in.exportLoad {
-		fallbackOpts = maps.Clone(buildOpts)
-		buildOpts, pullOpts = load.WithDepotImagePull(
-			buildOpts,
-			load.DepotLoadOptions{
-				Project:       in.DepotOptions.project,
-				BuildID:       in.DepotOptions.buildID,
-				IsBake:        true,
-				ProgressMode:  in.progress,
-				UseRegistry:   in.DepotOptions.loadUsingRegistry,
-				PullInfo:      in.DepotOptions.pullInfo,
-				BuildPlatform: in.DepotOptions.buildPlatform,
-			},
-		)
+		fallbackOpts = cloneOptions(buildOpts)
+		buildOpts, pullOpts = load.WithDepotImagePull(buildOpts, load.DepotLoadOptions{
+			Project:       in.project,
+			BuildID:       in.buildID,
+			IsBake:        true,
+			ProgressMode:  in.progress,
+			UseRegistry:   in.loadUsingRegistry,
+			PullInfo:      in.pullInfo,
+			BuildPlatform: in.buildPlatform,
+		})
 	}
 	if in.save {
-		opts := registry.SaveOptions{
+		buildOpts = registry.WithDepotSave(buildOpts, registry.SaveOptions{
 			ProjectID:             in.project,
 			BuildID:               in.buildID,
 			AdditionalTags:        in.additionalTags,
 			AdditionalCredentials: in.additionalCredentials,
 			AddTargetSuffix:       true,
 			RequestedTargets:      requestedTargets,
-		}
-		buildOpts = registry.WithDepotSave(buildOpts, opts)
+		})
 	}
 
-	buildxNodes := builder.ToBuildxNodes(nodes)
-	buildxNodes, err = build.FilterAvailableNodes(buildxNodes)
-	if err != nil {
-		return nil, nil, wrapBuildError(err, true)
-	}
-
-	dockerClient := dockerutil.NewClient(dockerCli)
-	dockerConfigDir := confutil.ConfigDir(dockerCli)
-	buildxopts := build.BuildxOpts(buildOpts)
-
-	// "Boot" the depot nodes.
-	_, clients, err := build.ResolveDrivers(ctx, buildxNodes, buildxopts, printer)
-	if err != nil {
-		return nil, nil, wrapBuildError(err, true)
-	}
-
-	linter = NewLinter(printer, NewLintFailureMode(in.lint, in.lintFailOn), clients, buildxNodes)
-	resp, err := build.DepotBuild(ctx, buildxNodes, buildOpts, dockerClient, dockerConfigDir, printer, linter, in.DepotOptions.build)
+	linter = NewLinter(printer, NewLintFailureMode(in.lint, in.lintFailOn), nodes)
+	resp, err := executeBuild(ctx, dockerCli, nodes, buildOpts, printer, linter, nil)
 	if err != nil {
 		if errors.Is(err, LintFailed) {
 			linter.Print(os.Stderr, in.progress)
@@ -176,71 +123,58 @@ func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator, pri
 	}
 
 	if in.metadataFile != "" {
-		dt := make(map[string]interface{})
-		for _, buildRes := range resp {
-			metadata := map[string]interface{}{}
+		dt := make(map[string]any)
+		for _, buildRes := range resp.targets {
+			metadata := map[string]any{}
 			for _, nodeRes := range buildRes.NodeResponses {
-				nodeMetadata := decodeExporterResponse(nodeRes.SolveResponse.ExporterResponse)
-				for k, v := range nodeMetadata {
-					metadata[k] = v
-				}
+				maps.Copy(metadata, decodeExporterResponse(nodeRes.SolveResponse.ExporterResponse))
 			}
-			// Only include targets that have metadata (i.e., were exported)
 			if len(metadata) > 0 {
 				dt[buildRes.Name] = metadata
 			}
 		}
-		err = writeMetadataFile(in.metadataFile, in.project, in.buildID, requestedTargets, dt, true)
-		if err != nil {
+		if err := writeMetadataFile(in.metadataFile, in.project, in.buildID, requestedTargets, dt, true); err != nil {
 			return nil, nil, err
 		}
 	}
 
 	if in.sbomDir != "" {
-		err = sbom.Save(ctx, in.sbomDir, resp)
-		if err != nil {
+		if err := sbom.Save(ctx, in.sbomDir, resp.targets); err != nil {
 			return nil, nil, err
 		}
 	}
 
 	if len(pullOpts) > 0 {
 		eg, ctx2 := errgroup.WithContext(ctx)
-		// Three concurrent pulls at a time to avoid overwhelming the registry.
 		eg.SetLimit(3)
-		for i := range resp {
+		for _, target := range resp.targets {
 			eg.Go(func() error {
-				depotResponses := []build.DepotBuildResponse{resp[i]}
+				targetResponses := []buildxdriver.TargetResponse{target}
 				var err error
-				// Only load images from requested targets to avoid pulling unnecessary images.
-				if slices.Contains(targetsToLoad, resp[i].Name) {
+				if slices.Contains(targetsToLoad, target.Name) {
 					reportingPrinter := progresshelper.NewReporter(ctx2, printer, in.buildID, in.token)
 					defer reportingPrinter.Close()
 
-					if in.DepotOptions.loadUsingRegistry && in.DepotOptions.pullInfo != nil {
-						target := resp[i].Name
-						pullOpt, ok := pullOpts[target]
-						if ok {
-							pw := progress.WithPrefix(reportingPrinter, target, len(pullOpts) > 1)
-							err = load.PullImages(ctx, dockerCli.Client(), fmt.Sprintf("%s-%s", in.DepotOptions.pullInfo.Reference, target), pullOpt, pw)
+					if in.loadUsingRegistry && in.pullInfo != nil {
+						if pullOpt, ok := pullOpts[target.Name]; ok {
+							pw := progress.WithPrefix(reportingPrinter, target.Name, len(pullOpts) > 1)
+							err = load.PullImages(ctx, dockerCli.Client(), fmt.Sprintf("%s-%s", in.pullInfo.Reference, target.Name), pullOpt, pw)
 						}
 					} else {
-						err = load.DepotFastLoad(ctx2, dockerCli.Client(), depotResponses, pullOpts, reportingPrinter)
+						err = load.DepotFastLoad(ctx2, dockerCli.Client(), targetResponses, pullOpts, reportingPrinter)
 					}
 				}
-				load.DeleteExportLeases(ctx2, depotResponses)
+				load.DeleteExportLeases(ctx2, targetResponses)
 				return err
 			})
 		}
 
 		err = eg.Wait()
 		if err != nil && !errors.Is(err, context.Canceled) {
-			// For now, we will fallback by rebuilding with load.
 			if in.exportLoad {
-				progress.Write(printer, "[load] fast load failed; retrying", func() error { return err })
-				buildOpts = load.WithSelectiveDockerLoad(fallbackOpts, targetsToLoad)
-				_, err = build.DepotBuild(ctx, buildxNodes, buildOpts, dockerClient, dockerConfigDir, printer, nil, in.DepotOptions.build)
+				_ = progress.Write(printer, "[load] fast load failed; retrying", func() error { return err })
+				_, err = executeBuild(ctx, dockerCli, nodes, load.WithSelectiveDockerLoad(fallbackOpts, targetsToLoad), printer, nil, nil)
 			}
-
 			return nil, nil, err
 		}
 	}
@@ -261,11 +195,8 @@ func BakeCmd() *cobra.Command {
 				return err
 			}
 
-			// TODO: remove when upgrading to buildx 0.12
 			for idx, file := range options.files {
-				if strings.HasPrefix(file, "cwd://") {
-					options.files[idx] = strings.TrimPrefix(file, "cwd://")
-				}
+				options.files[idx] = strings.TrimPrefix(file, "cwd://")
 			}
 
 			if options.printOnly {
@@ -275,7 +206,6 @@ func BakeCmd() *cobra.Command {
 				return BakePrint(dockerCli, args, options)
 			}
 
-			// reset to nil to avoid override is unset
 			if !cmd.Flags().Lookup("no-cache").Changed {
 				options.noCache = nil
 			}
@@ -287,7 +217,6 @@ func BakeCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-
 			if token == "" {
 				return fmt.Errorf("missing API token, please run `depot login`")
 			}
@@ -299,29 +228,29 @@ func BakeCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			options.buildPlatform = buildPlatform
 
 			var (
-				validator     BakeValidator
-				validatedOpts *bake.DepotBakeOptions
+				validator  BakeValidator
+				projectIDs []string
+				projects   *projectBuildOptions
 			)
 			if isRemoteTarget(args) {
 				validator = NewRemoteBakeValidator(options, args)
+				projectIDs = []string{options.project}
 			} else {
 				validator = NewLocalBakeValidator(options, args)
-				// Parse the local bake file before starting the build to catch errors early.
-				validatedOpts, _, err = validator.Validate(context.Background(), nil, nil)
+				projects, _, err = validator.Validate(context.Background(), nil, nil)
 				if err != nil {
 					return err
 				}
+				projectIDs = projects.ProjectIDs()
 			}
-
-			projectIDs := validatedOpts.ProjectIDs()
 
 			printer, err := progresshelper.NewSharedPrinter(options.progress)
 			if err != nil {
 				return err
 			}
-
 			for range projectIDs {
 				printer.Add()
 			}
@@ -331,20 +260,25 @@ func BakeCmd() *cobra.Command {
 				buildID        string
 				additionalTags []string
 			}
-			type buildResult struct {
+			type bakeResult struct {
 				linter           *Linter
 				requestedTargets []string
 				saveInfo         *saveInfo
 			}
-			var mu sync.Mutex
-			var buildResults []buildResult
+			var (
+				mu          sync.Mutex
+				bakeResults []bakeResult
+			)
 
 			eg, ctx := errgroup.WithContext(context.Background())
 			for _, projectID := range projectIDs {
 				options.project = projectID
 				options.requestedProject = projectID
-				bakeOpts := validatedOpts.ProjectOpts(projectID)
 
+				var bakeOpts map[string]build.Options
+				if projects != nil {
+					bakeOpts = projects.ProjectOpts(projectID)
+				}
 				req := helpers.NewBakeRequest(
 					options.project,
 					bakeOpts,
@@ -360,19 +294,14 @@ func BakeCmd() *cobra.Command {
 				if err != nil {
 					return err
 				}
-				options.builderOptions = []builder.Option{builder.WithDepotOptions(buildPlatform, build)}
 
-				buildProject := build.BuildProject()
-				if buildProject != "" {
+				if buildProject := build.BuildProject(); buildProject != "" {
 					options.project = buildProject
 				}
-				loadUsingRegistry := build.LoadUsingRegistry()
-				if options.exportLoad && loadUsingRegistry {
+				if options.exportLoad && build.LoadUsingRegistry() {
 					options.save = true
-					pullInfo, err := depotbuild.PullBuildInfo(context.Background(), build.ID, token)
-					// if we cannot get pull info, dont fail; load as normal
-					if err == nil {
-						options.loadUsingRegistry = loadUsingRegistry
+					if pullInfo, err := depotbuild.PullBuildInfo(context.Background(), build.ID, token); err == nil {
+						options.loadUsingRegistry = true
 						options.pullInfo = pullInfo
 					}
 				}
@@ -389,59 +318,46 @@ func BakeCmd() *cobra.Command {
 					_ = os.Setenv("BUILDX_NO_DEFAULT_LOAD", "1")
 				}
 
-				func(c command.Cli, o BakeOptions, v BakeValidator, p *progresshelper.SharedPrinter) {
-					eg.Go(func() error {
-						var linter *Linter
-						var requestedTargets []string
-
-						buildErr := retryRetryableErrors(ctx, func() error {
-							var err error
-							linter, requestedTargets, err = RunBake(c, o, v, p)
-							return err
-						})
-						if buildErr != nil {
-							buildErr = rewriteFriendlyErrors(buildErr)
-						}
-
-						o.build.Finish(buildErr)
-						PrintBuildURL(o.buildURL, o.progress)
-
-						// Collect results for post-processing
-						if buildErr == nil {
-							result := buildResult{
-								linter:           linter,
-								requestedTargets: requestedTargets,
-							}
-							if o.save {
-								result.saveInfo = &saveInfo{
-									project:        o.project,
-									buildID:        o.buildID,
-									additionalTags: o.additionalTags,
-								}
-							}
-							mu.Lock()
-							buildResults = append(buildResults, result)
-							mu.Unlock()
-						}
-
-						return buildErr
+				o := options
+				eg.Go(func() error {
+					var (
+						linter           *Linter
+						requestedTargets []string
+					)
+					buildErr := retryRetryableErrors(ctx, func() error {
+						var err error
+						linter, requestedTargets, err = RunBake(dockerCli, o, validator, printer)
+						return err
 					})
-				}(dockerCli, options, validator, printer)
+					if buildErr != nil {
+						buildErr = rewriteFriendlyErrors(buildErr)
+					}
+
+					o.build.Finish(buildErr)
+					PrintBuildURL(o.buildURL, o.progress)
+
+					if buildErr == nil {
+						result := bakeResult{linter: linter, requestedTargets: requestedTargets}
+						if o.save {
+							result.saveInfo = &saveInfo{project: o.project, buildID: o.buildID, additionalTags: o.additionalTags}
+						}
+						mu.Lock()
+						bakeResults = append(bakeResults, result)
+						mu.Unlock()
+					}
+					return buildErr
+				})
 			}
 
-			// Wait for all builds to complete
 			err = eg.Wait()
 
-			// Now wait for the printer to finish and flush all output
 			for range projectIDs {
 				_ = printer.Wait()
 			}
 
-			// Print save help and linter output after all project builds complete
-			for _, result := range buildResults {
+			for _, result := range bakeResults {
 				if result.saveInfo != nil {
-					printSaveHelp(result.saveInfo.project, result.saveInfo.buildID,
-						options.progress, result.requestedTargets, result.saveInfo.additionalTags)
+					printSaveHelp(result.saveInfo.project, result.saveInfo.buildID, options.progress, result.requestedTargets, result.saveInfo.additionalTags)
 				}
 				if result.linter != nil {
 					result.linter.Print(os.Stderr, options.progress)
@@ -470,11 +386,10 @@ func BakeCmd() *cobra.Command {
 }
 
 func overrides(in BakeOptions) []string {
-	overrides := in.overrides
+	overrides := slices.Clone(in.overrides)
 	if in.exportPush {
 		overrides = append(overrides, "*.push=true")
 	}
-
 	if in.noCache != nil {
 		overrides = append(overrides, fmt.Sprintf("*.no-cache=%t", *in.noCache))
 	}
@@ -491,11 +406,71 @@ func overrides(in BakeOptions) []string {
 }
 
 func isRemoteTarget(targets []string) bool {
-	if len(targets) == 0 {
-		return false
-	}
+	return len(targets) > 0 && urlutil.IsRemoteURL(targets[0])
+}
 
-	return bake.IsRemoteURL(targets[0])
+func bakeDefaults(cmdContext string) map[string]string {
+	return map[string]string{
+		"BAKE_CMD_CONTEXT":    cmdContext,
+		"BAKE_LOCAL_PLATFORM": platforms.Format(platforms.DefaultSpec()),
+	}
+}
+
+// projectBuildOptions holds the build options of each target, grouped by
+// the Depot project that builds the target.
+type projectBuildOptions struct {
+	projectTargetOptions map[string]map[string]build.Options
+}
+
+func newProjectBuildOptions(defaultProjectID string, opts map[string]build.Options, targetProjects map[string]string) (*projectBuildOptions, error) {
+	p := &projectBuildOptions{projectTargetOptions: map[string]map[string]build.Options{}}
+	for targetName, opt := range opts {
+		projectID := targetProjects[targetName]
+		if projectID == "" {
+			projectID = defaultProjectID
+		}
+		if projectID == "" {
+			return nil, errors.Errorf("Project ID is missing for target %s, please specify with --project, DEPOT_PROJECT_ID, or run `depot init`", targetName)
+		}
+		if _, ok := p.projectTargetOptions[projectID]; !ok {
+			p.projectTargetOptions[projectID] = map[string]build.Options{}
+		}
+		p.projectTargetOptions[projectID][targetName] = opt
+	}
+	return p, nil
+}
+
+func (p *projectBuildOptions) ProjectOpts(id string) map[string]build.Options {
+	return p.projectTargetOptions[id]
+}
+
+func (p *projectBuildOptions) ProjectIDs() []string {
+	return slices.Sorted(maps.Keys(p.projectTargetOptions))
+}
+
+// WithResolvedProjectID returns a copy of the options keyed by the project
+// that the API resolved. Builds of other projects keep the original options.
+func (p *projectBuildOptions) WithResolvedProjectID(requestedID, resolvedID string) *projectBuildOptions {
+	if p == nil || resolvedID == "" || requestedID == "" || requestedID == resolvedID {
+		return p
+	}
+	projectOpts, ok := p.projectTargetOptions[requestedID]
+	if !ok {
+		return p
+	}
+	if _, ok := p.projectTargetOptions[resolvedID]; ok {
+		return p
+	}
+	projectTargetOptions := maps.Clone(p.projectTargetOptions)
+	projectTargetOptions[resolvedID] = projectOpts
+	delete(projectTargetOptions, requestedID)
+	return &projectBuildOptions{projectTargetOptions: projectTargetOptions}
+}
+
+// BakeValidator returns the build options of each target and the targets
+// that the user requested.
+type BakeValidator interface {
+	Validate(ctx context.Context, nodes []builder.Node, pw progress.Writer) (opts *projectBuildOptions, targets []string, err error)
 }
 
 var (
@@ -503,86 +478,35 @@ var (
 	_ BakeValidator = (*LocalBakeValidator)(nil)
 )
 
-// BakeValidator returns either local or remote build options for targets as well as the targets themselves.
-type BakeValidator interface {
-	Validate(ctx context.Context, nodes []builder.Node, pw progress.Writer) (opts *bake.DepotBakeOptions, targets []string, err error)
-}
-
 type LocalBakeValidator struct {
 	options     BakeOptions
 	bakeTargets bakeTargets
 
 	once      sync.Once
-	buildOpts *bake.DepotBakeOptions
+	buildOpts *projectBuildOptions
 	targets   []string
 	err       error
 }
 
 func NewLocalBakeValidator(options BakeOptions, args []string) *LocalBakeValidator {
-	return &LocalBakeValidator{
-		options:     options,
-		bakeTargets: parseBakeTargets(args),
-	}
+	return &LocalBakeValidator{options: options, bakeTargets: parseBakeTargets(args)}
 }
 
-func (t *LocalBakeValidator) Validate(ctx context.Context, _ []builder.Node, _ progress.Writer) (*bake.DepotBakeOptions, []string, error) {
-	// Using a sync.Once because I _think_ the bake file may not always be read
-	// more than one time such as passed over stdin.
+// Validate reads the local definition once, because a definition on
+// standard input can only be read once.
+func (t *LocalBakeValidator) Validate(ctx context.Context, _ []builder.Node, _ progress.Writer) (*projectBuildOptions, []string, error) {
 	t.once.Do(func() {
-		files, err := bake.ReadLocalFiles(t.options.files, os.Stdin)
+		files, err := bake.ReadLocalFiles(t.options.files, os.Stdin, nil)
 		if err != nil {
 			t.err = err
 			return
 		}
-
-		overrides := overrides(t.options)
-		defaults := map[string]string{
-			"BAKE_CMD_CONTEXT":    t.bakeTargets.CmdContext,
-			"BAKE_LOCAL_PLATFORM": platforms.DefaultString(),
-		}
-
-		targets, _, err := bake.ReadTargets(ctx, files, t.bakeTargets.Targets, overrides, defaults)
-		if err != nil {
-			t.err = err
+		if len(files) == 0 {
+			t.err = errors.New("couldn't find a bake definition")
 			return
 		}
-
-		// Parse config to properly resolve groups
-		c, err := bake.ParseFiles(files, defaults)
-		if err != nil {
-			t.err = err
-			return
-		}
-
-		resolvedTargets := map[string]struct{}{}
-		for _, target := range t.bakeTargets.Targets {
-			// Use ResolveGroup to recursively resolve groups to their targets
-			ts, _ := c.ResolveGroup(target)
-			for _, tname := range ts {
-				if _, ok := targets[tname]; ok {
-					resolvedTargets[tname] = struct{}{}
-				}
-			}
-		}
-		for target := range resolvedTargets {
-			t.targets = append(t.targets, target)
-		}
-
-		tags, err := compose.TargetTags(files)
-		if err != nil {
-			t.err = err
-			return
-		}
-
-		for target, opts := range targets {
-			if tag, ok := tags[target]; ok && len(opts.Tags) == 0 {
-				opts.Tags = tag
-			}
-		}
-
-		t.buildOpts, t.err = bake.NewDepotBakeOptions(t.options.project, targets, nil)
+		t.buildOpts, t.targets, t.err = readBakeTargets(ctx, files, nil, t.options, t.bakeTargets, true)
 	})
-
 	return t.buildOpts, t.targets, t.err
 }
 
@@ -592,52 +516,79 @@ type RemoteBakeValidator struct {
 }
 
 func NewRemoteBakeValidator(options BakeOptions, args []string) *RemoteBakeValidator {
-	return &RemoteBakeValidator{
-		options:     options,
-		bakeTargets: parseBakeTargets(args),
-	}
+	return &RemoteBakeValidator{options: options, bakeTargets: parseBakeTargets(args)}
 }
 
-func (t *RemoteBakeValidator) Validate(ctx context.Context, nodes []builder.Node, pw progress.Writer) (*bake.DepotBakeOptions, []string, error) {
-	files, inp, err := bake.ReadRemoteFiles(ctx, builder.ToBuildxNodes(nodes), t.bakeTargets.FileURL, t.options.files, pw)
+func (t *RemoteBakeValidator) Validate(ctx context.Context, nodes []builder.Node, pw progress.Writer) (*projectBuildOptions, []string, error) {
+	files, inp, err := bake.ReadRemoteFiles(ctx, nodes, t.bakeTargets.FileURL, t.options.files, pw)
+	if err != nil {
+		return nil, nil, err
+	}
+	return readBakeTargets(ctx, files, inp, t.options, t.bakeTargets, false)
+}
+
+// readBakeTargets resolves the requested targets of a bake definition into
+// build options grouped by Depot project, and returns the targets that the
+// requested targets and groups expand to.
+func readBakeTargets(ctx context.Context, files []bake.File, inp *bake.Input, options BakeOptions, bakeTargets bakeTargets, defaultComposeTags bool) (*projectBuildOptions, []string, error) {
+	defaults := bakeDefaults(bakeTargets.CmdContext)
+	buildFiles := withoutProjectIDs(files)
+
+	targets, _, err := bake.ReadTargets(ctx, buildFiles, bakeTargets.Targets, overrides(options), defaults, nil, &bake.EntitlementConf{})
 	if err != nil {
 		return nil, nil, err
 	}
 
-	overrides := overrides(t.options)
-	defaults := map[string]string{
-		"BAKE_CMD_CONTEXT":    t.bakeTargets.CmdContext,
-		"BAKE_LOCAL_PLATFORM": platforms.DefaultString(),
-	}
-
-	targets, _, err := bake.ReadTargets(ctx, files, t.bakeTargets.Targets, overrides, defaults)
+	cfg, _, err := bake.ParseFiles(buildFiles, defaults, nil)
 	if err != nil {
 		return nil, nil, err
 	}
-
-	// Parse config to properly resolve groups
-	c, err := bake.ParseFiles(files, defaults)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	requestedTargets := []string{}
-	uniqueTargets := map[string]struct{}{}
-	for _, target := range t.bakeTargets.Targets {
-		// Use ResolveGroup to recursively resolve groups to their targets
-		ts, _ := c.ResolveGroup(target)
-		for _, tname := range ts {
-			if _, ok := targets[tname]; ok {
-				uniqueTargets[tname] = struct{}{}
+	resolved := map[string]struct{}{}
+	for _, target := range bakeTargets.Targets {
+		names, _ := cfg.ResolveGroup(target)
+		for _, name := range names {
+			if _, ok := targets[name]; ok {
+				resolved[name] = struct{}{}
 			}
 		}
 	}
-	for target := range uniqueTargets {
-		requestedTargets = append(requestedTargets, target)
+	requestedTargets := slices.Sorted(maps.Keys(resolved))
+
+	composeTargets, err := compose.Targets(files)
+	if err != nil {
+		return nil, nil, err
+	}
+	if defaultComposeTags {
+		for name, target := range targets {
+			if ct, ok := composeTargets[name]; ok && len(target.Tags) == 0 {
+				target.Tags = ct.Tags
+			}
+		}
 	}
 
-	opts, err := bake.NewDepotBakeOptions(t.options.project, targets, inp)
-	return opts, requestedTargets, err
+	opts, err := bake.TargetsToBuildOpt(targets, inp)
+	if err != nil {
+		return nil, nil, err
+	}
+	for name, opt := range opts {
+		opt.Session = append(opt.Session, registry.NewDockerAuthProviderWithDepotAuth())
+		opt.CacheFrom = filterGHACaches(opt.CacheFrom, "cache-from")
+		opt.CacheTo = filterGHACaches(opt.CacheTo, "cache-to")
+		opts[name] = opt
+	}
+
+	targetProjects, err := readTargetProjects(ctx, files, bakeTargets.Targets, defaults)
+	if err != nil {
+		return nil, nil, err
+	}
+	for name, target := range composeTargets {
+		if target.ProjectID != "" {
+			targetProjects[name] = target.ProjectID
+		}
+	}
+
+	projects, err := newProjectBuildOptions(options.project, opts, targetProjects)
+	return projects, requestedTargets, err
 }
 
 type bakeTargets struct {
@@ -646,20 +597,15 @@ type bakeTargets struct {
 	Targets    []string
 }
 
-// parseBakeTargets parses the command-line arguments (aka targets).
 func parseBakeTargets(targets []string) (bkt bakeTargets) {
 	bkt.CmdContext = "cwd://"
 
-	if len(targets) > 0 {
-		if bake.IsRemoteURL(targets[0]) {
-			bkt.FileURL = targets[0]
+	if len(targets) > 0 && urlutil.IsRemoteURL(targets[0]) {
+		bkt.FileURL = targets[0]
+		targets = targets[1:]
+		if len(targets) > 0 && urlutil.IsRemoteURL(targets[0]) {
+			bkt.CmdContext = targets[0]
 			targets = targets[1:]
-			if len(targets) > 0 {
-				if bake.IsRemoteURL(targets[0]) {
-					bkt.CmdContext = targets[0]
-					targets = targets[1:]
-				}
-			}
 		}
 	}
 
@@ -673,62 +619,59 @@ func parseBakeTargets(targets []string) (bkt bakeTargets) {
 
 // printSaveHelp prints instructions to pull or push the saved targets.
 func printSaveHelp(project, buildID, progressMode string, requestedTargets, additionalTags []string) {
-	if progressMode != progress.PrinterModeQuiet && os.Getenv("DEPOT_NO_SUMMARY_LINK") == "" && os.Getenv("DEPOT_IN_AUTOMATION") == "" {
+	if progressMode == string(progressui.QuietMode) || os.Getenv("DEPOT_NO_SUMMARY_LINK") != "" || os.Getenv("DEPOT_IN_AUTOMATION") != "" {
+		return
+	}
+
+	fmt.Fprintln(os.Stderr)
+	saved := "target"
+	if len(requestedTargets) > 1 {
+		saved += "s"
+	}
+
+	targetUsage := "--target <TARGET> "
+	if len(requestedTargets) == 0 {
+		targetUsage = ""
+	}
+
+	fmt.Fprintf(os.Stderr, "Saved %s: %s\n", saved, strings.Join(requestedTargets, ","))
+	fmt.Fprintf(os.Stderr, "\tTo pull: depot pull --project %s %s\n", project, buildID)
+
+	if len(additionalTags) > 1 {
+		fmt.Fprintf(os.Stderr, "\tTo pull save-tags:\n")
+		fmt.Fprintf(os.Stderr, "\t\tdocker login registry.depot.dev -u x-token -p $(depot pull-token --project %s)\n", project)
 		fmt.Fprintln(os.Stderr)
-		saved := "target"
-		if len(requestedTargets) > 1 {
-			saved += "s"
-		}
 
-		targetUsage := "--target <TARGET> "
-		if len(requestedTargets) == 0 {
-			targetUsage = ""
-		}
-
-		targets := strings.Join(requestedTargets, ",")
-		fmt.Fprintf(os.Stderr, "Saved %s: %s\n", saved, targets)
-		fmt.Fprintf(os.Stderr, "\tTo pull: depot pull --project %s %s\n", project, buildID)
-
-		if len(additionalTags) > 1 {
-			fmt.Fprintf(os.Stderr, "\tTo pull save-tags:\n")
-			fmt.Fprintf(os.Stderr, "\t\tdocker login registry.depot.dev -u x-token -p $(depot pull-token --project %s)\n", project)
-			fmt.Fprintln(os.Stderr)
-
-			// the api will send multiple of the same tag back for each target
-			if len(requestedTargets) > 0 {
-				seenTags := map[string]struct{}{}
-				for _, target := range requestedTargets {
-					if target == "default" {
-						continue
-					}
-
-					for _, tag := range additionalTags {
-						if strings.Contains(tag, buildID) {
-							continue
-						}
-
-						trueTag := tag + "-" + target
-						if _, ok := seenTags[trueTag]; ok {
-							continue
-						}
-						seenTags[trueTag] = struct{}{}
-
-						fmt.Fprintf(os.Stderr, "\t\tdocker pull %s\n", trueTag)
-					}
+		// The API returns the same tag for each target.
+		if len(requestedTargets) > 0 {
+			seenTags := map[string]struct{}{}
+			for _, target := range requestedTargets {
+				if target == "default" {
+					continue
 				}
-			} else {
 				for _, tag := range additionalTags {
 					if strings.Contains(tag, buildID) {
 						continue
 					}
-
-					fmt.Fprintf(os.Stderr, "\t\tdocker pull %s\n", tag)
+					trueTag := tag + "-" + target
+					if _, ok := seenTags[trueTag]; ok {
+						continue
+					}
+					seenTags[trueTag] = struct{}{}
+					fmt.Fprintf(os.Stderr, "\t\tdocker pull %s\n", trueTag)
 				}
 			}
-
-			fmt.Fprintln(os.Stderr)
+		} else {
+			for _, tag := range additionalTags {
+				if strings.Contains(tag, buildID) {
+					continue
+				}
+				fmt.Fprintf(os.Stderr, "\t\tdocker pull %s\n", tag)
+			}
 		}
 
-		fmt.Fprintf(os.Stderr, "\tTo push: depot push %s--project %s --tag <REPOSITORY:TAG> %s\n", targetUsage, project, buildID)
+		fmt.Fprintln(os.Stderr)
 	}
+
+	fmt.Fprintf(os.Stderr, "\tTo push: depot push %s--project %s --tag <REPOSITORY:TAG> %s\n", targetUsage, project, buildID)
 }

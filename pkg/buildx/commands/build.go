@@ -1,66 +1,45 @@
-// Source: https://github.com/docker/buildx/blob/v0.10/commands/bake.go
-
 package commands
 
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/csv"
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
-	"sync"
-	"time"
 
-	"github.com/containerd/console"
+	"github.com/depot/cli/pkg/arguments"
 	depotbuild "github.com/depot/cli/pkg/build"
-	depotbuildflags "github.com/depot/cli/pkg/buildx/bake/buildflags"
-	depotbuildxbuild "github.com/depot/cli/pkg/buildx/build"
-	"github.com/depot/cli/pkg/buildx/builder"
+	"github.com/depot/cli/pkg/buildxdriver"
 	"github.com/depot/cli/pkg/ci"
 	"github.com/depot/cli/pkg/cmd/docker"
-	"github.com/depot/cli/pkg/debuglog"
 	"github.com/depot/cli/pkg/dockerclient"
 	"github.com/depot/cli/pkg/helpers"
 	"github.com/depot/cli/pkg/load"
 	"github.com/depot/cli/pkg/progresshelper"
 	"github.com/depot/cli/pkg/registry"
 	"github.com/depot/cli/pkg/sbom"
-	"github.com/distribution/reference"
 	"github.com/docker/buildx/build"
 	"github.com/docker/buildx/monitor"
-	"github.com/docker/buildx/store"
-	"github.com/docker/buildx/store/storeutil"
 	"github.com/docker/buildx/util/buildflags"
-	"github.com/docker/buildx/util/confutil"
-	"github.com/docker/buildx/util/dockerutil"
 	"github.com/docker/buildx/util/platformutil"
 	"github.com/docker/buildx/util/progress"
-	"github.com/docker/buildx/util/tracing"
 	"github.com/docker/cli-docs-tool/annotation"
-	"github.com/docker/cli/cli"
 	"github.com/docker/cli/cli/command"
 	dockeropts "github.com/docker/cli/opts"
-	"github.com/docker/docker/pkg/ioutils"
 	"github.com/docker/go-units"
 	"github.com/moby/buildkit/client"
 	"github.com/moby/buildkit/exporter/containerimage/exptypes"
 	"github.com/moby/buildkit/solver/errdefs"
 	"github.com/moby/buildkit/util/appcontext"
-	"github.com/moby/buildkit/util/grpcerrors"
+	"github.com/moby/buildkit/util/progress/progressui"
 	"github.com/morikuni/aec"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
-	"golang.org/x/exp/maps"
-	"google.golang.org/grpc/codes"
 )
 
 const defaultTargetName = "default"
@@ -98,7 +77,6 @@ type buildOptions struct {
 }
 
 type commonOptions struct {
-	builder      string
 	metadataFile string
 	noCache      *bool
 	progress     string
@@ -131,203 +109,136 @@ type DepotOptions struct {
 
 	sbomDir string
 
-	allowNoOutput  bool
-	builderOptions []builder.Option
+	allowNoOutput bool
 }
 
-func runBuild(dockerCli command.Cli, validatedOpts map[string]build.Options, in buildOptions) (err error) {
+func runBuild(dockerCli command.Cli, validatedOpts map[string]build.Options, in buildOptions) error {
 	ctx := appcontext.Context()
 
-	ctx, end, err := tracing.TraceCurrentCommand(ctx, "build")
-	if err != nil {
-		return wrapBuildError(err, false)
-	}
-	defer func() {
-		end(err)
-	}()
-
-	// key string used for kubernetes "sticky" mode
-	contextPathHash, err := filepath.Abs(in.contextPath)
-	if err != nil {
-		contextPathHash = in.contextPath
-	}
-
-	builderOpts := append([]builder.Option{builder.WithName(in.builder),
-		builder.WithContextPathHash(contextPathHash)}, in.builderOptions...)
-	b, err := builder.New(dockerCli, builderOpts...)
-	if err != nil {
-		return err
-	}
-	if err = updateLastActivity(dockerCli, b.NodeGroup); err != nil {
-		return errors.Wrapf(err, "failed to update builder last activity time")
-	}
-	nodes, err := b.LoadNodes(ctx, false)
-	if err != nil {
-		return err
-	}
-
-	imageIDs, res, err := buildTargets(ctx, dockerCli, nodes, validatedOpts, in.DepotOptions, in.progress, in.metadataFile, in.exportLoad, in.invoke != "")
-	err = wrapBuildError(err, false)
-	if err != nil {
-		return err
-	}
-
+	var invokeConfig *build.InvokeConfig
 	if in.invoke != "" {
 		cfg, err := parseInvokeConfig(in.invoke)
 		if err != nil {
 			return err
 		}
-		cfg.ResultCtx = res
-		con := console.Current()
-		if err := con.SetRaw(); err != nil {
-			return errors.Errorf("failed to configure terminal: %v", err)
+		invokeConfig = &cfg
+	}
+
+	if in.imageIDFile != "" {
+		if err := os.Remove(in.imageIDFile); err != nil && !os.IsNotExist(err) {
+			return errors.Wrap(err, "removing image ID file")
 		}
-		err = monitor.RunMonitor(ctx, cfg, func(ctx context.Context) (*build.ResultContext, error) {
-			_, rr, err := buildTargets(ctx, dockerCli, nodes, validatedOpts, in.DepotOptions, in.progress, in.metadataFile, false, true)
-			return rr, err
-		}, io.NopCloser(os.Stdin), nopCloser{os.Stdout}, nopCloser{os.Stderr})
+	}
+
+	for {
+		imageIDs, err := buildTargets(ctx, dockerCli, validatedOpts, in, invokeConfig)
+		if errors.Is(err, build.ErrRestart) {
+			continue
+		}
 		if err != nil {
-			logrus.Warnf("failed to run monitor: %v", err)
+			return wrapBuildError(err, false)
 		}
-		_ = con.Reset()
-	}
-
-	if in.quiet {
-		for _, imageID := range imageIDs {
-			fmt.Println(imageID)
+		if in.quiet {
+			for _, imageID := range imageIDs {
+				fmt.Println(imageID)
+			}
 		}
+		return nil
 	}
-	return nil
 }
 
-type nopCloser struct {
-	io.WriteCloser
-}
+func buildTargets(ctx context.Context, dockerCli command.Cli, opts map[string]build.Options, in buildOptions, invokeConfig *build.InvokeConfig) (imageIDs []string, err error) {
+	depotOpts := in.DepotOptions
+	progressMode := in.progress
 
-func (c nopCloser) Close() error { return nil }
-
-func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.Node, opts map[string]build.Options, depotOpts DepotOptions, progressMode, metadataFile string, exportLoad, allowNoOutput bool) (imageIDs []string, res *build.ResultContext, err error) {
-	ctx2, cancel := context.WithCancel(context.TODO())
-
-	printer, err := progress.NewPrinter(ctx2, os.Stderr, os.Stderr, progressMode)
-	if err != nil {
-		cancel()
-		return nil, nil, err
-	}
+	printerCtx, cancel := context.WithCancel(context.TODO())
 	defer cancel()
+	printer, err := progress.NewPrinter(printerCtx, os.Stderr, progresshelper.DisplayMode(progressMode))
+	if err != nil {
+		return nil, err
+	}
 
 	if os.Getenv("DEPOT_NO_SUMMARY_LINK") == "" && os.Getenv("DEPOT_IN_AUTOMATION") == "" {
-		progress.Write(printer, "[depot] build: "+depotOpts.buildURL, func() error { return err })
+		_ = progress.Write(printer, "[depot] build: "+depotOpts.buildURL, func() error { return err })
 	}
 
+	opts = cloneOptions(opts)
 	var (
-		pullOpts map[string]load.PullOptions
-		// Only used for failures to pull images.
+		pullOpts     map[string]load.PullOptions
 		fallbackOpts map[string]build.Options
 	)
-	if exportLoad {
-		fallbackOpts = maps.Clone(opts)
-		opts, pullOpts = load.WithDepotImagePull(
-			opts,
-			load.DepotLoadOptions{
-				Project:       depotOpts.project,
-				BuildID:       depotOpts.buildID,
-				IsBake:        false,
-				ProgressMode:  progressMode,
-				UseRegistry:   depotOpts.loadUsingRegistry,
-				PullInfo:      depotOpts.pullInfo,
-				BuildPlatform: depotOpts.buildPlatform,
-			},
-		)
+	if in.exportLoad {
+		fallbackOpts = cloneOptions(opts)
+		opts, pullOpts = load.WithDepotImagePull(opts, load.DepotLoadOptions{
+			Project:       depotOpts.project,
+			BuildID:       depotOpts.buildID,
+			IsBake:        false,
+			ProgressMode:  progressMode,
+			UseRegistry:   depotOpts.loadUsingRegistry,
+			PullInfo:      depotOpts.pullInfo,
+			BuildPlatform: depotOpts.buildPlatform,
+		})
 	}
 	if depotOpts.save {
-		saveOpts := registry.SaveOptions{
+		opts = registry.WithDepotSave(opts, registry.SaveOptions{
 			ProjectID:             depotOpts.project,
 			BuildID:               depotOpts.buildID,
 			AdditionalTags:        depotOpts.additionalTags,
 			AdditionalCredentials: depotOpts.additionalCredentials,
-		}
-		opts = registry.WithDepotSave(opts, saveOpts)
+		})
 	}
 
-	buildxNodes := builder.ToBuildxNodes(nodes)
-	buildxNodes, err = depotbuildxbuild.FilterAvailableNodes(buildxNodes)
-	if err != nil {
-		_ = printer.Wait()
-		return nil, nil, err
+	nodes := buildxdriver.Nodes(dockerCli, depotOpts.build, depotOpts.buildPlatform)
+	linter := NewLinter(printer, NewLintFailureMode(depotOpts.lint, depotOpts.lintFailOn), nodes)
+
+	var handler *build.Handler
+	if invokeConfig != nil {
+		m := monitor.New(invokeConfig, io.NopCloser(os.Stdin), nopCloser{os.Stdout}, nopCloser{os.Stderr}, printer)
+		defer m.Close()
+		h := m.Handler()
+		handler = &h
 	}
-	buildxopts := depotbuildxbuild.BuildxOpts(opts)
 
-	// "Boot" the depot nodes.
-	debuglog.Log("booting depot nodes")
-	_, clients, err := depotbuildxbuild.ResolveDrivers(ctx, buildxNodes, buildxopts, printer)
+	resp, err := executeBuild(ctx, dockerCli, nodes, opts, printer, linter, handler)
 	if err != nil {
 		_ = printer.Wait()
-		return nil, nil, err
-	}
-	debuglog.Log("booted depot nodes")
-
-	var (
-		mu  sync.Mutex
-		idx int
-	)
-
-	dockerClient := dockerutil.NewClient(dockerCli)
-	dockerConfigDir := confutil.ConfigDir(dockerCli)
-
-	linter := NewLinter(printer, NewLintFailureMode(depotOpts.lint, depotOpts.lintFailOn), clients, buildxNodes)
-
-	resp, err := depotbuildxbuild.DepotBuildWithResultHandler(ctx, buildxNodes, opts, dockerClient, dockerConfigDir, printer, linter, func(driverIndex int, gotRes *build.ResultContext) {
-		mu.Lock()
-		defer mu.Unlock()
-		if res == nil || driverIndex < idx {
-			idx, res = driverIndex, gotRes
-		}
-	}, allowNoOutput, depotOpts.build)
-
-	if err != nil {
-		// Make sure that the printer has completed before returning failed builds.
-		// We ignore the error here as it can only be a context error.
-		_ = printer.Wait()
-
 		if errors.Is(err, LintFailed) {
 			linter.Print(os.Stderr, progressMode)
 		}
-		return nil, nil, err
+		return nil, err
 	}
 
-	if metadataFile != "" && resp != nil {
-		// DEPOT: Apparently, the build metadata file is a different format than the bake one.
-		for _, buildRes := range resp {
-			metadata := map[string]interface{}{}
+	if in.metadataFile != "" {
+		for _, buildRes := range resp.targets {
+			metadata := map[string]any{}
 			for _, nodeRes := range buildRes.NodeResponses {
-				nodeMetadata := decodeExporterResponse(nodeRes.SolveResponse.ExporterResponse)
-				for k, v := range nodeMetadata {
+				for k, v := range decodeExporterResponse(nodeRes.SolveResponse.ExporterResponse) {
 					metadata[k] = v
 				}
 			}
-
-			if err := writeMetadataFile(metadataFile, depotOpts.project, depotOpts.buildID, nil, metadata, false); err != nil {
-				return nil, nil, err
+			if err := writeMetadataFile(in.metadataFile, depotOpts.project, depotOpts.buildID, nil, metadata, false); err != nil {
+				return nil, err
 			}
 		}
 	}
 
-	for _, buildRes := range resp {
+	for _, buildRes := range resp.targets {
 		for _, nodeRes := range buildRes.NodeResponses {
-			digest := nodeRes.SolveResponse.ExporterResponse[exptypes.ExporterImageDigestKey]
-			imageIDs = append(imageIDs, digest)
+			imageIDs = append(imageIDs, nodeRes.SolveResponse.ExporterResponse[exptypes.ExporterImageDigestKey])
+		}
+	}
+	if in.imageIDFile != "" {
+		if err := writeImageIDFile(in.imageIDFile, resp.targets); err != nil {
+			return nil, err
 		}
 	}
 
 	if depotOpts.sbomDir != "" {
-		err := sbom.Save(ctx, depotOpts.sbomDir, resp)
-		if err != nil {
-			return nil, nil, err
+		if err := sbom.Save(ctx, depotOpts.sbomDir, resp.targets); err != nil {
+			return nil, err
 		}
 	}
 
-	// NOTE: the err is returned at the end of this function after the final prints.
 	reportingPrinter := progresshelper.NewReporter(ctx, printer, depotOpts.buildID, depotOpts.token)
 
 	if depotOpts.loadUsingRegistry && depotOpts.pullInfo != nil {
@@ -339,34 +250,19 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.No
 			}
 		}
 	} else {
-		err = load.DepotFastLoad(ctx, dockerCli.Client(), resp, pullOpts, reportingPrinter)
+		err = load.DepotFastLoad(ctx, dockerCli.Client(), resp.targets, pullOpts, reportingPrinter)
 	}
 
-	if err != nil && !errors.Is(err, context.Canceled) {
-		// For now, we will fallback by rebuilding with load.
-		if exportLoad {
-			// We can only retry if neither the context nor dockerfile are stdin.
-			var retryable bool = true
-			for _, opt := range opts {
-				if opt.Inputs.ContextPath == "-" || opt.Inputs.DockerfilePath == "-" {
-					retryable = false
-					break
-				}
-			}
-
-			if retryable {
-				progress.Write(reportingPrinter, "[load] fast load failed; retrying", func() error { return err })
-				opts = load.WithDockerLoad(fallbackOpts)
-				_, err = depotbuildxbuild.DepotBuildWithResultHandler(ctx, buildxNodes, opts, dockerClient, dockerConfigDir, printer, nil, nil, allowNoOutput, depotOpts.build)
-			}
-		}
+	if err != nil && !errors.Is(err, context.Canceled) && in.exportLoad && retryableWithoutStdin(opts) {
+		_ = progress.Write(reportingPrinter, "[load] fast load failed; retrying", func() error { return err })
+		_, err = executeBuild(ctx, dockerCli, nodes, load.WithDockerLoad(fallbackOpts), printer, nil, nil)
 	}
 	reportingPrinter.Close()
 
-	load.DeleteExportLeases(ctx, resp)
+	load.DeleteExportLeases(ctx, resp.targets)
 
 	if err := printer.Wait(); err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	printWarnings(os.Stderr, printer.Warnings(), progressMode)
@@ -375,27 +271,57 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, nodes []builder.No
 	}
 	linter.Print(os.Stderr, progressMode)
 
-	for _, buildRes := range resp {
-		if opts[buildRes.Name].PrintFunc != nil {
-			for _, nodeRes := range buildRes.NodeResponses {
-				if err := printResult(opts[buildRes.Name].PrintFunc, nodeRes.SolveResponse.ExporterResponse); err != nil {
-					return nil, nil, err
-				}
+	for name, opt := range opts {
+		if opt.CallFunc == nil {
+			continue
+		}
+		if res, ok := resp.merged[name]; ok && res != nil {
+			if err := printResult(opt.CallFunc, res.ExporterResponse); err != nil {
+				return nil, err
 			}
 		}
 	}
 
-	return imageIDs, res, err
+	return imageIDs, err
 }
 
-func parseInvokeConfig(invoke string) (cfg build.ContainerConfig, err error) {
-	cfg.Tty = true
+func retryableWithoutStdin(opts map[string]build.Options) bool {
+	for _, opt := range opts {
+		if opt.Inputs.ContextPath == "-" || opt.Inputs.DockerfilePath == "-" {
+			return false
+		}
+	}
+	return true
+}
+
+func writeImageIDFile(path string, targets []buildxdriver.TargetResponse) error {
+	for _, target := range targets {
+		if len(target.NodeResponses) != 1 {
+			continue
+		}
+		exporterResponse := target.NodeResponses[0].SolveResponse.ExporterResponse
+		dgst := exporterResponse[exptypes.ExporterImageDigestKey]
+		if v, ok := exporterResponse[exptypes.ExporterImageConfigDigestKey]; ok {
+			dgst = v
+		}
+		return os.WriteFile(path, []byte(dgst), 0644)
+	}
+	return nil
+}
+
+type nopCloser struct {
+	io.Writer
+}
+
+func (nopCloser) Close() error { return nil }
+
+func parseInvokeConfig(invoke string) (build.InvokeConfig, error) {
+	cfg := build.InvokeConfig{Tty: true, SuspendOn: build.SuspendAlways}
 	if invoke == "default" {
 		return cfg, nil
 	}
 
-	csvReader := csv.NewReader(strings.NewReader(invoke))
-	fields, err := csvReader.Read()
+	fields, err := csv.NewReader(strings.NewReader(invoke)).Read()
 	if err != nil {
 		return cfg, err
 	}
@@ -404,23 +330,21 @@ func parseInvokeConfig(invoke string) (cfg build.ContainerConfig, err error) {
 		return cfg, nil
 	}
 	for _, field := range fields {
-		parts := strings.SplitN(field, "=", 2)
-		if len(parts) != 2 {
+		key, value, ok := strings.Cut(field, "=")
+		if !ok {
 			return cfg, errors.Errorf("invalid value %s", field)
 		}
-		key := strings.ToLower(parts[0])
-		value := parts[1]
-		switch key {
+		switch strings.ToLower(key) {
 		case "args":
-			cfg.Cmd = append(cfg.Cmd, value) // TODO: support JSON
+			cfg.Cmd = append(cfg.Cmd, value)
 		case "entrypoint":
-			cfg.Entrypoint = append(cfg.Entrypoint, value) // TODO: support JSON
+			cfg.Entrypoint = append(cfg.Entrypoint, value)
 		case "env":
 			cfg.Env = append(cfg.Env, value)
 		case "user":
-			cfg.User = &value
+			cfg.User = value
 		case "cwd":
-			cfg.Cwd = &value
+			cfg.Cwd = value
 		case "tty":
 			cfg.Tty, err = strconv.ParseBool(value)
 			if err != nil {
@@ -434,7 +358,7 @@ func parseInvokeConfig(invoke string) (cfg build.ContainerConfig, err error) {
 }
 
 func printWarnings(w io.Writer, warnings []client.VertexWarning, mode string) {
-	if len(warnings) == 0 || mode == progress.PrinterModeQuiet {
+	if len(warnings) == 0 || mode == string(progressui.QuietMode) {
 		return
 	}
 	fmt.Fprintf(w, "\n ")
@@ -447,7 +371,6 @@ func printWarnings(w io.Writer, warnings []client.VertexWarning, mode string) {
 	if logrus.GetLevel() < logrus.DebugLevel {
 		fmt.Fprintf(sb, " (use --debug to expand)")
 	}
-
 	fmt.Fprintf(sb, ":\n")
 	fmt.Fprint(w, aec.Apply(sb.String(), aec.YellowF))
 
@@ -456,7 +379,6 @@ func printWarnings(w io.Writer, warnings []client.VertexWarning, mode string) {
 		if logrus.GetLevel() < logrus.DebugLevel {
 			continue
 		}
-
 		for _, d := range warn.Detail {
 			fmt.Fprintf(w, "%s\n", d)
 		}
@@ -464,55 +386,46 @@ func printWarnings(w io.Writer, warnings []client.VertexWarning, mode string) {
 			fmt.Fprintf(w, "More info: %s\n", warn.URL)
 		}
 		if warn.SourceInfo != nil && warn.Range != nil {
-			src := errdefs.Source{
-				Info:   warn.SourceInfo,
-				Ranges: warn.Range,
-			}
+			src := errdefs.Source{Info: warn.SourceInfo, Ranges: warn.Range}
 			src.Print(w)
 		}
 		fmt.Fprintf(w, "\n")
-
 	}
 }
 
 func newBuildOptions() buildOptions {
 	ulimits := make(map[string]*units.Ulimit)
-	return buildOptions{
-		ulimits: dockeropts.NewUlimitOpt(&ulimits),
-	}
+	return buildOptions{ulimits: dockeropts.NewUlimitOpt(&ulimits)}
 }
 
 func validateBuildOptions(in *buildOptions) (map[string]build.Options, error) {
-	noCache := false
-	if in.noCache != nil {
-		noCache = *in.noCache
-	}
-	pull := false
-	if in.pull != nil {
-		pull = *in.pull
-	}
+	noCache := in.noCache != nil && *in.noCache
+	pull := in.pull != nil && *in.pull
 
 	if noCache && len(in.noCacheFilter) > 0 {
 		return nil, errors.Errorf("--no-cache and --no-cache-filter cannot currently be used together")
 	}
 
-	if in.quiet && in.progress != progress.PrinterModeAuto && in.progress != progress.PrinterModeQuiet {
+	if in.quiet && in.progress != string(progressui.AutoMode) && in.progress != string(progressui.QuietMode) {
 		return nil, errors.Errorf("progress=%s and quiet cannot be used together", in.progress)
 	} else if in.quiet {
-		in.progress = "quiet"
+		in.progress = string(progressui.QuietMode)
 	}
 
-	_, isCI := ci.Provider()
-	if in.progress == progress.PrinterModeAuto && isCI {
-		in.progress = progress.PrinterModePlain
+	if _, isCI := ci.Provider(); in.progress == string(progressui.AutoMode) && isCI {
+		in.progress = string(progressui.PlainMode)
 	}
 
-	contexts, err := parseContextNames(in.contexts)
+	namedContexts, err := buildflags.ParseContextNames(in.contexts)
 	if err != nil {
 		return nil, err
 	}
+	contexts := make(map[string]build.NamedContext, len(namedContexts))
+	for name, path := range namedContexts {
+		contexts[name] = build.NamedContext{Path: path}
+	}
 
-	printFunc, err := parsePrintFunc(in.printFunc)
+	callFunc, err := buildflags.ParseCallFunc(in.printFunc)
 	if err != nil {
 		return nil, err
 	}
@@ -521,12 +434,11 @@ func validateBuildOptions(in *buildOptions) (map[string]build.Options, error) {
 		Inputs: build.Inputs{
 			ContextPath:    in.contextPath,
 			DockerfilePath: in.dockerfileName,
-			InStream:       os.Stdin,
+			InStream:       build.NewSyncMultiReader(os.Stdin),
 			NamedContexts:  contexts,
 		},
 		BuildArgs:     listToMap(in.buildArgs, true),
 		ExtraHosts:    in.extraHosts,
-		ImageIDFile:   in.imageIDFile,
 		Labels:        listToMap(in.labels, false),
 		NetworkMode:   in.networkMode,
 		NoCache:       noCache,
@@ -536,18 +448,22 @@ func validateBuildOptions(in *buildOptions) (map[string]build.Options, error) {
 		Tags:          in.tags,
 		Target:        in.target,
 		Ulimits:       in.ulimits,
-		PrintFunc:     printFunc,
+	}
+	if callFunc != nil {
+		opts.CallFunc = &build.CallFunc{Name: callFunc.Name, Format: callFunc.Format, IgnoreStatus: callFunc.IgnoreStatus}
 	}
 
-	platforms, err := platformutil.Parse(in.platforms)
-	if err != nil {
+	if opts.Platforms, err = platformutil.Parse(in.platforms); err != nil {
 		return nil, err
 	}
-	opts.Platforms = platforms
 
 	opts.Session = append(opts.Session, registry.NewDockerAuthProviderWithDepotAuth())
 
-	secrets, err := buildflags.ParseSecretSpecs(in.secrets)
+	secretSpecs, err := buildflags.ParseSecretSpecs(in.secrets)
+	if err != nil {
+		return nil, err
+	}
+	secrets, err := build.CreateSecrets(secretSpecs)
 	if err != nil {
 		return nil, err
 	}
@@ -557,20 +473,33 @@ func validateBuildOptions(in *buildOptions) (map[string]build.Options, error) {
 	if len(sshSpecs) == 0 && buildflags.IsGitSSH(in.contextPath) {
 		sshSpecs = []string{"default"}
 	}
-	ssh, err := buildflags.ParseSSHSpecs(sshSpecs)
+	sshEntries, err := buildflags.ParseSSHSpecs(sshSpecs)
+	if err != nil {
+		return nil, err
+	}
+	ssh, err := build.CreateSSH(sshEntries)
 	if err != nil {
 		return nil, err
 	}
 	opts.Session = append(opts.Session, ssh)
 
-	outputs, err := buildflags.ParseOutputs(in.outputs)
+	exportEntries, err := buildflags.ParseExports(in.outputs)
 	if err != nil {
 		return nil, err
+	}
+	outputs, _, err := build.CreateExports(exportEntries)
+	if err != nil {
+		return nil, err
+	}
+	for _, e := range outputs {
+		if (e.Type == client.ExporterLocal || e.Type == client.ExporterTar) && in.imageIDFile != "" {
+			return nil, errors.Errorf("local and tar exporters are incompatible with image ID file")
+		}
 	}
 	if in.exportPush {
 		if len(outputs) == 0 {
 			outputs = []client.ExportEntry{{
-				Type: "image",
+				Type: client.ExporterImage,
 				Attrs: map[string]string{
 					"push":                       "true",
 					"depot.export.image.version": "2",
@@ -578,7 +507,7 @@ func validateBuildOptions(in *buildOptions) (map[string]build.Options, error) {
 			}}
 		} else {
 			switch outputs[0].Type {
-			case "image":
+			case client.ExporterImage:
 				outputs[0].Attrs["push"] = "true"
 				outputs[0].Attrs["depot.export.image.version"] = "2"
 			default:
@@ -587,35 +516,29 @@ func validateBuildOptions(in *buildOptions) (map[string]build.Options, error) {
 		}
 	}
 
-	// When using --save without explicit exports, create an image export
-	// so that annotations can be applied to it
 	if in.save && len(outputs) == 0 {
 		outputs = []client.ExportEntry{{
-			Type: "image",
-			Attrs: map[string]string{
-				"depot.export.image.version": "2",
-			},
+			Type:  client.ExporterImage,
+			Attrs: map[string]string{"depot.export.image.version": "2"},
 		}}
 	}
 
-	opts.Exports = outputs
-
-	// parse and apply annotations to exports
 	if len(in.annotations) > 0 {
-		annotations, err := depotbuildflags.ParseAnnotations(in.annotations)
+		annotations, err := buildflags.ParseAnnotations(in.annotations)
 		if err != nil {
 			return nil, errors.Wrap(err, "parse annotations")
 		}
-
-		for i := range opts.Exports {
-			if opts.Exports[i].Attrs == nil {
-				opts.Exports[i].Attrs = make(map[string]string)
+		opts.Annotations = annotations
+		for i := range outputs {
+			if outputs[i].Attrs == nil {
+				outputs[i].Attrs = map[string]string{}
 			}
 			for k, v := range annotations {
-				opts.Exports[i].Attrs[k.String()] = v
+				outputs[i].Attrs[k.String()] = v
 			}
 		}
 	}
+	opts.Exports = outputs
 
 	inAttests := append([]string{}, in.attests...)
 	if in.provenance != "" {
@@ -624,24 +547,25 @@ func validateBuildOptions(in *buildOptions) (map[string]build.Options, error) {
 	if in.sbom != "" {
 		inAttests = append(inAttests, buildflags.CanonicalizeAttest("sbom", in.sbom))
 	}
-	opts.Attests, err = buildflags.ParseAttests(inAttests)
+	attests, err := buildflags.ParseAttests(inAttests)
 	if err != nil {
 		return nil, err
 	}
+	opts.Attests = attests.ToMap()
 
-	cacheImports, err := buildflags.ParseCacheEntry(in.cacheFrom)
+	cacheFrom, err := buildflags.ParseCacheEntry(in.cacheFrom)
 	if err != nil {
 		return nil, err
 	}
-	opts.CacheFrom = depotbuildflags.FilterGHACacheEntries(cacheImports, "--cache-from")
+	opts.CacheFrom = filterGHACaches(build.CreateCaches(cacheFrom), "--cache-from")
 
-	cacheExports, err := buildflags.ParseCacheEntry(in.cacheTo)
+	cacheTo, err := buildflags.ParseCacheEntry(in.cacheTo)
 	if err != nil {
 		return nil, err
 	}
-	opts.CacheTo = depotbuildflags.FilterGHACacheEntries(cacheExports, "--cache-to")
+	opts.CacheTo = filterGHACaches(build.CreateCaches(cacheTo), "--cache-to")
 
-	allow, err := buildflags.ParseEntitlements(in.allow)
+	allow, _, err := buildflags.ParseEntitlements(in.allow)
 	if err != nil {
 		return nil, err
 	}
@@ -657,7 +581,7 @@ func BuildCmd() *cobra.Command {
 		Use:     "build [OPTIONS] PATH | URL | -",
 		Aliases: []string{"b"},
 		Short:   "Start a build",
-		Args:    cli.ExactArgs(1),
+		Args:    arguments.Exact(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			dockerCli, err := dockerclient.NewDockerCLI()
 			if err != nil {
@@ -671,7 +595,6 @@ func BuildCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-
 			if token == "" {
 				return fmt.Errorf("missing API token, please run `depot login`")
 			}
@@ -707,8 +630,6 @@ func BuildCmd() *cobra.Command {
 
 			ctxDriverUpdate, driverUpdateCancel := context.WithCancel(cmd.Context())
 			go func() {
-				// Optimistically update drivers in the background.
-				// This helps to keep the drivers up-to-date.
 				_ = docker.UpdateDrivers(ctxDriverUpdate, dockerCli)
 			}()
 
@@ -719,18 +640,14 @@ func BuildCmd() *cobra.Command {
 				PrintBuildURL(build.BuildURL, options.progress)
 			}()
 
-			options.builderOptions = []builder.Option{builder.WithDepotOptions(buildPlatform, build)}
-			buildProject := build.BuildProject()
-			if buildProject != "" {
+			options.buildPlatform = buildPlatform
+			if buildProject := build.BuildProject(); buildProject != "" {
 				options.project = buildProject
 			}
-			loadUsingRegistry := build.LoadUsingRegistry()
-			if options.exportLoad && loadUsingRegistry {
+			if options.exportLoad && build.LoadUsingRegistry() {
 				options.save = true
-				pullInfo, err := depotbuild.PullBuildInfo(context.Background(), build.ID, token)
-				// if we cannot get pull info, dont fail; load as normal
-				if err == nil {
-					options.loadUsingRegistry = loadUsingRegistry
+				if pullInfo, err := depotbuild.PullBuildInfo(context.Background(), build.ID, token); err == nil {
+					options.loadUsingRegistry = true
 					options.pullInfo = pullInfo
 				}
 			}
@@ -826,11 +743,12 @@ func BuildCmd() *cobra.Command {
 		flags.StringVar(&options.invoke, "invoke", "", "Invoke a command after the build [experimental]")
 	}
 
-	// hidden flags
-	var ignore string
-	var ignoreSlice []string
-	var ignoreBool bool
-	var ignoreInt int64
+	var (
+		ignore      string
+		ignoreSlice []string
+		ignoreBool  bool
+		ignoreInt   int64
+	)
 
 	flags.BoolVar(&ignoreBool, "compress", false, "Compress the build context using gzip")
 	_ = flags.MarkHidden("compress")
@@ -890,7 +808,7 @@ func commonBuildFlags(options *commonOptions, flags *pflag.FlagSet) {
 func depotFlags(cmd *cobra.Command, options *DepotOptions, flags *pflag.FlagSet) {
 	depotBuildFlags(options, flags)
 	depotLintFlags(cmd, options, flags)
-	depotAttestationFlags(cmd, options, flags)
+	depotAttestationFlags(options, flags)
 }
 
 func depotBuildFlags(options *DepotOptions, flags *pflag.FlagSet) {
@@ -898,10 +816,7 @@ func depotBuildFlags(options *DepotOptions, flags *pflag.FlagSet) {
 	flags.StringVar(&options.token, "token", "", "Depot token")
 	flags.StringVar(&options.buildPlatform, "build-platform", "dynamic", `Run builds on this platform ("dynamic", "linux/amd64", "linux/arm64")`)
 
-	allowNoOutput := false
-	if v := os.Getenv("DEPOT_SUPPRESS_NO_OUTPUT_WARNING"); v != "" {
-		allowNoOutput = true
-	}
+	allowNoOutput := os.Getenv("DEPOT_SUPPRESS_NO_OUTPUT_WARNING") != ""
 	flags.BoolVar(&options.allowNoOutput, "suppress-no-output-warning", allowNoOutput, "Suppress warning if no output is generated")
 	_ = flags.MarkHidden("suppress-no-output-warning")
 }
@@ -919,7 +834,7 @@ func depotLintFlags(cmd *cobra.Command, options *DepotOptions, flags *pflag.Flag
 	})
 }
 
-func depotAttestationFlags(_ *cobra.Command, options *DepotOptions, flags *pflag.FlagSet) {
+func depotAttestationFlags(options *DepotOptions, flags *pflag.FlagSet) {
 	flags.StringVar(&options.sbomDir, "sbom-dir", "", `directory to store SBOM attestations`)
 }
 
@@ -933,8 +848,7 @@ func checkWarnedFlags(f *pflag.Flag) {
 		return
 	}
 	for t, m := range f.Annotations {
-		switch t {
-		case "flag-warn":
+		if t == "flag-warn" {
 			logrus.Warn(m[0])
 		}
 	}
@@ -943,248 +857,35 @@ func checkWarnedFlags(f *pflag.Flag) {
 func listToMap(values []string, defaultEnv bool) map[string]string {
 	result := make(map[string]string, len(values))
 	for _, value := range values {
-		kv := strings.SplitN(value, "=", 2)
-		if len(kv) == 1 {
-			if defaultEnv {
-				v, ok := os.LookupEnv(kv[0])
-				if ok {
-					result[kv[0]] = v
-				}
-			} else {
-				result[kv[0]] = ""
+		key, val, ok := strings.Cut(value, "=")
+		switch {
+		case ok:
+			result[key] = val
+		case defaultEnv:
+			if v, ok := os.LookupEnv(key); ok {
+				result[key] = v
 			}
-		} else {
-			result[kv[0]] = kv[1]
+		default:
+			result[key] = ""
 		}
 	}
 	return result
 }
 
-func parseContextNames(values []string) (map[string]build.NamedContext, error) {
-	if len(values) == 0 {
-		return nil, nil
-	}
-	result := make(map[string]build.NamedContext, len(values))
-	for _, value := range values {
-		kv := strings.SplitN(value, "=", 2)
-		if len(kv) != 2 {
-			return nil, errors.Errorf("invalid context value: %s, expected key=value", value)
-		}
-		named, err := reference.ParseNormalizedNamed(kv[0])
-		if err != nil {
-			return nil, errors.Wrapf(err, "invalid context name %s", kv[0])
-		}
-		name := strings.TrimSuffix(reference.FamiliarString(named), ":latest")
-		result[name] = build.NamedContext{Path: kv[1]}
-	}
-	return result, nil
-}
-
-func parsePrintFunc(str string) (*build.PrintFunc, error) {
-	if str == "" {
-		return nil, nil
-	}
-	csvReader := csv.NewReader(strings.NewReader(str))
-	fields, err := csvReader.Read()
-	if err != nil {
-		return nil, err
-	}
-	f := &build.PrintFunc{}
-	for _, field := range fields {
-		parts := strings.SplitN(field, "=", 2)
-		if len(parts) == 2 {
-			if parts[0] == "format" {
-				f.Format = parts[1]
-			} else {
-				return nil, errors.Errorf("invalid print field: %s", field)
-			}
-		} else {
-			if f.Name != "" {
-				return nil, errors.Errorf("invalid print value: %s", str)
-			}
-			f.Name = field
-		}
-	}
-	return f, nil
-}
-
-func writeMetadataFile(filename, projectID, buildID string, requestedTargets []string, metadata map[string]interface{}, isBake bool) error {
-	depotBuild := struct {
-		BuildID   string   `json:"buildID"`
-		ProjectID string   `json:"projectID"`
-		Targets   []string `json:"targets,omitempty"`
-	}{
-		BuildID:   buildID,
-		ProjectID: projectID,
-	}
-
-	if isBake {
-		// If requestedTargets was provided, use that; otherwise use all metadata keys
-		if len(requestedTargets) > 0 {
-			depotBuild.Targets = requestedTargets
-		} else {
-			depotBuild.Targets = maps.Keys(metadata)
-		}
-	}
-
-	metadata["depot.build"] = depotBuild
-	b, err := json.MarshalIndent(metadata, "", "  ")
-	if err != nil {
-		return err
-	}
-	return ioutils.AtomicWriteFile(filename, b, 0644)
-}
-
-func decodeExporterResponse(exporterResponse map[string]string) map[string]interface{} {
-	out := make(map[string]interface{})
-	for k, v := range exporterResponse {
-		dt, err := base64.StdEncoding.DecodeString(v)
-		if err != nil {
-			out[k] = v
+func filterGHACaches(entries []client.CacheOptionsEntry, flag string) []client.CacheOptionsEntry {
+	var filtered []client.CacheOptionsEntry
+	foundGHA := false
+	for _, entry := range entries {
+		if entry.Type == "gha" {
+			foundGHA = true
 			continue
 		}
-		if k == load.ImagesExported {
-			_, manifests, imageConfigs, err := load.DecodeExportImages(v)
-			if err != nil {
-				out[k] = v
-			} else {
-				out["manifests"] = manifests
-				out["imageConfigs"] = imageConfigs
-			}
-
-			continue
-		}
-
-		// Filter out the SBOMs as they can be quite large.
-		if k == sbom.SBOMsLabel {
-			continue
-		}
-
-		var raw map[string]interface{}
-		if err = json.Unmarshal(dt, &raw); err != nil || len(raw) == 0 {
-			out[k] = v
-			continue
-		}
-		// DEPOT: Remove the depot specific keys.
-		// We use these for fast load and the format is not compatible with the OCI spec.
-		if k == exptypes.ExporterImageDescriptorKey {
-			if anno, ok := raw["annotations"]; ok {
-				if anno, ok := anno.(map[string]interface{}); ok {
-					delete(anno, "depot.containerimage.index")
-					delete(anno, "depot.containerimage.config")
-					delete(anno, "depot.containerimage.manifest")
-					out[k] = raw
-					continue
-				}
-			}
-		}
-		out[k] = json.RawMessage(dt)
+		filtered = append(filtered, entry)
 	}
-	return out
-}
-
-func wrapBuildError(err error, bake bool) error {
-	if err == nil {
-		return nil
+	if foundGHA {
+		fmt.Fprintf(os.Stderr, "WARNING: Ignoring %s with type=gha: GitHub Actions cache is redundant with Depot's built-in caching\n", flag)
 	}
-
-	errMsg := err.Error()
-
-	// Check for OpenTelemetry schema conflict errors
-	if strings.Contains(errMsg, "conflicting Schema URL") || strings.Contains(errMsg, "cannot merge resource") {
-		msg := fmt.Sprintf("%s\n\nThis error is usually caused by conflicting OpenTelemetry environment variables.\nTo resolve this issue, try setting DEPOT_DISABLE_OTEL=1 in your environment.", errMsg)
-		return &wrapped{err, msg}
-	}
-
-	// Check for gRPC errors
-	st, ok := grpcerrors.AsGRPCStatus(err)
-	if ok {
-		if st.Code() == codes.Unimplemented && strings.Contains(st.Message(), "unsupported frontend capability moby.buildkit.frontend.contexts") {
-			msg := "current frontend does not support --build-context."
-			if bake {
-				msg = "current frontend does not support defining additional contexts for targets."
-			}
-			msg += " Named contexts are supported since Dockerfile v1.4. Use #syntax directive in Dockerfile or update to latest BuildKit."
-			return &wrapped{err, msg}
-		}
-	}
-	return err
-}
-
-type wrapped struct {
-	err error
-	msg string
-}
-
-func (w *wrapped) Error() string {
-	return w.msg
-}
-
-func (w *wrapped) Unwrap() error {
-	return w.err
-}
-
-func retryRetryableErrors(ctx context.Context, f func() error) error {
-	maxRetryCountEnv := os.Getenv("DEPOT_BUILDKIT_ERROR_MAX_RETRY_COUNT")
-	maxRetryCount := 5
-	if maxRetryCountEnv != "" {
-		maxRetryCount, _ = strconv.Atoi(maxRetryCountEnv)
-	}
-
-	retryCount := 0
-	for {
-		err := f()
-		if !shouldRetryError(err) {
-			return err
-		}
-		if retryCount >= maxRetryCount {
-			return err
-		}
-		retryCount++
-		fmt.Printf("\nReceived retryable BuildKit error, retrying: %v\n", err)
-		fmt.Println()
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(100 * time.Millisecond):
-		}
-	}
-}
-
-func shouldRetryError(err error) bool {
-	if err == nil {
-		return false
-	}
-
-	if strings.Contains(err.Error(), "inconsistent graph state") {
-		return true
-	}
-
-	if strings.Contains(err.Error(), "failed to get state for index") {
-		return true
-	}
-
-	return false
-}
-
-func rewriteFriendlyErrors(err error) error {
-	if err == nil {
-		return nil
-	}
-	if strings.Contains(err.Error(), "header key \"exclude-patterns\" contains value with non-printable ASCII characters") {
-		return errors.New(err.Error() + ". Please check your .dockerignore file for invalid characters.")
-	}
-	if strings.Contains(err.Error(), "failed to calculate checksum of ref") {
-		pattern := `failed to solve: failed to compute cache key: failed to calculate checksum of ref [^:]+::[^:]+:`
-		re := regexp.MustCompile(pattern)
-
-		simplified := re.ReplaceAllString(err.Error(), "")
-		return errors.New(simplified + ". Please check if the files exist in the context.")
-	}
-	if strings.Contains(err.Error(), "code = Canceled desc = grpc: the client connection is closing") {
-		return errors.New("build canceled")
-	}
-	return err
+	return filtered
 }
 
 func isExperimental() bool {
@@ -1193,13 +894,4 @@ func isExperimental() bool {
 		return vv
 	}
 	return false
-}
-
-func updateLastActivity(dockerCli command.Cli, ng *store.NodeGroup) error {
-	txn, release, err := storeutil.GetStore(dockerCli)
-	if err != nil {
-		return err
-	}
-	defer release()
-	return txn.UpdateLastActivity(ng)
 }

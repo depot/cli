@@ -6,14 +6,14 @@ import (
 
 	"connectrpc.com/connect"
 	depotapi "github.com/depot/cli/pkg/api"
+	"github.com/depot/cli/pkg/arguments"
 	"github.com/depot/cli/pkg/ci"
 	"github.com/depot/cli/pkg/dockerclient"
 	"github.com/depot/cli/pkg/helpers"
 	"github.com/depot/cli/pkg/load"
 	cliv1 "github.com/depot/cli/pkg/proto/depot/cli/v1"
-	prog "github.com/docker/buildx/util/progress"
-	"github.com/docker/cli/cli"
 	"github.com/docker/cli/cli/command"
+	"github.com/moby/buildkit/util/progress/progressui"
 	"github.com/spf13/cobra"
 	"golang.org/x/sync/errgroup"
 )
@@ -32,7 +32,7 @@ func NewCmdPull() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "pull [flags] [buildID|tag]",
 		Short: "Pull a project's build from the Depot registry",
-		Args:  cobra.MatchAll(cli.RequiresMaxArgs(1), requireNonEmptyArg),
+		Args:  cobra.MatchAll(arguments.AtMost(1), requireNonEmptyArg),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			dockerCli, err := dockerclient.NewDockerCLI()
 			if err != nil {
@@ -43,8 +43,8 @@ func NewCmdPull() *cobra.Command {
 				param = args[0]
 			}
 			_, isCI := ci.Provider()
-			if progress == prog.PrinterModeAuto && isCI {
-				progress = prog.PrinterModePlain
+			if progress == string(progressui.AutoMode) && isCI {
+				progress = string(progressui.PlainMode)
 			}
 
 			ctx := cmd.Context()
@@ -160,7 +160,7 @@ func pullByTag(ctx context.Context, dockerCli command.Cli, token, projectID, tag
 	username := "x-token"
 	opts := load.PullOptions{
 		UserTags:      userTags,
-		Quiet:         progress == prog.PrinterModeQuiet,
+		Quiet:         progress == string(progressui.QuietMode),
 		KeepImage:     true,
 		Username:      &username,
 		Password:      &res.Msg.Token,

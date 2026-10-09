@@ -7,8 +7,8 @@ import (
 	depotbuild "github.com/depot/cli/pkg/build"
 	"github.com/docker/buildx/build"
 	"github.com/docker/buildx/util/platformutil"
-	"github.com/docker/buildx/util/progress"
 	"github.com/moby/buildkit/client"
+	"github.com/moby/buildkit/util/progress/progressui"
 )
 
 // DepotLoadOptions are options to load images from the depot hosted registry.
@@ -72,7 +72,7 @@ func WithDepotImagePull(buildOpts map[string]build.Options, loadOpts DepotLoadOp
 
 			pullOpt := PullOptions{
 				UserTags: userTags,
-				Quiet:    loadOpts.ProgressMode == progress.PrinterModeQuiet,
+				Quiet:    loadOpts.ProgressMode == string(progressui.QuietMode),
 			}
 
 			// Specify a platform to pull when a single platform is used.

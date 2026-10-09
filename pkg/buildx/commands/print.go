@@ -1,49 +1,80 @@
-// Source: https://github.com/docker/buildx/blob/v0.10/commands/print.go
-
 package commands
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
 	"os"
 
-	"github.com/containerd/containerd/platforms"
-	"github.com/depot/cli/pkg/buildx/bake"
+	"github.com/depot/cli/pkg/compose"
+	"github.com/docker/buildx/bake"
 	"github.com/docker/buildx/build"
-	buildxprogress "github.com/docker/buildx/util/progress"
 	"github.com/docker/cli/cli/command"
-	"github.com/docker/docker/api/types/versions"
 	"github.com/mgutz/ansi"
 	"github.com/moby/buildkit/frontend/subrequests"
 	"github.com/moby/buildkit/frontend/subrequests/outline"
 	"github.com/moby/buildkit/frontend/subrequests/targets"
+	"github.com/moby/buildkit/util/progress/progressui"
+	"github.com/moby/moby/client/pkg/versions"
 	"github.com/savioxavier/termlink"
 )
 
-func BakePrint(dockerCli command.Cli, targets []string, in BakeOptions) (err error) {
+func BakePrint(dockerCli command.Cli, targets []string, in BakeOptions) error {
 	if len(targets) == 0 {
 		targets = []string{"default"}
 	}
 
-	files, err := bake.ReadLocalFiles(in.files, os.Stdin)
+	files, err := bake.ReadLocalFiles(in.files, os.Stdin, nil)
+	if err != nil {
+		return err
+	}
+	if len(files) == 0 {
+		return errors.New("couldn't find a bake definition")
+	}
+
+	defaults := bakeDefaults("cwd://")
+	tgts, grps, err := bake.ReadTargets(context.Background(), withoutProjectIDs(files), targets, overrides(in), defaults, nil, &bake.EntitlementConf{})
 	if err != nil {
 		return err
 	}
 
-	overrides := overrides(in)
-	defaults := map[string]string{
-		"BAKE_CMD_CONTEXT":    "cwd://",
-		"BAKE_LOCAL_PLATFORM": platforms.DefaultString(),
-	}
-	tgts, grps, err := bake.ReadTargets(context.Background(), files, targets, overrides, defaults)
+	projects, err := readTargetProjects(context.Background(), files, targets, defaults)
 	if err != nil {
 		return err
 	}
+	composeTargets, err := compose.Targets(files)
+	if err != nil {
+		return err
+	}
+	for name, target := range composeTargets {
+		if target.ProjectID != "" {
+			projects[name] = target.ProjectID
+		}
+	}
 
-	dt, err := json.MarshalIndent(BakePrintOutput{grps, tgts}, "", "  ")
+	printedTargets := make(map[string]json.RawMessage, len(tgts))
+	for name, target := range tgts {
+		dt, err := json.Marshal(target)
+		if err != nil {
+			return err
+		}
+		if projectID, ok := projects[name]; ok {
+			dt, err = appendJSONField(dt, projectIDAttribute, projectID)
+			if err != nil {
+				return err
+			}
+		}
+		printedTargets[name] = dt
+	}
+
+	dt, err := json.MarshalIndent(struct {
+		Group  map[string]*bake.Group     `json:"group,omitempty"`
+		Target map[string]json.RawMessage `json:"target"`
+	}{grps, printedTargets}, "", "  ")
 	if err != nil {
 		return err
 	}
@@ -52,12 +83,21 @@ func BakePrint(dockerCli command.Cli, targets []string, in BakeOptions) (err err
 	return nil
 }
 
-type BakePrintOutput struct {
-	Group  map[string]*bake.Group  `json:"group,omitempty"`
-	Target map[string]*bake.Target `json:"target"`
+// appendJSONField adds a field after the last field of a JSON object.
+func appendJSONField(object []byte, key, value string) ([]byte, error) {
+	field, err := json.Marshal(map[string]string{key: value})
+	if err != nil {
+		return nil, err
+	}
+	object = bytes.TrimSuffix(bytes.TrimSpace(object), []byte("}"))
+	field = bytes.TrimPrefix(field, []byte("{"))
+	if len(bytes.TrimSpace(object)) > 1 {
+		object = append(object, ',')
+	}
+	return append(object, field...), nil
 }
 
-func printResult(f *build.PrintFunc, res map[string]string) error {
+func printResult(f *build.CallFunc, res map[string]string) error {
 	switch f.Name {
 	case "outline":
 		return printValue(outline.PrintOutline, outline.SubrequestsOutlineDefinition.Version, f.Format, res)
@@ -69,7 +109,7 @@ func printResult(f *build.PrintFunc, res map[string]string) error {
 		if dt, ok := res["result.txt"]; ok {
 			fmt.Print(dt)
 		} else {
-			log.Printf("%s %+v", f, res)
+			log.Printf("%v %+v", f, res)
 		}
 	}
 	return nil
@@ -101,7 +141,7 @@ func PrintBuildURL(buildURL, progress string) {
 // PrintURLLink will print a link that is clickable in supported terminals.
 func PrintURLLink(w io.Writer, title, url, progress string) {
 	if url != "" {
-		if progress == buildxprogress.PrinterModePlain {
+		if progress == string(progressui.PlainMode) {
 			fmt.Fprintf(w, "%s: %s\n", title, url)
 		} else {
 			title := ansi.Color(title, "cyan+b")

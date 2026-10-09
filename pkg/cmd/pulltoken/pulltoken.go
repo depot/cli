@@ -5,9 +5,9 @@ import (
 
 	"connectrpc.com/connect"
 	depotapi "github.com/depot/cli/pkg/api"
+	"github.com/depot/cli/pkg/arguments"
 	"github.com/depot/cli/pkg/helpers"
 	cliv1 "github.com/depot/cli/pkg/proto/depot/cli/v1"
-	"github.com/docker/cli/cli"
 	"github.com/spf13/cobra"
 )
 
@@ -21,7 +21,7 @@ func NewCmdPullToken() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "pull-token [flags] ([buildID])",
 		Short: "Create a new pull token for the registry",
-		Args:  cli.RequiresMaxArgs(1),
+		Args:  arguments.AtMost(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) > 0 {
 				buildID = args[0]

@@ -13,13 +13,11 @@ import (
 	"strings"
 
 	contentv1 "github.com/containerd/containerd/api/services/content/v1"
-	depotbuild "github.com/depot/cli/pkg/buildx/build"
-	"github.com/docker/buildx/driver"
-	"github.com/opencontainers/go-digest"
+	"github.com/depot/cli/pkg/buildxdriver"
 	"golang.org/x/sync/errgroup"
 )
 
-func Save(ctx context.Context, outputDir string, resp []depotbuild.DepotBuildResponse) error {
+func Save(ctx context.Context, outputDir string, resp []buildxdriver.TargetResponse) error {
 	targetPlatforms := map[string]map[string]sbomOutput{}
 	for _, buildRes := range resp {
 		targetName := buildRes.Name
@@ -37,7 +35,7 @@ func Save(ctx context.Context, outputDir string, resp []depotbuild.DepotBuildRes
 				if _, ok := targetPlatforms[targetName]; !ok {
 					targetPlatforms[targetName] = map[string]sbomOutput{}
 				}
-				targetPlatforms[targetName][sbom.Platform] = sbomOutput{driver: nodeRes.Node.Driver, sbom: sbom}
+				targetPlatforms[targetName][sbom.Platform] = sbomOutput{driver: nodeRes.Driver, sbom: sbom}
 			}
 		}
 	}
@@ -67,7 +65,7 @@ func Save(ctx context.Context, outputDir string, resp []depotbuild.DepotBuildRes
 }
 
 type sbomOutput struct {
-	driver     driver.Driver
+	driver     *buildxdriver.Driver
 	outputPath string
 	sbom       sbomReference
 }
@@ -125,7 +123,7 @@ type ImageSBOM struct {
 
 // decodeNodeResponses decodes the SBOMs from the node responses. If the
 // response does not have SBOMs, nil is returned.
-func decodeNodeResponses(nodeRes depotbuild.DepotNodeResponse) ([]sbomReference, error) {
+func decodeNodeResponses(nodeRes buildxdriver.NodeResponse) ([]sbomReference, error) {
 	encodedSBOMs, ok := nodeRes.SolveResponse.ExporterResponse[SBOMsLabel]
 	if !ok {
 		return nil, nil
@@ -153,7 +151,7 @@ func downloadSBOM(ctx context.Context, sbom sbomOutput) error {
 	}
 
 	contentClient := client.ContentClient()
-	r, err := contentClient.Read(ctx, &contentv1.ReadContentRequest{Digest: digest.Digest(sbom.sbom.Digest)})
+	r, err := contentClient.Read(ctx, &contentv1.ReadContentRequest{Digest: sbom.sbom.Digest})
 	if err != nil {
 		return err
 	}

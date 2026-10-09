@@ -1,10 +1,11 @@
 package registry
 
 import (
+	"slices"
+
 	"github.com/depot/cli/pkg/build"
 	buildx "github.com/docker/buildx/build"
 	"github.com/moby/buildkit/client"
-	"golang.org/x/exp/slices"
 )
 
 type SaveOptions struct {

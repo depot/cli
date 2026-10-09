@@ -20,9 +20,10 @@ var _ progress.Writer = (*Reporter)(nil)
 
 type Reporter struct {
 	// Using a function so we can support oth progress.Writer and progress.Logger.
-	writer   func(status *client.SolveStatus)
-	validate func(digest.Digest, interface{}) bool
-	clear    func(interface{})
+	writer        func(status *client.SolveStatus)
+	validate      func(digest.Digest, any) bool
+	clear         func(any)
+	writeBuildRef func(target, ref string)
 
 	buildID string
 	token   string
@@ -36,13 +37,14 @@ type Reporter struct {
 
 func NewReporter(ctx context.Context, w progress.Writer, buildID, token string) *Reporter {
 	r := &Reporter{
-		writer:   w.Write,
-		validate: w.ValidateLogSource,
-		clear:    w.ClearLogSource,
-		buildID:  buildID,
-		token:    token,
-		client:   depotapi.NewBuildClient(),
-		ch:       make(chan *client.SolveStatus, 16384),
+		writer:        w.Write,
+		validate:      w.ValidateLogSource,
+		clear:         w.ClearLogSource,
+		writeBuildRef: w.WriteBuildRef,
+		buildID:       buildID,
+		token:         token,
+		client:        depotapi.NewBuildClient(),
+		ch:            make(chan *client.SolveStatus, 16384),
 	}
 	go r.Run(ctx)
 
@@ -176,15 +178,21 @@ func (r *Reporter) Run(ctx context.Context) {
 	}
 }
 
-func (r *Reporter) ValidateLogSource(dgst digest.Digest, src interface{}) bool {
+func (r *Reporter) ValidateLogSource(dgst digest.Digest, src any) bool {
 	if r.validate == nil {
 		return true
 	}
 	return r.validate(dgst, src)
 }
 
-func (r *Reporter) ClearLogSource(src interface{}) {
+func (r *Reporter) ClearLogSource(src any) {
 	if r.clear != nil {
 		r.clear(src)
+	}
+}
+
+func (r *Reporter) WriteBuildRef(target, ref string) {
+	if r.writeBuildRef != nil {
+		r.writeBuildRef(target, ref)
 	}
 }

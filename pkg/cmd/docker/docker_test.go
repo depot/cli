@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"iter"
 	"reflect"
 	"strings"
 	"testing"
@@ -14,9 +15,11 @@ import (
 	"github.com/docker/cli/cli/command"
 	"github.com/docker/cli/cli/config/configfile"
 	configtypes "github.com/docker/cli/cli/config/types"
-	dockertypes "github.com/docker/docker/api/types"
-	"github.com/docker/docker/api/types/registry"
-	dockerclient "github.com/docker/docker/client"
+	"github.com/docker/cli/cli/streams"
+	"github.com/moby/moby/api/types/image"
+	"github.com/moby/moby/api/types/jsonstream"
+	"github.com/moby/moby/api/types/registry"
+	dockerclient "github.com/moby/moby/client"
 )
 
 const (
@@ -41,6 +44,14 @@ func (b *pullBody) Close() error {
 	return nil
 }
 
+func (b *pullBody) JSONMessages(context.Context) iter.Seq2[jsonstream.Message, error] {
+	panic("unexpected call to JSONMessages")
+}
+
+func (b *pullBody) Wait(context.Context) error {
+	panic("unexpected call to Wait")
+}
+
 type imageClient struct {
 	dockerclient.APIClient
 	cached    bool
@@ -53,16 +64,16 @@ type imageClient struct {
 	cancel    context.CancelFunc
 }
 
-func (c *imageClient) ImageList(context.Context, dockertypes.ImageListOptions) ([]dockertypes.ImageSummary, error) {
+func (c *imageClient) ImageList(context.Context, dockerclient.ImageListOptions) (dockerclient.ImageListResult, error) {
 	if c.cached {
-		return []dockertypes.ImageSummary{{ID: "cached-driver"}}, nil
+		return dockerclient.ImageListResult{Items: []image.Summary{{ID: "cached-driver"}}}, nil
 	}
-	return nil, nil
+	return dockerclient.ImageListResult{}, nil
 }
 
-func (c *imageClient) ImageCreate(_ context.Context, image string, opts dockertypes.ImageCreateOptions) (io.ReadCloser, error) {
+func (c *imageClient) ImagePull(_ context.Context, ref string, opts dockerclient.ImagePullOptions) (dockerclient.ImagePullResponse, error) {
 	i := len(c.pulls)
-	c.pulls = append(c.pulls, image)
+	c.pulls = append(c.pulls, ref)
 	c.auth = append(c.auth, opts.RegistryAuth)
 	if c.cancel != nil {
 		c.cancel()
@@ -79,9 +90,9 @@ func (c *imageClient) ImageCreate(_ context.Context, image string, opts dockerty
 	return body, nil
 }
 
-func (c *imageClient) ImageTag(_ context.Context, source, target string) error {
-	c.tags = append(c.tags, [2]string{source, target})
-	return c.tagErr
+func (c *imageClient) ImageTag(_ context.Context, opts dockerclient.ImageTagOptions) (dockerclient.ImageTagResult, error) {
+	c.tags = append(c.tags, [2]string{opts.Source, opts.Target})
+	return dockerclient.ImageTagResult{}, c.tagErr
 }
 
 type imageCLI struct {
@@ -93,7 +104,7 @@ type imageCLI struct {
 
 func (c *imageCLI) Client() dockerclient.APIClient     { return c.client }
 func (c *imageCLI) ConfigFile() *configfile.ConfigFile { return c.config }
-func (c *imageCLI) Err() io.Writer                     { return &c.stderr }
+func (c *imageCLI) Err() *streams.Out                  { return streams.NewOut(&c.stderr) }
 
 func TestDownloadImage(t *testing.T) {
 	quotaErr := errors.New("toomanyrequests: Data limit exceeded")

@@ -12,7 +12,6 @@ import (
 	"strings"
 
 	"github.com/depot/cli/internal/build"
-	"github.com/depot/cli/pkg/buildx/imagetools"
 	depotdockerclient "github.com/depot/cli/pkg/dockerclient"
 	"github.com/depot/cli/pkg/helpers"
 	"github.com/depot/cli/pkg/retry"
@@ -20,15 +19,16 @@ import (
 	"github.com/docker/buildx/store/storeutil"
 	"github.com/docker/buildx/util/confutil"
 	"github.com/docker/buildx/util/dockerutil"
+	"github.com/docker/buildx/util/dockerutil/dockerconfig"
+	"github.com/docker/buildx/util/imagetools"
 	"github.com/docker/cli/cli/command"
 	"github.com/docker/cli/cli/config"
-	dockertypes "github.com/docker/docker/api/types"
-	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/api/types/filters"
-	"github.com/docker/docker/api/types/mount"
-	"github.com/docker/docker/api/types/network"
-	dockerclient "github.com/docker/docker/client"
-	"github.com/docker/docker/pkg/jsonmessage"
+	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/api/types/mount"
+	"github.com/moby/moby/api/types/network"
+	dockerclient "github.com/moby/moby/client"
+	"github.com/moby/moby/client/pkg/jsonmessage"
+	"github.com/moby/moby/client/pkg/security"
 	specs "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
@@ -191,7 +191,7 @@ func runConfigureBuildx(ctx context.Context, dockerCli command.Cli, project, tok
 		return errors.Errorf("unknown project ID (run `depot init` or use --project or $DEPOT_PROJECT_ID)")
 	}
 
-	configStore, err := store.New(confutil.ConfigDir(dockerCli))
+	configStore, err := store.New(confutil.NewConfig(dockerCli))
 	if err != nil {
 		return fmt.Errorf("unable to create docker configuration store: %w", err)
 	}
@@ -231,7 +231,7 @@ func runConfigureBuildx(ctx context.Context, dockerCli command.Cli, project, tok
 						OS:           "linux",
 					},
 				},
-				Flags: []string{"buildkitd"},
+				BuildkitdFlags: []string{"buildkitd"},
 				DriverOpts: map[string]string{
 					"image":                image,
 					"env.DEPOT_PROJECT_ID": projectName,
@@ -262,7 +262,7 @@ func runConfigureBuildx(ctx context.Context, dockerCli command.Cli, project, tok
 						Variant:      "v8",
 					},
 				},
-				Flags: []string{"buildkitd"},
+				BuildkitdFlags: []string{"buildkitd"},
 				DriverOpts: map[string]string{
 					"image":                image,
 					"env.DEPOT_PROJECT_ID": projectName,
@@ -282,7 +282,7 @@ func runConfigureBuildx(ctx context.Context, dockerCli command.Cli, project, tok
 	// DEPOT: we override the buildx Txn.Save() as its atomic write file
 	// can leave temporary files within the instance directory thus causing
 	// buildx to fail.
-	if err := DepotSaveNodes(confutil.ConfigDir(dockerCli), ng); err != nil {
+	if err := DepotSaveNodes(confutil.NewConfig(dockerCli).Dir(), ng); err != nil {
 		return fmt.Errorf("unable to save node group: %w", err)
 	}
 
@@ -311,18 +311,13 @@ type Node struct {
 }
 
 func ListDepotNodes(ctx context.Context, client dockerclient.APIClient) ([]Node, error) {
-	filters := filters.NewArgs()
-	filters.FuzzyMatch("name", "buildx_buildkit_depot_")
-	containers, err := client.ContainerList(ctx, dockertypes.ContainerListOptions{
-		All:     true,
-		Filters: filters,
-	})
+	containers, err := client.ContainerList(ctx, dockerclient.ContainerListOptions{All: true})
 	if err != nil {
 		return nil, err
 	}
 
 	nodes := []Node{}
-	for _, container := range containers {
+	for _, container := range containers.Items {
 		for _, name := range container.Names {
 			if len(strings.Split(name, "_")) == 5 {
 				nodes = append(nodes, Node{
@@ -338,7 +333,7 @@ func ListDepotNodes(ctx context.Context, client dockerclient.APIClient) ([]Node,
 
 func StopDepotNodes(ctx context.Context, client dockerclient.APIClient, nodes []Node) error {
 	for _, node := range nodes {
-		err := client.ContainerRemove(ctx, node.ContainerID, dockertypes.ContainerRemoveOptions{Force: true, RemoveVolumes: true})
+		_, err := client.ContainerRemove(ctx, node.ContainerID, dockerclient.ContainerRemoveOptions{Force: true, RemoveVolumes: true})
 		if err != nil {
 			return err
 		}
@@ -446,10 +441,10 @@ func Bootstrap(ctx context.Context, dockerCli command.Cli, imageName, projectNam
 func DownloadImage(ctx context.Context, dockerCli command.Cli, imageName string) error {
 	client := dockerCli.Client()
 
-	images, err := client.ImageList(ctx, dockertypes.ImageListOptions{
-		Filters: filters.NewArgs(filters.Arg("reference", imageName)),
+	images, err := client.ImageList(ctx, dockerclient.ImageListOptions{
+		Filters: dockerclient.Filters{}.Add("reference", imageName),
 	})
-	if err == nil && len(images) > 0 {
+	if err == nil && len(images.Items) > 0 {
 		return nil
 	}
 
@@ -468,19 +463,19 @@ func DownloadImage(ctx context.Context, dockerCli command.Cli, imageName string)
 	if fallbackErr := pullImage(ctx, dockerCli, fallback); fallbackErr != nil {
 		return fmt.Errorf("unable to download image %s: %v; fallback %s failed: %w", imageName, err, fallback, fallbackErr)
 	}
-	if err := client.ImageTag(ctx, fallback, imageName); err != nil {
+	if _, err := client.ImageTag(ctx, dockerclient.ImageTagOptions{Source: fallback, Target: imageName}); err != nil {
 		return fmt.Errorf("unable to tag fallback image %s as %s: %w", fallback, imageName, err)
 	}
 	return nil
 }
 
 func pullImage(ctx context.Context, dockerCli command.Cli, imageName string) error {
-	ra, err := imagetools.RegistryAuthForRef(imageName, dockerCli.ConfigFile())
+	ra, err := imagetools.RegistryAuthForRef(imageName, dockerconfig.LoadAuthConfig(dockerCli))
 	if err != nil {
 		return err
 	}
 
-	rc, err := dockerCli.Client().ImageCreate(ctx, imageName, dockertypes.ImageCreateOptions{
+	rc, err := dockerCli.Client().ImagePull(ctx, imageName, dockerclient.ImagePullOptions{
 		RegistryAuth: ra,
 	})
 	if err != nil {
@@ -496,18 +491,19 @@ func CreateContainer(ctx context.Context, dockerCli command.Cli, projectName str
 	client := dockerCli.Client()
 	name := "buildx_buildkit_depot_" + projectName + "_" + platform
 
-	driverContainer, err := client.ContainerInspect(ctx, name)
+	inspectResult, err := client.ContainerInspect(ctx, name, dockerclient.ContainerInspectOptions{})
 	if err == nil {
+		driverContainer := inspectResult.Container
 		if driverContainer.Config.Image == imageName {
 			return nil
 		}
 
-		err := client.ContainerRemove(ctx, driverContainer.ID, dockertypes.ContainerRemoveOptions{Force: true, RemoveVolumes: true})
+		_, err := client.ContainerRemove(ctx, driverContainer.ID, dockerclient.ContainerRemoveOptions{Force: true, RemoveVolumes: true})
 		if err != nil {
 			return fmt.Errorf("unable to remove container: %w", err)
 		}
 
-		_, _ = client.ImageRemove(ctx, driverContainer.Config.Image, dockertypes.ImageRemoveOptions{})
+		_, _ = client.ImageRemove(ctx, driverContainer.Config.Image, dockerclient.ImageRemoveOptions{})
 	}
 
 	cfg := &container.Config{
@@ -533,17 +529,14 @@ func CreateContainer(ctx context.Context, dockerCli command.Cli, projectName str
 		Init: &useInit,
 	}
 
-	if info, err := client.Info(ctx); err == nil {
+	if infoResult, err := client.Info(ctx, dockerclient.InfoOptions{}); err == nil {
+		info := infoResult.Info
 		if info.CgroupDriver == "cgroupfs" {
 
 			hc.CgroupParent = "/docker/buildx"
 		}
 
-		secOpts, err := dockertypes.DecodeSecurityOptions(info.SecurityOptions)
-		if err != nil {
-			return err
-		}
-		for _, f := range secOpts {
+		for _, f := range security.DecodeOptions(info.SecurityOptions) {
 			if f.Name == "userns" {
 				hc.UsernsMode = "host"
 				break
@@ -552,7 +545,12 @@ func CreateContainer(ctx context.Context, dockerCli command.Cli, projectName str
 
 	}
 
-	_, err = client.ContainerCreate(ctx, cfg, hc, &network.NetworkingConfig{}, nil, name)
+	_, err = client.ContainerCreate(ctx, dockerclient.ContainerCreateOptions{
+		Config:           cfg,
+		HostConfig:       hc,
+		NetworkingConfig: &network.NetworkingConfig{},
+		Name:             name,
+	})
 	if err != nil {
 		return fmt.Errorf("unable to create container: %w", err)
 	}
