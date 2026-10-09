@@ -311,7 +311,10 @@ type Node struct {
 }
 
 func ListDepotNodes(ctx context.Context, client dockerclient.APIClient) ([]Node, error) {
-	containers, err := client.ContainerList(ctx, dockerclient.ContainerListOptions{All: true})
+	containers, err := client.ContainerList(ctx, dockerclient.ContainerListOptions{
+		All:     true,
+		Filters: dockerclient.Filters{}.Add("name", "buildx_buildkit_depot_"),
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -319,9 +322,10 @@ func ListDepotNodes(ctx context.Context, client dockerclient.APIClient) ([]Node,
 	nodes := []Node{}
 	for _, container := range containers.Items {
 		for _, name := range container.Names {
-			if len(strings.Split(name, "_")) == 5 {
+			parts := strings.Split(name, "_")
+			if strings.HasPrefix(name, "/buildx_buildkit_depot_") && len(parts) == 5 {
 				nodes = append(nodes, Node{
-					ProjectID:   strings.Split(name, "_")[3],
+					ProjectID:   parts[3],
 					ContainerID: container.ID,
 				})
 			}
