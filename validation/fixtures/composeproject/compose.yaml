@@ -15,3 +15,12 @@ services:
         MESSAGE: worker
       x-depot:
         project-id: vtproject-compose
+  profiled:
+    profiles: [extra]
+    build:
+      context: .
+      target: artifact
+      args:
+        MESSAGE: profiled
+      x-depot:
+        project-id: vtproject-profiled
