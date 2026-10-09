@@ -2,7 +2,7 @@ target "_base" {
   description = "described by _base"
 }
 
-# MESSAGE reads the description of another target.
+# MESSAGE reads the description of another target. No target sets project_id.
 target "artifact" {
   target      = "artifact"
   description = "reads the description of _base"

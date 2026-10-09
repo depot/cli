@@ -8,7 +8,8 @@
       "description": "reads the project of _json",
       "args": {
         "MESSAGE": "${target._json.project_id}",
-        "LITERAL": "target._json.project_id"
+        "LITERAL": "target._json.project_id",
+        "NESTED": "${merge({}, {id = target._json.project_id}).id}"
       },
       "output": [
         "type=local,dest=out-json"

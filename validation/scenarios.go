@@ -91,7 +91,7 @@ func commandLineScenarios() []scenario {
 		offline("bake-print-project-reference", "bake --print with an argument that reads the project_id of another target", "projectref",
 			"bake", "-f", "docker-bake.hcl", "--print", "artifact"),
 		expectStdout(offline("bake-print-project-reference-json", "bake --print with a JSON argument that reads the project_id of another target", "projectref",
-			"bake", "-f", "docker-bake.json", "--print", "json"), `"LITERAL": "target._json.project_id"`),
+			"bake", "-f", "docker-bake.json", "--print", "json"), `"LITERAL": "target._json.project_id"`, `"NESTED": "<project>-json"`),
 		expectStdout(offline("bake-print-description-reference", "bake --print with an argument that reads the description of another target", "description",
 			"bake", "--print", "artifact"), `"MESSAGE": "described by _base"`),
 		offline("bake-print-multiproject", "bake --print shows per-target project identifiers", "multiproject", "bake", "--print"),
@@ -263,6 +263,17 @@ func loadsImage(s scenario) scenario {
 		}
 		return errors.New("the image is not in Docker")
 	})
+}
+
+// requireConnectedPlatforms checks the builder platforms that the CLI
+// connected to.
+func requireConnectedPlatforms(want ...string) func(o *observation) error {
+	return func(o *observation) error {
+		if !slices.Equal(o.API.ConnectedPlatforms, want) {
+			return fmt.Errorf("connected platforms are %v, want %v", o.API.ConnectedPlatforms, want)
+		}
+		return nil
+	}
 }
 
 // requireTargetProjects checks the project of the build that each target
@@ -474,6 +485,8 @@ func bakeScenarios() []scenario {
 			`"warnings"`, "FromAsCasing"), "the old CLI ignored the call attribute and ran a normal build"),
 		baselineDefect(expectStdout(bake("bake-call-check-ignorestatus", "call = check,ignorestatus=true prints the warnings and succeeds", "call", "check-ignorestatus", "--set", "*.platform=linux/amd64"),
 			"FromAsCasing"), "the old CLI ignored the call attribute and ran a normal build"),
+		baselineDefect(failing(bake("bake-policy", "a target with a source policy fails, because Depot builders cannot enforce it", "policy", "denied", "--set", "*.platform=linux/amd64"), 1,
+			`target "denied" sets a source policy, but Depot builders do not support source policies`), "the old CLI ignored the policy attribute and built every source"),
 		withFiles(bake("bake-call-build", "a target with call = build builds normally", "call", "build", "--set", "*.platform=linux/amd64"), "out"),
 		baselineDefect(expectCheck(withFiles(withImages(withAPI(withEnv(bake("bake-load-pattern", "bake --load with a target pattern loads every matching target", "pattern",
 			"mx-*", "--load", "--metadata-file", "metadata.json", "--set", "*.platform=linux/amd64"), "RUN", "{{run}}"), apiBehavior{LoadUsingRegistry: true}),
