@@ -109,6 +109,7 @@ func run() error {
 	}
 
 	rc := &runContext{workRoot: *workDir, fixtures: filepath.Join(root, "validation", "fixtures"), keepFiles: *keep}
+	defer rc.removeLoadedImages(context.Background())
 	if _, err := dockerCommand(ctx, "image", "inspect", *buildkitImage); err != nil {
 		if *buildkitImage != upstreamBuildkitImage {
 			return fmt.Errorf("buildkitd image %s is not available; build it as described in validation/README.md or pass -upstream", *buildkitImage)

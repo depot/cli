@@ -92,6 +92,8 @@ func commandLineScenarios() []scenario {
 			"bake", "-f", "docker-bake.hcl", "--print", "artifact"),
 		expectStdout(offline("bake-print-project-reference-json", "bake --print with a JSON argument that reads the project_id of another target", "projectref",
 			"bake", "-f", "docker-bake.json", "--print", "json"), `"LITERAL": "target._json.project_id"`, `"NESTED": "<project>-json"`),
+		failing(offline("bake-print-json-trailing-data", "bake --print rejects a JSON definition with data after the first value", "projectref",
+			"bake", "-f", "trailing.json", "--print", "trailing"), 1, "Extraneous data after value"),
 		expectStdout(offline("bake-print-description-reference", "bake --print with an argument that reads the description of another target", "description",
 			"bake", "--print", "artifact"), `"MESSAGE": "described by _base"`),
 		offline("bake-print-multiproject", "bake --print shows per-target project identifiers", "multiproject", "bake", "--print"),
@@ -196,6 +198,25 @@ func writeBzip2Context(dockerfile string) func(ctx context.Context, r *runInfo) 
 	}
 }
 
+// writeLinkedDockerfileContext writes a gzip context archive in which
+// Dockerfile is a symbolic link to build/Lint.Dockerfile.
+func writeLinkedDockerfileContext(dockerfile string) func(ctx context.Context, r *runInfo) error {
+	return func(ctx context.Context, r *runInfo) error {
+		dir := filepath.Join(r.WorkDir, "archive")
+		if err := os.MkdirAll(filepath.Join(dir, "build"), 0o755); err != nil {
+			return err
+		}
+		if err := os.WriteFile(filepath.Join(dir, "build", "Lint.Dockerfile"), []byte(dockerfile), 0o644); err != nil {
+			return err
+		}
+		if err := os.Symlink("build/Lint.Dockerfile", filepath.Join(dir, "Dockerfile")); err != nil {
+			return err
+		}
+		_, err := r.command(ctx, "sh", "-c", "tar -C "+dir+" -c . | gzip > "+filepath.Join(r.WorkDir, "context.tar.gz"))
+		return err
+	}
+}
+
 // requireFileContent checks the content of a file inside a recorded
 // directory.
 func requireFileContent(dir, path, content string) func(o *observation) error {
@@ -263,6 +284,19 @@ func loadsImage(s scenario) scenario {
 		}
 		return errors.New("the image is not in Docker")
 	})
+}
+
+// requireStderrBefore checks that every line of standard error that
+// contains a text comes before the first line that contains another text.
+func requireStderrBefore(text, later string) func(o *observation) error {
+	return func(o *observation) error {
+		last := strings.LastIndex(o.Stderr, text)
+		first := strings.Index(o.Stderr, later)
+		if last < 0 || first < 0 || last > first {
+			return fmt.Errorf("standard error does not contain %q only before %q", text, later)
+		}
+		return nil
+	}
 }
 
 // requireConnectedPlatforms checks the builder platforms that the CLI
@@ -341,8 +375,8 @@ func buildScenarios() []scenario {
 			"the old CLI rejected --load through the Depot registry together with another output"),
 		expectStderr(loadsImage(withAPI(build("build-load-retry", "--load builds again with a docker export when the pull fails", "basic",
 			"--platform", "linux/amd64", "--load", "-t", "validation-{{run}}:latest"), apiBehavior{LoadUsingRegistry: true, PullFails: true})), "fast load failed; retrying"),
-		baselineDefect(expectStderr(loadsImage(withFiles(withAPI(build("build-load-retry-local-output", "--load with a local output builds again with both outputs when the pull fails", "basic",
-			"--platform", "linux/amd64", "--load", "-t", "validation-{{run}}:latest", "-o", "type=local,dest=out"), apiBehavior{LoadUsingRegistry: true, PullFails: true}), "out")), "fast load failed; retrying"),
+		baselineDefect(expectCheck(expectStderr(loadsImage(withFiles(withAPI(build("build-load-retry-local-output", "--load with a local output builds again with both outputs when the pull fails", "basic",
+			"--platform", "linux/amd64", "--load", "-t", "validation-{{run}}:latest", "-o", "type=local,dest=out"), apiBehavior{LoadUsingRegistry: true, PullFails: true}), "out")), "fast load failed; retrying"), requireStderrBefore("exporting to client directory", "fast load failed; retrying")),
 			"the old CLI rejected --load through the Depot registry together with another output"),
 		baselineDefect(loadsImage(withFiles(withAPI(build("build-load-registry-docker-output", "--load through the Depot registry with a docker tar output", "basic",
 			"--platform", "linux/amd64", "--load", "-t", "validation-{{run}}:latest", "-o", "type=docker,dest=out.tar"), apiBehavior{LoadUsingRegistry: true}), "out.tar")),
@@ -436,6 +470,12 @@ func buildScenarios() []scenario {
 			StdinFile: "context.tar.bz2",
 			Prepare:   writeBzip2Context(lintDockerfile),
 		}, 1, "DL4000"), "the old CLI linted ./Dockerfile instead of the Dockerfile in the archive"),
+		baselineDefect(failing(scenario{
+			Name: "build-lint-stdin-linked-dockerfile", Description: "--lint follows a Dockerfile symbolic link in a context archive on standard input", Fixture: "basic",
+			Args:      []string{"build", "-", "--progress=plain", "--lint", "--lint-fail-on", "warn", "--platform", "linux/amd64", "-o", "type=local,dest=out"},
+			StdinFile: "context.tar.gz",
+			Prepare:   writeLinkedDockerfileContext(lintDockerfile),
+		}, 1, "DL4000"), "the old CLI linted ./Dockerfile instead of the Dockerfile in the archive"),
 		withEnv(withFiles(build("build-print-outline", "--print outline in experimental mode", "basic", "--print", "outline"), "out"), "BUILDX_EXPERIMENTAL", "1"),
 		expectFinish(failing(scenario{
 			Name: "build-interrupt", Description: "an interrupt during a build cancels it", Fixture: "slow",
@@ -464,8 +504,8 @@ func bakeScenarios() []scenario {
 		baselineDefect(loadsImage(withFiles(withAPI(bake("bake-load-registry-local-output", "bake --load through the Depot registry with a target that has a local output", "bake", "app", "--load",
 			"--set", "app.tags=validation-{{run}}:latest", "--set", "app.platform=linux/amd64", "--set", "app.output=type=local,dest=out"), apiBehavior{LoadUsingRegistry: true}), "out")),
 			"the old CLI rejected --load through the Depot registry together with another output"),
-		baselineDefect(expectStderr(loadsImage(withFiles(withAPI(bake("bake-load-retry-local-output", "bake --load with a local output builds again with both outputs when the pull fails", "bake", "app", "--load",
-			"--set", "app.tags=validation-{{run}}:latest", "--set", "app.platform=linux/amd64", "--set", "app.output=type=local,dest=out"), apiBehavior{LoadUsingRegistry: true, PullFails: true}), "out")), "fast load failed; retrying"),
+		baselineDefect(expectCheck(expectStderr(loadsImage(withFiles(withAPI(bake("bake-load-retry-local-output", "bake --load with a local output builds again with both outputs when the pull fails", "bake", "app", "--load",
+			"--set", "app.tags=validation-{{run}}:latest", "--set", "app.platform=linux/amd64", "--set", "app.output=type=local,dest=out"), apiBehavior{LoadUsingRegistry: true, PullFails: true}), "out")), "fast load failed; retrying"), requireStderrBefore("exporting to client directory", "fast load failed; retrying")),
 			"the old CLI rejected --load through the Depot registry together with another output"),
 		baselineDefect(loadsImage(withFiles(bake("bake-load-local-output", "bake --load with a target that has a local output", "bake", "app", "--load",
 			"--set", "app.tags=validation-{{run}}:latest", "--set", "app.platform=linux/amd64", "--set", "app.output=type=local,dest=out"), "out")),

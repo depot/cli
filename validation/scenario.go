@@ -15,6 +15,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -132,6 +133,27 @@ type runContext struct {
 	workRoot  string
 	fixtures  string
 	keepFiles bool
+
+	// Builds with the same content produce the same image, so removing a
+	// loaded image while other scenarios run can remove their image too.
+	// The images are removed after all scenarios instead.
+	mu           sync.Mutex
+	loadedImages []string
+}
+
+func (rc *runContext) removeLoadedImagesLater(tags []string) {
+	rc.mu.Lock()
+	defer rc.mu.Unlock()
+	rc.loadedImages = append(rc.loadedImages, tags...)
+}
+
+func (rc *runContext) removeLoadedImages(ctx context.Context) {
+	rc.mu.Lock()
+	defer rc.mu.Unlock()
+	for _, tag := range rc.loadedImages {
+		_, _ = dockerCommand(ctx, "rmi", tag)
+	}
+	rc.loadedImages = nil
 }
 
 func (rc *runContext) execute(ctx context.Context, s scenario, bin *binary) (*observation, error) {
@@ -275,9 +297,7 @@ func (rc *runContext) execute(ctx context.Context, s scenario, bin *binary) (*ob
 		ref = expand(ref)
 		summary, tags := inspectImage(ctx, ref, runID, norm)
 		obs.Images[norm(ref)] = summary
-		for _, tag := range tags {
-			_, _ = dockerCommand(ctx, "rmi", tag)
-		}
+		rc.removeLoadedImagesLater(tags)
 	}
 
 	obs.Registry = map[string]registryResult{}
