@@ -66,6 +66,7 @@ func Targets(files []bake.File) (map[string]Target, error) {
 	}
 	opts := func(options *loader.Options) {
 		options.Interpolate.Substitute = substituteWithoutWarnings
+		options.Profiles = []string{"*"}
 		if nameFromEnv, ok := envs[consts.ComposeProjectName]; ok && nameFromEnv != "" {
 			options.SetProjectName(nameFromEnv, true)
 		} else {
@@ -176,6 +177,7 @@ func isComposeFile(file string, content []byte) bool {
 
 	opts := func(options *loader.Options) {
 		options.Interpolate.Substitute = substituteWithoutWarnings
+		options.Profiles = []string{"*"}
 		projectName := "bake"
 		if v, ok := envs[consts.ComposeProjectName]; ok && v != "" {
 			projectName = v

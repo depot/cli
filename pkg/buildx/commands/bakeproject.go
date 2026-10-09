@@ -32,7 +32,9 @@ import (
 //     effect on a build, so these files are used for the build too.
 //   - descriptionFiles keeps the descriptions of the user for bake --print,
 //     and uses as the carrier an attribute that no expression in the files
-//     reads. Only the descriptions of this read are used.
+//     reads. Only the descriptions of this read are used. When expressions
+//     read every candidate attribute, it removes project_id instead, and
+//     references to project_id read as an empty string.
 //
 // Compose services select a project with the x-depot.project-id build
 // extension. Compose has no field that bake reads as a description, so
@@ -89,14 +91,16 @@ func descriptionFiles(files []bake.File) []bake.File {
 }
 
 // descriptionCarrier returns the first of descriptionCarriers that no
-// expression in the files reads, such as with target.base.call.
+// expression in the files reads, such as with target.base.call. It returns
+// an empty string, which removes project_id, when expressions read all of
+// them.
 func descriptionCarrier(files []bake.File) string {
 	for _, carrier := range descriptionCarriers {
 		if !slices.ContainsFunc(files, func(f bake.File) bool { return readsTargetAttribute(f, carrier) }) {
 			return carrier
 		}
 	}
-	return descriptionCarriers[0]
+	return ""
 }
 
 // readsTargetAttribute reports whether an expression in the file reads an
@@ -229,18 +233,26 @@ func rewriteHCL(data []byte, name, carrier string) ([]byte, int, bool) {
 	}
 
 	var blanks, renames []replacement
+	uses := 0
 	for _, block := range body.Blocks {
 		if block.Type != "target" {
 			continue
 		}
-		if attr, ok := block.Body.Attributes[carrier]; ok {
+		if attr, ok := block.Body.Attributes[carrier]; ok && carrier != "" {
 			blanks = append(blanks, blank(data, attr.SrcRange))
 		}
 		if attr, ok := block.Body.Attributes[projectIDAttribute]; ok {
-			renames = append(renames, replacement{start: attr.NameRange.Start.Byte, end: attr.NameRange.End.Byte, text: []byte(carrier)})
+			uses++
+			if carrier == "" {
+				blanks = append(blanks, blank(data, attr.SrcRange))
+			} else {
+				renames = append(renames, replacement{start: attr.NameRange.Start.Byte, end: attr.NameRange.End.Byte, text: []byte(carrier)})
+			}
 		}
 	}
-	renames = append(renames, projectIDReferences(body, carrier)...)
+	references := projectIDReferences(body, carrier)
+	uses += len(references)
+	renames = append(renames, references...)
 
 	replacements := blanks
 	for _, r := range renames {
@@ -249,7 +261,7 @@ func rewriteHCL(data []byte, name, carrier string) ([]byte, int, bool) {
 			replacements = append(replacements, r)
 		}
 	}
-	return replace(data, replacements), len(renames), true
+	return replace(data, replacements), uses, true
 }
 
 // projectIDReferences returns the replacements that change the expressions
@@ -260,6 +272,10 @@ func rewriteHCL(data []byte, name, carrier string) ([]byte, int, bool) {
 func projectIDReferences(node hclsyntax.Node, carrier string) []replacement {
 	var out []replacement
 	for _, expr := range targetAttributeReads(node, projectIDAttribute) {
+		if carrier == "" {
+			out = append(out, replacement{start: expr.SrcRange.Start.Byte, end: expr.SrcRange.End.Byte, text: []byte(`""`)})
+			continue
+		}
 		if name, ok := expr.Traversal[1].(hcl.TraverseAttr); ok && len(expr.Traversal) == 3 {
 			ref := "target." + name.Name + "." + carrier
 			out = append(out, replacement{start: expr.SrcRange.Start.Byte, end: expr.SrcRange.End.Byte, text: []byte(`(` + ref + ` == null ? "" : ` + ref + `)`)})
@@ -337,13 +353,15 @@ func rewriteJSON(data []byte, carrier string) ([]byte, int, bool) {
 		if !ok {
 			continue
 		}
-		if _, ok := target[carrier]; ok {
+		if _, ok := target[carrier]; ok && carrier != "" {
 			delete(target, carrier)
 			changed = true
 		}
 		if projectID, ok := target[projectIDAttribute]; ok {
 			delete(target, projectIDAttribute)
-			target[carrier] = projectID
+			if carrier != "" {
+				target[carrier] = projectID
+			}
 			changed = true
 			uses++
 		}

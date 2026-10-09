@@ -172,11 +172,13 @@ func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator, pri
 
 		err = eg.Wait()
 		if err != nil && !errors.Is(err, context.Canceled) {
-			if in.exportLoad {
-				_ = progress.Write(printer, "[load] fast load failed; retrying", func() error { return err })
-				_, err = executeBuild(ctx, dockerCli, nodes, load.WithSelectiveDockerLoad(fallbackOpts, targetsToLoad), printer, nil, nil)
+			if !in.exportLoad {
+				return nil, nil, err
 			}
-			return nil, nil, err
+			_ = progress.Write(printer, "[load] fast load failed; retrying", func() error { return err })
+			if _, err := executeBuild(ctx, dockerCli, nodes, load.WithSelectiveDockerLoad(fallbackOpts, targetsToLoad), printer, nil, nil); err != nil {
+				return nil, nil, err
+			}
 		}
 	}
 
