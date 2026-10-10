@@ -121,11 +121,56 @@ func TestResolveRunRepositoryDepotCodeWithForge(t *testing.T) {
 	}
 }
 
-func TestResolveRunRepositoryDepotCodeRequiresForge(t *testing.T) {
+// Depot Code is inferred when it is the only supported forge in the remotes;
+// unsupported remotes do not count as another forge.
+func TestResolveRunRepositoryDepotCodeOnlyInfersForge(t *testing.T) {
 	dir := initRunRepositoryGit(t, "https://acme123.code.depot.dev/widgets")
+	run(t, dir, "git", "remote", "add", "gitlab", "https://gitlab.com/acme/widgets.git")
+
+	got, err := resolveRunRepository(dir, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.forge != civ1.Forge_FORGE_DEPOT_CODE || got.repo != "widgets" {
+		t.Fatalf("resolveRunRepository() = %#v", got)
+	}
+
+	got, err = resolveRunRepository(dir, "other", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.forge != civ1.Forge_FORGE_DEPOT_CODE || got.repo != "other" {
+		t.Fatalf("resolveRunRepository() with --repo = %#v", got)
+	}
+}
+
+// An explicit non-Depot forge never falls back to a Depot Code remote.
+func TestResolveRunRepositoryDepotCodeOnlyExplicitForgeMismatch(t *testing.T) {
+	dir := initRunRepositoryGit(t, "https://acme123.code.depot.dev/widgets")
+	for _, forge := range []string{"github", "origin"} {
+		_, err := resolveRunRepository(dir, "", forge)
+		if err == nil || !strings.Contains(err.Error(), "--forge depot") {
+			t.Fatalf("resolveRunRepository() with --forge %s error = %v, want --forge depot guidance", forge, err)
+		}
+	}
+
+	got, err := resolveRunRepository(dir, "acme/widgets", "github")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.forge != civ1.Forge_FORGE_GITHUB || got.repo != "acme/widgets" {
+		t.Fatalf("resolveRunRepository() with --repo and --forge github = %#v", got)
+	}
+}
+
+func TestResolveRunRepositoryMultipleDepotCodeRemotesAmbiguous(t *testing.T) {
+	dir := initRunRepositoryGit(t, "https://gitlab.com/acme/widgets.git")
+	run(t, dir, "git", "remote", "add", "depot-a", "https://acme123.code.depot.dev/widgets")
+	run(t, dir, "git", "remote", "add", "depot-b", "https://acme123.code.depot.dev/gadgets")
+
 	_, err := resolveRunRepository(dir, "", "")
-	if err == nil || !strings.Contains(err.Error(), "--forge depot") {
-		t.Fatalf("resolveRunRepository() error = %v, want --forge depot guidance", err)
+	if err == nil || !strings.Contains(err.Error(), "--repo") {
+		t.Fatalf("resolveRunRepository() error = %v, want --repo guidance", err)
 	}
 }
 
@@ -181,6 +226,35 @@ func TestResolveRunRepositoryDepotCodeOriginRemoteIgnoredWithoutForge(t *testing
 	}
 	if got.forge != civ1.Forge_FORGE_GITHUB || got.repo != "acme/widgets" {
 		t.Fatalf("resolveRunRepository() = %#v", got)
+	}
+
+	got, err = resolveRunRepository(dir, "other/repo", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.forge != civ1.Forge_FORGE_GITHUB || got.repo != "other/repo" {
+		t.Fatalf("resolveRunRepository() with --repo = %#v", got)
+	}
+}
+
+func TestResolveRunRepositoryOriginMirrorCheckoutStaysOnOrigin(t *testing.T) {
+	dir := initRunRepositoryGit(t, "https://origin.cursor.com/git/acme/widgets.git")
+	run(t, dir, "git", "remote", "add", "depot", "https://acme123.code.depot.dev/widgets")
+
+	got, err := resolveRunRepository(dir, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.forge != civ1.Forge_FORGE_ORIGIN || got.repo != "acme/widgets" {
+		t.Fatalf("resolveRunRepository() = %#v", got)
+	}
+
+	got, err = resolveRunRepository(dir, "", "depot")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.forge != civ1.Forge_FORGE_DEPOT_CODE || got.repo != "widgets" {
+		t.Fatalf("resolveRunRepository() with --forge depot = %#v", got)
 	}
 }
 
