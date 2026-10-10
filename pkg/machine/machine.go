@@ -2,23 +2,27 @@ package machine
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"log"
 	"net"
-	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"connectrpc.com/connect"
 	"github.com/depot/cli/pkg/api"
-	"github.com/depot/cli/pkg/cleanup"
 	"github.com/depot/cli/pkg/debuglog"
 	"github.com/depot/cli/pkg/helpers"
+	"github.com/depot/cli/pkg/keepalive"
 	cliv1 "github.com/depot/cli/pkg/proto/depot/cli/v1"
 	"github.com/depot/cli/pkg/proto/depot/cli/v1/cliv1connect"
 	"github.com/moby/buildkit/client"
 	"github.com/pkg/errors"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/encoding/gzip"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -34,9 +38,15 @@ type Machine struct {
 	Cert       string
 	Key        string
 
+	ClientOptions []client.ClientOpt
+
+	mu               sync.Mutex
 	client           *client.Client
+	conn             *grpc.ClientConn
 	useGzip          bool
 	reportHealthDone chan struct{}
+	releaseOnce      sync.Once
+	releaseErr       error
 }
 
 // Platform can be "amd64" or "arm64".
@@ -156,72 +166,76 @@ func (m *Machine) doReportHealth(ctx context.Context, client cliv1connect.BuildS
 	return res.Msg.GetCancelsAt(), nil
 }
 
+// Release stops the health reports and closes the connections. Only the
+// first call has an effect.
 func (m *Machine) Release() error {
-	close(m.reportHealthDone)
-	if m.client != nil {
-		return m.client.Close()
+	m.releaseOnce.Do(func() {
+		close(m.reportHealthDone)
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		if m.conn != nil {
+			_ = m.conn.Close()
+		}
+		if m.client != nil {
+			m.releaseErr = m.client.Close()
+		}
+	})
+	return m.releaseErr
+}
+
+// TLSConfig returns the client TLS configuration, or nil when the machine
+// does not use TLS.
+func (m *Machine) TLSConfig() (*tls.Config, error) {
+	if m.Cert == "" {
+		return nil, nil
 	}
-	return nil
+	certPool := x509.NewCertPool()
+	if ok := certPool.AppendCertsFromPEM([]byte(m.CACert)); !ok {
+		return nil, errors.New("failed to append ca certs")
+	}
+	cert, err := tls.X509KeyPair([]byte(m.Cert), []byte(m.Key))
+	if err != nil {
+		return nil, errors.Wrap(err, "could not read certificate/key")
+	}
+	return &tls.Config{RootCAs: certPool, ServerName: m.ServerName, Certificates: []tls.Certificate{cert}}, nil
+}
+
+func (m *Machine) dialOptions() ([]grpc.DialOption, error) {
+	opts := []grpc.DialOption{grpc.WithKeepaliveParams(keepalive.ClientParameters())}
+	tlsConfig, err := m.TLSConfig()
+	if err != nil {
+		return nil, err
+	}
+	if tlsConfig != nil {
+		opts = append(opts, grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig)), grpc.WithAuthority(m.ServerName))
+	}
+	if m.useGzip {
+		opts = append(opts, grpc.WithDefaultCallOptions(grpc.UseCompressor(gzip.Name)))
+	}
+	return opts, nil
+}
+
+func dialTCP(ctx context.Context, addr string) (net.Conn, error) {
+	var d net.Dialer
+	return d.DialContext(ctx, "tcp", strings.TrimPrefix(addr, "tcp://"))
 }
 
 func (m *Machine) Client(ctx context.Context) (*client.Client, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if m.client != nil {
 		return m.client, nil
 	}
 
-	opts := []client.ClientOpt{
-		client.WithContextDialer(func(ctx context.Context, addr string) (net.Conn, error) {
-			addr = strings.TrimPrefix(addr, "tcp://")
-			return net.Dial("tcp", addr)
-		}),
+	dialOpts, err := m.dialOptions()
+	if err != nil {
+		return nil, err
 	}
-
-	// We create all these files as buildkit does not allow control of the gRPC client
-	// without using overly restrictive private structs.
-	if m.Cert != "" {
-		file, err := os.CreateTemp("", "depot-cert")
-		if err != nil {
-			return nil, errors.Wrap(err, "failed to create temp file")
-		}
-		defer file.Close()
-		err = os.WriteFile(file.Name(), []byte(m.Cert), 0600)
-		if err != nil {
-			return nil, errors.Wrap(err, "failed to write cert to temp file")
-		}
-		cert := file.Name()
-		cleanup.RegisterTmpfile(cert)
-
-		file, err = os.CreateTemp("", "depot-key")
-		if err != nil {
-			return nil, errors.Wrap(err, "failed to create temp file")
-		}
-		defer file.Close()
-		err = os.WriteFile(file.Name(), []byte(m.Key), 0600)
-		if err != nil {
-			return nil, errors.Wrap(err, "failed to write key to temp file")
-		}
-		key := file.Name()
-		cleanup.RegisterTmpfile(key)
-
-		file, err = os.CreateTemp("", "depot-ca-cert")
-		if err != nil {
-			return nil, errors.Wrap(err, "failed to create temp file")
-		}
-		defer file.Close()
-		err = os.WriteFile(file.Name(), []byte(m.CACert), 0600)
-		if err != nil {
-			return nil, errors.Wrap(err, "failed to write CA cert to temp file")
-		}
-		caCert := file.Name()
-		cleanup.RegisterTmpfile(caCert)
-
-		opts = append(opts, client.WithCredentials(m.ServerName, caCert, cert, key))
+	opts := []client.ClientOpt{client.WithContextDialer(dialTCP)}
+	for _, o := range dialOpts {
+		opts = append(opts, client.WithGRPCDialOption(o))
 	}
-
-	if m.useGzip {
-		useGzip := grpc.WithDefaultCallOptions(grpc.UseCompressor(gzip.Name))
-		opts = append(opts, useGzip)
-	}
+	opts = append(opts, m.ClientOptions...)
 
 	c, err := client.New(ctx, m.Addr, opts...)
 	if err != nil {
@@ -230,6 +244,30 @@ func (m *Machine) Client(ctx context.Context) (*client.Client, error) {
 
 	m.client = c
 	return c, nil
+}
+
+// Conn returns a gRPC connection to buildkitd for the services that the
+// buildkit client does not expose, such as leases.
+func (m *Machine) Conn(ctx context.Context) (*grpc.ClientConn, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.conn != nil {
+		return m.conn, nil
+	}
+	dialOpts, err := m.dialOptions()
+	if err != nil {
+		return nil, err
+	}
+	if m.Cert == "" {
+		dialOpts = append(dialOpts, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	}
+	dialOpts = append(dialOpts, grpc.WithContextDialer(dialTCP))
+	conn, err := grpc.NewClient("passthrough:///"+strings.TrimPrefix(m.Addr, "tcp://"), dialOpts...)
+	if err != nil {
+		return nil, err
+	}
+	m.conn = conn
+	return conn, nil
 }
 
 func (m *Machine) CheckReady(ctx context.Context) (*client.Client, error) {

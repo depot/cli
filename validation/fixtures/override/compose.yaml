@@ -1,0 +1,7 @@
+services:
+  app:
+    build:
+      context: .
+      target: artifact
+      args:
+        MESSAGE: compose

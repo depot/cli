@@ -11,9 +11,10 @@ import (
 	"github.com/compose-spec/compose-go/v2/consts"
 	"github.com/compose-spec/compose-go/v2/dotenv"
 	"github.com/compose-spec/compose-go/v2/loader"
+	"github.com/compose-spec/compose-go/v2/template"
 	"github.com/compose-spec/compose-go/v2/types"
 	compose "github.com/compose-spec/compose-go/v2/types"
-	"github.com/depot/cli/pkg/buildx/bake"
+	"github.com/docker/buildx/bake"
 	"gopkg.in/yaml.v2"
 )
 
@@ -21,8 +22,21 @@ type xbake struct {
 	Tags []string `yaml:"tags,omitempty"`
 }
 
-// TODO: largely copied from buildx/bake/bake.go.  Refactor in buildx fork.
-func TargetTags(files []bake.File) (map[string][]string, error) {
+type xdepot struct {
+	ProjectID string `yaml:"project-id,omitempty"`
+}
+
+// Target holds the Depot settings of the bake target for a compose service.
+type Target struct {
+	// Tags are the default image tags when the target sets none.
+	Tags []string
+	// ProjectID is the Depot project from the x-depot build extension.
+	ProjectID string
+}
+
+// Targets returns the Depot settings of each bake target that comes from a
+// compose service with a build section.
+func Targets(files []bake.File) (map[string]Target, error) {
 	if len(files) == 0 {
 		return nil, errors.New("no files")
 	}
@@ -51,6 +65,8 @@ func TargetTags(files []bake.File) (map[string][]string, error) {
 		Environment: envs,
 	}
 	opts := func(options *loader.Options) {
+		options.Interpolate.Substitute = substituteWithoutWarnings
+		options.Profiles = []string{"*"}
 		if nameFromEnv, ok := envs[consts.ComposeProjectName]; ok && nameFromEnv != "" {
 			options.SetProjectName(nameFromEnv, true)
 		} else {
@@ -84,32 +100,47 @@ func TargetTags(files []bake.File) (map[string][]string, error) {
 		}
 	}
 
-	targetTags := map[string][]string{}
+	targets := map[string]Target{}
 	for _, srv := range cfg.Services {
 		if srv.Build == nil {
 			continue
 		}
 
-		target := strings.ReplaceAll(srv.Name, ".", "_")
-		if len(srv.Build.Tags) > 0 {
-			targetTags[target] = srv.Build.Tags
-		} else {
-			if bakeExtension, ok := srv.Build.Extensions["x-bake"]; ok {
-				var xb xbake
-				yb, _ := yaml.Marshal(bakeExtension)
-				err := yaml.Unmarshal(yb, &xb)
-				if err == nil && len(xb.Tags) > 0 {
-					targetTags[target] = xb.Tags
-					continue
-				}
+		var target Target
+		if extension, ok := srv.Build.Extensions["x-depot"]; ok && extension != nil {
+			var xd xdepot
+			yb, _ := yaml.Marshal(extension)
+			if err := yaml.Unmarshal(yb, &xd); err != nil {
+				return nil, err
 			}
-
-			imageNames := []string{getImageNameOrDefault(srv, projectName)}
-			targetTags[target] = imageNames
+			target.ProjectID = xd.ProjectID
 		}
+
+		switch {
+		case len(srv.Build.Tags) > 0:
+			target.Tags = srv.Build.Tags
+		case len(bakeTags(srv)) > 0:
+			target.Tags = bakeTags(srv)
+		default:
+			target.Tags = []string{getImageNameOrDefault(srv, projectName)}
+		}
+		targets[strings.ReplaceAll(srv.Name, ".", "_")] = target
 	}
 
-	return targetTags, nil
+	return targets, nil
+}
+
+func bakeTags(srv types.ServiceConfig) []string {
+	extension, ok := srv.Build.Extensions["x-bake"]
+	if !ok {
+		return nil
+	}
+	var xb xbake
+	yb, _ := yaml.Marshal(extension)
+	if err := yaml.Unmarshal(yb, &xb); err != nil {
+		return nil
+	}
+	return xb.Tags
 }
 
 // getImageNameOrDefault computes the default image name for a service, used to tag built images
@@ -145,6 +176,8 @@ func isComposeFile(file string, content []byte) bool {
 	}
 
 	opts := func(options *loader.Options) {
+		options.Interpolate.Substitute = substituteWithoutWarnings
+		options.Profiles = []string{"*"}
 		projectName := "bake"
 		if v, ok := envs[consts.ComposeProjectName]; ok && v != "" {
 			projectName = v
@@ -221,4 +254,10 @@ func loadDotEnv(curenv map[string]string, workingDir string) (map[string]string,
 	}
 
 	return curenv, nil
+}
+
+// substituteWithoutWarnings interpolates variables without the warnings for
+// unset variables. buildx bake parses the same files and prints them once.
+func substituteWithoutWarnings(value string, mapping template.Mapping) (string, error) {
+	return template.SubstituteWithOptions(value, mapping, template.WithoutLogging)
 }

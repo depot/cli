@@ -5,20 +5,24 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
+	"slices"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/depot/cli/pkg/buildx/build"
-	"github.com/depot/cli/pkg/debuglog"
+	"github.com/containerd/platforms"
 	"github.com/depot/cli/pkg/progresshelper"
+	"github.com/docker/buildx/build"
 	"github.com/docker/buildx/builder"
+	"github.com/docker/buildx/driver"
 	"github.com/docker/buildx/util/progress"
 	"github.com/moby/buildkit/client"
 	"github.com/moby/buildkit/client/llb"
 	gateway "github.com/moby/buildkit/frontend/gateway/client"
 	"github.com/moby/buildkit/identity"
 	"github.com/moby/buildkit/solver/pb"
+	"github.com/moby/buildkit/util/progress/progressui"
 	"github.com/morikuni/aec"
 	"github.com/opencontainers/go-digest"
 	ocispecs "github.com/opencontainers/image-spec/specs-go/v1"
@@ -82,59 +86,73 @@ func (l LintFailure) Color() aec.ANSI {
 
 type Linter struct {
 	FailureMode LintFailure
-	Clients     []*client.Client
-	BuildxNodes []builder.Node
+	nodes       []builder.Node
 	printer     progress.Writer
 
 	mu     sync.Mutex
 	issues map[string][]client.VertexWarning
 }
 
-func NewLinter(printer progress.Writer, failureMode LintFailure, clients []*client.Client, nodes []builder.Node) *Linter {
+func NewLinter(printer progress.Writer, failureMode LintFailure, nodes []builder.Node) *Linter {
 	return &Linter{
 		FailureMode: failureMode,
-		Clients:     clients,
-		BuildxNodes: nodes,
+		nodes:       nodes,
 		printer:     printer,
 		issues:      make(map[string][]client.VertexWarning),
 	}
 }
 
-func (l *Linter) Handle(ctx context.Context, target string, driverIndex int, dockerfile *build.DockerfileInputs, p progress.Writer) error {
-	debuglog.Log("Lint Handle() called")
-	defer debuglog.Log("Lint Handle() done")
+func (l *Linter) Enabled() bool {
+	return l.FailureMode != LintSkip
+}
 
-	if l.FailureMode == LintSkip {
+// Run lints the Dockerfile of each target on the machine that builds the
+// first platform of the target.
+func (l *Linter) Run(ctx context.Context, opts map[string]build.Options, stdin []byte) error {
+	if !l.Enabled() || len(l.nodes) == 0 {
 		return nil
 	}
+	for _, target := range slices.Sorted(maps.Keys(opts)) {
+		opt := opts[target]
+		dockerfile := readDockerfile(opt.Inputs, stdin)
+		node := lintNode(l.nodes, opt.Platforms)
+		c, err := driver.Boot(ctx, ctx, node.Driver, l.printer)
+		if err != nil {
+			return err
+		}
+		if dockerfile.Fetch != nil {
+			dockerfile.Content, dockerfile.Err = dockerfile.Fetch(ctx, c, opt.Session)
+		}
+		if err := l.handle(ctx, target, c, node.Platforms[0], dockerfile); err != nil {
+			return err
+		}
+	}
+	return nil
+}
 
-	// If there is an error parsing the Dockerfile, we'll return it in failure mode;
+func lintNode(nodes []builder.Node, targetPlatforms []ocispecs.Platform) builder.Node {
+	if len(targetPlatforms) == 0 {
+		return nodes[0]
+	}
+	want := platforms.FormatAll(platforms.Normalize(targetPlatforms[0]))
+	for _, node := range nodes {
+		for _, p := range node.Platforms {
+			if platforms.FormatAll(platforms.Normalize(p)) == want {
+				return node
+			}
+		}
+	}
+	return nodes[0]
+}
+
+func (l *Linter) handle(ctx context.Context, target string, c *client.Client, platform ocispecs.Platform, dockerfile *dockerfileSource) error {
+	// If there is an error reading the Dockerfile, we'll return it in failure mode;
 	// otherwise, we'll print it as an error message.
 	if dockerfile.Err != nil && l.FailureMode != LintNone {
 		return dockerfile.Err
 	}
 
 	if len(dockerfile.Content) == 0 {
-		return nil
-	}
-
-	// This prevents more than one platform architecture from running linting.
-	{
-		l.mu.Lock()
-		if _, ok := l.issues[target]; ok {
-			l.mu.Unlock()
-			return nil
-		}
-		l.mu.Unlock()
-	}
-
-	if driverIndex > len(l.Clients) {
-		return nil
-	}
-	if l.Clients[driverIndex] == nil {
-		return nil
-	}
-	if len(l.BuildxNodes[driverIndex].Platforms) == 0 {
 		return nil
 	}
 
@@ -146,7 +164,7 @@ func (l *Linter) Handle(ctx context.Context, target string, driverIndex int, doc
 	tm := time.Now()
 	progresshelper.WriteLint(l.printer, client.Vertex{Digest: dgst, Name: lintName, Started: &tm}, nil, nil)
 
-	output, err := RunHadolint(ctx, l.Clients[driverIndex], l.BuildxNodes[driverIndex].Platforms[0], dockerfile)
+	output, err := RunHadolint(ctx, c, platform, dockerfile)
 	if err != nil {
 		if l.FailureMode != LintNone {
 			return err
@@ -154,7 +172,7 @@ func (l *Linter) Handle(ctx context.Context, target string, driverIndex int, doc
 	}
 	lints := UnmarshalHadolints(&output)
 
-	output, err = RunSemgrep(ctx, l.Clients[driverIndex], l.BuildxNodes[driverIndex].Platforms[0], dockerfile)
+	output, err = RunSemgrep(ctx, c, platform, dockerfile)
 	if err != nil {
 		if l.FailureMode != LintNone {
 			return err
@@ -211,7 +229,7 @@ func (l *Linter) Handle(ctx context.Context, target string, driverIndex int, doc
 			},
 			Range: []*pb.Range{
 				{
-					Start: pb.Position{
+					Start: &pb.Position{
 						Line:      int32(lint.Line),
 						Character: int32(lint.Column),
 					},
@@ -290,7 +308,7 @@ func (l *Linter) Handle(ctx context.Context, target string, driverIndex int, doc
 	return lintErr
 }
 
-func RunImage(ctx context.Context, imageName string, args []string, c *client.Client, platform ocispecs.Platform, dockerfile *build.DockerfileInputs) (CaptureOutput, error) {
+func RunImage(ctx context.Context, imageName string, args []string, c *client.Client, platform ocispecs.Platform, dockerfile *dockerfileSource) (CaptureOutput, error) {
 	output := CaptureOutput{}
 	_, err := c.Build(ctx, client.SolveOpt{}, "buildx", func(ctx context.Context, c gateway.Client) (*gateway.Result, error) {
 		image := llb.Image(imageName).
@@ -344,12 +362,12 @@ func RunImage(ctx context.Context, imageName string, args []string, c *client.Cl
 	return output, err
 }
 
-func RunHadolint(ctx context.Context, client *client.Client, platform ocispecs.Platform, dockerfile *build.DockerfileInputs) (CaptureOutput, error) {
+func RunHadolint(ctx context.Context, client *client.Client, platform ocispecs.Platform, dockerfile *dockerfileSource) (CaptureOutput, error) {
 	args := []string{"/bin/hadolint", dockerfile.Filename, "-f", "json"}
 	return RunImage(ctx, Hadolint, args, client, platform, dockerfile)
 }
 
-func RunSemgrep(ctx context.Context, client *client.Client, platform ocispecs.Platform, dockerfile *build.DockerfileInputs) (CaptureOutput, error) {
+func RunSemgrep(ctx context.Context, client *client.Client, platform ocispecs.Platform, dockerfile *dockerfileSource) (CaptureOutput, error) {
 	args := []string{"/usr/local/bin/semgrep", "scan", "--config=p/dockerfile", "--json", "--quiet", "--disable-version-check", dockerfile.Filename}
 	return RunImage(ctx, Semgrep, args, client, platform, dockerfile)
 }
@@ -539,7 +557,7 @@ func (l *Linter) Print(w io.Writer, mode string) {
 		return
 	}
 
-	if mode == progress.PrinterModeQuiet {
+	if mode == string(progressui.QuietMode) {
 		return
 	}
 
@@ -557,7 +575,7 @@ func (l *Linter) Print(w io.Writer, mode string) {
 		summary = fmt.Sprintf("%d linter issues found", numIssues)
 	}
 
-	if mode != progress.PrinterModePlain {
+	if mode != string(progressui.PlainMode) {
 		summary = l.FailureMode.Color().Apply(summary)
 	}
 	fmt.Fprintf(w, "%s:\n", summary)
@@ -572,11 +590,11 @@ func (l *Linter) Print(w io.Writer, mode string) {
 		for _, issue := range issues {
 			lintLevel := LintLevel(issue.Level)
 			level := lintLevel.String()
-			if mode != progress.PrinterModePlain {
+			if mode != string(progressui.PlainMode) {
 				level = lintLevel.Color().Apply(level)
 			}
 
-			fmt.Fprintf(w, "%s %s%s:%d %s\n", level, target, issue.SourceInfo.Filename, issue.Range[0].Start.Line, issue.Short)
+			fmt.Fprintf(w, "%s %s%s:%d %s\n", level, target, issue.SourceInfo.Filename, issue.Range[0].GetStart().GetLine(), issue.Short)
 
 			for _, d := range issue.Detail {
 				fmt.Fprintf(w, "%s\n", d)
@@ -637,7 +655,7 @@ func PrintFileContext(w io.Writer, issue *client.VertexWarning, lintColor LintLe
 		pfx := "   "
 		if containsLine(issue.Range, i) {
 			pfx = ">>>"
-			if progressMode != progress.PrinterModePlain {
+			if progressMode != string(progressui.PlainMode) {
 				pfx = lintColor.Color().Apply(pfx)
 			}
 		}
@@ -648,11 +666,11 @@ func PrintFileContext(w io.Writer, issue *client.VertexWarning, lintColor LintLe
 
 func containsLine(rr []*pb.Range, l int) bool {
 	for _, r := range rr {
-		e := r.End.Line
-		if e < r.Start.Line {
-			e = r.Start.Line
+		e := r.GetEnd().GetLine()
+		if e < r.GetStart().GetLine() {
+			e = r.GetStart().GetLine()
 		}
-		if r.Start.Line <= int32(l) && e >= int32(l) {
+		if r.GetStart().GetLine() <= int32(l) && e >= int32(l) {
 			return true
 		}
 	}
@@ -662,12 +680,12 @@ func containsLine(rr []*pb.Range, l int) bool {
 func getStartEndLine(rr []*pb.Range) (start int, end int, ok bool) {
 	first := true
 	for _, r := range rr {
-		e := r.End.Line
-		if e < r.Start.Line {
-			e = r.Start.Line
+		e := r.GetEnd().GetLine()
+		if e < r.GetStart().GetLine() {
+			e = r.GetStart().GetLine()
 		}
-		if first || int(r.Start.Line) < start {
-			start = int(r.Start.Line)
+		if first || int(r.GetStart().GetLine()) < start {
+			start = int(r.GetStart().GetLine())
 		}
 		if int(e) > end {
 			end = int(e)

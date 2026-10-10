@@ -9,10 +9,11 @@ import (
 	"strings"
 	"time"
 
-	authutil "github.com/containerd/containerd/remotes/docker/auth"
-	remoteserrors "github.com/containerd/containerd/remotes/errors"
+	authutil "github.com/containerd/containerd/v2/core/remotes/docker/auth"
+	remoteserrors "github.com/containerd/containerd/v2/core/remotes/errors"
 	"github.com/depot/cli/pkg/build"
 	"github.com/docker/cli/cli/config"
+	"github.com/docker/cli/cli/config/configfile"
 	"github.com/docker/cli/cli/config/types"
 	"github.com/moby/buildkit/session"
 	"github.com/moby/buildkit/session/auth"
@@ -25,6 +26,36 @@ var (
 	_ auth.AuthServer    = (*AuthProvider)(nil)
 	_ session.Attachable = (*AuthProvider)(nil)
 )
+
+// defaultTokenExpiration is the number of seconds that buildkitd may reuse a
+// registry token when the registry does not state an expiration. Buildkit
+// uses 60 seconds; Depot builders use 10 seconds.
+const defaultTokenExpiration = 10
+
+// buildkitDefaultTokenExpiration is the expiration that the buildkit auth
+// provider reports when the registry does not state one.
+const buildkitDefaultTokenExpiration = 60
+
+// dockerAuthServer is the buildkit Docker auth provider with the Depot
+// default token expiration.
+type dockerAuthServer struct {
+	auth.AuthServer
+}
+
+func newDockerAuthServer(cfg *configfile.ConfigFile) auth.AuthServer {
+	inner := authprovider.NewDockerAuthProvider(authprovider.DockerAuthProviderConfig{
+		AuthConfigProvider: authprovider.LoadAuthConfig(cfg),
+	})
+	return dockerAuthServer{AuthServer: inner.(auth.AuthServer)}
+}
+
+func (s dockerAuthServer) FetchToken(ctx context.Context, req *auth.FetchTokenRequest) (*auth.FetchTokenResponse, error) {
+	resp, err := s.AuthServer.FetchToken(ctx, req)
+	if err == nil && resp.ExpiresIn == buildkitDefaultTokenExpiration {
+		resp.ExpiresIn = defaultTokenExpiration
+	}
+	return resp, err
+}
 
 type AuthProvider struct {
 	inner       auth.AuthServer
@@ -44,10 +75,9 @@ func ReplaceDockerAuth(credentials []build.Credential, as []session.Attachable) 
 
 	for i, a := range as {
 		if _, ok := a.(auth.AuthServer); ok {
-			p := authprovider.NewDockerAuthProvider(dockerConfig)
 			as[i] = &AuthProvider{
 				credentials: credentials,
-				inner:       p.(auth.AuthServer),
+				inner:       newDockerAuthServer(dockerConfig),
 			}
 		}
 	}
@@ -145,11 +175,11 @@ func fetchTokenWithFallback(ctx context.Context, req *auth.FetchTokenRequest, cr
 			if err != nil {
 				return nil, err
 			}
-			return toFetchTokenResponse(getResp.Token, getResp.IssuedAt, getResp.ExpiresIn), nil
+			return toFetchTokenResponse(getResp.Token, getResp.IssuedAt, getResp.ExpiresInSeconds), nil
 		}
 		return nil, err
 	}
-	return toFetchTokenResponse(resp.AccessToken, resp.IssuedAt, resp.ExpiresIn), nil
+	return toFetchTokenResponse(resp.AccessToken, resp.IssuedAt, resp.ExpiresInSeconds), nil
 }
 
 func toFetchTokenResponse(token string, issuedAt time.Time, expires int) *auth.FetchTokenResponse {
@@ -181,11 +211,7 @@ type DepotAuthProvider struct {
 // DEPOT_PUSH_REGISTRY_AUTH environment variables in addition to regular Docker config.
 func NewDockerAuthProviderWithDepotAuth() session.Attachable {
 	dockerConfig := config.LoadDefaultConfigFile(os.Stderr)
-	innerProvider := authprovider.NewDockerAuthProvider(dockerConfig)
-
-	return &DepotAuthProvider{
-		inner: innerProvider.(auth.AuthServer),
-	}
+	return &DepotAuthProvider{inner: newDockerAuthServer(dockerConfig)}
 }
 
 func (a *DepotAuthProvider) Register(server *grpc.Server) {

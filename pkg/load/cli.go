@@ -2,13 +2,14 @@ package load
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	depotbuild "github.com/depot/cli/pkg/build"
 	"github.com/docker/buildx/build"
 	"github.com/docker/buildx/util/platformutil"
-	"github.com/docker/buildx/util/progress"
 	"github.com/moby/buildkit/client"
+	"github.com/moby/buildkit/util/progress/progressui"
 )
 
 // DepotLoadOptions are options to load images from the depot hosted registry.
@@ -38,6 +39,9 @@ type PullOptions struct {
 func WithDepotImagePull(buildOpts map[string]build.Options, loadOpts DepotLoadOptions) (map[string]build.Options, map[string]PullOptions) {
 	toPull := make(map[string]PullOptions)
 	for target, buildOpt := range buildOpts {
+		if buildOpt.CallFunc != nil {
+			continue
+		}
 		// Gather all tags the user specifies for this image.
 		userTags := buildOpt.Tags
 
@@ -54,11 +58,12 @@ func WithDepotImagePull(buildOpts map[string]build.Options, loadOpts DepotLoadOp
 			}
 		}
 
-		// If the user did not specify an image export, we add one.
-		// This happens when the user specifies `--load` rather than an `--output`
-		if len(buildOpt.Exports) == 0 {
+		// Without an image export, add one to load from. --load then works
+		// together with other outputs, as in buildx.
+		isCacheOnly := func(e client.ExportEntry) bool { return e.Type == "cacheonly" }
+		if !shouldPull && !slices.ContainsFunc(buildOpt.Exports, isCacheOnly) {
 			shouldPull = true
-			buildOpt.Exports = []client.ExportEntry{{Type: "image"}}
+			buildOpt.Exports = append(buildOpt.Exports, client.ExportEntry{Type: "image"})
 		}
 
 		buildOpts[target] = buildOpt
@@ -72,7 +77,7 @@ func WithDepotImagePull(buildOpts map[string]build.Options, loadOpts DepotLoadOp
 
 			pullOpt := PullOptions{
 				UserTags: userTags,
-				Quiet:    loadOpts.ProgressMode == progress.PrinterModeQuiet,
+				Quiet:    loadOpts.ProgressMode == string(progressui.QuietMode),
 			}
 
 			// Specify a platform to pull when a single platform is used.
@@ -156,26 +161,18 @@ func WithDockerLoad(buildOpts map[string]build.Options) map[string]build.Options
 	return WithSelectiveDockerLoad(buildOpts, targetsToLoad)
 }
 
-// WithSelectiveDockerLoad adds docker export only to specified targets
+// WithSelectiveDockerLoad returns the options to build again after a fast
+// load failed. The first build already wrote every other output, so each
+// target to load exports only to Docker and the other targets export nothing.
 func WithSelectiveDockerLoad(buildOpts map[string]build.Options, targetsToLoad []string) map[string]build.Options {
-	targetSet := make(map[string]bool)
-	for _, target := range targetsToLoad {
-		targetSet[target] = true
-	}
-
 	for key, buildOpt := range buildOpts {
-		if !targetSet[key] {
+		if buildOpt.CallFunc != nil {
 			continue
 		}
-
-		if len(buildOpt.Exports) != 0 {
-			continue
-		}
-		buildOpt.Exports = []client.ExportEntry{
-			{
-				Type:  "docker",
-				Attrs: map[string]string{},
-			},
+		if slices.Contains(targetsToLoad, key) {
+			buildOpt.Exports = []client.ExportEntry{{Type: "docker", Attrs: map[string]string{}}}
+		} else {
+			buildOpt.Exports = []client.ExportEntry{{Type: "cacheonly"}}
 		}
 		buildOpts[key] = buildOpt
 	}
