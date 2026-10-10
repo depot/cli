@@ -19,6 +19,12 @@ func TestParseRunRepository(t *testing.T) {
 		{remoteURL: "https://origin.cursor.com/git/owner/repo.git", forge: civ1.Forge_FORGE_ORIGIN, repo: "owner/repo", ok: true},
 		{remoteURL: "https://origin.cursor.com/owner/repo", forge: civ1.Forge_FORGE_ORIGIN, repo: "owner/repo", ok: true},
 		{remoteURL: "git@origin.cursor.com:owner/repo", forge: civ1.Forge_FORGE_ORIGIN, repo: "owner/repo", ok: true},
+		{remoteURL: "https://acme123.code.depot.dev/widgets", forge: civ1.Forge_FORGE_DEPOT_CODE, repo: "widgets", ok: true},
+		{remoteURL: "https://ACME123.code.depot.dev/widgets/", forge: civ1.Forge_FORGE_DEPOT_CODE, repo: "widgets", ok: true},
+		{remoteURL: "https://code.depot.dev/team/widgets", forge: civ1.Forge_FORGE_DEPOT_CODE, repo: "team/widgets", ok: true},
+		{remoteURL: "https://acme123.code.depot.dev/widgets.git", forge: civ1.Forge_FORGE_DEPOT_CODE, repo: "widgets.git", ok: true},
+		{remoteURL: "https://acme123.code.depot.dev/", ok: false},
+		{remoteURL: "https://notcode.depot.dev/widgets", ok: false},
 		{remoteURL: "https://gitlab.com/owner/repo.git", ok: false},
 		{remoteURL: "https://github.com/owner/repo/extra", ok: false},
 	}
@@ -100,6 +106,97 @@ func TestResolveRunRepositoryExplicitRepoAndForge(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got.forge != civ1.Forge_FORGE_ORIGIN || got.repo != "acme/widgets" {
+		t.Fatalf("resolveRunRepository() = %#v", got)
+	}
+}
+
+func TestParseRunForge(t *testing.T) {
+	tests := map[string]civ1.Forge{
+		"github": civ1.Forge_FORGE_GITHUB,
+		"origin": civ1.Forge_FORGE_ORIGIN,
+		"depot":  civ1.Forge_FORGE_DEPOT_CODE,
+	}
+	for value, want := range tests {
+		got, err := parseRunForge(value)
+		if err != nil || got != want {
+			t.Fatalf("parseRunForge(%q) = %v, %v; want %v", value, got, err, want)
+		}
+	}
+	if _, err := parseRunForge("gitlab"); err == nil || !strings.Contains(err.Error(), "depot") {
+		t.Fatalf("parseRunForge(gitlab) error = %v, want the supported forges listed", err)
+	}
+}
+
+func TestResolveRunRepositoryDepotCodeWithForge(t *testing.T) {
+	dir := initRunRepositoryGit(t, "https://acme123.code.depot.dev/widgets")
+	got, err := resolveRunRepository(dir, "", "depot")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.forge != civ1.Forge_FORGE_DEPOT_CODE || got.repo != "widgets" {
+		t.Fatalf("resolveRunRepository() = %#v", got)
+	}
+}
+
+func TestResolveRunRepositoryDepotCodeRequiresForge(t *testing.T) {
+	dir := initRunRepositoryGit(t, "https://acme123.code.depot.dev/widgets")
+	_, err := resolveRunRepository(dir, "", "")
+	if err == nil || !strings.Contains(err.Error(), "--forge depot") {
+		t.Fatalf("resolveRunRepository() error = %v, want --forge depot guidance", err)
+	}
+}
+
+func TestResolveRunRepositoryDepotCodeExplicitRepo(t *testing.T) {
+	dir := initRunRepositoryGit(t, "https://gitlab.com/acme/widgets.git")
+	got, err := resolveRunRepository(dir, "widgets", "depot")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.forge != civ1.Forge_FORGE_DEPOT_CODE || got.repo != "widgets" {
+		t.Fatalf("resolveRunRepository() = %#v", got)
+	}
+}
+
+// A checkout that mirrors a GitHub repository has both remotes. It must keep
+// resolving to GitHub unless --forge depot is passed.
+func TestResolveRunRepositoryMirrorCheckoutStaysOnGitHub(t *testing.T) {
+	dir := initRunRepositoryGit(t, "https://github.com/acme/widgets.git")
+	run(t, dir, "git", "remote", "add", "depot", "https://acme123.code.depot.dev/acme/widgets")
+
+	got, err := resolveRunRepository(dir, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.forge != civ1.Forge_FORGE_GITHUB || got.repo != "acme/widgets" {
+		t.Fatalf("resolveRunRepository() = %#v", got)
+	}
+
+	got, err = resolveRunRepository(dir, "other/repo", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.forge != civ1.Forge_FORGE_GITHUB || got.repo != "other/repo" {
+		t.Fatalf("resolveRunRepository() with --repo = %#v", got)
+	}
+
+	got, err = resolveRunRepository(dir, "", "depot")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.forge != civ1.Forge_FORGE_DEPOT_CODE || got.repo != "acme/widgets" {
+		t.Fatalf("resolveRunRepository() with --forge depot = %#v", got)
+	}
+}
+
+func TestResolveRunRepositoryDepotCodeOriginRemoteIgnoredWithoutForge(t *testing.T) {
+	dir := initRunRepositoryGit(t, "https://acme123.code.depot.dev/widgets")
+	run(t, dir, "git", "remote", "add", "github", "https://github.com/acme/widgets.git")
+
+	got, err := resolveRunRepository(dir, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.forge != civ1.Forge_FORGE_GITHUB || got.repo != "acme/widgets" {
 		t.Fatalf("resolveRunRepository() = %#v", got)
 	}
 }

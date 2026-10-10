@@ -49,7 +49,8 @@ branches, the patch contains only unpushed changes; for unpushed branches, the
 patch is relative to the default branch.
 
 Repositories are detected from GitHub and Origin git remotes.
-Use --forge when more than one supported source is configured.`,
+Use --forge when more than one supported source is configured.
+Use --forge depot to run a Depot Code repository.`,
 		Example: `  # Run a workflow
   depot ci run --workflow .depot/workflows/ci.yml
 
@@ -60,7 +61,10 @@ Use --forge when more than one supported source is configured.`,
   depot ci run --workflow .depot/workflows/ci.yml --job build --ssh
 
   # Debug with tmate after a specific step
-  depot ci run --workflow .depot/workflows/ci.yml --job build --ssh-after-step 3`,
+  depot ci run --workflow .depot/workflows/ci.yml --job build --ssh-after-step 3
+
+  # Run a workflow from a Depot Code repository
+  depot ci run --workflow .depot/workflows/ci.yml --forge depot`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if workflowPath == "" {
 				return cmd.Help()
@@ -184,7 +188,7 @@ Use --forge when more than one supported source is configured.`,
 
 				// Inject patch step into each selected job that has actions/checkout
 				for _, jobName := range selectedJobs {
-					injectPatchStep(jobs, jobName, patch.mergeBase, workspacePatchKey)
+					injectPatchStep(jobs, jobName, patch.mergeBase, workspacePatchKey, repository.forge)
 				}
 			}
 
@@ -293,7 +297,7 @@ Use --forge when more than one supported source is configured.`,
 	cmd.Flags().IntVar(&sshAfterStep, "ssh-after-step", 0, "1-based step index to insert a tmate debug step after (requires single --job)")
 	cmd.Flags().BoolVar(&ssh, "ssh", false, "Start the run and connect to the job's sandbox via interactive terminal (requires single --job)")
 	cmd.Flags().StringVar(&repoFlag, "repo", "", "Repository name to use instead of detecting from git remotes")
-	cmd.Flags().StringVar(&forgeFlag, "forge", "", "Repository forge: github or origin")
+	cmd.Flags().StringVar(&forgeFlag, "forge", "", "Repository forge: github, origin, or depot")
 	cmd.Flags().BoolVarP(&follow, "follow", "f", false, "Follow live logs")
 
 	cmd.AddCommand(NewCmdRunList())
@@ -538,7 +542,7 @@ func resolveJobDeps(allJobs map[string]interface{}, requested []string) map[stri
 	return needed
 }
 
-func injectPatchStep(jobs map[string]interface{}, jobName, mergeBase, workspacePatchKey string) {
+func injectPatchStep(jobs map[string]interface{}, jobName, mergeBase, workspacePatchKey string, forge civ1.Forge) {
 	jobRaw, ok := jobs[jobName]
 	if !ok {
 		return
@@ -579,14 +583,19 @@ func injectPatchStep(jobs map[string]interface{}, jobName, mergeBase, workspaceP
 		return
 	}
 
-	// Modify checkout step to check out the merge-base commit
-	checkoutStep := steps[checkoutIndex].(map[string]interface{})
-	withMap, ok := checkoutStep["with"].(map[string]interface{})
-	if !ok {
-		withMap = make(map[string]interface{})
-		checkoutStep["with"] = withMap
+	// Modify checkout step to check out the merge-base commit. Depot Code runs
+	// leave it alone: Depot CI only checks out from Depot Code when the checkout
+	// step has no inputs, and that checkout already uses the run's SHA, which is
+	// the merge base.
+	if forge != civ1.Forge_FORGE_DEPOT_CODE {
+		checkoutStep := steps[checkoutIndex].(map[string]interface{})
+		withMap, ok := checkoutStep["with"].(map[string]interface{})
+		if !ok {
+			withMap = make(map[string]interface{})
+			checkoutStep["with"] = withMap
+		}
+		withMap["ref"] = mergeBase
 	}
-	withMap["ref"] = mergeBase
 
 	// Create patch application step
 	patchStep := map[string]interface{}{

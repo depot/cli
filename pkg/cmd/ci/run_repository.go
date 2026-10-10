@@ -20,9 +20,17 @@ func parseRunForge(value string) (civ1.Forge, error) {
 		return civ1.Forge_FORGE_GITHUB, nil
 	case "origin":
 		return civ1.Forge_FORGE_ORIGIN, nil
+	case "depot":
+		return civ1.Forge_FORGE_DEPOT_CODE, nil
 	default:
-		return civ1.Forge_FORGE_UNSPECIFIED, fmt.Errorf("unsupported forge %q; expected github or origin", value)
+		return civ1.Forge_FORGE_UNSPECIFIED, fmt.Errorf("unsupported forge %q; expected github, origin, or depot", value)
 	}
+}
+
+// isDepotCodeHost reports whether host serves Depot Code repositories, either
+// directly or through an organization subdomain.
+func isDepotCodeHost(host string) bool {
+	return host == "code.depot.dev" || strings.HasSuffix(host, ".code.depot.dev")
 }
 
 func parseRunRepository(remoteURL string) (runRepository, bool) {
@@ -32,6 +40,16 @@ func parseRunRepository(remoteURL string) (runRepository, bool) {
 	}
 
 	host = strings.ToLower(host)
+	if isDepotCodeHost(host) {
+		// Depot Code names are not owner/repo slugs: they may be a single segment
+		// and may end in ".git", which the clone URL never adds.
+		path = strings.Trim(path, "/")
+		if path == "" || strings.ContainsAny(path, "?#") {
+			return runRepository{}, false
+		}
+		return runRepository{forge: civ1.Forge_FORGE_DEPOT_CODE, repo: path}, true
+	}
+
 	path = strings.Trim(strings.TrimSuffix(path, ".git"), "/")
 	if host == "origin.cursor.com" {
 		path = strings.TrimPrefix(path, "git/")
@@ -120,6 +138,25 @@ func resolveRunRepository(dir, explicitRepo, forgeFlag string) (runRepository, e
 	}
 
 	origin, detected := detectRunRepositories(dir)
+
+	// Depot Code remotes are only used with --forge depot. A checkout that mirrors
+	// a GitHub repository has both remotes and must keep resolving to GitHub.
+	hasDepotCodeRemote := false
+	if selectedForge != civ1.Forge_FORGE_DEPOT_CODE {
+		kept := make([]runRepository, 0, len(detected))
+		for _, repository := range detected {
+			if repository.forge == civ1.Forge_FORGE_DEPOT_CODE {
+				hasDepotCodeRemote = true
+				continue
+			}
+			kept = append(kept, repository)
+		}
+		detected = kept
+		if origin != nil && origin.forge == civ1.Forge_FORGE_DEPOT_CODE {
+			origin = nil
+		}
+	}
+
 	if explicitRepo != "" {
 		if selectedForge != civ1.Forge_FORGE_UNSPECIFIED {
 			return runRepository{forge: selectedForge, repo: explicitRepo}, nil
@@ -150,7 +187,10 @@ func resolveRunRepository(dir, explicitRepo, forgeFlag string) (runRepository, e
 		}
 	}
 	if len(detected) == 0 {
-		return runRepository{}, fmt.Errorf("no supported repository found in git remotes; use --repo and optionally --forge (github or origin)")
+		if hasDepotCodeRemote {
+			return runRepository{}, fmt.Errorf("found a Depot Code remote; use --forge depot to run this repository")
+		}
+		return runRepository{}, fmt.Errorf("no supported repository found in git remotes; use --repo and optionally --forge (github, origin, or depot)")
 	}
 	if len(detected) > 1 {
 		forges := make(map[civ1.Forge]struct{})
