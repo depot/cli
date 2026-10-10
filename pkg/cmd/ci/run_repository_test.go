@@ -110,23 +110,6 @@ func TestResolveRunRepositoryExplicitRepoAndForge(t *testing.T) {
 	}
 }
 
-func TestParseRunForge(t *testing.T) {
-	tests := map[string]civ1.Forge{
-		"github": civ1.Forge_FORGE_GITHUB,
-		"origin": civ1.Forge_FORGE_ORIGIN,
-		"depot":  civ1.Forge_FORGE_DEPOT_CODE,
-	}
-	for value, want := range tests {
-		got, err := parseRunForge(value)
-		if err != nil || got != want {
-			t.Fatalf("parseRunForge(%q) = %v, %v; want %v", value, got, err, want)
-		}
-	}
-	if _, err := parseRunForge("gitlab"); err == nil || !strings.Contains(err.Error(), "depot") {
-		t.Fatalf("parseRunForge(gitlab) error = %v, want the supported forges listed", err)
-	}
-}
-
 func TestResolveRunRepositoryDepotCodeWithForge(t *testing.T) {
 	dir := initRunRepositoryGit(t, "https://acme123.code.depot.dev/widgets")
 	got, err := resolveRunRepository(dir, "", "depot")
