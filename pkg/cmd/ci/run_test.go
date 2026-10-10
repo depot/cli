@@ -402,3 +402,51 @@ func TestDetectPatch_noChanges(t *testing.T) {
 		t.Fatalf("expected nil patch when no changes, got %+v", patch)
 	}
 }
+
+func patchStepJobs() map[string]interface{} {
+	return map[string]interface{}{
+		"build": map[string]interface{}{
+			"steps": []interface{}{
+				map[string]interface{}{"uses": "actions/checkout@v4"},
+				map[string]interface{}{"run": "make test"},
+			},
+		},
+	}
+}
+
+func TestInjectPatchStep_pinsCheckoutToMergeBase(t *testing.T) {
+	jobs := patchStepJobs()
+	injectPatchStep(jobs, "build", "abc123", "patch/abc123/def", civ1.Forge_FORGE_GITHUB)
+
+	steps := jobs["build"].(map[string]interface{})["steps"].([]interface{})
+	if len(steps) != 3 {
+		t.Fatalf("got %d steps, want 3", len(steps))
+	}
+	checkout := steps[0].(map[string]interface{})
+	with, ok := checkout["with"].(map[string]interface{})
+	if !ok || with["ref"] != "abc123" {
+		t.Fatalf("checkout with = %#v, want ref abc123", checkout["with"])
+	}
+	if steps[1].(map[string]interface{})["name"] != "Apply local patch from Depot Cache" {
+		t.Fatalf("step after checkout = %#v, want the patch step", steps[1])
+	}
+}
+
+// Depot CI checks out from Depot Code only when the checkout step has no inputs,
+// so a Depot Code run must not add one.
+func TestInjectPatchStep_leavesDepotCodeCheckoutUntouched(t *testing.T) {
+	jobs := patchStepJobs()
+	injectPatchStep(jobs, "build", "abc123", "patch/abc123/def", civ1.Forge_FORGE_DEPOT_CODE)
+
+	steps := jobs["build"].(map[string]interface{})["steps"].([]interface{})
+	if len(steps) != 3 {
+		t.Fatalf("got %d steps, want 3", len(steps))
+	}
+	checkout := steps[0].(map[string]interface{})
+	if _, ok := checkout["with"]; ok {
+		t.Fatalf("checkout with = %#v, want no inputs", checkout["with"])
+	}
+	if steps[1].(map[string]interface{})["name"] != "Apply local patch from Depot Cache" {
+		t.Fatalf("step after checkout = %#v, want the patch step", steps[1])
+	}
+}
