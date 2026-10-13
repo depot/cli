@@ -2,6 +2,7 @@ package ci
 
 import (
 	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"os/exec"
@@ -213,7 +214,8 @@ func TestPatchWorkspaceCacheKey_format(t *testing.T) {
 	got := patchWorkspaceCacheKey(patch)
 
 	sum := sha256.Sum256([]byte(content))
-	want := fmt.Sprintf("patch/%s/%s", mergeBase[:12], fmt.Sprintf("%x", sum)[:16])
+	path := fmt.Sprintf("/patch/%s/%s", mergeBase[:12], fmt.Sprintf("%x", sum)[:16])
+	want := "generic" + hex.EncodeToString([]byte(path))
 	if got != want {
 		t.Fatalf("patchWorkspaceCacheKey() = %q, want %q", got, want)
 	}
@@ -224,7 +226,8 @@ func TestPatchWorkspaceCacheKey_shortMergeBase(t *testing.T) {
 	patch := &patchInfo{mergeBase: "abc", content: "x"}
 	got := patchWorkspaceCacheKey(patch)
 	sum := sha256.Sum256([]byte("x"))
-	want := fmt.Sprintf("patch/%s/%s", "abc", fmt.Sprintf("%x", sum)[:16])
+	path := fmt.Sprintf("/patch/%s/%s", "abc", fmt.Sprintf("%x", sum)[:16])
+	want := "generic" + hex.EncodeToString([]byte(path))
 	if got != want {
 		t.Fatalf("patchWorkspaceCacheKey() = %q, want %q", got, want)
 	}
@@ -411,6 +414,75 @@ func patchStepJobs() map[string]interface{} {
 				map[string]interface{}{"run": "make test"},
 			},
 		},
+	}
+}
+
+func TestInjectPatchStep_appliesDownloadedPatch(t *testing.T) {
+	for _, downloadFails := range []bool{false, true} {
+		t.Run(fmt.Sprintf("downloadFails=%t", downloadFails), func(t *testing.T) {
+			repo := cloneRepo(t, initBareRemote(t))
+			writeFile(t, filepath.Join(repo, "README.md"), "patched\n")
+			patchBytes := run(t, repo, "git", "diff", "--binary") + "\n"
+			run(t, repo, "git", "checkout", "--", "README.md")
+			patch := &patchInfo{mergeBase: "abc123", content: patchBytes}
+			jobs := patchStepJobs()
+			sum := sha256.Sum256([]byte(patchBytes))
+			path := fmt.Sprintf("patch/abc123/%x", sum[:8])
+			injectPatchStep(jobs, "build", patch.mergeBase, path, civ1.Forge_FORGE_GITHUB)
+			steps := jobs["build"].(map[string]interface{})["steps"].([]interface{})
+			script := steps[1].(map[string]interface{})["run"].(string)
+			// Isolate the generated script's temporary file from other test runs.
+			script = strings.ReplaceAll(script, "/tmp/local.patch", filepath.Join(t.TempDir(), "local.patch"))
+			binDir := t.TempDir()
+			for _, name := range []string{"git", "rm"} {
+				binary, err := exec.LookPath(name)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink(binary, filepath.Join(binDir, name)); err != nil {
+					t.Fatal(err)
+				}
+			}
+			patchFile := filepath.Join(t.TempDir(), "patch")
+			writeFile(t, patchFile, patchBytes)
+			curl := `#!/bin/bash
+set -eu
+test "$1" = "-fsSL"
+test "$2" = "-H"
+test "$3" = "Authorization: Bearer test-token"
+test "$4" = "$EXPECTED_URL"
+test "$5" = "-o"
+if [ "$DOWNLOAD_FAILS" = "true" ]; then exit 22; fi
+/bin/cat "$PATCH_FILE" > "$6"
+`
+			if err := os.WriteFile(filepath.Join(binDir, "curl"), []byte(curl), 0755); err != nil {
+				t.Fatal(err)
+			}
+			cmd := exec.Command("/bin/bash", "-c", script)
+			cmd.Dir = repo
+			cmd.Env = []string{"PATH=" + binDir, "DEPOT_TOKEN=test-token", "EXPECTED_URL=" + cacheBaseURL + "/" + path, "PATCH_FILE=" + patchFile, fmt.Sprintf("DOWNLOAD_FAILS=%t", downloadFails)}
+			output, err := cmd.CombinedOutput()
+			if downloadFails && err == nil {
+				t.Fatalf("download failure succeeded: %s", output)
+			}
+			if !downloadFails && err != nil {
+				t.Fatalf("patch failed without jq: %v\n%s", err, output)
+			}
+			content, err := os.ReadFile(filepath.Join(repo, "README.md"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := "patched\n"
+			if downloadFails {
+				want = "init"
+			}
+			if string(content) != want {
+				t.Fatalf("README = %q, want %q", content, want)
+			}
+			if got, want := patchWorkspaceCacheKey(patch), "generic"+hex.EncodeToString([]byte("/"+path)); got != want {
+				t.Fatalf("uploaded key = %q, want direct download key %q", got, want)
+			}
+		})
 	}
 }
 
