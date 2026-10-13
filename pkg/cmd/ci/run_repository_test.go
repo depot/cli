@@ -1,6 +1,7 @@
 package ci
 
 import (
+	"strings"
 	"testing"
 
 	civ1 "github.com/depot/cli/pkg/proto/depot/ci/v1"
@@ -41,277 +42,132 @@ func TestParseRunRepository(t *testing.T) {
 	}
 }
 
-// Remote URLs used by the resolver tests. Each forge uses a distinct repository
-// so a result identifies which remote was selected.
+// Remotes for the resolver tests, keyed by --forge value. Each forge uses a
+// distinct repository so a result identifies the selected remote.
+var testRemotes = map[string]struct {
+	url  string
+	want runRepository
+}{
+	"depot":  {"https://acme123.code.depot.dev/widgets", runRepository{civ1.Forge_FORGE_DEPOT_CODE, "widgets"}},
+	"github": {"https://github.com/acme/gh-widgets.git", runRepository{civ1.Forge_FORGE_GITHUB, "acme/gh-widgets"}},
+	"origin": {"https://origin.cursor.com/git/acme/origin-widgets.git", runRepository{civ1.Forge_FORGE_ORIGIN, "acme/origin-widgets"}},
+}
+
 const (
-	depotRemoteURL  = "https://acme123.code.depot.dev/widgets"
-	githubRemoteURL = "https://github.com/acme/gh-widgets.git"
-	originRemoteURL = "https://origin.cursor.com/git/acme/origin-widgets.git"
-
-	depotRepo  = "widgets"
-	githubRepo = "acme/gh-widgets"
-	originRepo = "acme/origin-widgets"
-
-	explicitRepo = "explicit/repo"
-)
-
-// Resolver error messages, asserted exactly so a case cannot pass by failing
-// for an unrelated reason.
-const (
-	errNoSupported   = "no supported repository found in git remotes; use --repo and optionally --forge (github, origin, or depot)"
+	errNoRepo        = "no supported repository found in git remotes; use --repo and optionally --forge (github, origin, or depot)"
 	errDepotRemote   = "found a Depot Code remote; use --forge depot to run this repository"
 	errMultipleForge = "multiple supported forges found in git remotes; use --forge github|origin"
-	errMultipleRepo  = "multiple repositories found for the selected forge; use --repo to select one"
 )
 
-const (
-	depotForge  = civ1.Forge_FORGE_DEPOT_CODE
-	githubForge = civ1.Forge_FORGE_GITHUB
-	originForge = civ1.Forge_FORGE_ORIGIN
-)
+// TestResolveRunRepositoryMatrix covers each combination of Depot Code, GitHub,
+// and Origin remotes against every --forge value, with and without --repo.
+// Each entry is the forge the run resolves to, or the exact error. No remote is
+// named origin, so remote-name preference never applies.
+func TestResolveRunRepositoryMatrix(t *testing.T) {
+	forges := [4]string{"", "depot", "github", "origin"}
+	// Columns follow forges.
+	detect := map[string][4]string{
+		"none":   {errNoRepo, errNoRepo, errNoRepo, errNoRepo},
+		"depot":  {"depot", "depot", errDepotRemote, errDepotRemote},
+		"github": {"github", errNoRepo, "github", errNoRepo},
+		"origin": {"origin", errNoRepo, errNoRepo, "origin"},
+		// Mirrors keep resolving to GitHub or Origin unless --forge depot is passed.
+		"depot+github":        {"github", "depot", "github", errDepotRemote},
+		"depot+origin":        {"origin", "depot", errDepotRemote, "origin"},
+		"github+origin":       {errMultipleForge, errNoRepo, "github", "origin"},
+		"depot+github+origin": {errMultipleForge, "depot", "github", "origin"},
+	}
+	withRepo := map[string][4]string{
+		"none":                {"github", "depot", "github", "origin"},
+		"depot":               {"depot", "depot", "github", "origin"},
+		"github":              {"github", "depot", "github", "origin"},
+		"origin":              {"origin", "depot", "github", "origin"},
+		"depot+github":        {"github", "depot", "github", "origin"},
+		"depot+origin":        {"origin", "depot", "github", "origin"},
+		"github+origin":       {errMultipleForge, "depot", "github", "origin"},
+		"depot+github+origin": {errMultipleForge, "depot", "github", "origin"},
+	}
+	expected := func(entry, repo string) (runRepository, string) {
+		r, ok := testRemotes[entry]
+		if !ok {
+			return runRepository{}, entry
+		}
+		if repo != "" {
+			r.want.repo = repo
+		}
+		return r.want, ""
+	}
+
+	for combination := range detect {
+		var remotes []remote
+		if combination != "none" {
+			for _, key := range strings.Split(combination, "+") {
+				remotes = append(remotes, remote{key + "-remote", testRemotes[key].url})
+			}
+		}
+		dir := initRunRepositoryRemotes(t, remotes...)
+		for i, forge := range forges {
+			t.Run(combination+"/forge="+forge, func(t *testing.T) {
+				want, wantErr := expected(detect[combination][i], "")
+				assertResolveRunRepository(t, dir, "", forge, want, wantErr)
+				want, wantErr = expected(withRepo[combination][i], "explicit/repo")
+				assertResolveRunRepository(t, dir, "explicit/repo", forge, want, wantErr)
+			})
+		}
+	}
+}
+
+// Without --forge, unsupported remotes and remote names do not change which
+// forge is inferred, but the remote named origin picks between repositories
+// on one forge.
+func TestResolveRunRepositoryRemotes(t *testing.T) {
+	depot, github, origin := testRemotes["depot"], testRemotes["github"], testRemotes["origin"]
+	tests := []struct {
+		name    string
+		remotes []remote
+		want    runRepository
+		wantErr string
+	}{
+		{
+			name:    "unsupported remote does not block Depot Code inference",
+			remotes: []remote{{"origin", "https://gitlab.com/acme/widgets.git"}, {"depot", depot.url}},
+			want:    depot.want,
+		},
+		{
+			name:    "Depot Code remote named origin in a GitHub mirror",
+			remotes: []remote{{"origin", depot.url}, {"gh", github.url}},
+			want:    github.want,
+		},
+		{
+			name:    "Depot Code remote named origin in an Origin mirror",
+			remotes: []remote{{"origin", depot.url}, {"cursor", origin.url}},
+			want:    origin.want,
+		},
+		// "aaa" lists before "origin", so preference is by name, not order.
+		{
+			name:    "multiple Depot Code repositories prefer origin",
+			remotes: []remote{{"aaa", "https://acme123.code.depot.dev/gadgets"}, {"origin", depot.url}},
+			want:    depot.want,
+		},
+		{
+			name:    "multiple Depot Code repositories without origin",
+			remotes: []remote{{"fork", depot.url}, {"upstream", "https://acme123.code.depot.dev/gadgets"}},
+			wantErr: "multiple repositories found for the selected forge; use --repo to select one",
+		},
+		{
+			name:    "multiple GitHub repositories prefer origin",
+			remotes: []remote{{"aaa", "https://github.com/acme/gadgets.git"}, {"origin", github.url}},
+			want:    github.want,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assertResolveRunRepository(t, initRunRepositoryRemotes(t, tt.remotes...), "", "", tt.want, tt.wantErr)
+		})
+	}
+}
 
 type remote struct{ name, url string }
-
-type resolveWant struct {
-	forge civ1.Forge
-	repo  string
-	err   string
-}
-
-func uses(forge civ1.Forge, repo string) resolveWant { return resolveWant{forge: forge, repo: repo} }
-func fails(err string) resolveWant                   { return resolveWant{err: err} }
-
-func assertResolveRunRepository(t *testing.T, dir, repo, forge string, want resolveWant) {
-	t.Helper()
-	got, err := resolveRunRepository(dir, repo, forge)
-	if want.err != "" {
-		if err == nil || err.Error() != want.err {
-			t.Fatalf("resolveRunRepository(repo=%q, forge=%q) = %#v, %v; want error %q", repo, forge, got, err, want.err)
-		}
-		return
-	}
-	if err != nil {
-		t.Fatalf("resolveRunRepository(repo=%q, forge=%q) error = %v; want forge %v repo %q", repo, forge, err, want.forge, want.repo)
-	}
-	if got.forge != want.forge || got.repo != want.repo {
-		t.Fatalf("resolveRunRepository(repo=%q, forge=%q) = forge %v repo %q; want forge %v repo %q", repo, forge, got.forge, got.repo, want.forge, want.repo)
-	}
-}
-
-// TestResolveRunRepositoryMatrix covers every presence combination of a Depot
-// Code, GitHub, and Origin remote against each --forge value, with and without
-// --repo. No remote is named "origin", so remote-name preference never applies.
-func TestResolveRunRepositoryMatrix(t *testing.T) {
-	type forgeCase struct {
-		forge        string
-		detect, repo resolveWant
-	}
-	tests := []struct {
-		name    string
-		remotes []remote
-		cases   []forgeCase
-	}{
-		{
-			name: "none",
-			cases: []forgeCase{
-				{forge: "", detect: fails(errNoSupported), repo: uses(githubForge, explicitRepo)},
-				{forge: "depot", detect: fails(errNoSupported), repo: uses(depotForge, explicitRepo)},
-				{forge: "github", detect: fails(errNoSupported), repo: uses(githubForge, explicitRepo)},
-				{forge: "origin", detect: fails(errNoSupported), repo: uses(originForge, explicitRepo)},
-			},
-		},
-		{
-			name:    "depot",
-			remotes: []remote{{"depot", depotRemoteURL}},
-			cases: []forgeCase{
-				{forge: "", detect: uses(depotForge, depotRepo), repo: uses(depotForge, explicitRepo)},
-				{forge: "depot", detect: uses(depotForge, depotRepo), repo: uses(depotForge, explicitRepo)},
-				{forge: "github", detect: fails(errDepotRemote), repo: uses(githubForge, explicitRepo)},
-				{forge: "origin", detect: fails(errDepotRemote), repo: uses(originForge, explicitRepo)},
-			},
-		},
-		{
-			name:    "github",
-			remotes: []remote{{"gh", githubRemoteURL}},
-			cases: []forgeCase{
-				{forge: "", detect: uses(githubForge, githubRepo), repo: uses(githubForge, explicitRepo)},
-				{forge: "depot", detect: fails(errNoSupported), repo: uses(depotForge, explicitRepo)},
-				{forge: "github", detect: uses(githubForge, githubRepo), repo: uses(githubForge, explicitRepo)},
-				{forge: "origin", detect: fails(errNoSupported), repo: uses(originForge, explicitRepo)},
-			},
-		},
-		{
-			name:    "origin",
-			remotes: []remote{{"cursor", originRemoteURL}},
-			cases: []forgeCase{
-				{forge: "", detect: uses(originForge, originRepo), repo: uses(originForge, explicitRepo)},
-				{forge: "depot", detect: fails(errNoSupported), repo: uses(depotForge, explicitRepo)},
-				{forge: "github", detect: fails(errNoSupported), repo: uses(githubForge, explicitRepo)},
-				{forge: "origin", detect: uses(originForge, originRepo), repo: uses(originForge, explicitRepo)},
-			},
-		},
-		{
-			// A checkout mirrored to Depot Code keeps resolving to GitHub.
-			name:    "depot+github",
-			remotes: []remote{{"depot", depotRemoteURL}, {"gh", githubRemoteURL}},
-			cases: []forgeCase{
-				{forge: "", detect: uses(githubForge, githubRepo), repo: uses(githubForge, explicitRepo)},
-				{forge: "depot", detect: uses(depotForge, depotRepo), repo: uses(depotForge, explicitRepo)},
-				{forge: "github", detect: uses(githubForge, githubRepo), repo: uses(githubForge, explicitRepo)},
-				{forge: "origin", detect: fails(errDepotRemote), repo: uses(originForge, explicitRepo)},
-			},
-		},
-		{
-			// A checkout mirrored to Depot Code keeps resolving to Origin.
-			name:    "depot+origin",
-			remotes: []remote{{"depot", depotRemoteURL}, {"cursor", originRemoteURL}},
-			cases: []forgeCase{
-				{forge: "", detect: uses(originForge, originRepo), repo: uses(originForge, explicitRepo)},
-				{forge: "depot", detect: uses(depotForge, depotRepo), repo: uses(depotForge, explicitRepo)},
-				{forge: "github", detect: fails(errDepotRemote), repo: uses(githubForge, explicitRepo)},
-				{forge: "origin", detect: uses(originForge, originRepo), repo: uses(originForge, explicitRepo)},
-			},
-		},
-		{
-			name:    "github+origin",
-			remotes: []remote{{"gh", githubRemoteURL}, {"cursor", originRemoteURL}},
-			cases: []forgeCase{
-				{forge: "", detect: fails(errMultipleForge), repo: fails(errMultipleForge)},
-				{forge: "depot", detect: fails(errNoSupported), repo: uses(depotForge, explicitRepo)},
-				{forge: "github", detect: uses(githubForge, githubRepo), repo: uses(githubForge, explicitRepo)},
-				{forge: "origin", detect: uses(originForge, originRepo), repo: uses(originForge, explicitRepo)},
-			},
-		},
-		{
-			name:    "depot+github+origin",
-			remotes: []remote{{"depot", depotRemoteURL}, {"gh", githubRemoteURL}, {"cursor", originRemoteURL}},
-			cases: []forgeCase{
-				{forge: "", detect: fails(errMultipleForge), repo: fails(errMultipleForge)},
-				{forge: "depot", detect: uses(depotForge, depotRepo), repo: uses(depotForge, explicitRepo)},
-				{forge: "github", detect: uses(githubForge, githubRepo), repo: uses(githubForge, explicitRepo)},
-				{forge: "origin", detect: uses(originForge, originRepo), repo: uses(originForge, explicitRepo)},
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			dir := initRunRepositoryRemotes(t, tt.remotes...)
-			for _, c := range tt.cases {
-				t.Run("forge="+c.forge, func(t *testing.T) {
-					t.Run("detect", func(t *testing.T) { assertResolveRunRepository(t, dir, "", c.forge, c.detect) })
-					t.Run("repo", func(t *testing.T) { assertResolveRunRepository(t, dir, explicitRepo, c.forge, c.repo) })
-				})
-			}
-		})
-	}
-}
-
-// Unsupported remotes neither block Depot Code inference nor count as a forge.
-func TestResolveRunRepositoryIgnoresUnsupportedRemotes(t *testing.T) {
-	const gitlab = "https://gitlab.com/acme/widgets.git"
-	tests := []struct {
-		name    string
-		remotes []remote
-		repo    string
-		want    resolveWant
-	}{
-		{name: "depot", remotes: []remote{{"origin", gitlab}, {"depot", depotRemoteURL}}, want: uses(depotForge, depotRepo)},
-		{name: "depot with --repo", remotes: []remote{{"origin", gitlab}, {"depot", depotRemoteURL}}, repo: explicitRepo, want: uses(depotForge, explicitRepo)},
-		{name: "github", remotes: []remote{{"origin", gitlab}, {"gh", githubRemoteURL}}, want: uses(githubForge, githubRepo)},
-		{name: "unsupported only", remotes: []remote{{"origin", gitlab}}, want: fails(errNoSupported)},
-		{name: "unsupported only with --repo", remotes: []remote{{"origin", gitlab}}, repo: explicitRepo, want: uses(githubForge, explicitRepo)},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			assertResolveRunRepository(t, initRunRepositoryRemotes(t, tt.remotes...), tt.repo, "", tt.want)
-		})
-	}
-}
-
-// The remote name "origin" is unrelated to the Origin forge: a Depot Code
-// remote named origin does not override GitHub or Origin remotes.
-func TestResolveRunRepositoryDepotCodeRemoteNamedOrigin(t *testing.T) {
-	tests := []struct {
-		name    string
-		remotes []remote
-		forge   string
-		want    resolveWant
-	}{
-		{name: "with github", remotes: []remote{{"origin", depotRemoteURL}, {"gh", githubRemoteURL}}, want: uses(githubForge, githubRepo)},
-		{name: "with origin forge", remotes: []remote{{"origin", depotRemoteURL}, {"cursor", originRemoteURL}}, want: uses(originForge, originRepo)},
-		{name: "with github and origin forge", remotes: []remote{{"origin", depotRemoteURL}, {"gh", githubRemoteURL}, {"cursor", originRemoteURL}}, want: fails(errMultipleForge)},
-		{name: "with github and origin forge, --forge depot", remotes: []remote{{"origin", depotRemoteURL}, {"gh", githubRemoteURL}, {"cursor", originRemoteURL}}, forge: "depot", want: uses(depotForge, depotRepo)},
-		{name: "with github and origin forge, --forge github", remotes: []remote{{"origin", depotRemoteURL}, {"gh", githubRemoteURL}, {"cursor", originRemoteURL}}, forge: "github", want: uses(githubForge, githubRepo)},
-		{name: "with github and origin forge, --forge origin", remotes: []remote{{"origin", depotRemoteURL}, {"gh", githubRemoteURL}, {"cursor", originRemoteURL}}, forge: "origin", want: uses(originForge, originRepo)},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			assertResolveRunRepository(t, initRunRepositoryRemotes(t, tt.remotes...), "", tt.forge, tt.want)
-		})
-	}
-}
-
-// With several repositories on one forge, the remote named origin wins;
-// without it the CLI requires --repo. Checked with and without --forge.
-func TestResolveRunRepositoryMultipleRepositoriesPerForge(t *testing.T) {
-	tests := []struct {
-		forgeFlag  string
-		forge      civ1.Forge
-		urlA, urlB string
-		repoA      string
-	}{
-		{forgeFlag: "depot", forge: depotForge, urlA: "https://acme123.code.depot.dev/widgets", urlB: "https://acme123.code.depot.dev/gadgets", repoA: "widgets"},
-		{forgeFlag: "github", forge: githubForge, urlA: "https://github.com/acme/widgets.git", urlB: "https://github.com/acme/gadgets.git", repoA: "acme/widgets"},
-		{forgeFlag: "origin", forge: originForge, urlA: "https://origin.cursor.com/git/acme/widgets.git", urlB: "https://origin.cursor.com/git/acme/gadgets.git", repoA: "acme/widgets"},
-	}
-	for _, tt := range tests {
-		for _, forge := range []string{"", tt.forgeFlag} {
-			t.Run(tt.forgeFlag+"/forge="+forge, func(t *testing.T) {
-				// "aaa" lists before "origin", so preference is by name, not order.
-				withOrigin := initRunRepositoryRemotes(t, remote{"aaa", tt.urlB}, remote{"origin", tt.urlA})
-				assertResolveRunRepository(t, withOrigin, "", forge, uses(tt.forge, tt.repoA))
-				assertResolveRunRepository(t, withOrigin, explicitRepo, forge, uses(tt.forge, explicitRepo))
-
-				withoutOrigin := initRunRepositoryRemotes(t, remote{"fork", tt.urlA}, remote{"upstream", tt.urlB})
-				assertResolveRunRepository(t, withoutOrigin, "", forge, fails(errMultipleRepo))
-				assertResolveRunRepository(t, withoutOrigin, explicitRepo, forge, uses(tt.forge, explicitRepo))
-			})
-		}
-	}
-}
-
-// Several remotes pointing at the same repository count as one repository.
-func TestResolveRunRepositoryDuplicateRemotes(t *testing.T) {
-	tests := []struct {
-		name       string
-		urlA, urlB string
-		want       resolveWant
-	}{
-		{name: "depot", urlA: "https://acme123.code.depot.dev/widgets", urlB: "https://ACME123.code.depot.dev/widgets/", want: uses(depotForge, "widgets")},
-		{name: "github", urlA: "https://github.com/acme/widgets.git", urlB: "git@github.com:acme/widgets.git", want: uses(githubForge, "acme/widgets")},
-		{name: "origin", urlA: "https://origin.cursor.com/git/acme/widgets.git", urlB: "git@origin.cursor.com:acme/widgets", want: uses(originForge, "acme/widgets")},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			dir := initRunRepositoryRemotes(t, remote{"fork", tt.urlA}, remote{"upstream", tt.urlB})
-			assertResolveRunRepository(t, dir, "", "", tt.want)
-		})
-	}
-}
-
-// Invalid --forge values fail before repository selection, whatever the remotes.
-func TestResolveRunRepositoryInvalidForge(t *testing.T) {
-	dir := initRunRepositoryRemotes(t, remote{"depot", depotRemoteURL}, remote{"gh", githubRemoteURL})
-	for _, forge := range []string{"gitlab", "GitHub", "depot-code"} {
-		for _, repo := range []string{"", explicitRepo} {
-			t.Run(forge+"/repo="+repo, func(t *testing.T) {
-				want := `unsupported forge "` + forge + `"; expected github, origin, or depot`
-				assertResolveRunRepository(t, dir, repo, forge, fails(want))
-			})
-		}
-	}
-}
 
 func initRunRepositoryRemotes(t *testing.T, remotes ...remote) string {
 	t.Helper()
@@ -321,4 +177,20 @@ func initRunRepositoryRemotes(t *testing.T, remotes ...remote) string {
 		run(t, dir, "git", "remote", "add", r.name, r.url)
 	}
 	return dir
+}
+
+// assertResolveRunRepository checks errors exactly so a case cannot pass by
+// failing for an unrelated reason.
+func assertResolveRunRepository(t *testing.T, dir, repo, forge string, want runRepository, wantErr string) {
+	t.Helper()
+	got, err := resolveRunRepository(dir, repo, forge)
+	if wantErr != "" {
+		if err == nil || err.Error() != wantErr {
+			t.Fatalf("resolveRunRepository(repo=%q, forge=%q) = %#v, %v; want error %q", repo, forge, got, err, wantErr)
+		}
+		return
+	}
+	if err != nil || got != want {
+		t.Fatalf("resolveRunRepository(repo=%q, forge=%q) = %#v, %v; want %#v", repo, forge, got, err, want)
+	}
 }
