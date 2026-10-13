@@ -28,7 +28,10 @@ func NewCmdUpdate() *cobra.Command {
 
 Only values passed as flags are changed. If no project ID is provided, the
 command uses DEPOT_PROJECT_ID or the project configured in depot.json in the
-current directory.`,
+current directory.
+
+Requires an organization API token. Create one in your organization's
+Organization Settings > API Tokens and pass it with --token or DEPOT_TOKEN.`,
 		Example: `  # Rename the project configured in the current directory
   depot projects update --name "New project name"
 
@@ -61,12 +64,9 @@ current directory.`,
 				return err
 			}
 
-			token, err := helpers.ResolveProjectAuth(cmd.Context(), token)
-			if err != nil {
-				return err
-			}
+			token := helpers.ResolveStaticOrgAuth(token)
 			if token == "" {
-				return fmt.Errorf("missing API token, please run `depot login`")
+				return fmt.Errorf("missing organization API token; create one in Organization Settings > API Tokens and pass it with --token or DEPOT_TOKEN")
 			}
 
 			client := api.NewSDKProjectsClient()
@@ -114,7 +114,7 @@ current directory.`,
 	cmd.Flags().StringVar(&name, "name", "", "Project name")
 	cmd.Flags().StringVar(&region, "region", "", "Build data storage region")
 	cmd.Flags().Int64Var(&keepGigabytes, "cache-storage-policy", 0, "Build cache to keep per architecture in GB")
-	cmd.Flags().StringVar(&token, "token", "", "Depot API token")
+	cmd.Flags().StringVar(&token, "token", "", "Depot organization API token (or DEPOT_TOKEN)")
 	cmd.Flags().StringVarP(&output, "output", "o", "", "Output format (json)")
 
 	return cmd
