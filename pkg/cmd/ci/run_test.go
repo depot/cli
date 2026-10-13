@@ -417,7 +417,7 @@ func patchStepJobs() map[string]interface{} {
 	}
 }
 
-func TestInjectPatchStep_downloadWithoutJQ(t *testing.T) {
+func TestInjectPatchStep_appliesDownloadedPatch(t *testing.T) {
 	for _, downloadFails := range []bool{false, true} {
 		t.Run(fmt.Sprintf("downloadFails=%t", downloadFails), func(t *testing.T) {
 			repo := cloneRepo(t, initBareRemote(t))
