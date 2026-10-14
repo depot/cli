@@ -1053,4 +1053,5 @@ enum Forge {
   FORGE_GITHUB = 1;
   FORGE_ORIGIN = 2;
   FORGE_DEPOT_CODE = 3;
+  FORGE_ENTIRE = 4;
 }
