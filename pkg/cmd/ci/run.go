@@ -3,6 +3,7 @@ package ci
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -188,7 +189,7 @@ Use --forge depot to run a Depot Code repository.`,
 
 				// Inject patch step into each selected job that has actions/checkout
 				for _, jobName := range selectedJobs {
-					injectPatchStep(jobs, jobName, patch.mergeBase, workspacePatchKey, repository.forge)
+					injectPatchStep(jobs, jobName, patch.mergeBase, patchWorkspacePath(patch), repository.forge)
 				}
 			}
 
@@ -341,12 +342,15 @@ func validateWorkspacePatch(patch *patchInfo) error {
 	return nil
 }
 
-// patchWorkspaceCacheKey returns the Depot generic cache key for the workspace patch
-// (same value for upload, injectPatchStep, and RunRequest.workspace_patch_cache_key).
+// The direct download route maps its request path to a hex-encoded generic cache key.
 func patchWorkspaceCacheKey(patch *patchInfo) string {
 	if patch == nil {
 		return ""
 	}
+	return "generic" + hex.EncodeToString([]byte("/"+patchWorkspacePath(patch)))
+}
+
+func patchWorkspacePath(patch *patchInfo) string {
 	prefix := patch.mergeBase
 	if len(prefix) > 12 {
 		prefix = prefix[:12]
@@ -358,7 +362,7 @@ func patchWorkspaceCacheKey(patch *patchInfo) string {
 
 // setRunRequestGitContext sets RunRequest Sha and, when a workspace patch was uploaded,
 // WorkspacePatchCacheKey. workspacePatchKey must be the exact string passed to UploadCacheEntry
-// and injectPatchStep (empty when patch == nil). headRef is the local branch, sent for test
+// (empty when patch == nil). headRef is the local branch, sent for test
 // results attribution only when a sha is sent.
 func setRunRequestGitContext(req *civ1.RunRequest, patch *patchInfo, headSHA string, headOK bool, workspacePatchKey string, headRef string) {
 	if patch != nil {
@@ -542,7 +546,7 @@ func resolveJobDeps(allJobs map[string]interface{}, requested []string) map[stri
 	return needed
 }
 
-func injectPatchStep(jobs map[string]interface{}, jobName, mergeBase, workspacePatchKey string, forge civ1.Forge) {
+func injectPatchStep(jobs map[string]interface{}, jobName, mergeBase, workspacePatchPath string, forge civ1.Forge) {
 	jobRaw, ok := jobs[jobName]
 	if !ok {
 		return
@@ -601,28 +605,13 @@ func injectPatchStep(jobs map[string]interface{}, jobName, mergeBase, workspaceP
 	patchStep := map[string]interface{}{
 		"name": "Apply local patch from Depot Cache",
 		"run": fmt.Sprintf(`set -euo pipefail
-# Get download URL from Depot Cache service
-CACHE_KEY="%s"
-echo "Fetching download URL for patch..."
-DOWNLOAD_RESPONSE=$(curl -fsSL -X POST \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $DEPOT_TOKEN" \
-  "%s/depot.cache.v1.CacheService/GetDownloadURL" \
-  -d '{"entry_type":"generic","key":"'"$CACHE_KEY"'"}')
-
-PATCH_URL=$(echo "$DOWNLOAD_RESPONSE" | jq -r '.url')
-if [ -z "$PATCH_URL" ] || [ "$PATCH_URL" = "null" ]; then
-  echo "Failed to get download URL: $DOWNLOAD_RESPONSE"
-  exit 1
-fi
-
 echo "Downloading patch..."
-curl -fsSL "$PATCH_URL" -o /tmp/local.patch
+curl -fsSL -H "Authorization: Bearer $DEPOT_TOKEN" "%s/%s" -o /tmp/local.patch
 
 echo "Applying patch..."
 git apply --allow-empty /tmp/local.patch
 rm /tmp/local.patch
-echo "Patch applied successfully"`, workspacePatchKey, cacheBaseURL),
+echo "Patch applied successfully"`, cacheBaseURL, workspacePatchPath),
 		"env": map[string]interface{}{
 			"DEPOT_TOKEN": "${{ secrets.DEPOT_TOKEN }}",
 		},
