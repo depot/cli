@@ -466,7 +466,7 @@ func (r *secretVariantsRecorder) ListSecrets(_ context.Context, req *connect.Req
 	}), nil
 }
 
-func TestCISetSecretVariantMapsDefaultVariantAndAttributes(t *testing.T) {
+func TestCISetSecretVariantLeavesVariantNameToServerAndMapsAttributes(t *testing.T) {
 	recorder := &secretVariantsRecorder{t: t}
 	withTestSecretVariantsService(t, recorder, func() {
 		result, err := CISetSecretVariant(context.Background(), "token-123", "org-123", CISetSecretVariantOptions{
@@ -484,16 +484,13 @@ func TestCISetSecretVariantMapsDefaultVariantAndAttributes(t *testing.T) {
 		if !result.CreatedSecret || !result.CreatedVariant {
 			t.Fatalf("expected created flags, got %+v", result)
 		}
-		if result.Variant.Name != "default" {
-			t.Fatalf("variant name = %q, want default", result.Variant.Name)
-		}
 	})
 
 	if len(recorder.setRequests) != 1 {
 		t.Fatalf("expected 1 SetSecretVariant request, got %d", len(recorder.setRequests))
 	}
 	req := recorder.setRequests[0]
-	if req.GetSecretName() != "TOKEN" || req.GetVariantName() != "default" || req.GetValue() != "secret-value" {
+	if req.GetSecretName() != "TOKEN" || req.GetVariantName() != "" || req.GetValue() != "secret-value" {
 		t.Fatalf("unexpected request: %+v", req)
 	}
 	if req.GetDescription() != "deploy token" {
