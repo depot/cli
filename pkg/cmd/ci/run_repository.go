@@ -139,8 +139,22 @@ func resolveRunRepository(dir, explicitRepo, forgeFlag string) (runRepository, e
 
 	origin, detected := detectRunRepositories(dir)
 
-	// Depot Code remotes are only used with --forge depot. A checkout that mirrors
-	// a GitHub repository has both remotes and must keep resolving to GitHub.
+	// Depot Code is inferred only when it is the sole supported forge in the
+	// remotes. A checkout that mirrors a GitHub or Origin repository has both
+	// remotes and must keep resolving there unless --forge depot is passed.
+	if selectedForge == civ1.Forge_FORGE_UNSPECIFIED && len(detected) > 0 {
+		depotCodeOnly := true
+		for _, repository := range detected {
+			if repository.forge != civ1.Forge_FORGE_DEPOT_CODE {
+				depotCodeOnly = false
+				break
+			}
+		}
+		if depotCodeOnly {
+			selectedForge = civ1.Forge_FORGE_DEPOT_CODE
+		}
+	}
+
 	hasDepotCodeRemote := false
 	if selectedForge != civ1.Forge_FORGE_DEPOT_CODE {
 		kept := make([]runRepository, 0, len(detected))
