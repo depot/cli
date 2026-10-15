@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	"connectrpc.com/connect"
@@ -25,9 +26,8 @@ var baseURLFunc = getBaseURL
 const ciStreamLogDedupeSize = 4096
 
 const (
-	ciDefaultVariantName = "default"
-	ciDefaultPage        = 1
-	ciMaxPageSize        = 100
+	ciDefaultPage = 1
+	ciMaxPageSize = 100
 )
 
 var (
@@ -734,6 +734,8 @@ type CIListSecretVariantsOptions struct {
 	Environment []string
 	Branch      []string
 	Workflow    []string
+	// AsContext filters like a job would: a variant without one of the keys matches every value of it.
+	AsContext bool
 }
 
 type CIListSecretVariantsResult struct {
@@ -761,13 +763,17 @@ type CISetSecretVariantResult struct {
 func CIListSecretVariants(ctx context.Context, token, orgID string, opts CIListSecretVariantsOptions) (CIListSecretVariantsResult, error) {
 	client := newCISecretServiceV3Beta2Client()
 
-	attrs := ciAttributes(opts.Repo, opts.Environment, opts.Branch, opts.Workflow)
+	attributes, jobContext := ciAttributes(opts.Repo, opts.Environment, opts.Branch, opts.Workflow), []*civ3beta2.Attribute(nil)
+	if opts.AsContext {
+		attributes, jobContext = nil, attributes
+	}
 	result := CIListSecretVariantsResult{Secrets: []CISecretGroup{}}
 	for page := uint32(ciDefaultPage); ; page++ {
 		resp, err := client.ListSecrets(ctx, WithAuthenticationAndOrg(connect.NewRequest(&civ3beta2.ListSecretsRequest{
 			Page:       ciPageRequest(page),
 			Query:      opts.Query,
-			Attributes: attrs,
+			Attributes: attributes,
+			Context:    jobContext,
 		}), token, orgID))
 		if err != nil {
 			return CIListSecretVariantsResult{}, err
@@ -778,6 +784,22 @@ func CIListSecretVariants(ctx context.Context, token, orgID string, opts CIListS
 			return result, nil
 		}
 	}
+}
+
+// CIFindSecretVariantGroup returns the secret named name with only the variants opts selects, which the server
+// resolves (a repository by the id holding its name now). It reports false when no variant matches.
+func CIFindSecretVariantGroup(ctx context.Context, token, orgID, name string, opts CIListSecretVariantsOptions) (CISecretGroup, bool, error) {
+	opts.Query = name
+	result, err := CIListSecretVariants(ctx, token, orgID, opts)
+	if err != nil {
+		return CISecretGroup{}, false, err
+	}
+	for _, group := range result.Secrets {
+		if strings.EqualFold(group.Name, name) {
+			return group, true, nil
+		}
+	}
+	return CISecretGroup{}, false, nil
 }
 
 func CIGetSecretVariantGroup(ctx context.Context, token, orgID, name string) (CISecretGroup, error) {
@@ -806,7 +828,7 @@ func CISetSecretVariant(ctx context.Context, token, orgID string, opts CISetSecr
 	client := newCISecretServiceV3Beta2Client()
 	req := &civ3beta2.SetSecretVariantRequest{
 		SecretName:  opts.Name,
-		VariantName: ciVariantName(opts.Variant),
+		VariantName: opts.Variant,
 		Value:       opts.Value,
 		Attributes:  ciAttributes(opts.Repo, opts.Environment, opts.Branch, opts.Workflow),
 	}
@@ -960,6 +982,8 @@ type CIListVariableVariantsOptions struct {
 	Environment []string
 	Branch      []string
 	Workflow    []string
+	// AsContext filters like a job would: a variant without one of the keys matches every value of it.
+	AsContext bool
 }
 
 type CIListVariableVariantsResult struct {
@@ -987,13 +1011,17 @@ type CISetVariableVariantResult struct {
 func CIListVariableVariants(ctx context.Context, token, orgID string, opts CIListVariableVariantsOptions) (CIListVariableVariantsResult, error) {
 	client := newCIVariableServiceV3Beta2Client()
 
-	attrs := ciAttributes(opts.Repo, opts.Environment, opts.Branch, opts.Workflow)
+	attributes, jobContext := ciAttributes(opts.Repo, opts.Environment, opts.Branch, opts.Workflow), []*civ3beta2.Attribute(nil)
+	if opts.AsContext {
+		attributes, jobContext = nil, attributes
+	}
 	result := CIListVariableVariantsResult{Variables: []CIVariableGroup{}}
 	for page := uint32(ciDefaultPage); ; page++ {
 		resp, err := client.ListVariables(ctx, WithAuthenticationAndOrg(connect.NewRequest(&civ3beta2.ListVariablesRequest{
 			Page:       ciPageRequest(page),
 			Query:      opts.Query,
-			Attributes: attrs,
+			Attributes: attributes,
+			Context:    jobContext,
 		}), token, orgID))
 		if err != nil {
 			return CIListVariableVariantsResult{}, err
@@ -1004,6 +1032,22 @@ func CIListVariableVariants(ctx context.Context, token, orgID string, opts CILis
 			return result, nil
 		}
 	}
+}
+
+// CIFindVariableVariantGroup returns the variable named name with only the variants opts selects, which the server
+// resolves (a repository by the id holding its name now). It reports false when no variant matches.
+func CIFindVariableVariantGroup(ctx context.Context, token, orgID, name string, opts CIListVariableVariantsOptions) (CIVariableGroup, bool, error) {
+	opts.Query = name
+	result, err := CIListVariableVariants(ctx, token, orgID, opts)
+	if err != nil {
+		return CIVariableGroup{}, false, err
+	}
+	for _, group := range result.Variables {
+		if strings.EqualFold(group.Name, name) {
+			return group, true, nil
+		}
+	}
+	return CIVariableGroup{}, false, nil
 }
 
 func CIGetVariableVariantGroup(ctx context.Context, token, orgID, name string) (CIVariableGroup, error) {
@@ -1021,7 +1065,7 @@ func CISetVariableVariant(ctx context.Context, token, orgID string, opts CISetVa
 	client := newCIVariableServiceV3Beta2Client()
 	req := &civ3beta2.SetVariableVariantRequest{
 		VariableName: opts.Name,
-		VariantName:  ciVariantName(opts.Variant),
+		VariantName:  opts.Variant,
 		Value:        opts.Value,
 		Attributes:   ciAttributes(opts.Repo, opts.Environment, opts.Branch, opts.Workflow),
 	}
@@ -1057,13 +1101,6 @@ func CIDeleteVariableGroup(ctx context.Context, token, orgID, name string) error
 		Lookup: &civ3beta2.DeleteVariableRequest_Name{Name: name},
 	}), token, orgID))
 	return err
-}
-
-func ciVariantName(name string) string {
-	if name == "" {
-		return ciDefaultVariantName
-	}
-	return name
 }
 
 func ciPageRequest(page uint32) *civ3beta2.PageRequest {

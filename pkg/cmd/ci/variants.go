@@ -1,6 +1,7 @@
 package ci
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -33,64 +34,6 @@ func variantScope(repos []string) string {
 		return "org-wide"
 	}
 	return strings.Join(repos, ",")
-}
-
-func filterSecretVariantsForList(secret api.CISecretGroup, repo, environment, branch, workflow []string) api.CISecretGroup {
-	if len(repo) == 0 && len(environment) == 0 && len(branch) == 0 && len(workflow) == 0 {
-		return secret
-	}
-	filtered := secret
-	filtered.Variants = nil
-	for _, variant := range secret.Variants {
-		if variantAppliesToListFilter(variant.Attributes, repo, environment, branch, workflow) {
-			filtered.Variants = append(filtered.Variants, variant)
-		}
-	}
-	filtered.VariantCount = uint32(len(filtered.Variants))
-	return filtered
-}
-
-func resolveSecretVariant(group api.CISecretGroup, variant string, repo, environment, branch, workflow []string) ([]api.CISecretVariant, error) {
-	matches := make([]api.CISecretVariant, 0, len(group.Variants))
-	for _, candidate := range group.Variants {
-		if variant != "" && candidate.Name != variant {
-			continue
-		}
-		if !variantAttributesMatch(candidate.Attributes, repo, environment, branch, workflow) {
-			continue
-		}
-		matches = append(matches, candidate)
-	}
-	return matches, nil
-}
-
-func resolveVariableVariant(group api.CIVariableGroup, variant string, repo, environment, branch, workflow []string) ([]api.CIVariableVariant, error) {
-	matches := make([]api.CIVariableVariant, 0, len(group.Variants))
-	for _, candidate := range group.Variants {
-		if variant != "" && candidate.Name != variant {
-			continue
-		}
-		if !variantAttributesMatch(candidate.Attributes, repo, environment, branch, workflow) {
-			continue
-		}
-		matches = append(matches, candidate)
-	}
-	return matches, nil
-}
-
-func filterVariableVariantsForList(variable api.CIVariableGroup, repo, environment, branch, workflow []string) api.CIVariableGroup {
-	if len(repo) == 0 && len(environment) == 0 && len(branch) == 0 && len(workflow) == 0 {
-		return variable
-	}
-	filtered := variable
-	filtered.Variants = nil
-	for _, variant := range variable.Variants {
-		if variantAppliesToListFilter(variant.Attributes, repo, environment, branch, workflow) {
-			filtered.Variants = append(filtered.Variants, variant)
-		}
-	}
-	filtered.VariantCount = uint32(len(filtered.Variants))
-	return filtered
 }
 
 func hasVariantSelectors(repo, environment, branch, workflow []string) bool {
@@ -130,80 +73,49 @@ func nonEmptyValues(values []string) []string {
 	return nonEmpty
 }
 
-func variantAppliesToListFilter(attrs []api.CIVariantAttribute, repos, environments, branches, workflows []string) bool {
-	expected := map[string][]string{}
-	addExpected := func(key string, values []string) {
-		for _, value := range values {
-			if value != "" {
-				expected[key] = append(expected[key], value)
-			}
+// findSecretVariants returns the secret's variants that the selectors pick, as the server resolves them (a repository
+// by the id holding its name now, DEP-7549), narrowed to the variant name when one is given.
+func findSecretVariants(ctx context.Context, token, orgID, name, variant string, repo, environment, branch, workflow []string) ([]api.CISecretVariant, error) {
+	var group api.CISecretGroup
+	var err error
+	if hasVariantSelectors(repo, environment, branch, workflow) {
+		group, _, err = api.CIFindSecretVariantGroup(ctx, token, orgID, name, api.CIListSecretVariantsOptions{
+			Repo: repo, Environment: environment, Branch: branch, Workflow: workflow,
+		})
+	} else {
+		group, err = api.CIGetSecretVariantGroup(ctx, token, orgID, name)
+	}
+	if err != nil {
+		return nil, err
+	}
+	matches := make([]api.CISecretVariant, 0, len(group.Variants))
+	for _, candidate := range group.Variants {
+		if variant == "" || candidate.Name == variant {
+			matches = append(matches, candidate)
 		}
 	}
-	addExpected("repository", repos)
-	addExpected("environment", environments)
-	addExpected("branch", branches)
-	addExpected("workflow", workflows)
-	if len(expected) == 0 || len(attrs) == 0 {
-		return true
-	}
-
-	attributesByKey := map[string][]string{}
-	for _, attr := range attrs {
-		attributesByKey[attr.Key] = append(attributesByKey[attr.Key], attr.Value)
-	}
-
-	for key, wants := range expected {
-		values, ok := attributesByKey[key]
-		if !ok {
-			continue
-		}
-		if !anyAttributeValueMatches(key, values, wants) {
-			return false
-		}
-	}
-	return true
+	return matches, nil
 }
 
-func variantAttributesMatch(attrs []api.CIVariantAttribute, repos, environments, branches, workflows []string) bool {
-	expected := map[string][]string{}
-	addExpected := func(key string, values []string) {
-		for _, value := range values {
-			if value != "" {
-				expected[key] = append(expected[key], value)
-			}
+// findVariableVariants is findSecretVariants for CI variables.
+func findVariableVariants(ctx context.Context, token, orgID, name, variant string, repo, environment, branch, workflow []string) ([]api.CIVariableVariant, error) {
+	var group api.CIVariableGroup
+	var err error
+	if hasVariantSelectors(repo, environment, branch, workflow) {
+		group, _, err = api.CIFindVariableVariantGroup(ctx, token, orgID, name, api.CIListVariableVariantsOptions{
+			Repo: repo, Environment: environment, Branch: branch, Workflow: workflow,
+		})
+	} else {
+		group, err = api.CIGetVariableVariantGroup(ctx, token, orgID, name)
+	}
+	if err != nil {
+		return nil, err
+	}
+	matches := make([]api.CIVariableVariant, 0, len(group.Variants))
+	for _, candidate := range group.Variants {
+		if variant == "" || candidate.Name == variant {
+			matches = append(matches, candidate)
 		}
 	}
-	addExpected("repository", repos)
-	addExpected("environment", environments)
-	addExpected("branch", branches)
-	addExpected("workflow", workflows)
-	if len(expected) == 0 {
-		return true
-	}
-
-	matched := map[string]bool{}
-	for _, attr := range attrs {
-		wants, ok := expected[attr.Key]
-		if !ok {
-			continue
-		}
-		if anyAttributeValueMatches(attr.Key, []string{attr.Value}, wants) {
-			matched[attr.Key] = true
-		}
-	}
-	return len(matched) == len(expected)
-}
-
-func anyAttributeValueMatches(key string, values, wants []string) bool {
-	for _, value := range values {
-		for _, want := range wants {
-			if key == "repository" && strings.EqualFold(want, value) {
-				return true
-			}
-			if key != "repository" && want == value {
-				return true
-			}
-		}
-	}
-	return false
+	return matches, nil
 }
