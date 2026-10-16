@@ -18,6 +18,7 @@ Official CLI for [Depot](https://depot.dev) - you can use the CLI to build Docke
       - [Flags for `bake`](#flags-for-bake)
     - [`depot build`](#depot-build)
       - [Flags for `build`](#flags-for-build)
+      - [`depot build cancel`](#depot-build-cancel)
     - [`depot cache`](#depot-cache)
       - [`depot cache reset`](#depot-cache-reset)
     - [`depot exec`](#depot-exec)
@@ -265,6 +266,24 @@ depot build -t repo/image:tag . --push
 | `target`          | Set the target build stage to build                                                                       |
 | `token`           | Depot API token                                                                                           |
 | `ulimit`          | Ulimit options (default [])                                                                               |
+
+#### `depot build cancel`
+
+Request cancellation of container builds using an organization API token supplied
+through `DEPOT_TOKEN` or `--token`.
+
+```shell
+depot build cancel <build-id> [<build-id>...]
+depot build cancel --project <project-id> --all-running --dry-run
+depot build cancel --project <project-id> --all-running --yes --output json
+```
+
+Cancellation is asynchronous. Finished builds are successful no-ops; failures are
+reported per build and cause a nonzero exit status. Bulk cancellation selects all
+running builds before requesting confirmation; use `--yes` for scripts.
+
+See [build cancellation](docs/build-cancellation.md) for authentication, selection,
+and output details. To build a directory named `cancel`, use `depot build ./cancel`.
 
 ### `depot cache`
 

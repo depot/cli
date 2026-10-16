@@ -19,6 +19,7 @@ import (
 	"github.com/spf13/viper"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -126,7 +127,7 @@ func TestGetProjectCallsAPIAndWritesJSON(t *testing.T) {
 			RegionId:       "eu-central-1",
 			CreatedAt:      timestamppb.New(time.Date(2026, time.July, 29, 12, 30, 0, 0, time.UTC)),
 			CachePolicy: &corev1.CachePolicy{
-				KeepBytes: 50 * bytesPerGigabyte,
+				KeepBytes: proto.Int64(50 * bytesPerGigabyte),
 				KeepDays:  14,
 			},
 		},
@@ -172,7 +173,7 @@ func TestUpdateProjectSendsOnlyChangedFields(t *testing.T) {
 		project: &corev1.Project{
 			ProjectId: "project-123",
 			CachePolicy: &corev1.CachePolicy{
-				KeepBytes: 50 * bytesPerGigabyte,
+				KeepBytes: proto.Int64(50 * bytesPerGigabyte),
 				KeepDays:  14,
 			},
 		},
