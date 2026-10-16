@@ -438,14 +438,19 @@ Create and manage Depot projects.
 
 Create a new Depot project. This command creates a new project in your Depot account with the specified configuration.
 
+Use `--max-concurrent-builds` to set the number of concurrent builds per builder instance before horizontal autoscaling adds another instance. Accepts integers from 1 to 2147483647; omitting it disables autoscaling for a new project. This is a per-instance threshold, not a project-wide build limit.
+
 **Example**
 
 ```shell
 # Create a project with default settings
-depot projects create
+depot projects create your-project-name
 
 # Create a project with custom settings
 depot projects create --organization your-org-id --region us-west-2 --cache-storage-policy 100 --cache-policy-keep-days 30 your-project-name
+
+# Allow up to three concurrent builds per builder instance
+depot projects create your-project-name --max-concurrent-builds 3
 ```
 
 #### Flags for `projects create`
@@ -456,11 +461,14 @@ depot projects create --organization your-org-id --region us-west-2 --cache-stor
 | `region`                 | Build data storage region (default: "us-east-1")         |
 | `cache-storage-policy`   | Build cache to keep per architecture in GB (default: 50) |
 | `cache-policy-keep-days` | Build cache retention in days (default: 14)              |
+| `max-concurrent-builds` | Concurrent builds per builder instance before autoscaling (positive integer) |
 | `token`                  | Depot API token                                          |
 
 #### `depot projects get`
 
 View a Depot project's details and configuration. Pass a project ID as an argument or with `--project-id`. If neither is provided, the command uses `DEPOT_PROJECT_ID` or the project configured in `depot.json`.
+
+Text output includes **Builds per instance**, or **Disabled** when autoscaling is disabled. Project create, get, and update JSON output includes `max_concurrent_builds` as a number, or `null` when autoscaling is disabled.
 
 **Example**
 
@@ -482,7 +490,9 @@ depot projects get your-project-id --output json
 
 #### `depot projects update`
 
-Update a Depot project's name, region, or cache storage policy. Only values passed as flags are changed. Pass a project ID as an argument or with `--project-id`. If neither is provided, the command uses `DEPOT_PROJECT_ID` or the project configured in `depot.json`.
+Update a Depot project's name, region, cache storage policy, or autoscaling. Only values passed as flags are changed. Pass a project ID as an argument or with `--project-id`. If neither is provided, the command uses `DEPOT_PROJECT_ID` or the project configured in `depot.json`.
+
+Set `--max-concurrent-builds` to a positive integer to enable or change autoscaling, or use `--disable-autoscaling` to remove the threshold. These flags are mutually exclusive. Omitting both preserves the existing autoscaling setting.
 
 **Example**
 
@@ -492,6 +502,12 @@ depot projects update --name "New project name"
 
 # Update a specific project's region and cache storage policy
 depot projects update your-project-id --region eu-central-1 --cache-storage-policy 100
+
+# Set the autoscaling threshold to three builds per builder instance
+depot projects update your-project-id --max-concurrent-builds 3
+
+# Disable project autoscaling
+depot projects update your-project-id --disable-autoscaling
 ```
 
 #### Flags for `projects update`
@@ -502,6 +518,8 @@ depot projects update your-project-id --region eu-central-1 --cache-storage-poli
 | `name`                 | Project name                                   |
 | `region`               | Build data storage region                      |
 | `cache-storage-policy` | Build cache to keep per architecture in GB     |
+| `max-concurrent-builds` | Concurrent builds per builder instance before autoscaling (positive integer) |
+| `disable-autoscaling` | Disable project autoscaling |
 | `output` / `-o`        | Output format (`json`)                         |
 | `token`                | Depot API token                                |
 
