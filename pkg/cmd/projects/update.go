@@ -9,6 +9,7 @@ import (
 	"github.com/depot/cli/pkg/api"
 	"github.com/depot/cli/pkg/helpers"
 	"github.com/spf13/cobra"
+	"google.golang.org/protobuf/proto"
 )
 
 func NewCmdUpdate() *cobra.Command {
@@ -92,7 +93,7 @@ Organization Settings > API Tokens and pass it with --token or DEPOT_TOKEN.`,
 				}
 
 				requestBody.CachePolicy = &corev1.CachePolicy{
-					KeepBytes: keepGigabytes * bytesPerGigabyte,
+					KeepBytes: proto.Int64(keepGigabytes * bytesPerGigabyte),
 					KeepDays:  currentProject.GetCachePolicy().GetKeepDays(),
 				}
 			}

@@ -7,5 +7,7 @@ import (
 )
 
 func NewCmdBuild() *cobra.Command {
-	return commands.BuildCmd()
+	cmd := commands.BuildCmd()
+	cmd.AddCommand(NewCmdCancel())
+	return cmd
 }

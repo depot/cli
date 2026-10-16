@@ -11,6 +11,7 @@ import (
 	"github.com/depot/cli/pkg/config"
 	"github.com/depot/cli/pkg/helpers"
 	"github.com/spf13/cobra"
+	"google.golang.org/protobuf/proto"
 )
 
 func NewCmdCreate() *cobra.Command {
@@ -52,7 +53,7 @@ func NewCmdCreate() *cobra.Command {
 				Name:     projectName,
 				RegionId: region,
 				CachePolicy: &corev1.CachePolicy{
-					KeepBytes: keepGigabytes * 1024 * 1024 * 1024,
+					KeepBytes: proto.Int64(keepGigabytes * 1024 * 1024 * 1024),
 					KeepDays:  cachePolicyKeepDays,
 				},
 			}
