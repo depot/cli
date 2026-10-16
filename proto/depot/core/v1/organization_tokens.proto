@@ -15,10 +15,11 @@ service OrganizationTokenService {
   rpc CreateToken(CreateOrganizationTokenRequest) returns (CreateOrganizationTokenResponse);
   // Revokes an exact token ID. Repeating a revocation made through this API succeeds.
   // Unknown IDs, including tokens owned by another organization, return NotFound.
+  // Cached authentication can continue until existing cache entries expire.
   rpc RevokeToken(RevokeOrganizationTokenRequest) returns (RevokeOrganizationTokenResponse);
 }
 
-// Metadata for an organization API token. Tokens remain valid until revoked.
+// Metadata for an organization API token. Tokens have no automatic expiry.
 message OrganizationToken {
   // Unique identifier for the token.
   string id = 1;

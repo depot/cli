@@ -54,6 +54,7 @@ type OrganizationTokenServiceClient interface {
 	CreateToken(context.Context, *connect.Request[v1.CreateOrganizationTokenRequest]) (*connect.Response[v1.CreateOrganizationTokenResponse], error)
 	// Revokes an exact token ID. Repeating a revocation made through this API succeeds.
 	// Unknown IDs, including tokens owned by another organization, return NotFound.
+	// Cached authentication can continue until existing cache entries expire.
 	RevokeToken(context.Context, *connect.Request[v1.RevokeOrganizationTokenRequest]) (*connect.Response[v1.RevokeOrganizationTokenResponse], error)
 }
 
@@ -117,6 +118,7 @@ type OrganizationTokenServiceHandler interface {
 	CreateToken(context.Context, *connect.Request[v1.CreateOrganizationTokenRequest]) (*connect.Response[v1.CreateOrganizationTokenResponse], error)
 	// Revokes an exact token ID. Repeating a revocation made through this API succeeds.
 	// Unknown IDs, including tokens owned by another organization, return NotFound.
+	// Cached authentication can continue until existing cache entries expire.
 	RevokeToken(context.Context, *connect.Request[v1.RevokeOrganizationTokenRequest]) (*connect.Response[v1.RevokeOrganizationTokenResponse], error)
 }
 

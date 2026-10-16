@@ -21,7 +21,7 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-// Metadata for an organization API token. Tokens remain valid until revoked.
+// Metadata for an organization API token. Tokens have no automatic expiry.
 type OrganizationToken struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache

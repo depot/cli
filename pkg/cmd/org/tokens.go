@@ -184,10 +184,12 @@ func newCmdTokensRevoke() *cobra.Command {
 	var options tokenOptions
 	cmd := &cobra.Command{
 		Use:   "revoke <token-id>",
-		Short: "Immediately revoke an organization API token by ID",
-		Long: `Immediately revoke a token by its exact ID, as returned by list or create.
-Existing consumers using the token will lose access. Repeating this command is
-safe after a successful API revocation. Unknown token IDs return not found.`,
+		Short: "Revoke an organization API token by ID",
+		Long: `Revoke a token by its exact ID, as returned by list or create.
+Existing authentication caches can continue to accept the token until their
+entries expire. Previously issued credentials retain their own lifetimes.
+Repeating this command is safe after a successful API revocation. Unknown token
+IDs return not found.`,
 		Example: "  depot org tokens revoke <token-id> --organization <org-id>",
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
