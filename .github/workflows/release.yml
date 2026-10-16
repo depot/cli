@@ -118,3 +118,32 @@ jobs:
       - name: Release npm packages
         run: pnpm publish -r --access public --no-git-checks
         working-directory: npm
+
+  linear-release:
+    name: Linear Release
+    needs: [release]
+    if: startsWith(github.ref, 'refs/tags/v') && !contains(github.ref, 'dev-') && !github.event.release.prerelease
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout released revision
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Report Linear release
+        uses: linear/linear-release-action@v0.17.2
+        with:
+          access_key: ${{ secrets.LINEAR_RELEASES_ACCESS_KEY }}
+          version: ${{ github.event.release.tag_name }}
+
+      - name: Surface reporting failure
+        if: failure()
+        run: |
+          echo "::warning::Release succeeded, but Linear release reporting failed. Linked issues may remain Deploying."
+          echo "### Linear release reporting failed" >> "$GITHUB_STEP_SUMMARY"
+          echo "Release succeeded. Check this job's errors and LINEAR_RELEASES_ACCESS_KEY; linked issues may remain Deploying." >> "$GITHUB_STEP_SUMMARY"
