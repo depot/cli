@@ -1,0 +1,64 @@
+syntax = "proto3";
+
+package depot.core.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// Manages organization API tokens using an organization owner's user API token.
+// Set the Authorization bearer token and x-depot-org headers on every request.
+// Organization, project, build, OIDC, and internal service credentials cannot use these methods.
+service OrganizationTokenService {
+  // Lists metadata without returning token secrets or hashes.
+  rpc ListTokens(ListOrganizationTokensRequest) returns (ListOrganizationTokensResponse);
+  // Creates a token and returns its secret once. Requires fewer than 100 active organization tokens.
+  // Do not automatically retry this method.
+  rpc CreateToken(CreateOrganizationTokenRequest) returns (CreateOrganizationTokenResponse);
+  // Revokes an exact token ID. Repeating a revocation made through this API succeeds.
+  // Unknown IDs, including tokens owned by another organization, return NotFound.
+  rpc RevokeToken(RevokeOrganizationTokenRequest) returns (RevokeOrganizationTokenResponse);
+}
+
+// Metadata for an organization API token. Tokens remain valid until revoked.
+message OrganizationToken {
+  // Unique identifier for the token.
+  string id = 1;
+  // Description supplied when the token was created.
+  string description = 2;
+  // Creation time, in RFC 3339 format.
+  google.protobuf.Timestamp created_at = 3;
+  // Last recorded use time, in RFC 3339 format. Unset when no use has been recorded.
+  google.protobuf.Timestamp last_used_at = 4;
+}
+
+message ListOrganizationTokensRequest {
+  // Page number, starting at 1. Default: 1.
+  int32 page = 1;
+  // Number of tokens to return per page. Maximum: 100. Default: 100.
+  int32 page_size = 2;
+}
+
+message ListOrganizationTokensResponse {
+  // Active tokens, ordered by creation time descending and then ID descending.
+  repeated OrganizationToken tokens = 1;
+  // Whether another page is available. Increment `page` to fetch it.
+  bool has_more = 2;
+}
+
+message CreateOrganizationTokenRequest {
+  // Description for identifying the token. Requires 1 to 191 characters after trimming surrounding whitespace.
+  string description = 1;
+}
+
+message CreateOrganizationTokenResponse {
+  // Metadata for the created token.
+  OrganizationToken token = 1;
+  // Plaintext secret, returned only by this call. Store it securely before closing the response.
+  string secret = 2;
+}
+
+message RevokeOrganizationTokenRequest {
+  // Unique identifier for the token to revoke. Returned by `ListTokens` and `CreateToken`.
+  string id = 1;
+}
+
+message RevokeOrganizationTokenResponse {}

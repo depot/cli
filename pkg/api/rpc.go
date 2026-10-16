@@ -15,6 +15,7 @@ import (
 	"github.com/depot/cli/pkg/proto/depot/ci/v1/civ1connect"
 	"github.com/depot/cli/pkg/proto/depot/cli/v1/cliv1connect"
 	"github.com/depot/cli/pkg/proto/depot/cli/v1beta1/cliv1beta1connect"
+	cliCorev1connect "github.com/depot/cli/pkg/proto/depot/core/v1/corev1connect"
 	"golang.org/x/net/http2"
 )
 
@@ -36,6 +37,10 @@ func NewProjectsClient() cliv1beta1connect.ProjectsServiceClient {
 
 func NewOrganizationsClient() corev1connect.OrganizationServiceClient {
 	return corev1connect.NewOrganizationServiceClient(getHTTPClient(getBaseURL()), getBaseURL(), WithUserAgent())
+}
+
+func NewOrganizationTokensClient() cliCorev1connect.OrganizationTokenServiceClient {
+	return cliCorev1connect.NewOrganizationTokenServiceClient(getHTTPClient(getBaseURL()), getBaseURL(), WithUserAgent())
 }
 
 func NewSDKProjectsClient() corev1connect.ProjectServiceClient {
