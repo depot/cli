@@ -40,7 +40,12 @@ func NewOrganizationsClient() corev1connect.OrganizationServiceClient {
 }
 
 func NewOrganizationTokensClient() cliCorev1connect.OrganizationTokenServiceClient {
-	return cliCorev1connect.NewOrganizationTokenServiceClient(getHTTPClient(getBaseURL()), getBaseURL(), WithUserAgent())
+	baseURL := getBaseURL()
+	client := *getHTTPClient(baseURL)
+	// Owner credentials must stay at the selected endpoint. Redirects must not
+	// replay token creation, including redirects within the same origin.
+	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	return cliCorev1connect.NewOrganizationTokenServiceClient(&client, baseURL, WithUserAgent())
 }
 
 func NewSDKProjectsClient() corev1connect.ProjectServiceClient {
