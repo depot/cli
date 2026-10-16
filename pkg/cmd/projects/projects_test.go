@@ -242,7 +242,7 @@ func TestUpdateProjectRequiresAChange(t *testing.T) {
 	command.SilenceErrors = true
 
 	err := command.Execute()
-	if err == nil || !strings.Contains(err.Error(), "one of --name, --region, or --cache-storage-policy is required") {
+	if err == nil || !strings.Contains(err.Error(), "is required") || !strings.Contains(err.Error(), "--max-concurrent-builds") || !strings.Contains(err.Error(), "--disable-autoscaling") {
 		t.Fatalf("error = %v", err)
 	}
 }
@@ -278,17 +278,22 @@ func TestGetProjectRejectsUnsupportedOutputBeforeAuth(t *testing.T) {
 type projectServiceRecorder struct {
 	corev1connect.UnimplementedProjectServiceHandler
 
-	project       *corev1.Project
-	createRequest *corev1.CreateProjectRequest
-	getRequest    *corev1.GetProjectRequest
-	updateRequest *corev1.UpdateProjectRequest
-	authorization string
-	requestCount  atomic.Int32
+	project        *corev1.Project
+	createRequest  *corev1.CreateProjectRequest
+	getRequest     *corev1.GetProjectRequest
+	updateRequest  *corev1.UpdateProjectRequest
+	createResponse *corev1.Project
+	updateResponse *corev1.Project
+	authorization  string
+	requestCount   atomic.Int32
 }
 
 func (h *projectServiceRecorder) CreateProject(_ context.Context, request *connect.Request[corev1.CreateProjectRequest]) (*connect.Response[corev1.CreateProjectResponse], error) {
 	h.createRequest = request.Msg
 	h.authorization = request.Header().Get("Authorization")
+	if h.createResponse != nil {
+		return connect.NewResponse(&corev1.CreateProjectResponse{Project: h.createResponse}), nil
+	}
 	return connect.NewResponse(&corev1.CreateProjectResponse{
 		Project: &corev1.Project{
 			ProjectId:      "project-123",
@@ -309,6 +314,9 @@ func (h *projectServiceRecorder) GetProject(_ context.Context, request *connect.
 func (h *projectServiceRecorder) UpdateProject(_ context.Context, request *connect.Request[corev1.UpdateProjectRequest]) (*connect.Response[corev1.UpdateProjectResponse], error) {
 	h.updateRequest = request.Msg
 	h.authorization = request.Header().Get("Authorization")
+	if h.updateResponse != nil {
+		return connect.NewResponse(&corev1.UpdateProjectResponse{Project: h.updateResponse}), nil
+	}
 	return connect.NewResponse(&corev1.UpdateProjectResponse{
 		Project: &corev1.Project{
 			ProjectId:   request.Msg.GetProjectId(),
