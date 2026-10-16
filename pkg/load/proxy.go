@@ -9,14 +9,14 @@ import (
 	"time"
 
 	"github.com/depot/cli/internal/build"
-	"github.com/docker/docker/api/types"
-	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/api/types/filters"
-	docker "github.com/docker/docker/client"
-	"github.com/docker/go-connections/nat"
+	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/api/types/network"
+	docker "github.com/moby/moby/client"
 )
 
 var proxyImage = "public.ecr.aws/depot/cli:" + build.Version //
+
+var proxyPort = network.MustParsePort("8888/tcp")
 
 type ProxyContainer struct {
 	ID   string
@@ -45,11 +45,11 @@ func RunProxyImage(ctx context.Context, dockerapi docker.APIClient, config *Prox
 		return nil, err
 	}
 
-	resp, err := dockerapi.ContainerCreate(ctx,
-		&container.Config{
+	resp, err := dockerapi.ContainerCreate(ctx, docker.ContainerCreateOptions{
+		Config: &container.Config{
 			Image: proxyImage,
-			ExposedPorts: nat.PortSet{
-				nat.Port("8888/tcp"): struct{}{},
+			ExposedPorts: network.PortSet{
+				proxyPort: struct{}{},
 			},
 			Env: []string{
 				fmt.Sprintf("CA_CERT=%s", base64.StdEncoding.EncodeToString(config.CACert)),
@@ -69,27 +69,25 @@ func RunProxyImage(ctx context.Context, dockerapi docker.APIClient, config *Prox
 				Retries:     10,
 			},
 		},
-		&container.HostConfig{
+		HostConfig: &container.HostConfig{
 			PublishAllPorts: true,
 			// This is the trick to make sure that the proxy container can
 			// access the host network in a cross platform way.
 			ExtraHosts: []string{"host.docker.internal:host-gateway"},
 		},
-		nil,
-		nil,
-		fmt.Sprintf("depot-registry-proxy-%s", RandImageName()), // unique container name
-	)
+		Name: fmt.Sprintf("depot-registry-proxy-%s", RandImageName()), // unique container name
+	})
 
 	if err != nil {
 		return nil, err
 	}
 
-	if err := dockerapi.ContainerStart(ctx, resp.ID, types.ContainerStartOptions{}); err != nil {
+	if _, err := dockerapi.ContainerStart(ctx, resp.ID, docker.ContainerStartOptions{}); err != nil {
 		return nil, err
 	}
 
 	for retries := 0; retries < 10; retries++ {
-		inspect, err := dockerapi.ContainerInspect(ctx, resp.ID)
+		result, err := dockerapi.ContainerInspect(ctx, resp.ID, docker.ContainerInspectOptions{})
 		if err != nil {
 			ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 			defer cancel()
@@ -97,8 +95,9 @@ func RunProxyImage(ctx context.Context, dockerapi docker.APIClient, config *Prox
 			return nil, err
 		}
 
-		if inspect.State.Health != nil && inspect.State.Health.Status == "healthy" {
-			binds := inspect.NetworkSettings.Ports[nat.Port("8888/tcp")]
+		inspect := result.Container
+		if inspect.State.Health != nil && inspect.State.Health.Status == container.Healthy {
+			binds := inspect.NetworkSettings.Ports[proxyPort]
 			var proxyPortOnHost string
 			for _, bind := range binds {
 				proxyPortOnHost = bind.HostPort
@@ -130,15 +129,15 @@ var (
 func PullProxyImage(ctx context.Context, dockerapi docker.APIClient, imageName string) error {
 	downloadedProxyImage.Do(func() {
 		// Check if image already has been downloaded.
-		images, err := dockerapi.ImageList(ctx, types.ImageListOptions{
-			Filters: filters.NewArgs(filters.Arg("reference", imageName)),
+		images, err := dockerapi.ImageList(ctx, docker.ImageListOptions{
+			Filters: make(docker.Filters).Add("reference", imageName),
 		})
 
 		// Any error or no matching images means we need to pull the image.
 		// The goal is to save about a second or two of startup time.
-		if err != nil || len(images) == 0 {
+		if err != nil || len(images.Items) == 0 {
 			var body io.ReadCloser
-			body, downloadProxyImageErr = dockerapi.ImagePull(ctx, imageName, types.ImagePullOptions{})
+			body, downloadProxyImageErr = dockerapi.ImagePull(ctx, imageName, docker.ImagePullOptions{})
 			if downloadProxyImageErr != nil {
 				return
 			}
@@ -153,5 +152,6 @@ func PullProxyImage(ctx context.Context, dockerapi docker.APIClient, imageName s
 
 // Forcefully stops and removes the proxy container.
 func StopProxyContainer(ctx context.Context, dockerapi docker.APIClient, containerID string) error {
-	return dockerapi.ContainerRemove(ctx, containerID, types.ContainerRemoveOptions{Force: true, RemoveVolumes: true})
+	_, err := dockerapi.ContainerRemove(ctx, containerID, docker.ContainerRemoveOptions{Force: true, RemoveVolumes: true})
+	return err
 }

@@ -6,10 +6,11 @@ import (
 	"os"
 	"strings"
 
+	"slices"
+
 	"github.com/depot/cli/pkg/load"
 	cliv1 "github.com/depot/cli/pkg/proto/depot/cli/v1"
-	prog "github.com/docker/buildx/util/progress"
-	"golang.org/x/exp/slices"
+	"github.com/moby/buildkit/util/progress/progressui"
 )
 
 func isSavedBuild(options []*cliv1.BuildOptions, savedForLoad bool) bool {
@@ -47,7 +48,7 @@ func buildPullOpt(msg *cliv1.GetPullInfoResponse, userTags []string, platform, p
 	serverAddress := registryHost(msg.RegistryHost)
 	opts := load.PullOptions{
 		UserTags:      tags,
-		Quiet:         progress == prog.PrinterModeQuiet,
+		Quiet:         progress == string(progressui.QuietMode),
 		KeepImage:     true,
 		Username:      &msg.Username,
 		Password:      &msg.Password,
@@ -117,7 +118,7 @@ func bakePullOpts(msg *cliv1.GetPullInfoResponse, targets, userTags []string, pl
 
 		opts := load.PullOptions{
 			UserTags:      tags,
-			Quiet:         progress == prog.PrinterModeQuiet,
+			Quiet:         progress == string(progressui.QuietMode),
 			KeepImage:     true,
 			Username:      &msg.Username,
 			Password:      &msg.Password,

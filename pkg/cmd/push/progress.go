@@ -2,13 +2,11 @@ package push
 
 import (
 	"context"
-	"io"
 	"os"
 	"sync"
 	"time"
 
 	"github.com/containerd/console"
-	prog "github.com/docker/buildx/util/progress"
 	"github.com/moby/buildkit/client"
 	"github.com/moby/buildkit/identity"
 	"github.com/moby/buildkit/util/progress/progressui"
@@ -28,27 +26,26 @@ func NewProgress(ctx context.Context, progressFmt string) (*Progress, FinishFn, 
 	const channelBufferSize = 1024
 
 	override := os.Getenv("BUILDKIT_PROGRESS")
-	if override != "" && progressFmt == prog.PrinterModeAuto {
+	if override != "" && progressFmt == string(progressui.AutoMode) {
 		progressFmt = override
 	}
 
-	var (
-		w io.Writer = os.Stderr
-		c console.Console
-	)
+	displayMode := progressui.PlainMode
 
-	if progressFmt == prog.PrinterModeQuiet {
-		w = io.Discard
-	}
-	if progressFmt == prog.PrinterModeAuto || progressFmt == prog.PrinterModeTty {
-		console, err := console.ConsoleFromFile(os.Stderr)
-		if err != nil {
-			if progressFmt == prog.PrinterModeTty {
-				return nil, nil, err
-			}
-		} else {
-			c = console
+	switch progressFmt {
+	case string(progressui.QuietMode):
+		displayMode = progressui.QuietMode
+	case string(progressui.AutoMode), string(progressui.TtyMode):
+		if _, err := console.ConsoleFromFile(os.Stderr); err == nil {
+			displayMode = progressui.TtyMode
+		} else if progressFmt == string(progressui.TtyMode) {
+			return nil, nil, err
 		}
+	}
+
+	display, err := progressui.NewDisplay(os.Stderr, displayMode, progressui.WithPhase("Depot Push"))
+	if err != nil {
+		return nil, nil, err
 	}
 
 	progress := &Progress{
@@ -58,7 +55,7 @@ func NewProgress(ctx context.Context, progressFmt string) (*Progress, FinishFn, 
 	wg := &sync.WaitGroup{}
 	wg.Add(1)
 	go func() {
-		_, _ = progressui.DisplaySolveStatus(ctx, "Depot Push", c, w, progress.display)
+		_, _ = display.UpdateFrom(ctx, progress.display)
 		wg.Done()
 	}()
 

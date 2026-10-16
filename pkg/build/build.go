@@ -11,9 +11,9 @@ import (
 	"connectrpc.com/connect"
 	depotapi "github.com/depot/cli/pkg/api"
 	cliv1 "github.com/depot/cli/pkg/proto/depot/cli/v1"
-	"github.com/docker/buildx/driver"
 	"github.com/docker/buildx/util/progress"
 	clitypes "github.com/docker/cli/cli/config/types"
+	"github.com/moby/buildkit/session/auth/authprovider"
 	"github.com/moby/buildkit/util/grpcerrors"
 	"google.golang.org/grpc/codes"
 )
@@ -98,7 +98,7 @@ func (b *Build) AdditionalCredentials() []Credential {
 	return creds
 }
 
-func (b *Build) AuthProvider(dockerAuth driver.Auth) driver.Auth {
+func (b *Build) AuthProvider(dockerAuth authprovider.AuthConfigProvider) authprovider.AuthConfigProvider {
 	return NewAuthProvider(b.AdditionalCredentials(), dockerAuth)
 }
 
@@ -213,12 +213,9 @@ func PullBuildInfo(ctx context.Context, buildID, token string) (*PullInfo, error
 	}, nil
 }
 
-type authProvider struct {
-	credentials map[string]clitypes.AuthConfig
-	dockerAuth  driver.Auth
-}
-
-func NewAuthProvider(credentials []Credential, dockerAuth driver.Auth) driver.Auth {
+// NewAuthProvider returns registry credentials from the Depot API for the
+// hosts it lists, and from the Docker configuration for all other hosts.
+func NewAuthProvider(credentials []Credential, dockerAuth authprovider.AuthConfigProvider) authprovider.AuthConfigProvider {
 	parsed := make(map[string]clitypes.AuthConfig, len(credentials))
 	for _, cred := range credentials {
 		decodedAuth, err := base64.StdEncoding.DecodeString(cred.Token)
@@ -237,18 +234,10 @@ func NewAuthProvider(credentials []Credential, dockerAuth driver.Auth) driver.Au
 		}
 	}
 
-	return authProvider{
-		credentials: parsed,
-		dockerAuth:  dockerAuth,
-	}
-}
-
-func (a authProvider) GetAuthConfig(registryHostname string) (clitypes.AuthConfig, error) {
-	for host, cred := range a.credentials {
-		if host == registryHostname {
+	return func(ctx context.Context, host string, scope []string, cacheCheck authprovider.ExpireCachedAuthCheck) (clitypes.AuthConfig, error) {
+		if cred, ok := parsed[host]; ok {
 			return cred, nil
 		}
+		return dockerAuth(ctx, host, scope, cacheCheck)
 	}
-
-	return a.dockerAuth.GetAuthConfig(registryHostname)
 }

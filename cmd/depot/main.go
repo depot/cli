@@ -12,12 +12,11 @@ import (
 	"github.com/depot/cli/internal/build"
 	"github.com/depot/cli/internal/update"
 	"github.com/depot/cli/pkg/api"
-	"github.com/depot/cli/pkg/cleanup"
 	"github.com/depot/cli/pkg/cmd/root"
 	"github.com/depot/cli/pkg/config"
 	"github.com/depot/cli/pkg/helpers"
 	"github.com/docker/cli/cli"
-	"github.com/docker/cli/cli-plugins/manager"
+	"github.com/docker/cli/cli-plugins/metadata"
 	"github.com/docker/cli/cli-plugins/plugin"
 	"github.com/docker/cli/cli/command"
 	dockerConfig "github.com/docker/cli/cli/config"
@@ -79,6 +78,8 @@ func main() {
 }
 
 func runMain() int {
+	log.SetOutput(logFilter{out: os.Stderr})
+
 	if os.Getenv("DEPOT_ERROR_TELEMETRY") != "0" {
 		err := sentry.Init(sentry.ClientOptions{
 			Dsn:         "https://e88a8bb8644346b99e02de76f47d936a@o1152282.ingest.sentry.io/6271909",
@@ -89,8 +90,6 @@ func runMain() int {
 			log.Fatalf("sentry.Init: %s", err)
 		}
 	}
-
-	defer cleanup.CleanupTmpfiles()
 
 	buildVersion := build.Version
 	buildDate := build.Date
@@ -128,7 +127,7 @@ func runMain() int {
 		rootCmd := newRootCmd(buildVersion, buildDate)
 		rootCmd.SilenceErrors = true
 
-		err = plugin.RunPlugin(cmd, rootCmd, manager.Metadata{
+		err = plugin.RunPlugin(cmd, rootCmd, metadata.Metadata{
 			SchemaVersion: "0.1.0",
 			Vendor:        "Depot Technologies Inc.",
 			Version:       buildVersion,

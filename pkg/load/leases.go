@@ -2,48 +2,32 @@ package load
 
 import (
 	"context"
-	"fmt"
 
 	leasesapi "github.com/containerd/containerd/api/services/leases/v1"
-	depotbuild "github.com/depot/cli/pkg/buildx/build"
-	"github.com/moby/buildkit/depot"
+	"github.com/depot/cli/pkg/buildxdriver"
 )
 
+// exportLeaseLabel is the exporter response key that holds the lease that
+// keeps an exported image from garbage collection.
+const exportLeaseLabel = "depot/session.id"
+
 // DeleteExportLeases removes the long-lived leases we use to inhibit garbage collection of exported images.
-func DeleteExportLeases(ctx context.Context, responses []depotbuild.DepotBuildResponse) {
+func DeleteExportLeases(ctx context.Context, responses []buildxdriver.TargetResponse) {
 	for _, res := range responses {
 		for _, nodeRes := range res.NodeResponses {
-			if nodeRes.SolveResponse == nil {
+			if nodeRes.SolveResponse == nil || nodeRes.Driver == nil {
 				continue
 			}
-			leaseID := nodeRes.SolveResponse.ExporterResponse[depot.ExportLeaseLabel]
+			leaseID := nodeRes.SolveResponse.ExporterResponse[exportLeaseLabel]
 			if leaseID == "" {
 				continue
 			}
 
-			leasesClient, err := leasesClient(ctx, nodeRes)
+			conn, err := nodeRes.Driver.Conn(ctx)
 			if err != nil {
-				// Older versions of buildkitd may not have the leases API exposed.
 				continue
 			}
-			_, _ = leasesClient.Delete(ctx, &leasesapi.DeleteRequest{ID: leaseID})
+			_, _ = leasesapi.NewLeasesClient(conn).Delete(ctx, &leasesapi.DeleteRequest{ID: leaseID})
 		}
 	}
-}
-
-func leasesClient(ctx context.Context, nodeResponse depotbuild.DepotNodeResponse) (leasesapi.LeasesClient, error) {
-	if nodeResponse.Node.Driver == nil {
-		return nil, fmt.Errorf("node %s does not have a driver", nodeResponse.Node.Name)
-	}
-
-	client, err := nodeResponse.Node.Driver.Client(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	if client == nil {
-		return nil, fmt.Errorf("node %s does not have a client", nodeResponse.Node.Name)
-	}
-
-	return client.LeasesClient(), nil
 }

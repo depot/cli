@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"path/filepath"
 
+	"github.com/depot/cli/pkg/arguments"
 	"github.com/depot/cli/pkg/helpers"
 	"github.com/depot/cli/pkg/project"
-	"github.com/docker/cli/cli"
 	"github.com/spf13/cobra"
 )
 
@@ -20,7 +20,7 @@ func NewCmdInit() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "init [flags] [<dir>]",
 		Short: "Create a `depot.json` project config",
-		Args:  cli.RequiresMaxArgs(1),
+		Args:  arguments.AtMost(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			force, _ := cmd.Flags().GetBool("force")
 			contextDir := "."

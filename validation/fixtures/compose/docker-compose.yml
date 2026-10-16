@@ -1,0 +1,24 @@
+services:
+  web:
+    build:
+      context: web
+      target: image
+      args:
+        MESSAGE: web
+      labels:
+        org.depot.validation.service: web
+    image: registry.invalid/compose-web:latest
+  worker:
+    build:
+      context: worker
+      target: image
+      args:
+        - MESSAGE=worker
+      x-bake:
+        platforms:
+          - linux/amd64
+          - linux/arm64
+      x-depot:
+        project-id: vtproject-compose
+  database:
+    image: postgres:16
