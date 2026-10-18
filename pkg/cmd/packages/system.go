@@ -140,6 +140,8 @@ func (r repository) resourcePath() string {
 	return r.server.EscapedPath() + "/" + r.org + "/" + r.format + "/" + r.name + "/"
 }
 
+// fileID names system files for the repository. Repository names can't
+// contain underscores, so the underscore separator keeps IDs unique.
 func (r repository) fileID() string {
-	return "depot-" + r.org + "-" + r.name
+	return "depot-" + r.org + "_" + r.name
 }

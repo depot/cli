@@ -739,6 +739,27 @@ func TestCheckProjectNpmrcChecksAlwaysAuth(t *testing.T) {
 	require.ErrorContains(t, checkProjectNpmrc(filepath.Join(t.TempDir(), ".npmrc"), map[string]string{key: "true"}, ancestorDirs()), "always-auth")
 }
 
+func TestCheckPnpmConfigYAMLAuth(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv("PNPM_CONFIG_NPMRC_AUTH_FILE", "")
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "pnpm"), 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "pnpm", "config.yaml"), []byte("_auth:\n  https://packages.depot.dev/org123/npm/npmjs/:\n    \"@\":\n      authToken: stale\n"), 0600))
+
+	s := newTestSetup(t, "npm", "npmjs")
+	s.clientName = "pnpm"
+	require.ErrorContains(t, checkPnpmAuthFile(s, nil), "_auth")
+}
+
+func TestFileIDsDiffer(t *testing.T) {
+	t.Setenv("DEPOT_PACKAGES_URL", "")
+	a, err := newRepository("acme-prod", "debian", "debian")
+	require.NoError(t, err)
+	b, err := newRepository("acme", "debian", "prod-debian")
+	require.NoError(t, err)
+	require.NotEqual(t, a.fileID(), b.fileID())
+}
+
 func TestCheckPnpmAuthFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "auth.ini")
 	require.NoError(t, os.WriteFile(path, []byte("//packages.depot.dev/org123/npm/npmjs/:_authToken=stale\n"), 0600))

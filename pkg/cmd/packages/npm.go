@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,6 +15,7 @@ import (
 	"strings"
 
 	"github.com/pelletier/go-toml/v2"
+	"gopkg.in/yaml.v3"
 )
 
 var npmScopePattern = regexp.MustCompile(`^@[a-z0-9][a-z0-9._~-]*$`)
@@ -230,32 +232,59 @@ func checkProjectNpmrc(userPath string, keys map[string]string, dirs []string) e
 	return nil
 }
 
-// checkPnpmAuthFile rejects a repository credential in pnpm's own auth file,
-// which pnpm reads before the user .npmrc.
+// checkPnpmAuthFile rejects a repository credential in pnpm's own auth.ini or
+// in the _auth section of its global config.yaml, which pnpm reads before the
+// user .npmrc.
 func checkPnpmAuthFile(s *setup, keys []string) error {
 	if s.clientName != "pnpm" {
 		return nil
 	}
-	path, err := pnpmAuthFilePath()
+	dir, err := pnpmConfigDir()
 	if err != nil {
 		return nil
 	}
-	data, err := os.ReadFile(path)
+
+	authPath := os.Getenv("PNPM_CONFIG_NPMRC_AUTH_FILE")
+	if authPath == "" {
+		authPath = filepath.Join(dir, "auth.ini")
+	}
+	if data, err := os.ReadFile(authPath); err == nil {
+		rc := parseNpmrc(data)
+		for _, key := range keys {
+			if _, ok := rc.get(key); ok {
+				return fmt.Errorf("%s sets %s, which pnpm uses instead of ~/.npmrc: remove it with `pnpm config delete --location global %s`, then rerun this command", authPath, key, key)
+			}
+		}
+	}
+
+	configPath := filepath.Join(dir, "config.yaml")
+	data, err := os.ReadFile(configPath)
 	if err != nil {
 		return nil
 	}
-	rc := parseNpmrc(data)
-	for _, key := range keys {
-		if _, ok := rc.get(key); ok {
-			return fmt.Errorf("%s sets %s, which pnpm uses instead of %s: remove it with `pnpm config delete --location global %s`, then rerun this command", path, key, "~/.npmrc", key)
+	var config struct {
+		Auth map[string]any `yaml:"_auth"`
+	}
+	if yaml.Unmarshal(data, &config) != nil {
+		return nil
+	}
+	for registry := range config.Auth {
+		u, err := url.Parse(registry)
+		if err != nil {
+			continue
+		}
+		scoped := "//" + u.Host + strings.TrimSuffix(u.EscapedPath(), "/") + "/"
+		if strings.HasPrefix(s.repo.nerfDart(), scoped) {
+			return fmt.Errorf("%s has a credential for %s under _auth, which pnpm uses instead of ~/.npmrc: remove that entry, then rerun this command", configPath, registry)
 		}
 	}
 	return nil
 }
 
-func pnpmAuthFilePath() (string, error) {
-	if path := os.Getenv("PNPM_CONFIG_NPMRC_AUTH_FILE"); path != "" {
-		return path, nil
+// pnpmConfigDir returns pnpm's global configuration directory.
+func pnpmConfigDir() (string, error) {
+	if dir := os.Getenv("XDG_CONFIG_HOME"); dir != "" {
+		return filepath.Join(dir, "pnpm"), nil
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -263,15 +292,11 @@ func pnpmAuthFilePath() (string, error) {
 	}
 	switch runtime.GOOS {
 	case "darwin":
-		return filepath.Join(home, "Library", "Preferences", "pnpm", "auth.ini"), nil
+		return filepath.Join(home, "Library", "Preferences", "pnpm"), nil
 	case "windows":
-		return filepath.Join(os.Getenv("LOCALAPPDATA"), "pnpm", "config", "auth.ini"), nil
+		return filepath.Join(os.Getenv("LOCALAPPDATA"), "pnpm", "config"), nil
 	}
-	dir := os.Getenv("XDG_CONFIG_HOME")
-	if dir == "" {
-		dir = filepath.Join(home, ".config")
-	}
-	return filepath.Join(dir, "pnpm", "auth.ini"), nil
+	return filepath.Join(home, ".config", "pnpm"), nil
 }
 
 func npmProjectDirs() []string {
