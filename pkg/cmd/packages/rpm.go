@@ -2,7 +2,9 @@ package packages
 
 import (
 	"fmt"
+	"net/url"
 	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -66,9 +68,14 @@ func prepareRPMRepository(s *setup) (rpmRepository, error) {
 		}
 		repo.repoCheck, repo.packageCheck = "1", "0"
 	default:
-		if _, err := os.Stat(packageKey); err != nil {
+		absolute, err := filepath.Abs(packageKey)
+		if err != nil {
+			return rpmRepository{}, err
+		}
+		if _, err := os.Stat(absolute); err != nil {
 			return rpmRepository{}, fmt.Errorf("package key %s: %w", packageKey, err)
 		}
+		packageKey = absolute
 		s.notef("Packages are verified with %s. Repository metadata signatures aren't checked, because the client would also trust Depot's metadata key for packages.", packageKey)
 		repo.key = packageKey
 		repo.repoCheck, repo.packageCheck = "0", "1"
@@ -91,9 +98,9 @@ password=%s
 enabled=1
 repo_gpgcheck=%s
 gpgcheck=%s
-gpgkey=file://%s
+gpgkey=%s
 metadata_expire=60
-`, repo.id, repo.id, repo.baseURL, s.token, repo.repoCheck, repo.packageCheck, repo.key)
+`, repo.id, repo.id, repo.baseURL, s.token, repo.repoCheck, repo.packageCheck, fileURL(repo.key))
 
 	return s.writeSystemFile("/etc/yum.repos.d/"+repo.id+".repo", []byte(content), 0600)
 }
@@ -117,12 +124,16 @@ autorefresh=1
 gpgcheck=1
 repo_gpgcheck=%s
 pkg_gpgcheck=%s
-gpgkey=file://%s
-`, repo.id, repo.id, repo.baseURL, repo.id, repo.repoCheck, repo.packageCheck, repo.key)
+gpgkey=%s
+`, repo.id, repo.id, repo.baseURL, repo.id, repo.repoCheck, repo.packageCheck, fileURL(repo.key))
 	if err := s.writeSystemFile("/etc/zypp/repos.d/"+repo.id+".repo", []byte(content), 0644); err != nil {
 		return err
 	}
 
 	_, err = s.runPrivileged(nil, "rpm", "--import", repo.key)
 	return err
+}
+
+func fileURL(path string) string {
+	return (&url.URL{Scheme: "file", Path: path}).String()
 }

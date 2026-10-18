@@ -15,12 +15,40 @@ func readFileIfExists(path string) ([]byte, error) {
 	return data, err
 }
 
+// resolveLink follows symbolic links to the final path, including a target
+// that doesn't exist yet, so that a write replaces the target and not the link.
+func resolveLink(path string) string {
+	for range 40 {
+		info, err := os.Lstat(path)
+		if err != nil || info.Mode()&os.ModeSymlink == 0 {
+			return path
+		}
+		target, err := os.Readlink(path)
+		if err != nil {
+			return path
+		}
+		if !filepath.IsAbs(target) {
+			target = filepath.Join(filepath.Dir(path), target)
+		}
+		path = target
+	}
+	return path
+}
+
+// restrictPermissions limits a client's configuration file to its owner after
+// the client has saved the token in it.
+func restrictPermissions(path string) error {
+	err := os.Chmod(resolveLink(path), 0600)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	return err
+}
+
 // writeFile replaces the file atomically. It writes through symbolic links so
 // that configuration files managed from a dotfiles directory stay linked.
 func (s *setup) writeFile(path string, data []byte, perm os.FileMode) error {
-	if resolved, err := filepath.EvalSymlinks(path); err == nil {
-		path = resolved
-	}
+	path = resolveLink(path)
 
 	existing, err := readFileIfExists(path)
 	if err != nil {

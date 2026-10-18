@@ -64,12 +64,12 @@ func bundlerConfigPath() (string, error) {
 	return filepath.Join(home, ".bundle", "config"), nil
 }
 
-// gemConfigPath follows RubyGems: it uses the first GEMRC path when set,
-// ~/.gemrc when that file exists, and the XDG configuration directory
-// otherwise.
+// gemConfigPath returns the RubyGems configuration file with the highest
+// precedence: the last GEMRC path when set, ~/.gemrc when that file exists,
+// and the XDG configuration directory otherwise.
 func gemConfigPath() (string, error) {
-	if paths := filepath.SplitList(os.Getenv("GEMRC")); len(paths) > 0 && paths[0] != "" {
-		return paths[0], nil
+	if paths := filepath.SplitList(os.Getenv("GEMRC")); len(paths) > 0 && paths[len(paths)-1] != "" {
+		return paths[len(paths)-1], nil
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {

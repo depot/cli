@@ -19,17 +19,14 @@ func cargoHome() (string, error) {
 	return filepath.Join(home, ".cargo"), nil
 }
 
-// cargoFile returns the path of a Cargo configuration file, preferring the
-// .toml name unless only the legacy name without an extension exists.
+// cargoFile returns the Cargo configuration file that Cargo reads. Cargo
+// prefers the legacy name without an extension when both files exist.
 func cargoFile(dir, name string) string {
 	legacy := filepath.Join(dir, name)
-	path := legacy + ".toml"
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		if _, err := os.Stat(legacy); err == nil {
-			return legacy
-		}
+	if _, err := os.Stat(legacy); err == nil {
+		return legacy
 	}
-	return path
+	return legacy + ".toml"
 }
 
 func configureCargo(s *setup) error {

@@ -172,7 +172,7 @@ func TestRubyConfigPathOverrides(t *testing.T) {
 	t.Setenv("GEMRC", "/tmp/gemrc"+string(os.PathListSeparator)+"/tmp/other")
 	path, err = gemConfigPath()
 	require.NoError(t, err)
-	require.Equal(t, "/tmp/gemrc", path)
+	require.Equal(t, "/tmp/other", path)
 }
 
 func TestBundlerKey(t *testing.T) {
@@ -242,4 +242,34 @@ func TestSetNetrcMachineIgnoresKeywordValues(t *testing.T) {
 	out, err := setNetrcMachine([]byte(existing), "packages.depot.dev", "depot", "tok")
 	require.NoError(t, err)
 	require.Equal(t, existing+"machine packages.depot.dev login depot password tok\n", string(out))
+}
+
+func TestWriteFileFollowsDanglingSymlink(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "dotfiles", "npmrc")
+	link := filepath.Join(dir, ".npmrc")
+	require.NoError(t, os.Symlink(target, link))
+
+	s := newTestSetup(t, "npm", "npmjs")
+	require.NoError(t, s.writeFile(link, []byte("registry=x\n"), 0600))
+
+	info, err := os.Lstat(link)
+	require.NoError(t, err)
+	require.NotZero(t, info.Mode()&os.ModeSymlink)
+	data, err := os.ReadFile(target)
+	require.NoError(t, err)
+	require.Equal(t, "registry=x\n", string(data))
+}
+
+func TestCargoFilePrefersLegacyName(t *testing.T) {
+	dir := t.TempDir()
+	require.Equal(t, filepath.Join(dir, "config.toml"), cargoFile(dir, "config"))
+
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "config.toml"), nil, 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "config"), nil, 0644))
+	require.Equal(t, filepath.Join(dir, "config"), cargoFile(dir, "config"))
+}
+
+func TestFileURL(t *testing.T) {
+	require.Equal(t, "file:///etc/pki/rpm-gpg/KEY%20A", fileURL("/etc/pki/rpm-gpg/KEY A"))
 }
