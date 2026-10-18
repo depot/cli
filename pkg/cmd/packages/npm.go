@@ -255,10 +255,15 @@ func isWorkspaceRoot(dir string) bool {
 }
 
 // checkBunfig rejects a bunfig.toml registry setting, which Bun reads after
-// .npmrc, when it points to another registry.
+// .npmrc, when it points to another registry. It reads the files in the
+// current directory, the project and workspace directories, and the global
+// configuration.
 func checkBunfig(s *setup) error {
 	var paths []string
 	if dir, err := os.Getwd(); err == nil {
+		paths = append(paths, filepath.Join(dir, "bunfig.toml"))
+	}
+	for _, dir := range npmProjectDirs() {
 		paths = append(paths, filepath.Join(dir, "bunfig.toml"))
 	}
 	if dir := os.Getenv("XDG_CONFIG_HOME"); dir != "" {
@@ -278,10 +283,15 @@ func checkBunfig(s *setup) error {
 			continue
 		}
 		key := []string{"install", "registry"}
-		if s.opts.scope != "" {
-			key = []string{"install", "scopes", strings.TrimPrefix(s.opts.scope, "@")}
-		}
 		value, ok := tomlLookup(values, key...)
+		if s.opts.scope != "" {
+			for _, name := range []string{s.opts.scope, strings.TrimPrefix(s.opts.scope, "@")} {
+				key = []string{"install", "scopes", name}
+				if value, ok = tomlLookup(values, key...); ok {
+					break
+				}
+			}
+		}
 		if !ok {
 			continue
 		}
@@ -300,18 +310,16 @@ func checkBunfig(s *setup) error {
 // because Yarn Classic downloads them directly instead of from the configured
 // registry.
 func checkYarnLockfile(s *setup) {
-	dirs := npmProjectDirs()
-	if len(dirs) == 0 {
-		return
-	}
-	path := filepath.Join(dirs[0], "yarn.lock")
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return
-	}
-	for _, host := range []string{"https://registry.yarnpkg.com/", "https://registry.npmjs.org/"} {
-		if strings.Contains(string(data), `resolved "`+host) {
-			s.notef("%s pins packages to %s, and Yarn downloads those URLs directly. To download them through the repository, run:\n  sed -i.bak 's#%s#%s#g' %s", path, host, host, s.repo.url(), path)
+	for _, dir := range npmProjectDirs() {
+		path := filepath.Join(dir, "yarn.lock")
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		for _, host := range []string{"https://registry.yarnpkg.com/", "https://registry.npmjs.org/"} {
+			if strings.Contains(string(data), `resolved "`+host) {
+				s.notef("%s pins packages to %s, and Yarn downloads those URLs directly. To download them through the repository, run:\n  sed -i.bak 's#%s#%s#g' %s", path, host, host, s.repo.url(), path)
+			}
 		}
 	}
 }

@@ -544,3 +544,33 @@ func TestCheckCargoOverridesUsesActiveFile(t *testing.T) {
 	s := newTestSetup(t, "cargo", "internal")
 	require.NoError(t, checkCargoOverrides(s, t.TempDir()))
 }
+
+func TestCheckBunfigScopeAndProjectRoot(t *testing.T) {
+	root := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(root, "package.json"), []byte("{}"), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "bunfig.toml"), []byte("[install.scopes]\n\"@acme\" = \"https://other.example/\"\n"), 0644))
+	sub := filepath.Join(root, "src")
+	require.NoError(t, os.MkdirAll(sub, 0755))
+	t.Chdir(sub)
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", "")
+
+	s := newTestSetup(t, "npm", "internal")
+	s.opts.scope = "@acme"
+	require.ErrorContains(t, checkBunfig(s), "install.scopes.@acme")
+}
+
+func TestCheckYarnLockfileFindsWorkspaceRoot(t *testing.T) {
+	root := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(root, "package.json"), []byte(`{"workspaces":["packages/*"]}`), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "yarn.lock"), []byte("a@1:\n  resolved \"https://registry.yarnpkg.com/a/-/a-1.tgz\"\n"), 0644))
+	pkg := filepath.Join(root, "packages", "a")
+	require.NoError(t, os.MkdirAll(pkg, 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(pkg, "package.json"), []byte("{}"), 0644))
+	t.Chdir(pkg)
+
+	s := newTestSetup(t, "npm", "npmjs")
+	checkYarnLockfile(s)
+	require.Len(t, s.notes, 1)
+	require.Contains(t, s.notes[0], filepath.Join(root, "yarn.lock"))
+}
