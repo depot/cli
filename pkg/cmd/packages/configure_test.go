@@ -374,3 +374,27 @@ func TestMambaConfigPath(t *testing.T) {
 	t.Setenv("MAMBARC", "/etc/custom-rc")
 	require.Equal(t, "/home/me/condarc", mambaConfigPath("/home/me"))
 }
+
+func TestListItemStripsInlineComments(t *testing.T) {
+	item, ok := listItem("- https://rubygems.org/ # default source")
+	require.True(t, ok)
+	require.Equal(t, "https://rubygems.org/", item)
+
+	item, ok = listItem(`- "https://a/#x" # note`)
+	require.True(t, ok)
+	require.Equal(t, `"https://a/#x"`, item)
+}
+
+func TestIsCondaUpstream(t *testing.T) {
+	require.True(t, isCondaUpstream("https://repo.anaconda.com/pkgs/main/"))
+	require.True(t, isCondaUpstream("conda-forge"))
+	require.False(t, isCondaUpstream("bioconda"))
+}
+
+func TestNerfDartKeepsEscapedPath(t *testing.T) {
+	t.Setenv("DEPOT_PACKAGES_URL", "https://host/base%20path")
+	repo, err := newRepository("org123", "npm", "team")
+	require.NoError(t, err)
+	require.Equal(t, "//host/base%20path/org123/npm/team/", repo.nerfDart())
+	require.Equal(t, "https://host/base%20path/org123/npm/team/", repo.url())
+}

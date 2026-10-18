@@ -134,7 +134,7 @@ func (r repository) authMachine(path string) string {
 }
 
 func (r repository) resourcePath() string {
-	return r.server.Path + "/" + r.org + "/" + r.format + "/" + r.name + "/"
+	return r.server.EscapedPath() + "/" + r.org + "/" + r.format + "/" + r.name + "/"
 }
 
 func (r repository) fileID() string {

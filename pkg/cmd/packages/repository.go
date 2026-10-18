@@ -77,5 +77,5 @@ func (r repository) urlWithCredentials(username, password string) string {
 // nerfDart returns the URL without its scheme, as used by npm-style
 // configuration keys such as "//host/path/:_authToken".
 func (r repository) nerfDart() string {
-	return "//" + r.host() + r.server.Path + "/" + r.org + "/" + r.format + "/" + r.name + "/"
+	return "//" + r.host() + r.server.EscapedPath() + "/" + r.org + "/" + r.format + "/" + r.name + "/"
 }

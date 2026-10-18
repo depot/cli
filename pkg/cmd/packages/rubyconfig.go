@@ -86,9 +86,27 @@ func (c *rubyConfig) listEnd(i int) int {
 	return end
 }
 
+// listItem returns the value of a list item line without a trailing comment.
 func listItem(line string) (string, bool) {
 	item, ok := strings.CutPrefix(strings.TrimSpace(line), "- ")
-	return strings.TrimSpace(item), ok
+	if !ok {
+		return "", false
+	}
+	item = strings.TrimSpace(item)
+	if item != "" && (item[0] == '"' || item[0] == '\'') {
+		for i := 1; i < len(item); i++ {
+			if item[0] == '"' && item[i] == '\\' {
+				i++
+			} else if item[i] == item[0] {
+				return item[:i+1], true
+			}
+		}
+		return item, true
+	}
+	if value, _, found := strings.Cut(item, " #"); found {
+		return strings.TrimSpace(value), true
+	}
+	return item, true
 }
 
 func (c *rubyConfig) setList(key string, items []string) {

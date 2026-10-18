@@ -21,6 +21,13 @@ var condaUpstreamChannels = []string{
 	"conda-forge",
 	"defaults",
 	"https://conda.anaconda.org/conda-forge",
+	"https://repo.anaconda.com/pkgs/main",
+	"https://repo.anaconda.com/pkgs/r",
+	"https://repo.anaconda.com/pkgs/msys2",
+}
+
+func isCondaUpstream(channel string) bool {
+	return slices.Contains(condaUpstreamChannels, strings.TrimSuffix(channel, "/"))
 }
 
 func (r repository) condaChannel() string {
@@ -98,7 +105,7 @@ func checkMambaUpstreamChannels(s *setup, path, home string) error {
 		if i >= len(config.Channels.Source) || filepath.Clean(expandHome(config.Channels.Source[i], home)) == filepath.Clean(path) {
 			continue
 		}
-		if slices.Contains(condaUpstreamChannels, strings.TrimSuffix(value, "/")) {
+		if isCondaUpstream(value) {
 			found = append(found, fmt.Sprintf("%s in %s", value, config.Channels.Source[i]))
 		}
 	}
@@ -180,7 +187,7 @@ func writeMambarc(s *setup, path string) error {
 		}
 		for _, item := range existing.Content {
 			name := strings.TrimSuffix(item.Value, "/")
-			if name == channel || (s.replaceUpstream && slices.Contains(condaUpstreamChannels, name)) {
+			if name == channel || (s.replaceUpstream && isCondaUpstream(name)) {
 				continue
 			}
 			channels = append(channels, item.Value)
@@ -190,7 +197,7 @@ func writeMambarc(s *setup, path string) error {
 		if defaults := yamlMappingValue(root, "default_channels"); defaults != nil && defaults.Kind == yaml.SequenceNode && len(defaults.Content) == 0 {
 			removeYAMLMappingValue(root, "default_channels")
 		}
-		if !slices.ContainsFunc(channels, func(c string) bool { return slices.Contains(condaUpstreamChannels, strings.TrimSuffix(c, "/")) }) {
+		if !slices.ContainsFunc(channels, isCondaUpstream) {
 			channels = append(channels, "conda-forge")
 			s.notef("Added conda-forge back to the channels in %s.", path)
 		}
@@ -258,21 +265,21 @@ func configurePixi(s *setup) error {
 		return err
 	}
 
+	if err := s.runQuiet("pixi", "workspace", "channel", "add", "--prepend", s.repo.condaChannel()); err != nil {
+		return err
+	}
 	if s.replaceUpstream {
-		channels, err := pixiChannels(s)
+		environments, err := pixiChannels(s)
 		if err != nil {
 			return err
 		}
-		for _, channel := range channels {
-			if slices.Contains(condaUpstreamChannels, strings.TrimSuffix(channel, "/")) {
+		for _, channel := range environments["default"] {
+			if isCondaUpstream(channel) {
 				if err := s.runQuiet("pixi", "workspace", "channel", "remove", channel); err != nil {
 					return err
 				}
 			}
 		}
-	}
-	if err := s.runQuiet("pixi", "workspace", "channel", "add", "--prepend", s.repo.condaChannel()); err != nil {
-		return err
 	}
 	if s.replaceUpstreamExplicit && !s.replaceUpstream {
 		if err := s.runQuiet("pixi", "workspace", "channel", "add", "conda-forge"); err != nil {
@@ -280,28 +287,60 @@ func configurePixi(s *setup) error {
 		}
 	}
 	s.changes = append(s.changes, "Pixi workspace manifest")
+
+	if s.replaceUpstream {
+		return checkPixiUpstreamChannels(s)
+	}
 	return nil
 }
 
-// pixiChannels returns the channels of the default environment.
-func pixiChannels(s *setup) ([]string, error) {
+// checkPixiUpstreamChannels finds upstream channels that features of other
+// environments still declare. Setup edits only the workspace channels.
+func checkPixiUpstreamChannels(s *setup) error {
+	environments, err := pixiChannels(s)
+	if err != nil {
+		return err
+	}
+	var found []string
+	for environment, channels := range environments {
+		for _, channel := range channels {
+			if isCondaUpstream(channel) {
+				found = append(found, fmt.Sprintf("%s in environment %s", channel, environment))
+			}
+		}
+	}
+	if len(found) == 0 {
+		return nil
+	}
+	slices.Sort(found)
+
+	message := fmt.Sprintf("Pixi still downloads directly from upstream channels: %s", strings.Join(found, ", "))
+	if s.replaceUpstreamExplicit {
+		return fmt.Errorf("the workspace channels are updated, but %s. Remove those channels from the features that declare them and rerun this command, or rerun with --replace-upstream=false", message)
+	}
+	s.notef("%s. Remove those channels from the features that declare them to download all packages through the repository.", message)
+	return nil
+}
+
+// pixiChannels returns the channels of each workspace environment.
+func pixiChannels(s *setup) (map[string][]string, error) {
 	out, err := exec.CommandContext(s.ctx, "pixi", "workspace", "channel", "list").Output()
 	if err != nil {
 		return nil, fmt.Errorf("could not list the Pixi workspace channels: %w", err)
 	}
-	var channels []string
-	inDefault := false
+	environments := map[string][]string{}
+	environment := ""
 	for _, line := range strings.Split(string(out), "\n") {
 		line = strings.TrimSpace(line)
-		if environment, ok := strings.CutPrefix(line, "Environment:"); ok {
-			inDefault = strings.TrimSpace(environment) == "default"
+		if name, ok := strings.CutPrefix(line, "Environment:"); ok {
+			environment = strings.TrimSpace(name)
 			continue
 		}
-		if channel, ok := strings.CutPrefix(line, "- "); ok && inDefault {
-			channels = append(channels, strings.TrimSpace(channel))
+		if channel, ok := strings.CutPrefix(line, "- "); ok && environment != "" {
+			environments[environment] = append(environments[environment], strings.TrimSpace(channel))
 		}
 	}
-	return channels, nil
+	return environments, nil
 }
 
 // writePixiCredentials saves the token in the credential file Pixi reads, so
