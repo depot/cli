@@ -284,12 +284,12 @@ func pixiChannels(s *setup) ([]string, error) {
 }
 
 // writePixiCredentials saves the token in the credential file Pixi reads, so
-// the token never appears in a command line. It first removes a stored
+// the token never appears in a command line. It first tries to remove a stored
 // keyring entry for the host, which Pixi would otherwise use instead.
 func writePixiCredentials(s *setup) error {
 	host := s.repo.hostname()
 	if err := s.runQuiet("pixi", "auth", "logout", host); err != nil && !strings.Contains(err.Error(), "No stored credentials") {
-		return err
+		s.notef("Could not remove stored Pixi credentials for %s (%v). If Pixi sends an older token, run `pixi auth logout %s`.", host, err, host)
 	}
 
 	path := os.Getenv("RATTLER_AUTH_FILE")
