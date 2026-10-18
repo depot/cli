@@ -118,14 +118,16 @@ func writeNpmrc(s *setup, helper string, flagKeys ...string) error {
 	}
 	rc := parseNpmrc(data)
 
-	if !s.opts.authOnly && s.opts.scope == "" {
+	if !s.opts.authOnly {
 		names := []string{"NPM_CONFIG_REGISTRY", "npm_config_registry"}
-		if s.clientName == "bun" {
+		if s.opts.scope != "" {
+			names = []string{"npm_config_" + s.opts.scope + ":registry", "NPM_CONFIG_" + s.opts.scope + ":registry"}
+		} else if s.clientName == "bun" {
 			names = append(names, "BUN_CONFIG_REGISTRY")
 		}
 		for _, name := range names {
 			if value := os.Getenv(name); value != "" && strings.TrimSuffix(value, "/") != strings.TrimSuffix(s.repo.url(), "/") {
-				return fmt.Errorf("%s is set to %s, which overrides the registry in %s: unset it, or rerun with --scope or --auth-only", name, value, path)
+				return fmt.Errorf("%s is set to %s, which overrides the registry in %s: unset it, or rerun with --auth-only", name, value, path)
 			}
 		}
 	}
@@ -153,7 +155,11 @@ func writeNpmrc(s *setup, helper string, flagKeys ...string) error {
 	if !s.opts.authOnly {
 		managed = append(managed, registryKey(s))
 	}
-	if err := checkProjectNpmrc(path, managed, s.repo.url()); err != nil {
+	dirs := npmProjectDirs()
+	if s.clientName == "yarn" {
+		dirs = ancestorDirs()
+	}
+	if err := checkProjectNpmrc(path, managed, s.repo.url(), dirs); err != nil {
 		return err
 	}
 	if s.clientName == "bun" && !s.opts.authOnly {
@@ -191,9 +197,10 @@ func registryKey(s *setup) string {
 // the user configuration. The project directory is the nearest directory with
 // a package.json or node_modules, as npm determines it. Workspace roots are
 // parent directories with a pnpm-workspace.yaml or a package.json that
-// declares workspaces.
-func checkProjectNpmrc(userPath string, keys []string, registry string) error {
-	for _, dir := range npmProjectDirs() {
+// declares workspaces. Yarn Classic reads .npmrc in every ancestor directory,
+// so callers pass the directories that the client reads.
+func checkProjectNpmrc(userPath string, keys []string, registry string, dirs []string) error {
+	for _, dir := range dirs {
 		path := filepath.Join(dir, ".npmrc")
 		if sameFile(path, userPath) {
 			continue
@@ -237,6 +244,23 @@ func npmProjectDirs() []string {
 		dirs = append(dirs, dir)
 	}
 	return dirs
+}
+
+// ancestorDirs returns the current directory and each of its parents.
+func ancestorDirs() []string {
+	dir, err := os.Getwd()
+	if err != nil {
+		return nil
+	}
+	var dirs []string
+	for {
+		dirs = append(dirs, dir)
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return dirs
+		}
+		dir = parent
+	}
 }
 
 func isWorkspaceRoot(dir string) bool {

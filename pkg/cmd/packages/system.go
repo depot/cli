@@ -16,14 +16,17 @@ import (
 )
 
 // systemWriteScript writes stdin to a file through a temporary file in the
-// same directory, so readers never see a partial file.
+// same directory, so readers never see a partial file. It writes through a
+// symbolic link to its target, so a link to a managed file stays in place.
 const systemWriteScript = `set -e
-mkdir -p "$(dirname "$1")"
-tmp="$1.depot-tmp"
+dest="$1"
+if [ -L "$dest" ]; then dest=$(readlink -f "$dest"); fi
+mkdir -p "$(dirname "$dest")"
+tmp="$dest.depot-tmp"
 umask 077
 cat > "$tmp"
 chmod "$2" "$tmp"
-mv -f "$tmp" "$1"`
+mv -f "$tmp" "$dest"`
 
 func (s *setup) requireSystemClient() error {
 	if runtime.GOOS != "linux" {

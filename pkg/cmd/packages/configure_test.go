@@ -471,9 +471,9 @@ func TestCheckProjectNpmrc(t *testing.T) {
 	t.Chdir(project)
 
 	user := filepath.Join(t.TempDir(), ".npmrc")
-	require.ErrorContains(t, checkProjectNpmrc(user, []string{"registry"}, "https://packages.depot.dev/org123/npm/npmjs/"), "takes precedence")
-	require.NoError(t, checkProjectNpmrc(user, []string{"registry"}, "https://registry.npmjs.org"))
-	require.NoError(t, checkProjectNpmrc(user, []string{"@acme:registry"}, "https://packages.depot.dev/org123/npm/npmjs/"))
+	require.ErrorContains(t, checkProjectNpmrc(user, []string{"registry"}, "https://packages.depot.dev/org123/npm/npmjs/", npmProjectDirs()), "takes precedence")
+	require.NoError(t, checkProjectNpmrc(user, []string{"registry"}, "https://registry.npmjs.org", npmProjectDirs()))
+	require.NoError(t, checkProjectNpmrc(user, []string{"@acme:registry"}, "https://packages.depot.dev/org123/npm/npmjs/", npmProjectDirs()))
 }
 
 func TestCheckCargoOverridesRejectsProjectRegistry(t *testing.T) {
@@ -510,7 +510,7 @@ func TestCheckProjectNpmrcFindsWorkspaceRoot(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(pkg, "package.json"), []byte("{}"), 0644))
 	t.Chdir(pkg)
 
-	require.ErrorContains(t, checkProjectNpmrc(filepath.Join(t.TempDir(), ".npmrc"), []string{"registry"}, "https://packages.depot.dev/org123/npm/npmjs/"), filepath.Join(root, ".npmrc"))
+	require.ErrorContains(t, checkProjectNpmrc(filepath.Join(t.TempDir(), ".npmrc"), []string{"registry"}, "https://packages.depot.dev/org123/npm/npmjs/", npmProjectDirs()), filepath.Join(root, ".npmrc"))
 }
 
 func TestCheckBunfig(t *testing.T) {
@@ -681,4 +681,37 @@ func TestCheckBunfigUsesProjectBeforeGlobal(t *testing.T) {
 func TestRPMRepositoryIDsDiffer(t *testing.T) {
 	s := newTestSetup(t, "rpm", "internal")
 	require.NotEqual(t, rpmRepositoryID(s.repo, "el/9"), rpmRepositoryID(s.repo, "el-9"))
+}
+
+func TestWriteNpmrcRejectsScopedRegistryEnvironmentOverride(t *testing.T) {
+	t.Setenv("NPM_CONFIG_USERCONFIG", filepath.Join(t.TempDir(), ".npmrc"))
+	t.Setenv("npm_config_@acme:registry", "https://registry.example/")
+	t.Chdir(t.TempDir())
+
+	s := newTestSetup(t, "npm", "internal")
+	s.opts.scope = "@acme"
+	require.ErrorContains(t, writeNpmrc(s, ""), "npm_config_@acme:registry")
+}
+
+func TestWriteMambarcFiltersPublicDefaultChannels(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".mambarc")
+	require.NoError(t, os.WriteFile(path, []byte("default_channels:\n  - https://mirror.example/main\n  - https://repo.anaconda.com/pkgs/main\n"), 0644))
+
+	s := newTestSetup(t, "conda", "conda-forge")
+	s.replaceUpstream = true
+	require.NoError(t, writeMambarc(s, path, isCondaUpstream))
+
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.Contains(t, string(data), "default_channels:\n  - https://mirror.example/main\n")
+	require.NotContains(t, string(data), "repo.anaconda.com")
+}
+
+func TestRPMRepositoryIDIncludesOrganization(t *testing.T) {
+	t.Setenv("DEPOT_PACKAGES_URL", "")
+	a, err := newRepository("org-a", "rpm", "internal")
+	require.NoError(t, err)
+	b, err := newRepository("org-b", "rpm", "internal")
+	require.NoError(t, err)
+	require.NotEqual(t, rpmRepositoryID(a, "el/9"), rpmRepositoryID(b, "el/9"))
 }

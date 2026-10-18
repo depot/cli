@@ -244,10 +244,20 @@ func writeMambarc(s *setup, path string, isUpstream func(string) bool) error {
 	}
 	setYAMLMappingValue(root, "channels", yamlStringSequence(channels, yaml.Style(0)))
 
-	defaults := yamlMappingValue(root, "default_channels")
-	privateDefaults := defaults != nil && slices.ContainsFunc(defaults.Content, func(n *yaml.Node) bool { return !isCondaUpstream(n.Value) })
-	if s.replaceUpstream && !privateDefaults {
-		setYAMLMappingValue(root, "default_channels", yamlStringSequence(nil, yaml.FlowStyle))
+	if s.replaceUpstream {
+		var private []string
+		if defaults := yamlMappingValue(root, "default_channels"); defaults != nil {
+			for _, item := range defaults.Content {
+				if !isCondaUpstream(item.Value) {
+					private = append(private, item.Value)
+				}
+			}
+		}
+		style := yaml.Style(0)
+		if len(private) == 0 {
+			style = yaml.FlowStyle
+		}
+		setYAMLMappingValue(root, "default_channels", yamlStringSequence(private, style))
 	}
 
 	var out bytes.Buffer

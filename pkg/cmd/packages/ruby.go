@@ -61,7 +61,25 @@ func configureBundler(s *setup) error {
 	if s.replaceUpstream {
 		return checkBundlerMirror(s)
 	}
+	if s.replaceUpstreamExplicit {
+		return checkBundlerMirrorRemoved(s)
+	}
 	return nil
+}
+
+// checkBundlerMirrorRemoved reports a mirror that remains in effect after
+// replacement is turned off, such as one in the application configuration.
+func checkBundlerMirrorRemoved(s *setup) error {
+	key := "mirror." + rubygemsUpstream
+	out, err := exec.CommandContext(s.ctx, "bundle", "config", "get", "--parseable", key).Output()
+	if err != nil {
+		return nil
+	}
+	mirror := strings.TrimPrefix(strings.TrimSpace(string(out)), key+"=")
+	if mirror == "" {
+		return nil
+	}
+	return fmt.Errorf("Bundler still uses the %s mirror %s from another configuration file: remove it with `bundle config unset --local %s`, then rerun this command", rubygemsUpstream, mirror, key)
 }
 
 // checkBundlerCredential rejects an application credential for the

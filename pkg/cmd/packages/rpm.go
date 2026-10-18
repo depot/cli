@@ -149,9 +149,11 @@ func fileURL(path string) string {
 }
 
 // rpmRepositoryID returns a readable ID for the repository path with a short
-// hash of the exact path, so that paths such as el/9 and el-9 don't collide.
+// hash of the exact repository URL and path, so that paths such as el/9 and
+// el-9, or repositories with the same name in two organizations, don't
+// collide.
 func rpmRepositoryID(repo repository, path string) string {
-	sum := sha256.Sum256([]byte(path))
+	sum := sha256.Sum256([]byte(repo.url() + path))
 	slug := strings.Trim(nonIDCharacters.ReplaceAllString(strings.ToLower(path), "-"), "-")
 	return repo.fileID() + "-" + slug + "-" + hex.EncodeToString(sum[:4])
 }
