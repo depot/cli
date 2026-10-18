@@ -67,8 +67,9 @@ func configureBundler(s *setup) error {
 	return nil
 }
 
-// checkBundlerMirrorRemoved reports a mirror that remains in effect after
-// replacement is turned off, such as one in the application configuration.
+// checkBundlerMirrorRemoved reports a Depot mirror that remains in effect
+// after replacement is turned off, such as one in the application
+// configuration. Mirrors outside Depot are left as they are.
 func checkBundlerMirrorRemoved(s *setup) error {
 	key := "mirror." + rubygemsUpstream
 	out, err := exec.CommandContext(s.ctx, "bundle", "config", "get", "--parseable", key).Output()
@@ -76,7 +77,7 @@ func checkBundlerMirrorRemoved(s *setup) error {
 		return nil
 	}
 	mirror := strings.TrimPrefix(strings.TrimSpace(string(out)), key+"=")
-	if mirror == "" {
+	if !strings.HasPrefix(mirror, s.repo.formatURL()) {
 		return nil
 	}
 	return fmt.Errorf("Bundler still uses the %s mirror %s from another configuration file: remove it with `bundle config unset --local %s`, then rerun this command", rubygemsUpstream, mirror, key)

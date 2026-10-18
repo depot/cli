@@ -141,5 +141,5 @@ func (r repository) resourcePath() string {
 }
 
 func (r repository) fileID() string {
-	return "depot-" + r.name
+	return "depot-" + r.org + "-" + r.name
 }

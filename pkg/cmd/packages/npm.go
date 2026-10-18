@@ -3,10 +3,13 @@ package packages
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -151,15 +154,21 @@ func writeNpmrc(s *setup, helper string, flagKeys ...string) error {
 
 	tokenKey := s.repo.nerfDart() + ":_authToken"
 	helperKey := s.repo.nerfDart() + ":tokenHelper"
-	managed := []string{tokenKey, helperKey}
+	managed := map[string]string{tokenKey: "", helperKey: ""}
 	if !s.opts.authOnly {
-		managed = append(managed, registryKey(s))
+		managed[registryKey(s)] = s.repo.url()
+	}
+	for _, key := range flagKeys {
+		managed[key] = "true"
 	}
 	dirs := npmProjectDirs()
 	if s.clientName == "yarn" {
 		dirs = ancestorDirs()
 	}
-	if err := checkProjectNpmrc(path, managed, s.repo.url(), dirs); err != nil {
+	if err := checkProjectNpmrc(path, managed, dirs); err != nil {
+		return err
+	}
+	if err := checkPnpmAuthFile(s, []string{tokenKey, helperKey}); err != nil {
 		return err
 	}
 	if s.clientName == "bun" && !s.opts.authOnly {
@@ -199,7 +208,7 @@ func registryKey(s *setup) string {
 // parent directories with a pnpm-workspace.yaml or a package.json that
 // declares workspaces. Yarn Classic reads .npmrc in every ancestor directory,
 // so callers pass the directories that the client reads.
-func checkProjectNpmrc(userPath string, keys []string, registry string, dirs []string) error {
+func checkProjectNpmrc(userPath string, keys map[string]string, dirs []string) error {
 	for _, dir := range dirs {
 		path := filepath.Join(dir, ".npmrc")
 		if sameFile(path, userPath) {
@@ -210,15 +219,59 @@ func checkProjectNpmrc(userPath string, keys []string, registry string, dirs []s
 			continue
 		}
 		rc := parseNpmrc(data)
-		for _, key := range keys {
+		for _, key := range slices.Sorted(maps.Keys(keys)) {
 			value, ok := rc.get(key)
-			if !ok || (strings.HasSuffix(key, "registry") && strings.TrimSuffix(value, "/") == strings.TrimSuffix(registry, "/")) {
+			if !ok || (keys[key] != "" && strings.TrimSuffix(value, "/") == strings.TrimSuffix(keys[key], "/")) {
 				continue
 			}
 			return fmt.Errorf("%s sets %s, which takes precedence over %s in this project: remove that setting, then rerun this command", path, key, userPath)
 		}
 	}
 	return nil
+}
+
+// checkPnpmAuthFile rejects a repository credential in pnpm's own auth file,
+// which pnpm reads before the user .npmrc.
+func checkPnpmAuthFile(s *setup, keys []string) error {
+	if s.clientName != "pnpm" {
+		return nil
+	}
+	path, err := pnpmAuthFilePath()
+	if err != nil {
+		return nil
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	rc := parseNpmrc(data)
+	for _, key := range keys {
+		if _, ok := rc.get(key); ok {
+			return fmt.Errorf("%s sets %s, which pnpm uses instead of %s: remove it with `pnpm config delete --location global %s`, then rerun this command", path, key, "~/.npmrc", key)
+		}
+	}
+	return nil
+}
+
+func pnpmAuthFilePath() (string, error) {
+	if path := os.Getenv("PNPM_CONFIG_NPMRC_AUTH_FILE"); path != "" {
+		return path, nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	switch runtime.GOOS {
+	case "darwin":
+		return filepath.Join(home, "Library", "Preferences", "pnpm", "auth.ini"), nil
+	case "windows":
+		return filepath.Join(os.Getenv("LOCALAPPDATA"), "pnpm", "config", "auth.ini"), nil
+	}
+	dir := os.Getenv("XDG_CONFIG_HOME")
+	if dir == "" {
+		dir = filepath.Join(home, ".config")
+	}
+	return filepath.Join(dir, "pnpm", "auth.ini"), nil
 }
 
 func npmProjectDirs() []string {

@@ -221,6 +221,7 @@ func writeMambarc(s *setup, path string, isUpstream func(string) bool) error {
 
 	channel := s.repo.condaChannel()
 	channels := []string{channel}
+	nodes := []*yaml.Node{{Kind: yaml.ScalarNode, Value: channel}}
 	if existing := yamlMappingValue(root, "channels"); existing != nil {
 		if existing.Kind != yaml.SequenceNode {
 			return fmt.Errorf("could not update %s: channels must be a list", path)
@@ -228,9 +229,13 @@ func writeMambarc(s *setup, path string, isUpstream func(string) bool) error {
 		for _, item := range existing.Content {
 			name := strings.TrimSuffix(item.Value, "/")
 			if name == channel || (s.replaceUpstream && isUpstream(name)) {
+				if err := checkRemovableYAMLNode(path, item); err != nil {
+					return err
+				}
 				continue
 			}
 			channels = append(channels, item.Value)
+			nodes = append(nodes, item)
 		}
 	}
 	if s.replaceUpstreamExplicit && !s.replaceUpstream {
@@ -239,17 +244,20 @@ func writeMambarc(s *setup, path string, isUpstream func(string) bool) error {
 		}
 		if !slices.ContainsFunc(channels, isCondaUpstream) {
 			channels = append(channels, "conda-forge")
+			nodes = append(nodes, &yaml.Node{Kind: yaml.ScalarNode, Value: "conda-forge"})
 			s.notef("Added conda-forge back to the channels in %s.", path)
 		}
 	}
-	setYAMLMappingValue(root, "channels", yamlStringSequence(channels, yaml.Style(0)))
+	setYAMLMappingValue(root, "channels", &yaml.Node{Kind: yaml.SequenceNode, Content: nodes})
 
 	if s.replaceUpstream {
-		var private []string
+		var private []*yaml.Node
 		if defaults := yamlMappingValue(root, "default_channels"); defaults != nil {
 			for _, item := range defaults.Content {
 				if !isCondaUpstream(item.Value) {
-					private = append(private, item.Value)
+					private = append(private, item)
+				} else if err := checkRemovableYAMLNode(path, item); err != nil {
+					return err
 				}
 			}
 		}
@@ -257,7 +265,7 @@ func writeMambarc(s *setup, path string, isUpstream func(string) bool) error {
 		if len(private) == 0 {
 			style = yaml.FlowStyle
 		}
-		setYAMLMappingValue(root, "default_channels", yamlStringSequence(private, style))
+		setYAMLMappingValue(root, "default_channels", &yaml.Node{Kind: yaml.SequenceNode, Style: style, Content: private})
 	}
 
 	var out bytes.Buffer
@@ -274,6 +282,15 @@ func writeMambarc(s *setup, path string, isUpstream func(string) bool) error {
 		s.notef("%s also lists other channels after the repository: %s.", path, strings.Join(channels[1:], ", "))
 	}
 	return s.writeFile(path, out.Bytes(), configFileMode(path, 0644))
+}
+
+// checkRemovableYAMLNode rejects removing an entry with an anchor, because
+// other settings can refer to it and the file would no longer parse.
+func checkRemovableYAMLNode(path string, node *yaml.Node) error {
+	if node.Anchor != "" {
+		return fmt.Errorf("could not update %s: the entry %s has the anchor &%s, which other settings can refer to: remove the anchor, then rerun this command", path, node.Value, node.Anchor)
+	}
+	return nil
 }
 
 func yamlMappingValue(mapping *yaml.Node, key string) *yaml.Node {
@@ -309,14 +326,6 @@ func setYAMLMappingValue(mapping *yaml.Node, key string, value *yaml.Node) {
 		}
 	}
 	mapping.Content = append(mapping.Content, &yaml.Node{Kind: yaml.ScalarNode, Value: key}, value)
-}
-
-func yamlStringSequence(values []string, style yaml.Style) *yaml.Node {
-	node := &yaml.Node{Kind: yaml.SequenceNode, Style: style}
-	for _, v := range values {
-		node.Content = append(node.Content, &yaml.Node{Kind: yaml.ScalarNode, Value: v})
-	}
-	return node
 }
 
 func configurePixi(s *setup) error {

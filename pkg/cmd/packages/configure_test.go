@@ -471,9 +471,9 @@ func TestCheckProjectNpmrc(t *testing.T) {
 	t.Chdir(project)
 
 	user := filepath.Join(t.TempDir(), ".npmrc")
-	require.ErrorContains(t, checkProjectNpmrc(user, []string{"registry"}, "https://packages.depot.dev/org123/npm/npmjs/", npmProjectDirs()), "takes precedence")
-	require.NoError(t, checkProjectNpmrc(user, []string{"registry"}, "https://registry.npmjs.org", npmProjectDirs()))
-	require.NoError(t, checkProjectNpmrc(user, []string{"@acme:registry"}, "https://packages.depot.dev/org123/npm/npmjs/", npmProjectDirs()))
+	require.ErrorContains(t, checkProjectNpmrc(user, map[string]string{"registry": "https://packages.depot.dev/org123/npm/npmjs/"}, npmProjectDirs()), "takes precedence")
+	require.NoError(t, checkProjectNpmrc(user, map[string]string{"registry": "https://registry.npmjs.org"}, npmProjectDirs()))
+	require.NoError(t, checkProjectNpmrc(user, map[string]string{"@acme:registry": "https://packages.depot.dev/org123/npm/npmjs/"}, npmProjectDirs()))
 }
 
 func TestCheckCargoOverridesRejectsProjectRegistry(t *testing.T) {
@@ -510,7 +510,7 @@ func TestCheckProjectNpmrcFindsWorkspaceRoot(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(pkg, "package.json"), []byte("{}"), 0644))
 	t.Chdir(pkg)
 
-	require.ErrorContains(t, checkProjectNpmrc(filepath.Join(t.TempDir(), ".npmrc"), []string{"registry"}, "https://packages.depot.dev/org123/npm/npmjs/", npmProjectDirs()), filepath.Join(root, ".npmrc"))
+	require.ErrorContains(t, checkProjectNpmrc(filepath.Join(t.TempDir(), ".npmrc"), map[string]string{"registry": "https://packages.depot.dev/org123/npm/npmjs/"}, npmProjectDirs()), filepath.Join(root, ".npmrc"))
 }
 
 func TestCheckBunfig(t *testing.T) {
@@ -714,4 +714,37 @@ func TestRPMRepositoryIDIncludesOrganization(t *testing.T) {
 	b, err := newRepository("org-b", "rpm", "internal")
 	require.NoError(t, err)
 	require.NotEqual(t, rpmRepositoryID(a, "el/9"), rpmRepositoryID(b, "el/9"))
+}
+
+func TestWriteMambarcRejectsRemovingAnchoredEntry(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".mambarc")
+	require.NoError(t, os.WriteFile(path, []byte("channels:\n  - &public conda-forge\n  - bioconda\nallowlist_channels:\n  - *public\n"), 0644))
+
+	s := newTestSetup(t, "conda", "conda-forge")
+	s.replaceUpstream = true
+	require.ErrorContains(t, writeMambarc(s, path, isCondaUpstream), "&public")
+
+	require.NoError(t, os.WriteFile(path, []byte("channels:\n  - &bio bioconda\nallowlist_channels:\n  - *bio\n"), 0644))
+	require.NoError(t, writeMambarc(s, path, isCondaUpstream))
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.Contains(t, string(data), "&bio bioconda")
+}
+
+func TestCheckProjectNpmrcChecksAlwaysAuth(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".npmrc"), []byte("//packages.depot.dev/org123/npm/npmjs/:always-auth=false\n"), 0644))
+	t.Chdir(dir)
+	key := "//packages.depot.dev/org123/npm/npmjs/:always-auth"
+	require.ErrorContains(t, checkProjectNpmrc(filepath.Join(t.TempDir(), ".npmrc"), map[string]string{key: "true"}, ancestorDirs()), "always-auth")
+}
+
+func TestCheckPnpmAuthFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "auth.ini")
+	require.NoError(t, os.WriteFile(path, []byte("//packages.depot.dev/org123/npm/npmjs/:_authToken=stale\n"), 0600))
+	t.Setenv("PNPM_CONFIG_NPMRC_AUTH_FILE", path)
+
+	s := newTestSetup(t, "npm", "npmjs")
+	s.clientName = "pnpm"
+	require.ErrorContains(t, checkPnpmAuthFile(s, []string{s.repo.nerfDart() + ":_authToken"}), "pnpm config delete")
 }
