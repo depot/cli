@@ -125,19 +125,19 @@ func writeGemSources(s *setup, path string) error {
 
 	var updated []string
 	for _, source := range sources {
-		if isRepositorySource(source, s.repo) || (s.replaceUpstream && source == rubygemsUpstream) {
+		if isRepositorySource(source, s.repo) || (s.replaceUpstream && isRubygemsUpstream(source)) {
 			continue
 		}
 		updated = append(updated, source)
 	}
-	if s.replaceUpstreamExplicit && !s.replaceUpstream && !slices.Contains(updated, rubygemsUpstream) {
+	if s.replaceUpstreamExplicit && !s.replaceUpstream && !slices.ContainsFunc(updated, isRubygemsUpstream) {
 		updated = append([]string{rubygemsUpstream}, updated...)
 		s.notef("Added %s back to the gem sources.", rubygemsUpstream)
 	}
 	updated = append(updated, s.repo.urlWithCredentials("depot", s.token))
 	config.setList(":sources", updated)
 
-	if !s.replaceUpstream && slices.Contains(updated, rubygemsUpstream) {
+	if !s.replaceUpstream && slices.ContainsFunc(updated, isRubygemsUpstream) {
 		s.notef("gem also uses %s. Rerun with --replace-upstream to remove it.", rubygemsUpstream)
 	}
 	return s.writeFile(path, config.bytes(), 0600)
@@ -161,6 +161,10 @@ func effectiveGemSources(s *setup) []string {
 		return []string{rubygemsUpstream}
 	}
 	return sources
+}
+
+func isRubygemsUpstream(source string) bool {
+	return strings.TrimSuffix(source, "/") == strings.TrimSuffix(rubygemsUpstream, "/")
 }
 
 func isRepositorySource(source string, repo repository) bool {

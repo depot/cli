@@ -225,14 +225,20 @@ func setNetrcMachine(data []byte, machine, login, password string) ([]byte, erro
 		if !tokens[i].is("machine") || i+1 >= len(tokens) || tokens[i+1].text != machine {
 			continue
 		}
-		end := len(text)
-		for j := i + 2; j < len(tokens); j++ {
-			if tokens[j].is("machine") || tokens[j].is("default") {
-				end = tokens[j].start
-				break
-			}
+		last := i + 1
+		for j := i + 2; j < len(tokens) && !tokens[j].is("machine") && !tokens[j].is("default"); j++ {
+			last = j
 		}
-		out.WriteString(text[kept:tokens[i].start])
+		start := tokens[i].start
+		end := tokens[last].start + len(tokens[last].text)
+		lineEnd := end
+		for lineEnd < len(text) && (text[lineEnd] == ' ' || text[lineEnd] == '\t' || text[lineEnd] == '\r') {
+			lineEnd++
+		}
+		if (start == 0 || text[start-1] == '\n') && (lineEnd == len(text) || text[lineEnd] == '\n') {
+			end = min(lineEnd+1, len(text))
+		}
+		out.WriteString(text[kept:start])
 		kept = end
 	}
 	out.WriteString(text[kept:])

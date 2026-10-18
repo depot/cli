@@ -273,3 +273,39 @@ func TestCargoFilePrefersLegacyName(t *testing.T) {
 func TestFileURL(t *testing.T) {
 	require.Equal(t, "file:///etc/pki/rpm-gpg/KEY%20A", fileURL("/etc/pki/rpm-gpg/KEY A"))
 }
+
+func TestSetNetrcMachineKeepsFollowingComments(t *testing.T) {
+	existing := "machine packages.depot.dev login depot password old\n# keep this\nmachine example.com login a password b\n# trailing\n"
+	out, err := setNetrcMachine([]byte(existing), "packages.depot.dev", "depot", "tok")
+	require.NoError(t, err)
+	require.Equal(t, "# keep this\nmachine example.com login a password b\n# trailing\nmachine packages.depot.dev login depot password tok\n", string(out))
+}
+
+func TestWriteGemSourcesNormalizesUpstream(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "gemrc")
+	require.NoError(t, os.WriteFile(path, []byte("---\n:sources:\n- https://rubygems.org\n"), 0644))
+
+	s := newTestSetup(t, "rubygems", "rubygems")
+	s.replaceUpstream = true
+	require.NoError(t, writeGemSources(s, path))
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.Equal(t, "---\n:sources:\n- \"https://depot:tok_secret@packages.depot.dev/org123/rubygems/rubygems/\"\n", string(data))
+}
+
+func TestWriteCargoConfigRejectsDottedReplacement(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	require.NoError(t, os.WriteFile(path, []byte("source.crates-io.replace-with = \"depot\"\n"), 0644))
+
+	s := newTestSetup(t, "cargo", "internal")
+	require.ErrorContains(t, writeCargoConfig(s, path, []string{"cargo:token"}), "can't update")
+}
+
+func TestNpmUserConfigPathExpandsHome(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("NPM_CONFIG_USERCONFIG", "~/.npmrc-custom")
+	path, err := npmUserConfigPath()
+	require.NoError(t, err)
+	require.Equal(t, filepath.Join(home, ".npmrc-custom"), path)
+}

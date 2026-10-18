@@ -82,6 +82,9 @@ func writeCargoConfig(s *setup, path string, provider []string) error {
 			return err
 		}
 		replacement, replaced = tomlLookup(values, "source", "crates-io", "replace-with")
+		if replaced && replacement == cargoRegistryName {
+			return errUnmanagedTOML(path, "source.crates-io.replace-with")
+		}
 	}
 
 	doc.appendTable(registryTable, [][2]string{

@@ -13,16 +13,28 @@ import (
 var npmScopePattern = regexp.MustCompile(`^@[a-z0-9][a-z0-9._~-]*$`)
 
 func npmUserConfigPath() (string, error) {
-	for _, name := range []string{"NPM_CONFIG_USERCONFIG", "npm_config_userconfig"} {
-		if path := os.Getenv(name); path != "" {
-			return path, nil
-		}
-	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
 	}
+	for _, name := range []string{"NPM_CONFIG_USERCONFIG", "npm_config_userconfig"} {
+		if path := os.Getenv(name); path != "" {
+			return expandHome(path, home), nil
+		}
+	}
 	return filepath.Join(home, ".npmrc"), nil
+}
+
+// expandHome replaces a leading ~ with the home directory, as npm does for
+// paths in its configuration.
+func expandHome(path, home string) string {
+	if path == "~" {
+		return home
+	}
+	if rest, ok := strings.CutPrefix(path, "~/"); ok {
+		return filepath.Join(home, rest)
+	}
+	return path
 }
 
 func configureNpm(s *setup) error {
