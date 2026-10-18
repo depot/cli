@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -119,7 +120,7 @@ func writeGemSources(s *setup, path string) error {
 		return fmt.Errorf("could not update %s: %w", path, err)
 	}
 	if !found {
-		sources = []string{rubygemsUpstream}
+		sources = effectiveGemSources(s)
 	}
 
 	var updated []string
@@ -140,6 +141,26 @@ func writeGemSources(s *setup, path string) error {
 		s.notef("gem also uses %s. Rerun with --replace-upstream to remove it.", rubygemsUpstream)
 	}
 	return s.writeFile(path, config.bytes(), 0600)
+}
+
+// effectiveGemSources returns the sources RubyGems uses from all of its
+// configuration files, such as /etc/gemrc, so writing the user file keeps them.
+func effectiveGemSources(s *setup) []string {
+	out, err := exec.CommandContext(s.ctx, "gem", "sources", "--list").Output()
+	if err != nil {
+		return []string{rubygemsUpstream}
+	}
+	var sources []string
+	for _, line := range strings.Split(string(out), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.Contains(line, "://") {
+			sources = append(sources, line)
+		}
+	}
+	if len(sources) == 0 {
+		return []string{rubygemsUpstream}
+	}
+	return sources
 }
 
 func isRepositorySource(source string, repo repository) bool {
