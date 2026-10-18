@@ -67,7 +67,7 @@ func TestWriteNpmrcScopeAndHelper(t *testing.T) {
 
 func TestWriteCargoConfigReplacesManagedTables(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.toml")
-	original := "# keep\n[net]\ngit-fetch-with-cli = true\n\n[registries.depot]\nindex = \"old\"\n\n[source.crates-io]\nreplace-with = \"depot\"\n"
+	original := "# keep\n[net]\ngit-fetch-with-cli = true\n\n[registries.depot]\nindex = \"sparse+https://packages.depot.dev/org123/cargo/old/index/\"\n\n[source.crates-io]\nreplace-with = \"depot\"\n"
 	require.NoError(t, os.WriteFile(path, []byte(original), 0644))
 
 	s := newTestSetup(t, "cargo", "internal")
@@ -95,7 +95,7 @@ func TestWriteCargoConfigRejectsOtherReplacement(t *testing.T) {
 
 func TestWriteCargoConfigRejectsInlineRegistry(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.toml")
-	require.NoError(t, os.WriteFile(path, []byte("[registries]\ndepot = { index = \"x\" }\n"), 0644))
+	require.NoError(t, os.WriteFile(path, []byte("[registries]\ndepot = { index = \"sparse+https://packages.depot.dev/org123/cargo/old/index/\" }\n"), 0644))
 
 	s := newTestSetup(t, "cargo", "internal")
 	require.ErrorContains(t, writeCargoConfig(s, path, []string{"cargo:token"}), "can't update")
@@ -397,4 +397,30 @@ func TestNerfDartKeepsEscapedPath(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "//host/base%20path/org123/npm/team/", repo.nerfDart())
 	require.Equal(t, "https://host/base%20path/org123/npm/team/", repo.url())
+}
+
+func TestGemConfigPathSkipsEmptyGEMRCEntries(t *testing.T) {
+	t.Setenv("GEMRC", "/etc/team.gemrc"+string(os.PathListSeparator))
+	path, err := gemConfigPath()
+	require.NoError(t, err)
+	require.Equal(t, "/etc/team.gemrc", path)
+}
+
+func TestWriteNpmrcRejectsRegistryEnvironmentOverride(t *testing.T) {
+	t.Setenv("NPM_CONFIG_USERCONFIG", filepath.Join(t.TempDir(), ".npmrc"))
+	t.Setenv("NPM_CONFIG_REGISTRY", "https://registry.npmjs.org/")
+
+	s := newTestSetup(t, "npm", "npmjs")
+	require.ErrorContains(t, writeNpmrc(s, ""), "NPM_CONFIG_REGISTRY")
+
+	s.opts.scope = "@acme"
+	require.NoError(t, writeNpmrc(s, ""))
+}
+
+func TestWriteCargoConfigRejectsOtherRegistry(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	require.NoError(t, os.WriteFile(path, []byte("[registries.depot]\nindex = \"sparse+https://other.example/index/\"\n"), 0644))
+
+	s := newTestSetup(t, "cargo", "internal")
+	require.ErrorContains(t, writeCargoConfig(s, path, []string{"cargo:token"}), "already defines")
 }

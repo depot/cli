@@ -115,6 +115,18 @@ func writeNpmrc(s *setup, helper string, flagKeys ...string) error {
 	}
 	rc := parseNpmrc(data)
 
+	if !s.opts.authOnly && s.opts.scope == "" {
+		names := []string{"NPM_CONFIG_REGISTRY", "npm_config_registry"}
+		if s.clientName == "bun" {
+			names = append(names, "BUN_CONFIG_REGISTRY")
+		}
+		for _, name := range names {
+			if value := os.Getenv(name); value != "" && strings.TrimSuffix(value, "/") != strings.TrimSuffix(s.repo.url(), "/") {
+				return fmt.Errorf("%s is set to %s, which overrides the registry in %s: unset it, or rerun with --scope or --auth-only", name, value, path)
+			}
+		}
+	}
+
 	if !s.opts.authOnly {
 		key := "registry"
 		if s.opts.scope != "" {

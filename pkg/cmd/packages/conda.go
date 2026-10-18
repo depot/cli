@@ -273,9 +273,13 @@ func configurePixi(s *setup) error {
 		if err != nil {
 			return err
 		}
+		// The default environment also lists channels that its features
+		// declare. Pixi can't remove those without a feature scope, so they
+		// are reported by checkPixiUpstreamChannels instead.
 		for _, channel := range environments["default"] {
 			if isCondaUpstream(channel) {
-				if err := s.runQuiet("pixi", "workspace", "channel", "remove", channel); err != nil {
+				err := s.runQuiet("pixi", "workspace", "channel", "remove", channel)
+				if err != nil && !strings.Contains(err.Error(), "does not exist") {
 					return err
 				}
 			}

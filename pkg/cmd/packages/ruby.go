@@ -65,11 +65,14 @@ func bundlerConfigPath() (string, error) {
 }
 
 // gemConfigPath returns the RubyGems configuration file with the highest
-// precedence: the last GEMRC path when set, ~/.gemrc when that file exists,
+// precedence: the last nonempty GEMRC path when set, ~/.gemrc when that file exists,
 // and the XDG configuration directory otherwise.
 func gemConfigPath() (string, error) {
-	if paths := filepath.SplitList(os.Getenv("GEMRC")); len(paths) > 0 && paths[len(paths)-1] != "" {
-		return paths[len(paths)-1], nil
+	paths := filepath.SplitList(os.Getenv("GEMRC"))
+	for i := len(paths) - 1; i >= 0; i-- {
+		if paths[i] != "" {
+			return paths[i], nil
+		}
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {

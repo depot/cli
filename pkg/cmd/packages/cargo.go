@@ -92,6 +92,15 @@ func writeCargoConfig(s *setup, path string, provider []string) error {
 	}
 
 	registryTable := "registries." + cargoRegistryName
+	existing, err := doc.values()
+	if err != nil {
+		return err
+	}
+	if index, ok := tomlLookup(existing, "registries", cargoRegistryName, "index"); ok {
+		if value, _ := index.(string); !strings.HasPrefix(value, "sparse+"+s.repo.server.String()+"/") {
+			return fmt.Errorf("%s already defines the %q registry with index %v: rename that registry, then rerun this command", path, cargoRegistryName, index)
+		}
+	}
 	doc.removeTable("registries", cargoRegistryName)
 
 	values, err := doc.values()
