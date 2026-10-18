@@ -16,11 +16,16 @@ var (
 	nonIDCharacters  = regexp.MustCompile(`[^a-z0-9]+`)
 )
 
+// rpmRepository verifies either Depot's metadata signature or the publisher's
+// package signatures, never both with one key list. dnf and zypper trust every
+// listed key for packages, so listing Depot's metadata key next to a package
+// key would let packages signed by Depot pass the package check.
 type rpmRepository struct {
-	id          string
-	baseURL     string
-	metadataKey string
-	packageKey  string
+	id           string
+	baseURL      string
+	key          string
+	repoCheck    string
+	packageCheck string
 }
 
 func prepareRPMRepository(s *setup) (rpmRepository, error) {
@@ -36,45 +41,40 @@ func prepareRPMRepository(s *setup) (rpmRepository, error) {
 		return rpmRepository{}, fmt.Errorf("invalid --path %q", s.opts.path)
 	}
 
+	repo := rpmRepository{
+		id:      s.repo.fileID() + "-" + strings.Trim(nonIDCharacters.ReplaceAllString(strings.ToLower(path), "-"), "-"),
+		baseURL: s.repo.url() + path + "/",
+	}
+
 	packageKey := s.opts.packageKey
 	switch {
 	case packageKey == "" && slices.Contains(rpmBuiltinCaches, s.repo.name):
 		return rpmRepository{}, fmt.Errorf("specify the distribution's package signing key with --package-key, such as --package-key /etc/pki/rpm-gpg/RPM-GPG-KEY-Rocky-9")
-	case packageKey == "":
-		s.notef("Depot verifies repository metadata but doesn't sign individual packages, so package signature checks are off. Pass --package-key with your publisher's key file to turn them on.")
-		packageKey = packageKeyNone
-	case packageKey == packageKeyNone:
-		s.notef("Package signature checks are off because --package-key is none.")
+	case packageKey == "" || packageKey == packageKeyNone:
+		if packageKey == "" {
+			s.notef("Depot verifies repository metadata but doesn't sign individual packages, so package signature checks are off. Pass --package-key with your publisher's key file to verify packages instead.")
+		} else {
+			s.notef("Package signature checks are off because --package-key is none.")
+		}
+		key, err := s.download(s.repo.url() + "signing-key.asc")
+		if err != nil {
+			return rpmRepository{}, err
+		}
+		repo.key = "/etc/pki/rpm-gpg/RPM-GPG-KEY-" + s.repo.fileID()
+		if err := s.writeSystemFile(repo.key, key, 0644); err != nil {
+			return rpmRepository{}, err
+		}
+		repo.repoCheck, repo.packageCheck = "1", "0"
 	default:
 		if _, err := os.Stat(packageKey); err != nil {
 			return rpmRepository{}, fmt.Errorf("package key %s: %w", packageKey, err)
 		}
+		s.notef("Packages are verified with %s. Repository metadata signatures aren't checked, because the client would also trust Depot's metadata key for packages.", packageKey)
+		repo.key = packageKey
+		repo.repoCheck, repo.packageCheck = "0", "1"
 	}
 
-	key, err := s.download(s.repo.url() + "signing-key.asc")
-	if err != nil {
-		return rpmRepository{}, err
-	}
-	id := s.repo.fileID() + "-" + strings.Trim(nonIDCharacters.ReplaceAllString(strings.ToLower(path), "-"), "-")
-	metadataKey := "/etc/pki/rpm-gpg/RPM-GPG-KEY-" + s.repo.fileID()
-	if err := s.writeSystemFile(metadataKey, key, 0644); err != nil {
-		return rpmRepository{}, err
-	}
-
-	return rpmRepository{
-		id:          id,
-		baseURL:     s.repo.url() + path + "/",
-		metadataKey: metadataKey,
-		packageKey:  packageKey,
-	}, nil
-}
-
-func (r rpmRepository) gpgSettings() (packageCheck string, keys string) {
-	keys = "file://" + r.metadataKey
-	if r.packageKey == packageKeyNone {
-		return "0", keys
-	}
-	return "1", keys + " file://" + r.packageKey
+	return repo, nil
 }
 
 func configureYumRepo(s *setup) error {
@@ -83,18 +83,17 @@ func configureYumRepo(s *setup) error {
 		return err
 	}
 
-	packageCheck, keys := repo.gpgSettings()
 	content := fmt.Sprintf(`[%s]
 name=Depot %s
 baseurl=%s
 username=depot
 password=%s
 enabled=1
-repo_gpgcheck=1
+repo_gpgcheck=%s
 gpgcheck=%s
-gpgkey=%s
+gpgkey=file://%s
 metadata_expire=60
-`, repo.id, repo.id, repo.baseURL, s.token, packageCheck, keys)
+`, repo.id, repo.id, repo.baseURL, s.token, repo.repoCheck, repo.packageCheck, repo.key)
 
 	return s.writeSystemFile("/etc/yum.repos.d/"+repo.id+".repo", []byte(content), 0600)
 }
@@ -110,29 +109,20 @@ func configureZypper(s *setup) error {
 		return err
 	}
 
-	packageCheck, keys := repo.gpgSettings()
 	content := fmt.Sprintf(`[%s]
 name=Depot %s
 baseurl=%s?credentials=%s
 enabled=1
 autorefresh=1
 gpgcheck=1
-repo_gpgcheck=1
+repo_gpgcheck=%s
 pkg_gpgcheck=%s
-gpgkey=%s
-`, repo.id, repo.id, repo.baseURL, repo.id, packageCheck, keys)
+gpgkey=file://%s
+`, repo.id, repo.id, repo.baseURL, repo.id, repo.repoCheck, repo.packageCheck, repo.key)
 	if err := s.writeSystemFile("/etc/zypp/repos.d/"+repo.id+".repo", []byte(content), 0644); err != nil {
 		return err
 	}
 
-	keyFiles := []string{repo.metadataKey}
-	if repo.packageKey != packageKeyNone {
-		keyFiles = append(keyFiles, repo.packageKey)
-	}
-	for _, key := range keyFiles {
-		if _, err := s.runPrivileged(nil, "rpm", "--import", key); err != nil {
-			return err
-		}
-	}
-	return nil
+	_, err = s.runPrivileged(nil, "rpm", "--import", repo.key)
+	return err
 }
