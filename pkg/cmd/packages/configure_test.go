@@ -174,3 +174,40 @@ func TestRubyConfigPathOverrides(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "/tmp/gemrc", path)
 }
+
+func TestBundlerKey(t *testing.T) {
+	require.Equal(t, "BUNDLE_HTTPS://PACKAGES__DEPOT__DEV/ORG123/RUBYGEMS/MY___GEMS/", bundlerKey("https://packages.depot.dev/org123/rubygems/my-gems/"))
+	require.Equal(t, "BUNDLE_MIRROR__HTTPS://RUBYGEMS__ORG/", bundlerKey("mirror.https://rubygems.org/"))
+}
+
+func TestWriteGemSources(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "gemrc")
+	require.NoError(t, os.WriteFile(path, []byte("---\n:backtrace: true\n:sources:\n- \"https://rubygems.org/\"\n- \"https://depot:old@packages.depot.dev/org123/rubygems/rubygems/\"\n:verbose: true\n"), 0644))
+
+	s := newTestSetup(t, "rubygems", "rubygems")
+	s.replaceUpstream = true
+	require.NoError(t, writeGemSources(s, path))
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.Equal(t, "---\n:backtrace: true\n:sources:\n- \"https://depot:tok_secret@packages.depot.dev/org123/rubygems/rubygems/\"\n:verbose: true\n", string(data))
+
+	s.replaceUpstream = false
+	s.replaceUpstreamExplicit = true
+	require.NoError(t, writeGemSources(s, path))
+	data, err = os.ReadFile(path)
+	require.NoError(t, err)
+	require.Equal(t, "---\n:backtrace: true\n:sources:\n- \"https://rubygems.org/\"\n- \"https://depot:tok_secret@packages.depot.dev/org123/rubygems/rubygems/\"\n:verbose: true\n", string(data))
+}
+
+func TestWriteMambarcUndoesReplacement(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".mambarc")
+	require.NoError(t, os.WriteFile(path, []byte("channels:\n  - https://packages.depot.dev/org123/conda/conda-forge\ndefault_channels: []\n"), 0644))
+
+	s := newTestSetup(t, "conda", "conda-forge")
+	s.replaceUpstreamExplicit = true
+	require.NoError(t, writeMambarc(s, path))
+
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.Equal(t, "channels:\n  - https://packages.depot.dev/org123/conda/conda-forge\n  - conda-forge\n", string(data))
+}

@@ -1,9 +1,11 @@
 package packages
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
+	"os/exec"
 	"slices"
 	"sort"
 	"strings"
@@ -215,4 +217,23 @@ func (s *setup) printReport(w io.Writer) {
 	for _, note := range s.notes {
 		fmt.Fprintf(w, "\n%s\n", note)
 	}
+}
+
+// runQuiet runs a client command without echoing its output, because client
+// output can contain the token.
+func (s *setup) runQuiet(name string, args ...string) error {
+	return s.runQuietWithInput(nil, name, args...)
+}
+
+func (s *setup) runQuietWithInput(input []byte, name string, args ...string) error {
+	cmd := exec.CommandContext(s.ctx, name, args...)
+	if input != nil {
+		cmd.Stdin = bytes.NewReader(input)
+	}
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		message := strings.TrimSpace(strings.ReplaceAll(string(out), s.token, "<token>"))
+		return fmt.Errorf("%s %s failed: %w\n%s", name, args[0], err, message)
+	}
+	return nil
 }

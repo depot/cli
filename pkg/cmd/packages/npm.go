@@ -33,6 +33,13 @@ func configurePnpm(s *setup) error {
 	if s.store {
 		return writeNpmrc(s, "")
 	}
+	dir, err := depotBinDir()
+	if err != nil {
+		return err
+	}
+	if strings.ContainsAny(dir, " \t") {
+		return fmt.Errorf("pnpm can't run a token helper whose path contains spaces (%s): rerun with --auth store to save the token instead", dir)
+	}
 	helper, err := s.installTokenHelper()
 	if err != nil {
 		return err

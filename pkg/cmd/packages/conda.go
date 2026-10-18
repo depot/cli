@@ -122,6 +122,8 @@ func writeMambaAuthentication(s *setup, path string) error {
 			return fmt.Errorf("could not parse %s: %w", path, err)
 		}
 	}
+	// mamba 2.9 and micromamba 2.3 match credentials by host only and ignore
+	// keys that include a path.
 	entries[s.repo.host()] = map[string]string{"type": "BearerToken", "token": s.token}
 
 	out, err := json.MarshalIndent(entries, "", "  ")
@@ -163,6 +165,15 @@ func writeMambarc(s *setup, path string) error {
 			channels = append(channels, item.Value)
 		}
 	}
+	if s.replaceUpstreamExplicit && !s.replaceUpstream {
+		if defaults := yamlMappingValue(root, "default_channels"); defaults != nil && defaults.Kind == yaml.SequenceNode && len(defaults.Content) == 0 {
+			removeYAMLMappingValue(root, "default_channels")
+		}
+		if !slices.ContainsFunc(channels, func(c string) bool { return slices.Contains(condaUpstreamChannels, strings.TrimSuffix(c, "/")) }) {
+			channels = append(channels, "conda-forge")
+			s.notef("Added conda-forge back to the channels in %s.", path)
+		}
+	}
 	setYAMLMappingValue(root, "channels", yamlStringSequence(channels, yaml.Style(0)))
 
 	if s.replaceUpstream {
@@ -192,6 +203,15 @@ func yamlMappingValue(mapping *yaml.Node, key string) *yaml.Node {
 		}
 	}
 	return nil
+}
+
+func removeYAMLMappingValue(mapping *yaml.Node, key string) {
+	for i := 0; i+1 < len(mapping.Content); i += 2 {
+		if mapping.Content[i].Value == key {
+			mapping.Content = append(mapping.Content[:i], mapping.Content[i+2:]...)
+			return
+		}
+	}
 }
 
 func setYAMLMappingValue(mapping *yaml.Node, key string, value *yaml.Node) {
