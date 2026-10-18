@@ -236,3 +236,10 @@ func TestRubyConfigListAcrossComments(t *testing.T) {
 	config.setList(":sources", []string{"https://a/"})
 	require.Equal(t, "---\n:sources:\n- \"https://a/\"\n:verbose: true\n", string(config.bytes()))
 }
+
+func TestSetNetrcMachineIgnoresKeywordValues(t *testing.T) {
+	existing := "machine example.com login default password machine\nmachine other.example login a password default\n"
+	out, err := setNetrcMachine([]byte(existing), "packages.depot.dev", "depot", "tok")
+	require.NoError(t, err)
+	require.Equal(t, existing+"machine packages.depot.dev login depot password tok\n", string(out))
+}

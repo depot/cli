@@ -153,8 +153,9 @@ func requireApkNetrcSupport(s *setup) error {
 }
 
 type netrcToken struct {
-	text  string
-	start int
+	text    string
+	start   int
+	keyword bool
 }
 
 // netrcTokens splits a .netrc file into tokens with their byte offsets. A
@@ -188,7 +189,19 @@ func netrcTokens(data string) []netrcToken {
 			tokens = append(tokens, netrcToken{text: data[start:i], start: start})
 		}
 	}
+
+	for i := 0; i < len(tokens); i++ {
+		tokens[i].keyword = true
+		switch tokens[i].text {
+		case "machine", "login", "password", "account":
+			i++
+		}
+	}
 	return tokens
+}
+
+func (t netrcToken) is(keyword string) bool {
+	return t.keyword && t.text == keyword
 }
 
 // setNetrcMachine replaces the entry for machine and keeps the rest of the
@@ -201,7 +214,7 @@ func setNetrcMachine(data []byte, machine, login, password string) ([]byte, erro
 	text := string(data)
 	tokens := netrcTokens(text)
 	for _, token := range tokens {
-		if token.text == "macdef" {
+		if token.is("macdef") {
 			return nil, fmt.Errorf("macdef entries aren't supported")
 		}
 	}
@@ -209,12 +222,12 @@ func setNetrcMachine(data []byte, machine, login, password string) ([]byte, erro
 	var out strings.Builder
 	kept := 0
 	for i := 0; i < len(tokens); i++ {
-		if tokens[i].text != "machine" || i+1 >= len(tokens) || tokens[i+1].text != machine {
+		if !tokens[i].is("machine") || i+1 >= len(tokens) || tokens[i+1].text != machine {
 			continue
 		}
 		end := len(text)
 		for j := i + 2; j < len(tokens); j++ {
-			if tokens[j].text == "machine" || tokens[j].text == "default" {
+			if tokens[j].is("machine") || tokens[j].is("default") {
 				end = tokens[j].start
 				break
 			}
@@ -230,7 +243,7 @@ func setNetrcMachine(data []byte, machine, login, password string) ([]byte, erro
 	// Clients stop searching at the default entry, so the new entry must come
 	// before it.
 	for _, token := range netrcTokens(result) {
-		if token.text == "default" {
+		if token.is("default") {
 			return []byte(result[:token.start] + entry + result[token.start:]), nil
 		}
 	}
