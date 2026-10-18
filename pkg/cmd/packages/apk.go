@@ -61,6 +61,9 @@ func configureApk(s *setup) error {
 		return err
 	}
 
+	if path := os.Getenv("NETRC"); path != "" && path != rootNetrcFile {
+		return fmt.Errorf("NETRC is set to %s, but setup saves the credential in %s: unset NETRC, then rerun this command", path, rootNetrcFile)
+	}
 	netrc, err := s.readSystemFile(rootNetrcFile)
 	if err != nil {
 		return err

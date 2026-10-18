@@ -210,6 +210,9 @@ func writeCargoConfig(s *setup, path string, provider []string) error {
 	if err != nil {
 		return err
 	}
+	if _, ok := tomlLookup(existing, "source", cargoRegistryName); ok {
+		return fmt.Errorf("%s defines a %q source, which takes precedence over the %q registry for source replacement: remove or rename that source, then rerun this command", path, cargoRegistryName, cargoRegistryName)
+	}
 	if index, ok := tomlLookup(existing, "registries", cargoRegistryName, "index"); ok {
 		if value, _ := index.(string); !strings.HasPrefix(value, "sparse+"+s.repo.server.String()+"/") {
 			return fmt.Errorf("%s already defines the %q registry with index %v: rename that registry, then rerun this command", path, cargoRegistryName, index)

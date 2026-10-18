@@ -21,9 +21,11 @@ func parseRubyConfig(data []byte) *rubyConfig {
 	return &rubyConfig{lines: strings.Split(text, "\n")}
 }
 
+// keyLine returns the last line that assigns key, because Ruby's YAML loader
+// uses the last assignment of a duplicate key.
 func (c *rubyConfig) keyLine(key string) int {
-	for i, line := range c.lines {
-		if strings.HasPrefix(line, key+":") {
+	for i := len(c.lines) - 1; i >= 0; i-- {
+		if strings.HasPrefix(c.lines[i], key+":") {
 			return i
 		}
 	}
@@ -38,17 +40,24 @@ func (c *rubyConfig) get(key string) (string, bool) {
 	return unquoteRubyValue(strings.TrimSpace(strings.TrimPrefix(c.lines[i], key+":"))), true
 }
 
+// set replaces the last assignment of key and removes the others.
 func (c *rubyConfig) set(key, value string) {
 	entry := key + ": " + strconv.Quote(value)
-	if i := c.keyLine(key); i >= 0 {
-		c.lines[i] = entry
+	i := c.keyLine(key)
+	if i < 0 {
+		c.lines = append(c.lines, entry)
 		return
 	}
-	c.lines = append(c.lines, entry)
+	c.lines[i] = entry
+	for j := i - 1; j >= 0; j-- {
+		if strings.HasPrefix(c.lines[j], key+":") {
+			c.lines = append(c.lines[:j], c.lines[j+1:]...)
+		}
+	}
 }
 
 func (c *rubyConfig) remove(key string) {
-	if i := c.keyLine(key); i >= 0 {
+	for i := c.keyLine(key); i >= 0; i = c.keyLine(key) {
 		c.lines = append(c.lines[:i], c.lines[i+1:]...)
 	}
 }
@@ -122,6 +131,12 @@ func (c *rubyConfig) setList(key string, items []string) {
 	}
 	end := c.listEnd(i)
 	c.lines = append(c.lines[:i], append(block, c.lines[end:]...)...)
+
+	for j := i - 1; j >= 0; j-- {
+		if strings.HasPrefix(c.lines[j], key+":") {
+			c.lines = append(c.lines[:j], c.lines[c.listEnd(j):]...)
+		}
+	}
 }
 
 func (c *rubyConfig) bytes() []byte {

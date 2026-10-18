@@ -607,3 +607,27 @@ func TestCheckCargoOverridesFollowsHomeIncludes(t *testing.T) {
 	s := newTestSetup(t, "cargo", "crates-io")
 	require.ErrorContains(t, checkCargoOverrides(s, home), "source")
 }
+
+func TestRubyConfigUsesLastAssignment(t *testing.T) {
+	config := parseRubyConfig([]byte("---\n:sources:\n- \"https://a/\"\n:verbose: true\n:sources:\n- \"https://b/\"\n"))
+	items, _, err := config.list(":sources")
+	require.NoError(t, err)
+	require.Equal(t, []string{"https://b/"}, items)
+
+	config.setList(":sources", []string{"https://c/"})
+	require.Equal(t, "---\n:verbose: true\n:sources:\n- \"https://c/\"\n", string(config.bytes()))
+
+	config = parseRubyConfig([]byte("---\nKEY: \"a\"\nKEY: \"b\"\n"))
+	value, _ := config.get("KEY")
+	require.Equal(t, "b", value)
+	config.remove("KEY")
+	require.Equal(t, "---\n", string(config.bytes()))
+}
+
+func TestWriteCargoConfigRejectsHomeSource(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	require.NoError(t, os.WriteFile(path, []byte("[source.depot]\nregistry = \"sparse+https://other.example/\"\n"), 0644))
+
+	s := newTestSetup(t, "cargo", "crates-io")
+	require.ErrorContains(t, writeCargoConfig(s, path, []string{"cargo:token"}), "source")
+}
