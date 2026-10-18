@@ -7,11 +7,15 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 
 	"gopkg.in/yaml.v3"
 )
+
+var mambaVersionPattern = regexp.MustCompile(`(?m)^(?:mamba )?([0-9]+)\.[0-9]+`)
 
 var condaUpstreamChannels = []string{
 	"conda-forge",
@@ -24,6 +28,12 @@ func (r repository) condaChannel() string {
 }
 
 func configureMamba(s *setup) error {
+	if s.clientName == "mamba" {
+		if err := requireMambaWithOwnConfig(s); err != nil {
+			return err
+		}
+	}
+
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return err
@@ -80,6 +90,23 @@ func checkMambaUpstreamChannels(s *setup) error {
 		return fmt.Errorf("~/.mambarc is updated, but %s. Remove those channels and rerun this command, or rerun with --replace-upstream=false", message)
 	}
 	s.notef("%s. Remove those channels to download all packages through the repository.", message)
+	return nil
+}
+
+// requireMambaWithOwnConfig rejects mamba 1.x, which runs as part of conda and
+// reads conda's configuration instead of ~/.mambarc.
+func requireMambaWithOwnConfig(s *setup) error {
+	out, err := exec.CommandContext(s.ctx, "mamba", "--version").Output()
+	if err != nil {
+		return fmt.Errorf("could not determine the mamba version: %w", err)
+	}
+	match := mambaVersionPattern.FindStringSubmatch(string(out))
+	if match == nil {
+		return fmt.Errorf("could not determine the mamba version from %q", strings.TrimSpace(string(out)))
+	}
+	if major, _ := strconv.Atoi(match[1]); major < 2 {
+		return fmt.Errorf("mamba %s.x reads conda's configuration, which setup doesn't support yet: upgrade to mamba 2 or use micromamba", match[1])
+	}
 	return nil
 }
 

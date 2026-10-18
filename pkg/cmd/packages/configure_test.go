@@ -156,3 +156,8 @@ func TestDefaultAptSuite(t *testing.T) {
 	require.Equal(t, "bookworm-security", defaultAptSuite("debian-security", "bookworm"))
 	require.Equal(t, "", defaultAptSuite("debian-security", ""))
 }
+
+func TestMambaVersionPattern(t *testing.T) {
+	require.Equal(t, "1", mambaVersionPattern.FindStringSubmatch("mamba 1.4.2\nconda 23.3.1\n")[1])
+	require.Equal(t, "2", mambaVersionPattern.FindStringSubmatch("2.9.0\n")[1])
+}

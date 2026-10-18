@@ -45,15 +45,75 @@ func configureBundler(s *setup) error {
 	}
 	s.changes = append(s.changes, "Bundler user configuration")
 
+	mirrorKey := "mirror." + rubygemsUpstream
 	if s.replaceUpstream {
-		if err := s.runQuiet("bundle", "config", "set", "--global", "mirror."+rubygemsUpstream, s.repo.url()); err != nil {
+		if err := s.runQuiet("bundle", "config", "set", "--global", mirrorKey, s.repo.url()); err != nil {
 			return err
 		}
 		s.notef("Bundler now downloads gems from %s through the repository.", rubygemsUpstream)
 	} else {
+		out, err := exec.CommandContext(s.ctx, "bundle", "config", "get", "--parseable", mirrorKey).Output()
+		mirror := strings.TrimPrefix(strings.TrimSpace(string(out)), mirrorKey+"=")
+		isDepotMirror := mirror == s.repo.url() || (s.replaceUpstreamExplicit && strings.HasPrefix(mirror, s.repo.formatURL()))
+		if err == nil && isDepotMirror {
+			if err := s.runQuiet("bundle", "config", "unset", "--global", mirrorKey); err != nil {
+				return err
+			}
+			s.notef("Removed the Bundler mirror for %s.", rubygemsUpstream)
+		}
 		s.notef("Use the repository in your Gemfile with:\n  source %q", s.repo.url())
 	}
-	return nil
+
+	path, err := bundlerConfigPath()
+	if err != nil {
+		return err
+	}
+	return restrictPermissions(path)
+}
+
+func bundlerConfigPath() (string, error) {
+	if path := os.Getenv("BUNDLE_USER_CONFIG"); path != "" {
+		return path, nil
+	}
+	if dir := os.Getenv("BUNDLE_USER_HOME"); dir != "" {
+		return filepath.Join(dir, "config"), nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".bundle", "config"), nil
+}
+
+// gemConfigPath follows RubyGems: it uses ~/.gemrc when that file exists and
+// the XDG configuration directory otherwise.
+func gemConfigPath() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	legacy := filepath.Join(home, ".gemrc")
+	if _, err := os.Stat(legacy); err == nil {
+		return legacy, nil
+	}
+	configHome := os.Getenv("XDG_CONFIG_HOME")
+	if configHome == "" {
+		configHome = filepath.Join(home, ".config")
+	}
+	return filepath.Join(configHome, "gem", "gemrc"), nil
+}
+
+// restrictPermissions limits a client's configuration file to its owner after
+// the client has saved the token in it.
+func restrictPermissions(path string) error {
+	if resolved, err := filepath.EvalSymlinks(path); err == nil {
+		path = resolved
+	}
+	err := os.Chmod(path, 0600)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	return err
 }
 
 func configureGem(s *setup) error {
@@ -96,6 +156,14 @@ func configureGem(s *setup) error {
 		}
 	} else {
 		s.notef("gem still lists its other sources. Rerun with --replace-upstream to remove %s.", rubygemsUpstream)
+	}
+
+	configPath, err := gemConfigPath()
+	if err != nil {
+		return err
+	}
+	if err := restrictPermissions(configPath); err != nil {
+		return err
 	}
 
 	path, err := gemCredentialsPath()
