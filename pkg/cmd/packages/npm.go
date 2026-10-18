@@ -127,8 +127,9 @@ func writeNpmrc(s *setup, helper string, flagKeys ...string) error {
 		}
 	}
 
-	if s.clientName == "bun" {
-		for _, name := range []string{"BUN_CONFIG_TOKEN", "NPM_CONFIG_TOKEN"} {
+	// Bun applies these token variables to the default registry only.
+	if s.clientName == "bun" && !s.opts.authOnly && s.opts.scope == "" {
+		for _, name := range []string{"BUN_CONFIG_TOKEN", "NPM_CONFIG_TOKEN", "npm_config_token"} {
 			if value := os.Getenv(name); value != "" && value != s.token {
 				return fmt.Errorf("%s is set, and Bun sends it instead of the token in %s: unset it, then rerun this command", name, path)
 			}

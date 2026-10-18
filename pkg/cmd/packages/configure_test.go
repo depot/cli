@@ -453,4 +453,12 @@ func TestWriteNpmrcRejectsBunTokenOverride(t *testing.T) {
 	s := newTestSetup(t, "npm", "npmjs")
 	s.clientName = "bun"
 	require.ErrorContains(t, writeNpmrc(s, ""), "BUN_CONFIG_TOKEN")
+
+	s.opts.scope = "@acme"
+	require.NoError(t, writeNpmrc(s, ""))
+
+	t.Setenv("BUN_CONFIG_TOKEN", "")
+	t.Setenv("npm_config_token", "other")
+	s.opts.scope = ""
+	require.ErrorContains(t, writeNpmrc(s, ""), "npm_config_token")
 }
