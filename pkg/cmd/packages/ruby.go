@@ -72,8 +72,10 @@ func configureBundler(s *setup) error {
 }
 
 func bundlerConfigPath() (string, error) {
-	if path := os.Getenv("BUNDLE_USER_CONFIG"); path != "" {
-		return path, nil
+	for _, name := range []string{"BUNDLE_CONFIG", "BUNDLE_USER_CONFIG"} {
+		if path := os.Getenv(name); path != "" {
+			return path, nil
+		}
 	}
 	if dir := os.Getenv("BUNDLE_USER_HOME"); dir != "" {
 		return filepath.Join(dir, "config"), nil
@@ -85,9 +87,13 @@ func bundlerConfigPath() (string, error) {
 	return filepath.Join(home, ".bundle", "config"), nil
 }
 
-// gemConfigPath follows RubyGems: it uses ~/.gemrc when that file exists and
-// the XDG configuration directory otherwise.
+// gemConfigPath follows RubyGems: it uses the first GEMRC path when set,
+// ~/.gemrc when that file exists, and the XDG configuration directory
+// otherwise.
 func gemConfigPath() (string, error) {
+	if paths := filepath.SplitList(os.Getenv("GEMRC")); len(paths) > 0 && paths[0] != "" {
+		return paths[0], nil
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err

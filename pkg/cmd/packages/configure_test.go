@@ -161,3 +161,16 @@ func TestMambaVersionPattern(t *testing.T) {
 	require.Equal(t, "1", mambaVersionPattern.FindStringSubmatch("mamba 1.4.2\nconda 23.3.1\n")[1])
 	require.Equal(t, "2", mambaVersionPattern.FindStringSubmatch("2.9.0\n")[1])
 }
+
+func TestRubyConfigPathOverrides(t *testing.T) {
+	t.Setenv("BUNDLE_CONFIG", "/tmp/bundle-config")
+	t.Setenv("BUNDLE_USER_CONFIG", "/tmp/bundle-user-config")
+	path, err := bundlerConfigPath()
+	require.NoError(t, err)
+	require.Equal(t, "/tmp/bundle-config", path)
+
+	t.Setenv("GEMRC", "/tmp/gemrc"+string(os.PathListSeparator)+"/tmp/other")
+	path, err = gemConfigPath()
+	require.NoError(t, err)
+	require.Equal(t, "/tmp/gemrc", path)
+}
