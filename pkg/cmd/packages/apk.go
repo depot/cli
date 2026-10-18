@@ -15,9 +15,10 @@ const (
 )
 
 var (
-	apkKeyNamePattern = regexp.MustCompile(`^[A-Za-z0-9._@-]+\.pub$`)
-	apkBranchPattern  = regexp.MustCompile(`^(v[0-9]+\.[0-9]+|edge)$`)
-	apkVersionPattern = regexp.MustCompile(`apk-tools ([0-9]+)\.([0-9]+)\.([0-9]+)`)
+	apkKeyNamePattern          = regexp.MustCompile(`^[A-Za-z0-9._@-]+\.pub$`)
+	apkBranchPattern           = regexp.MustCompile(`^(v[0-9]+\.[0-9]+|edge)$`)
+	apkRepositoryBranchPattern = regexp.MustCompile(`/(v[0-9]+\.[0-9]+|edge)/[A-Za-z0-9_-]+/?$`)
+	apkVersionPattern          = regexp.MustCompile(`apk-tools ([0-9]+)\.([0-9]+)\.([0-9]+)`)
 )
 
 func configureApk(s *setup) error {
@@ -94,11 +95,29 @@ func configureApk(s *setup) error {
 }
 
 func detectAlpineBranch() string {
-	data, err := os.ReadFile("/etc/alpine-release")
-	if err != nil {
-		return ""
+	repositories, _ := os.ReadFile(apkRepositoriesFile)
+	release, _ := os.ReadFile("/etc/alpine-release")
+	return alpineBranch(string(repositories), string(release))
+}
+
+// alpineBranch prefers the branch of the existing untagged repositories,
+// because the release file of an edge system holds a development version.
+func alpineBranch(repositories, release string) string {
+	for _, line := range strings.Split(repositories, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, "@") {
+			continue
+		}
+		if match := apkRepositoryBranchPattern.FindStringSubmatch(line); match != nil {
+			return match[1]
+		}
 	}
-	parts := strings.Split(strings.TrimSpace(string(data)), ".")
+
+	version := strings.TrimSpace(release)
+	if strings.Contains(version, "_") {
+		return "edge"
+	}
+	parts := strings.Split(version, ".")
 	if len(parts) < 2 {
 		return ""
 	}

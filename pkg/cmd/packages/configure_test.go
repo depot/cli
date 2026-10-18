@@ -135,3 +135,14 @@ func TestWriteGemCredential(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "---\n:rubygems_api_key: abc\n:depot: tok_secret\n", string(data))
 }
+
+func TestAlpineBranch(t *testing.T) {
+	stable := "https://dl-cdn.alpinelinux.org/alpine/v3.22/main\nhttps://dl-cdn.alpinelinux.org/alpine/v3.22/community\n"
+	edge := "# mirrors\n@testing https://dl-cdn.alpinelinux.org/alpine/edge/testing\nhttps://dl-cdn.alpinelinux.org/alpine/edge/main\n"
+
+	require.Equal(t, "v3.22", alpineBranch(stable, "3.22.1\n"))
+	require.Equal(t, "edge", alpineBranch(edge, "3.23.0_alpha20251016\n"))
+	require.Equal(t, "edge", alpineBranch("", "3.23.0_alpha20251016\n"))
+	require.Equal(t, "v3.21", alpineBranch("", "3.21.4\n"))
+	require.Equal(t, "", alpineBranch("", ""))
+}
