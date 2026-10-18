@@ -1,6 +1,8 @@
 package packages
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"net/url"
 	"os"
@@ -44,7 +46,7 @@ func prepareRPMRepository(s *setup) (rpmRepository, error) {
 	}
 
 	repo := rpmRepository{
-		id:      s.repo.fileID() + "-" + strings.Trim(nonIDCharacters.ReplaceAllString(strings.ToLower(path), "-"), "-"),
+		id:      rpmRepositoryID(s.repo, path),
 		baseURL: s.repo.url() + path + "/",
 	}
 
@@ -144,4 +146,12 @@ gpgkey=%s
 
 func fileURL(path string) string {
 	return (&url.URL{Scheme: "file", Path: path}).String()
+}
+
+// rpmRepositoryID returns a readable ID for the repository path with a short
+// hash of the exact path, so that paths such as el/9 and el-9 don't collide.
+func rpmRepositoryID(repo repository, path string) string {
+	sum := sha256.Sum256([]byte(path))
+	slug := strings.Trim(nonIDCharacters.ReplaceAllString(strings.ToLower(path), "-"), "-")
+	return repo.fileID() + "-" + slug + "-" + hex.EncodeToString(sum[:4])
 }

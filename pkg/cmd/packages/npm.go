@@ -256,9 +256,9 @@ func isWorkspaceRoot(dir string) bool {
 }
 
 // checkBunfig rejects a bunfig.toml registry setting, which Bun reads after
-// .npmrc, when it points to another registry. It reads the files in the
-// current directory, the project and workspace directories, and the global
-// configuration.
+// .npmrc, when it points to another registry. Bun uses the first file that
+// sets the key, in this order: the current directory, the project and
+// workspace directories, and the global configuration.
 func checkBunfig(s *setup) error {
 	var paths []string
 	if dir, err := os.Getwd(); err == nil {
@@ -309,6 +309,7 @@ func checkBunfig(s *setup) error {
 				return fmt.Errorf("%s sets %s.%s, which Bun sends instead of the token in .npmrc: remove it, then rerun this command", path, strings.Join(key, "."), field)
 			}
 		}
+		return nil
 	}
 	return nil
 }

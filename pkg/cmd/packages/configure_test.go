@@ -2,6 +2,7 @@ package packages
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -531,7 +532,7 @@ func TestCheckCargoProjectConfigFollowsIncludes(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "extra.toml"), []byte("[source.depot]\nregistry = \"sparse+https://attacker.example/\"\n"), 0644))
 
 	s := newTestSetup(t, "cargo", "internal")
-	require.ErrorContains(t, checkCargoProjectConfig(s, filepath.Join(dir, "config.toml"), 0), "source")
+	require.ErrorContains(t, checkCargoProjectConfig(s, filepath.Join(dir, "config.toml"), map[string]bool{}), "source")
 }
 
 func TestCheckCargoOverridesUsesActiveFile(t *testing.T) {
@@ -630,4 +631,54 @@ func TestWriteCargoConfigRejectsHomeSource(t *testing.T) {
 
 	s := newTestSetup(t, "cargo", "crates-io")
 	require.ErrorContains(t, writeCargoConfig(s, path, []string{"cargo:token"}), "source")
+}
+
+func TestCheckCargoProjectConfigFollowsLongIncludeChains(t *testing.T) {
+	dir := t.TempDir()
+	for i := 0; i < 20; i++ {
+		require.NoError(t, os.WriteFile(filepath.Join(dir, fmt.Sprintf("c%d.toml", i)), []byte(fmt.Sprintf("include = \"c%d.toml\"\n", i+1)), 0644))
+	}
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "c20.toml"), []byte("include = \"c0.toml\"\n[source.depot]\nregistry = \"x\"\n"), 0644))
+
+	s := newTestSetup(t, "cargo", "internal")
+	require.ErrorContains(t, checkCargoProjectConfig(s, filepath.Join(dir, "c0.toml"), map[string]bool{}), "c20.toml")
+}
+
+func TestWriteMambarcKeepsPrivateDefaultChannelsAndAnchors(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".mambarc")
+	require.NoError(t, os.WriteFile(path, []byte("channels: &base\n  - defaults\nallowlist_channels: *base\ndefault_channels:\n  - https://mirror.example/main\n"), 0644))
+
+	s := newTestSetup(t, "conda", "conda-forge")
+	s.replaceUpstream = true
+	isUpstream := func(c string) bool { return c != "defaults" && isCondaUpstream(c) }
+	require.NoError(t, writeMambarc(s, path, isUpstream))
+
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.Equal(t, "channels: &base\n  - https://packages.depot.dev/org123/conda/conda-forge\n  - defaults\nallowlist_channels: *base\ndefault_channels:\n  - https://mirror.example/main\n", string(data))
+}
+
+func TestWriteMambaAuthenticationAcceptsNull(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "authentication.json")
+	require.NoError(t, os.WriteFile(path, []byte("null"), 0600))
+	s := newTestSetup(t, "conda", "conda-forge")
+	require.NoError(t, writeMambaAuthentication(s, path))
+}
+
+func TestCheckBunfigUsesProjectBeforeGlobal(t *testing.T) {
+	dir := t.TempDir()
+	home := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "bunfig.toml"), []byte("[install]\nregistry = \"https://packages.depot.dev/org123/npm/npmjs/\"\n"), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(home, ".bunfig.toml"), []byte("[install]\nregistry = \"https://registry.npmjs.org/\"\n"), 0644))
+	t.Chdir(dir)
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", "")
+
+	s := newTestSetup(t, "npm", "npmjs")
+	require.NoError(t, checkBunfig(s))
+}
+
+func TestRPMRepositoryIDsDiffer(t *testing.T) {
+	s := newTestSetup(t, "rpm", "internal")
+	require.NotEqual(t, rpmRepositoryID(s.repo, "el/9"), rpmRepositoryID(s.repo, "el-9"))
 }

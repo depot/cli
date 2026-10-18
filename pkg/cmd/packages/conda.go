@@ -189,6 +189,9 @@ func writeMambaAuthentication(s *setup, path string) error {
 	}
 	// mamba 2.9 and micromamba 2.3 match credentials by host only and ignore
 	// keys that include a path.
+	if entries == nil {
+		entries = map[string]any{}
+	}
 	entries[s.repo.host()] = map[string]string{"type": "BearerToken", "token": s.token}
 
 	out, err := json.MarshalIndent(entries, "", "  ")
@@ -241,7 +244,9 @@ func writeMambarc(s *setup, path string, isUpstream func(string) bool) error {
 	}
 	setYAMLMappingValue(root, "channels", yamlStringSequence(channels, yaml.Style(0)))
 
-	if s.replaceUpstream {
+	defaults := yamlMappingValue(root, "default_channels")
+	privateDefaults := defaults != nil && slices.ContainsFunc(defaults.Content, func(n *yaml.Node) bool { return !isCondaUpstream(n.Value) })
+	if s.replaceUpstream && !privateDefaults {
 		setYAMLMappingValue(root, "default_channels", yamlStringSequence(nil, yaml.FlowStyle))
 	}
 
@@ -279,9 +284,16 @@ func removeYAMLMappingValue(mapping *yaml.Node, key string) {
 	}
 }
 
+// setYAMLMappingValue sets key to value. It updates an existing sequence in
+// place, so an anchor on that sequence still has a definition for its aliases.
 func setYAMLMappingValue(mapping *yaml.Node, key string, value *yaml.Node) {
 	for i := 0; i+1 < len(mapping.Content); i += 2 {
 		if mapping.Content[i].Value == key {
+			existing := mapping.Content[i+1]
+			if existing.Kind == yaml.SequenceNode && value.Kind == yaml.SequenceNode {
+				existing.Content = value.Content
+				return
+			}
 			mapping.Content[i+1] = value
 			return
 		}

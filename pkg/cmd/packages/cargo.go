@@ -82,13 +82,13 @@ func checkCargoOverrides(s *setup, home string) error {
 		return nil
 	}
 	homeConfig := cargoFile(home, "config")
-	if err := checkCargoIncludes(s, homeConfig, 0); err != nil {
+	if err := checkCargoIncludes(s, homeConfig, map[string]bool{}); err != nil {
 		return err
 	}
 	for {
 		path := cargoFile(filepath.Join(dir, ".cargo"), "config")
 		if !sameFile(path, homeConfig) {
-			if err := checkCargoProjectConfig(s, path, 0); err != nil {
+			if err := checkCargoProjectConfig(s, path, map[string]bool{}); err != nil {
 				return err
 			}
 		}
@@ -102,9 +102,13 @@ func checkCargoOverrides(s *setup, home string) error {
 
 // checkCargoProjectConfig rejects project settings that would redirect the
 // depot registry or source, including settings in included files.
-func checkCargoProjectConfig(s *setup, path string, depth int) error {
+func checkCargoProjectConfig(s *setup, path string, visited map[string]bool) error {
+	if visited[path] {
+		return nil
+	}
+	visited[path] = true
 	data, err := os.ReadFile(path)
-	if err != nil || depth > 10 {
+	if err != nil {
 		return nil
 	}
 	var values map[string]any
@@ -122,13 +126,14 @@ func checkCargoProjectConfig(s *setup, path string, depth int) error {
 		return fmt.Errorf("%s replaces crates.io with %q, which overrides the replacement in the Cargo home configuration: remove it, then rerun this command", path, replacement)
 	}
 
-	return checkCargoIncludes(s, path, depth)
+	return checkCargoIncludes(s, path, visited)
 }
 
 // checkCargoIncludes checks the files that the configuration file at path
-// includes. Setup edits only the top-level home file, so settings in its
-// included files can also redirect the depot registry or source.
-func checkCargoIncludes(s *setup, path string, depth int) error {
+// includes, following the whole include chain and skipping files it has
+// already checked. Setup edits only the top-level home file, so settings in
+// its included files can also redirect the depot registry or source.
+func checkCargoIncludes(s *setup, path string, visited map[string]bool) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil
@@ -141,7 +146,7 @@ func checkCargoIncludes(s *setup, path string, depth int) error {
 		if !filepath.IsAbs(include) {
 			include = filepath.Join(filepath.Dir(path), include)
 		}
-		if err := checkCargoProjectConfig(s, include, depth+1); err != nil {
+		if err := checkCargoProjectConfig(s, filepath.Clean(include), visited); err != nil {
 			return err
 		}
 	}
