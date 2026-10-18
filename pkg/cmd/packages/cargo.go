@@ -6,7 +6,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"slices"
 	"strconv"
 	"strings"
 
@@ -82,23 +81,12 @@ func checkCargoOverrides(s *setup, home string) error {
 	if err != nil {
 		return nil
 	}
-	homeConfigs := []string{cargoFile(home, "config")}
+	homeConfig := cargoFile(home, "config")
 	for {
-		for _, name := range []string{"config", "config.toml"} {
-			path := filepath.Join(dir, ".cargo", name)
-			if slices.ContainsFunc(homeConfigs, func(p string) bool { return sameFile(p, path) }) {
-				continue
-			}
-			data, err := os.ReadFile(path)
-			if err != nil {
-				continue
-			}
-			var values map[string]any
-			if toml.Unmarshal(data, &values) != nil {
-				continue
-			}
-			if _, ok := tomlLookup(values, "registries", cargoRegistryName); ok {
-				return fmt.Errorf("%s defines the %q registry, which overrides the Cargo home configuration in this directory: remove it or rename that registry, then rerun this command", path, cargoRegistryName)
+		path := cargoFile(filepath.Join(dir, ".cargo"), "config")
+		if !sameFile(path, homeConfig) {
+			if err := checkCargoProjectConfig(s, path, 0); err != nil {
+				return err
 			}
 		}
 		parent := filepath.Dir(dir)
@@ -107,6 +95,62 @@ func checkCargoOverrides(s *setup, home string) error {
 		}
 		dir = parent
 	}
+}
+
+// checkCargoProjectConfig rejects project settings that would redirect the
+// depot registry or source, including settings in included files.
+func checkCargoProjectConfig(s *setup, path string, depth int) error {
+	data, err := os.ReadFile(path)
+	if err != nil || depth > 10 {
+		return nil
+	}
+	var values map[string]any
+	if toml.Unmarshal(data, &values) != nil {
+		return nil
+	}
+
+	if _, ok := tomlLookup(values, "registries", cargoRegistryName); ok {
+		return fmt.Errorf("%s defines the %q registry, which overrides the Cargo home configuration in this directory: remove it or rename that registry, then rerun this command", path, cargoRegistryName)
+	}
+	if _, ok := tomlLookup(values, "source", cargoRegistryName); ok {
+		return fmt.Errorf("%s defines a %q source, which overrides the Depot registry in this directory: remove it or rename that source, then rerun this command", path, cargoRegistryName)
+	}
+	if replacement, ok := tomlLookup(values, "source", "crates-io", "replace-with"); ok && s.replaceUpstream && replacement != cargoRegistryName {
+		return fmt.Errorf("%s replaces crates.io with %q, which overrides the replacement in the Cargo home configuration: remove it, then rerun this command", path, replacement)
+	}
+
+	for _, include := range cargoIncludes(values["include"]) {
+		if !filepath.IsAbs(include) {
+			include = filepath.Join(filepath.Dir(path), include)
+		}
+		if err := checkCargoProjectConfig(s, include, depth+1); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// cargoIncludes returns the paths of an include setting, which can be a
+// string, a list of strings, or a list of tables with a path key.
+func cargoIncludes(value any) []string {
+	switch v := value.(type) {
+	case string:
+		return []string{v}
+	case []any:
+		var paths []string
+		for _, item := range v {
+			switch i := item.(type) {
+			case string:
+				paths = append(paths, i)
+			case map[string]any:
+				if path, ok := i["path"].(string); ok {
+					paths = append(paths, path)
+				}
+			}
+		}
+		return paths
+	}
+	return nil
 }
 
 var cargoVersionPattern = regexp.MustCompile(`cargo ([0-9]+)\.([0-9]+)`)

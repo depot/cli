@@ -23,6 +23,10 @@ func (r repository) gemKeyName() string {
 var plainYAMLValue = regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
 
 func configureBundler(s *setup) error {
+	if os.Getenv("BUNDLE_IGNORE_CONFIG") != "" {
+		return fmt.Errorf("BUNDLE_IGNORE_CONFIG is set, so Bundler ignores its configuration files: unset it, then rerun this command")
+	}
+
 	path, err := bundlerConfigPath()
 	if err != nil {
 		return err
@@ -51,10 +55,27 @@ func configureBundler(s *setup) error {
 	if err := s.writeFile(path, config.bytes(), 0600); err != nil {
 		return err
 	}
+	if err := checkBundlerCredential(s); err != nil {
+		return err
+	}
 	if s.replaceUpstream {
 		return checkBundlerMirror(s)
 	}
 	return nil
+}
+
+// checkBundlerCredential rejects an application credential for the
+// repository, which takes precedence over the user configuration.
+func checkBundlerCredential(s *setup) error {
+	key := s.repo.url()
+	out, err := exec.CommandContext(s.ctx, "bundle", "config", "get", "--parseable", key).Output()
+	if err != nil {
+		return nil
+	}
+	if strings.TrimPrefix(strings.TrimSpace(string(out)), key+"=") == "depot:"+s.token {
+		return nil
+	}
+	return fmt.Errorf("this application's Bundler configuration has another credential for %s, which takes precedence: remove it with `bundle config unset --local %s`, then rerun this command", key, key)
 }
 
 // checkBundlerMirror finds a mirror setting in the application configuration,
@@ -199,8 +220,18 @@ func effectiveGemSources(s *setup) []string {
 	return sources
 }
 
+// isRubygemsUpstream matches rubygems.org over HTTP or HTTPS, with or without
+// the default port and trailing slash.
 func isRubygemsUpstream(source string) bool {
-	return strings.TrimSuffix(source, "/") == strings.TrimSuffix(rubygemsUpstream, "/")
+	u, err := url.Parse(source)
+	if err != nil || u.User != nil || (u.Path != "" && u.Path != "/") {
+		return false
+	}
+	switch u.Scheme + "://" + u.Host {
+	case "https://rubygems.org", "https://rubygems.org:443", "http://rubygems.org", "http://rubygems.org:80":
+		return true
+	}
+	return false
 }
 
 func isRepositorySource(source string, repo repository) bool {

@@ -1,6 +1,7 @@
 package packages
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -8,6 +9,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/pelletier/go-toml/v2"
 )
 
 var npmScopePattern = regexp.MustCompile(`^@[a-z0-9][a-z0-9._~-]*$`)
@@ -153,6 +156,14 @@ func writeNpmrc(s *setup, helper string, flagKeys ...string) error {
 	if err := checkProjectNpmrc(path, managed, s.repo.url()); err != nil {
 		return err
 	}
+	if s.clientName == "bun" && !s.opts.authOnly {
+		if err := checkBunfig(s); err != nil {
+			return err
+		}
+	}
+	if s.clientName == "yarn" && !s.opts.authOnly && s.opts.scope == "" {
+		checkYarnLockfile(s)
+	}
 	if helper != "" {
 		rc.remove(tokenKey)
 		rc.set(helperKey, helper)
@@ -174,43 +185,135 @@ func registryKey(s *setup) string {
 	return "registry"
 }
 
-// checkProjectNpmrc rejects a project .npmrc that sets one of the managed keys
-// to another value, because project settings take precedence over the user
-// configuration. The project directory is the nearest directory with a
-// package.json or node_modules, as npm determines it.
+// checkProjectNpmrc rejects a project or workspace .npmrc that sets one of
+// the managed keys to another value, because those files take precedence over
+// the user configuration. The project directory is the nearest directory with
+// a package.json or node_modules, as npm determines it. Workspace roots are
+// parent directories with a pnpm-workspace.yaml or a package.json that
+// declares workspaces.
 func checkProjectNpmrc(userPath string, keys []string, registry string) error {
+	for _, dir := range npmProjectDirs() {
+		path := filepath.Join(dir, ".npmrc")
+		if sameFile(path, userPath) {
+			continue
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		rc := parseNpmrc(data)
+		for _, key := range keys {
+			value, ok := rc.get(key)
+			if !ok || (strings.HasSuffix(key, "registry") && strings.TrimSuffix(value, "/") == strings.TrimSuffix(registry, "/")) {
+				continue
+			}
+			return fmt.Errorf("%s sets %s, which takes precedence over %s in this project: remove that setting, then rerun this command", path, key, userPath)
+		}
+	}
+	return nil
+}
+
+func npmProjectDirs() []string {
 	dir, err := os.Getwd()
 	if err != nil {
 		return nil
 	}
-	project := dir
+	var dirs []string
+	project := ""
 	for current := dir; ; current = filepath.Dir(current) {
-		if fileExists(filepath.Join(current, "package.json")) || fileExists(filepath.Join(current, "node_modules")) {
+		isPackage := fileExists(filepath.Join(current, "package.json")) || fileExists(filepath.Join(current, "node_modules"))
+		if project == "" && isPackage {
 			project = current
-			break
+			dirs = append(dirs, current)
+		} else if project != "" && isWorkspaceRoot(current) {
+			dirs = append(dirs, current)
 		}
 		if filepath.Dir(current) == current {
 			break
 		}
 	}
+	if project == "" {
+		dirs = append(dirs, dir)
+	}
+	return dirs
+}
 
-	path := filepath.Join(project, ".npmrc")
-	if sameFile(path, userPath) {
-		return nil
+func isWorkspaceRoot(dir string) bool {
+	if fileExists(filepath.Join(dir, "pnpm-workspace.yaml")) {
+		return true
 	}
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(filepath.Join(dir, "package.json"))
 	if err != nil {
-		return nil
+		return false
 	}
-	rc := parseNpmrc(data)
-	for _, key := range keys {
-		value, ok := rc.get(key)
-		if !ok || (strings.HasSuffix(key, "registry") && strings.TrimSuffix(value, "/") == strings.TrimSuffix(registry, "/")) {
+	var manifest map[string]any
+	if json.Unmarshal(data, &manifest) != nil {
+		return false
+	}
+	_, ok := manifest["workspaces"]
+	return ok
+}
+
+// checkBunfig rejects a bunfig.toml registry setting, which Bun reads after
+// .npmrc, when it points to another registry.
+func checkBunfig(s *setup) error {
+	var paths []string
+	if dir, err := os.Getwd(); err == nil {
+		paths = append(paths, filepath.Join(dir, "bunfig.toml"))
+	}
+	if dir := os.Getenv("XDG_CONFIG_HOME"); dir != "" {
+		paths = append(paths, filepath.Join(dir, ".bunfig.toml"))
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		paths = append(paths, filepath.Join(home, ".bunfig.toml"))
+	}
+
+	for _, path := range paths {
+		data, err := os.ReadFile(path)
+		if err != nil {
 			continue
 		}
-		return fmt.Errorf("%s sets %s, which takes precedence over %s in this project: remove that setting, then rerun this command", path, key, userPath)
+		var values map[string]any
+		if toml.Unmarshal(data, &values) != nil {
+			continue
+		}
+		key := []string{"install", "registry"}
+		if s.opts.scope != "" {
+			key = []string{"install", "scopes", strings.TrimPrefix(s.opts.scope, "@")}
+		}
+		value, ok := tomlLookup(values, key...)
+		if !ok {
+			continue
+		}
+		url, _ := value.(string)
+		if table, isTable := value.(map[string]any); isTable {
+			url, _ = table["url"].(string)
+		}
+		if strings.TrimSuffix(url, "/") != strings.TrimSuffix(s.repo.url(), "/") {
+			return fmt.Errorf("%s sets %s, which takes precedence over .npmrc for Bun: remove that setting, then rerun this command", path, strings.Join(key, "."))
+		}
 	}
 	return nil
+}
+
+// checkYarnLockfile warns about locked tarball URLs on the public registry,
+// because Yarn Classic downloads them directly instead of from the configured
+// registry.
+func checkYarnLockfile(s *setup) {
+	dirs := npmProjectDirs()
+	if len(dirs) == 0 {
+		return
+	}
+	path := filepath.Join(dirs[0], "yarn.lock")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return
+	}
+	for _, host := range []string{"https://registry.yarnpkg.com/", "https://registry.npmjs.org/"} {
+		if strings.Contains(string(data), `resolved "`+host) {
+			s.notef("%s pins packages to %s, and Yarn downloads those URLs directly. To download them through the repository, run:\n  sed -i.bak 's#%s#%s#g' %s", path, host, host, s.repo.url(), path)
+		}
+	}
 }
 
 func fileExists(path string) bool {

@@ -484,3 +484,63 @@ func TestCheckCargoOverridesRejectsProjectRegistry(t *testing.T) {
 	s := newTestSetup(t, "cargo", "internal")
 	require.ErrorContains(t, checkCargoOverrides(s, t.TempDir()), "overrides the Cargo home configuration")
 }
+
+func TestIsRubygemsUpstream(t *testing.T) {
+	for _, source := range []string{"https://rubygems.org/", "https://rubygems.org", "http://rubygems.org/", "https://rubygems.org:443/"} {
+		require.True(t, isRubygemsUpstream(source), source)
+	}
+	require.False(t, isRubygemsUpstream("https://rubygems.org/other/"))
+	require.False(t, isRubygemsUpstream("https://gems.example/"))
+}
+
+func TestNpmrcGetUsesLastAssignment(t *testing.T) {
+	rc := parseNpmrc([]byte("registry=https://a/\nregistry=https://b/\n"))
+	value, ok := rc.get("registry")
+	require.True(t, ok)
+	require.Equal(t, "https://b/", value)
+}
+
+func TestCheckProjectNpmrcFindsWorkspaceRoot(t *testing.T) {
+	root := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(root, "pnpm-workspace.yaml"), nil, 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(root, ".npmrc"), []byte("registry=https://registry.npmjs.org/\n"), 0644))
+	pkg := filepath.Join(root, "packages", "a")
+	require.NoError(t, os.MkdirAll(pkg, 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(pkg, "package.json"), []byte("{}"), 0644))
+	t.Chdir(pkg)
+
+	require.ErrorContains(t, checkProjectNpmrc(filepath.Join(t.TempDir(), ".npmrc"), []string{"registry"}, "https://packages.depot.dev/org123/npm/npmjs/"), filepath.Join(root, ".npmrc"))
+}
+
+func TestCheckBunfig(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "bunfig.toml"), []byte("[install]\nregistry = \"https://registry.npmjs.org/\"\n"), 0644))
+	t.Chdir(dir)
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", "")
+
+	s := newTestSetup(t, "npm", "npmjs")
+	require.ErrorContains(t, checkBunfig(s), "install.registry")
+	s.opts.scope = "@acme"
+	require.NoError(t, checkBunfig(s))
+}
+
+func TestCheckCargoProjectConfigFollowsIncludes(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "config.toml"), []byte("include = [\"extra.toml\"]\n"), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "extra.toml"), []byte("[source.depot]\nregistry = \"sparse+https://attacker.example/\"\n"), 0644))
+
+	s := newTestSetup(t, "cargo", "internal")
+	require.ErrorContains(t, checkCargoProjectConfig(s, filepath.Join(dir, "config.toml"), 0), "source")
+}
+
+func TestCheckCargoOverridesUsesActiveFile(t *testing.T) {
+	project := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(project, ".cargo"), 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(project, ".cargo", "config"), []byte("[net]\nretry = 1\n"), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(project, ".cargo", "config.toml"), []byte("[registries.depot]\nindex = \"x\"\n"), 0644))
+	t.Chdir(project)
+
+	s := newTestSetup(t, "cargo", "internal")
+	require.NoError(t, checkCargoOverrides(s, t.TempDir()))
+}

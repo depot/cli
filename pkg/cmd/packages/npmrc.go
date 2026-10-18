@@ -29,10 +29,11 @@ func npmrcKey(line string) (string, bool) {
 	return strings.TrimSpace(key), true
 }
 
+// get returns the last assignment of key, which is the value npm uses.
 func (n *npmrc) get(key string) (string, bool) {
-	for _, line := range n.lines {
-		if k, ok := npmrcKey(line); ok && k == key {
-			_, value, _ := strings.Cut(line, "=")
+	for i := len(n.lines) - 1; i >= 0; i-- {
+		if k, ok := npmrcKey(n.lines[i]); ok && k == key {
+			_, value, _ := strings.Cut(n.lines[i], "=")
 			return strings.TrimSpace(value), true
 		}
 	}
