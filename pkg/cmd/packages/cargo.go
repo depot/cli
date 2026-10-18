@@ -82,6 +82,9 @@ func checkCargoOverrides(s *setup, home string) error {
 		return nil
 	}
 	homeConfig := cargoFile(home, "config")
+	if err := checkCargoIncludes(s, homeConfig, 0); err != nil {
+		return err
+	}
 	for {
 		path := cargoFile(filepath.Join(dir, ".cargo"), "config")
 		if !sameFile(path, homeConfig) {
@@ -119,6 +122,21 @@ func checkCargoProjectConfig(s *setup, path string, depth int) error {
 		return fmt.Errorf("%s replaces crates.io with %q, which overrides the replacement in the Cargo home configuration: remove it, then rerun this command", path, replacement)
 	}
 
+	return checkCargoIncludes(s, path, depth)
+}
+
+// checkCargoIncludes checks the files that the configuration file at path
+// includes. Setup edits only the top-level home file, so settings in its
+// included files can also redirect the depot registry or source.
+func checkCargoIncludes(s *setup, path string, depth int) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	var values map[string]any
+	if toml.Unmarshal(data, &values) != nil {
+		return nil
+	}
 	for _, include := range cargoIncludes(values["include"]) {
 		if !filepath.IsAbs(include) {
 			include = filepath.Join(filepath.Dir(path), include)
@@ -235,6 +253,7 @@ func writeCargoConfig(s *setup, path string, provider []string) error {
 			}
 		}
 		doc.setTableKey([]string{"source", "crates-io"}, "replace-with", tomlString(cargoRegistryName))
+		s.notef("Publish with `cargo publish --registry %s`. Source replacement doesn't apply to publishing.", cargoRegistryName)
 	default:
 		s.notef("Use the repository with `--registry %s`, or rerun with --replace-upstream if it includes crates.io.", cargoRegistryName)
 	}

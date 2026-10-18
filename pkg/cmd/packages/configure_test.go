@@ -574,3 +574,36 @@ func TestCheckYarnLockfileFindsWorkspaceRoot(t *testing.T) {
 	require.Len(t, s.notes, 1)
 	require.Contains(t, s.notes[0], filepath.Join(root, "yarn.lock"))
 }
+
+func TestCheckBunfigRejectsInlineCredentials(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "bunfig.toml"), []byte("[install.registry]\nurl = \"https://packages.depot.dev/org123/npm/npmjs/\"\ntoken = \"stale\"\n"), 0644))
+	t.Chdir(dir)
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", "")
+
+	s := newTestSetup(t, "npm", "npmjs")
+	require.ErrorContains(t, checkBunfig(s), "install.registry.token")
+	s.token = "stale"
+	require.NoError(t, checkBunfig(s))
+}
+
+func TestCheckPublishConfig(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "package.json"), []byte(`{"publishConfig":{"registry":"https://registry.npmjs.org/"}}`), 0644))
+	t.Chdir(dir)
+
+	s := newTestSetup(t, "npm", "internal")
+	checkPublishConfig(s)
+	require.Len(t, s.notes, 1)
+}
+
+func TestCheckCargoOverridesFollowsHomeIncludes(t *testing.T) {
+	home := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(home, "config.toml"), []byte("include = \"extra.toml\"\n"), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(home, "extra.toml"), []byte("[source.depot]\nregistry = \"sparse+https://attacker.example/\"\n"), 0644))
+	t.Chdir(t.TempDir())
+
+	s := newTestSetup(t, "cargo", "crates-io")
+	require.ErrorContains(t, checkCargoOverrides(s, home), "source")
+}

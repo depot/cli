@@ -164,6 +164,7 @@ func writeNpmrc(s *setup, helper string, flagKeys ...string) error {
 	if s.clientName == "yarn" && !s.opts.authOnly && s.opts.scope == "" {
 		checkYarnLockfile(s)
 	}
+	checkPublishConfig(s)
 	if helper != "" {
 		rc.remove(tokenKey)
 		rc.set(helperKey, helper)
@@ -296,11 +297,17 @@ func checkBunfig(s *setup) error {
 			continue
 		}
 		url, _ := value.(string)
-		if table, isTable := value.(map[string]any); isTable {
+		table, isTable := value.(map[string]any)
+		if isTable {
 			url, _ = table["url"].(string)
 		}
 		if strings.TrimSuffix(url, "/") != strings.TrimSuffix(s.repo.url(), "/") {
 			return fmt.Errorf("%s sets %s, which takes precedence over .npmrc for Bun: remove that setting, then rerun this command", path, strings.Join(key, "."))
+		}
+		for _, field := range []string{"token", "username", "password"} {
+			if value, ok := table[field].(string); ok && !(field == "token" && value == s.token) {
+				return fmt.Errorf("%s sets %s.%s, which Bun sends instead of the token in .npmrc: remove it, then rerun this command", path, strings.Join(key, "."), field)
+			}
 		}
 	}
 	return nil
@@ -327,4 +334,29 @@ func checkYarnLockfile(s *setup) {
 func fileExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
+}
+
+// checkPublishConfig reports a package.json publishConfig registry outside
+// Depot Packages, because it overrides the configured registry for publish.
+func checkPublishConfig(s *setup) {
+	dirs := npmProjectDirs()
+	if len(dirs) == 0 {
+		return
+	}
+	path := filepath.Join(dirs[0], "package.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return
+	}
+	var manifest struct {
+		PublishConfig struct {
+			Registry string `json:"registry"`
+		} `json:"publishConfig"`
+	}
+	if json.Unmarshal(data, &manifest) != nil || manifest.PublishConfig.Registry == "" {
+		return
+	}
+	if !strings.HasPrefix(manifest.PublishConfig.Registry, s.repo.formatURL()) {
+		s.notef("%s publishes to %s through publishConfig.registry, not through Depot Packages.", path, manifest.PublishConfig.Registry)
+	}
 }
