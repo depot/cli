@@ -60,8 +60,9 @@ func depotBinDir() (string, error) {
 	return filepath.Join(home, ".depot", "bin"), nil
 }
 
-// installTokenHelper writes the wrapper that clients without argument support,
-// such as pnpm, run to obtain a token.
+// installTokenHelper writes the wrapper that pnpm runs to obtain a token. pnpm
+// 10 uses the output as the whole Authorization value, and later versions
+// accept a value that already starts with Bearer.
 func (s *setup) installTokenHelper() (string, error) {
 	depot, stable, err := depotExecutable()
 	if err != nil {
@@ -80,9 +81,9 @@ func (s *setup) installTokenHelper() (string, error) {
 	var script string
 	if runtime.GOOS == "windows" {
 		path += ".cmd"
-		script = "@echo off\r\nset DEPOT_NO_UPDATE_NOTIFIER=1\r\n\"" + depot + "\" packages token\r\n"
+		script = "@echo off\r\nset DEPOT_NO_UPDATE_NOTIFIER=1\r\n\"" + depot + "\" packages token --bearer\r\n"
 	} else {
-		script = "#!/bin/sh\nDEPOT_NO_UPDATE_NOTIFIER=1 exec " + shellQuote(depot) + " packages token\n"
+		script = "#!/bin/sh\nDEPOT_NO_UPDATE_NOTIFIER=1 exec " + shellQuote(depot) + " packages token --bearer\n"
 	}
 
 	if err := s.writeFile(path, []byte(script), 0755); err != nil {

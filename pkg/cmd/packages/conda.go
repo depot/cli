@@ -41,20 +41,41 @@ func configureMamba(s *setup) error {
 	if err := writeMambaAuthentication(s, filepath.Join(home, ".mamba", "auth", "authentication.json")); err != nil {
 		return err
 	}
-	if err := writeMambarc(s, filepath.Join(home, ".mambarc")); err != nil {
+	path := mambaConfigPath(home)
+	if err := writeMambarc(s, path); err != nil {
 		return err
 	}
 	if s.replaceUpstream {
-		return checkMambaUpstreamChannels(s)
+		return checkMambaUpstreamChannels(s, path, home)
 	}
 	return nil
 }
 
+// mambaConfigPath returns the configuration file with the highest precedence:
+// MAMBARC, then CONDARC, then ~/.mambarc. The clients ignore an override whose
+// file name isn't a configuration file name.
+func mambaConfigPath(home string) string {
+	for _, name := range []string{"MAMBARC", "CONDARC"} {
+		if path := os.Getenv(name); path != "" && isMambaConfigName(filepath.Base(path)) {
+			return expandHome(path, home)
+		}
+	}
+	return filepath.Join(home, ".mambarc")
+}
+
+func isMambaConfigName(name string) bool {
+	switch name {
+	case "condarc", ".condarc", "mambarc", ".mambarc":
+		return true
+	}
+	return strings.HasSuffix(name, ".yml") || strings.HasSuffix(name, ".yaml")
+}
+
 // checkMambaUpstreamChannels finds upstream channels in other configuration
 // files. The client combines channel lists from all of its files, so editing
-// ~/.mambarc can't remove them. It runs after ~/.mambarc is updated because
-// the client reports a duplicate channel only for the first file listing it.
-func checkMambaUpstreamChannels(s *setup) error {
+// one file can't remove them. It runs after the file is updated because the
+// client reports a duplicate channel only for the first file listing it.
+func checkMambaUpstreamChannels(s *setup, path, home string) error {
 	out, err := exec.CommandContext(s.ctx, s.clientName, "config", "list", "channels", "--sources", "--json").Output()
 	if err != nil {
 		s.notef("Could not check the other %s configuration files for upstream channels: %v.", s.clientName, err)
@@ -74,7 +95,7 @@ func checkMambaUpstreamChannels(s *setup) error {
 
 	var found []string
 	for i, value := range config.Channels.Value {
-		if i >= len(config.Channels.Source) || config.Channels.Source[i] == "~/.mambarc" {
+		if i >= len(config.Channels.Source) || filepath.Clean(expandHome(config.Channels.Source[i], home)) == filepath.Clean(path) {
 			continue
 		}
 		if slices.Contains(condaUpstreamChannels, strings.TrimSuffix(value, "/")) {
@@ -87,14 +108,14 @@ func checkMambaUpstreamChannels(s *setup) error {
 
 	message := fmt.Sprintf("%s still downloads directly from upstream channels listed in other configuration files: %s", s.clientName, strings.Join(found, ", "))
 	if s.replaceUpstreamExplicit {
-		return fmt.Errorf("~/.mambarc is updated, but %s. Remove those channels and rerun this command, or rerun with --replace-upstream=false", message)
+		return fmt.Errorf("%s is updated, but %s. Remove those channels and rerun this command, or rerun with --replace-upstream=false", path, message)
 	}
 	s.notef("%s. Remove those channels to download all packages through the repository.", message)
 	return nil
 }
 
 // requireMambaWithOwnConfig rejects mamba 1.x, which runs as part of conda and
-// reads conda's configuration instead of ~/.mambarc.
+// reads conda's configuration instead of the mamba configuration files.
 func requireMambaWithOwnConfig(s *setup) error {
 	out, err := exec.CommandContext(s.ctx, "mamba", "--version").Output()
 	if err != nil {

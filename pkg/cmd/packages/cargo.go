@@ -3,7 +3,11 @@ package packages
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"regexp"
+	"strconv"
+	"strings"
 )
 
 const cargoRegistryName = "depot"
@@ -37,6 +41,9 @@ func configureCargo(s *setup) error {
 
 	provider := []string{"cargo:token"}
 	if !s.store {
+		if err := requireCargoTokenFromStdout(s); err != nil {
+			return err
+		}
 		depot, stable, err := depotExecutable()
 		if err != nil {
 			return err
@@ -51,6 +58,27 @@ func configureCargo(s *setup) error {
 		return err
 	}
 	return writeCargoCredentials(s, cargoFile(dir, "credentials"))
+}
+
+var cargoVersionPattern = regexp.MustCompile(`cargo ([0-9]+)\.([0-9]+)`)
+
+// requireCargoTokenFromStdout checks for Cargo 1.79 or later. Earlier versions
+// keep the trailing newline from cargo:token-from-stdout in the token.
+func requireCargoTokenFromStdout(s *setup) error {
+	out, err := exec.CommandContext(s.ctx, "cargo", "--version").Output()
+	if err != nil {
+		return fmt.Errorf("could not determine the Cargo version: %w", err)
+	}
+	match := cargoVersionPattern.FindStringSubmatch(string(out))
+	if match == nil {
+		return fmt.Errorf("could not determine the Cargo version from %q", strings.TrimSpace(string(out)))
+	}
+	major, _ := strconv.Atoi(match[1])
+	minor, _ := strconv.Atoi(match[2])
+	if major == 1 && minor < 79 {
+		return fmt.Errorf("cargo %s.%s can't use the Depot credential helper: upgrade to Cargo 1.79 or later, or rerun with --auth store", match[1], match[2])
+	}
+	return nil
 }
 
 func writeCargoConfig(s *setup, path string, provider []string) error {

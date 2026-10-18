@@ -346,13 +346,31 @@ func TestSetNetrcMachineMatchesQuotedName(t *testing.T) {
 	require.Equal(t, "machine packages.depot.dev login depot password tok\n", string(out))
 }
 
-func TestBunUserConfigPathPrefersExistingXDGFile(t *testing.T) {
+func TestBunUserConfigPath(t *testing.T) {
+	home := t.TempDir()
 	xdg := t.TempDir()
-	t.Setenv("NPM_CONFIG_USERCONFIG", "")
-	t.Setenv("npm_config_userconfig", "")
+	t.Setenv("HOME", home)
+	t.Setenv("NPM_CONFIG_USERCONFIG", filepath.Join(home, "ignored"))
 	t.Setenv("XDG_CONFIG_HOME", xdg)
-	require.Equal(t, "/home/me/.npmrc", bunUserConfigPath("/home/me/.npmrc"))
+
+	path, err := bunUserConfigPath()
+	require.NoError(t, err)
+	require.Equal(t, filepath.Join(home, ".npmrc"), path)
 
 	require.NoError(t, os.WriteFile(filepath.Join(xdg, ".npmrc"), nil, 0600))
-	require.Equal(t, filepath.Join(xdg, ".npmrc"), bunUserConfigPath("/home/me/.npmrc"))
+	path, err = bunUserConfigPath()
+	require.NoError(t, err)
+	require.Equal(t, filepath.Join(xdg, ".npmrc"), path)
+}
+
+func TestMambaConfigPath(t *testing.T) {
+	t.Setenv("MAMBARC", "")
+	t.Setenv("CONDARC", "")
+	require.Equal(t, "/home/me/.mambarc", mambaConfigPath("/home/me"))
+	t.Setenv("CONDARC", "~/condarc")
+	require.Equal(t, "/home/me/condarc", mambaConfigPath("/home/me"))
+	t.Setenv("MAMBARC", "/etc/mamba.yml")
+	require.Equal(t, "/etc/mamba.yml", mambaConfigPath("/home/me"))
+	t.Setenv("MAMBARC", "/etc/custom-rc")
+	require.Equal(t, "/home/me/condarc", mambaConfigPath("/home/me"))
 }

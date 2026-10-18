@@ -25,19 +25,21 @@ func npmUserConfigPath() (string, error) {
 	return filepath.Join(home, ".npmrc"), nil
 }
 
-// bunUserConfigPath returns the file Bun reads instead of the npm user config:
-// $XDG_CONFIG_HOME/.npmrc when that file exists and no npm override is set.
-func bunUserConfigPath(npmPath string) string {
-	if os.Getenv("NPM_CONFIG_USERCONFIG") != "" || os.Getenv("npm_config_userconfig") != "" {
-		return npmPath
-	}
+// bunUserConfigPath returns the user file Bun reads. Bun doesn't read
+// NPM_CONFIG_USERCONFIG, and it prefers $XDG_CONFIG_HOME/.npmrc when that file
+// exists.
+func bunUserConfigPath() (string, error) {
 	if dir := os.Getenv("XDG_CONFIG_HOME"); dir != "" {
 		path := filepath.Join(dir, ".npmrc")
 		if _, err := os.Stat(path); err == nil {
-			return path
+			return path, nil
 		}
 	}
-	return npmPath
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".npmrc"), nil
 }
 
 // expandHome replaces a leading ~ with the home directory, as npm does for
@@ -99,12 +101,13 @@ func writeNpmrc(s *setup, helper string, flagKeys ...string) error {
 		return fmt.Errorf("--scope and --auth-only can't be used together")
 	}
 
-	path, err := npmUserConfigPath()
+	userConfigPath := npmUserConfigPath
+	if s.clientName == "bun" {
+		userConfigPath = bunUserConfigPath
+	}
+	path, err := userConfigPath()
 	if err != nil {
 		return err
-	}
-	if s.clientName == "bun" {
-		path = bunUserConfigPath(path)
 	}
 	data, err := readFileIfExists(path)
 	if err != nil {

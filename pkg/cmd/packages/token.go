@@ -12,7 +12,9 @@ import (
 var errNoToken = errors.New("no Depot token found: run `depot login` or set DEPOT_TOKEN")
 
 func NewCmdToken() *cobra.Command {
-	return &cobra.Command{
+	var bearer bool
+
+	cmd := &cobra.Command{
 		Use:    "token",
 		Short:  "Print the Depot token used by package manager credential helpers",
 		Hidden: true,
@@ -22,10 +24,16 @@ func NewCmdToken() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if bearer {
+				token = "Bearer " + token
+			}
 			fmt.Fprintln(cmd.OutOrStdout(), token)
 			return nil
 		},
 	}
+
+	cmd.Flags().BoolVar(&bearer, "bearer", false, "Print the token as a Bearer authorization value")
+	return cmd
 }
 
 func resolveToken() (string, error) {
