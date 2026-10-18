@@ -225,9 +225,18 @@ func setNetrcMachine(data []byte, machine, login, password string) ([]byte, erro
 	out.WriteString(text[kept:])
 
 	result := out.String()
+	entry := fmt.Sprintf("machine %s login %s password %s\n", machine, login, password)
+
+	// Clients stop searching at the default entry, so the new entry must come
+	// before it.
+	for _, token := range netrcTokens(result) {
+		if token.text == "default" {
+			return []byte(result[:token.start] + entry + result[token.start:]), nil
+		}
+	}
+
 	if result != "" && !strings.HasSuffix(result, "\n") {
 		result += "\n"
 	}
-	result += fmt.Sprintf("machine %s login %s password %s\n", machine, login, password)
-	return []byte(result), nil
+	return []byte(result + entry), nil
 }

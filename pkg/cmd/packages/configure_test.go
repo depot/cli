@@ -105,7 +105,7 @@ func TestSetNetrcMachine(t *testing.T) {
 	existing := "machine example.com\n  login a\n  # comment\n  password b\nmachine packages.depot.dev login depot password old\ndefault login anon password x\n"
 	out, err := setNetrcMachine([]byte(existing), "packages.depot.dev", "depot", "tok_new")
 	require.NoError(t, err)
-	require.Equal(t, "machine example.com\n  login a\n  # comment\n  password b\ndefault login anon password x\nmachine packages.depot.dev login depot password tok_new\n", string(out))
+	require.Equal(t, "machine example.com\n  login a\n  # comment\n  password b\nmachine packages.depot.dev login depot password tok_new\ndefault login anon password x\n", string(out))
 
 	out, err = setNetrcMachine([]byte("machine packages.depot.dev\nlogin depot\npassword old"), "packages.depot.dev", "depot", "tok_new")
 	require.NoError(t, err)
@@ -210,4 +210,29 @@ func TestWriteMambarcUndoesReplacement(t *testing.T) {
 	data, err := os.ReadFile(path)
 	require.NoError(t, err)
 	require.Equal(t, "channels:\n  - https://packages.depot.dev/org123/conda/conda-forge\n  - conda-forge\n", string(data))
+}
+
+func TestSetNetrcMachineBeforeDefault(t *testing.T) {
+	out, err := setNetrcMachine([]byte("machine example.com login a password b\ndefault login anon password x\n"), "packages.depot.dev", "depot", "tok")
+	require.NoError(t, err)
+	require.Equal(t, "machine example.com login a password b\nmachine packages.depot.dev login depot password tok\ndefault login anon password x\n", string(out))
+}
+
+func TestPackagesServerRejectsQuery(t *testing.T) {
+	for _, raw := range []string{"https://host/base?tenant=x", "https://host/base#x", "https://user:pass@host", "ftp://host"} {
+		t.Setenv("DEPOT_PACKAGES_URL", raw)
+		_, err := packagesServer()
+		require.Error(t, err, raw)
+	}
+}
+
+func TestRubyConfigListAcrossComments(t *testing.T) {
+	config := parseRubyConfig([]byte("---\n:sources:\n- \"https://a/\"\n# note\n\n- \"https://rubygems.org/\"\n:verbose: true\n"))
+	items, found, err := config.list(":sources")
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, []string{"https://a/", "https://rubygems.org/"}, items)
+
+	config.setList(":sources", []string{"https://a/"})
+	require.Equal(t, "---\n:sources:\n- \"https://a/\"\n:verbose: true\n", string(config.bytes()))
 }

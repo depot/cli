@@ -45,7 +45,8 @@ func packagesServer() (*url.URL, error) {
 	}
 
 	server, err := url.Parse(strings.TrimSuffix(raw, "/"))
-	if err != nil || server.Host == "" || (server.Scheme != "https" && server.Scheme != "http") {
+	if err != nil || server.Host == "" || (server.Scheme != "https" && server.Scheme != "http") ||
+		server.User != nil || server.RawQuery != "" || server.ForceQuery || server.Fragment != "" {
 		return nil, fmt.Errorf("invalid DEPOT_PACKAGES_URL %q", raw)
 	}
 	return server, nil

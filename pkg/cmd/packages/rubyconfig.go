@@ -63,14 +63,32 @@ func (c *rubyConfig) list(key string) (items []string, found bool, err error) {
 	if strings.TrimSpace(strings.TrimPrefix(c.lines[i], key+":")) != "" {
 		return nil, true, fmt.Errorf("%s isn't a block list", key)
 	}
-	for _, line := range c.lines[i+1:] {
-		item, ok := strings.CutPrefix(strings.TrimLeft(line, " "), "- ")
-		if !ok {
-			break
+	for _, line := range c.lines[i+1 : c.listEnd(i)] {
+		if item, ok := listItem(line); ok {
+			items = append(items, unquoteRubyValue(item))
 		}
-		items = append(items, unquoteRubyValue(strings.TrimSpace(item)))
 	}
 	return items, true, nil
+}
+
+// listEnd returns the index after the last item of the list that starts at
+// line i. Blank and comment lines between items belong to the list.
+func (c *rubyConfig) listEnd(i int) int {
+	end := i + 1
+	for j := i + 1; j < len(c.lines); j++ {
+		trimmed := strings.TrimSpace(c.lines[j])
+		if _, ok := listItem(c.lines[j]); ok {
+			end = j + 1
+		} else if trimmed != "" && !strings.HasPrefix(trimmed, "#") {
+			break
+		}
+	}
+	return end
+}
+
+func listItem(line string) (string, bool) {
+	item, ok := strings.CutPrefix(strings.TrimSpace(line), "- ")
+	return strings.TrimSpace(item), ok
 }
 
 func (c *rubyConfig) setList(key string, items []string) {
@@ -84,10 +102,7 @@ func (c *rubyConfig) setList(key string, items []string) {
 		c.lines = append(c.lines, block...)
 		return
 	}
-	end := i + 1
-	for end < len(c.lines) && strings.HasPrefix(strings.TrimLeft(c.lines[end], " "), "- ") {
-		end++
-	}
+	end := c.listEnd(i)
 	c.lines = append(c.lines[:i], append(block, c.lines[end:]...)...)
 }
 

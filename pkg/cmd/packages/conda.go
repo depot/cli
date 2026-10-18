@@ -246,6 +246,11 @@ func configurePixi(s *setup) error {
 	if err := s.runQuiet("pixi", "workspace", "channel", "add", "--prepend", s.repo.condaChannel()); err != nil {
 		return err
 	}
+	if s.replaceUpstreamExplicit && !s.replaceUpstream {
+		if err := s.runQuiet("pixi", "workspace", "channel", "add", "conda-forge"); err != nil {
+			return err
+		}
+	}
 	s.changes = append(s.changes, "Pixi workspace manifest")
 	return nil
 }
