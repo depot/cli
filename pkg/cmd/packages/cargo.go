@@ -64,7 +64,7 @@ func writeCargoConfig(s *setup, path string, provider []string) error {
 	}
 
 	registryTable := "registries." + cargoRegistryName
-	doc.removeTable(registryTable)
+	doc.removeTable("registries", cargoRegistryName)
 
 	values, err := doc.values()
 	if err != nil {
@@ -76,7 +76,7 @@ func writeCargoConfig(s *setup, path string, provider []string) error {
 
 	replacement, replaced := tomlLookup(values, "source", "crates-io", "replace-with")
 	if replaced && replacement == cargoRegistryName {
-		doc.removeTable("source.crates-io")
+		doc.removeTableKey([]string{"source", "crates-io"}, "replace-with")
 		values, err = doc.values()
 		if err != nil {
 			return err
@@ -96,7 +96,7 @@ func writeCargoConfig(s *setup, path string, provider []string) error {
 	case s.replaceUpstream && replaced:
 		return fmt.Errorf("%s already replaces crates.io with %q; remove that source replacement and rerun this command", path, replacement)
 	case s.replaceUpstream:
-		doc.appendTable("source.crates-io", [][2]string{{"replace-with", tomlString(cargoRegistryName)}})
+		doc.setTableKey([]string{"source", "crates-io"}, "replace-with", tomlString(cargoRegistryName))
 	default:
 		s.notef("Use the repository with `--registry %s`, or rerun with --replace-upstream if it includes crates.io.", cargoRegistryName)
 	}
@@ -119,7 +119,7 @@ func writeCargoCredentials(s *setup, path string) error {
 	}
 
 	registryTable := "registries." + cargoRegistryName
-	doc.removeTable(registryTable)
+	doc.removeTable("registries", cargoRegistryName)
 
 	values, err := doc.values()
 	if err != nil {

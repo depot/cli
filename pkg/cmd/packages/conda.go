@@ -233,14 +233,21 @@ func yamlStringSequence(values []string, style yaml.Style) *yaml.Node {
 }
 
 func configurePixi(s *setup) error {
-	if err := s.runQuiet("pixi", "auth", "login", s.repo.hostname(), "--token", s.token); err != nil {
+	if err := writePixiCredentials(s); err != nil {
 		return err
 	}
-	s.changes = append(s.changes, "Pixi credential store")
 
 	if s.replaceUpstream {
-		for _, channel := range condaUpstreamChannels {
-			_ = s.runQuiet("pixi", "workspace", "channel", "remove", channel)
+		channels, err := pixiChannels(s)
+		if err != nil {
+			return err
+		}
+		for _, channel := range channels {
+			if slices.Contains(condaUpstreamChannels, strings.TrimSuffix(channel, "/")) {
+				if err := s.runQuiet("pixi", "workspace", "channel", "remove", channel); err != nil {
+					return err
+				}
+			}
 		}
 	}
 	if err := s.runQuiet("pixi", "workspace", "channel", "add", "--prepend", s.repo.condaChannel()); err != nil {
@@ -253,4 +260,62 @@ func configurePixi(s *setup) error {
 	}
 	s.changes = append(s.changes, "Pixi workspace manifest")
 	return nil
+}
+
+// pixiChannels returns the channels of the default environment.
+func pixiChannels(s *setup) ([]string, error) {
+	out, err := exec.CommandContext(s.ctx, "pixi", "workspace", "channel", "list").Output()
+	if err != nil {
+		return nil, fmt.Errorf("could not list the Pixi workspace channels: %w", err)
+	}
+	var channels []string
+	inDefault := false
+	for _, line := range strings.Split(string(out), "\n") {
+		line = strings.TrimSpace(line)
+		if environment, ok := strings.CutPrefix(line, "Environment:"); ok {
+			inDefault = strings.TrimSpace(environment) == "default"
+			continue
+		}
+		if channel, ok := strings.CutPrefix(line, "- "); ok && inDefault {
+			channels = append(channels, strings.TrimSpace(channel))
+		}
+	}
+	return channels, nil
+}
+
+// writePixiCredentials saves the token in the credential file Pixi reads, so
+// the token never appears in a command line. It first removes a stored
+// keyring entry for the host, which Pixi would otherwise use instead.
+func writePixiCredentials(s *setup) error {
+	host := s.repo.hostname()
+	if err := s.runQuiet("pixi", "auth", "logout", host); err != nil && !strings.Contains(err.Error(), "No stored credentials") {
+		return err
+	}
+
+	path := os.Getenv("RATTLER_AUTH_FILE")
+	if path == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return err
+		}
+		path = filepath.Join(home, ".rattler", "credentials.json")
+	}
+
+	data, err := readFileIfExists(path)
+	if err != nil {
+		return err
+	}
+	entries := map[string]any{}
+	if len(bytes.TrimSpace(data)) > 0 {
+		if err := json.Unmarshal(data, &entries); err != nil {
+			return fmt.Errorf("could not parse %s: %w", path, err)
+		}
+	}
+	entries[host] = map[string]string{"BearerToken": s.token}
+
+	out, err := json.Marshal(entries)
+	if err != nil {
+		return err
+	}
+	return s.writeFile(path, out, 0600)
 }

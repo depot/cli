@@ -309,3 +309,39 @@ func TestNpmUserConfigPathExpandsHome(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, filepath.Join(home, ".npmrc-custom"), path)
 }
+
+func TestWriteCargoConfigKeepsQuotedDottedTable(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	require.NoError(t, os.WriteFile(path, []byte("[\"registries.depot\"]\nx = 1\n"), 0644))
+
+	s := newTestSetup(t, "cargo", "internal")
+	require.NoError(t, writeCargoConfig(s, path, []string{"cargo:token"}))
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.True(t, strings.HasPrefix(string(data), "[\"registries.depot\"]\nx = 1\n\n[registries.depot]\n"))
+}
+
+func TestWriteCargoConfigUpdatesExistingSourceTable(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	require.NoError(t, os.WriteFile(path, []byte("[source.crates-io]\n# note\nregistry = \"sparse+https://index.crates.io/\"\n"), 0644))
+
+	s := newTestSetup(t, "cargo", "crates-io")
+	s.replaceUpstream = true
+	require.NoError(t, writeCargoConfig(s, path, []string{"cargo:token"}))
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.True(t, strings.HasPrefix(string(data), "[source.crates-io]\nreplace-with = \"depot\"\n# note\nregistry = \"sparse+https://index.crates.io/\"\n"), string(data))
+	require.Equal(t, 1, strings.Count(string(data), "[source.crates-io]"))
+
+	s.replaceUpstream = false
+	require.NoError(t, writeCargoConfig(s, path, []string{"cargo:token"}))
+	data, err = os.ReadFile(path)
+	require.NoError(t, err)
+	require.True(t, strings.HasPrefix(string(data), "[source.crates-io]\n# note\nregistry = \"sparse+https://index.crates.io/\"\n"), string(data))
+}
+
+func TestSetNetrcMachineMatchesQuotedName(t *testing.T) {
+	out, err := setNetrcMachine([]byte("machine \"packages.depot.dev\" login depot password old\n"), "packages.depot.dev", "depot", "tok")
+	require.NoError(t, err)
+	require.Equal(t, "machine packages.depot.dev login depot password tok\n", string(out))
+}

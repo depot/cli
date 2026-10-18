@@ -204,6 +204,23 @@ func (t netrcToken) is(keyword string) bool {
 	return t.keyword && t.text == keyword
 }
 
+// value decodes a quoted token, in which a backslash escapes the next
+// character.
+func (t netrcToken) value() string {
+	if len(t.text) < 2 || t.text[0] != '"' {
+		return t.text
+	}
+	var value strings.Builder
+	inner := strings.TrimSuffix(t.text[1:], `"`)
+	for i := 0; i < len(inner); i++ {
+		if inner[i] == '\\' && i+1 < len(inner) {
+			i++
+		}
+		value.WriteByte(inner[i])
+	}
+	return value.String()
+}
+
 // setNetrcMachine replaces the entry for machine and keeps the rest of the
 // file, including comments and formatting, unchanged.
 func setNetrcMachine(data []byte, machine, login, password string) ([]byte, error) {
@@ -222,7 +239,7 @@ func setNetrcMachine(data []byte, machine, login, password string) ([]byte, erro
 	var out strings.Builder
 	kept := 0
 	for i := 0; i < len(tokens); i++ {
-		if !tokens[i].is("machine") || i+1 >= len(tokens) || tokens[i+1].text != machine {
+		if !tokens[i].is("machine") || i+1 >= len(tokens) || tokens[i+1].value() != machine {
 			continue
 		}
 		last := i + 1

@@ -2,13 +2,14 @@ package packages
 
 import (
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
 	"github.com/pelletier/go-toml/v2"
 )
 
-// tomlDocument edits whole tables in a TOML file as text, so comments and
+// tomlDocument edits tables and keys in a TOML file as text, so comments and
 // formatting elsewhere in the file are preserved.
 type tomlDocument struct {
 	lines []string
@@ -28,39 +29,112 @@ func parseTOMLDocument(data []byte) (*tomlDocument, error) {
 	return &tomlDocument{lines: strings.Split(text, "\n")}, nil
 }
 
-func tomlHeader(line string) (string, bool) {
+// tomlHeader returns the key parts of a table header line. A quoted part can
+// contain dots.
+func tomlHeader(line string) ([]string, bool) {
 	trimmed := strings.TrimSpace(line)
 	if !strings.HasPrefix(trimmed, "[") || strings.HasPrefix(trimmed, "[[") {
-		return "", false
+		return nil, false
 	}
-	end := strings.Index(trimmed, "]")
-	if end < 0 {
-		return "", false
-	}
+
 	var parts []string
-	for _, part := range strings.Split(trimmed[1:end], ".") {
-		parts = append(parts, strings.Trim(strings.TrimSpace(part), `"'`))
+	var part strings.Builder
+	var quote byte
+	for i := 1; i < len(trimmed); i++ {
+		c := trimmed[i]
+		switch {
+		case quote != 0 && c == '\\' && quote == '"' && i+1 < len(trimmed):
+			i++
+			part.WriteByte(trimmed[i])
+		case quote != 0 && c == quote:
+			quote = 0
+		case quote != 0:
+			part.WriteByte(c)
+		case c == '"' || c == '\'':
+			quote = c
+		case c == '.' || c == ']':
+			parts = append(parts, strings.TrimSpace(part.String()))
+			part.Reset()
+			if c == ']' {
+				return parts, true
+			}
+		default:
+			part.WriteByte(c)
+		}
 	}
-	return strings.Join(parts, "."), true
+	return nil, false
 }
 
 func isTOMLTableStart(line string) bool {
 	return strings.HasPrefix(strings.TrimSpace(line), "[")
 }
 
-func (d *tomlDocument) removeTable(name string) {
-	var lines []string
-	skipping := false
-	for _, line := range d.lines {
-		if isTOMLTableStart(line) {
-			header, _ := tomlHeader(line)
-			skipping = header == name
+// tableRange returns the line range of the table, from its header to the
+// line before the next table, or ok false when the file doesn't have it.
+func (d *tomlDocument) tableRange(table []string) (start, end int, ok bool) {
+	start = -1
+	for i, line := range d.lines {
+		if !isTOMLTableStart(line) {
+			continue
 		}
-		if !skipping {
-			lines = append(lines, line)
+		if start >= 0 {
+			return start, i, true
+		}
+		if header, _ := tomlHeader(line); slices.Equal(header, table) {
+			start = i
 		}
 	}
-	d.lines = lines
+	return start, len(d.lines), start >= 0
+}
+
+func (d *tomlDocument) removeTable(table ...string) {
+	if start, end, ok := d.tableRange(table); ok {
+		d.lines = append(d.lines[:start], d.lines[end:]...)
+	}
+}
+
+func tomlKeyLine(line, key string) bool {
+	name, _, found := strings.Cut(line, "=")
+	return found && strings.Trim(strings.TrimSpace(name), `"'`) == key
+}
+
+// setTableKey sets key in the table's own section, and adds the table when
+// the file doesn't have it.
+func (d *tomlDocument) setTableKey(table []string, key, value string) {
+	entry := key + " = " + value
+	start, end, ok := d.tableRange(table)
+	if !ok {
+		d.appendTable(strings.Join(table, "."), [][2]string{{key, value}})
+		return
+	}
+	for i := start + 1; i < end; i++ {
+		if tomlKeyLine(d.lines[i], key) {
+			d.lines[i] = entry
+			return
+		}
+	}
+	d.lines = append(d.lines[:start+1], append([]string{entry}, d.lines[start+1:]...)...)
+}
+
+// removeTableKey removes key from the table's section, and removes the table
+// when no other keys remain.
+func (d *tomlDocument) removeTableKey(table []string, key string) {
+	start, end, ok := d.tableRange(table)
+	if !ok {
+		return
+	}
+	empty := true
+	for i := end - 1; i > start; i-- {
+		trimmed := strings.TrimSpace(d.lines[i])
+		if tomlKeyLine(d.lines[i], key) {
+			d.lines = append(d.lines[:i], d.lines[i+1:]...)
+		} else if trimmed != "" && !strings.HasPrefix(trimmed, "#") {
+			empty = false
+		}
+	}
+	if empty {
+		d.removeTable(table...)
+	}
 }
 
 func (d *tomlDocument) appendTable(name string, entries [][2]string) {
