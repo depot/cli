@@ -121,7 +121,7 @@ func TestWriteMambarc(t *testing.T) {
 
 	s := newTestSetup(t, "conda", "conda-forge")
 	s.replaceUpstream = true
-	require.NoError(t, writeMambarc(s, path))
+	require.NoError(t, writeMambarc(s, path, isCondaUpstream))
 
 	data, err := os.ReadFile(path)
 	require.NoError(t, err)
@@ -205,7 +205,7 @@ func TestWriteMambarcUndoesReplacement(t *testing.T) {
 
 	s := newTestSetup(t, "conda", "conda-forge")
 	s.replaceUpstreamExplicit = true
-	require.NoError(t, writeMambarc(s, path))
+	require.NoError(t, writeMambarc(s, path, isCondaUpstream))
 
 	data, err := os.ReadFile(path)
 	require.NoError(t, err)
@@ -423,4 +423,34 @@ func TestWriteCargoConfigRejectsOtherRegistry(t *testing.T) {
 
 	s := newTestSetup(t, "cargo", "internal")
 	require.ErrorContains(t, writeCargoConfig(s, path, []string{"cargo:token"}), "already defines")
+}
+
+func TestNewRepositoryAcceptsUnderscoreOrgID(t *testing.T) {
+	t.Setenv("DEPOT_PACKAGES_URL", "")
+	_, err := newRepository("org_1a2b3c4d", "npm", "team")
+	require.NoError(t, err)
+}
+
+func TestWriteCargoConfigRejectsInlineSourceTable(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	require.NoError(t, os.WriteFile(path, []byte("[source]\ncrates-io = { registry = \"sparse+https://index.crates.io/\" }\n"), 0644))
+
+	s := newTestSetup(t, "cargo", "crates-io")
+	s.replaceUpstream = true
+	require.ErrorContains(t, writeCargoConfig(s, path, []string{"cargo:token"}), "can't update")
+}
+
+func TestWriteCargoConfigRejectsIndexEnvironmentOverride(t *testing.T) {
+	t.Setenv("CARGO_REGISTRIES_DEPOT_INDEX", "sparse+https://other.example/index/")
+	s := newTestSetup(t, "cargo", "internal")
+	require.ErrorContains(t, writeCargoConfig(s, filepath.Join(t.TempDir(), "config.toml"), []string{"cargo:token"}), "CARGO_REGISTRIES_DEPOT_INDEX")
+}
+
+func TestWriteNpmrcRejectsBunTokenOverride(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", "")
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("BUN_CONFIG_TOKEN", "other")
+	s := newTestSetup(t, "npm", "npmjs")
+	s.clientName = "bun"
+	require.ErrorContains(t, writeNpmrc(s, ""), "BUN_CONFIG_TOKEN")
 }

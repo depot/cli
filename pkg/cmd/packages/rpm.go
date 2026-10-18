@@ -130,8 +130,16 @@ gpgkey=%s
 		return err
 	}
 
-	_, err = s.runPrivileged(nil, "rpm", "--import", repo.key)
-	return err
+	// Keys in RPM's database verify packages, so setup imports only a package
+	// key. zypper asks the user to trust Depot's metadata key on refresh.
+	if repo.packageCheck == "1" {
+		if _, err := s.runPrivileged(nil, "rpm", "--import", repo.key); err != nil {
+			return err
+		}
+	} else {
+		s.notef("Run `sudo zypper refresh %s` and confirm the repository key when zypper asks.", repo.id)
+	}
+	return nil
 }
 
 func fileURL(path string) string {

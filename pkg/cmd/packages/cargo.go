@@ -92,6 +92,9 @@ func writeCargoConfig(s *setup, path string, provider []string) error {
 	}
 
 	registryTable := "registries." + cargoRegistryName
+	if index := os.Getenv("CARGO_REGISTRIES_DEPOT_INDEX"); index != "" && index != "sparse+"+s.repo.url()+"index/" {
+		return fmt.Errorf("CARGO_REGISTRIES_DEPOT_INDEX is set to %s, which overrides the index in %s: unset it, then rerun this command", index, path)
+	}
 	existing, err := doc.values()
 	if err != nil {
 		return err
@@ -133,6 +136,11 @@ func writeCargoConfig(s *setup, path string, provider []string) error {
 	case s.replaceUpstream && replaced:
 		return fmt.Errorf("%s already replaces crates.io with %q; remove that source replacement and rerun this command", path, replacement)
 	case s.replaceUpstream:
+		if _, defined := tomlLookup(values, "source", "crates-io"); defined {
+			if _, _, hasTable := doc.tableRange([]string{"source", "crates-io"}); !hasTable {
+				return errUnmanagedTOML(path, "source.crates-io")
+			}
+		}
 		doc.setTableKey([]string{"source", "crates-io"}, "replace-with", tomlString(cargoRegistryName))
 	default:
 		s.notef("Use the repository with `--registry %s`, or rerun with --replace-upstream if it includes crates.io.", cargoRegistryName)

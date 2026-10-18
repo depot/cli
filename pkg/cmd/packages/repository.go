@@ -11,7 +11,7 @@ import (
 const defaultPackagesURL = "https://packages.depot.dev"
 
 var (
-	orgIDPattern          = regexp.MustCompile(`^[A-Za-z0-9]+$`)
+	orgIDPattern          = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 	repositoryNamePattern = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9]|-[a-z0-9]){0,63}$`)
 )
 

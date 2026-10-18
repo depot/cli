@@ -127,6 +127,14 @@ func writeNpmrc(s *setup, helper string, flagKeys ...string) error {
 		}
 	}
 
+	if s.clientName == "bun" {
+		for _, name := range []string{"BUN_CONFIG_TOKEN", "NPM_CONFIG_TOKEN"} {
+			if value := os.Getenv(name); value != "" && value != s.token {
+				return fmt.Errorf("%s is set, and Bun sends it instead of the token in %s: unset it, then rerun this command", name, path)
+			}
+		}
+	}
+
 	if !s.opts.authOnly {
 		key := "registry"
 		if s.opts.scope != "" {

@@ -30,6 +30,37 @@ func isCondaUpstream(channel string) bool {
 	return slices.Contains(condaUpstreamChannels, strings.TrimSuffix(channel, "/"))
 }
 
+// mambaUpstreamFilter returns a check for public upstream channels that takes
+// channel_alias and custom_channels into account, because they can point a
+// channel name such as conda-forge at a private mirror.
+func mambaUpstreamFilter(s *setup) func(string) bool {
+	out, err := exec.CommandContext(s.ctx, s.clientName, "config", "list", "channel_alias", "custom_channels", "--json").Output()
+	if err != nil {
+		return isCondaUpstream
+	}
+	var config struct {
+		ChannelAlias   string            `json:"channel_alias"`
+		CustomChannels map[string]string `json:"custom_channels"`
+	}
+	if err := json.Unmarshal(out, &config); err != nil {
+		return isCondaUpstream
+	}
+	aliased := config.ChannelAlias != "" && strings.TrimSuffix(config.ChannelAlias, "/") != "https://conda.anaconda.org"
+
+	return func(channel string) bool {
+		if !isCondaUpstream(channel) {
+			return false
+		}
+		if strings.Contains(channel, "://") || channel == "defaults" {
+			return true
+		}
+		if _, ok := config.CustomChannels[channel]; ok {
+			return false
+		}
+		return !aliased
+	}
+}
+
 func (r repository) condaChannel() string {
 	return strings.TrimSuffix(r.url(), "/")
 }
@@ -49,11 +80,12 @@ func configureMamba(s *setup) error {
 		return err
 	}
 	path := mambaConfigPath(home)
-	if err := writeMambarc(s, path); err != nil {
+	isUpstream := mambaUpstreamFilter(s)
+	if err := writeMambarc(s, path, isUpstream); err != nil {
 		return err
 	}
 	if s.replaceUpstream {
-		return checkMambaUpstreamChannels(s, path, home)
+		return checkMambaUpstreamChannels(s, path, home, isUpstream)
 	}
 	return nil
 }
@@ -82,7 +114,7 @@ func isMambaConfigName(name string) bool {
 // files. The client combines channel lists from all of its files, so editing
 // one file can't remove them. It runs after the file is updated because the
 // client reports a duplicate channel only for the first file listing it.
-func checkMambaUpstreamChannels(s *setup, path, home string) error {
+func checkMambaUpstreamChannels(s *setup, path, home string, isUpstream func(string) bool) error {
 	out, err := exec.CommandContext(s.ctx, s.clientName, "config", "list", "channels", "--sources", "--json").Output()
 	if err != nil {
 		s.notef("Could not check the other %s configuration files for upstream channels: %v.", s.clientName, err)
@@ -105,7 +137,7 @@ func checkMambaUpstreamChannels(s *setup, path, home string) error {
 		if i >= len(config.Channels.Source) || filepath.Clean(expandHome(config.Channels.Source[i], home)) == filepath.Clean(path) {
 			continue
 		}
-		if isCondaUpstream(value) {
+		if isUpstream(value) {
 			found = append(found, fmt.Sprintf("%s in %s", value, config.Channels.Source[i]))
 		}
 	}
@@ -161,7 +193,7 @@ func writeMambaAuthentication(s *setup, path string) error {
 	return s.writeFile(path, append(out, '\n'), 0600)
 }
 
-func writeMambarc(s *setup, path string) error {
+func writeMambarc(s *setup, path string, isUpstream func(string) bool) error {
 	data, err := readFileIfExists(path)
 	if err != nil {
 		return err
@@ -187,7 +219,7 @@ func writeMambarc(s *setup, path string) error {
 		}
 		for _, item := range existing.Content {
 			name := strings.TrimSuffix(item.Value, "/")
-			if name == channel || (s.replaceUpstream && isCondaUpstream(name)) {
+			if name == channel || (s.replaceUpstream && isUpstream(name)) {
 				continue
 			}
 			channels = append(channels, item.Value)
