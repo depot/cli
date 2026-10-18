@@ -345,3 +345,14 @@ func TestSetNetrcMachineMatchesQuotedName(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "machine packages.depot.dev login depot password tok\n", string(out))
 }
+
+func TestBunUserConfigPathPrefersExistingXDGFile(t *testing.T) {
+	xdg := t.TempDir()
+	t.Setenv("NPM_CONFIG_USERCONFIG", "")
+	t.Setenv("npm_config_userconfig", "")
+	t.Setenv("XDG_CONFIG_HOME", xdg)
+	require.Equal(t, "/home/me/.npmrc", bunUserConfigPath("/home/me/.npmrc"))
+
+	require.NoError(t, os.WriteFile(filepath.Join(xdg, ".npmrc"), nil, 0600))
+	require.Equal(t, filepath.Join(xdg, ".npmrc"), bunUserConfigPath("/home/me/.npmrc"))
+}

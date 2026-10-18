@@ -25,6 +25,21 @@ func npmUserConfigPath() (string, error) {
 	return filepath.Join(home, ".npmrc"), nil
 }
 
+// bunUserConfigPath returns the file Bun reads instead of the npm user config:
+// $XDG_CONFIG_HOME/.npmrc when that file exists and no npm override is set.
+func bunUserConfigPath(npmPath string) string {
+	if os.Getenv("NPM_CONFIG_USERCONFIG") != "" || os.Getenv("npm_config_userconfig") != "" {
+		return npmPath
+	}
+	if dir := os.Getenv("XDG_CONFIG_HOME"); dir != "" {
+		path := filepath.Join(dir, ".npmrc")
+		if _, err := os.Stat(path); err == nil {
+			return path
+		}
+	}
+	return npmPath
+}
+
 // expandHome replaces a leading ~ with the home directory, as npm does for
 // paths in its configuration.
 func expandHome(path, home string) string {
@@ -87,6 +102,9 @@ func writeNpmrc(s *setup, helper string, flagKeys ...string) error {
 	path, err := npmUserConfigPath()
 	if err != nil {
 		return err
+	}
+	if s.clientName == "bun" {
+		path = bunUserConfigPath(path)
 	}
 	data, err := readFileIfExists(path)
 	if err != nil {
