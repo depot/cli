@@ -22,7 +22,7 @@ func configureApt(s *setup) error {
 	release := osRelease()
 	suite := s.opts.suite
 	if suite == "" {
-		suite = release["VERSION_CODENAME"]
+		suite = defaultAptSuite(s.repo.name, release["VERSION_CODENAME"])
 	}
 	if suite == "" {
 		return fmt.Errorf("could not detect the distribution suite: specify --suite, such as --suite bookworm")
@@ -75,6 +75,15 @@ func configureApt(s *setup) error {
 
 	s.notef("Run `sudo apt-get update` to load the repository. Existing APT sources are unchanged; disable direct upstream entries if all downloads should use Depot.")
 	return nil
+}
+
+// defaultAptSuite adds the -security suffix for Debian's security archive,
+// which publishes each release under <codename>-security.
+func defaultAptSuite(repositoryName, codename string) string {
+	if codename != "" && repositoryName == "debian-security" {
+		return codename + "-security"
+	}
+	return codename
 }
 
 func aptUpstreamKeyring(repositoryName, distribution string) (string, error) {

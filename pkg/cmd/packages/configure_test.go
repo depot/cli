@@ -102,10 +102,14 @@ func TestWriteCargoConfigRejectsInlineRegistry(t *testing.T) {
 }
 
 func TestSetNetrcMachine(t *testing.T) {
-	existing := "machine example.com\n  login a\n  password b\nmachine packages.depot.dev login depot password old\ndefault login anon password x\n"
+	existing := "machine example.com\n  login a\n  # comment\n  password b\nmachine packages.depot.dev login depot password old\ndefault login anon password x\n"
 	out, err := setNetrcMachine([]byte(existing), "packages.depot.dev", "depot", "tok_new")
 	require.NoError(t, err)
-	require.Equal(t, "machine example.com login a password b\ndefault login anon password x\nmachine packages.depot.dev login depot password tok_new\n", string(out))
+	require.Equal(t, "machine example.com\n  login a\n  # comment\n  password b\ndefault login anon password x\nmachine packages.depot.dev login depot password tok_new\n", string(out))
+
+	out, err = setNetrcMachine([]byte("machine packages.depot.dev\nlogin depot\npassword old"), "packages.depot.dev", "depot", "tok_new")
+	require.NoError(t, err)
+	require.Equal(t, "machine packages.depot.dev login depot password tok_new\n", string(out))
 
 	_, err = setNetrcMachine([]byte("macdef init\n"), "packages.depot.dev", "depot", "tok")
 	require.Error(t, err)
@@ -145,4 +149,10 @@ func TestAlpineBranch(t *testing.T) {
 	require.Equal(t, "edge", alpineBranch("", "3.23.0_alpha20251016\n"))
 	require.Equal(t, "v3.21", alpineBranch("", "3.21.4\n"))
 	require.Equal(t, "", alpineBranch("", ""))
+}
+
+func TestDefaultAptSuite(t *testing.T) {
+	require.Equal(t, "bookworm", defaultAptSuite("debian", "bookworm"))
+	require.Equal(t, "bookworm-security", defaultAptSuite("debian-security", "bookworm"))
+	require.Equal(t, "", defaultAptSuite("debian-security", ""))
 }

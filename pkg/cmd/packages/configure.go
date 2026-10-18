@@ -72,17 +72,17 @@ var clientSpecificFlags = []string{"replace-upstream", "scope", "auth-only", "su
 var helperClients = []string{"pnpm", "cargo"}
 
 type setup struct {
-	ctx             context.Context
-	clientName      string
-	repo            repository
-	token           string
-	opts            options
-	store           bool
-	replaceUpstream bool
-	changes         []string
-	notes           []string
-
-	elevationNoticeShown bool
+	ctx                     context.Context
+	clientName              string
+	repo                    repository
+	token                   string
+	opts                    options
+	store                   bool
+	replaceUpstream         bool
+	replaceUpstreamExplicit bool
+	changes                 []string
+	notes                   []string
+	elevationNoticeShown    bool
 }
 
 func (s *setup) changedFile(path string) {
@@ -186,13 +186,14 @@ func runConfigure(cmd *cobra.Command, clientName string, opts options) error {
 	}
 
 	s := &setup{
-		ctx:             cmd.Context(),
-		clientName:      clientName,
-		repo:            repo,
-		token:           token,
-		opts:            opts,
-		store:           opts.auth == authStore || !slices.Contains(helperClients, clientName),
-		replaceUpstream: replaceUpstream,
+		ctx:                     cmd.Context(),
+		clientName:              clientName,
+		repo:                    repo,
+		token:                   token,
+		opts:                    opts,
+		store:                   opts.auth == authStore || !slices.Contains(helperClients, clientName),
+		replaceUpstream:         replaceUpstream,
+		replaceUpstreamExplicit: flags.Changed("replace-upstream"),
 	}
 
 	if err := c.configure(s); err != nil {

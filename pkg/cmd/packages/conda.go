@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -30,7 +31,56 @@ func configureMamba(s *setup) error {
 	if err := writeMambaAuthentication(s, filepath.Join(home, ".mamba", "auth", "authentication.json")); err != nil {
 		return err
 	}
-	return writeMambarc(s, filepath.Join(home, ".mambarc"))
+	if err := writeMambarc(s, filepath.Join(home, ".mambarc")); err != nil {
+		return err
+	}
+	if s.replaceUpstream {
+		return checkMambaUpstreamChannels(s)
+	}
+	return nil
+}
+
+// checkMambaUpstreamChannels finds upstream channels in other configuration
+// files. The client combines channel lists from all of its files, so editing
+// ~/.mambarc can't remove them. It runs after ~/.mambarc is updated because
+// the client reports a duplicate channel only for the first file listing it.
+func checkMambaUpstreamChannels(s *setup) error {
+	out, err := exec.CommandContext(s.ctx, s.clientName, "config", "list", "channels", "--sources", "--json").Output()
+	if err != nil {
+		s.notef("Could not check the other %s configuration files for upstream channels: %v.", s.clientName, err)
+		return nil
+	}
+
+	var config struct {
+		Channels struct {
+			Source []string `json:"source"`
+			Value  []string `json:"value"`
+		} `json:"channels"`
+	}
+	if err := json.Unmarshal(out, &config); err != nil {
+		s.notef("Could not check the other %s configuration files for upstream channels: %v.", s.clientName, err)
+		return nil
+	}
+
+	var found []string
+	for i, value := range config.Channels.Value {
+		if i >= len(config.Channels.Source) || config.Channels.Source[i] == "~/.mambarc" {
+			continue
+		}
+		if slices.Contains(condaUpstreamChannels, strings.TrimSuffix(value, "/")) {
+			found = append(found, fmt.Sprintf("%s in %s", value, config.Channels.Source[i]))
+		}
+	}
+	if len(found) == 0 {
+		return nil
+	}
+
+	message := fmt.Sprintf("%s still downloads directly from upstream channels listed in other configuration files: %s", s.clientName, strings.Join(found, ", "))
+	if s.replaceUpstreamExplicit {
+		return fmt.Errorf("~/.mambarc is updated, but %s. Remove those channels and rerun this command, or rerun with --replace-upstream=false", message)
+	}
+	s.notef("%s. Remove those channels to download all packages through the repository.", message)
+	return nil
 }
 
 func writeMambaAuthentication(s *setup, path string) error {

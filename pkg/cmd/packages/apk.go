@@ -152,32 +152,82 @@ func requireApkNetrcSupport(s *setup) error {
 	return nil
 }
 
-// setNetrcMachine replaces the entry for machine and keeps all other entries.
+type netrcToken struct {
+	text  string
+	start int
+}
+
+// netrcTokens splits a .netrc file into tokens with their byte offsets. A
+// token that starts with # begins a comment that runs to the end of the line.
+func netrcTokens(data string) []netrcToken {
+	var tokens []netrcToken
+	for i := 0; i < len(data); {
+		switch {
+		case data[i] == ' ' || data[i] == '\t' || data[i] == '\r' || data[i] == '\n':
+			i++
+		case data[i] == '#':
+			for i < len(data) && data[i] != '\n' {
+				i++
+			}
+		case data[i] == '"':
+			start := i
+			i++
+			for i < len(data) && data[i] != '"' {
+				if data[i] == '\\' {
+					i++
+				}
+				i++
+			}
+			i++
+			tokens = append(tokens, netrcToken{text: data[start:min(i, len(data))], start: start})
+		default:
+			start := i
+			for i < len(data) && !strings.ContainsRune(" \t\r\n", rune(data[i])) {
+				i++
+			}
+			tokens = append(tokens, netrcToken{text: data[start:i], start: start})
+		}
+	}
+	return tokens
+}
+
+// setNetrcMachine replaces the entry for machine and keeps the rest of the
+// file, including comments and formatting, unchanged.
 func setNetrcMachine(data []byte, machine, login, password string) ([]byte, error) {
-	if strings.ContainsAny(password, " \t\n\"") {
+	if strings.ContainsAny(password, " \t\n\"#") {
 		return nil, fmt.Errorf("the token contains characters .netrc can't store")
 	}
 
-	fields := strings.Fields(string(data))
-	var entries [][]string
-	for _, field := range fields {
-		if field == "macdef" {
+	text := string(data)
+	tokens := netrcTokens(text)
+	for _, token := range tokens {
+		if token.text == "macdef" {
 			return nil, fmt.Errorf("macdef entries aren't supported")
 		}
-		if field == "machine" || field == "default" || len(entries) == 0 {
-			entries = append(entries, nil)
-		}
-		entries[len(entries)-1] = append(entries[len(entries)-1], field)
 	}
 
 	var out strings.Builder
-	for _, entry := range entries {
-		if len(entry) >= 2 && entry[0] == "machine" && entry[1] == machine {
+	kept := 0
+	for i := 0; i < len(tokens); i++ {
+		if tokens[i].text != "machine" || i+1 >= len(tokens) || tokens[i+1].text != machine {
 			continue
 		}
-		out.WriteString(strings.Join(entry, " "))
-		out.WriteString("\n")
+		end := len(text)
+		for j := i + 2; j < len(tokens); j++ {
+			if tokens[j].text == "machine" || tokens[j].text == "default" {
+				end = tokens[j].start
+				break
+			}
+		}
+		out.WriteString(text[kept:tokens[i].start])
+		kept = end
 	}
-	fmt.Fprintf(&out, "machine %s login %s password %s\n", machine, login, password)
-	return []byte(out.String()), nil
+	out.WriteString(text[kept:])
+
+	result := out.String()
+	if result != "" && !strings.HasSuffix(result, "\n") {
+		result += "\n"
+	}
+	result += fmt.Sprintf("machine %s login %s password %s\n", machine, login, password)
+	return []byte(result), nil
 }
