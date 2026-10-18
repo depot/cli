@@ -137,10 +137,7 @@ func writeNpmrc(s *setup, helper string, flagKeys ...string) error {
 	}
 
 	if !s.opts.authOnly {
-		key := "registry"
-		if s.opts.scope != "" {
-			key = s.opts.scope + ":registry"
-		}
+		key := registryKey(s)
 		if previous, ok := rc.get(key); ok && previous != s.repo.url() {
 			s.notef("Replaced %s=%s in %s.", key, previous, path)
 		}
@@ -149,6 +146,13 @@ func writeNpmrc(s *setup, helper string, flagKeys ...string) error {
 
 	tokenKey := s.repo.nerfDart() + ":_authToken"
 	helperKey := s.repo.nerfDart() + ":tokenHelper"
+	managed := []string{tokenKey, helperKey}
+	if !s.opts.authOnly {
+		managed = append(managed, registryKey(s))
+	}
+	if err := checkProjectNpmrc(path, managed, s.repo.url()); err != nil {
+		return err
+	}
 	if helper != "" {
 		rc.remove(tokenKey)
 		rc.set(helperKey, helper)
@@ -161,4 +165,55 @@ func writeNpmrc(s *setup, helper string, flagKeys ...string) error {
 	}
 
 	return s.writeFile(path, rc.bytes(), 0600)
+}
+
+func registryKey(s *setup) string {
+	if s.opts.scope != "" {
+		return s.opts.scope + ":registry"
+	}
+	return "registry"
+}
+
+// checkProjectNpmrc rejects a project .npmrc that sets one of the managed keys
+// to another value, because project settings take precedence over the user
+// configuration. The project directory is the nearest directory with a
+// package.json or node_modules, as npm determines it.
+func checkProjectNpmrc(userPath string, keys []string, registry string) error {
+	dir, err := os.Getwd()
+	if err != nil {
+		return nil
+	}
+	project := dir
+	for current := dir; ; current = filepath.Dir(current) {
+		if fileExists(filepath.Join(current, "package.json")) || fileExists(filepath.Join(current, "node_modules")) {
+			project = current
+			break
+		}
+		if filepath.Dir(current) == current {
+			break
+		}
+	}
+
+	path := filepath.Join(project, ".npmrc")
+	if sameFile(path, userPath) {
+		return nil
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	rc := parseNpmrc(data)
+	for _, key := range keys {
+		value, ok := rc.get(key)
+		if !ok || (strings.HasSuffix(key, "registry") && strings.TrimSuffix(value, "/") == strings.TrimSuffix(registry, "/")) {
+			continue
+		}
+		return fmt.Errorf("%s sets %s, which takes precedence over %s in this project: remove that setting, then rerun this command", path, key, userPath)
+	}
+	return nil
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }

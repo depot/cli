@@ -12,10 +12,13 @@ import (
 	"strings"
 )
 
-const (
-	rubygemsUpstream = "https://rubygems.org/"
-	gemKeyName       = "depot"
-)
+const rubygemsUpstream = "https://rubygems.org/"
+
+// gemKeyName names the push credential per repository, because RubyGems key
+// names are shared across all gem servers and "depot" may already be in use.
+func (r repository) gemKeyName() string {
+	return "depot-" + r.org + "-" + r.name
+}
 
 var plainYAMLValue = regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
 
@@ -45,7 +48,34 @@ func configureBundler(s *setup) error {
 		s.notef("Use the repository in your Gemfile with:\n  source %q", s.repo.url())
 	}
 
-	return s.writeFile(path, config.bytes(), 0600)
+	if err := s.writeFile(path, config.bytes(), 0600); err != nil {
+		return err
+	}
+	if s.replaceUpstream {
+		return checkBundlerMirror(s)
+	}
+	return nil
+}
+
+// checkBundlerMirror finds a mirror setting in the application configuration,
+// which takes precedence over the user configuration that setup edits.
+func checkBundlerMirror(s *setup) error {
+	key := "mirror." + rubygemsUpstream
+	out, err := exec.CommandContext(s.ctx, "bundle", "config", "get", "--parseable", key).Output()
+	if err != nil {
+		return nil
+	}
+	mirror := strings.TrimPrefix(strings.TrimSpace(string(out)), key+"=")
+	if mirror == "" || mirror == s.repo.url() {
+		return nil
+	}
+
+	message := fmt.Sprintf("this application's Bundler configuration sets the %s mirror to %s, which takes precedence", rubygemsUpstream, mirror)
+	if s.replaceUpstreamExplicit {
+		return fmt.Errorf("%s: remove it with `bundle config unset --local %s`, then rerun this command", message, key)
+	}
+	s.notef("In this directory, %s. Remove it with `bundle config unset --local %s` to use the repository.", message, key)
+	return nil
 }
 
 func bundlerConfigPath() (string, error) {
@@ -105,7 +135,10 @@ func configureGem(s *setup) error {
 	if err := writeGemCredential(s, path); err != nil {
 		return err
 	}
-	s.notef("Publish with:\n  gem push --key %s --host %s <gem-file>", gemKeyName, s.repo.url())
+	s.notef("Publish with:\n  gem push --key %s --host %s <gem-file>", s.repo.gemKeyName(), s.repo.url())
+	if os.Getenv("GEM_HOST_API_KEY") != "" {
+		s.notef("Unset GEM_HOST_API_KEY before you publish: gem push sends it instead of the --key credential.")
+	}
 	return nil
 }
 
@@ -207,7 +240,8 @@ func writeGemCredential(s *setup, path string) error {
 	if !plainYAMLValue.MatchString(value) {
 		value = strconv.Quote(value)
 	}
-	entry := ":" + gemKeyName + ": " + value
+	keyName := s.repo.gemKeyName()
+	entry := ":" + keyName + ": " + value
 
 	var lines []string
 	text := strings.TrimRight(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n")
@@ -219,7 +253,7 @@ func writeGemCredential(s *setup, path string) error {
 
 	replaced := false
 	for i, line := range lines {
-		if strings.HasPrefix(line, ":"+gemKeyName+":") || strings.HasPrefix(line, gemKeyName+":") {
+		if strings.HasPrefix(line, ":"+keyName+":") || strings.HasPrefix(line, keyName+":") {
 			lines[i] = entry
 			replaced = true
 		}

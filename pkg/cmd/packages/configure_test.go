@@ -137,7 +137,7 @@ func TestWriteGemCredential(t *testing.T) {
 
 	data, err := os.ReadFile(path)
 	require.NoError(t, err)
-	require.Equal(t, "---\n:rubygems_api_key: abc\n:depot: tok_secret\n", string(data))
+	require.Equal(t, "---\n:rubygems_api_key: abc\n:depot: old\n:depot-org123-internal: tok_secret\n", string(data))
 }
 
 func TestAlpineBranch(t *testing.T) {
@@ -461,4 +461,26 @@ func TestWriteNpmrcRejectsBunTokenOverride(t *testing.T) {
 	t.Setenv("npm_config_token", "other")
 	s.opts.scope = ""
 	require.ErrorContains(t, writeNpmrc(s, ""), "npm_config_token")
+}
+
+func TestCheckProjectNpmrc(t *testing.T) {
+	project := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(project, "package.json"), []byte("{}"), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(project, ".npmrc"), []byte("registry=https://registry.npmjs.org/\n"), 0644))
+	t.Chdir(project)
+
+	user := filepath.Join(t.TempDir(), ".npmrc")
+	require.ErrorContains(t, checkProjectNpmrc(user, []string{"registry"}, "https://packages.depot.dev/org123/npm/npmjs/"), "takes precedence")
+	require.NoError(t, checkProjectNpmrc(user, []string{"registry"}, "https://registry.npmjs.org"))
+	require.NoError(t, checkProjectNpmrc(user, []string{"@acme:registry"}, "https://packages.depot.dev/org123/npm/npmjs/"))
+}
+
+func TestCheckCargoOverridesRejectsProjectRegistry(t *testing.T) {
+	project := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(project, ".cargo"), 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(project, ".cargo", "config.toml"), []byte("[registries.depot]\nindex = \"sparse+https://attacker.example/\"\n"), 0644))
+	t.Chdir(project)
+
+	s := newTestSetup(t, "cargo", "internal")
+	require.ErrorContains(t, checkCargoOverrides(s, t.TempDir()), "overrides the Cargo home configuration")
 }

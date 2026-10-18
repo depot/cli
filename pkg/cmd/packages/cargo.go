@@ -6,8 +6,11 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/pelletier/go-toml/v2"
 )
 
 const cargoRegistryName = "depot"
@@ -39,6 +42,10 @@ func configureCargo(s *setup) error {
 		return err
 	}
 
+	if err := checkCargoOverrides(s, dir); err != nil {
+		return err
+	}
+
 	provider := []string{"cargo:token"}
 	if !s.store {
 		if err := requireCargoTokenFromStdout(s); err != nil {
@@ -58,6 +65,48 @@ func configureCargo(s *setup) error {
 		return err
 	}
 	return writeCargoCredentials(s, cargoFile(dir, "credentials"))
+}
+
+// checkCargoOverrides rejects settings that take precedence over the Cargo
+// home configuration for the depot registry: environment variables and
+// project configuration files in the current directory and its parents.
+func checkCargoOverrides(s *setup, home string) error {
+	if os.Getenv("CARGO_REGISTRIES_DEPOT_CREDENTIAL_PROVIDER") != "" {
+		return fmt.Errorf("CARGO_REGISTRIES_DEPOT_CREDENTIAL_PROVIDER is set, which overrides the credential provider setup configures: unset it, then rerun this command")
+	}
+	if s.store && os.Getenv("CARGO_REGISTRIES_DEPOT_TOKEN") != "" {
+		return fmt.Errorf("CARGO_REGISTRIES_DEPOT_TOKEN is set, which overrides the token setup saves: unset it, then rerun this command")
+	}
+
+	dir, err := os.Getwd()
+	if err != nil {
+		return nil
+	}
+	homeConfigs := []string{cargoFile(home, "config")}
+	for {
+		for _, name := range []string{"config", "config.toml"} {
+			path := filepath.Join(dir, ".cargo", name)
+			if slices.ContainsFunc(homeConfigs, func(p string) bool { return sameFile(p, path) }) {
+				continue
+			}
+			data, err := os.ReadFile(path)
+			if err != nil {
+				continue
+			}
+			var values map[string]any
+			if toml.Unmarshal(data, &values) != nil {
+				continue
+			}
+			if _, ok := tomlLookup(values, "registries", cargoRegistryName); ok {
+				return fmt.Errorf("%s defines the %q registry, which overrides the Cargo home configuration in this directory: remove it or rename that registry, then rerun this command", path, cargoRegistryName)
+			}
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return nil
+		}
+		dir = parent
+	}
 }
 
 var cargoVersionPattern = regexp.MustCompile(`cargo ([0-9]+)\.([0-9]+)`)

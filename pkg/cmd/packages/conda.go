@@ -31,16 +31,18 @@ func isCondaUpstream(channel string) bool {
 }
 
 // mambaUpstreamFilter returns a check for public upstream channels that takes
-// channel_alias and custom_channels into account, because they can point a
-// channel name such as conda-forge at a private mirror.
+// channel_alias, custom_channels, and default_channels into account, because
+// they can point a channel name such as conda-forge or defaults at a private
+// mirror.
 func mambaUpstreamFilter(s *setup) func(string) bool {
-	out, err := exec.CommandContext(s.ctx, s.clientName, "config", "list", "channel_alias", "custom_channels", "--json").Output()
+	out, err := exec.CommandContext(s.ctx, s.clientName, "config", "list", "channel_alias", "custom_channels", "default_channels", "--json").Output()
 	if err != nil {
 		return isCondaUpstream
 	}
 	var config struct {
-		ChannelAlias   string            `json:"channel_alias"`
-		CustomChannels map[string]string `json:"custom_channels"`
+		ChannelAlias    string            `json:"channel_alias"`
+		CustomChannels  map[string]string `json:"custom_channels"`
+		DefaultChannels []string          `json:"default_channels"`
 	}
 	if err := json.Unmarshal(out, &config); err != nil {
 		return isCondaUpstream
@@ -51,7 +53,10 @@ func mambaUpstreamFilter(s *setup) func(string) bool {
 		if !isCondaUpstream(channel) {
 			return false
 		}
-		if strings.Contains(channel, "://") || channel == "defaults" {
+		if channel == "defaults" {
+			return !slices.ContainsFunc(config.DefaultChannels, func(c string) bool { return !isCondaUpstream(c) })
+		}
+		if strings.Contains(channel, "://") {
 			return true
 		}
 		if _, ok := config.CustomChannels[channel]; ok {
@@ -379,39 +384,13 @@ func pixiChannels(s *setup) (map[string][]string, error) {
 	return environments, nil
 }
 
-// writePixiCredentials saves the token in the credential file Pixi reads, so
-// the token never appears in a command line. It first tries to remove a stored
-// keyring entry for the host, which Pixi would otherwise use instead.
+// writePixiCredentials stores the token with pixi auth login, which writes
+// to the keyring when one is available and to the credential file otherwise.
+// Pixi has no option to read the token from stdin or the environment.
 func writePixiCredentials(s *setup) error {
-	host := s.repo.hostname()
-	if err := s.runQuiet("pixi", "auth", "logout", host); err != nil && !strings.Contains(err.Error(), "No stored credentials") {
-		s.notef("Could not remove stored Pixi credentials for %s (%v). If Pixi sends an older token, run `pixi auth logout %s`.", host, err, host)
-	}
-
-	path := os.Getenv("RATTLER_AUTH_FILE")
-	if path == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return err
-		}
-		path = filepath.Join(home, ".rattler", "credentials.json")
-	}
-
-	data, err := readFileIfExists(path)
-	if err != nil {
+	if err := s.runQuiet("pixi", "auth", "login", s.repo.hostname(), "--token", s.token); err != nil {
 		return err
 	}
-	entries := map[string]any{}
-	if len(bytes.TrimSpace(data)) > 0 {
-		if err := json.Unmarshal(data, &entries); err != nil {
-			return fmt.Errorf("could not parse %s: %w", path, err)
-		}
-	}
-	entries[host] = map[string]string{"BearerToken": s.token}
-
-	out, err := json.Marshal(entries)
-	if err != nil {
-		return err
-	}
-	return s.writeFile(path, out, 0600)
+	s.changes = append(s.changes, "Pixi credential store")
+	return nil
 }
