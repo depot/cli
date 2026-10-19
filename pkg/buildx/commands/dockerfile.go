@@ -16,7 +16,7 @@ import (
 	"github.com/docker/buildx/util/urlutil"
 	"github.com/moby/buildkit/client"
 	"github.com/moby/buildkit/client/llb"
-	"github.com/moby/buildkit/frontend/dockerfile/dfgitutil"
+	"github.com/moby/buildkit/frontend/dockerui"
 	gateway "github.com/moby/buildkit/frontend/gateway/client"
 	"github.com/moby/buildkit/session"
 	"github.com/moby/buildkit/util/archiveutil"
@@ -79,15 +79,11 @@ func readDockerfile(inp build.Inputs, stdin []byte) *dockerfileSource {
 // readRemoteContextFile reads a file from a git repository or HTTP context
 // on the builder. An HTTP context is either an archive or a Dockerfile.
 func readRemoteContextFile(ctx context.Context, c *client.Client, attachables []session.Attachable, contextURL, name string) ([]byte, error) {
-	if ref, isGit, err := dfgitutil.ParseGitRef(contextURL); isGit {
+	if st, isGit, err := dockerui.DetectGitContext(contextURL, nil); isGit {
 		if err != nil {
 			return nil, err
 		}
-		commit := ref.Ref
-		if commit == "" {
-			commit = ref.Checksum
-		}
-		return readBuilderFile(ctx, c, attachables, llb.Git(ref.Remote, commit), path.Join(ref.SubDir, name))
+		return readBuilderFile(ctx, c, attachables, *st, name)
 	}
 	data, err := readBuilderFile(ctx, c, attachables, llb.HTTP(contextURL, llb.Filename("context")), "context")
 	if err != nil || !archiveutil.IsArchive(data) {
