@@ -57,12 +57,14 @@ func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator, pri
 	if err != nil {
 		return nil, nil, err
 	}
-
-	buildOpts := validatedOpts.ProjectOpts(in.project)
-	if buildOpts == nil && in.requestedProject != "" {
-		validatedOpts = validatedOpts.WithResolvedProjectID(in.requestedProject, in.project)
-		buildOpts = validatedOpts.ProjectOpts(in.project)
+	if _, ok := validator.(*RemoteBakeValidator); ok {
+		if err := requireBuildProject(validatedOpts, in.requestedProject, in.project); err != nil {
+			return nil, nil, err
+		}
 	}
+
+	validatedOpts = validatedOpts.WithResolvedProjectID(in.requestedProject, in.project)
+	buildOpts := validatedOpts.ProjectOpts(in.project)
 	if buildOpts == nil {
 		return nil, nil, fmt.Errorf("project %s build options not found", in.project)
 	}
@@ -454,8 +456,9 @@ func (p *projectBuildOptions) ProjectIDs() []string {
 	return slices.Sorted(maps.Keys(p.projectTargetOptions))
 }
 
-// WithResolvedProjectID returns a copy of the options keyed by the project
-// that the API resolved. Builds of other projects keep the original options.
+// WithResolvedProjectID returns a copy of the options in which the targets
+// of the requested project belong to the project that the API resolved,
+// together with the targets that select that project already.
 func (p *projectBuildOptions) WithResolvedProjectID(requestedID, resolvedID string) *projectBuildOptions {
 	if p == nil || resolvedID == "" || requestedID == "" || requestedID == resolvedID {
 		return p
@@ -464,11 +467,9 @@ func (p *projectBuildOptions) WithResolvedProjectID(requestedID, resolvedID stri
 	if !ok {
 		return p
 	}
-	if _, ok := p.projectTargetOptions[resolvedID]; ok {
-		return p
-	}
 	projectTargetOptions := maps.Clone(p.projectTargetOptions)
-	projectTargetOptions[resolvedID] = projectOpts
+	projectTargetOptions[resolvedID] = maps.Clone(projectOpts)
+	maps.Copy(projectTargetOptions[resolvedID], p.projectTargetOptions[resolvedID])
 	delete(projectTargetOptions, requestedID)
 	return &projectBuildOptions{projectTargetOptions: projectTargetOptions}
 }
@@ -530,20 +531,22 @@ func (t *RemoteBakeValidator) Validate(ctx context.Context, nodes []builder.Node
 	if err != nil {
 		return nil, nil, err
 	}
-	projects, requestedTargets, err := readBakeTargets(ctx, files, inp, t.options, t.bakeTargets, false)
-	if err != nil {
-		return nil, nil, err
-	}
-	// The build of a remote definition starts before the definition is
-	// read, so it can build targets of only one project.
+	return readBakeTargets(ctx, files, inp, t.options, t.bakeTargets, false)
+}
+
+// requireBuildProject returns an error when a target selects a project other
+// than the project of the build, either as requested or as the API resolved
+// it. The build of a remote definition starts before the definition is read,
+// so it can build targets of only one project.
+func requireBuildProject(projects *projectBuildOptions, requestedID, resolvedID string) error {
 	for _, projectID := range projects.ProjectIDs() {
-		if projectID == t.options.project {
+		if projectID == requestedID || projectID == resolvedID {
 			continue
 		}
 		target := slices.Sorted(maps.Keys(projects.ProjectOpts(projectID)))[0]
-		return nil, nil, errors.Errorf("target %s sets project_id %s, but a remote bake definition can build targets of only one project (%s); run bake with a local copy of the definition to build several projects", target, projectID, t.options.project)
+		return errors.Errorf("target %s sets project_id %s, but a remote bake definition can build targets of only one project (%s); run bake with a local copy of the definition to build several projects", target, projectID, resolvedID)
 	}
-	return projects, requestedTargets, nil
+	return nil
 }
 
 // setSourceDateEpoch sets the SOURCE_DATE_EPOCH build argument of each

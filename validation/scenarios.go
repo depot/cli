@@ -136,6 +136,8 @@ func commandLineScenarios() []scenario {
 			"bake", "-f", "cycles.hcl", "--print", "cycles"),
 		expectStdout(offline("bake-print-project-policy-reads", "bake --print with a project that starts with a line break, and whole targets that differ only in their projects", "projectref",
 			"bake", "-f", "policies.hcl", "--print", "policies"), `"project_id": "<project>-newline"`, `"SAME": "true"`),
+		baselineDefect(expectStdout(offline("bake-print-policy-read", "bake --print with an argument that reads the policy of a target with a project", "projectref",
+			"bake", "-f", "policyread.hcl", "--print", "policyread"), `"COUNT": "0"`), "the old CLI had no policy attribute"),
 		expectStdout(offline("bake-print-description-reference", "bake --print with an argument that reads the description of another target", "description",
 			"bake", "--print", "artifact"), `"MESSAGE": "described by _base"`),
 		offline("bake-print-multiproject", "bake --print shows per-target project identifiers", "multiproject", "bake", "--print"),
@@ -639,6 +641,8 @@ func bakeScenarios() []scenario {
 			"--set", "artifact.platform=linux/amd64"), "out"), "the CLI dereferenced nil project options for a remote definition"),
 		baselineDefect(failing(bake("bake-remote-multiproject", "a remote definition with targets of another project is rejected", "basic", "{{git}}/multiproject.git",
 			"--set", "*.platform=linux/amd64"), 1, "a remote bake definition can build targets of only one project"), "the CLI dereferenced nil project options for a remote definition"),
+		baselineDefect(withFiles(withAPI(bake("bake-remote-resolved-project", "a remote definition with targets of the project that the API resolves builds them all", "basic", "{{git}}/multiproject.git",
+			"--set", "*.platform=linux/amd64"), apiBehavior{ResponseProjectID: "vtproject-second"}), "out"), "the CLI dereferenced nil project options for a remote definition"),
 		withFiles(withEnv(bake("bake-variable-env", "bake reads variables from the environment", "bake", "artifact",
 			"--set", "artifact.platform=linux/amd64", "--set", "artifact.args.MESSAGE=${TAG}"), "TAG", "from-env"), "out"),
 	}

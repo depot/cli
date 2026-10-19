@@ -194,6 +194,8 @@ func heredocEnd(expr string) string {
 //     target.base["project_id"], reads the project of the last policy entry
 //     with a project, or an empty string when the target has no project, as
 //     with the earlier Depot bake schema.
+//   - A read of policy, such as target.base.policy, reads the entries
+//     without those that carry projects.
 //   - A read of a whole target, such as lookup(target.base, "project_id", ""),
 //     reads the target with project_id and without the policy entries that
 //     carry projects.
@@ -205,6 +207,13 @@ func projectReads(node hclsyntax.Node, selects bool) ([]replacement, int) {
 	for _, expr := range projectIDReads {
 		if name, ok := expr.Traversal[1].(hcl.TraverseAttr); ok {
 			out = append(out, replacement{start: expr.SrcRange.Start.Byte, end: expr.Traversal[2].SourceRange().End.Byte, text: []byte(projectRead(name.Name, selects))})
+		}
+	}
+	if selects {
+		for _, expr := range targetAttributeReads(node, "policy") {
+			if name, ok := expr.Traversal[1].(hcl.TraverseAttr); ok {
+				out = append(out, replacement{start: expr.SrcRange.Start.Byte, end: expr.Traversal[2].SourceRange().End.Byte, text: []byte("(" + userPolicies(name.Name) + ")")})
+			}
 		}
 	}
 	for _, expr := range targetObjectReads(node) {
