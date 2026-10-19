@@ -93,36 +93,42 @@ func descriptionFiles(files []bake.File) []bake.File {
 // descriptionCarrier returns the first of descriptionCarriers that no
 // expression in the files reads, such as with target.base.call. It returns
 // an empty string, which removes project_id, when expressions read all of
-// them.
+// them, or read a whole target, such as with lookup(target.base, "call", "")
+// or target.base[name], because the attributes such a read uses are not
+// known before evaluation.
 func descriptionCarrier(files []bake.File) string {
+	if slices.ContainsFunc(files, func(f bake.File) bool { return readsTargets(f, targetObjectReads) }) {
+		return ""
+	}
 	for _, carrier := range descriptionCarriers {
-		if !slices.ContainsFunc(files, func(f bake.File) bool { return readsTargetAttribute(f, carrier) }) {
+		attributeReads := func(node hclsyntax.Node) []*hclsyntax.ScopeTraversalExpr { return targetAttributeReads(node, carrier) }
+		if !slices.ContainsFunc(files, func(f bake.File) bool { return readsTargets(f, attributeReads) }) {
 			return carrier
 		}
 	}
 	return ""
 }
 
-// readsTargetAttribute reports whether an expression in the file reads an
-// attribute of a target. Bake evaluates such expressions only in HCL and
-// JSON files, so it reports false for other files, such as compose files.
-func readsTargetAttribute(f bake.File, attribute string) bool {
+// readsTargets reports whether reads finds an expression in the file. Bake
+// evaluates expressions only in HCL and JSON files, so it reports false for
+// other files, such as compose files.
+func readsTargets(f bake.File, reads func(hclsyntax.Node) []*hclsyntax.ScopeTraversalExpr) bool {
 	if !strings.HasSuffix(f.Name, ".json") {
 		if file, diags := hclsyntax.ParseConfig(f.Data, f.Name, hcl.InitialPos); !diags.HasErrors() {
-			return len(targetAttributeReads(file.Body.(*hclsyntax.Body), attribute)) > 0
+			return len(reads(file.Body.(*hclsyntax.Body))) > 0
 		}
 	}
 	root, err := parseJSON(f.Data)
 	if err != nil {
 		return false
 	}
-	reads := false
+	found := false
 	root.visitTemplates(func(s *jsonValue) {
 		if expr, diags := hclsyntax.ParseTemplate([]byte(s.text), "", hcl.InitialPos); !diags.HasErrors() {
-			reads = reads || len(targetAttributeReads(expr, attribute)) > 0
+			found = found || len(reads(expr)) > 0
 		}
 	})
-	return reads
+	return found
 }
 
 // targetProjects returns the project of each target that has one, and
@@ -377,12 +383,14 @@ func traversesTo(step hcl.Traverser, attribute string) bool {
 }
 
 func replace(data []byte, replacements []replacement) []byte {
-	slices.SortFunc(replacements, func(a, b replacement) int { return b.start - a.start })
-	out := slices.Clone(data)
+	slices.SortFunc(replacements, func(a, b replacement) int { return a.start - b.start })
+	out := make([]byte, 0, len(data))
+	end := 0
 	for _, r := range replacements {
-		out = slices.Concat(out[:r.start], r.text, out[r.end:])
+		out = append(append(out, data[end:r.start]...), r.text...)
+		end = r.end
 	}
-	return out
+	return append(out, data[end:]...)
 }
 
 // blank replaces a range with spaces and keeps line breaks, so that the
