@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -54,10 +55,10 @@ func TestMetricsPreserveSamplesAndServerStatistics(t *testing.T) {
 		}
 		return expected, nil
 	}})
-	for _, format := range []string{"json", "auto", "table"} {
+	for _, format := range []string{"json", "table"} {
 		out, err := execute(NewCmdJobs(), "metrics", expected.Job.JobId, "--repo", "acme/api", "--org", "org-1", "--token", "test-token", "--output", format)
 		require.NoError(t, err)
-		if format != "table" {
+		if format == "json" {
 			var actual corev1.GetGithubActionsJobMetricsResponse
 			require.NoError(t, protojson.Unmarshal([]byte(out), &actual))
 			require.True(t, proto.Equal(expected, &actual))
@@ -74,6 +75,29 @@ func TestMetricsPreserveSamplesAndServerStatistics(t *testing.T) {
 			require.NotContains(t, out, "1970-")
 		}
 	}
+}
+
+func TestMetricsAutoOutputWhenRedirected(t *testing.T) {
+	// SetOut captures command output but does not change terminal detection.
+	// Redirect process stdout so this test is independent of the test runner's TTY.
+	stdout, err := os.CreateTemp(t.TempDir(), "stdout")
+	require.NoError(t, err)
+	originalStdout := os.Stdout
+	os.Stdout = stdout
+	t.Cleanup(func() {
+		os.Stdout = originalStdout
+		require.NoError(t, stdout.Close())
+	})
+
+	expected := &corev1.GetGithubActionsJobMetricsResponse{Job: &corev1.GithubActionsJob{JobId: "123"}}
+	serve(t, &jobServer{metrics: func(*connect.Request[corev1.GetGithubActionsJobMetricsRequest]) (*corev1.GetGithubActionsJobMetricsResponse, error) {
+		return expected, nil
+	}})
+	out, err := execute(NewCmdJobs(), "metrics", "123", "--repo", "acme/api", "--token", "test-token")
+	require.NoError(t, err)
+	var actual corev1.GetGithubActionsJobMetricsResponse
+	require.NoError(t, protojson.Unmarshal([]byte(out), &actual))
+	require.True(t, proto.Equal(expected, &actual))
 }
 
 func TestMetricsMissingTelemetryDoesNotBecomeZero(t *testing.T) {
