@@ -23,12 +23,16 @@ import (
 // then evaluates the project with the same variables, functions,
 // inheritance, and matrix expansion as every other attribute, and merges
 // labels one key at a time, so that a target inherits the project of its
-// parent. After the read, targetProjects removes the key from the labels.
+// parent. An empty project_id adds no key, so that it does not replace an
+// inherited project. After the read, targetProjects removes the key from
+// the labels.
 //
-// Reads of the labels of a target, such as merge(target.base.labels, {}),
-// and reads of a whole target, such as lookup(target.base, "labels", {}),
-// get the labels without the key, so that the key never reaches another
-// target.
+// A target that sets project_id but no labels gets the unsetLabelsLabel key
+// too. Reads of the labels of a target, such as
+// merge(target.base.labels, {}), and reads of a whole target, such as
+// lookup(target.base, "labels", {}), get the labels without both keys, or
+// null when only these keys are present, so that they read the same labels
+// as with the earlier Depot bake schema.
 //
 // Compose services select a project with the x-depot.project-id build
 // extension. projectFiles adds an HCL file that sets the label for each such
@@ -40,16 +44,22 @@ import (
 // schema.
 const projectIDAttribute = "project_id"
 
-const projectLabel = "dev.depot.project-id"
+const projectLabel = "__depot_project_id"
+
+const unsetLabelsLabel = "__depot_labels_unset"
 
 const composeProjectFileName = "depot-compose-projects.hcl"
 
 // readProjectTargets reads the targets and groups, and the project of each
 // target that selects one.
 func readProjectTargets(ctx context.Context, files []bake.File, composeTargets map[string]compose.Target, names, overrides []string, defaults map[string]string) (map[string]*bake.Target, map[string]*bake.Group, map[string]string, error) {
-	targets, groups, err := bake.ReadTargets(ctx, projectFiles(files, composeTargets), names, overrides, defaults, nil, &bake.EntitlementConf{})
+	selects := selectsProjects(files, composeTargets)
+	targets, groups, err := bake.ReadTargets(ctx, projectFiles(files, composeTargets, selects), names, overrides, defaults, nil, &bake.EntitlementConf{})
 	if err != nil {
 		return nil, nil, nil, err
+	}
+	if !selects {
+		return targets, groups, map[string]string{}, nil
 	}
 	return targets, groups, targetProjects(targets), nil
 }
@@ -63,8 +73,7 @@ func selectsProjects(files []bake.File, composeTargets map[string]compose.Target
 
 // projectFiles returns the files with the project of each target in its
 // labels.
-func projectFiles(files []bake.File, composeTargets map[string]compose.Target) []bake.File {
-	selects := selectsProjects(files, composeTargets)
+func projectFiles(files []bake.File, composeTargets map[string]compose.Target, selects bool) []bake.File {
 	out := make([]bake.File, len(files))
 	for i, f := range files {
 		data, _ := rewriteFile(f, selects)
@@ -85,6 +94,7 @@ func targetProjects(targets map[string]*bake.Target) map[string]string {
 			projects[name] = *projectID
 		}
 		delete(t.Labels, projectLabel)
+		delete(t.Labels, unsetLabelsLabel)
 		if len(t.Labels) == 0 {
 			t.Labels = nil
 		}
@@ -103,7 +113,10 @@ func composeProjectFile(composeTargets map[string]compose.Target) (bake.File, bo
 		if projectID == "" {
 			continue
 		}
-		f.Body().AppendNewBlock("target", []string{name}).Body().SetAttributeValue("labels", cty.MapVal(map[string]cty.Value{projectLabel: cty.StringVal(projectID)}))
+		f.Body().AppendNewBlock("target", []string{name}).Body().SetAttributeValue("labels", cty.MapVal(map[string]cty.Value{
+			unsetLabelsLabel: cty.StringVal("true"),
+			projectLabel:     cty.StringVal(projectID),
+		}))
 		found = true
 	}
 	return bake.File{Name: composeProjectFileName, Data: f.Bytes()}, found
@@ -143,7 +156,7 @@ func rewriteHCL(data []byte, name string, selects bool) ([]byte, int, bool) {
 		return nil, 0, false
 	}
 
-	reads, uses := projectReads(body, selects)
+	reads, uses := projectReads(body, selects, nil)
 	var moves []replacement
 	for _, block := range body.Blocks {
 		attr, ok := block.Body.Attributes[projectIDAttribute]
@@ -152,19 +165,68 @@ func rewriteHCL(data []byte, name string, selects bool) ([]byte, int, bool) {
 		}
 		uses++
 		value := attr.Expr.Range()
+		projectText := rewrittenText(data, reads, value.Start.Byte, value.End.Byte)
+		project := projectText + heredocEnd(projectText)
+		if self := selfProject(block, project); self != nil {
+			blockReads, _ := projectReads(block.Body, selects, self)
+			reads = slices.Concat(outside(reads, blockReads), blockReads)
+		}
 		labels, ok := block.Body.Attributes["labels"]
-		if !ok {
-			moves = append(moves,
-				replacement{start: attr.NameRange.Start.Byte, end: attr.NameRange.End.Byte, text: []byte("labels")},
-				replacement{start: value.Start.Byte, end: value.Start.Byte, text: []byte(`{ "` + projectLabel + `" = `)},
-				replacement{start: value.End.Byte, end: value.End.Byte, text: []byte(` }`)})
+		if ok && !isNull(labels.Expr) {
+			moves = append(moves, blank(data, attr.SrcRange), replacement{start: labels.Expr.Range().Start.Byte, end: labels.Expr.Range().End.Byte, text: []byte(
+				`merge(` + expressionText(data, reads, labels.Expr) + `, ` + projectLabels(project) + `)`)})
 			continue
 		}
-		merged := labels.Expr.Range()
-		moves = append(moves, blank(data, attr.SrcRange), replacement{start: merged.Start.Byte, end: merged.End.Byte, text: []byte(
-			`merge(` + rewrittenText(data, reads, merged.Start.Byte, merged.End.Byte) + `, { "` + projectLabel + `" = ` + rewrittenText(data, reads, value.Start.Byte, value.End.Byte) + ` })`)})
+		if ok {
+			moves = append(moves, blank(data, labels.SrcRange))
+		}
+		moves = append(moves,
+			replacement{start: attr.NameRange.Start.Byte, end: attr.NameRange.End.Byte, text: []byte("labels")},
+			replacement{start: value.Start.Byte, end: value.Start.Byte, text: []byte(`merge({ "` + unsetLabelsLabel + `" = "true" }, { for project in compact([`)},
+			replacement{start: value.End.Byte, end: value.End.Byte, text: []byte(heredocEnd(projectText) + `]) : "` + projectLabel + `" => project })`)})
 	}
 	return replace(data, slices.Concat(moves, outside(reads, moves))), uses, true
+}
+
+// selfProject returns the project of a target block for the reads of its own
+// project inside the block, which would otherwise read its labels from
+// within its labels. It returns nil for a matrix target, whose name is not
+// its label.
+func selfProject(block *hclsyntax.Block, project string) *targetProject {
+	if _, ok := block.Body.Attributes["matrix"]; ok || len(block.Labels) != 1 {
+		return nil
+	}
+	return &targetProject{target: block.Labels[0], expression: project}
+}
+
+type targetProject struct {
+	target, expression string
+}
+
+func projectLabels(project string) string {
+	return `{ for project in compact([` + project + `]) : "` + projectLabel + `" => project }`
+}
+
+func isNull(expr hclsyntax.Expression) bool {
+	literal, ok := expr.(*hclsyntax.LiteralValueExpr)
+	return ok && literal.Val.IsNull()
+}
+
+// expressionText returns the source text of an expression with the
+// replacements in its range. Text that ends with a heredoc ends with a line
+// break, so that more text can follow it.
+func expressionText(data []byte, replacements []replacement, expr hclsyntax.Expression) string {
+	text := rewrittenText(data, replacements, expr.Range().Start.Byte, expr.Range().End.Byte)
+	return text + heredocEnd(text)
+}
+
+func heredocEnd(text string) string {
+	tokens, _ := hclsyntax.LexExpression([]byte(text+"\n"), "", hcl.InitialPos)
+	tokens = slices.DeleteFunc(tokens, func(t hclsyntax.Token) bool { return t.Type == hclsyntax.TokenEOF || t.Type == hclsyntax.TokenNewline })
+	if len(tokens) > 0 && tokens[len(tokens)-1].Type == hclsyntax.TokenCHeredoc && !strings.HasSuffix(text, "\n") {
+		return "\n"
+	}
+	return ""
 }
 
 // projectReads returns the replacements that change the expressions in node
@@ -173,6 +235,8 @@ func rewriteHCL(data []byte, name string, selects bool) ([]byte, int, bool) {
 //   - A read of project_id, such as target.base.project_id or
 //     target.base["project_id"], reads the project label, or an empty string
 //     when the target has no project, as with the earlier Depot bake schema.
+//     A read of the project of self, the target that contains node, reads
+//     its project expression.
 //   - A read of labels, such as target.base.labels, reads the labels without
 //     the project label.
 //   - A read of a whole target, such as lookup(target.base, "project_id", ""),
@@ -181,13 +245,19 @@ func rewriteHCL(data []byte, name string, selects bool) ([]byte, int, bool) {
 //
 // When the files select no project, only a read of project_id or a whole
 // target changes, and project_id is an empty string.
-func projectReads(node hclsyntax.Node, selects bool) ([]replacement, int) {
+func projectReads(node hclsyntax.Node, selects bool, self *targetProject) ([]replacement, int) {
 	var out []replacement
 	projectIDReads := targetAttributeReads(node, projectIDAttribute)
 	for _, expr := range projectIDReads {
-		if name, ok := expr.Traversal[1].(hcl.TraverseAttr); ok {
-			out = append(out, replacement{start: expr.SrcRange.Start.Byte, end: expr.Traversal[2].SourceRange().End.Byte, text: []byte(projectRead(name.Name, selects))})
+		name, ok := expr.Traversal[1].(hcl.TraverseAttr)
+		if !ok {
+			continue
 		}
+		read := projectRead(name.Name, selects)
+		if self != nil && name.Name == self.target {
+			read = `coalesce(` + self.expression + `, "")`
+		}
+		out = append(out, replacement{start: expr.SrcRange.Start.Byte, end: expr.Traversal[2].SourceRange().End.Byte, text: []byte(read)})
 	}
 	if selects {
 		for _, expr := range targetAttributeReads(node, "labels") {
@@ -216,7 +286,9 @@ func projectRead(target string, selects bool) string {
 
 func labelsRead(target string) string {
 	labels := "target." + target + ".labels"
-	return `(` + labels + ` == null ? null : { for key, value in ` + labels + ` : key => value if key != "` + projectLabel + `" })`
+	userLabel := `key != "` + projectLabel + `" && key != "` + unsetLabelsLabel + `"`
+	unset := `length([for key in keys(merge({}, ` + labels + `)) : key if ` + userLabel + `]) == 0 && contains(keys(merge({}, ` + labels + `)), "` + unsetLabelsLabel + `")`
+	return `(` + labels + ` == null || ` + unset + ` ? null : convert({ for key, value in ` + labels + ` : key => value if ` + userLabel + ` }, map(string)))`
 }
 
 // rewrittenText returns the source text between start and end with the
@@ -359,7 +431,7 @@ func blankBytes(data []byte, start, end int) replacement {
 	return replacement{start: start, end: end, text: text}
 }
 
-func rewriteTemplate(s string, selects bool) (string, int) {
+func rewriteTemplate(s string, selects bool, self *targetProject) (string, int) {
 	if !strings.Contains(s, "target") {
 		return s, 0
 	}
@@ -367,6 +439,6 @@ func rewriteTemplate(s string, selects bool) (string, int) {
 	if diags.HasErrors() {
 		return s, 0
 	}
-	replacements, reads := projectReads(expr, selects)
+	replacements, reads := projectReads(expr, selects, self)
 	return string(replace([]byte(s), replacements)), reads
 }

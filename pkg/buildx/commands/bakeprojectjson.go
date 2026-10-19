@@ -7,6 +7,9 @@ import (
 	"io"
 	"slices"
 	"strings"
+
+	"github.com/hashicorp/hcl/v2"
+	"github.com/hashicorp/hcl/v2/hclsyntax"
 )
 
 // jsonValue is a JSON value and the position of its source text. The JSON
@@ -104,17 +107,32 @@ func (v *jsonValue) values(key string) []*jsonValue {
 	return out
 }
 
-// blocks returns the bodies of the blocks of a type in a JSON definition.
-func (v *jsonValue) blocks(blockType string) []*jsonValue {
-	var out []*jsonValue
+type jsonBlock struct {
+	label string
+	body  *jsonValue
+}
+
+// blocks returns the blocks of a type in a JSON definition.
+func (v *jsonValue) blocks(blockType string) []jsonBlock {
+	var out []jsonBlock
 	for _, value := range v.values(blockType) {
 		for _, labels := range value.objects() {
 			for _, m := range labels.members {
-				out = append(out, m.value.objects()...)
+				for _, body := range m.value.objects() {
+					out = append(out, jsonBlock{label: m.key.text, body: body})
+				}
 			}
 		}
 	}
 	return out
+}
+
+func (v *jsonValue) isNull(data []byte) bool {
+	return !v.isString && !v.isObject && string(data[v.start:v.end]) == "null"
+}
+
+func (v *jsonValue) contains(other *jsonValue) bool {
+	return other.start >= v.start && other.end <= v.end
 }
 
 // visitTemplates calls visit for each string that bake reads as a template,
@@ -124,13 +142,13 @@ func (v *jsonValue) blocks(blockType string) []*jsonValue {
 func (v *jsonValue) visitTemplates(visit func(*jsonValue)) {
 	var scopes []*jsonValue
 	for _, function := range v.blocks("function") {
-		if hasJSONTargetParameter(function) {
-			scopes = append(scopes, function.values("result")...)
+		if hasJSONTargetParameter(function.body) {
+			scopes = append(scopes, function.body.values("result")...)
 		}
 	}
 	for _, target := range v.blocks("target") {
-		if slices.ContainsFunc(target.values("matrix"), func(matrix *jsonValue) bool { return len(matrix.values("target")) > 0 }) {
-			for _, m := range target.members {
+		if slices.ContainsFunc(target.body.values("matrix"), func(matrix *jsonValue) bool { return len(matrix.values("target")) > 0 }) {
+			for _, m := range target.body.members {
 				if m.key.text != "matrix" {
 					scopes = append(scopes, m.value)
 				}
@@ -138,7 +156,7 @@ func (v *jsonValue) visitTemplates(visit func(*jsonValue)) {
 		}
 	}
 	v.visitStrings(func(s *jsonValue) {
-		if !slices.ContainsFunc(scopes, func(scope *jsonValue) bool { return s.start >= scope.start && s.end <= scope.end }) {
+		if !slices.ContainsFunc(scopes, func(scope *jsonValue) bool { return scope.contains(s) }) {
 			visit(s)
 		}
 	})
@@ -163,52 +181,111 @@ func hasJSONTargetParameter(function *jsonValue) bool {
 		slices.ContainsFunc(function.values("params"), func(params *jsonValue) bool { return slices.ContainsFunc(params.elements, isTarget) })
 }
 
-// rewriteJSON rewrites a JSON definition in the same way as rewriteHCL.
+// rewriteJSON rewrites a JSON definition in the same way as rewriteHCL. A
+// target with project_id gets labels given as a template that merges the
+// project into its labels, because the labels can be any JSON value.
 func rewriteJSON(data []byte, selects bool) ([]byte, int, bool) {
 	root, err := parseJSON(data)
 	if err != nil {
 		return nil, 0, false
 	}
 
-	var reads []replacement
+	templates := map[*jsonValue]string{}
 	uses := 0
 	root.visitTemplates(func(s *jsonValue) {
-		out, n := rewriteTemplate(s.text, selects)
-		uses += n
-		if out != s.text {
-			reads = append(reads, replacement{start: s.start, end: s.end, text: jsonString(out)})
-		}
+		out, reads := rewriteTemplate(s.text, selects, nil)
+		uses += reads
+		templates[s] = out
 	})
 	var moves []replacement
 	for _, target := range root.blocks("target") {
-		for i, m := range target.members {
-			if m.key.text != projectIDAttribute {
-				continue
-			}
-			uses++
-			labels := target.values("labels")
-			if len(labels) == 0 {
-				moves = append(moves,
-					replacement{start: m.key.start, end: m.key.end, text: jsonString("labels")},
-					replacement{start: m.value.start, end: m.value.start, text: append(append([]byte("{"), jsonString(projectLabel)...), ": "...)},
-					replacement{start: m.value.end, end: m.value.end, text: []byte("}")})
-				continue
-			}
-			merged := labels[len(labels)-1]
-			if !merged.isObject {
-				continue
-			}
-			removed := make([]bool, len(target.members))
-			removed[i] = true
-			moves = append(moves, memberRemovals(data, target.members, removed)...)
-			member := string(jsonString(projectLabel)) + ": " + rewrittenText(data, reads, m.value.start, m.value.end)
-			if len(merged.members) > 0 {
-				member += ", "
-			}
-			moves = append(moves, replacement{start: merged.start + 1, end: merged.start + 1, text: []byte(member)})
+		members := target.body.members
+		i := slices.IndexFunc(members, func(m jsonMember) bool { return m.key.text == projectIDAttribute })
+		if i == -1 {
+			continue
+		}
+		uses++
+		project := jsonExpression(data, members[i].value, templates)
+		if len(target.body.values("matrix")) == 0 {
+			self := &targetProject{target: target.label, expression: project}
+			target.body.visitStrings(func(s *jsonValue) {
+				if _, ok := templates[s]; ok && !members[i].value.contains(s) {
+					templates[s], _ = rewriteTemplate(s.text, selects, self)
+				}
+			})
+		}
+		labels := `{ "` + unsetLabelsLabel + `" = "true" }`
+		existing := target.body.values("labels")
+		if len(existing) > 0 && !existing[len(existing)-1].isNull(data) {
+			labels = jsonExpression(data, existing[len(existing)-1], templates)
+		}
+		value := jsonString("${merge(" + labels + ", " + projectLabels(project) + ")}")
+		if len(existing) == 0 {
+			moves = append(moves,
+				replacement{start: members[i].key.start, end: members[i].key.end, text: jsonString("labels")},
+				replacement{start: members[i].value.start, end: members[i].value.end, text: value})
+			continue
+		}
+		removed := make([]bool, len(members))
+		removed[i] = true
+		last := existing[len(existing)-1]
+		moves = append(moves, replacement{start: last.start, end: last.end, text: value})
+		moves = append(moves, memberRemovals(data, members, removed)...)
+	}
+
+	var edits []replacement
+	for s, text := range templates {
+		if text != s.text {
+			edits = append(edits, replacement{start: s.start, end: s.end, text: jsonString(text)})
 		}
 	}
-	return replace(data, slices.Concat(moves, outside(reads, moves))), uses, true
+	return replace(data, slices.Concat(moves, outside(edits, moves))), uses, true
+}
+
+// jsonExpression returns an HCL expression with the value of a JSON value in
+// a definition, with the templates rewritten.
+func jsonExpression(data []byte, v *jsonValue, templates map[*jsonValue]string) string {
+	template := func(s *jsonValue) string {
+		if text, ok := templates[s]; ok {
+			return templateExpression(text)
+		}
+		return templateExpression(s.text)
+	}
+	switch {
+	case v.isString:
+		return template(v)
+	case v.isObject:
+		items := make([]string, len(v.members))
+		for i, m := range v.members {
+			items[i] = "(" + template(m.key) + ") = " + jsonExpression(data, m.value, templates)
+		}
+		return "{ " + strings.Join(items, ", ") + " }"
+	case data[v.start] == '[':
+		elements := make([]string, len(v.elements))
+		for i, element := range v.elements {
+			elements[i] = jsonExpression(data, element, templates)
+		}
+		return "[" + strings.Join(elements, ", ") + "]"
+	}
+	return string(data[v.start:v.end])
+}
+
+// templateExpression returns an HCL expression with the value of a
+// template.
+func templateExpression(s string) string {
+	expr, diags := hclsyntax.ParseTemplate([]byte(s), "", hcl.InitialPos)
+	if wrap, ok := expr.(*hclsyntax.TemplateWrapExpr); ok && !diags.HasErrors() {
+		inner := s[wrap.Wrapped.Range().Start.Byte:wrap.Wrapped.Range().End.Byte]
+		return "(" + inner + heredocEnd(inner) + ")"
+	}
+	if !strings.Contains(s, "${") && !strings.Contains(s, "%{") {
+		return string(jsonString(s))
+	}
+	delimiter := "DEPOT_TEMPLATE"
+	for slices.ContainsFunc(strings.Split(s, "\n"), func(line string) bool { return strings.TrimSpace(line) == delimiter }) {
+		delimiter += "_"
+	}
+	return "trimsuffix(<<" + delimiter + "\n" + s + "\n" + delimiter + "\n" + `, "\n")`
 }
 
 // memberRemovals returns the replacements that blank the removed members of
