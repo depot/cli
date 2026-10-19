@@ -99,6 +99,7 @@ func (p *pageOptions) timeRange() (*corev1.GithubActionsTimeRange, error) {
 func NewCmdJobs() *cobra.Command {
 	cmd := newCmdJobs(true)
 	cmd.AddCommand(newCmdAnalytics())
+	cmd.AddCommand(newCmdMetrics())
 	return cmd
 }
 
@@ -123,11 +124,12 @@ Use the returned nextPageToken with --page-token to retrieve another page.`,
 		cmd.Use = "jobs [job-id]"
 		cmd.Short = "List or inspect GitHub Actions jobs run on Depot"
 		cmd.Args = cobra.MaximumNArgs(1)
-		cmd.Long += "\n\nSupply a job ID and one --repo to inspect a job. Step timings are not\navailable from the API. Use jobs analytics for aggregate CPU and memory metrics."
+		cmd.Long += "\n\nSupply a job ID and one --repo to inspect a job. Step timings are not\navailable from the API. Use jobs metrics for individual job CPU and memory\nmetrics, or jobs analytics for aggregate metrics."
 	}
 	if allowGet {
 		cmd.Example = `  depot jobs --repo acme/api --output json
   depot jobs 123456789 --repo acme/api
+  depot jobs metrics 123456789 --repo acme/api --output json
   depot jobs analytics --repo acme/api`
 	} else {
 		cmd.Example = `  depot list jobs --repo acme/api --output json`

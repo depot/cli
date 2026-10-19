@@ -27,6 +27,15 @@ type jobServer struct {
 	list      func(*connect.Request[corev1.ListGithubActionsJobsRequest]) (*corev1.ListGithubActionsJobsResponse, error)
 	get       func(*connect.Request[corev1.GetGithubActionsJobRequest]) (*corev1.GetGithubActionsJobResponse, error)
 	analytics func(*connect.Request[corev1.ListGithubActionsJobAnalyticsRequest]) (*corev1.ListGithubActionsJobAnalyticsResponse, error)
+	metrics   func(*connect.Request[corev1.GetGithubActionsJobMetricsRequest]) (*corev1.GetGithubActionsJobMetricsResponse, error)
+}
+
+func (s *jobServer) GetGithubActionsJobMetrics(_ context.Context, r *connect.Request[corev1.GetGithubActionsJobMetricsRequest]) (*connect.Response[corev1.GetGithubActionsJobMetricsResponse], error) {
+	v, e := s.metrics(r)
+	if e != nil {
+		return nil, e
+	}
+	return connect.NewResponse(v), nil
 }
 
 func (s *jobServer) ListGithubActionsJobs(_ context.Context, r *connect.Request[corev1.ListGithubActionsJobsRequest]) (*connect.Response[corev1.ListGithubActionsJobsResponse], error) {
