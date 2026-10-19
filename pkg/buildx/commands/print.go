@@ -52,9 +52,6 @@ func BakePrint(dockerCli command.Cli, targets []string, in BakeOptions) error {
 	if err != nil {
 		return err
 	}
-	if err := readTargetDescriptions(context.Background(), files, composeTargets, tgts, targets, overrides(in), defaults); err != nil {
-		return err
-	}
 	setSourceDateEpoch(tgts)
 
 	printedTargets := make(map[string]json.RawMessage, len(tgts))

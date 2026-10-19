@@ -164,46 +164,51 @@ func hasJSONTargetParameter(function *jsonValue) bool {
 }
 
 // rewriteJSON rewrites a JSON definition in the same way as rewriteHCL.
-func rewriteJSON(data []byte, carrier string) ([]byte, int, bool) {
+func rewriteJSON(data []byte, selects bool) ([]byte, int, bool) {
 	root, err := parseJSON(data)
 	if err != nil {
 		return nil, 0, false
 	}
 
-	var removals, edits []replacement
+	var reads []replacement
 	uses := 0
-	for _, target := range root.blocks("target") {
-		removed := make([]bool, len(target.members))
-		for i, m := range target.members {
-			switch {
-			case carrier != "" && m.key.text == carrier:
-				removed[i] = true
-			case m.key.text == projectIDAttribute:
-				uses++
-				if carrier == "" {
-					removed[i] = true
-				} else {
-					edits = append(edits, replacement{start: m.key.start, end: m.key.end, text: jsonString(carrier)})
-				}
-			}
-		}
-		removals = append(removals, memberRemovals(data, target.members, removed)...)
-	}
 	root.visitTemplates(func(s *jsonValue) {
-		out, reads := rewriteTemplate(s.text, carrier)
-		uses += reads
+		out, n := rewriteTemplate(s.text, selects)
+		uses += n
 		if out != s.text {
-			edits = append(edits, replacement{start: s.start, end: s.end, text: jsonString(out)})
+			reads = append(reads, replacement{start: s.start, end: s.end, text: jsonString(out)})
 		}
 	})
-
-	replacements := removals
-	for _, e := range edits {
-		if !slices.ContainsFunc(removals, func(r replacement) bool { return e.start >= r.start && e.end <= r.end }) {
-			replacements = append(replacements, e)
+	var moves []replacement
+	for _, target := range root.blocks("target") {
+		for i, m := range target.members {
+			if m.key.text != projectIDAttribute {
+				continue
+			}
+			uses++
+			labels := target.values("labels")
+			if len(labels) == 0 {
+				moves = append(moves,
+					replacement{start: m.key.start, end: m.key.end, text: jsonString("labels")},
+					replacement{start: m.value.start, end: m.value.start, text: append(append([]byte("{"), jsonString(projectLabel)...), ": "...)},
+					replacement{start: m.value.end, end: m.value.end, text: []byte("}")})
+				continue
+			}
+			merged := labels[len(labels)-1]
+			if !merged.isObject {
+				continue
+			}
+			removed := make([]bool, len(target.members))
+			removed[i] = true
+			moves = append(moves, memberRemovals(data, target.members, removed)...)
+			member := string(jsonString(projectLabel)) + ": " + rewrittenText(data, reads, m.value.start, m.value.end)
+			if len(merged.members) > 0 {
+				member += ", "
+			}
+			moves = append(moves, replacement{start: merged.start + 1, end: merged.start + 1, text: []byte(member)})
 		}
 	}
-	return replace(data, replacements), uses, true
+	return replace(data, slices.Concat(moves, outside(reads, moves))), uses, true
 }
 
 // memberRemovals returns the replacements that blank the removed members of
