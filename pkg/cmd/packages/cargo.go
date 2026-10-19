@@ -146,6 +146,9 @@ func checkCargoIncludes(s *setup, path string, visited map[string]bool) error {
 		if !filepath.IsAbs(include) {
 			include = filepath.Join(filepath.Dir(path), include)
 		}
+		if resolved, err := filepath.EvalSymlinks(include); err == nil {
+			include = resolved
+		}
 		if err := checkCargoProjectConfig(s, filepath.Clean(include), visited); err != nil {
 			return err
 		}

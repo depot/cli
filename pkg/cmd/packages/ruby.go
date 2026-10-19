@@ -16,8 +16,10 @@ const rubygemsUpstream = "https://rubygems.org/"
 
 // gemKeyName names the push credential per repository, because RubyGems key
 // names are shared across all gem servers and "depot" may already be in use.
+// Repository names can't contain underscores, so the separator keeps names
+// unique.
 func (r repository) gemKeyName() string {
-	return "depot-" + r.org + "-" + r.name
+	return "depot-" + r.org + "_" + r.name
 }
 
 var plainYAMLValue = regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)

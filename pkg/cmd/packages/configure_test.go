@@ -138,7 +138,7 @@ func TestWriteGemCredential(t *testing.T) {
 
 	data, err := os.ReadFile(path)
 	require.NoError(t, err)
-	require.Equal(t, "---\n:rubygems_api_key: abc\n:depot: old\n:depot-org123-internal: tok_secret\n", string(data))
+	require.Equal(t, "---\n:rubygems_api_key: abc\n:depot: old\n:depot-org123_internal: tok_secret\n", string(data))
 }
 
 func TestAlpineBranch(t *testing.T) {
@@ -768,4 +768,43 @@ func TestCheckPnpmAuthFile(t *testing.T) {
 	s := newTestSetup(t, "npm", "npmjs")
 	s.clientName = "pnpm"
 	require.ErrorContains(t, checkPnpmAuthFile(s, []string{s.repo.nerfDart() + ":_authToken"}), "pnpm config delete")
+}
+
+func TestWriteMambarcResolvesAliases(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".mambarc")
+	require.NoError(t, os.WriteFile(path, []byte("public: &public conda-forge\nchannels:\n  - *public\n"), 0644))
+
+	s := newTestSetup(t, "conda", "conda-forge")
+	s.replaceUpstream = true
+	require.NoError(t, writeMambarc(s, path, isCondaUpstream))
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.NotContains(t, string(data), "*public")
+}
+
+func TestGemKeyNamesDiffer(t *testing.T) {
+	t.Setenv("DEPOT_PACKAGES_URL", "")
+	a, err := newRepository("acme-prod", "rubygems", "gems")
+	require.NoError(t, err)
+	b, err := newRepository("acme", "rubygems", "prod-gems")
+	require.NoError(t, err)
+	require.NotEqual(t, a.gemKeyName(), b.gemKeyName())
+}
+
+func TestCheckCargoProjectConfigStopsSymlinkCycles(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.Symlink(dir, filepath.Join(dir, "link")))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "config.toml"), []byte("include = \"link/config.toml\"\n"), 0644))
+
+	s := newTestSetup(t, "cargo", "internal")
+	require.NoError(t, checkCargoProjectConfig(s, filepath.Join(dir, "config.toml"), map[string]bool{}))
+}
+
+func TestWriteNpmrcRejectsCredentialEnvironmentOverride(t *testing.T) {
+	t.Setenv("NPM_CONFIG_USERCONFIG", filepath.Join(t.TempDir(), ".npmrc"))
+	t.Setenv("npm_config_//packages.depot.dev/org123/npm/npmjs/:_authToken", "stale")
+	t.Chdir(t.TempDir())
+
+	s := newTestSetup(t, "npm", "npmjs")
+	require.ErrorContains(t, writeNpmrc(s, ""), ":_authToken")
 }

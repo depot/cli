@@ -227,14 +227,14 @@ func writeMambarc(s *setup, path string, isUpstream func(string) bool) error {
 			return fmt.Errorf("could not update %s: channels must be a list", path)
 		}
 		for _, item := range existing.Content {
-			name := strings.TrimSuffix(item.Value, "/")
+			name := strings.TrimSuffix(yamlScalarValue(item), "/")
 			if name == channel || (s.replaceUpstream && isUpstream(name)) {
 				if err := checkRemovableYAMLNode(path, item); err != nil {
 					return err
 				}
 				continue
 			}
-			channels = append(channels, item.Value)
+			channels = append(channels, yamlScalarValue(item))
 			nodes = append(nodes, item)
 		}
 	}
@@ -254,7 +254,7 @@ func writeMambarc(s *setup, path string, isUpstream func(string) bool) error {
 		var private []*yaml.Node
 		if defaults := yamlMappingValue(root, "default_channels"); defaults != nil {
 			for _, item := range defaults.Content {
-				if !isCondaUpstream(item.Value) {
+				if !isCondaUpstream(yamlScalarValue(item)) {
 					private = append(private, item)
 				} else if err := checkRemovableYAMLNode(path, item); err != nil {
 					return err
@@ -282,6 +282,15 @@ func writeMambarc(s *setup, path string, isUpstream func(string) bool) error {
 		s.notef("%s also lists other channels after the repository: %s.", path, strings.Join(channels[1:], ", "))
 	}
 	return s.writeFile(path, out.Bytes(), configFileMode(path, 0644))
+}
+
+// yamlScalarValue returns the value of a scalar node, following an alias to
+// the anchored node.
+func yamlScalarValue(node *yaml.Node) string {
+	if node.Kind == yaml.AliasNode && node.Alias != nil {
+		return node.Alias.Value
+	}
+	return node.Value
 }
 
 // checkRemovableYAMLNode rejects removing an entry with an anchor, because

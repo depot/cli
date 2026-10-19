@@ -156,6 +156,13 @@ func writeNpmrc(s *setup, helper string, flagKeys ...string) error {
 
 	tokenKey := s.repo.nerfDart() + ":_authToken"
 	helperKey := s.repo.nerfDart() + ":tokenHelper"
+	for _, key := range []string{tokenKey, helperKey} {
+		for _, name := range []string{"npm_config_" + key, "NPM_CONFIG_" + key} {
+			if value := os.Getenv(name); value != "" && value != s.token && value != helper {
+				return fmt.Errorf("%s is set, which overrides the credential in %s: unset it, then rerun this command", name, path)
+			}
+		}
+	}
 	managed := map[string]string{tokenKey: "", helperKey: ""}
 	if !s.opts.authOnly {
 		managed[registryKey(s)] = s.repo.url()
