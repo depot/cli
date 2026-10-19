@@ -24,9 +24,12 @@ Official CLI for [Depot](https://depot.dev) - you can use the CLI to build Docke
     - [`depot exec`](#depot-exec)
     - [`depot gocache`](#depot-gocache)
     - [`depot configure-docker`](#depot-configure-docker)
+    - [`depot jobs`](#depot-jobs)
+      - [`depot jobs analytics`](#depot-jobs-analytics)
     - [`depot list`](#depot-list)
       - [`depot list projects`](#depot-list-projects)
       - [`depot list builds`](#depot-list-builds)
+      - [`depot list jobs`](#depot-list-jobs)
     - [`depot projects`](#depot-projects)
       - [`depot projects create`](#depot-projects-create)
       - [`depot projects delete`](#depot-projects-delete)
@@ -381,9 +384,56 @@ If you want to uninstall the plugin, you can specify the `--uninstall` flag.
 depot configure-docker --uninstall
 ```
 
+### `depot jobs`
+
+List GitHub Actions jobs run on Depot, newest first, or inspect one job by its GitHub job ID.
+This command is for Depot GitHub Actions runners; use `depot ci` for Depot CI executions.
+
+```shell
+depot jobs --repo acme/api --status finished --conclusion failure
+depot jobs 123456789 --repo acme/api --output json
+```
+
+Listings include job and workflow names, status, conclusion, runner label, execution duration,
+and queue time. Individual job details also include lifecycle timestamps, billable time,
+requested CPU and memory, and the GitHub URL. Requested resources describe runner capacity,
+not measured utilization. The API does not currently expose step timing breakdowns.
+
+Use `--org` to select an organization (otherwise the current organization is used).
+Authentication uses `--token`, `DEPOT_TOKEN`, or saved Depot credentials. Output defaults to a
+readable table in a terminal and JSON when piped. Explicit `--output json` never prompts for
+login. JSON follows the API's protobuf JSON format: field names use camelCase, enums use
+symbolic names, and 64-bit integers are strings to preserve precision.
+
+Filter listings with repeatable `--repo`, `--status`, `--conclusion`, and `--runner-label` flags.
+Use `--query` to search job/workflow names or exact numeric job/run IDs.
+A single-job lookup requires exactly one `--repo`; listing filters do not apply to it.
+
+#### `depot jobs analytics`
+
+Show aggregate CPU and memory utilization (average and peak), average and p95 job duration,
+and failure rate by repository, workflow, and job. Groups are ordered by descending job count.
+These are metrics across job executions, not resource measurements for an individual job or step.
+Analytics may lag completed jobs by up to 15 minutes; `dataThrough` identifies data freshness.
+
+```shell
+depot jobs analytics --repo acme/api --job test --output json
+depot jobs analytics --start 2026-10-01T00:00:00Z --end 2026-10-08T00:00:00Z
+```
+
+Filter with repeatable `--repo`, `--workflow` (display name), `--workflow-path`, `--job`
+(workflow job key), and `--runner-label` flags. Table utilization and failure rates are
+percentages; JSON retains the API's fractions from 0 to 1. Durations are in seconds.
+
+Both listings and analytics default to the last 30 days. For an explicit time window, supply
+both `--start` (inclusive) and `--end` (exclusive) as RFC 3339 timestamps, at most 90 days apart.
+They return one page, with `--page-size` from 1 to 250 (default 50). To continue, pass the
+response's `nextPageToken` as `--page-token`, keeping all filters and the time range unchanged.
+Tables print the continuation token when another page is available.
+
 ### `depot list`
 
-Interact with Depot projects and builds.
+Interact with Depot projects, builds, and GitHub Actions jobs.
 
 #### `depot list projects`
 
@@ -428,6 +478,14 @@ Output builds in JSON for the project in the current directory.
 
 ```shell
 depot list builds --output json
+```
+
+#### `depot list jobs`
+
+List GitHub Actions jobs using the same flags and output as `depot jobs` without a job ID.
+
+```shell
+depot list jobs --repo acme/api --output json
 ```
 
 ### `depot projects`
