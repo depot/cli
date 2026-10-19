@@ -4,12 +4,12 @@ import (
 	"archive/tar"
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/docker/buildx/build"
@@ -69,8 +69,9 @@ func readDockerfile(inp build.Inputs, stdin []byte) *dockerfileSource {
 
 	path := inp.DockerfilePath
 	if path == "" {
-		path = lowercaseDockerfile(filepath.Join(inp.ContextPath, "Dockerfile"))
+		path = filepath.Join(inp.ContextPath, "Dockerfile")
 	}
+	path = lowercaseDockerfile(path)
 	content, err := os.ReadFile(path)
 	return &dockerfileSource{Filename: filepath.Base(path), Content: content, Err: err}
 }
@@ -117,14 +118,24 @@ func readBuilderFile(ctx context.Context, c *client.Client, attachables []sessio
 	return content, err
 }
 
-// lowercaseDockerfile returns the path of "dockerfile" when "Dockerfile" does
-// not exist, in the same way as the buildx client.
+// lowercaseDockerfile returns the path of "dockerfile" when the path names a
+// "Dockerfile" that does not exist, in the same way as the buildx client. It
+// compares the names in the directory, so that the result does not depend on
+// whether the file system ignores case.
 func lowercaseDockerfile(path string) string {
-	if _, err := os.Lstat(path); errors.Is(err, os.ErrNotExist) {
-		lowercase := filepath.Join(filepath.Dir(path), "dockerfile")
-		if _, err := os.Lstat(lowercase); err == nil {
-			return lowercase
-		}
+	if filepath.Base(path) != "Dockerfile" {
+		return path
+	}
+	entries, err := os.ReadDir(filepath.Dir(path))
+	if err != nil {
+		return path
+	}
+	names := make([]string, len(entries))
+	for i, entry := range entries {
+		names[i] = entry.Name()
+	}
+	if !slices.Contains(names, "Dockerfile") && slices.Contains(names, "dockerfile") {
+		return filepath.Join(filepath.Dir(path), "dockerfile")
 	}
 	return path
 }

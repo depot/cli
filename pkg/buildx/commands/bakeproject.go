@@ -112,15 +112,17 @@ func readsTargetAttribute(f bake.File, attribute string) bool {
 			return len(targetAttributeReads(file.Body.(*hclsyntax.Body), attribute)) > 0
 		}
 	}
-	var root any
+	var root map[string]any
 	if err := json.Unmarshal(f.Data, &root); err != nil {
 		return false
 	}
 	reads := false
-	visitJSONStrings(root, func(s string) {
-		if expr, diags := hclsyntax.ParseTemplate([]byte(s), "", hcl.InitialPos); !diags.HasErrors() {
-			reads = reads || len(targetAttributeReads(expr, attribute)) > 0
-		}
+	withoutTargetParameterFunctions(root, func() {
+		visitJSONStrings(root, func(s string) {
+			if expr, diags := hclsyntax.ParseTemplate([]byte(s), "", hcl.InitialPos); !diags.HasErrors() {
+				reads = reads || len(targetAttributeReads(expr, attribute)) > 0
+			}
+		})
 	})
 	return reads
 }
@@ -250,8 +252,8 @@ func rewriteHCL(data []byte, name, carrier string) ([]byte, int, bool) {
 			}
 		}
 	}
-	references := projectIDReferences(body, carrier)
-	uses += len(references)
+	references, reads := projectIDReferences(body, carrier)
+	uses += reads
 	renames = append(renames, references...)
 
 	replacements := blanks
@@ -267,38 +269,100 @@ func rewriteHCL(data []byte, name, carrier string) ([]byte, int, bool) {
 // projectIDReferences returns the replacements that change the expressions
 // in node that read the project_id of a target, such as
 // target.base.project_id or target.base["project_id"], into reads of the
-// carrier. A target without project_id reads as an empty string, as with
-// the earlier Depot bake schema.
-func projectIDReferences(node hclsyntax.Node, carrier string) []replacement {
+// carrier, and the number of these expressions. A target without project_id
+// reads as an empty string, as with the earlier Depot bake schema. Each read
+// of a whole target, such as lookup(target.base, "project_id", ""), gets
+// project_id too.
+func projectIDReferences(node hclsyntax.Node, carrier string) ([]replacement, int) {
 	var out []replacement
-	for _, expr := range targetAttributeReads(node, projectIDAttribute) {
+	reads := targetAttributeReads(node, projectIDAttribute)
+	for _, expr := range reads {
 		if carrier == "" {
 			out = append(out, replacement{start: expr.SrcRange.Start.Byte, end: expr.SrcRange.End.Byte, text: []byte(`""`)})
 			continue
 		}
 		if name, ok := expr.Traversal[1].(hcl.TraverseAttr); ok && len(expr.Traversal) == 3 {
-			ref := "target." + name.Name + "." + carrier
-			out = append(out, replacement{start: expr.SrcRange.Start.Byte, end: expr.SrcRange.End.Byte, text: []byte(`(` + ref + ` == null ? "" : ` + ref + `)`)})
+			out = append(out, replacement{start: expr.SrcRange.Start.Byte, end: expr.SrcRange.End.Byte, text: []byte(carrierRead(name.Name, carrier))})
 			continue
 		}
 		step := expr.Traversal[2].SourceRange()
 		out = append(out, replacement{start: step.Start.Byte, end: step.End.Byte, text: []byte(`["` + carrier + `"]`)})
 	}
-	return out
+	for _, expr := range targetObjectReads(node) {
+		name := expr.Traversal[1].(hcl.TraverseAttr).Name
+		projectID := `""`
+		if carrier != "" {
+			projectID = carrierRead(name, carrier)
+		}
+		out = append(out, replacement{start: expr.SrcRange.Start.Byte, end: expr.SrcRange.End.Byte, text: []byte(`merge(target.` + name + `, { ` + projectIDAttribute + ` = ` + projectID + ` })`)})
+	}
+	return out, len(reads)
+}
+
+func carrierRead(target, carrier string) string {
+	ref := "target." + target + "." + carrier
+	return `(` + ref + ` == null ? "" : ` + ref + `)`
 }
 
 // targetAttributeReads returns the expressions in node that read an
 // attribute of a target.
 func targetAttributeReads(node hclsyntax.Node, attribute string) []*hclsyntax.ScopeTraversalExpr {
-	var out []*hclsyntax.ScopeTraversalExpr
+	return slices.DeleteFunc(targetReads(node), func(expr *hclsyntax.ScopeTraversalExpr) bool {
+		return len(expr.Traversal) < 3 || !traversesTo(expr.Traversal[2], attribute)
+	})
+}
+
+// targetObjectReads returns the expressions in node that read a whole
+// target, such as target.base.
+func targetObjectReads(node hclsyntax.Node) []*hclsyntax.ScopeTraversalExpr {
+	return slices.DeleteFunc(targetReads(node), func(expr *hclsyntax.ScopeTraversalExpr) bool {
+		_, ok := expr.Traversal[len(expr.Traversal)-1].(hcl.TraverseAttr)
+		return len(expr.Traversal) != 2 || !ok
+	})
+}
+
+// targetReads returns the expressions in node that read a target. In a for
+// expression or a function with a variable named target, that name refers
+// to the variable.
+func targetReads(node hclsyntax.Node) []*hclsyntax.ScopeTraversalExpr {
+	var reads []*hclsyntax.ScopeTraversalExpr
+	var scopes []hcl.Range
 	_ = hclsyntax.VisitAll(node, func(node hclsyntax.Node) hcl.Diagnostics {
-		expr, ok := node.(*hclsyntax.ScopeTraversalExpr)
-		if ok && expr.Traversal.RootName() == "target" && len(expr.Traversal) >= 3 && traversesTo(expr.Traversal[2], attribute) {
-			out = append(out, expr)
+		switch node := node.(type) {
+		case *hclsyntax.ScopeTraversalExpr:
+			if node.Traversal.RootName() == "target" {
+				reads = append(reads, node)
+			}
+		case *hclsyntax.ForExpr:
+			if node.KeyVar == "target" || node.ValVar == "target" {
+				for _, expr := range []hclsyntax.Expression{node.KeyExpr, node.ValExpr, node.CondExpr} {
+					if expr != nil {
+						scopes = append(scopes, expr.Range())
+					}
+				}
+			}
+		case *hclsyntax.Block:
+			if result, ok := node.Body.Attributes["result"]; ok && node.Type == "function" && hasTargetParameter(node.Body) {
+				scopes = append(scopes, result.Expr.Range())
+			}
 		}
 		return nil
 	})
-	return out
+	return slices.DeleteFunc(reads, func(expr *hclsyntax.ScopeTraversalExpr) bool {
+		return slices.ContainsFunc(scopes, func(scope hcl.Range) bool { return scope.ContainsOffset(expr.SrcRange.Start.Byte) })
+	})
+}
+
+func hasTargetParameter(body *hclsyntax.Body) bool {
+	if attr, ok := body.Attributes["variadic_params"]; ok && hcl.ExprAsKeyword(attr.Expr) == "target" {
+		return true
+	}
+	attr, ok := body.Attributes["params"]
+	if !ok {
+		return false
+	}
+	params, _ := hcl.ExprList(attr.Expr)
+	return slices.ContainsFunc(params, func(param hcl.Expression) bool { return hcl.ExprAsKeyword(param) == "target" })
 }
 
 func traversesTo(step hcl.Traverser, attribute string) bool {
@@ -347,12 +411,7 @@ func rewriteJSON(data []byte, carrier string) ([]byte, int, bool) {
 
 	changed := false
 	uses := 0
-	targets, _ := root["target"].(map[string]any)
-	for _, value := range targets {
-		target, ok := value.(map[string]any)
-		if !ok {
-			continue
-		}
+	for _, target := range jsonBlocks(root, "target") {
 		if _, ok := target[carrier]; ok && carrier != "" {
 			delete(target, carrier)
 			changed = true
@@ -366,8 +425,13 @@ func rewriteJSON(data []byte, carrier string) ([]byte, int, bool) {
 			uses++
 		}
 	}
-	uses += rewriteJSONTemplates(root, carrier)
-	if !changed && uses == 0 {
+	templateChanged := false
+	withoutTargetParameterFunctions(root, func() {
+		var reads int
+		templateChanged, reads = rewriteJSONTemplates(root, carrier)
+		uses += reads
+	})
+	if !changed && !templateChanged {
 		return data, 0, true
 	}
 	out, err := json.Marshal(root)
@@ -377,20 +441,24 @@ func rewriteJSON(data []byte, carrier string) ([]byte, int, bool) {
 	return out, uses, true
 }
 
-// rewriteJSONTemplates rewrites the references to project_id in every
-// string of a decoded JSON value, and returns their number. Bake reads each
-// string as a template.
-func rewriteJSONTemplates(value any, carrier string) int {
+// rewriteJSONTemplates rewrites the reads of project_id in every string of
+// a decoded JSON value. Bake reads each string as a template. It reports
+// whether it changed a string, and the number of reads of project_id.
+func rewriteJSONTemplates(value any, carrier string) (bool, int) {
+	changed := false
 	uses := 0
 	rewrite := func(element any, set func(any)) {
 		if s, ok := element.(string); ok {
 			out, n := rewriteTemplate(s, carrier)
-			if n > 0 {
+			if out != s {
 				set(out)
-				uses += n
+				changed = true
 			}
+			uses += n
 		} else {
-			uses += rewriteJSONTemplates(element, carrier)
+			c, n := rewriteJSONTemplates(element, carrier)
+			changed = changed || c
+			uses += n
 		}
 	}
 	switch v := value.(type) {
@@ -403,17 +471,70 @@ func rewriteJSONTemplates(value any, carrier string) int {
 			rewrite(element, func(out any) { v[i] = out })
 		}
 	}
-	return uses
+	return changed, uses
 }
 
 func rewriteTemplate(s, carrier string) (string, int) {
-	if !strings.Contains(s, projectIDAttribute) {
+	if !strings.Contains(s, "target") {
 		return s, 0
 	}
 	expr, diags := hclsyntax.ParseTemplate([]byte(s), "", hcl.InitialPos)
 	if diags.HasErrors() {
 		return s, 0
 	}
-	replacements := projectIDReferences(expr, carrier)
-	return string(replace([]byte(s), replacements)), len(replacements)
+	replacements, reads := projectIDReferences(expr, carrier)
+	return string(replace([]byte(s), replacements)), reads
+}
+
+// withoutTargetParameterFunctions calls f while the results of the functions
+// with a parameter named target are removed from a decoded JSON definition.
+// In these results, target refers to the parameter.
+func withoutTargetParameterFunctions(root map[string]any, f func()) {
+	var functions []map[string]any
+	var results []any
+	for _, function := range jsonBlocks(root, "function") {
+		if result, ok := function["result"]; ok && jsonHasTargetParameter(function) {
+			functions = append(functions, function)
+			results = append(results, result)
+			delete(function, "result")
+		}
+	}
+	f()
+	for i, function := range functions {
+		function["result"] = results[i]
+	}
+}
+
+func jsonHasTargetParameter(function map[string]any) bool {
+	params, _ := function["params"].([]any)
+	return function["variadic_params"] == "target" || slices.Contains(params, any("target"))
+}
+
+// jsonBlocks returns the bodies of the blocks of a type in a decoded JSON
+// definition. HCL JSON gives the blocks of a type, and the blocks with a
+// label, as an object or as an array of objects.
+func jsonBlocks(root map[string]any, blockType string) []map[string]any {
+	var out []map[string]any
+	for _, labels := range jsonObjects(root[blockType]) {
+		for _, value := range labels {
+			out = append(out, jsonObjects(value)...)
+		}
+	}
+	return out
+}
+
+func jsonObjects(value any) []map[string]any {
+	switch v := value.(type) {
+	case map[string]any:
+		return []map[string]any{v}
+	case []any:
+		var out []map[string]any
+		for _, element := range v {
+			if object, ok := element.(map[string]any); ok {
+				out = append(out, object)
+			}
+		}
+		return out
+	}
+	return nil
 }
