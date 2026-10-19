@@ -63,8 +63,14 @@ func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator, pri
 		}
 	}
 
-	validatedOpts = validatedOpts.WithResolvedProjectID(in.requestedProject, in.project)
+	// A local definition starts a build for each project, so the targets of
+	// the resolved project already have their own build. A remote definition
+	// has one build for all targets.
 	buildOpts := validatedOpts.ProjectOpts(in.project)
+	if _, remote := validator.(*RemoteBakeValidator); remote || buildOpts == nil {
+		validatedOpts = validatedOpts.WithResolvedProjectID(in.requestedProject, in.project)
+		buildOpts = validatedOpts.ProjectOpts(in.project)
+	}
 	if buildOpts == nil {
 		return nil, nil, fmt.Errorf("project %s build options not found", in.project)
 	}
