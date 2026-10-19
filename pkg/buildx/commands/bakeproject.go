@@ -2,6 +2,7 @@ package commands
 
 import (
 	"context"
+	"crypto/rand"
 	"maps"
 	"slices"
 	"strings"
@@ -43,7 +44,10 @@ import (
 // schema.
 const projectIDAttribute = "project_id"
 
-const projectPolicyPrefix = "depot-project:"
+// projectPolicyPrefix starts the filename of each policy entry that carries
+// a project. It contains a random value, so that no policy of the user
+// starts with it.
+var projectPolicyPrefix = "depot-project-" + rand.Text() + ":"
 
 const composeProjectFileName = "depot-compose-projects.hcl"
 
