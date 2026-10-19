@@ -3,8 +3,6 @@ package commands
 import (
 	"bytes"
 	"context"
-	"encoding/json"
-	"io"
 	"maps"
 	"slices"
 	"strings"
@@ -42,8 +40,10 @@ import (
 // its project. Bake merges compose files before HCL files, so that HCL file
 // comes first among the HCL files.
 //
-// Files that select no project are read without changes, so that their
-// descriptions stay available to expressions.
+// When the files select no project, the only change is that each read of a
+// whole target, such as lookup(target.base, "project_id", ""), gets an empty
+// project_id, as with the earlier Depot bake schema. The descriptions stay
+// available to expressions.
 const projectIDAttribute = "project_id"
 
 const buildCarrier = "description"
@@ -58,7 +58,7 @@ const composeProjectFileName = "depot-compose-projects.hcl"
 // target that selects one.
 func readProjectTargets(ctx context.Context, files []bake.File, composeTargets map[string]compose.Target, names, overrides []string, defaults map[string]string) (map[string]*bake.Target, map[string]*bake.Group, map[string]string, error) {
 	if !selectsProjects(files, composeTargets) {
-		targets, groups, err := bake.ReadTargets(ctx, files, names, overrides, defaults, nil, &bake.EntitlementConf{})
+		targets, groups, err := bake.ReadTargets(ctx, rewriteFiles(files, ""), names, overrides, defaults, nil, &bake.EntitlementConf{})
 		return targets, groups, map[string]string{}, err
 	}
 	targets, groups, err := bake.ReadTargets(ctx, projectFiles(files, composeTargets), names, overrides, defaults, nil, &bake.EntitlementConf{})
@@ -112,34 +112,17 @@ func readsTargetAttribute(f bake.File, attribute string) bool {
 			return len(targetAttributeReads(file.Body.(*hclsyntax.Body), attribute)) > 0
 		}
 	}
-	var root map[string]any
-	if err := json.Unmarshal(f.Data, &root); err != nil {
+	root, err := parseJSON(f.Data)
+	if err != nil {
 		return false
 	}
 	reads := false
-	withoutTargetParameterFunctions(root, func() {
-		visitJSONStrings(root, func(s string) {
-			if expr, diags := hclsyntax.ParseTemplate([]byte(s), "", hcl.InitialPos); !diags.HasErrors() {
-				reads = reads || len(targetAttributeReads(expr, attribute)) > 0
-			}
-		})
+	root.visitTemplates(func(s *jsonValue) {
+		if expr, diags := hclsyntax.ParseTemplate([]byte(s.text), "", hcl.InitialPos); !diags.HasErrors() {
+			reads = reads || len(targetAttributeReads(expr, attribute)) > 0
+		}
 	})
 	return reads
-}
-
-func visitJSONStrings(value any, visit func(string)) {
-	switch v := value.(type) {
-	case string:
-		visit(v)
-	case map[string]any:
-		for _, element := range v {
-			visitJSONStrings(element, visit)
-		}
-	case []any:
-		for _, element := range v {
-			visitJSONStrings(element, visit)
-		}
-	}
 }
 
 // targetProjects returns the project of each target that has one, and
@@ -322,8 +305,8 @@ func targetObjectReads(node hclsyntax.Node) []*hclsyntax.ScopeTraversalExpr {
 }
 
 // targetReads returns the expressions in node that read a target. In a for
-// expression or a function with a variable named target, that name refers
-// to the variable.
+// expression, a function, or a matrix target with a variable named target,
+// that name refers to the variable.
 func targetReads(node hclsyntax.Node) []*hclsyntax.ScopeTraversalExpr {
 	var reads []*hclsyntax.ScopeTraversalExpr
 	var scopes []hcl.Range
@@ -345,6 +328,13 @@ func targetReads(node hclsyntax.Node) []*hclsyntax.ScopeTraversalExpr {
 			if result, ok := node.Body.Attributes["result"]; ok && node.Type == "function" && hasTargetParameter(node.Body) {
 				scopes = append(scopes, result.Expr.Range())
 			}
+			if matrix, ok := node.Body.Attributes["matrix"]; ok && node.Type == "target" && hasTargetVariable(matrix.Expr) {
+				for name, attr := range node.Body.Attributes {
+					if name != "matrix" {
+						scopes = append(scopes, attr.Expr.Range())
+					}
+				}
+			}
 		}
 		return nil
 	})
@@ -363,6 +353,17 @@ func hasTargetParameter(body *hclsyntax.Body) bool {
 	}
 	params, _ := hcl.ExprList(attr.Expr)
 	return slices.ContainsFunc(params, func(param hcl.Expression) bool { return hcl.ExprAsKeyword(param) == "target" })
+}
+
+func hasTargetVariable(matrix hclsyntax.Expression) bool {
+	object, ok := matrix.(*hclsyntax.ObjectConsExpr)
+	return ok && slices.ContainsFunc(object.Items, func(item hclsyntax.ObjectConsItem) bool {
+		if hcl.ExprAsKeyword(item.KeyExpr) == "target" {
+			return true
+		}
+		key, diags := item.KeyExpr.Value(nil)
+		return !diags.HasErrors() && key.Type() == cty.String && key.IsKnown() && !key.IsNull() && key.AsString() == "target"
+	})
 }
 
 func traversesTo(step hcl.Traverser, attribute string) bool {
@@ -387,91 +388,17 @@ func replace(data []byte, replacements []replacement) []byte {
 // blank replaces a range with spaces and keeps line breaks, so that the
 // positions in error messages for the rest of the file do not change.
 func blank(data []byte, rng hcl.Range) replacement {
-	text := slices.Clone(data[rng.Start.Byte:rng.End.Byte])
+	return blankBytes(data, rng.Start.Byte, rng.End.Byte)
+}
+
+func blankBytes(data []byte, start, end int) replacement {
+	text := slices.Clone(data[start:end])
 	for i, c := range text {
 		if c != '\n' && c != '\r' {
 			text[i] = ' '
 		}
 	}
-	return replacement{start: rng.Start.Byte, end: rng.End.Byte, text: text}
-}
-
-// rewriteJSON rewrites a JSON definition. It returns the data unchanged when
-// nothing is rewritten, so that the positions in error messages stay correct.
-func rewriteJSON(data []byte, carrier string) ([]byte, int, bool) {
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.UseNumber()
-	var root map[string]any
-	if err := decoder.Decode(&root); err != nil {
-		return nil, 0, false
-	}
-	if _, err := decoder.Token(); err != io.EOF {
-		return nil, 0, false
-	}
-
-	changed := false
-	uses := 0
-	for _, target := range jsonBlocks(root, "target") {
-		if _, ok := target[carrier]; ok && carrier != "" {
-			delete(target, carrier)
-			changed = true
-		}
-		if projectID, ok := target[projectIDAttribute]; ok {
-			delete(target, projectIDAttribute)
-			if carrier != "" {
-				target[carrier] = projectID
-			}
-			changed = true
-			uses++
-		}
-	}
-	templateChanged := false
-	withoutTargetParameterFunctions(root, func() {
-		var reads int
-		templateChanged, reads = rewriteJSONTemplates(root, carrier)
-		uses += reads
-	})
-	if !changed && !templateChanged {
-		return data, 0, true
-	}
-	out, err := json.Marshal(root)
-	if err != nil {
-		return nil, 0, false
-	}
-	return out, uses, true
-}
-
-// rewriteJSONTemplates rewrites the reads of project_id in every string of
-// a decoded JSON value. Bake reads each string as a template. It reports
-// whether it changed a string, and the number of reads of project_id.
-func rewriteJSONTemplates(value any, carrier string) (bool, int) {
-	changed := false
-	uses := 0
-	rewrite := func(element any, set func(any)) {
-		if s, ok := element.(string); ok {
-			out, n := rewriteTemplate(s, carrier)
-			if out != s {
-				set(out)
-				changed = true
-			}
-			uses += n
-		} else {
-			c, n := rewriteJSONTemplates(element, carrier)
-			changed = changed || c
-			uses += n
-		}
-	}
-	switch v := value.(type) {
-	case map[string]any:
-		for key, element := range v {
-			rewrite(element, func(out any) { v[key] = out })
-		}
-	case []any:
-		for i, element := range v {
-			rewrite(element, func(out any) { v[i] = out })
-		}
-	}
-	return changed, uses
+	return replacement{start: start, end: end, text: text}
 }
 
 func rewriteTemplate(s, carrier string) (string, int) {
@@ -484,57 +411,4 @@ func rewriteTemplate(s, carrier string) (string, int) {
 	}
 	replacements, reads := projectIDReferences(expr, carrier)
 	return string(replace([]byte(s), replacements)), reads
-}
-
-// withoutTargetParameterFunctions calls f while the results of the functions
-// with a parameter named target are removed from a decoded JSON definition.
-// In these results, target refers to the parameter.
-func withoutTargetParameterFunctions(root map[string]any, f func()) {
-	var functions []map[string]any
-	var results []any
-	for _, function := range jsonBlocks(root, "function") {
-		if result, ok := function["result"]; ok && jsonHasTargetParameter(function) {
-			functions = append(functions, function)
-			results = append(results, result)
-			delete(function, "result")
-		}
-	}
-	f()
-	for i, function := range functions {
-		function["result"] = results[i]
-	}
-}
-
-func jsonHasTargetParameter(function map[string]any) bool {
-	params, _ := function["params"].([]any)
-	return function["variadic_params"] == "target" || slices.Contains(params, any("target"))
-}
-
-// jsonBlocks returns the bodies of the blocks of a type in a decoded JSON
-// definition. HCL JSON gives the blocks of a type, and the blocks with a
-// label, as an object or as an array of objects.
-func jsonBlocks(root map[string]any, blockType string) []map[string]any {
-	var out []map[string]any
-	for _, labels := range jsonObjects(root[blockType]) {
-		for _, value := range labels {
-			out = append(out, jsonObjects(value)...)
-		}
-	}
-	return out
-}
-
-func jsonObjects(value any) []map[string]any {
-	switch v := value.(type) {
-	case map[string]any:
-		return []map[string]any{v}
-	case []any:
-		var out []map[string]any
-		for _, element := range v {
-			if object, ok := element.(map[string]any); ok {
-				out = append(out, object)
-			}
-		}
-		return out
-	}
-	return nil
 }
