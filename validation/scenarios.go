@@ -134,6 +134,8 @@ func commandLineScenarios() []scenario {
 			"bake", "-f", "labelsvalues.json", "--print", "values"),
 		offline("bake-print-project-label-references", "bake --print with a project that reads labels, and labels that read a project that reads back", "projectref",
 			"bake", "-f", "cycles.hcl", "--print", "cycles"),
+		expectStdout(offline("bake-print-project-policy-reads", "bake --print with a project that starts with a line break, and whole targets that differ only in their projects", "projectref",
+			"bake", "-f", "policies.hcl", "--print", "policies"), `"project_id": "<project>-newline"`, `"SAME": "true"`),
 		expectStdout(offline("bake-print-description-reference", "bake --print with an argument that reads the description of another target", "description",
 			"bake", "--print", "artifact"), `"MESSAGE": "described by _base"`),
 		offline("bake-print-multiproject", "bake --print shows per-target project identifiers", "multiproject", "bake", "--print"),

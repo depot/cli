@@ -191,7 +191,8 @@ func heredocEnd(expr string) string {
 //     with a project, or an empty string when the target has no project, as
 //     with the earlier Depot bake schema.
 //   - A read of a whole target, such as lookup(target.base, "project_id", ""),
-//     reads the target with project_id.
+//     reads the target with project_id and without the policy entries that
+//     carry projects.
 //
 // When the files select no project, project_id is an empty string.
 func projectReads(node hclsyntax.Node, selects bool) ([]replacement, int) {
@@ -204,7 +205,11 @@ func projectReads(node hclsyntax.Node, selects bool) ([]replacement, int) {
 	}
 	for _, expr := range targetObjectReads(node) {
 		name := expr.Traversal[1].(hcl.TraverseAttr).Name
-		out = append(out, replacement{start: expr.SrcRange.Start.Byte, end: expr.SrcRange.End.Byte, text: []byte(`merge(target.` + name + `, { ` + projectIDAttribute + ` = ` + projectRead(name, selects) + ` })`)})
+		fields := projectIDAttribute + ` = ` + projectRead(name, selects)
+		if selects {
+			fields += `, policy = ` + userPolicies(name)
+		}
+		out = append(out, replacement{start: expr.SrcRange.Start.Byte, end: expr.SrcRange.End.Byte, text: []byte(`merge(target.` + name + `, { ` + fields + ` })`)})
 	}
 	return out, len(projectIDReads)
 }
@@ -213,9 +218,16 @@ func projectRead(target string, selects bool) string {
 	if !selects {
 		return `""`
 	}
-	filename := `lookup(policy, "filename", "")`
-	return `reverselist(concat([""], [for policy in target.` + target + `.policy : trimprefix(` + filename + `, "` + projectPolicyPrefix + `") if length(regexall("^` + projectPolicyPrefix + `.", ` + filename + `)) > 0]))[0]`
+	return `reverselist(concat([""], [for policy in target.` + target + `.policy : trimprefix(` + policyFilename + `, "` + projectPolicyPrefix + `") if length(regexall("(?s)^` + projectPolicyPrefix + `.", ` + policyFilename + `)) > 0]))[0]`
 }
+
+// userPolicies returns an expression that reads the policy entries of a
+// target without those that carry its project.
+func userPolicies(target string) string {
+	return `[for policy in target.` + target + `.policy : policy if length(regexall("^` + projectPolicyPrefix + `", ` + policyFilename + `)) == 0]`
+}
+
+const policyFilename = `lookup(policy, "filename", "")`
 
 func rewriteTemplate(s string, selects bool) (string, int) {
 	if !strings.Contains(s, "target") {
