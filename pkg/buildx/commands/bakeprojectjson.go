@@ -7,9 +7,6 @@ import (
 	"io"
 	"slices"
 	"strings"
-
-	"github.com/hashicorp/hcl/v2"
-	"github.com/hashicorp/hcl/v2/hclsyntax"
 )
 
 // jsonValue is a JSON value and the position of its source text. The JSON
@@ -107,28 +104,17 @@ func (v *jsonValue) values(key string) []*jsonValue {
 	return out
 }
 
-type jsonBlock struct {
-	label string
-	body  *jsonValue
-}
-
-// blocks returns the blocks of a type in a JSON definition.
-func (v *jsonValue) blocks(blockType string) []jsonBlock {
-	var out []jsonBlock
+// blocks returns the bodies of the blocks of a type in a JSON definition.
+func (v *jsonValue) blocks(blockType string) []*jsonValue {
+	var out []*jsonValue
 	for _, value := range v.values(blockType) {
 		for _, labels := range value.objects() {
 			for _, m := range labels.members {
-				for _, body := range m.value.objects() {
-					out = append(out, jsonBlock{label: m.key.text, body: body})
-				}
+				out = append(out, m.value.objects()...)
 			}
 		}
 	}
 	return out
-}
-
-func (v *jsonValue) isNull(data []byte) bool {
-	return !v.isString && !v.isObject && string(data[v.start:v.end]) == "null"
 }
 
 func (v *jsonValue) contains(other *jsonValue) bool {
@@ -142,13 +128,13 @@ func (v *jsonValue) contains(other *jsonValue) bool {
 func (v *jsonValue) visitTemplates(visit func(*jsonValue)) {
 	var scopes []*jsonValue
 	for _, function := range v.blocks("function") {
-		if hasJSONTargetParameter(function.body) {
-			scopes = append(scopes, function.body.values("result")...)
+		if hasJSONTargetParameter(function) {
+			scopes = append(scopes, function.values("result")...)
 		}
 	}
 	for _, target := range v.blocks("target") {
-		if slices.ContainsFunc(target.body.values("matrix"), func(matrix *jsonValue) bool { return len(matrix.values("target")) > 0 }) {
-			for _, m := range target.body.members {
+		if slices.ContainsFunc(target.values("matrix"), func(matrix *jsonValue) bool { return len(matrix.values("target")) > 0 }) {
+			for _, m := range target.members {
 				if m.key.text != "matrix" {
 					scopes = append(scopes, m.value)
 				}
@@ -181,9 +167,7 @@ func hasJSONTargetParameter(function *jsonValue) bool {
 		slices.ContainsFunc(function.values("params"), func(params *jsonValue) bool { return slices.ContainsFunc(params.elements, isTarget) })
 }
 
-// rewriteJSON rewrites a JSON definition in the same way as rewriteHCL. A
-// target with project_id gets labels given as a template that merges the
-// project into its labels, because the labels can be any JSON value.
+// rewriteJSON rewrites a JSON definition in the same way as rewriteHCL.
 func rewriteJSON(data []byte, selects bool) ([]byte, int, bool) {
 	root, err := parseJSON(data)
 	if err != nil {
@@ -193,121 +177,37 @@ func rewriteJSON(data []byte, selects bool) ([]byte, int, bool) {
 	templates := map[*jsonValue]string{}
 	uses := 0
 	root.visitTemplates(func(s *jsonValue) {
-		out, reads := rewriteTemplate(s.text, selects, nil)
+		out, reads := rewriteTemplate(s.text, selects)
 		uses += reads
 		templates[s] = out
 	})
-	var moves []replacement
+	var replacements []replacement
 	for _, target := range root.blocks("target") {
-		members := target.body.members
-		i := slices.IndexFunc(members, func(m jsonMember) bool { return m.key.text == projectIDAttribute })
-		if i == -1 {
-			continue
+		for _, m := range target.members {
+			if m.key.text != projectIDAttribute {
+				continue
+			}
+			uses++
+			project := "${" + string(data[m.value.start:m.value.end]) + "}"
+			if m.value.isString {
+				project = m.value.text
+			}
+			if text, ok := templates[m.value]; ok {
+				project = text
+				delete(templates, m.value)
+			}
+			entry := append(append([]byte(`[{"filename": `), jsonString(projectPolicyPrefix+project)...), "}]"...)
+			replacements = append(replacements,
+				replacement{start: m.key.start, end: m.key.end, text: jsonString("policy")},
+				replacement{start: m.value.start, end: m.value.end, text: entry})
 		}
-		uses++
-		project := jsonExpression(data, members[i].value, templates)
-		if len(target.body.values("matrix")) == 0 {
-			self := &targetProject{target: target.label, expression: project}
-			target.body.visitStrings(func(s *jsonValue) {
-				if _, ok := templates[s]; ok && !members[i].value.contains(s) {
-					templates[s], _ = rewriteTemplate(s.text, selects, self)
-				}
-			})
-		}
-		labels := `{ "` + unsetLabelsLabel + `" = "true" }`
-		existing := target.body.values("labels")
-		if len(existing) > 0 && !existing[len(existing)-1].isNull(data) {
-			labels = jsonExpression(data, existing[len(existing)-1], templates)
-		}
-		value := jsonString("${merge(" + labels + ", " + projectLabels(project) + ")}")
-		if len(existing) == 0 {
-			moves = append(moves,
-				replacement{start: members[i].key.start, end: members[i].key.end, text: jsonString("labels")},
-				replacement{start: members[i].value.start, end: members[i].value.end, text: value})
-			continue
-		}
-		removed := make([]bool, len(members))
-		removed[i] = true
-		last := existing[len(existing)-1]
-		moves = append(moves, replacement{start: last.start, end: last.end, text: value})
-		moves = append(moves, memberRemovals(data, members, removed)...)
 	}
-
-	var edits []replacement
 	for s, text := range templates {
 		if text != s.text {
-			edits = append(edits, replacement{start: s.start, end: s.end, text: jsonString(text)})
+			replacements = append(replacements, replacement{start: s.start, end: s.end, text: jsonString(text)})
 		}
 	}
-	return replace(data, slices.Concat(moves, outside(edits, moves))), uses, true
-}
-
-// jsonExpression returns an HCL expression with the value of a JSON value in
-// a definition, with the templates rewritten.
-func jsonExpression(data []byte, v *jsonValue, templates map[*jsonValue]string) string {
-	template := func(s *jsonValue) string {
-		if text, ok := templates[s]; ok {
-			return templateExpression(text)
-		}
-		return templateExpression(s.text)
-	}
-	switch {
-	case v.isString:
-		return template(v)
-	case v.isObject:
-		items := make([]string, len(v.members))
-		for i, m := range v.members {
-			items[i] = "(" + template(m.key) + ") = " + jsonExpression(data, m.value, templates)
-		}
-		return "{ " + strings.Join(items, ", ") + " }"
-	case data[v.start] == '[':
-		elements := make([]string, len(v.elements))
-		for i, element := range v.elements {
-			elements[i] = jsonExpression(data, element, templates)
-		}
-		return "[" + strings.Join(elements, ", ") + "]"
-	}
-	return string(data[v.start:v.end])
-}
-
-// templateExpression returns an HCL expression with the value of a
-// template.
-func templateExpression(s string) string {
-	expr, diags := hclsyntax.ParseTemplate([]byte(s), "", hcl.InitialPos)
-	if wrap, ok := expr.(*hclsyntax.TemplateWrapExpr); ok && !diags.HasErrors() {
-		inner := s[wrap.Wrapped.Range().Start.Byte:wrap.Wrapped.Range().End.Byte]
-		return "(" + inner + heredocEnd(inner) + ")"
-	}
-	if !strings.Contains(s, "${") && !strings.Contains(s, "%{") {
-		return string(jsonString(s))
-	}
-	delimiter := "DEPOT_TEMPLATE"
-	for slices.ContainsFunc(strings.Split(s, "\n"), func(line string) bool { return strings.TrimSpace(line) == delimiter }) {
-		delimiter += "_"
-	}
-	return "trimsuffix(<<" + delimiter + "\n" + s + "\n" + delimiter + "\n" + `, "\n")`
-}
-
-// memberRemovals returns the replacements that blank the removed members of
-// an object, with the commas that separate them from the other members.
-func memberRemovals(data []byte, members []jsonMember, removed []bool) []replacement {
-	var out []replacement
-	kept := slices.Index(removed, false)
-	if kept == -1 {
-		if len(members) > 0 {
-			out = append(out, blankBytes(data, members[0].key.start, members[len(members)-1].value.end))
-		}
-		return out
-	}
-	if kept > 0 {
-		out = append(out, blankBytes(data, members[0].key.start, members[kept].key.start))
-	}
-	for i := kept + 1; i < len(members); i++ {
-		if removed[i] {
-			out = append(out, blankBytes(data, members[i-1].value.end, members[i].value.end))
-		}
-	}
-	return out
+	return replace(data, replacements), uses, true
 }
 
 func jsonString(s string) []byte {

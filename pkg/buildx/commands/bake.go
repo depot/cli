@@ -593,6 +593,11 @@ func readBakeTargets(ctx context.Context, files []bake.File, inp *bake.Input, op
 		return nil, nil, err
 	}
 	for name, opt := range opts {
+		// The policy holds only the policies of the user here, because
+		// readProjectTargets removes the entries that carry projects. To
+		// support source policies, also remove these entries from the reads
+		// of target.<name>.policy in bakeproject.go, and keep the project of
+		// a target when --set replaces its policy.
 		if slices.ContainsFunc(opt.Policy, func(p buildflags.PolicyConfig) bool { return !p.Disabled }) {
 			return nil, nil, errors.Errorf("target %q sets a source policy, but Depot builders do not support source policies", name)
 		}
