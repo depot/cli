@@ -118,6 +118,8 @@ func commandLineScenarios() []scenario {
 			"bake", "-f", "keys.json", "--print", "keys"), `"<project>-keys": "value"`),
 		expectStdout(offline("bake-print-whole-target-without-projects", "bake --print with whole-target reads of project_id in a file that selects no project", "projectref",
 			"bake", "-f", "noproject.hcl", "--print", "noproject"), `"LOOKUP": "none:"`, `"DYNAMIC": "none:"`),
+		expectStdout(offline("bake-print-indirect-carrier-read", "bake --print with a description that reads a carrier attribute through an index", "projectref",
+			"bake", "-f", "indirect.hcl", "--print", "indirect"), `"description": "host"`),
 		expectStdout(offline("bake-print-description-reference", "bake --print with an argument that reads the description of another target", "description",
 			"bake", "--print", "artifact"), `"MESSAGE": "described by _base"`),
 		offline("bake-print-multiproject", "bake --print shows per-target project identifiers", "multiproject", "bake", "--print"),
