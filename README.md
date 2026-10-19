@@ -25,6 +25,7 @@ Official CLI for [Depot](https://depot.dev) - you can use the CLI to build Docke
     - [`depot gocache`](#depot-gocache)
     - [`depot configure-docker`](#depot-configure-docker)
     - [`depot jobs`](#depot-jobs)
+      - [`depot jobs metrics`](#depot-jobs-metrics)
       - [`depot jobs analytics`](#depot-jobs-analytics)
     - [`depot list`](#depot-list)
       - [`depot list projects`](#depot-list-projects)
@@ -408,6 +409,38 @@ symbolic names, and 64-bit integers are strings to preserve precision.
 Filter listings with repeatable `--repo`, `--status`, `--conclusion`, and `--runner-label` flags.
 Use `--query` to search job/workflow names or exact numeric job/run IDs.
 A single-job lookup requires exactly one `--repo`; listing filters do not apply to it.
+
+#### `depot jobs metrics`
+
+Fetch CPU and memory utilization for one GitHub Actions job execution using its GitHub
+job ID and exactly one `--repo owner/name`. Use `depot jobs --repo owner/name` to find job IDs.
+Completed jobs return their execution metrics; running jobs return a snapshot that can grow
+on subsequent requests.
+
+```shell
+depot jobs metrics 123456789 --repo acme/api
+depot jobs metrics 123456789 --repo acme/api --org org_123 --output json
+```
+
+Uses the same authentication, organization selection, and `--output auto|table|json` behavior
+as `depot jobs`. Tables show job/runner context, snapshot time, availability and reason,
+observed timestamps, average/peak CPU and memory utilization, sample counts, and downsampling
+details. JSON includes the full API response with `job`, `availability`, `stats`, `cap`,
+`samples`, and `snapshotAt`. Samples are ordered by timestamp. CPU measures user-mode
+utilization averaged across cores; memory measures used memory as a fraction of total memory.
+Utilization is a fraction from 0 to 1 in JSON and a percentage in tables.
+
+Unavailable measurements are omitted from JSON's optional utilization fields and displayed
+as `n/a` in table summaries; measured zero remains zero. `availability` distinguishes available,
+partial, and unavailable telemetry and includes the API's reason. Availability describes the
+observed samples and does not guarantee coverage of the entire execution. Telemetry-store
+errors fail the command instead of returning an empty success response.
+
+The API limits execution windows to seven days and returns at most 5,000 samples. When samples
+are downsampled, `cap` reports the raw/returned counts, limit, and strategy. The `evenly_spaced`
+strategy retains the first and last samples but may omit intermediate peaks. Summary statistics
+are calculated by the API across all observed per-second samples before downsampling. This
+command has no time-range or pagination flags and does not expose per-step measurements.
 
 #### `depot jobs analytics`
 

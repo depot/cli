@@ -28,6 +28,14 @@ func GetGithubActionsJob(ctx context.Context, token, orgID string, req *corev1.G
 	return resp.Msg, nil
 }
 
+func GetGithubActionsJobMetrics(ctx context.Context, token, orgID string, req *corev1.GetGithubActionsJobMetricsRequest) (*corev1.GetGithubActionsJobMetricsResponse, error) {
+	resp, err := NewGithubActionsClient().GetGithubActionsJobMetrics(ctx, WithAuthenticationAndOrg(connect.NewRequest(req), token, orgID))
+	if err != nil {
+		return nil, err
+	}
+	return resp.Msg, nil
+}
+
 func ListGithubActionsJobAnalytics(ctx context.Context, token, orgID string, req *corev1.ListGithubActionsJobAnalyticsRequest) (*corev1.ListGithubActionsJobAnalyticsResponse, error) {
 	resp, err := NewGithubActionsClient().ListGithubActionsJobAnalytics(ctx, WithAuthenticationAndOrg(connect.NewRequest(req), token, orgID))
 	if err != nil {
