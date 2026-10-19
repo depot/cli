@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"maps"
@@ -63,13 +64,13 @@ func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator, pri
 		}
 	}
 
-	// A local definition starts a build for each project, so the targets of
-	// the resolved project already have their own build. A remote definition
-	// has one build for all targets.
-	buildOpts := validatedOpts.ProjectOpts(in.project)
-	if _, remote := validator.(*RemoteBakeValidator); remote || buildOpts == nil {
-		validatedOpts = validatedOpts.WithResolvedProjectID(in.requestedProject, in.project)
-		buildOpts = validatedOpts.ProjectOpts(in.project)
+	// A local definition starts a build for each project, and each build
+	// runs the targets of its requested project, also when the API resolves
+	// that project to another one. A remote definition has one build for all
+	// its targets.
+	buildOpts := validatedOpts.ProjectOpts(cmp.Or(in.requestedProject, in.project))
+	if _, remote := validator.(*RemoteBakeValidator); remote {
+		buildOpts = validatedOpts.WithResolvedProjectID(in.requestedProject, in.project).ProjectOpts(in.project)
 	}
 	if buildOpts == nil {
 		return nil, nil, fmt.Errorf("project %s build options not found", in.project)
