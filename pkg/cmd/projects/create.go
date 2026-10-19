@@ -11,6 +11,7 @@ import (
 	"github.com/depot/cli/pkg/config"
 	"github.com/depot/cli/pkg/helpers"
 	"github.com/spf13/cobra"
+	"google.golang.org/protobuf/proto"
 )
 
 func NewCmdCreate() *cobra.Command {
@@ -20,6 +21,7 @@ func NewCmdCreate() *cobra.Command {
 		region              string
 		keepGigabytes       int64
 		cachePolicyKeepDays int32
+		maxConcurrentBuilds int32
 	)
 
 	cmd := &cobra.Command{
@@ -27,6 +29,15 @@ func NewCmdCreate() *cobra.Command {
 		Aliases: []string{"c"},
 		Args:    cobra.MaximumNArgs(1),
 		Short:   "Create depot project",
+		Long: `Create a Depot project with optional cache and autoscaling settings.
+
+Autoscaling adds builder instances when the configured concurrent builds per
+instance is reached. Leave the setting unset to disable project autoscaling.`,
+		Example: `  # Create a project with autoscaling disabled
+  depot projects create my-project
+
+  # Allow up to three concurrent builds per builder instance
+  depot projects create my-project --max-concurrent-builds 3`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) < 1 {
 				return fmt.Errorf("project name is required")
@@ -36,6 +47,10 @@ func NewCmdCreate() *cobra.Command {
 
 			if cachePolicyKeepDays < 0 {
 				return fmt.Errorf("--cache-policy-keep-days cannot be negative")
+			}
+			concurrencyChanged := cmd.Flags().Changed("max-concurrent-builds")
+			if concurrencyChanged && maxConcurrentBuilds < 1 {
+				return fmt.Errorf("--max-concurrent-builds must be greater than zero")
 			}
 
 			token, err := helpers.ResolveProjectAuth(ctx, token)
@@ -52,12 +67,15 @@ func NewCmdCreate() *cobra.Command {
 				Name:     projectName,
 				RegionId: region,
 				CachePolicy: &corev1.CachePolicy{
-					KeepBytes: keepGigabytes * 1024 * 1024 * 1024,
+					KeepBytes: proto.Int64(keepGigabytes * 1024 * 1024 * 1024),
 					KeepDays:  cachePolicyKeepDays,
 				},
 			}
 			if orgID != "" {
 				req.OrganizationId = &orgID
+			}
+			if concurrencyChanged {
+				req.MaxConcurrentBuilds = &maxConcurrentBuilds
 			}
 
 			res, err := projectClient.CreateProject(ctx, api.WithAuthentication(connect.NewRequest(&req), token))
@@ -82,20 +100,26 @@ func NewCmdCreate() *cobra.Command {
 	flags.StringVar(&region, "region", "us-east-1", "Build data will be stored in the chosen region")
 	flags.Int64Var(&keepGigabytes, "cache-storage-policy", 50, "Build cache to keep per architecture in GB")
 	flags.Int32Var(&cachePolicyKeepDays, "cache-policy-keep-days", 14, "Build cache retention in days (0 means no limit)")
+	flags.Int32Var(&maxConcurrentBuilds, "max-concurrent-builds", 0, "Maximum concurrent builds per builder instance before autoscaling (positive integer)")
 
 	return cmd
 }
 
 type CreateResponse struct {
-	ProjectId   string              `json:"project_id,omitempty"`
-	Name        string              `json:"name,omitempty"`
-	CachePolicy *corev1.CachePolicy `json:"cache_policy,omitempty"`
+	ProjectId           string              `json:"project_id,omitempty"`
+	Name                string              `json:"name,omitempty"`
+	CachePolicy         *corev1.CachePolicy `json:"cache_policy,omitempty"`
+	MaxConcurrentBuilds *int32              `json:"max_concurrent_builds"`
 }
 
 func NewCreateResponse(project *corev1.Project) *CreateResponse {
-	return &CreateResponse{
+	response := &CreateResponse{
 		ProjectId:   project.GetProjectId(),
 		Name:        project.GetName(),
 		CachePolicy: project.GetCachePolicy(),
 	}
+	if project != nil {
+		response.MaxConcurrentBuilds = project.MaxConcurrentBuilds
+	}
+	return response
 }

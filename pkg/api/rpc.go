@@ -15,12 +15,15 @@ import (
 	"github.com/depot/cli/pkg/proto/depot/ci/v1/civ1connect"
 	"github.com/depot/cli/pkg/proto/depot/cli/v1/cliv1connect"
 	"github.com/depot/cli/pkg/proto/depot/cli/v1beta1/cliv1beta1connect"
-	cliCorev1connect "github.com/depot/cli/pkg/proto/depot/core/v1/corev1connect"
 	"golang.org/x/net/http2"
 )
 
 func NewBuildClient() cliv1connect.BuildServiceClient {
 	return cliv1connect.NewBuildServiceClient(getHTTPClient(getBaseURL()), getBaseURL(), WithUserAgent())
+}
+
+func NewCoreBuildClient() corev1connect.BuildServiceClient {
+	return corev1connect.NewBuildServiceClient(getHTTPClient(getBaseURL()), getBaseURL(), WithUserAgent())
 }
 
 func NewLoginClient() cliv1beta1connect.LoginServiceClient {
@@ -31,8 +34,8 @@ func NewProjectsClient() cliv1beta1connect.ProjectsServiceClient {
 	return cliv1beta1connect.NewProjectsServiceClient(getHTTPClient(getBaseURL()), getBaseURL(), WithUserAgent())
 }
 
-func NewOrganizationsClient() cliCorev1connect.OrganizationServiceClient {
-	return cliCorev1connect.NewOrganizationServiceClient(getHTTPClient(getBaseURL()), getBaseURL(), WithUserAgent())
+func NewOrganizationsClient() corev1connect.OrganizationServiceClient {
+	return corev1connect.NewOrganizationServiceClient(getHTTPClient(getBaseURL()), getBaseURL(), WithUserAgent())
 }
 
 func NewSDKProjectsClient() corev1connect.ProjectServiceClient {

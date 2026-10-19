@@ -5,16 +5,21 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"buf.build/gen/go/depot/api/connectrpc/go/depot/core/v1/corev1connect"
 	corev1 "buf.build/gen/go/depot/api/protocolbuffers/go/depot/core/v1"
 	"connectrpc.com/connect"
+	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -122,7 +127,7 @@ func TestGetProjectCallsAPIAndWritesJSON(t *testing.T) {
 			RegionId:       "eu-central-1",
 			CreatedAt:      timestamppb.New(time.Date(2026, time.July, 29, 12, 30, 0, 0, time.UTC)),
 			CachePolicy: &corev1.CachePolicy{
-				KeepBytes: 50 * bytesPerGigabyte,
+				KeepBytes: proto.Int64(50 * bytesPerGigabyte),
 				KeepDays:  14,
 			},
 		},
@@ -168,7 +173,7 @@ func TestUpdateProjectSendsOnlyChangedFields(t *testing.T) {
 		project: &corev1.Project{
 			ProjectId: "project-123",
 			CachePolicy: &corev1.CachePolicy{
-				KeepBytes: 50 * bytesPerGigabyte,
+				KeepBytes: proto.Int64(50 * bytesPerGigabyte),
 				KeepDays:  14,
 			},
 		},
@@ -237,7 +242,7 @@ func TestUpdateProjectRequiresAChange(t *testing.T) {
 	command.SilenceErrors = true
 
 	err := command.Execute()
-	if err == nil || !strings.Contains(err.Error(), "one of --name, --region, or --cache-storage-policy is required") {
+	if err == nil || !strings.Contains(err.Error(), "is required") || !strings.Contains(err.Error(), "--max-concurrent-builds") || !strings.Contains(err.Error(), "--disable-autoscaling") {
 		t.Fatalf("error = %v", err)
 	}
 }
@@ -273,16 +278,22 @@ func TestGetProjectRejectsUnsupportedOutputBeforeAuth(t *testing.T) {
 type projectServiceRecorder struct {
 	corev1connect.UnimplementedProjectServiceHandler
 
-	project       *corev1.Project
-	createRequest *corev1.CreateProjectRequest
-	getRequest    *corev1.GetProjectRequest
-	updateRequest *corev1.UpdateProjectRequest
-	authorization string
+	project        *corev1.Project
+	createRequest  *corev1.CreateProjectRequest
+	getRequest     *corev1.GetProjectRequest
+	updateRequest  *corev1.UpdateProjectRequest
+	createResponse *corev1.Project
+	updateResponse *corev1.Project
+	authorization  string
+	requestCount   atomic.Int32
 }
 
 func (h *projectServiceRecorder) CreateProject(_ context.Context, request *connect.Request[corev1.CreateProjectRequest]) (*connect.Response[corev1.CreateProjectResponse], error) {
 	h.createRequest = request.Msg
 	h.authorization = request.Header().Get("Authorization")
+	if h.createResponse != nil {
+		return connect.NewResponse(&corev1.CreateProjectResponse{Project: h.createResponse}), nil
+	}
 	return connect.NewResponse(&corev1.CreateProjectResponse{
 		Project: &corev1.Project{
 			ProjectId:      "project-123",
@@ -303,6 +314,9 @@ func (h *projectServiceRecorder) GetProject(_ context.Context, request *connect.
 func (h *projectServiceRecorder) UpdateProject(_ context.Context, request *connect.Request[corev1.UpdateProjectRequest]) (*connect.Response[corev1.UpdateProjectResponse], error) {
 	h.updateRequest = request.Msg
 	h.authorization = request.Header().Get("Authorization")
+	if h.updateResponse != nil {
+		return connect.NewResponse(&corev1.UpdateProjectResponse{Project: h.updateResponse}), nil
+	}
 	return connect.NewResponse(&corev1.UpdateProjectResponse{
 		Project: &corev1.Project{
 			ProjectId:   request.Msg.GetProjectId(),
@@ -313,11 +327,66 @@ func (h *projectServiceRecorder) UpdateProject(_ context.Context, request *conne
 	}), nil
 }
 
-func setupProjectService(t *testing.T, handler corev1connect.ProjectServiceHandler) {
+func TestProjectManagementCredentials(t *testing.T) {
+	// Isolate configured credentials without reading or writing the user's config.
+	previous := viper.GetString("api_token")
+	t.Cleanup(func() { viper.Set("api_token", previous) })
+	for _, key := range []string{"DEPOT_API_TOKEN", "DEPOT_TOKEN", "DEPOT_JIT_TOKEN", "DEPOT_CACHE_TOKEN"} {
+		t.Setenv(key, "")
+	}
+	for _, newCommand := range []func() *cobra.Command{NewCmdGet, NewCmdUpdate} {
+		for _, source := range []string{"environment", "stored", "missing"} {
+			cmd := newCommand()
+			t.Run(cmd.Name()+"/"+source, func(t *testing.T) {
+				viper.Set("api_token", "")
+				const token = "depot_org_fixture"
+				if source == "environment" {
+					t.Setenv("DEPOT_TOKEN", token)
+				} else if source == "stored" {
+					viper.Set("api_token", token)
+				}
+				handler := &projectServiceRecorder{project: &corev1.Project{ProjectId: "project-123"}}
+				setupProjectService(t, handler)
+				args := []string{"project-123"}
+				if cmd.Name() == "update" {
+					args = append(args, "--name", "Renamed")
+				}
+				cmd.SetArgs(args)
+				cmd.SetOut(io.Discard)
+				cmd.SetErr(io.Discard)
+				cmd.SilenceErrors, cmd.SilenceUsage = true, true
+				err := cmd.Execute()
+				if source == "missing" {
+					if err == nil {
+						t.Fatal("expected error without credentials")
+					}
+					if got := handler.requestCount.Load(); got != 0 {
+						t.Fatalf("made %d HTTP requests without credentials", got)
+					}
+					return
+				}
+				if err != nil {
+					t.Fatal(err)
+				}
+				if got := handler.requestCount.Load(); got != 1 {
+					t.Fatalf("HTTP requests = %d, want 1", got)
+				}
+				if handler.authorization != "Bearer "+token {
+					t.Fatalf("Authorization = %q", handler.authorization)
+				}
+			})
+		}
+	}
+}
+
+func setupProjectService(t *testing.T, handler *projectServiceRecorder) {
 	t.Helper()
 
 	_, connectHandler := corev1connect.NewProjectServiceHandler(handler)
-	server := httptest.NewServer(h2c.NewHandler(connectHandler, &http2.Server{}))
+	server := httptest.NewServer(h2c.NewHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		handler.requestCount.Add(1)
+		connectHandler.ServeHTTP(w, r)
+	}), &http2.Server{}))
 	t.Cleanup(server.Close)
 	t.Setenv("DEPOT_API_URL", server.URL)
 }
