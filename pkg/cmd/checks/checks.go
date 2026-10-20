@@ -2,6 +2,7 @@ package checks
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -11,8 +12,6 @@ import (
 	"github.com/depot/cli/pkg/helpers"
 	checksv1 "github.com/depot/cli/pkg/proto/depot/checks/v1"
 	"github.com/spf13/cobra"
-	"google.golang.org/protobuf/encoding/protojson"
-	"google.golang.org/protobuf/proto"
 )
 
 type options struct {
@@ -28,7 +27,7 @@ func NewCmdChecks() *cobra.Command {
 	}
 	cmd.PersistentFlags().StringVar(&o.org, "org", "", "Organization ID (defaults to the current organization)")
 	cmd.PersistentFlags().StringVar(&o.token, "token", "", "Depot API token (or DEPOT_TOKEN)")
-	cmd.PersistentFlags().StringVarP(&o.output, "output", "o", "text", "Output format: text or json (transcript: text or jsonl)")
+	cmd.PersistentFlags().StringVarP(&o.output, "output", "o", "text", "Output format: text or json (transcript also accepts jsonl)")
 	cmd.AddCommand(newList(o), newGet(o), newAttempts(o), newRun(o), newRetry(o), newTranscript(o), newResolve(o, true), newResolve(o, false), newAgents(o))
 	return cmd
 }
@@ -36,9 +35,6 @@ func NewCmdChecks() *cobra.Command {
 func (o *options) authenticate(cmd *cobra.Command) error {
 	if o.output != "text" && o.output != "json" && !(cmd.Name() == "transcript" && o.output == "jsonl") {
 		return fmt.Errorf("unsupported output format %q", o.output)
-	}
-	if cmd.Name() == "transcript" && o.output == "json" {
-		return fmt.Errorf("use --output jsonl for the original transcript archive")
 	}
 	if o.org == "" {
 		o.org = config.GetCurrentOrganization()
@@ -58,13 +54,18 @@ func request[T any](o *options, msg *T) *connect.Request[T] {
 	return api.WithAuthenticationAndOrg(connect.NewRequest(msg), o.token, o.org)
 }
 
-func (o *options) writeJSON(cmd *cobra.Command, msg proto.Message) error {
-	b, err := (protojson.MarshalOptions{Indent: "  ", EmitUnpopulated: true}).Marshal(msg)
-	if err != nil {
-		return err
+func (o *options) writeJSON(cmd *cobra.Command, value any) error {
+	encoder := json.NewEncoder(cmd.OutOrStdout())
+	encoder.SetIndent("", "  ")
+	return encoder.Encode(value)
+}
+
+func (o *options) inspectCommand(cmd *cobra.Command, id string) string {
+	command := "depot checks get " + id
+	if cmd.Flags().Changed("org") {
+		command += " --org " + o.org
 	}
-	_, err = fmt.Fprintln(cmd.OutOrStdout(), string(b))
-	return err
+	return command
 }
 
 func parseRepo(value string) (*checksv1.RepositorySelector, error) {
@@ -107,37 +108,36 @@ func selectAttempt(ctx context.Context, o *options, id string) (*checksv1.CheckA
 type pagination struct {
 	n     int
 	token string
-	all   bool
+	seen  map[string]bool
 }
 
 func (p *pagination) flags(cmd *cobra.Command) {
-	cmd.Flags().IntVarP(&p.n, "n", "n", 50, "Results per page (1-100)")
-	cmd.Flags().StringVar(&p.token, "page-token", "", "Continue with this page token and the same filters")
-	cmd.Flags().BoolVar(&p.all, "all", false, "Fetch every remaining page")
+	cmd.Flags().IntVarP(&p.n, "n", "n", 50, "Number of results to return")
 }
 
 func (p *pagination) validate() error {
-	if p.n < 1 || p.n > 100 {
-		return fmt.Errorf("-n must be between 1 and 100")
+	if p.n <= 0 {
+		return fmt.Errorf("result limit (-n) must be greater than 0")
 	}
 	return nil
 }
 
-// Bind each continuation token to this traversal so a broken server cannot loop forever.
-func (p *pagination) next(token string, seen map[string]bool) (bool, error) {
-	if !p.all || token == "" {
-		return false, nil
-	}
-	if seen[token] {
-		return false, fmt.Errorf("API returned a repeated page token")
-	}
-	seen[token] = true
-	p.token = token
-	return true, nil
+func (p *pagination) pageSize(count int) uint32 {
+	return uint32(min(p.n-count, 100))
 }
 
-func pageHint(cmd *cobra.Command, token string) {
-	if token != "" {
-		fmt.Fprintf(cmd.ErrOrStderr(), "Next page: --page-token %s\n", token)
+// Bind each continuation token to this traversal so a broken server cannot loop forever.
+func (p *pagination) next(token string, count int) (bool, error) {
+	if count >= p.n || token == "" {
+		return false, nil
 	}
+	if p.seen[token] {
+		return false, fmt.Errorf("API returned a repeated page token")
+	}
+	if p.seen == nil {
+		p.seen = make(map[string]bool)
+	}
+	p.seen[token] = true
+	p.token = token
+	return true, nil
 }

@@ -21,18 +21,18 @@ func newTranscript(o *options) *cobra.Command {
 	var filename string
 	cmd := &cobra.Command{
 		Use: "transcript <check-id | attempt-id>", Short: "Display or download an archived check transcript", Args: cobra.ExactArgs(1),
-		Long: "Display the selected attempt's archived transcript. Archives are available after execution, subject to retention.\nUse --output jsonl for the exact original archive or --output-file to save the selected format.",
+		Long: "Display the selected attempt's archived transcript. Archives are available after execution, subject to retention.\nUse --output json (or jsonl) for the exact original JSONL archive or --output-file to save the selected format.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := o.authenticate(cmd); err != nil {
 				return err
 			}
 			attempt, err := selectAttempt(cmd.Context(), o, args[0])
 			if err != nil {
-				return err
+				return fmt.Errorf("failed to get check transcript: %w", err)
 			}
 			resp, err := api.NewCheckClient().GetCheckTranscript(cmd.Context(), request(o, &checksv1.GetCheckTranscriptRequest{CheckId: attempt.CheckId, AttemptId: attempt.Id}))
 			if err != nil {
-				return err
+				return fmt.Errorf("failed to get check transcript: %w", err)
 			}
 			meta := resp.Msg
 			if meta.Status != "archived" {
@@ -78,7 +78,7 @@ func newTranscript(o *options) *cobra.Command {
 				return err
 			}
 			write := func(w io.Writer) error {
-				if o.output == "jsonl" {
+				if o.output == "json" || o.output == "jsonl" {
 					_, err := io.Copy(w, archive)
 					return err
 				}
@@ -96,10 +96,18 @@ func newTranscript(o *options) *cobra.Command {
 			if err := write(staged); err != nil {
 				return err
 			}
+			info, err := staged.Stat()
+			if err != nil {
+				return err
+			}
 			if err := staged.Close(); err != nil {
 				return err
 			}
-			return os.Rename(staged.Name(), filename)
+			if err := os.Rename(staged.Name(), filename); err != nil {
+				return err
+			}
+			_, err = fmt.Fprintf(cmd.ErrOrStderr(), "Saved transcript to %s (%d bytes).\n", filename, info.Size())
+			return err
 		},
 	}
 	cmd.Flags().StringVar(&filename, "output-file", "", "Save to a file instead of stdout (- for stdout)")

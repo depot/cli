@@ -33,15 +33,16 @@ func newAgentList(o *options) *cobra.Command {
 			}
 			client := api.NewReviewAgentClient()
 			result := &checksv1.ListReviewAgentsResponse{}
-			seen := map[string]bool{p.token: true}
 			for {
-				resp, err := client.ListReviewAgents(cmd.Context(), request(o, &checksv1.ListReviewAgentsRequest{PageSize: uint32(p.n), PageToken: p.token}))
+				resp, err := client.ListReviewAgents(cmd.Context(), request(o, &checksv1.ListReviewAgentsRequest{PageSize: p.pageSize(len(result.Agents)), PageToken: p.token}))
 				if err != nil {
-					return err
+					return fmt.Errorf("failed to list review agents: %w", err)
 				}
 				result.Agents = append(result.Agents, resp.Msg.Agents...)
-				result.NextPageToken = resp.Msg.NextPageToken
-				next, err := p.next(result.NextPageToken, seen)
+				if len(result.Agents) > p.n {
+					result.Agents = result.Agents[:p.n]
+				}
+				next, err := p.next(resp.Msg.NextPageToken, len(result.Agents))
 				if err != nil {
 					return err
 				}
@@ -50,10 +51,13 @@ func newAgentList(o *options) *cobra.Command {
 				}
 			}
 			if o.output == "json" {
-				return o.writeJSON(cmd, result)
+				agents := make([]*agentJSON, 0, len(result.Agents))
+				for _, agent := range result.Agents {
+					agents = append(agents, agentToJSON(agent))
+				}
+				return o.writeJSON(cmd, agents)
 			}
-			pageHint(cmd, result.NextPageToken)
-			return printAgents(cmd, result.Agents)
+			return printAgents(cmd, result.Agents, true)
 		},
 	}
 	p.flags(cmd)
@@ -69,10 +73,10 @@ func newAgentGet(o *options) *cobra.Command {
 			}
 			resp, err := api.NewReviewAgentClient().GetReviewAgent(cmd.Context(), request(o, &checksv1.GetReviewAgentRequest{AgentId: args[0]}))
 			if err != nil {
-				return err
+				return fmt.Errorf("failed to get review agent: %w", err)
 			}
 			if o.output == "json" {
-				return o.writeJSON(cmd, resp.Msg)
+				return o.writeJSON(cmd, agentToJSON(resp.Msg.Agent))
 			}
 			return printAgent(cmd, resp.Msg.Agent)
 		},
@@ -88,7 +92,7 @@ func newAgentModels(o *options) *cobra.Command {
 			}
 			resp, err := api.NewReviewAgentClient().ListReviewAgentModels(cmd.Context(), request(o, &checksv1.ListReviewAgentModelsRequest{}))
 			if err != nil {
-				return err
+				return fmt.Errorf("failed to list review agent models: %w", err)
 			}
 			if o.output == "json" {
 				return o.writeJSON(cmd, resp.Msg)
@@ -193,18 +197,18 @@ func newAgentSave(o *options, update bool) *cobra.Command {
 				}
 				resp, err := client.UpdateReviewAgent(cmd.Context(), request(o, req))
 				if err != nil {
-					return err
+					return fmt.Errorf("failed to update review agent: %w", err)
 				}
 				agent = resp.Msg.Agent
 			} else {
 				resp, err := client.CreateReviewAgent(cmd.Context(), request(o, &checksv1.CreateReviewAgentRequest{Name: name, Instructions: instructions, ModelId: model, Repos: selection, Triggers: triggers}))
 				if err != nil {
-					return err
+					return fmt.Errorf("failed to create review agent: %w", err)
 				}
 				agent = resp.Msg.Agent
 			}
 			if o.output == "json" {
-				return o.writeJSON(cmd, &checksv1.GetReviewAgentResponse{Agent: agent})
+				return o.writeJSON(cmd, agentToJSON(agent))
 			}
 			return printAgent(cmd, agent)
 		},

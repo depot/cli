@@ -15,7 +15,8 @@ func newList(o *options) *cobra.Command {
 	var repo string
 	cmd := &cobra.Command{
 		Use: "list", Aliases: []string{"ls"}, Short: "List checks across review agents", Args: cobra.NoArgs,
-		Example: "  depot checks list --repo github:depot/api --branch main\n  depot checks list --outcome failed --all --output json",
+		Long:    "List checks across review agents, following API pages internally up to the requested number of results (50 by default).",
+		Example: "  depot checks list --repo github:depot/api --branch main\n  depot checks list --outcome failed -n 100 --output json",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if err := p.validate(); err != nil {
 				return err
@@ -38,16 +39,17 @@ func newList(o *options) *cobra.Command {
 			}
 			client := api.NewCheckClient()
 			result := &checksv1.ListChecksResponse{}
-			seen := map[string]bool{p.token: true}
 			for {
-				req.PageSize, req.PageToken = uint32(p.n), p.token
+				req.PageSize, req.PageToken = p.pageSize(len(result.Checks)), p.token
 				resp, err := client.ListChecks(cmd.Context(), request(o, req))
 				if err != nil {
-					return err
+					return fmt.Errorf("failed to list checks: %w", err)
 				}
 				result.Checks = append(result.Checks, resp.Msg.Checks...)
-				result.NextPageToken = resp.Msg.NextPageToken
-				next, err := p.next(result.NextPageToken, seen)
+				if len(result.Checks) > p.n {
+					result.Checks = result.Checks[:p.n]
+				}
+				next, err := p.next(resp.Msg.NextPageToken, len(result.Checks))
 				if err != nil {
 					return err
 				}
@@ -56,9 +58,12 @@ func newList(o *options) *cobra.Command {
 				}
 			}
 			if o.output == "json" {
-				return o.writeJSON(cmd, result)
+				checks := make([]checkJSON, 0, len(result.Checks))
+				for _, check := range result.Checks {
+					checks = append(checks, checkToJSON(check))
+				}
+				return o.writeJSON(cmd, checks)
 			}
-			pageHint(cmd, result.NextPageToken)
 			attempts := make([]*checksv1.CheckAttempt, 0, len(result.Checks))
 			for _, check := range result.Checks {
 				attempts = append(attempts, check.CurrentAttempt)
@@ -85,10 +90,10 @@ func newGet(o *options) *cobra.Command {
 			}
 			attempt, err := selectAttempt(cmd.Context(), o, args[0])
 			if err != nil {
-				return err
+				return fmt.Errorf("failed to get check: %w", err)
 			}
 			if o.output == "json" {
-				return o.writeJSON(cmd, &checksv1.GetAttemptResponse{Attempt: attempt})
+				return o.writeJSON(cmd, attemptToJSON(attempt))
 			}
 			return printAttempt(cmd, attempt)
 		},
@@ -108,19 +113,20 @@ func newAttempts(o *options) *cobra.Command {
 			}
 			selected, err := selectAttempt(cmd.Context(), o, args[0])
 			if err != nil {
-				return err
+				return fmt.Errorf("failed to list check attempts: %w", err)
 			}
 			result := &checksv1.ListAttemptsResponse{}
 			client := api.NewCheckClient()
-			seen := map[string]bool{p.token: true}
 			for {
-				resp, err := client.ListAttempts(cmd.Context(), request(o, &checksv1.ListAttemptsRequest{CheckId: selected.CheckId, PageSize: uint32(p.n), PageToken: p.token}))
+				resp, err := client.ListAttempts(cmd.Context(), request(o, &checksv1.ListAttemptsRequest{CheckId: selected.CheckId, PageSize: p.pageSize(len(result.Attempts)), PageToken: p.token}))
 				if err != nil {
-					return err
+					return fmt.Errorf("failed to list check attempts: %w", err)
 				}
 				result.Attempts = append(result.Attempts, resp.Msg.Attempts...)
-				result.NextPageToken = resp.Msg.NextPageToken
-				next, err := p.next(result.NextPageToken, seen)
+				if len(result.Attempts) > p.n {
+					result.Attempts = result.Attempts[:p.n]
+				}
+				next, err := p.next(resp.Msg.NextPageToken, len(result.Attempts))
 				if err != nil {
 					return err
 				}
@@ -129,9 +135,12 @@ func newAttempts(o *options) *cobra.Command {
 				}
 			}
 			if o.output == "json" {
-				return o.writeJSON(cmd, result)
+				attempts := make([]*attemptJSON, 0, len(result.Attempts))
+				for _, attempt := range result.Attempts {
+					attempts = append(attempts, attemptToJSON(attempt))
+				}
+				return o.writeJSON(cmd, attempts)
 			}
-			pageHint(cmd, result.NextPageToken)
 			return printAttempts(cmd, result.Attempts)
 		},
 	}
@@ -164,12 +173,12 @@ func newRun(o *options) *cobra.Command {
 			}
 			resp, err := api.NewCheckClient().RunCheck(cmd.Context(), request(o, req))
 			if err != nil {
-				return err
+				return fmt.Errorf("failed to run check: %w", err)
 			}
 			if o.output == "json" {
 				return o.writeJSON(cmd, resp.Msg)
 			}
-			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Check:   %s\nAttempt: %s\nQueued. Inspect with: depot checks get %s\n", resp.Msg.CheckId, resp.Msg.AttemptId, resp.Msg.AttemptId)
+			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Check:   %s\nAttempt: %s\nQueued. Inspect with: %s\n", resp.Msg.CheckId, resp.Msg.AttemptId, o.inspectCommand(cmd, resp.Msg.AttemptId))
 			return err
 		},
 	}
@@ -193,22 +202,22 @@ func newRetry(o *options) *cobra.Command {
 			}
 			attempt, err := selectAttempt(cmd.Context(), o, args[0])
 			if err != nil {
-				return err
+				return fmt.Errorf("failed to retry check: %w", err)
 			}
 			if !attempt.IsCurrent {
-				return fmt.Errorf("attempt %s is superseded; inspect check %s for its current attempt", attempt.Id, attempt.CheckId)
+				return fmt.Errorf("attempt %s is superseded; inspect its current attempt with: %s", attempt.Id, o.inspectCommand(cmd, attempt.CheckId))
 			}
 			if attempt.Status != "failed" {
 				return fmt.Errorf("only execution-failed checks can be retried (status: %s)", attempt.Status)
 			}
 			resp, err := api.NewCheckClient().RetryCheck(cmd.Context(), request(o, &checksv1.RetryCheckRequest{CheckId: attempt.CheckId}))
 			if err != nil {
-				return err
+				return fmt.Errorf("failed to retry check: %w", err)
 			}
 			if o.output == "json" {
 				return o.writeJSON(cmd, resp.Msg)
 			}
-			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Check:   %s\nAttempt: %s\nQueued. Inspect with: depot checks get %s\n", resp.Msg.CheckId, resp.Msg.AttemptId, resp.Msg.AttemptId)
+			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Check:   %s\nAttempt: %s\nQueued. Inspect with: %s\n", resp.Msg.CheckId, resp.Msg.AttemptId, o.inspectCommand(cmd, resp.Msg.AttemptId))
 			return err
 		},
 	}
@@ -239,28 +248,28 @@ func newResolve(o *options, resolve bool) *cobra.Command {
 			}
 			attempt, err := selectAttempt(cmd.Context(), o, args[0])
 			if err != nil {
-				return err
+				return fmt.Errorf("failed to %s findings: %w", name, err)
 			}
 			if !attempt.IsCurrent {
-				return fmt.Errorf("attempt %s is superseded; historical findings cannot be changed", attempt.Id)
+				return fmt.Errorf("attempt %s is superseded; historical findings cannot be changed; inspect its current attempt with: %s", attempt.Id, o.inspectCommand(cmd, attempt.CheckId))
 			}
 			client := api.NewCheckClient()
 			var check *checksv1.Check
 			if resolve {
 				resp, err := client.ResolveFindings(cmd.Context(), request(o, &checksv1.ResolveFindingsRequest{CheckId: attempt.CheckId, AttemptId: attempt.Id, FindingIndexes: findings, All: all}))
 				if err != nil {
-					return err
+					return fmt.Errorf("failed to resolve findings: %w", err)
 				}
 				check = resp.Msg.Check
 			} else {
 				resp, err := client.UnresolveFindings(cmd.Context(), request(o, &checksv1.UnresolveFindingsRequest{CheckId: attempt.CheckId, AttemptId: attempt.Id, FindingIndexes: findings, All: all}))
 				if err != nil {
-					return err
+					return fmt.Errorf("failed to unresolve findings: %w", err)
 				}
 				check = resp.Msg.Check
 			}
 			if o.output == "json" {
-				return o.writeJSON(cmd, &checksv1.GetCheckResponse{Check: check})
+				return o.writeJSON(cmd, checkToJSON(check))
 			}
 			return printAttempt(cmd, check.GetCurrentAttempt())
 		},

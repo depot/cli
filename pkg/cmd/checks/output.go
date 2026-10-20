@@ -77,6 +77,14 @@ func repoName(repo *checksv1.Repository) string {
 	return repo.Forge + ":" + repo.Name
 }
 
+func tableCell(value string, width int) string {
+	runes := []rune(value)
+	if len(runes) <= width {
+		return value
+	}
+	return string(runes[:width-1]) + "…"
+}
+
 func printAttempts(cmd *cobra.Command, attempts []*checksv1.CheckAttempt) error {
 	var b strings.Builder
 	if len(attempts) == 0 {
@@ -89,7 +97,7 @@ func printAttempts(cmd *cobra.Command, attempts []*checksv1.CheckAttempt) error 
 		if a == nil {
 			return fmt.Errorf("API returned a check without an attempt")
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%t\t%s\n", a.CheckId, a.Id, a.AgentName, repoName(a.Repo), a.Branch, a.HeadSha, a.Status, outcome(a), a.IsCurrent, a.CreatedAt)
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%t\t%s\n", a.CheckId, a.Id, tableCell(a.AgentName, 30), tableCell(repoName(a.Repo), 30), tableCell(a.Branch, 30), a.HeadSha[:min(len(a.HeadSha), 12)], a.Status, outcome(a), a.IsCurrent, a.CreatedAt)
 	}
 	w.Flush()
 	_, err := io.WriteString(cmd.OutOrStdout(), b.String())
@@ -145,7 +153,7 @@ func printAttempt(cmd *cobra.Command, a *checksv1.CheckAttempt) error {
 	return err
 }
 
-func printAgents(cmd *cobra.Command, agents []*checksv1.ReviewAgent) error {
+func printAgents(cmd *cobra.Command, agents []*checksv1.ReviewAgent, compact bool) error {
 	var b strings.Builder
 	if len(agents) == 0 {
 		_, err := fmt.Fprintln(cmd.OutOrStdout(), "No review agents.")
@@ -162,7 +170,11 @@ func printAgents(cmd *cobra.Command, agents []*checksv1.ReviewAgent) error {
 		for _, repo := range agent.GetRepos().GetItems() {
 			repos = append(repos, repoName(repo))
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", agent.Id, agent.Name, model, strings.Join(repos, ", "), strings.Join(agent.GetTriggers().GetEvents(), ", "))
+		name, repositories, events := agent.Name, strings.Join(repos, ", "), strings.Join(agent.GetTriggers().GetEvents(), ", ")
+		if compact {
+			name, repositories, events = tableCell(name, 30), tableCell(repositories, 40), tableCell(events, 40)
+		}
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", agent.Id, name, model, repositories, events)
 	}
 	w.Flush()
 	_, err := io.WriteString(cmd.OutOrStdout(), b.String())
@@ -173,7 +185,7 @@ func printAgent(cmd *cobra.Command, a *checksv1.ReviewAgent) error {
 	if a == nil {
 		return fmt.Errorf("API returned no review agent")
 	}
-	if err := printAgents(cmd, []*checksv1.ReviewAgent{a}); err != nil {
+	if err := printAgents(cmd, []*checksv1.ReviewAgent{a}, false); err != nil {
 		return err
 	}
 	_, err := fmt.Fprintf(cmd.OutOrStdout(), "\nInstructions:\n%s\n", a.Instructions)

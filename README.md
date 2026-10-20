@@ -319,10 +319,10 @@ Manage Agent Checks and saved review agents. Requires Agent Checks access in the
 ```sh
 depot checks list --repo github:depot/api --outcome rejected
 depot checks get <check-id-or-attempt-id>
-depot checks attempts <check-id-or-attempt-id> --all --output json
+depot checks attempts <check-id-or-attempt-id> -n 100 --output json
 depot checks run <agent-id> --repo github:depot/api --ref feature
 depot checks retry <check-id-or-attempt-id>
-depot checks transcript <check-id-or-attempt-id> --output jsonl --output-file transcript.jsonl
+depot checks transcript <check-id-or-attempt-id> --output json --output-file transcript.jsonl
 depot checks resolve <check-id-or-attempt-id> --finding 0
 depot checks unresolve <check-id-or-attempt-id> --all
 
@@ -334,15 +334,24 @@ depot checks agents models
 ```
 
 A check ID selects its latest attempt; an attempt ID selects that execution. Results include both IDs, revision, state,
-outcome, summary, findings with original zero-based indexes, resolutions, and available execution details. JSON uses the
-API's protobuf JSON representation; `get` returns an `attempt` object for either kind of ID. The original structured
-review is stored in its `resultJson` string.
+outcome, summary, findings with original zero-based indexes, resolutions, and available execution details. JSON follows
+CI's snake_case convention: `run`/`retry` return `check_id` and `attempt_id`; `get` returns the selected attempt directly.
+Check lists return arrays of `{check_id, created_at, current_attempt}`; history returns an array of attempts.
+Resolve/unresolve return `{check_id, created_at, current_attempt}`. Each attempt includes structured `result` when its
+stored JSON is valid, plus the original `result_json` string when present. Agent reads/saves return the configuration
+directly (`agent_id`, `name`, `instructions`, `model_id`, `repos`, `events`); agent lists return an array of configurations.
+Models output includes `default_model_id` and `models`. Transcript `--output json` emits the exact JSONL archive;
+`--output jsonl` is an equivalent alias.
+
+List tables shorten long display names, repositories and branches, and show 12-character head SHAs. IDs remain complete;
+`get` and JSON retain full values. Transcript file exports confirm the destination and saved byte count on stderr after
+the file is saved successfully. API errors include the failed operation while preserving the underlying error status.
 
 `list` supports `--agent`, `--repo`, `--branch` (requires `--repo`), `--sha` (head or base prefix), `--outcome`, and
 `--query` (agent name, repository, branch, or SHA prefix). Outcomes are `running` (including queued), `done`, `passed`,
 `findings` (a passing review with advice), `rejected`, `resolved`, and `failed` (execution failure).
-All list/history commands use `-n` (page size, 1-100), `--page-token`, and `--all` to traverse the remaining pages.
-JSON responses retain `nextPageToken`; text output prints continuation guidance to stderr.
+`checks list`, `checks agents list`, and `checks attempts` use `-n` as a positive total result limit (default 50), matching CI run listing.
+The CLI follows API pages internally until that limit is reached or there are no more matches; no `--all` or `--page-token` is exposed.
 
 Repository selectors carry their forge: `github:owner/repo`, `cursor-origin:owner/repo`, or `code:name`.
 `run` accepts `--ref` with an optional full `--commit-sha`, or `--head`, plus an optional `--base` for either mode.
