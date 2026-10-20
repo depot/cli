@@ -21,6 +21,7 @@ Official CLI for [Depot](https://depot.dev) - you can use the CLI to build Docke
       - [`depot build cancel`](#depot-build-cancel)
     - [`depot cache`](#depot-cache)
       - [`depot cache reset`](#depot-cache-reset)
+    - [`depot checks`](#depot-checks)
     - [`depot exec`](#depot-exec)
     - [`depot gocache`](#depot-gocache)
     - [`depot configure-docker`](#depot-configure-docker)
@@ -310,6 +311,57 @@ Reset the cache of a specific project ID
 ```shell
 depot cache reset --project 12345678910
 ```
+
+### `depot checks`
+
+Manage Agent Checks and saved review agents. Requires Agent Checks access in the selected organization.
+
+```sh
+depot checks list --repo github:depot/api --outcome rejected
+depot checks get <check-id-or-attempt-id>
+depot checks attempts <check-id-or-attempt-id> --all --output json
+depot checks run <agent-id> --repo github:depot/api --ref feature
+depot checks retry <check-id-or-attempt-id>
+depot checks transcript <check-id-or-attempt-id> --output jsonl --output-file transcript.jsonl
+depot checks resolve <check-id-or-attempt-id> --finding 0
+depot checks unresolve <check-id-or-attempt-id> --all
+
+depot checks agents list
+depot checks agents get <agent-id>
+depot checks agents create --name Security --instructions-file review.md --repo github:depot/api
+depot checks agents update <agent-id> --model default
+depot checks agents models
+```
+
+A check ID selects its latest attempt; an attempt ID selects that execution. Results include both IDs, revision, state,
+outcome, summary, findings with original zero-based indexes, resolutions, and available execution details. JSON uses the
+API's protobuf JSON representation; `get` returns an `attempt` object for either kind of ID. The original structured
+review is stored in its `resultJson` string.
+
+`list` supports `--agent`, `--repo`, `--branch` (requires `--repo`), `--sha` (head or base prefix), `--outcome`, and
+`--query` (agent name, repository, branch, or SHA prefix). Outcomes are `running` (including queued), `done`, `passed`,
+`findings` (a passing review with advice), `rejected`, `resolved`, and `failed` (execution failure).
+All list/history commands use `-n` (page size, 1-100), `--page-token`, and `--all` to traverse the remaining pages.
+JSON responses retain `nextPageToken`; text output prints continuation guidance to stderr.
+
+Repository selectors carry their forge: `github:owner/repo`, `cursor-origin:owner/repo`, or `code:name`.
+`run` accepts `--ref` with an optional full `--commit-sha`, or `--head`, plus an optional `--base` for either mode.
+By default it reviews the default branch's HEAD against its first parent (or the empty tree for an initial commit).
+One-off runs do not change the agent's watched repositories. `retry` reuses the captured configuration and revisions,
+creates a new attempt under the same check, and only accepts checks whose current execution failed. An explicitly
+selected historical attempt cannot be retried or have its findings changed.
+
+Agent create/update supports `--name`, `--instructions` or `--instructions-file` (`-` reads stdin), `--model`, repeatable
+`--repo`, and repeatable `--event` (for example `github:opened`, `github:synchronize`, or `code:push`). Omitted update
+fields are preserved; supplied repositories/events replace that selection. Use `--clear-repos` to remove all watches,
+`--clear-events` to disable automatic checks, and `--model default` to follow the current default model. Creation defaults
+to no watched repositories and the supported events except `github:push`.
+
+Commands support `--org`, `--token` (or `DEPOT_TOKEN`), and `--output json`. Transcript output is readable text by default;
+`--output jsonl` preserves the original archived bytes. Archives are verified against their size and SHA-256 before
+output and are subject to availability and retention. There is no live transcript following or waiting option.
+Run/retry return both IDs immediately. Exit 0 means the operation succeeded, including inspecting failed/rejected checks;
+exit 1 means input, authentication/API, download, or output failure. Review outcomes are reported in the output.
 
 ### `depot exec`
 
