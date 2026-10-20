@@ -10,6 +10,7 @@ import (
 	buildCmd "github.com/depot/cli/pkg/cmd/build"
 	cacheCmd "github.com/depot/cli/pkg/cmd/cache"
 	cargoCmd "github.com/depot/cli/pkg/cmd/cargo"
+	"github.com/depot/cli/pkg/cmd/checks"
 	ciCmd "github.com/depot/cli/pkg/cmd/ci"
 	claudeCmd "github.com/depot/cli/pkg/cmd/claude"
 	dockerCmd "github.com/depot/cli/pkg/cmd/docker"
@@ -87,6 +88,7 @@ func NewCmdRoot(version, buildDate string) *cobra.Command {
 	cmd.AddCommand(gocache.NewCmdGoCache())
 	cmd.AddCommand(exec.NewCmdExec())
 	cmd.AddCommand(ciCmd.NewCmdCI())
+	cmd.AddCommand(checks.NewCmdChecks())
 	cmd.AddCommand(sandboxCmd.NewCmdSandbox())
 	cmd.AddCommand(testsCmd.NewCmdTests())
 
