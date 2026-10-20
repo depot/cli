@@ -42,6 +42,7 @@ Official CLI for [Depot](https://depot.dev) - you can use the CLI to build Docke
       - [`depot org list`](#depot-org-list)
       - [`depot org show`](#depot-org-show)
       - [`depot org switch`](#depot-org-switch)
+      - [`depot org tokens`](#depot-org-tokens)
     - [`depot pull`](#depot-pull)
     - [`depot push`](#depot-push)
     - [`depot pull-token`](#depot-pull-token)
@@ -740,6 +741,33 @@ Switch to an organization interactively:
 ```shell
 depot org switch
 ```
+
+#### `depot org tokens`
+
+List, create, and revoke organization API tokens using a **user API token belonging to an organization owner**. Run `depot login` first, or provide that credential through `DEPOT_TOKEN` or `--token`. Organization, project, build, and OIDC credentials cannot manage organization tokens, including revoking themselves.
+
+Select an organization with `--organization`, `DEPOT_ORG_ID`, or `depot org switch`. These commands do not start an interactive login automatically.
+
+```shell
+# List metadata without revealing token secrets
+depot org tokens list --organization <org-id> --output json
+
+# Create a token and store its secret securely from this response
+depot org tokens create --organization <org-id> --description 'CI builds' --output json
+
+# Revoke by exact token ID, never by description or secret
+depot org tokens revoke <token-id> --organization <org-id>
+```
+
+List output contains `tokens` and `has_more`. Each token has `id`, `description`, `created_at`, and, when available, `last_used_at`. Use `--page` and `--page-size` to paginate (defaults: page 1, 100 entries; maximum page size: 100).
+
+Create output contains `token` metadata and a `secret` that is revealed only once. Save the secret securely; it cannot be retrieved by listing tokens. The CLI does not save the new token as your login credential. Descriptions must contain 1–191 characters after trimming whitespace. An organization can create tokens through this API while it has fewer than 100 active tokens. No operation-specific rate limit is currently enforced; the CLI does not automatically retry creation.
+
+Tokens do not expire automatically. Rotate a token by creating a replacement, updating its consumers, and revoking the old token. Revocation removes the stored token but does not invalidate existing authentication cache entries, so the raw token may continue to authenticate until those entries expire. The TypeScript API uses a 30-second process cache, and the shared registry uses a five-minute cache. These are cache-entry lifetimes, not guaranteed upper bounds on revocation propagation: concurrent authentication can refill a cache.
+
+Already authenticated requests can finish, and previously issued registry bearer credentials (currently 15 minutes by default) and log access grants (five minutes) remain valid until their signed expiry. Independently issued pull tokens and build credentials retain their own lifecycle; revoking the organization token does not revoke them or stop their work. Repeating a successful API revocation is safe. Unknown IDs and IDs belonging to another organization return the same not-found error.
+
+All three commands support `--output json`. Creation prints storage guidance to stderr and its secret only to stdout. Successful revocation returns `{}` in JSON mode. Authentication and permission errors identify the requirement for an organization owner's user API token.
 
 ### `depot pull`
 
