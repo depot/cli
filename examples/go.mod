@@ -9,8 +9,8 @@ require (
 )
 
 require (
-	buf.build/gen/go/depot/api/connectrpc/go v1.15.0-20240221184445-e8316610338f.1 // indirect
-	buf.build/gen/go/depot/api/protocolbuffers/go v1.32.0-20240221184445-e8316610338f.1 // indirect
+	buf.build/gen/go/depot/api/connectrpc/go v1.15.0-20261014111152-cc501a74ca30.1 // indirect
+	buf.build/gen/go/depot/api/protocolbuffers/go v1.32.0-20261014111152-cc501a74ca30.1 // indirect
 	charm.land/bubbles/v2 v2.0.0 // indirect
 	charm.land/bubbletea/v2 v2.0.2 // indirect
 	charm.land/huh/v2 v2.0.0 // indirect
@@ -73,7 +73,7 @@ require (
 	github.com/imdario/mergo v0.3.13 // indirect
 	github.com/inconshreveable/mousetrap v1.0.1 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
-	github.com/klauspost/compress v1.16.3 // indirect
+	github.com/klauspost/compress v1.18.7 // indirect
 	github.com/klauspost/cpuid/v2 v2.0.4 // indirect
 	github.com/lucasb-eyer/go-colorful v1.3.0 // indirect
 	github.com/magiconair/properties v1.8.6 // indirect
