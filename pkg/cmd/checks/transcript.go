@@ -108,12 +108,23 @@ func newTranscript(o *options) *cobra.Command {
 
 func renderTranscript(w io.Writer, r io.Reader) error {
 	decoder := json.NewDecoder(r)
+	var rawHeader json.RawMessage
 	var header struct {
 		Type    string `json:"type"`
 		Version int    `json:"version"`
 	}
-	if err := decoder.Decode(&header); err != nil || header.Type != "session" || header.Version != 3 {
+	if err := decoder.Decode(&rawHeader); err != nil {
+		return fmt.Errorf("invalid transcript session; use --output jsonl for the original archive")
+	}
+	if err := json.Unmarshal(rawHeader, &header); err != nil || header.Type != "session" || header.Version != 3 {
 		return fmt.Errorf("unsupported transcript session; use --output jsonl for the original archive")
+	}
+	prettyHeader, err := json.MarshalIndent(rawHeader, "", "  ")
+	if err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(w, "%s\n", prettyHeader); err != nil {
+		return err
 	}
 	for {
 		var entry struct {

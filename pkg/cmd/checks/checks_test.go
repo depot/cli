@@ -373,7 +373,7 @@ func TestInvalidInputsFailBeforeAnyRequest(t *testing.T) {
 	}
 }
 
-const sessionArchive = "{\"type\":\"session\",\"version\":3}\n{\"type\":\"message\",\"id\":\"message-1\",\"parentId\":null,\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"Review complete.\"}]}}\n"
+const sessionArchive = "{\"type\":\"session\",\"version\":3,\"id\":\"session-1\",\"parentSession\":\"parent/session.jsonl\"}\n{\"type\":\"message\",\"id\":\"message-1\",\"parentId\":null,\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"Review complete.\"}]}}\n"
 
 func TestTranscriptVerifiesArchiveAndKeepsSignedURLPrivate(t *testing.T) {
 	for _, scenario := range []string{"text", "jsonl", "file", "digest-mismatch", "size-mismatch", "http-error", "expired", "historical"} {
@@ -453,8 +453,12 @@ func TestTranscriptVerifiesArchiveAndKeepsSignedURLPrivate(t *testing.T) {
 				if err != nil || string(saved) != sessionArchive || out != "" {
 					t.Fatalf("bad saved archive: %q, %v", saved, err)
 				}
-			} else if scenario != "jsonl" && !strings.Contains(out, "Review complete.") {
-				t.Fatalf("missing human transcript: %q", out)
+			} else if scenario != "jsonl" {
+				for _, want := range []string{"Review complete.", "session-1", "parent/session.jsonl", "message-1; parent root"} {
+					if !strings.Contains(out, want) {
+						t.Errorf("human transcript lost %q: %s", want, out)
+					}
+				}
 			}
 		})
 	}
