@@ -156,10 +156,9 @@ var TriggerRules = map[string]CompatibilityRule{
 		Suggestion: "Remove this trigger or use a webhook-based alternative.",
 	},
 	"pull_request_review": {
-		Feature:    "pull_request_review",
-		Supported:  Unsupported,
-		Note:       "Pull request review events are not supported.",
-		Suggestion: "Remove this trigger or use a webhook-based alternative.",
+		Feature:   "pull_request_review",
+		Supported: Supported,
+		Note:      "Pull request review events are supported.",
 	},
 	"pull_request_review_comment": {
 		Feature:   "pull_request_review_comment",
