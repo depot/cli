@@ -84,7 +84,7 @@ func runLaunch(cmd *cobra.Command, o *launchOptions, agent string) error {
 
 	resp, err := api.NewDepotAgentLaunchClient().Launch(cmd.Context(), api.WithAuthenticationAndOrg(connect.NewRequest(req), token, o.org))
 	if err != nil {
-		if strings.HasPrefix(token, "depot_cijob_") && connect.CodeOf(err) == connect.CodePermissionDenied {
+		if code := connect.CodeOf(err); strings.HasPrefix(token, "depot_cijob_") && (code == connect.CodePermissionDenied || code == connect.CodeUnauthenticated) {
 			return fmt.Errorf("%w\nThe CI job token cannot launch agents; pass an organization or user token from a secret with --token", err)
 		}
 		return err

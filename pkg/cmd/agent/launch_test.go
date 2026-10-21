@@ -101,13 +101,15 @@ func TestLaunchInCIDerivesAStableKeyPerLaunch(t *testing.T) {
 }
 
 func TestLaunchExplainsTheCIJobTokenRefusal(t *testing.T) {
-	serveLaunch(t, func(*connect.Request[agentv1.LaunchRequest]) (*agentv1.LaunchResponse, error) {
-		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("permission denied"))
-	})
-	t.Setenv("DEPOT_TOKEN", "depot_cijob_abc")
-	_, err := execute(t, "public-agent-code-review", "--source", "depot-code:acme/app", "--message", "Review this")
-	if err == nil || !strings.Contains(err.Error(), "CI job token cannot launch agents") {
-		t.Fatalf("error = %v", err)
+	for _, code := range []connect.Code{connect.CodePermissionDenied, connect.CodeUnauthenticated} {
+		serveLaunch(t, func(*connect.Request[agentv1.LaunchRequest]) (*agentv1.LaunchResponse, error) {
+			return nil, connect.NewError(code, errors.New("refused"))
+		})
+		t.Setenv("DEPOT_TOKEN", "depot_cijob_abc")
+		_, err := execute(t, "public-agent-code-review", "--source", "depot-code:acme/app", "--message", "Review this")
+		if err == nil || !strings.Contains(err.Error(), "CI job token cannot launch agents") {
+			t.Fatalf("%v: error = %v", code, err)
+		}
 	}
 }
 
