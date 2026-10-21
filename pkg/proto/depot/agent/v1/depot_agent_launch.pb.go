@@ -246,7 +246,7 @@ type LaunchResponse struct {
 	// First message of the session, with the sources appended.
 	Input *DepotAgentInput         `protobuf:"bytes,2,opt,name=input,proto3" json:"input,omitempty"`
 	Agent *DepotAgentLaunchedAgent `protobuf:"bytes,3,opt,name=agent,proto3" json:"agent,omitempty"`
-	// Dashboard page of the session.
+	// The session's page in the Depot dashboard.
 	Url string `protobuf:"bytes,4,opt,name=url,proto3" json:"url,omitempty"`
 }
 
