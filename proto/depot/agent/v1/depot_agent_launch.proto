@@ -1,0 +1,50 @@
+syntax = "proto3";
+
+package depot.agent.v1;
+
+import "depot/agent/v1/depot_agent_core.proto";
+
+service DepotAgentLaunchService {
+  // Starts a session that runs a published agent, pinned to one commit of it, on the sources the caller names. The
+  // caller must be able to read every source; the session runs as the caller, in the caller's organization.
+  rpc Launch(LaunchRequest) returns (LaunchResponse);
+}
+
+message LaunchRequest {
+  // Agent to run, as `name@ref`. The name is a published agent, such as "public-agent-triage". The ref is a branch,
+  // tag, or commit SHA of it. Leave out `@ref` to run the agent's default branch.
+  string agent = 1;
+  // An array of repositories the agent works on. Maximum: 10.
+  repeated DepotAgentLaunchSource sources = 2;
+  // First message of the session.
+  string message = 3;
+  // Model the session runs on. Leave unset to use the agent's own model, or the organization's default.
+  optional DepotAgentModel model = 4;
+  // Key that makes the request safe to retry: a resend with the same key returns the original session.
+  optional string client_request_id = 5;
+}
+
+message DepotAgentLaunchSource {
+  // Where the repository lives. Can be "depot-code". "github" is accepted but refused as not supported yet.
+  string kind = 1;
+  // Repository name, as `owner/name`.
+  string repository = 2;
+  // Branch, tag, or commit SHA the agent starts from. Leave empty to use the default branch.
+  optional string ref = 3;
+}
+
+message DepotAgentLaunchedAgent {
+  // Repository the agent was read from, as `owner/name`.
+  string repository = 1;
+  // Ref that was asked for. Empty when the request named none.
+  string ref = 2;
+  // Commit SHA the agent's definition was read at.
+  string commit_sha = 3;
+}
+
+message LaunchResponse {
+  DepotAgentSession session = 1;
+  // First message of the session, with the sources appended.
+  DepotAgentInput input = 2;
+  DepotAgentLaunchedAgent agent = 3;
+}
