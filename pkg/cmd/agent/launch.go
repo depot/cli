@@ -29,7 +29,8 @@ func newLaunch() *cobra.Command {
 		Short: "Start a session of a published agent",
 		Long: `Start a session of a published agent on one or more repositories, and print the session URL.
 
-In a CI job, the run ID is the default --client-request-id, so a rerun returns the session the first attempt started.`,
+In a Depot CI job, no flags beyond the agent, sources and message are needed: the job's DEPOT_TOKEN launches as the
+organization, and the run ID is the default --client-request-id, so a rerun returns the session the first attempt started.`,
 		Example: `  depot agent launch public-agent-code-review --source github:acme/app@refs/pull/12/head --message "Review this pull request"`,
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -40,7 +41,7 @@ In a CI job, the run ID is the default --client-request-id, so a rerun returns t
 	cmd.Flags().StringVar(&o.message, "message", "", "First message of the session")
 	cmd.Flags().StringVar(&o.clientRequestID, "client-request-id", "", "Key that makes the launch safe to retry (defaults to the CI run ID in CI)")
 	cmd.Flags().StringVar(&o.org, "org", "", "Organization ID (defaults to DEPOT_ORG_ID or the current organization)")
-	cmd.Flags().StringVar(&o.token, "token", "", "Depot API token (or DEPOT_TOKEN)")
+	cmd.Flags().StringVar(&o.token, "token", "", "Depot API token (defaults to DEPOT_TOKEN, which a Depot CI job already has)")
 	cmd.Flags().StringVarP(&o.output, "output", "o", "text", "Output format: text or json")
 	_ = cmd.MarkFlagRequired("source")
 	_ = cmd.MarkFlagRequired("message")
@@ -85,7 +86,7 @@ func runLaunch(cmd *cobra.Command, o *launchOptions, agent string) error {
 	resp, err := api.NewDepotAgentLaunchClient().Launch(cmd.Context(), api.WithAuthenticationAndOrg(connect.NewRequest(req), token, o.org))
 	if err != nil {
 		if code := connect.CodeOf(err); strings.HasPrefix(token, "depot_cijob_") && (code == connect.CodePermissionDenied || code == connect.CodeUnauthenticated) {
-			return fmt.Errorf("%w\nThe CI job token cannot launch agents; pass an organization or user token from a secret with --token", err)
+			return fmt.Errorf("%w\nThis API does not accept the CI job token for launches; pass an organization or user token from a secret with --token", err)
 		}
 		return err
 	}
@@ -96,6 +97,10 @@ func runLaunch(cmd *cobra.Command, o *launchOptions, agent string) error {
 			return err
 		}
 		_, err = fmt.Fprintln(cmd.OutOrStdout(), string(out))
+		return err
+	}
+	if u := resp.Msg.GetUrl(); u != "" {
+		_, err = fmt.Fprintln(cmd.OutOrStdout(), u)
 		return err
 	}
 	sessionID := resp.Msg.GetSession().GetSessionId()

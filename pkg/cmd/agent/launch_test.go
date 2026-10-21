@@ -107,9 +107,31 @@ func TestLaunchExplainsTheCIJobTokenRefusal(t *testing.T) {
 		})
 		t.Setenv("DEPOT_TOKEN", "depot_cijob_abc")
 		_, err := execute(t, "public-agent-code-review", "--source", "depot-code:acme/app", "--message", "Review this")
-		if err == nil || !strings.Contains(err.Error(), "CI job token cannot launch agents") {
+		if err == nil || !strings.Contains(err.Error(), "does not accept the CI job token") {
 			t.Fatalf("%v: error = %v", code, err)
 		}
+	}
+}
+
+func TestLaunchInCIUsesTheJobTokenAndPrefersTheReturnedURL(t *testing.T) {
+	var got *connect.Request[agentv1.LaunchRequest]
+	serveLaunch(t, func(req *connect.Request[agentv1.LaunchRequest]) (*agentv1.LaunchResponse, error) {
+		got = req
+		resp := launched("session-1")
+		resp.Url = "https://depot.dev/orgs/org-1/agent-runs/sessions/session-1"
+		return resp, nil
+	})
+	t.Setenv("DEPOT_TOKEN", "depot_cijob_abc")
+	t.Setenv("DEPOT_ORG_ID", "org-from-ci")
+	out, err := execute(t, "public-agent-code-review", "--source", "github:acme/app", "--message", "Review this")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Header().Get("Authorization") != "Bearer depot_cijob_abc" || got.Header().Get("x-depot-org") != "org-from-ci" {
+		t.Fatal("the job token and its org were not sent")
+	}
+	if out != "https://depot.dev/orgs/org-1/agent-runs/sessions/session-1\n" {
+		t.Fatalf("output = %q", out)
 	}
 }
 

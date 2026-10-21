@@ -47,4 +47,6 @@ message LaunchResponse {
   // First message of the session, with the sources appended.
   DepotAgentInput input = 2;
   DepotAgentLaunchedAgent agent = 3;
+  // Dashboard page of the session.
+  string url = 4;
 }
