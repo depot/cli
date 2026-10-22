@@ -24,17 +24,21 @@ func ListTestResults(ctx context.Context, token, orgID string, req *testresultsv
 }
 
 func ReportTestResults(ctx context.Context, token string, req *testresultsv1.ReportTestResultsRequest) (*testresultsv1.ReportTestResultsResponse, error) {
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
+
 	client := newTestResultsServiceClient()
+	retryDelays := [...]time.Duration{500 * time.Millisecond, time.Second, 2 * time.Second, 3 * time.Second, 4 * time.Second, 5 * time.Second}
 	for attempt := 0; ; attempt++ {
 		resp, err := client.ReportTestResults(ctx, WithAuthentication(connect.NewRequest(req), token))
 		if err == nil {
 			return resp.Msg, nil
 		}
 		// GitHub job ownership can lag the OIDC token; NotFound is returned before report ingestion.
-		if connect.CodeOf(err) != connect.CodeNotFound || attempt == 4 {
+		if connect.CodeOf(err) != connect.CodeNotFound {
 			return nil, err
 		}
-		timer := time.NewTimer(time.Second << attempt)
+		timer := time.NewTimer(retryDelays[min(attempt, len(retryDelays)-1)])
 		select {
 		case <-ctx.Done():
 			timer.Stop()
