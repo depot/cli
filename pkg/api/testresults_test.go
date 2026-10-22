@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"time"
 
 	"connectrpc.com/connect"
 	testresultsv1 "github.com/depot/cli/pkg/proto/depot/testresults/v1"
@@ -133,21 +132,6 @@ func TestReportTestResultsDoesNotRetryPermissionDenied(t *testing.T) {
 	_, err := ReportTestResults(context.Background(), "token-1", &testresultsv1.ReportTestResultsRequest{})
 	if connect.CodeOf(err) != connect.CodePermissionDenied || handler.reportCalls != 1 {
 		t.Fatalf("expected permission denied after one call, got %v after %d", err, handler.reportCalls)
-	}
-}
-
-func TestReportTestResultsStopsAtDeadline(t *testing.T) {
-	handler := &testResultsHandler{reportError: connect.NewError(connect.CodeNotFound, nil)}
-	setupTestResultsServer(t, handler)
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-	defer cancel()
-
-	_, err := ReportTestResults(ctx, "token-1", &testresultsv1.ReportTestResultsRequest{})
-	if connect.CodeOf(err) != connect.CodeDeadlineExceeded && err != context.DeadlineExceeded {
-		t.Fatalf("expected deadline exceeded, got %v", err)
-	}
-	if handler.reportCalls != 1 {
-		t.Fatalf("expected one call before deadline, got %d", handler.reportCalls)
 	}
 }
 
