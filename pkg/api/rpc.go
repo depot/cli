@@ -12,6 +12,7 @@ import (
 	"connectrpc.com/connect"
 	"github.com/depot/cli/pkg/proto/depot/agent/v1/agentv1connect"
 	"github.com/depot/cli/pkg/proto/depot/build/v1/buildv1connect"
+	"github.com/depot/cli/pkg/proto/depot/checks/v1/checksv1connect"
 	"github.com/depot/cli/pkg/proto/depot/ci/v1/civ1connect"
 	"github.com/depot/cli/pkg/proto/depot/cli/v1/cliv1connect"
 	"github.com/depot/cli/pkg/proto/depot/cli/v1beta1/cliv1beta1connect"
@@ -79,6 +80,14 @@ func NewMigrationClient() civ1connect.MigrationServiceClient {
 	return civ1connect.NewMigrationServiceClient(getHTTPClient(getBaseURL()), getBaseURL(), WithUserAgent())
 }
 
+func NewCheckClient() checksv1connect.CheckServiceClient {
+	return checksv1connect.NewCheckServiceClient(getHTTPClient(getBaseURL()), getBaseURL(), WithUserAgent())
+}
+
+func NewReviewAgentClient() checksv1connect.ReviewAgentServiceClient {
+	return checksv1connect.NewReviewAgentServiceClient(getHTTPClient(getBaseURL()), getBaseURL(), WithUserAgent())
+}
+
 func WithAuthentication[T any](req *connect.Request[T], token string) *connect.Request[T] {
 	req.Header().Add("Authorization", "Bearer "+token)
 	return req
@@ -139,4 +148,8 @@ func getExecBaseURL() string {
 		baseURL = "https://exec.depot.dev"
 	}
 	return baseURL
+}
+
+func NewDepotAgentLaunchClient() agentv1connect.DepotAgentLaunchServiceClient {
+	return agentv1connect.NewDepotAgentLaunchServiceClient(getHTTPClient(getBaseURL()), getBaseURL(), WithUserAgent())
 }

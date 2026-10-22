@@ -5,11 +5,13 @@ import (
 
 	"github.com/spf13/cobra"
 
+	agentCmd "github.com/depot/cli/pkg/cmd/agent"
 	bakeCmd "github.com/depot/cli/pkg/cmd/bake"
 	"github.com/depot/cli/pkg/cmd/blog"
 	buildCmd "github.com/depot/cli/pkg/cmd/build"
 	cacheCmd "github.com/depot/cli/pkg/cmd/cache"
 	cargoCmd "github.com/depot/cli/pkg/cmd/cargo"
+	"github.com/depot/cli/pkg/cmd/checks"
 	ciCmd "github.com/depot/cli/pkg/cmd/ci"
 	claudeCmd "github.com/depot/cli/pkg/cmd/claude"
 	dockerCmd "github.com/depot/cli/pkg/cmd/docker"
@@ -64,6 +66,7 @@ func NewCmdRoot(version, buildDate string) *cobra.Command {
 	_ = cmd.PersistentFlags().MarkHidden("config")
 
 	// Child commands
+	cmd.AddCommand(agentCmd.NewCmdAgent())
 	cmd.AddCommand(bakeCmd.NewCmdBake())
 	cmd.AddCommand(blog.NewCmdBlog())
 	cmd.AddCommand(buildCmd.NewCmdBuild())
@@ -87,6 +90,7 @@ func NewCmdRoot(version, buildDate string) *cobra.Command {
 	cmd.AddCommand(gocache.NewCmdGoCache())
 	cmd.AddCommand(exec.NewCmdExec())
 	cmd.AddCommand(ciCmd.NewCmdCI())
+	cmd.AddCommand(checks.NewCmdChecks())
 	cmd.AddCommand(sandboxCmd.NewCmdSandbox())
 	cmd.AddCommand(testsCmd.NewCmdTests())
 

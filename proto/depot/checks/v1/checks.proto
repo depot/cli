@@ -1,0 +1,200 @@
+syntax = "proto3";
+
+package depot.checks.v1;
+
+import "depot/checks/v1/review_agents.proto";
+
+service CheckService {
+  rpc ListChecks(ListChecksRequest) returns (ListChecksResponse);
+  rpc GetCheck(GetCheckRequest) returns (GetCheckResponse);
+  rpc GetAttempt(GetAttemptRequest) returns (GetAttemptResponse);
+  rpc ListAttempts(ListAttemptsRequest) returns (ListAttemptsResponse);
+  rpc RunCheck(RunCheckRequest) returns (RunCheckResponse);
+  // Create another attempt of a check whose latest attempt failed. Preserves its captured configuration and comparison revisions.
+  rpc RetryCheck(RetryCheckRequest) returns (RetryCheckResponse);
+  rpc GetCheckTranscript(GetCheckTranscriptRequest) returns (GetCheckTranscriptResponse);
+  rpc ResolveFindings(ResolveFindingsRequest) returns (GetCheckResponse);
+  rpc UnresolveFindings(UnresolveFindingsRequest) returns (GetCheckResponse);
+}
+
+message ListChecksRequest {
+  // Review agent to filter by. Leave empty to browse all authorized history. Returned by `ListReviewAgents`, `GetReviewAgent`, and `CreateReviewAgent`.
+  string agent_id = 1;
+  RepositorySelector repo = 2;
+  // Short branch name. Requires `repo`.
+  string branch = 3;
+  // Case-insensitive head or base commit prefix. The empty-tree base is excluded.
+  string sha = 4;
+  // Can be "running", "done", "passed", "findings", "rejected", "resolved", or "failed". "running" includes queued checks; "done" includes every succeeded check.
+  string outcome = 5;
+  // Text to search in the agent name, repository name, branch, and commit SHAs.
+  string query = 6;
+  // Number of checks to return per page. Maximum: 100. Default: 50.
+  uint32 page_size = 7;
+  // Token to fetch the next page with the same filters. Leave empty to fetch the first page.
+  string page_token = 8;
+}
+message ListChecksResponse { repeated Check checks = 1; string next_page_token = 2; }
+message GetCheckRequest {
+  // Unique identifier for the logical check. Returned by `RunCheck`, `GetCheck`, and `ListChecks`.
+  string check_id = 1;
+}
+message GetAttemptRequest {
+  // Unique identifier for an execution attempt. Returned by `RunCheck`, `GetCheck`, `GetAttempt`, `ListChecks`, and `ListAttempts`.
+  string attempt_id = 1;
+}
+message GetAttemptResponse { CheckAttempt attempt = 1; }
+message ListAttemptsRequest {
+  // Unique identifier for the logical check. Returned by `RunCheck`, `GetCheck`, and `ListChecks`.
+  string check_id = 1;
+  // Number of attempts to return per page. Maximum: 100. Default: 50.
+  uint32 page_size = 2;
+  // Token to fetch the next page for the same check. Leave empty to fetch the first page.
+  string page_token = 3;
+}
+message ListAttemptsResponse { repeated CheckAttempt attempts = 1; string next_page_token = 2; }
+message Check {
+  // Unique identifier for the logical check, shared by all of its attempts.
+  string id = 1;
+  // Creation time of the logical check, in RFC 3339 format.
+  string created_at = 2;
+  // Latest attempt of the check.
+  CheckAttempt current_attempt = 3;
+}
+message GetCheckResponse { Check check = 1; }
+message RunCheckRequest {
+  // Unique identifier for the review agent to run. Returned by `ListReviewAgents`, `GetReviewAgent`, and `CreateReviewAgent`.
+  string agent_id = 1;
+  // Repository to review. It does not need to be watched by the agent.
+  RepositorySelector repo = 2;
+  // Branch or tag to resolve before queuing. A supplied `commitSha` pins the head. Leave empty when using `head`. Default: HEAD of the default branch.
+  optional string ref = 3;
+  // Full commit SHA to pin the comparison head. May be combined with `ref` for branch context.
+  optional string commit_sha = 4;
+  // Comparison base as a branch, tag, or full commit SHA. Leave empty to compare with the head's first parent, or the empty tree for an initial commit.
+  optional string base = 5;
+  // Comparison head as a branch, tag, or full commit SHA. Cannot be combined with `ref` or `commitSha`.
+  optional string head = 6;
+}
+message RunCheckResponse { string check_id = 1; string attempt_id = 2; }
+message RetryCheckRequest {
+  // Unique identifier for the logical check to retry. Returned by `RunCheck`, `RetryCheck`, `GetCheck`, and `ListChecks`.
+  string check_id = 1;
+}
+message RetryCheckResponse {
+  // Unique identifier for the logical check, shared with the previous attempt.
+  string check_id = 1;
+  // Unique identifier for the queued execution attempt. Use it with `GetAttempt` to follow the retry.
+  string attempt_id = 2;
+}
+message GetCheckTranscriptRequest {
+  // Unique identifier for the logical check. Returned by `RunCheck`, `GetCheck`, and `ListChecks`.
+  string check_id = 1;
+  // Execution attempt of this check. Leave empty to use the latest attempt. Returned by `RunCheck`, `GetCheck`, `GetAttempt`, `ListChecks`, and `ListAttempts`.
+  string attempt_id = 2;
+}
+message ResolveFindingsRequest {
+  // Unique identifier for the logical check. Returned by `RunCheck`, `GetCheck`, and `ListChecks`.
+  string check_id = 1;
+  // Zero-based indexes in the original stored findings. Supply nonempty indexes or `all`, never both. Only the latest succeeded check with decision "fail" and findings can be resolved.
+  repeated uint32 finding_indexes = 2;
+  bool all = 3;
+  // Execution attempt of this check. Leave empty to use the latest attempt. Historical attempts cannot be changed. Returned by `RunCheck`, `GetCheck`, `GetAttempt`, `ListChecks`, and `ListAttempts`.
+  string attempt_id = 4;
+}
+message UnresolveFindingsRequest {
+  // Unique identifier for the logical check. Returned by `RunCheck`, `GetCheck`, and `ListChecks`.
+  string check_id = 1;
+  // Zero-based indexes in the original stored findings. Supply nonempty indexes or `all`, never both.
+  repeated uint32 finding_indexes = 2;
+  bool all = 3;
+  // Execution attempt of this check. Leave empty to use the latest attempt. Historical attempts cannot be changed. Returned by `RunCheck`, `GetCheck`, `GetAttempt`, `ListChecks`, and `ListAttempts`.
+  string attempt_id = 4;
+}
+
+message CheckAttempt {
+  // Unique identifier for this execution attempt.
+  string id = 1;
+  string agent_id = 2;
+  Repository repo = 3;
+  reserved 4;
+  string head_sha = 5;
+  // Exact comparison base. Empty until execution resolves the first parent for manual reviews or new branches. A first commit uses Git's empty-tree SHA.
+  string base_sha = 6;
+  // Current state of the attempt. Can be "queued", "running", "succeeded", or "failed".
+  string status = 7;
+  // Reviewer name captured when this attempt was admitted.
+  string agent_name = 8;
+  // Creation time, in RFC 3339 format.
+  string created_at = 9;
+  // Start time, in RFC 3339 format. Empty until started.
+  string started_at = 10;
+  // Finish time, in RFC 3339 format. Empty until finished.
+  string finished_at = 11;
+  // Structured review result as JSON. Empty until a result is available.
+  string result_json = 12;
+  string failure_code = 13;
+  string failure_message = 14;
+  string execution_id = 15;
+  string sandbox_id = 16;
+  string runtime_snapshot_ref = 17;
+  string model_id = 18;
+  // Whether an archived transcript is recorded. Download availability is checked by `GetCheckTranscript`.
+  bool has_session = 19;
+  // Recorded transcript archive state. Empty for historical attempts without archive metadata.
+  string transcript_status = 20;
+  // Resolved findings, ordered by `findingIndex`. Only "needs changes" attempts have resolutions.
+  repeated FindingResolution resolutions = 21;
+  // Whether this is its review's latest attempt. Only the latest attempt can be resolved.
+  bool is_current = 22;
+  // Short branch name the attempt was admitted for, `owner:branch` for fork pull requests. Empty when unknown: tags, SHA-only manual runs, and historical attempts.
+  string branch = 23;
+  // How this attempt rated the findings of the previous review of the same pull request. Unset when the attempt has no result or its runtime predates previous reviews.
+  PreviousReviewOutcomes previous_review = 24;
+  // Unique identifier for the logical check. Use it with `GetCheck` and `ListAttempts`.
+  string check_id = 25;
+}
+
+message PreviousReviewOutcomes {
+  // Unique identifier for the previous attempt. Empty when there was no previous review.
+  string attempt_id = 1;
+  // Outcomes ordered by `findingIndex`, one for each finding of the previous attempt.
+  repeated PreviousFindingOutcome findings = 2;
+}
+
+message PreviousFindingOutcome {
+  // Zero-based index into the previous attempt's `findings`.
+  uint32 finding_index = 1;
+  // Outcome at this attempt's revision. Can be "fixed", "still_open", "accepted", or "reopened". "accepted" and "reopened" apply only to findings a person resolved.
+  string outcome = 2;
+  // Short explanation from the reviewer. Empty when none was given.
+  string note = 3;
+  // Zero-based index into this attempt's `findings` that reports it again. Set only when `outcome` is "still_open" or "reopened".
+  optional uint32 current_finding_index = 4;
+}
+
+message FindingResolution {
+  // Zero-based index into the result's `findings`.
+  uint32 finding_index = 1;
+  // User who resolved the finding. Empty when resolved with an organization token.
+  string resolved_by_user_id = 2;
+  // Display name of that user. Empty when the user is unknown.
+  string resolved_by_name = 3;
+  // Resolution time, in RFC 3339 format.
+  string resolved_at = 4;
+}
+
+message GetCheckTranscriptResponse {
+  // Current state of the transcript archive. Can be "archived", "failed", "unavailable", or "expired". Independent of whether the review succeeded.
+  string status = 1;
+  // Archive failure or unavailability reason. Empty when archived.
+  string reason = 2;
+  // Private JSONL download URL, valid for 60 seconds. Empty unless archived. Treat as a credential and do not log it.
+  string download_url = 3;
+  // Complete uncompressed transcript size in bytes. Zero unless archived.
+  uint64 bytes = 4;
+  // SHA-256 of the exact downloaded bytes. Empty unless archived.
+  string sha256 = 5;
+  // End of the 30-day download retention window, in RFC 3339 format. Empty unless archived.
+  string expires_at = 6;
+}

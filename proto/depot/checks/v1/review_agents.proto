@@ -1,0 +1,103 @@
+syntax = "proto3";
+
+package depot.checks.v1;
+
+service ReviewAgentService {
+  rpc ListReviewAgents(ListReviewAgentsRequest) returns (ListReviewAgentsResponse);
+  rpc GetReviewAgent(GetReviewAgentRequest) returns (GetReviewAgentResponse);
+  rpc CreateReviewAgent(CreateReviewAgentRequest) returns (GetReviewAgentResponse);
+  rpc UpdateReviewAgent(UpdateReviewAgentRequest) returns (GetReviewAgentResponse);
+  rpc ListReviewAgentModels(ListReviewAgentModelsRequest) returns (ListReviewAgentModelsResponse);
+}
+
+message RepositorySelector {
+  // Canonical repository name. For example, "owner/repository".
+  string name = 1;
+  // Repository provider. Can be "github", "cursor-origin", or "code".
+  string forge = 2;
+}
+
+message Repository {
+  // Canonical repository name. For example, "owner/repository".
+  string name = 1;
+  // Repository provider. Can be "github", "cursor-origin", or "code".
+  string forge = 2;
+  // Unique identifier in the repository registry. Empty when the repository has not been registered.
+  string repository_id = 3;
+}
+
+message RepositoryList {
+  repeated Repository items = 1;
+}
+
+message RepositorySelection {
+  // Repositories to watch. An empty array stops watching all repositories. Maximum: 100.
+  repeated RepositorySelector items = 1;
+}
+
+message ReviewAgentTriggers {
+  // An array of provider-qualified events applied to every watched repository of that provider. An empty array disables automatic checks. Can contain "github:opened", "github:synchronize", "github:reopened", "github:ready_for_review", "github:push", "cursor-origin:pull_request.created", "cursor-origin:pull_request.head_ref.pushed", "cursor-origin:pull_request.base_ref.updated", "cursor-origin:pull_request.published", or "code:push".
+  repeated string events = 1;
+}
+
+message ReviewAgent {
+  // Unique identifier for the review agent configuration.
+  string id = 1;
+  string name = 2;
+  // Instructions used for future checks. Historical snapshots are unchanged.
+  string instructions = 3;
+  ReviewAgentTriggers triggers = 4;
+  RepositoryList repos = 5;
+  // Selected model. Empty when using the default returned by `ListReviewAgentModels`.
+  string model_id = 6;
+}
+
+message ListReviewAgentsRequest {
+  // Number of review agents to return per page. Maximum: 100. Default: 50.
+  uint32 page_size = 1;
+  // Token to fetch the next page. Leave empty to fetch the first page.
+  string page_token = 2;
+}
+message ListReviewAgentsResponse {
+  repeated ReviewAgent agents = 1;
+  string next_page_token = 2;
+}
+message GetReviewAgentRequest {
+  // Unique identifier for the review agent. Returned by `ListReviewAgents`, `GetReviewAgent`, and `CreateReviewAgent`.
+  string agent_id = 1;
+}
+message GetReviewAgentResponse {
+  ReviewAgent agent = 1;
+}
+message CreateReviewAgentRequest {
+  // Non-empty display name. Maximum: 191 characters.
+  string name = 1;
+  // Non-empty instructions. Maximum: 60000 UTF-8 bytes.
+  string instructions = 2;
+  // Leave unset to enable supported events except "github:push".
+  ReviewAgentTriggers triggers = 3;
+  // Leave unset to create an agent without watched repositories.
+  RepositorySelection repos = 4;
+  // Model to use. Leave empty to use the default model. Returned by `ListReviewAgentModels`.
+  string model_id = 5;
+}
+message UpdateReviewAgentRequest {
+  // Unique identifier for the review agent. Returned by `ListReviewAgents`, `GetReviewAgent`, and `CreateReviewAgent`.
+  string agent_id = 1;
+  // Leave unset to preserve the name. Maximum: 191 characters.
+  optional string name = 2;
+  // Leave unset to preserve instructions. Maximum: 60000 UTF-8 bytes.
+  optional string instructions = 3;
+  // Leave unset to preserve triggers. An empty events array disables automatic checks.
+  ReviewAgentTriggers triggers = 4;
+  // Leave unset to preserve watched repositories. An empty items array clears the selection.
+  RepositorySelection repos = 5;
+  // Model to use. Leave unset to preserve the model. Set to an empty string to use the default model. Returned by `ListReviewAgentModels`.
+  optional string model_id = 6;
+}
+message ListReviewAgentModelsRequest {}
+message ReviewAgentModel { string id = 1; string label = 2; }
+message ListReviewAgentModelsResponse {
+  repeated ReviewAgentModel models = 1;
+  string default_model_id = 2;
+}
