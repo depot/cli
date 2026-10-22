@@ -1,7 +1,7 @@
-buf.build/gen/go/depot/api/connectrpc/go v1.15.0-20240221184445-e8316610338f.1 h1:VYpSRSXBgukO/q1IhlY362qbFbQ0c60c9R8773vSdzI=
-buf.build/gen/go/depot/api/connectrpc/go v1.15.0-20240221184445-e8316610338f.1/go.mod h1:u3UQrhy7mXGU+2gMag3WeI7FZgLd2GsQxpWqt2ZSNvg=
-buf.build/gen/go/depot/api/protocolbuffers/go v1.32.0-20240221184445-e8316610338f.1 h1:kgC5f06snCbDMa9hN8DY5MEYSeQzBMSXXB3z4SUX5ao=
-buf.build/gen/go/depot/api/protocolbuffers/go v1.32.0-20240221184445-e8316610338f.1/go.mod h1:MP5BDdzxwFdhf/KEm27tKfz9dKjtC9C1kXdpuSOb09g=
+buf.build/gen/go/depot/api/connectrpc/go v1.15.0-20261007095729-ac37ea7f444a.1 h1:CqbNioqOWiMqNMZ+MVF2ytnrx8lMg2ltJId7N9ZlN20=
+buf.build/gen/go/depot/api/connectrpc/go v1.15.0-20261007095729-ac37ea7f444a.1/go.mod h1:P/jb1EH+cLzSq8TcBxSPS3Oukg11uNDUO0kfpEcnh84=
+buf.build/gen/go/depot/api/protocolbuffers/go v1.32.0-20261007095729-ac37ea7f444a.1 h1:iBXLy3Lf3hwhkHwjEsUXAjYCXLOCrBsI68XVvAoMHos=
+buf.build/gen/go/depot/api/protocolbuffers/go v1.32.0-20261007095729-ac37ea7f444a.1/go.mod h1:MP5BDdzxwFdhf/KEm27tKfz9dKjtC9C1kXdpuSOb09g=
 charm.land/bubbles/v2 v2.0.0 h1:tE3eK/pHjmtrDiRdoC9uGNLgpopOd8fjhEe31B/ai5s=
 charm.land/bubbles/v2 v2.0.0/go.mod h1:rCHoleP2XhU8um45NTuOWBPNVHxnkXKTiZqcclL/qOI=
 charm.land/bubbletea/v2 v2.0.2 h1:4CRtRnuZOdFDTWSff9r8QFt/9+z6Emubz3aDMnf/dx0=
@@ -216,8 +216,8 @@ github.com/digitorus/timestamp v0.0.0-20231217203849-220c5c2851b7 h1:lxmTCgmHE1G
 github.com/digitorus/timestamp v0.0.0-20231217203849-220c5c2851b7/go.mod h1:GvWntX9qiTlOud0WkQ6ewFm0LPy5JUR1Xo0Ngbd1w6Y=
 github.com/distribution/reference v0.6.0 h1:0IXCQ5g4/QMHHkarYzh5l+u8T3t73zM5QvfrDyIgxBk=
 github.com/distribution/reference v0.6.0/go.mod h1:BbU0aIcezP1/5jX/8MP0YiH4SdvB5Y4f/wlDRiLyi3E=
-github.com/docker/buildx v0.38.0 h1:LKfznm3wgm0hYaQDkiuoK9hyDS1GU/GChnXYsBr3A00=
-github.com/docker/buildx v0.38.0/go.mod h1:4lEDxmaYDJ17HtXTND9A53BaDoHCJbk5WUgcmfipN7Q=
+github.com/docker/buildx v0.38.1 h1:7J7nReQndOnDTUFjun6otmQqehoi9sCOvRwFjkngYlc=
+github.com/docker/buildx v0.38.1/go.mod h1:4lEDxmaYDJ17HtXTND9A53BaDoHCJbk5WUgcmfipN7Q=
 github.com/docker/cli v29.8.2+incompatible h1:2zgdFuoFst2T80oS42vhKGxkd0JRo305eIEKTsxR7pQ=
 github.com/docker/cli v29.8.2+incompatible/go.mod h1:JLrzqnKDaYBop7H2jaqPtU4hHvMKP+vjCwu2uszcLI8=
 github.com/docker/distribution v2.8.3+incompatible h1:AtKxIZ36LoNK51+Z6RpzLpddBirtxJnzDrHLEKxTAYk=
@@ -430,8 +430,8 @@ github.com/mitchellh/hashstructure/v2 v2.0.2 h1:vGKWl0YJqUNxE8d+h8f6NJLcCJrgbhC4
 github.com/mitchellh/hashstructure/v2 v2.0.2/go.mod h1:MG3aRVU/N29oo/V/IhBX8GR/zz4kQkprJgF2EVszyDE=
 github.com/mitchellh/mapstructure v1.5.0 h1:jeMsZIYE/09sWLaz43PL7Gy6RuMjD2eJVyuac5Z2hdY=
 github.com/mitchellh/mapstructure v1.5.0/go.mod h1:bFUtVrKA4DC2yAKiSyO/QUcy7e+RRV2QTWOzhPopBRo=
-github.com/moby/buildkit v0.34.0 h1:bG5h2y1s5IVvc/uSGo6hVlYbd2eXVFRuADl9Zf+jeJM=
-github.com/moby/buildkit v0.34.0/go.mod h1:e+Za70y2a3nL1U2Y0P8TvhPyKp2Ok2NS+Q4siSArDiM=
+github.com/moby/buildkit v0.34.1 h1:jVdxsXX0UpU0q1Et+9lFezPmh9sGE6vF0TrKZaGlfy4=
+github.com/moby/buildkit v0.34.1/go.mod h1:e+Za70y2a3nL1U2Y0P8TvhPyKp2Ok2NS+Q4siSArDiM=
 github.com/moby/docker-image-spec v1.3.1 h1:jMKff3w6PgbfSa69GfNg+zN/XLhfXJGnEx3Nl2EsFP0=
 github.com/moby/docker-image-spec v1.3.1/go.mod h1:eKmb5VW8vQEh/BAr2yvVNvuiJuY6UIocYsFu/DxxRpo=
 github.com/moby/go-archive v0.2.0 h1:zg5QDUM2mi0JIM9fdQZWC7U8+2ZfixfTYoHL7rWUcP8=

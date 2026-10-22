@@ -4,13 +4,13 @@ go 1.26.8
 
 require (
 	github.com/depot/cli v1.8.3
-	github.com/docker/buildx v0.38.0
-	github.com/moby/buildkit v0.34.0
+	github.com/docker/buildx v0.38.1
+	github.com/moby/buildkit v0.34.1
 )
 
 require (
-	buf.build/gen/go/depot/api/connectrpc/go v1.15.0-20240221184445-e8316610338f.1 // indirect
-	buf.build/gen/go/depot/api/protocolbuffers/go v1.32.0-20240221184445-e8316610338f.1 // indirect
+	buf.build/gen/go/depot/api/connectrpc/go v1.15.0-20261007095729-ac37ea7f444a.1 // indirect
+	buf.build/gen/go/depot/api/protocolbuffers/go v1.32.0-20261007095729-ac37ea7f444a.1 // indirect
 	charm.land/bubbles/v2 v2.0.0 // indirect
 	charm.land/bubbletea/v2 v2.0.2 // indirect
 	charm.land/huh/v2 v2.0.0 // indirect

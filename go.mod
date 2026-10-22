@@ -19,7 +19,7 @@ require (
 	github.com/compose-spec/compose-go/v2 v2.16.1
 	github.com/containerd/console v1.0.5
 	github.com/distribution/reference v0.6.0
-	github.com/docker/buildx v0.38.0
+	github.com/docker/buildx v0.38.1
 	github.com/docker/cli v29.8.2+incompatible
 	github.com/docker/cli-docs-tool v0.11.0
 	github.com/docker/go-connections v0.8.1
@@ -29,7 +29,7 @@ require (
 	github.com/hashicorp/hcl/v2 v2.24.0
 	github.com/mattn/go-isatty v0.0.20
 	github.com/mgutz/ansi v0.0.0-20170206155736-9520e82c474b
-	github.com/moby/buildkit v0.34.0
+	github.com/moby/buildkit v0.34.1
 	github.com/morikuni/aec v1.1.0
 	github.com/opencontainers/go-digest v1.0.0
 	github.com/opencontainers/image-spec v1.1.1
