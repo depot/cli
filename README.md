@@ -347,13 +347,18 @@ List tables shorten long display names, repositories and branches, and show 12-c
 `get` and JSON retain full values. Transcript file exports confirm the destination and saved byte count on stderr after
 the file is saved successfully. API errors include the failed operation while preserving the underlying error status.
 
-`list` supports `--agent`, `--repo`, `--branch` (requires `--repo`), `--sha` (head or base prefix), `--outcome`, and
+`list` supports `--agent`, `--repo`, `--forge`, `--branch` (requires `--repo`), `--sha` (head or base prefix), `--outcome`, and
 `--query` (agent name, repository, branch, or SHA prefix). Outcomes are `running` (including queued), `done`, `passed`,
 `findings` (a passing review with advice), `rejected`, `resolved`, and `failed` (execution failure).
 `checks list`, `checks agents list`, and `checks attempts` use `-n` as a positive total result limit (default 50), matching CI run listing.
 The CLI follows API pages internally until that limit is reached or there are no more matches; no `--all` or `--page-token` is exposed.
 
-Repository selectors carry their forge: `github:owner/repo`, `cursor-origin:owner/repo`, or `code:name`.
+`checks list --repo owner/repo` matches that full name across forges. Add `--forge github`, `--forge origin`, or
+`--forge depot` to narrow the results, or use `--forge` alone to list checks from that forge.
+`cursor-origin` and `code` remain accepted aliases for `origin` and `depot`.
+Qualified repository selectors also work: `github:owner/repo`, `origin:owner/repo`, or `depot:name`
+(including the legacy `cursor-origin:owner/repo` and `code:name`). If `--forge` is also supplied, the forges must agree.
+`run` and agent create/update still require a qualified repository selector.
 `run` accepts `--ref` with an optional full `--commit-sha`, or `--head`, plus an optional `--base` for either mode.
 By default it reviews the default branch's HEAD against its first parent (or the empty tree for an initial commit).
 One-off runs do not change the agent's watched repositories. `retry` reuses the captured configuration and revisions,
