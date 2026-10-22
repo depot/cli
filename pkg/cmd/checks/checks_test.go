@@ -297,6 +297,68 @@ func TestListCollectsUpToLimitAndPreservesFilters(t *testing.T) {
 	}
 }
 
+func TestListRepositoryFilters(t *testing.T) {
+	for _, scenario := range []struct {
+		name, forge, repoForge string
+		args                   []string
+	}{
+		{"unqualified", "", "", []string{"--repo", "owner/repo"}},
+		{"github", "github", "github", []string{"--repo", "owner/repo", "--forge", "github"}},
+		{"origin", "cursor-origin", "cursor-origin", []string{"--repo", "owner/repo", "--forge", "origin"}},
+		{"depot", "code", "code", []string{"--repo", "owner/repo", "--forge", "depot"}},
+		{"legacy-github", "", "github", []string{"--repo", "github:owner/repo"}},
+		{"legacy-origin", "", "cursor-origin", []string{"--repo", "cursor-origin:owner/repo"}},
+		{"legacy-code", "", "code", []string{"--repo", "code:owner/repo"}},
+		{"qualified-depot", "", "code", []string{"--repo", "depot:owner/repo"}},
+		{"matching-aliases", "code", "code", []string{"--repo", "depot:owner/repo", "--forge", "code"}},
+		{"matching-origin", "cursor-origin", "cursor-origin", []string{"--repo", "origin:owner/repo", "--forge", "cursor-origin"}},
+		{"forge-only", "code", "", []string{"--forge", "depot"}},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			mux := localAPI(t)
+			calls := 0
+			serveRPC(t, mux, checksv1connect.CheckServiceListChecksProcedure, func(req *checksv1.ListChecksRequest) (*checksv1.ListChecksResponse, error) {
+				calls++
+				if req.Forge != scenario.forge || req.GetRepo().GetForge() != scenario.repoForge {
+					t.Errorf("wrong forge filters: %v", req)
+				}
+				if scenario.name == "forge-only" {
+					if req.Repo != nil {
+						t.Errorf("unexpected repository: %v", req.Repo)
+					}
+				} else if req.GetRepo().GetName() != "owner/repo" {
+					t.Errorf("lost repository name: %v", req)
+				}
+				if calls == 1 {
+					return &checksv1.ListChecksResponse{NextPageToken: "next"}, nil
+				}
+				return &checksv1.ListChecksResponse{}, nil
+			})
+			_, err := execute(t, append([]string{"list"}, scenario.args...)...)
+			if err != nil || calls != 2 {
+				t.Fatalf("calls %d, error %v", calls, err)
+			}
+		})
+	}
+}
+
+func TestListRejectsInvalidRepositoryFilters(t *testing.T) {
+	mux := localAPI(t)
+	serveRPC(t, mux, checksv1connect.CheckServiceListChecksProcedure, func(*checksv1.ListChecksRequest) (*checksv1.ListChecksResponse, error) {
+		t.Error("invalid filters must not make an API request")
+		return &checksv1.ListChecksResponse{}, nil
+	})
+	for _, args := range [][]string{
+		{"--forge", "invalid"}, {"--forge", ""}, {"--repo", ""}, {"--repo", " owner/repo"},
+		{"--repo", "invalid:owner/repo"}, {"--repo", "github:"},
+		{"--forge", "depot", "--repo", "github:owner/repo"}, {"--forge", "origin", "--branch", "main"},
+	} {
+		if _, err := execute(t, append([]string{"list"}, args...)...); err == nil {
+			t.Errorf("accepted invalid filters: %v", args)
+		}
+	}
+}
+
 func TestListsRejectPaginationFlagsBeforeAnyRequest(t *testing.T) {
 	mux := localAPI(t)
 	serveRPC(t, mux, checksv1connect.CheckServiceListChecksProcedure, func(*checksv1.ListChecksRequest) (*checksv1.ListChecksResponse, error) {

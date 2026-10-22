@@ -20,6 +20,7 @@ service CheckService {
 message ListChecksRequest {
   // Review agent to filter by. Leave empty to browse all authorized history. Returned by `ListReviewAgents`, `GetReviewAgent`, and `CreateReviewAgent`.
   string agent_id = 1;
+  // Repository name to filter by. Leave its forge empty to match across forges, or set it to narrow the results. Must agree with `forge` when both are set.
   RepositorySelector repo = 2;
   // Short branch name. Requires `repo`.
   string branch = 3;
@@ -33,6 +34,8 @@ message ListChecksRequest {
   uint32 page_size = 7;
   // Token to fetch the next page with the same filters. Leave empty to fetch the first page.
   string page_token = 8;
+  // Forge to filter by, with or without `repo`. Can be "github", "origin", or "depot". Also accepts "cursor-origin" for Origin and "code" for Depot Code. Leave empty to match all forges unless `repo.forge` is set.
+  string forge = 9;
 }
 message ListChecksResponse { repeated Check checks = 1; string next_page_token = 2; }
 message GetCheckRequest {
