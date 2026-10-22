@@ -149,3 +149,7 @@ func getExecBaseURL() string {
 	}
 	return baseURL
 }
+
+func NewDepotAgentLaunchClient() agentv1connect.DepotAgentLaunchServiceClient {
+	return agentv1connect.NewDepotAgentLaunchServiceClient(getHTTPClient(getBaseURL()), getBaseURL(), WithUserAgent())
+}
