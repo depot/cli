@@ -10,11 +10,12 @@ import (
 	"time"
 
 	"github.com/docker/buildx/util/progress"
-	"github.com/docker/docker/api/types"
-	"github.com/docker/docker/api/types/registry"
-	docker "github.com/docker/docker/client"
-	"github.com/docker/docker/pkg/jsonmessage"
 	"github.com/moby/buildkit/client"
+	"github.com/moby/moby/api/types/jsonstream"
+	"github.com/moby/moby/api/types/registry"
+	docker "github.com/moby/moby/client"
+	"github.com/moby/moby/client/pkg/jsonmessage"
+	ocispecs "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
 // PullImages calls the local docker API to pull the image.
@@ -26,7 +27,7 @@ func PullImages(ctx context.Context, dockerapi docker.APIClient, imageName strin
 }
 
 func ImagePullPrivileged(ctx context.Context, dockerapi docker.APIClient, imageName string, opts PullOptions, logger progress.SubLogger) error {
-	dockerPullOpts := types.ImagePullOptions{}
+	dockerPullOpts := docker.ImagePullOptions{}
 	if opts.Username != nil && opts.Password != nil {
 		authConfig := registry.AuthConfig{
 			Username: *opts.Username,
@@ -42,8 +43,8 @@ func ImagePullPrivileged(ctx context.Context, dockerapi docker.APIClient, imageN
 		encodedAuth := base64.URLEncoding.EncodeToString(buf)
 		dockerPullOpts.RegistryAuth = encodedAuth
 	}
-	if opts.Platform != nil {
-		dockerPullOpts.Platform = *opts.Platform
+	if opts.Platform != nil && *opts.Platform != "" {
+		dockerPullOpts.Platforms = []ocispecs.Platform{pullPlatform(*opts.Platform)}
 	}
 
 	responseBody, err := dockerapi.ImagePull(ctx, imageName, dockerPullOpts)
@@ -74,14 +75,14 @@ func ImagePullPrivileged(ctx context.Context, dockerapi docker.APIClient, imageN
 	// Swap the depot tag with the user-specified tags by adding the user tag
 	// and removing the depot one.
 	for _, userTag := range opts.UserTags {
-		if err := dockerapi.ImageTag(ctx, imageName, userTag); err != nil {
+		if _, err := dockerapi.ImageTag(ctx, docker.ImageTagOptions{Source: imageName, Target: userTag}); err != nil {
 			return err
 		}
 	}
 
 	if !opts.KeepImage {
 		// PruneChildren is false to preserve the image if no tag was specified.
-		rmOpts := types.ImageRemoveOptions{PruneChildren: false}
+		rmOpts := docker.ImageRemoveOptions{PruneChildren: false}
 		_, err = dockerapi.ImageRemove(ctx, imageName, rmOpts)
 		if err != nil {
 			return err
@@ -89,6 +90,14 @@ func ImagePullPrivileged(ctx context.Context, dockerapi docker.APIClient, imageN
 	}
 
 	return nil
+}
+
+// pullPlatform keeps the platform text as the user wrote it, in lowercase,
+// so that the Docker daemon receives the same platform value as before.
+func pullPlatform(platform string) ocispecs.Platform {
+	parts := strings.SplitN(strings.ToLower(platform), "/", 3)
+	parts = append(parts, "", "")
+	return ocispecs.Platform{OS: parts[0], Architecture: parts[1], Variant: parts[2]}
 }
 
 type Status int
@@ -165,7 +174,7 @@ type PullProgress struct {
 }
 
 type Message struct {
-	msg *jsonmessage.JSONMessage
+	msg *jsonstream.Message
 	err error
 }
 
@@ -183,7 +192,7 @@ func decode(ctx context.Context, r io.Reader, msgCh chan<- Message) {
 		default:
 		}
 
-		var msg jsonmessage.JSONMessage
+		var msg jsonstream.Message
 		if err := dec.Decode(&msg); err != nil {
 			if err == io.EOF {
 				return

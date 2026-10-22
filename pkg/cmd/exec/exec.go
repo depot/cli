@@ -11,13 +11,13 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/depot/cli/pkg/arguments"
 	"github.com/depot/cli/pkg/connection"
 	"github.com/depot/cli/pkg/helpers"
 	"github.com/depot/cli/pkg/machine"
 	"github.com/depot/cli/pkg/progresshelper"
 	cliv1 "github.com/depot/cli/pkg/proto/depot/cli/v1"
 	"github.com/docker/buildx/util/progress"
-	"github.com/docker/cli/cli"
 	"github.com/spf13/cobra"
 )
 
@@ -78,7 +78,7 @@ func NewCmdExec() *cobra.Command {
 		}()
 
 		printCtx, cancel := context.WithCancel(ctx)
-		printer, buildErr := progress.NewPrinter(printCtx, os.Stderr, os.Stderr, progressMode)
+		printer, buildErr := progress.NewPrinter(printCtx, os.Stderr, progresshelper.DisplayMode(progressMode))
 		if buildErr != nil {
 			cancel()
 			return buildErr
@@ -162,7 +162,7 @@ func NewCmdExec() *cobra.Command {
 		Hidden: true,
 		Use:    "exec [flags] command [args...]",
 		Short:  "Execute a command with injected BuildKit connection",
-		Args:   cli.RequiresMinArgs(1),
+		Args:   arguments.AtLeast(1),
 		Run: func(cmd *cobra.Command, args []string) {
 			if err := run(cmd, args); err != nil {
 				if exitErr, ok := err.(*exec.ExitError); ok {

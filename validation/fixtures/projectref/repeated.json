@@ -1,0 +1,16 @@
+{
+  "target": {
+    "_base": {
+      "context": "."
+    }
+  },
+  "target": {
+    "repeated": {
+      "project_id": "vtproject-repeated",
+      "target": "artifact",
+      "args": {
+        "VALUE": "${lookup(target._base, \"context\", \"missing\")}"
+      }
+    }
+  }
+}

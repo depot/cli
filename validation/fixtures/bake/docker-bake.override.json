@@ -1,0 +1,9 @@
+{
+  "target": {
+    "app": {
+      "labels": {
+        "org.depot.validation.override": "json"
+      }
+    }
+  }
+}

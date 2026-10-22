@@ -1,0 +1,24 @@
+{
+  "target": {
+    "_common": {
+      "labels": {
+        "team": "build"
+      },
+      "project_id": "vtproject-common"
+    },
+    "copied": {
+      "target": "artifact",
+      "labels": "${merge(target._common.labels, {role = \"copy\"})}"
+    },
+    "both": {
+      "target": "artifact",
+      "project_id": "vtproject-both",
+      "labels": {}
+    }
+  },
+  "group": {
+    "labels": {
+      "targets": ["copied", "both", "_common"]
+    }
+  }
+}

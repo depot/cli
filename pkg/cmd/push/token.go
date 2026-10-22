@@ -5,8 +5,8 @@ import (
 	"encoding/base64"
 	"net/http"
 
-	"github.com/containerd/containerd/remotes/docker/auth"
-	remoteerrors "github.com/containerd/containerd/remotes/errors"
+	"github.com/containerd/containerd/v2/core/remotes/docker/auth"
+	remoteerrors "github.com/containerd/containerd/v2/core/remotes/errors"
 	configtypes "github.com/docker/cli/cli/config/types"
 	"github.com/pkg/errors"
 )

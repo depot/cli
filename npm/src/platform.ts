@@ -17,7 +17,6 @@ const packageDarwin_arm64 = '@depot/cli-darwin-arm64'
 const packageDarwin_x64 = '@depot/cli-darwin-x64'
 
 export const knownWindowsPackages: Record<string, string> = {
-  'win32 arm LE': '@depot/cli-win32-arm',
   'win32 arm64 LE': '@depot/cli-win32-arm64',
   'win32 ia32 LE': '@depot/cli-win32-ia32',
   'win32 x64 LE': '@depot/cli-win32-x64',
