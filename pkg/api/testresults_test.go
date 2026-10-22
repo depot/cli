@@ -2,9 +2,11 @@ package api
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"connectrpc.com/connect"
 	testresultsv1 "github.com/depot/cli/pkg/proto/depot/testresults/v1"
@@ -122,6 +124,69 @@ func TestReportTestResultsSendsAuthHeader(t *testing.T) {
 	}
 }
 
+func TestReportTestResultsRetriesNotFound(t *testing.T) {
+	handler := &testResultsHandler{reportErrors: []error{
+		connect.NewError(connect.CodeNotFound, errors.New("job not found")),
+		connect.NewError(connect.CodeNotFound, errors.New("job not found")),
+	}}
+	setupTestResultsServer(t, handler)
+
+	resp, err := ReportTestResults(context.Background(), "token-1", &testresultsv1.ReportTestResultsRequest{InvocationId: "unit"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if handler.reportCalls != 3 || resp.GetFilesProcessed() != 1 {
+		t.Fatalf("expected success after 3 calls, got %d calls and response %v", handler.reportCalls, resp)
+	}
+	if handler.authorization != "Bearer token-1" || handler.reportRequest.GetInvocationId() != "unit" {
+		t.Fatal("retry lost authentication or invocation ID")
+	}
+}
+
+func TestReportTestResultsStopsRetrying(t *testing.T) {
+	for _, code := range []connect.Code{connect.CodeNotFound, connect.CodePermissionDenied, connect.CodeInvalidArgument, connect.CodeUnavailable} {
+		t.Run(code.String(), func(t *testing.T) {
+			err := connect.NewError(code, errors.New("upload failed"))
+			handler := &testResultsHandler{reportErrors: []error{err, err, err, err, err}}
+			setupTestResultsServer(t, handler)
+
+			_, got := ReportTestResults(context.Background(), "token-1", &testresultsv1.ReportTestResultsRequest{})
+			wantCalls := 1
+			if code == connect.CodeNotFound {
+				wantCalls = 5
+			}
+			if connect.CodeOf(got) != code || handler.reportCalls != wantCalls {
+				t.Fatalf("expected %s after %d calls, got %v after %d", code, wantCalls, got, handler.reportCalls)
+			}
+		})
+	}
+}
+
+func TestReportTestResultsCancellationInterruptsBackoff(t *testing.T) {
+	reported := make(chan struct{})
+	handler := &testResultsHandler{
+		reportErrors:  []error{connect.NewError(connect.CodeNotFound, errors.New("job not found"))},
+		reportStarted: reported,
+	}
+	setupTestResultsServer(t, handler)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() {
+		<-reported
+		time.Sleep(100 * time.Millisecond)
+		cancel()
+	}()
+
+	start := time.Now()
+	_, err := ReportTestResults(ctx, "token-1", &testresultsv1.ReportTestResultsRequest{})
+	if !errors.Is(err, context.Canceled) || handler.reportCalls != 1 {
+		t.Fatalf("expected cancellation after one call, got %v after %d", err, handler.reportCalls)
+	}
+	if time.Since(start) >= time.Second {
+		t.Fatal("cancellation did not interrupt the retry delay")
+	}
+}
+
 func setupTestResultsServer(t *testing.T, handler *testResultsHandler) {
 	t.Helper()
 
@@ -144,6 +209,9 @@ type testResultsHandler struct {
 	request       *testresultsv1.ListTestResultsRequest
 	reportRequest *testresultsv1.ReportTestResultsRequest
 	splitRequest  *testresultsv1.SplitTestsRequest
+	reportErrors  []error
+	reportCalls   int
+	reportStarted chan struct{}
 }
 
 func (h *testResultsHandler) ReportTestResults(
@@ -153,6 +221,13 @@ func (h *testResultsHandler) ReportTestResults(
 	h.authorization = req.Header().Get("Authorization")
 	h.orgID = req.Header().Get("x-depot-org")
 	h.reportRequest = req.Msg
+	h.reportCalls++
+	if h.reportStarted != nil {
+		close(h.reportStarted)
+	}
+	if h.reportCalls <= len(h.reportErrors) {
+		return nil, h.reportErrors[h.reportCalls-1]
+	}
 	return connect.NewResponse(&testresultsv1.ReportTestResultsResponse{
 		FilesProcessed: 1,
 		TestsReported:  2,

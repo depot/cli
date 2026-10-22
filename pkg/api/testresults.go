@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"time"
 
 	"connectrpc.com/connect"
 	testresultsv1 "github.com/depot/cli/pkg/proto/depot/testresults/v1"
@@ -24,11 +25,23 @@ func ListTestResults(ctx context.Context, token, orgID string, req *testresultsv
 
 func ReportTestResults(ctx context.Context, token string, req *testresultsv1.ReportTestResultsRequest) (*testresultsv1.ReportTestResultsResponse, error) {
 	client := newTestResultsServiceClient()
-	resp, err := client.ReportTestResults(ctx, WithAuthentication(connect.NewRequest(req), token))
-	if err != nil {
-		return nil, err
+	for attempt := 0; ; attempt++ {
+		resp, err := client.ReportTestResults(ctx, WithAuthentication(connect.NewRequest(req), token))
+		if err == nil {
+			return resp.Msg, nil
+		}
+		// GitHub job ownership can lag the OIDC token; NotFound is returned before report ingestion.
+		if connect.CodeOf(err) != connect.CodeNotFound || attempt == 4 {
+			return nil, err
+		}
+		timer := time.NewTimer(time.Second << attempt)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, ctx.Err()
+		case <-timer.C:
+		}
 	}
-	return resp.Msg, nil
 }
 
 func SplitTests(ctx context.Context, token string, req *testresultsv1.SplitTestsRequest) (*testresultsv1.SplitTestsResponse, error) {
