@@ -24,9 +24,6 @@ func ListTestResults(ctx context.Context, token, orgID string, req *testresultsv
 }
 
 func ReportTestResults(ctx context.Context, token string, req *testresultsv1.ReportTestResultsRequest) (*testresultsv1.ReportTestResultsResponse, error) {
-	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
-	defer cancel()
-
 	client := newTestResultsServiceClient()
 	retryDelays := [...]time.Duration{500 * time.Millisecond, time.Second, 2 * time.Second, 3 * time.Second, 4 * time.Second, 5 * time.Second}
 	for attempt := 0; ; attempt++ {
