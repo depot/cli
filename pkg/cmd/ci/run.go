@@ -49,7 +49,7 @@ automatically uploaded as a patch and applied during the workflow run. For pushe
 branches, the patch contains only unpushed changes; for unpushed branches, the
 patch is relative to the default branch.
 
-Repositories are detected from GitHub and Origin git remotes.
+Repositories are detected from GitHub, Origin, and Entire git remotes.
 Use --forge when more than one supported source is configured.
 Use --forge depot to run a Depot Code repository.`,
 		Example: `  # Run a workflow

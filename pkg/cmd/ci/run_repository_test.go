@@ -26,6 +26,8 @@ func TestParseRunRepository(t *testing.T) {
 		{remoteURL: "entire://aws-us-east-2.entire.io/et/acme/api", forge: civ1.Forge_FORGE_ENTIRE, repo: "et/acme/api", ok: true},
 		{remoteURL: "https://aws-eu-central-1.entire.io/et/acme/api.git", forge: civ1.Forge_FORGE_ENTIRE, repo: "et/acme/api", ok: true},
 		{remoteURL: "entire://aws-us-east-2.entire.io/gh/acme/api", forge: civ1.Forge_FORGE_ENTIRE, repo: "gh/acme/api", ok: true},
+		{remoteURL: "entire://aws-us-east-2.entire.com/et/acme/api", forge: civ1.Forge_FORGE_ENTIRE, repo: "et/acme/api", ok: true},
+		{remoteURL: "entire://aws-us-east-2.entire.com.evil.com/et/acme/api", ok: false},
 		{remoteURL: "https://aws-us-east-2.entire.io/acme/api.git", ok: false},
 		{remoteURL: "entire://aws-us-east-2.entire.io.evil.com/et/acme/api", ok: false},
 		{remoteURL: "https://acme123.code.depot.dev/", ok: false},

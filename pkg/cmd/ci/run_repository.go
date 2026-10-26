@@ -37,7 +37,7 @@ func isDepotCodeHost(host string) bool {
 }
 
 func isEntireHost(host string) bool {
-	return strings.HasSuffix(host, ".entire.io")
+	return strings.HasSuffix(host, ".entire.io") || strings.HasSuffix(host, ".entire.com")
 }
 
 func parseRunRepository(remoteURL string) (runRepository, bool) {
