@@ -275,7 +275,7 @@ func newCmdPreflight(parentOpts *migrateOptions) *cobra.Command {
 	return &cobra.Command{
 		Use:   "preflight",
 		Short: "Check authentication and repository access for migration",
-		Long:  "Validates authentication, detects a repository for the selected forge, and checks the access required to migrate it. GitHub checks the Depot Code Access app; Origin checks that the repository is available to the Depot organization.",
+		Long:  "Validates authentication, detects a repository for the selected forge, and checks the access required to migrate it. GitHub checks the Depot Code Access app; Origin checks that the repository is available to the Depot organization; Entire checks that one of the organization's Entire installations covers the repository.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			opts := migrateCommandOptions(cmd, *parentOpts)
 			_, err := preflight(cmd.Context(), opts)
@@ -354,7 +354,7 @@ func githubPreflight(ctx context.Context, opts migrateOptions) (*preflightResult
 	// Detect repo from git remote
 	repo := detectRepoFromGitRemote(workDir)
 	if repo == "" {
-		return nil, fmt.Errorf("could not detect GitHub repository from git remotes — is this a GitHub repo with a configured remote?")
+		return nil, fmt.Errorf("could not detect GitHub repository from git remotes — is this a GitHub repo with a configured remote? For Origin or Entire repositories, pass --forge=origin or --forge=entire")
 	}
 
 	repoOwner := strings.SplitN(repo, "/", 2)[0]
