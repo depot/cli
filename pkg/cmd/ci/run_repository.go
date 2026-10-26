@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/url"
 	"os/exec"
+	"slices"
 	"strings"
 
 	civ1 "github.com/depot/cli/pkg/proto/depot/ci/v1"
@@ -62,16 +63,17 @@ func parseRunRepository(remoteURL string) (runRepository, bool) {
 	}
 
 	var forge civ1.Forge
+	segments := 2
 	switch {
 	case host == "github.com":
 		forge = civ1.Forge_FORGE_GITHUB
 	case host == "origin.cursor.com":
 		forge = civ1.Forge_FORGE_ORIGIN
-	case isEntireHost(host) && strings.HasPrefix(path, "et/"):
-		// Entire serves owner/name under /et/ on its regional git hosts, over
-		// both https:// and git-remote-entire's entire:// scheme.
+	case isEntireHost(host):
+		// Entire names are namespace/owner/name, such as et/acme/api, over both
+		// https:// and git-remote-entire's entire:// scheme.
 		forge = civ1.Forge_FORGE_ENTIRE
-		path = strings.TrimPrefix(path, "et/")
+		segments = 3
 	default:
 		return runRepository{}, false
 	}
@@ -80,7 +82,7 @@ func parseRunRepository(remoteURL string) (runRepository, bool) {
 		return runRepository{}, false
 	}
 	parts := strings.Split(path, "/")
-	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+	if len(parts) != segments || slices.Contains(parts, "") {
 		return runRepository{}, false
 	}
 	return runRepository{forge: forge, repo: path}, true
