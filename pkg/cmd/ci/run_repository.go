@@ -57,7 +57,10 @@ func parseRunRepository(remoteURL string) (runRepository, bool) {
 		return runRepository{forge: civ1.Forge_FORGE_DEPOT_CODE, repo: path}, true
 	}
 
-	path = strings.Trim(strings.TrimSuffix(path, ".git"), "/")
+	path = strings.Trim(path, "/")
+	if strings.HasSuffix(strings.ToLower(path), ".git") {
+		path = path[:len(path)-len(".git")]
+	}
 	if host == "origin.cursor.com" {
 		path = strings.TrimPrefix(path, "git/")
 	}
@@ -103,6 +106,9 @@ func splitGitRemoteURL(remoteURL string) (host, path string, ok bool) {
 
 	parsed, err := url.Parse(remoteURL)
 	if err != nil || parsed.Hostname() == "" || (parsed.Scheme != "https" && parsed.Scheme != "ssh" && parsed.Scheme != "entire") {
+		return "", "", false
+	}
+	if parsed.Scheme == "entire" && !isEntireHost(strings.ToLower(parsed.Hostname())) {
 		return "", "", false
 	}
 	return parsed.Hostname(), parsed.Path, true
