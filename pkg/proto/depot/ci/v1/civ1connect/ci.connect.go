@@ -96,6 +96,9 @@ const (
 	// MigrationServiceImportSecretsAndVarsProcedure is the fully-qualified name of the
 	// MigrationService's ImportSecretsAndVars RPC.
 	MigrationServiceImportSecretsAndVarsProcedure = "/depot.ci.v1.MigrationService/ImportSecretsAndVars"
+	// MigrationServiceGetEntireRepositoryAccessProcedure is the fully-qualified name of the
+	// MigrationService's GetEntireRepositoryAccess RPC.
+	MigrationServiceGetEntireRepositoryAccessProcedure = "/depot.ci.v1.MigrationService/GetEntireRepositoryAccess"
 )
 
 // CIServiceClient is a client for the depot.ci.v1.CIService service.
@@ -774,6 +777,8 @@ func (UnimplementedCIServiceHandler) ListWorkflows(context.Context, *connect.Req
 type MigrationServiceClient interface {
 	GetInstallation(context.Context, *connect.Request[v1.GetInstallationRequest]) (*connect.Response[v1.GetInstallationResponse], error)
 	ImportSecretsAndVars(context.Context, *connect.Request[v1.ImportSecretsAndVarsRequest]) (*connect.Response[v1.ImportSecretsAndVarsResponse], error)
+	// Reports whether the organization's Entire installations grant Depot access to a repository.
+	GetEntireRepositoryAccess(context.Context, *connect.Request[v1.GetEntireRepositoryAccessRequest]) (*connect.Response[v1.GetEntireRepositoryAccessResponse], error)
 }
 
 // NewMigrationServiceClient constructs a client for the depot.ci.v1.MigrationService service. By
@@ -796,13 +801,19 @@ func NewMigrationServiceClient(httpClient connect.HTTPClient, baseURL string, op
 			baseURL+MigrationServiceImportSecretsAndVarsProcedure,
 			opts...,
 		),
+		getEntireRepositoryAccess: connect.NewClient[v1.GetEntireRepositoryAccessRequest, v1.GetEntireRepositoryAccessResponse](
+			httpClient,
+			baseURL+MigrationServiceGetEntireRepositoryAccessProcedure,
+			opts...,
+		),
 	}
 }
 
 // migrationServiceClient implements MigrationServiceClient.
 type migrationServiceClient struct {
-	getInstallation      *connect.Client[v1.GetInstallationRequest, v1.GetInstallationResponse]
-	importSecretsAndVars *connect.Client[v1.ImportSecretsAndVarsRequest, v1.ImportSecretsAndVarsResponse]
+	getInstallation           *connect.Client[v1.GetInstallationRequest, v1.GetInstallationResponse]
+	importSecretsAndVars      *connect.Client[v1.ImportSecretsAndVarsRequest, v1.ImportSecretsAndVarsResponse]
+	getEntireRepositoryAccess *connect.Client[v1.GetEntireRepositoryAccessRequest, v1.GetEntireRepositoryAccessResponse]
 }
 
 // GetInstallation calls depot.ci.v1.MigrationService.GetInstallation.
@@ -815,10 +826,17 @@ func (c *migrationServiceClient) ImportSecretsAndVars(ctx context.Context, req *
 	return c.importSecretsAndVars.CallUnary(ctx, req)
 }
 
+// GetEntireRepositoryAccess calls depot.ci.v1.MigrationService.GetEntireRepositoryAccess.
+func (c *migrationServiceClient) GetEntireRepositoryAccess(ctx context.Context, req *connect.Request[v1.GetEntireRepositoryAccessRequest]) (*connect.Response[v1.GetEntireRepositoryAccessResponse], error) {
+	return c.getEntireRepositoryAccess.CallUnary(ctx, req)
+}
+
 // MigrationServiceHandler is an implementation of the depot.ci.v1.MigrationService service.
 type MigrationServiceHandler interface {
 	GetInstallation(context.Context, *connect.Request[v1.GetInstallationRequest]) (*connect.Response[v1.GetInstallationResponse], error)
 	ImportSecretsAndVars(context.Context, *connect.Request[v1.ImportSecretsAndVarsRequest]) (*connect.Response[v1.ImportSecretsAndVarsResponse], error)
+	// Reports whether the organization's Entire installations grant Depot access to a repository.
+	GetEntireRepositoryAccess(context.Context, *connect.Request[v1.GetEntireRepositoryAccessRequest]) (*connect.Response[v1.GetEntireRepositoryAccessResponse], error)
 }
 
 // NewMigrationServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -837,12 +855,19 @@ func NewMigrationServiceHandler(svc MigrationServiceHandler, opts ...connect.Han
 		svc.ImportSecretsAndVars,
 		opts...,
 	)
+	migrationServiceGetEntireRepositoryAccessHandler := connect.NewUnaryHandler(
+		MigrationServiceGetEntireRepositoryAccessProcedure,
+		svc.GetEntireRepositoryAccess,
+		opts...,
+	)
 	return "/depot.ci.v1.MigrationService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case MigrationServiceGetInstallationProcedure:
 			migrationServiceGetInstallationHandler.ServeHTTP(w, r)
 		case MigrationServiceImportSecretsAndVarsProcedure:
 			migrationServiceImportSecretsAndVarsHandler.ServeHTTP(w, r)
+		case MigrationServiceGetEntireRepositoryAccessProcedure:
+			migrationServiceGetEntireRepositoryAccessHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -858,4 +883,8 @@ func (UnimplementedMigrationServiceHandler) GetInstallation(context.Context, *co
 
 func (UnimplementedMigrationServiceHandler) ImportSecretsAndVars(context.Context, *connect.Request[v1.ImportSecretsAndVarsRequest]) (*connect.Response[v1.ImportSecretsAndVarsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.ci.v1.MigrationService.ImportSecretsAndVars is not implemented"))
+}
+
+func (UnimplementedMigrationServiceHandler) GetEntireRepositoryAccess(context.Context, *connect.Request[v1.GetEntireRepositoryAccessRequest]) (*connect.Response[v1.GetEntireRepositoryAccessResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.ci.v1.MigrationService.GetEntireRepositoryAccess is not implemented"))
 }

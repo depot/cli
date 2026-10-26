@@ -81,12 +81,8 @@ type migrateOptions struct {
 	secretMigrationRegistrar    secretMigrationIntentRegistrar
 	secretMigrationNow          time.Time
 	repositoryAnalysisClient    repositoryAnalysisClient
+	entireAccessClient          entireRepositoryAccessClient
 }
-
-// Entire's API does not identify a repository's GitHub upstream, so a secret migration intent cannot be bound to it.
-var errEntireSecretMigration = errors.New("Depot cannot read secrets and variables from Entire. " +
-	"Run `depot ci migrate secrets-and-vars` from a checkout whose push remote is the GitHub repository that holds them, " +
-	"or add them with `depot ci secrets add` and `depot ci vars add`")
 
 func NewCmdMigrate() *cobra.Command {
 	return newCmdMigrate(migrateOptions{})
@@ -331,7 +327,7 @@ func preflight(ctx context.Context, opts migrateOptions) (*preflightResult, erro
 	case migrationForgeOrigin:
 		return cursorPreflight(ctx, opts)
 	case migrationForgeEntire:
-		return nil, fmt.Errorf("preflight does not support Entire repositories")
+		return entirePreflight(ctx, opts)
 	}
 	return githubPreflight(ctx, opts)
 }
@@ -416,7 +412,7 @@ func githubPreflight(ctx context.Context, opts migrateOptions) (*preflightResult
 }
 
 func runMigrate(ctx context.Context, opts migrateOptions) error {
-	if forge := effectiveMigrationForge(opts.forge); forge == migrationForgeOrigin || forge == migrationForgeEntire {
+	if effectiveMigrationForge(opts.forge) == migrationForgeOrigin {
 		return workflowsWithContext(ctx, opts)
 	}
 
