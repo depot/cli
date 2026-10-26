@@ -3,8 +3,8 @@ module github.com/depot/cli
 go 1.26.8
 
 require (
-	buf.build/gen/go/depot/api/connectrpc/go v1.15.0-20261014111152-cc501a74ca30.1
-	buf.build/gen/go/depot/api/protocolbuffers/go v1.32.0-20261014111152-cc501a74ca30.1
+	buf.build/gen/go/depot/api/connectrpc/go v1.15.0-20261026154226-a1d46dc5bdf0.1
+	buf.build/gen/go/depot/api/protocolbuffers/go v1.32.0-20261026154226-a1d46dc5bdf0.1
 	charm.land/bubbles/v2 v2.0.0
 	charm.land/bubbletea/v2 v2.0.2
 	charm.land/huh/v2 v2.0.0
