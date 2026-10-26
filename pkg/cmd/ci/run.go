@@ -49,7 +49,7 @@ automatically uploaded as a patch and applied during the workflow run. For pushe
 branches, the patch contains only unpushed changes; for unpushed branches, the
 patch is relative to the default branch.
 
-Repositories are detected from GitHub and Origin git remotes.
+Repositories are detected from GitHub, Origin, and Entire git remotes.
 Use --forge when more than one supported source is configured.
 Use --forge depot to run a Depot Code repository.`,
 		Example: `  # Run a workflow
@@ -298,7 +298,7 @@ Use --forge depot to run a Depot Code repository.`,
 	cmd.Flags().IntVar(&sshAfterStep, "ssh-after-step", 0, "1-based step index to insert a tmate debug step after (requires single --job)")
 	cmd.Flags().BoolVar(&ssh, "ssh", false, "Start the run and connect to the job's sandbox via interactive terminal (requires single --job)")
 	cmd.Flags().StringVar(&repoFlag, "repo", "", "Repository name to use instead of detecting from git remotes")
-	cmd.Flags().StringVar(&forgeFlag, "forge", "", "Repository forge: github, origin, or depot")
+	cmd.Flags().StringVar(&forgeFlag, "forge", "", "Repository forge: github, origin, depot, or entire")
 	cmd.Flags().BoolVarP(&follow, "follow", "f", false, "Follow live logs")
 
 	cmd.AddCommand(NewCmdRunList())
