@@ -32,6 +32,7 @@ type migrationForge string
 const (
 	migrationForgeGitHub migrationForge = "github"
 	migrationForgeOrigin migrationForge = "origin"
+	migrationForgeEntire migrationForge = "entire"
 )
 
 func (f *migrationForge) String() string {
@@ -43,11 +44,11 @@ func (f *migrationForge) String() string {
 
 func (f *migrationForge) Set(value string) error {
 	switch migrationForge(value) {
-	case migrationForgeGitHub, migrationForgeOrigin:
+	case migrationForgeGitHub, migrationForgeOrigin, migrationForgeEntire:
 		*f = migrationForge(value)
 		return nil
 	default:
-		return fmt.Errorf("must be one of github, origin")
+		return fmt.Errorf("must be one of github, origin, entire")
 	}
 }
 
@@ -82,6 +83,11 @@ type migrateOptions struct {
 	repositoryAnalysisClient    repositoryAnalysisClient
 }
 
+// Entire's API does not identify a repository's GitHub upstream, so a secret migration intent cannot be bound to it.
+var errEntireSecretMigration = errors.New("Depot cannot read secrets and variables from Entire. " +
+	"Run `depot ci migrate secrets-and-vars` from a checkout whose push remote is the GitHub repository that holds them, " +
+	"or add them with `depot ci secrets add` and `depot ci vars add`")
+
 func NewCmdMigrate() *cobra.Command {
 	return newCmdMigrate(migrateOptions{})
 }
@@ -103,7 +109,7 @@ func newCmdMigrate(opts migrateOptions) *cobra.Command {
 	pf := cmd.PersistentFlags()
 	pf.StringVar(&opts.token, "token", "", "Depot API token")
 	pf.StringVar(&opts.orgID, "org", "", "Depot organization ID")
-	pf.Var(&opts.forge, "forge", "Source-code forge to migrate from (github or origin)")
+	pf.Var(&opts.forge, "forge", "Source-code forge to migrate from (github, origin, or entire)")
 	pf.BoolVarP(&opts.yes, "yes", "y", false, "Run in non-interactive mode")
 
 	cmd.Flags().BoolVar(&opts.overwrite, "overwrite", false, "Overwrite existing .depot/ directory")
@@ -151,6 +157,10 @@ func secretsAndVars(ctx context.Context, opts migrateOptions) error {
 	workDir := opts.dir
 	if strings.TrimSpace(workDir) == "" {
 		workDir = "."
+	}
+
+	if effectiveMigrationForge(opts.forge) == migrationForgeEntire {
+		return errEntireSecretMigration
 	}
 
 	token, orgID, err := resolveAuth(ctx, opts)
@@ -317,8 +327,11 @@ type preflightResult struct {
 // Returns nil result (and nil error) when the check fails with a user-facing
 // message that has already been printed.
 func preflight(ctx context.Context, opts migrateOptions) (*preflightResult, error) {
-	if effectiveMigrationForge(opts.forge) == migrationForgeOrigin {
+	switch effectiveMigrationForge(opts.forge) {
+	case migrationForgeOrigin:
 		return cursorPreflight(ctx, opts)
+	case migrationForgeEntire:
+		return nil, fmt.Errorf("preflight does not support Entire repositories")
 	}
 	return githubPreflight(ctx, opts)
 }
@@ -403,7 +416,7 @@ func githubPreflight(ctx context.Context, opts migrateOptions) (*preflightResult
 }
 
 func runMigrate(ctx context.Context, opts migrateOptions) error {
-	if effectiveMigrationForge(opts.forge) == migrationForgeOrigin {
+	if forge := effectiveMigrationForge(opts.forge); forge == migrationForgeOrigin || forge == migrationForgeEntire {
 		return workflowsWithContext(ctx, opts)
 	}
 
@@ -774,13 +787,16 @@ func workflowsWithContext(ctx context.Context, opts migrateOptions) error {
 
 	if len(detectedSecrets) > 0 || len(detectedVariables) > 0 {
 		secretsSource := "GitHub"
-		secretMigrationCommand := "depot ci migrate secrets-and-vars"
-		if effectiveMigrationForge(opts.forge) == migrationForgeOrigin {
+		importHint := "Import them automatically with `depot ci migrate secrets-and-vars`"
+		switch effectiveMigrationForge(opts.forge) {
+		case migrationForgeOrigin:
 			secretsSource = "the source repository"
-			secretMigrationCommand += " --forge=origin"
+			importHint = "Import them automatically with `depot ci migrate secrets-and-vars --forge=origin`"
+		case migrationForgeEntire:
+			importHint = "Import them automatically by running `depot ci migrate secrets-and-vars` from a checkout of the GitHub repository that holds them"
 		}
 		fmt.Fprintf(out, "  1. Your workflows depend on %d secret(s) and %d variable(s) which need to be imported from %s:\n", len(detectedSecrets), len(detectedVariables), secretsSource)
-		fmt.Fprintf(out, "     - Import them automatically with `%s`\n", secretMigrationCommand)
+		fmt.Fprintf(out, "     - %s\n", importHint)
 		fmt.Fprintln(out, "     - Or import them manually with `depot ci secrets add` and `depot ci vars add`")
 		if defaultBranch != "" {
 			fmt.Fprintf(out, "  2. Activate these workflows by pushing and merging them into %s\n", bold.Render(defaultBranch))
