@@ -16,7 +16,7 @@ func newCmdMetrics() *cobra.Command {
 	var repos []string
 	cmd := &cobra.Command{
 		Use:   "metrics <job-id>",
-		Short: "Fetch GitHub Actions job CPU and memory metrics",
+		Short: "Fetch GitHub Actions job CPU, memory, and OOM events",
 		Args:  cobra.ExactArgs(1),
 		Long: `Fetch CPU and memory utilization for one GitHub Actions job execution.
 Requires a GitHub job ID and exactly one --repo owner/name.
@@ -26,6 +26,9 @@ JSON includes time-ordered samples, statistics, availability, and sample-cap
 metadata. Utilization is a fraction from 0 to 1 in JSON and a percentage in
 tables. CPU measures user-mode utilization averaged across cores; memory is
 used memory as a fraction of total memory.
+OOM evidence includes kernel kills observed on the runner during this job.
+No observed events does not rule out OOM; events may arrive after completion.
+At most 100 OOM events are returned, with truncation indicated in JSON.
 The API limits execution windows to seven days and returns at most 5,000 samples.
 Statistics cover all observed samples before downsampling; returned samples
 may omit intermediate peaks. JSON is automatic when stdout is piped and does
@@ -91,7 +94,10 @@ func writeMetrics(w io.Writer, resp *corev1.GetGithubActionsJobMetricsResponse) 
 		fmt.Fprintln(tw, "Returned samples may omit intermediate peaks; statistics use all observed samples.")
 	}
 	fmt.Fprintln(tw, "Full samples: use --output json.")
-	return tw.Flush()
+	if err := tw.Flush(); err != nil {
+		return err
+	}
+	return writeOOM(w, resp.GetOom())
 }
 
 func metricPercent(value *float64) string {
