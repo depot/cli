@@ -21,6 +21,7 @@ import (
 	"github.com/depot/cli/pkg/cmd/gocache/wire"
 	"github.com/depot/cli/pkg/config"
 	"github.com/depot/cli/pkg/helpers"
+	"github.com/depot/cli/pkg/runtoken"
 	"github.com/spf13/cobra"
 )
 
@@ -336,7 +337,7 @@ func (c *RemoteCache) httpClient() *http.Client {
 	if c.HTTPClient != nil {
 		return c.HTTPClient
 	}
-	return http.DefaultClient
+	return runtoken.WrapClient(http.DefaultClient)
 }
 
 func (c *RemoteCache) Get(ctx context.Context, actionID string) (outputID, diskPath string, err error) {

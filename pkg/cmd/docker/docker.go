@@ -15,6 +15,7 @@ import (
 	depotdockerclient "github.com/depot/cli/pkg/dockerclient"
 	"github.com/depot/cli/pkg/helpers"
 	"github.com/depot/cli/pkg/retry"
+	"github.com/depot/cli/pkg/runtoken"
 	"github.com/docker/buildx/store"
 	"github.com/docker/buildx/store/storeutil"
 	"github.com/docker/buildx/util/confutil"
@@ -185,6 +186,10 @@ func runConfigureBuildx(ctx context.Context, dockerCli command.Cli, project, tok
 
 	if token == "" {
 		return fmt.Errorf("missing API token, please run `depot login`")
+	}
+	// Buildx saves the token, and a managed run's own expires in minutes.
+	if source := runtoken.Default(); source != nil && source.Minted(token) {
+		return fmt.Errorf("configure-docker needs a long-lived token: pass --token or set DEPOT_TOKEN")
 	}
 	projectName := helpers.ResolveProjectID(project)
 	if projectName == "" {
