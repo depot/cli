@@ -504,6 +504,31 @@ func TestInjectPatchStep_pinsCheckoutToMergeBase(t *testing.T) {
 	}
 }
 
+func TestInjectPatchStep_reusableAndOrdinaryJobs(t *testing.T) {
+	patch := &patchInfo{mergeBase: "abc123", content: "local changes"}
+	key := patchWorkspaceCacheKey(patch)
+	jobs := patchStepJobs()
+	jobs["reusable"] = map[string]interface{}{"uses": "./.depot/workflows/reusable.yml"}
+
+	for _, name := range []string{"build", "reusable"} {
+		injectPatchStep(jobs, name, patch.mergeBase, patchWorkspacePath(patch), civ1.Forge_FORGE_GITHUB)
+	}
+
+	request := &civ1.RunRequest{Repo: "owner/repo"}
+	setRunRequestGitContext(request, patch, "head-is-not-the-base", true, key, "refs/heads/feature")
+	if request.GetSha() != patch.mergeBase || request.GetWorkspacePatchCacheKey() != key {
+		t.Fatalf("request SHA/key = %q/%q, want %q/%q", request.GetSha(), request.GetWorkspacePatchCacheKey(), patch.mergeBase, key)
+	}
+	if got := jobs["reusable"].(map[string]interface{}); len(got) != 1 || got["uses"] != "./.depot/workflows/reusable.yml" {
+		t.Fatalf("reusable call changed: %#v", got)
+	}
+
+	steps := jobs["build"].(map[string]interface{})["steps"].([]interface{})
+	if len(steps) != 3 || steps[1].(map[string]interface{})["name"] != "Apply local patch from Depot Cache" {
+		t.Fatalf("ordinary job patch steps = %#v", steps)
+	}
+}
+
 // Depot CI checks out from Depot Code only when the checkout step has no inputs,
 // so a Depot Code run must not add one.
 func TestInjectPatchStep_leavesDepotCodeCheckoutUntouched(t *testing.T) {
