@@ -786,9 +786,8 @@ JSON output preserves the API's exact minor-unit amount as a string, including
 }
 ```
 
-For USD, `12500` means $125.00. Check the currency before converting other
-currencies; not all currencies use two decimal places. The timestamp records
-when the provider balance was read, not when usage was last processed.
+For USD, `12500` means $125.00. The timestamp records when the provider balance
+was read, not when usage was last processed.
 
 Each invocation reads the API once. Reads are limited to one per organization
 per minute across all tokens and ten per ten seconds across the API fleet.
