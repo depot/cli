@@ -23,6 +23,17 @@ func ResolveOrgAuth(ctx context.Context, tok string) (string, error) {
 	return "", nil
 }
 
+// ResolveCacheAuth is ResolveOrgAuth for cache tools, which keep a cache token over a run token that expires mid-build.
+func ResolveCacheAuth(ctx context.Context, tok string) (string, error) {
+	token, err := ResolveOrgAuth(ctx, tok)
+	if source := runTokenSource(); err == nil && source != nil && source.Minted(token) {
+		if cacheToken := resolveJITToken(); cacheToken != "" {
+			return cacheToken, nil
+		}
+	}
+	return token, err
+}
+
 func ResolveStaticOrgAuth(tok string) string {
 	if tok != "" {
 		return tok

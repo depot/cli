@@ -50,7 +50,7 @@ func NewCmdGoCache() *cobra.Command {
 				return err
 			}
 
-			token, err = helpers.ResolveOrgAuth(ctx, token)
+			token, err = helpers.ResolveCacheAuth(ctx, token)
 			if err != nil {
 				return err
 			}

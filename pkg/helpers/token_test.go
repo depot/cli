@@ -59,3 +59,23 @@ func TestRunTokenPrecedence(t *testing.T) {
 		})
 	}
 }
+
+func TestResolveCacheAuthKeepsCacheToken(t *testing.T) {
+	t.Setenv("DEPOT_TOKEN", "")
+	t.Setenv("DEPOT_JIT_TOKEN", "")
+	t.Setenv("DEPOT_CACHE_TOKEN", "cache-token")
+	viper.Set("api_token", "")
+	withRunTokenServer(t)
+
+	if got, _ := ResolveOrgAuth(context.Background(), ""); got != "run-svid" {
+		t.Fatalf("ResolveOrgAuth = %q, want the run token", got)
+	}
+	if got, _ := ResolveCacheAuth(context.Background(), ""); got != "cache-token" {
+		t.Fatalf("ResolveCacheAuth = %q, want the cache token", got)
+	}
+
+	t.Setenv("DEPOT_CACHE_TOKEN", "")
+	if got, _ := ResolveCacheAuth(context.Background(), ""); got != "run-svid" {
+		t.Fatalf("ResolveCacheAuth without a cache token = %q, want the run token", got)
+	}
+}
