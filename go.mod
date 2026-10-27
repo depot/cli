@@ -3,8 +3,8 @@ module github.com/depot/cli
 go 1.26.8
 
 require (
-	buf.build/gen/go/depot/api/connectrpc/go v1.15.0-20261026154226-a1d46dc5bdf0.1
-	buf.build/gen/go/depot/api/protocolbuffers/go v1.32.0-20261026154226-a1d46dc5bdf0.1
+	buf.build/gen/go/depot/api/connectrpc/go v1.15.0-20261027120211-654d30620337.1
+	buf.build/gen/go/depot/api/protocolbuffers/go v1.32.0-20261027120211-654d30620337.1
 	charm.land/bubbles/v2 v2.0.0
 	charm.land/bubbletea/v2 v2.0.2
 	charm.land/huh/v2 v2.0.0
@@ -242,7 +242,7 @@ require (
 	golang.org/x/crypto v0.57.0
 	golang.org/x/mod v0.41.0 // indirect
 	golang.org/x/sys v0.48.0 // indirect
-	golang.org/x/text v0.42.0 // indirect
+	golang.org/x/text v0.42.0
 	golang.org/x/time v0.16.0 // indirect
 	golang.org/x/tools v0.49.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260825221802-da73d73af1c5 // indirect

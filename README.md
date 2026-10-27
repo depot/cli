@@ -40,6 +40,7 @@ Official CLI for [Depot](https://depot.dev) - you can use the CLI to build Docke
     - [`depot login`](#depot-login)
     - [`depot logout`](#depot-logout)
     - [`depot org`](#depot-org)
+      - [`depot org credits`](#depot-org-credits)
       - [`depot org list`](#depot-org-list)
       - [`depot org show`](#depot-org-show)
       - [`depot org switch`](#depot-org-switch)
@@ -748,6 +749,52 @@ depot logout
 ### `depot org`
 
 Manage Depot organizations. The `org` command consists of subcommands for each operation.
+
+#### `depot org credits`
+
+Show the organization's remaining posted Stripe invoice credits. This is the same
+balance shown on the billing page; unbilled usage and upcoming invoices are not
+deducted, and free-trial allowances and included plan minutes are excluded.
+
+Use an organization API token or a read-only organization token through
+`DEPOT_TOKEN`, `--token`, or the CLI configuration. A user token from `depot login`
+is not supported by this endpoint. The token determines the organization, so
+`depot org switch` does not change which balance is read and there is no `--org`
+flag. The command never prompts for login.
+
+```shell
+# With DEPOT_TOKEN set to an organization token:
+depot org credits
+depot org credits --output json
+```
+
+Default output uses the currency's decimal places without rounding the balance:
+
+```text
+Remaining credits: USD 125.00
+Observed at: 2026-10-27T12:00:00Z
+```
+
+JSON output preserves the API's exact minor-unit amount as a string, including
+`"0"` when credit is exhausted:
+
+```json
+{
+  "remainingCreditMinor": "12500",
+  "currency": "USD",
+  "observedAt": "2026-10-27T12:00:00Z"
+}
+```
+
+For USD, `12500` means $125.00. Check the currency before converting other
+currencies; not all currencies use two decimal places. The timestamp records
+when the provider balance was read, not when usage was last processed.
+
+Each invocation reads the API once. Reads are limited to one per organization
+per minute across all tokens and ten per ten seconds across the API fleet.
+Excess polls exit with an error containing the server's retry delay. The command
+does not retry automatically or cache balances. Poll hourly for most credit
+alerts, and handle failed commands separately from a successful zero balance.
 
 #### `depot org list`
 
