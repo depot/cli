@@ -16,6 +16,7 @@ import (
 	"github.com/depot/cli/pkg/proto/depot/ci/v1/civ1connect"
 	"github.com/depot/cli/pkg/proto/depot/cli/v1/cliv1connect"
 	"github.com/depot/cli/pkg/proto/depot/cli/v1beta1/cliv1beta1connect"
+	cliCorev1connect "github.com/depot/cli/pkg/proto/depot/core/v1/corev1connect"
 	"golang.org/x/net/http2"
 )
 
@@ -37,6 +38,15 @@ func NewProjectsClient() cliv1beta1connect.ProjectsServiceClient {
 
 func NewOrganizationsClient() corev1connect.OrganizationServiceClient {
 	return corev1connect.NewOrganizationServiceClient(getHTTPClient(getBaseURL()), getBaseURL(), WithUserAgent())
+}
+
+func NewOrganizationTokensClient() cliCorev1connect.OrganizationTokenServiceClient {
+	baseURL := getBaseURL()
+	client := *getHTTPClient(baseURL)
+	// Owner credentials must stay at the selected endpoint. Redirects must not
+	// replay token creation, including redirects within the same origin.
+	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	return cliCorev1connect.NewOrganizationTokenServiceClient(&client, baseURL, WithUserAgent())
 }
 
 func NewSDKProjectsClient() corev1connect.ProjectServiceClient {
