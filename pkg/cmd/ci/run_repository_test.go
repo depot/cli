@@ -23,6 +23,16 @@ func TestParseRunRepository(t *testing.T) {
 		{remoteURL: "https://ACME123.code.depot.dev/widgets/", forge: civ1.Forge_FORGE_DEPOT_CODE, repo: "widgets", ok: true},
 		{remoteURL: "https://code.depot.dev/team/widgets", forge: civ1.Forge_FORGE_DEPOT_CODE, repo: "team/widgets", ok: true},
 		{remoteURL: "https://acme123.code.depot.dev/widgets.git", forge: civ1.Forge_FORGE_DEPOT_CODE, repo: "widgets.git", ok: true},
+		{remoteURL: "entire://aws-us-east-2.entire.io/et/acme/api", forge: civ1.Forge_FORGE_ENTIRE, repo: "et/acme/api", ok: true},
+		{remoteURL: "https://aws-eu-central-1.entire.io/et/acme/api.git", forge: civ1.Forge_FORGE_ENTIRE, repo: "et/acme/api", ok: true},
+		{remoteURL: "entire://aws-us-east-2.entire.io/gh/acme/api", forge: civ1.Forge_FORGE_ENTIRE, repo: "gh/acme/api", ok: true},
+		{remoteURL: "entire://aws-us-east-2.entire.com/et/acme/api", forge: civ1.Forge_FORGE_ENTIRE, repo: "et/acme/api", ok: true},
+		{remoteURL: "https://aws-us-east-2.entire.io/et/acme/api.git/", forge: civ1.Forge_FORGE_ENTIRE, repo: "et/acme/api", ok: true},
+		{remoteURL: "https://aws-us-east-2.entire.io/et/acme/api.GIT", forge: civ1.Forge_FORGE_ENTIRE, repo: "et/acme/api", ok: true},
+		{remoteURL: "entire://github.com/acme/api", ok: false},
+		{remoteURL: "entire://aws-us-east-2.entire.com.evil.com/et/acme/api", ok: false},
+		{remoteURL: "https://aws-us-east-2.entire.io/acme/api.git", ok: false},
+		{remoteURL: "entire://aws-us-east-2.entire.io.evil.com/et/acme/api", ok: false},
 		{remoteURL: "https://acme123.code.depot.dev/", ok: false},
 		{remoteURL: "https://notcode.depot.dev/widgets", ok: false},
 		{remoteURL: "https://gitlab.com/owner/repo.git", ok: false},
@@ -54,9 +64,9 @@ var testRemotes = map[string]struct {
 }
 
 const (
-	errNoRepo        = "no supported repository found in git remotes; use --repo and optionally --forge (github, origin, or depot)"
+	errNoRepo        = "no supported repository found in git remotes; use --repo and optionally --forge (github, origin, depot, or entire)"
 	errDepotRemote   = "found a Depot Code remote; use --forge depot to run this repository"
-	errMultipleForge = "multiple supported forges found in git remotes; use --forge github|origin"
+	errMultipleForge = "multiple supported forges found in git remotes; use --forge github|origin|entire"
 )
 
 // TestResolveRunRepositoryMatrix covers each combination of Depot Code, GitHub,
@@ -115,6 +125,18 @@ func TestResolveRunRepositoryMatrix(t *testing.T) {
 			})
 		}
 	}
+}
+
+// Like GitHub and Origin, a GitHub checkout with an Entire remote needs --forge to choose.
+func TestResolveRunRepositoryGitHubAndEntireRemotes(t *testing.T) {
+	github := testRemotes["github"]
+	dir := initRunRepositoryRemotes(t,
+		remote{"github-remote", github.url},
+		remote{"entire-remote", "entire://aws-us-east-2.entire.io/gh/acme/gh-widgets"},
+	)
+	assertResolveRunRepository(t, dir, "", "", runRepository{}, errMultipleForge)
+	assertResolveRunRepository(t, dir, "", "github", github.want, "")
+	assertResolveRunRepository(t, dir, "", "entire", runRepository{civ1.Forge_FORGE_ENTIRE, "gh/acme/gh-widgets"}, "")
 }
 
 // Without --forge, unsupported remotes and remote names do not change which

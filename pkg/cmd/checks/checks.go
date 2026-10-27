@@ -73,11 +73,23 @@ func parseRepo(value string) (*checksv1.RepositorySelector, error) {
 	if !ok || strings.TrimSpace(name) == "" || strings.TrimSpace(name) != name || strings.ContainsAny(name, "\r\n\t") {
 		return nil, fmt.Errorf("repository must be <forge>:<name>, for example github:depot/api")
 	}
-	switch forge {
+	forge, err := parseForge(forge)
+	if err != nil {
+		return nil, err
+	}
+	return &checksv1.RepositorySelector{Forge: forge, Name: name}, nil
+}
+
+func parseForge(value string) (string, error) {
+	switch value {
 	case "github", "cursor-origin", "code":
-		return &checksv1.RepositorySelector{Forge: forge, Name: name}, nil
+		return value, nil
+	case "origin":
+		return "cursor-origin", nil
+	case "depot":
+		return "code", nil
 	default:
-		return nil, fmt.Errorf("unsupported repository forge %q; use github, cursor-origin, or code", forge)
+		return "", fmt.Errorf("unsupported repository forge %q; use github, origin (cursor-origin), or depot (code)", value)
 	}
 }
 
