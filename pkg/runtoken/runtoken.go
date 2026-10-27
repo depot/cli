@@ -64,6 +64,10 @@ func (s *Source) Token(ctx context.Context) (string, error) {
 
 	token, err := s.fetch(ctx)
 	if err != nil {
+		// A failed refresh keeps a token that has not expired yet.
+		if s.token != "" && s.now().Before(s.expiry) {
+			return s.token, nil
+		}
 		return "", err
 	}
 	s.token, s.expiry = token, expiry(token)

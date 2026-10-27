@@ -69,7 +69,9 @@ func TestTokenCachesUntilNearExpiry(t *testing.T) {
 }
 
 func TestTokenWithoutExpiryIsRefetched(t *testing.T) {
+	var calls atomic.Int64
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls.Add(1)
 		fmt.Fprint(w, `{"value":"opaque"}`)
 	}))
 	defer server.Close()
@@ -78,6 +80,38 @@ func TestTokenWithoutExpiryIsRefetched(t *testing.T) {
 		if token, err := source.Token(context.Background()); err != nil || token != "opaque" {
 			t.Fatalf("got %q, %v", token, err)
 		}
+	}
+	if calls.Load() != 2 {
+		t.Fatalf("expected a fetch per call, got %d", calls.Load())
+	}
+}
+
+func TestFailedRefreshKeepsUnexpiredToken(t *testing.T) {
+	clock := time.Unix(1_800_000_000, 0)
+	var fail atomic.Bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if fail.Load() {
+			http.Error(w, "no identity", http.StatusServiceUnavailable)
+			return
+		}
+		fmt.Fprintf(w, `{"value":%q}`, jwt(clock.Add(5*time.Minute), 1))
+	}))
+	defer server.Close()
+	source := New(server.URL)
+	source.now = func() time.Time { return clock }
+
+	first, err := source.Token(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	fail.Store(true)
+	clock = clock.Add(4*time.Minute + 30*time.Second)
+	if token, err := source.Token(context.Background()); err != nil || token != first {
+		t.Fatalf("inside the refresh window a failed fetch should keep the token, got %q, %v", token, err)
+	}
+	clock = clock.Add(time.Minute)
+	if _, err := source.Token(context.Background()); err == nil {
+		t.Fatal("an expired token must not be returned when the refresh fails")
 	}
 }
 
