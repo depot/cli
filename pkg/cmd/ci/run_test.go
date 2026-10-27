@@ -1,16 +1,27 @@
 package ci
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"connectrpc.com/connect"
+	cachev1 "github.com/depot/cli/pkg/proto/depot/cache/v1"
+	"github.com/depot/cli/pkg/proto/depot/cache/v1/cachev1connect"
 	civ1 "github.com/depot/cli/pkg/proto/depot/ci/v1"
+	"github.com/depot/cli/pkg/proto/depot/ci/v1/civ1connect"
+	"golang.org/x/net/http2"
+	"golang.org/x/net/http2/h2c"
+	"gopkg.in/yaml.v3"
 )
 
 // initBareRemote creates a bare git repo with one commit and returns its path.
@@ -504,25 +515,122 @@ func TestInjectPatchStep_pinsCheckoutToMergeBase(t *testing.T) {
 	}
 }
 
-func TestInjectPatchStep_reusableAndOrdinaryJobs(t *testing.T) {
-	patch := &patchInfo{mergeBase: "abc123", content: "local changes"}
-	key := patchWorkspaceCacheKey(patch)
-	jobs := patchStepJobs()
-	jobs["reusable"] = map[string]interface{}{"uses": "./.depot/workflows/reusable.yml"}
+type reusablePatchRunService struct {
+	cachev1connect.UnimplementedCacheServiceHandler
+	civ1connect.UnimplementedCIServiceHandler
+	cacheKey     string
+	cacheContent []byte
+	runRequest   *civ1.RunRequest
+	presignedURL string
+}
 
-	for _, name := range []string{"build", "reusable"} {
-		injectPatchStep(jobs, name, patch.mergeBase, patchWorkspacePath(patch), civ1.Forge_FORGE_GITHUB)
+func (s *reusablePatchRunService) CreateEntry(_ context.Context, req *connect.Request[cachev1.CreateEntryRequest]) (*connect.Response[cachev1.CreateEntryResponse], error) {
+	s.cacheKey = req.Msg.GetKey()
+	return connect.NewResponse(&cachev1.CreateEntryResponse{
+		EntryId:        "entry",
+		UploadPartUrls: []string{s.presignedURL},
+	}), nil
+}
+
+func (s *reusablePatchRunService) FinalizeEntry(context.Context, *connect.Request[cachev1.FinalizeEntryRequest]) (*connect.Response[cachev1.FinalizeEntryResponse], error) {
+	return connect.NewResponse(&cachev1.FinalizeEntryResponse{}), nil
+}
+
+func (s *reusablePatchRunService) Run(_ context.Context, req *connect.Request[civ1.RunRequest]) (*connect.Response[civ1.RunResponse], error) {
+	s.runRequest = req.Msg
+	return connect.NewResponse(&civ1.RunResponse{OrgId: "org", RunId: "run"}), nil
+}
+
+func TestRun_reusableJobKeepsPatchKeyWithoutWarning(t *testing.T) {
+	service := &reusablePatchRunService{}
+	mux := http.NewServeMux()
+	cachePath, cacheHandler := cachev1connect.NewCacheServiceHandler(service)
+	mux.Handle(cachePath, cacheHandler)
+	ciPath, ciHandler := civ1connect.NewCIServiceHandler(service)
+	mux.Handle(ciPath, ciHandler)
+	mux.HandleFunc("/upload", func(w http.ResponseWriter, r *http.Request) {
+		service.cacheContent, _ = io.ReadAll(r.Body)
+		w.Header().Set("ETag", `"test-etag"`)
+	})
+	server := httptest.NewServer(h2c.NewHandler(mux, &http2.Server{}))
+	t.Cleanup(server.Close)
+	service.presignedURL = server.URL + "/upload"
+	t.Setenv("DEPOT_API_URL", server.URL)
+	t.Setenv("DEPOT_CACHE_HOST", server.URL)
+
+	bare := initBareRemote(t)
+	repo := cloneRepo(t, bare)
+	workflowPath := filepath.Join(repo, ".depot", "workflows", "ci.yml")
+	if err := os.MkdirAll(filepath.Dir(workflowPath), 0755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, workflowPath, `name: ci
+on: workflow_dispatch
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: echo build
+  reusable:
+    uses: ./.depot/workflows/reusable.yml
+`)
+	run(t, repo, "git", "add", ".depot/workflows/ci.yml")
+	run(t, repo, "git", "commit", "-m", "add workflow")
+	run(t, repo, "git", "push", "origin", "HEAD")
+
+	writeFile(t, filepath.Join(repo, "README.md"), "local changes")
+	stderrFile, err := os.CreateTemp(t.TempDir(), "stderr-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	originalStderr := os.Stderr
+	os.Stderr = stderrFile
+	t.Cleanup(func() {
+		os.Stderr = originalStderr
+	})
+
+	cmd := NewCmdRun()
+	cmd.SetArgs([]string{
+		"--workflow", workflowPath,
+		"--job", "build",
+		"--job", "reusable",
+		"--repo", "owner/repo",
+		"--forge", "github",
+		"--token", "test-token",
+		"--org", "org",
+	})
+	if err := cmd.ExecuteContext(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := stderrFile.Seek(0, io.SeekStart); err != nil {
+		t.Fatal(err)
+	}
+	stderr, err := io.ReadAll(stderrFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(stderr), "calls a reusable workflow") {
+		t.Fatalf("reusable workflow warning = %q, want no warning", stderr)
+	}
+	if service.runRequest == nil {
+		t.Fatal("CI run request was not sent")
+	}
+	if service.runRequest.GetWorkspacePatchCacheKey() == "" || service.runRequest.GetWorkspacePatchCacheKey() != service.cacheKey {
+		t.Fatalf("run patch key = %q, uploaded cache key = %q", service.runRequest.GetWorkspacePatchCacheKey(), service.cacheKey)
+	}
+	if len(service.cacheContent) == 0 {
+		t.Fatal("workspace patch was not uploaded")
 	}
 
-	request := &civ1.RunRequest{Repo: "owner/repo"}
-	setRunRequestGitContext(request, patch, "head-is-not-the-base", true, key, "refs/heads/feature")
-	if request.GetSha() != patch.mergeBase || request.GetWorkspacePatchCacheKey() != key {
-		t.Fatalf("request SHA/key = %q/%q, want %q/%q", request.GetSha(), request.GetWorkspacePatchCacheKey(), patch.mergeBase, key)
+	var workflow map[string]interface{}
+	if err := yaml.Unmarshal([]byte(service.runRequest.GetWorkflowContent()[0]), &workflow); err != nil {
+		t.Fatal(err)
 	}
+	jobs := workflow["jobs"].(map[string]interface{})
 	if got := jobs["reusable"].(map[string]interface{}); len(got) != 1 || got["uses"] != "./.depot/workflows/reusable.yml" {
 		t.Fatalf("reusable call changed: %#v", got)
 	}
-
 	steps := jobs["build"].(map[string]interface{})["steps"].([]interface{})
 	if len(steps) != 3 || steps[1].(map[string]interface{})["name"] != "Apply local patch from Depot Cache" {
 		t.Fatalf("ordinary job patch steps = %#v", steps)
