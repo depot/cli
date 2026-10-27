@@ -16,6 +16,7 @@ import (
 	"github.com/depot/cli/pkg/proto/depot/ci/v1/civ1connect"
 	"github.com/depot/cli/pkg/proto/depot/cli/v1/cliv1connect"
 	"github.com/depot/cli/pkg/proto/depot/cli/v1beta1/cliv1beta1connect"
+	"github.com/depot/cli/pkg/runtoken"
 	"golang.org/x/net/http2"
 )
 
@@ -110,19 +111,19 @@ func WithAuthenticationAndOrg[T any](req *connect.Request[T], token, orgID strin
 func getHTTPClient(baseURL string) *http.Client {
 	if strings.HasPrefix(baseURL, "http://") {
 		// Configure h2c (HTTP/2 over cleartext) for non-TLS connections
-		return &http.Client{
+		return runtoken.WrapClient(&http.Client{
 			Transport: &http2.Transport{
 				AllowHTTP: true,
 				DialTLS: func(network, addr string, _ *tls.Config) (net.Conn, error) {
 					return net.Dial(network, addr)
 				},
 			},
-		}
+		})
 	}
 
 	t, ok := http.DefaultTransport.(*http.Transport)
 	if !ok {
-		return http.DefaultClient
+		return runtoken.WrapClient(http.DefaultClient)
 	}
 
 	transport := t.Clone()
@@ -135,7 +136,7 @@ func getHTTPClient(baseURL string) *http.Client {
 		Transport: transport,
 	}
 
-	return racingClient
+	return runtoken.WrapClient(racingClient)
 }
 
 func getBaseURL() string {
