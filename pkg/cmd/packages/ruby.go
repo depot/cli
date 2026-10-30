@@ -273,6 +273,28 @@ func isRepositorySource(source string, repo repository) bool {
 	return strings.TrimSuffix(u.String(), "/") == strings.TrimSuffix(repo.url(), "/")
 }
 
+// rubygemsAPIKeysScript prints the string-valued API keys RubyGems uses, as
+// YAML. Without a credentials file, RubyGems reads API keys from its
+// configuration files, so a new credentials file must include them.
+const rubygemsAPIKeysScript = `require "rubygems"
+require "yaml"
+config = Gem::ConfigFile.new([])
+config.load_api_keys
+keys = config.api_keys.select { |_, value| value.is_a?(String) }
+keys[:rubygems_api_key] = keys.delete(:rubygems) if keys.key?(:rubygems)
+print keys.to_yaml`
+
+// rubygemsAPIKeys returns the API keys RubyGems reads from its configuration
+// files, to copy into a new credentials file. It returns nil when Ruby can't
+// report them.
+func rubygemsAPIKeys(s *setup) []byte {
+	out, err := exec.CommandContext(s.ctx, "ruby", "-e", rubygemsAPIKeysScript).Output()
+	if err != nil || strings.TrimSpace(string(out)) == "--- {}" {
+		return nil
+	}
+	return out
+}
+
 // gemCredentialsPath follows RubyGems: it uses ~/.gem/credentials when that
 // file exists and the XDG data directory otherwise.
 func gemCredentialsPath() (string, error) {
@@ -303,6 +325,10 @@ func writeGemCredential(s *setup, path string) error {
 	}
 	keyName := s.repo.gemKeyName()
 	entry := ":" + keyName + ": " + value
+
+	if data == nil {
+		data = rubygemsAPIKeys(s)
+	}
 
 	var lines []string
 	text := strings.TrimRight(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n")

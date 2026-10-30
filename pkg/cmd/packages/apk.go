@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -80,9 +81,11 @@ func configureApk(s *setup) error {
 	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
-	lines, tag := withoutApkRepository(string(repositories), s.repo.url())
-	for _, component := range components {
-		lines = append(lines, tag+s.repo.url()+branch+"/"+component)
+	lines, tags := withoutApkRepository(string(repositories), s.repo.url())
+	for _, tag := range tags {
+		for _, component := range components {
+			lines = append(lines, tag+s.repo.url()+branch+"/"+component)
+		}
 	}
 	if err := s.writeSystemFile(apkRepositoriesFile, []byte(strings.Join(lines, "\n")+"\n"), 0644); err != nil {
 		return err
@@ -93,27 +96,32 @@ func configureApk(s *setup) error {
 }
 
 // withoutApkRepository returns the repository lines without those for the
-// repository URL, and the "@tag " prefix those lines had, so that packages
-// pinned to the tag keep a repository.
-func withoutApkRepository(repositories, url string) (lines []string, tag string) {
+// repository URL, and each distinct "@tag " prefix those lines had, with ""
+// for untagged lines, so that pinned and unpinned packages keep a repository.
+// It returns [""] when the file has no lines for the repository.
+func withoutApkRepository(repositories, url string) (lines []string, tags []string) {
 	for _, line := range strings.Split(strings.TrimRight(repositories, "\n"), "\n") {
 		location := strings.TrimSpace(line)
-		lineTag := ""
+		tag := ""
 		if strings.HasPrefix(location, "@") {
-			lineTag, location, _ = strings.Cut(location, " ")
+			tag, location, _ = strings.Cut(location, " ")
 			location = strings.TrimSpace(location)
+			tag += " "
 		}
 		switch {
 		case line == "":
 		case strings.HasPrefix(location, url):
-			if lineTag != "" {
-				tag = lineTag + " "
+			if !slices.Contains(tags, tag) {
+				tags = append(tags, tag)
 			}
 		default:
 			lines = append(lines, line)
 		}
 	}
-	return lines, tag
+	if len(tags) == 0 {
+		tags = []string{""}
+	}
+	return lines, tags
 }
 
 func detectAlpineBranch() string {

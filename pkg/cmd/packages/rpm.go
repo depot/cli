@@ -112,6 +112,9 @@ func configureZypper(s *setup) error {
 	if err != nil {
 		return err
 	}
+	if err := checkZypperKeyMode(s, repo); err != nil {
+		return err
+	}
 
 	credentials := fmt.Sprintf("username=depot\npassword=%s\n", s.token)
 	if err := s.writeSystemFile("/etc/zypp/credentials.d/"+repo.id, []byte(credentials), 0600); err != nil {
@@ -156,4 +159,19 @@ func rpmRepositoryID(repo repository, path string) string {
 	sum := sha256.Sum256([]byte(repo.url() + path))
 	slug := strings.Trim(nonIDCharacters.ReplaceAllString(strings.ToLower(path), "-"), "-")
 	return repo.fileID() + "-" + slug + "-" + hex.EncodeToString(sum[:4])
+}
+
+// checkZypperKeyMode rejects switching an existing repository from metadata
+// verification to package verification. zypper adds a trusted metadata key
+// to the RPM database, where it would also verify packages, and setup can't
+// identify that key reliably.
+func checkZypperKeyMode(s *setup, repo rpmRepository) error {
+	if repo.packageCheck != "1" {
+		return nil
+	}
+	data, err := os.ReadFile("/etc/zypp/repos.d/" + repo.id + ".repo")
+	if err != nil || !strings.Contains(string(data), "repo_gpgcheck=1") {
+		return nil
+	}
+	return fmt.Errorf("the %s repository verifies Depot's metadata key, which zypper may have added to the RPM database, where it would also verify packages. Remove the repository with `sudo zypper removerepo %s`, remove Depot's key from the keys that `rpm -q gpg-pubkey --qf '%%{NAME}-%%{VERSION}-%%{RELEASE}\\t%%{SUMMARY}\\n'` lists with `sudo rpm -e <name>`, then rerun this command", repo.id, repo.id)
 }

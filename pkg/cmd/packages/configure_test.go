@@ -1007,8 +1007,31 @@ func TestWriteNpmrcChecksPnpmEnvironmentPrefix(t *testing.T) {
 	require.ErrorContains(t, writeNpmrc(s, "/helper"), "pnpm_config_registry")
 }
 
-func TestWithoutApkRepositoryKeepsTag(t *testing.T) {
-	lines, tag := withoutApkRepository("https://dl-cdn.alpinelinux.org/alpine/v3.22/main\n@private https://packages.depot.dev/org123/alpine/internal/v3.21/main\n", "https://packages.depot.dev/org123/alpine/internal/")
+func TestWithoutApkRepositoryKeepsTags(t *testing.T) {
+	url := "https://packages.depot.dev/org123/alpine/internal/"
+	lines, tags := withoutApkRepository("https://dl-cdn.alpinelinux.org/alpine/v3.22/main\n@stable "+url+"v3.21/main\n"+url+"v3.21/main\n@testing "+url+"edge/main\n", url)
 	require.Equal(t, []string{"https://dl-cdn.alpinelinux.org/alpine/v3.22/main"}, lines)
-	require.Equal(t, "@private ", tag)
+	require.Equal(t, []string{"@stable ", "", "@testing "}, tags)
+
+	_, tags = withoutApkRepository("https://dl-cdn.alpinelinux.org/alpine/v3.22/main\n", url)
+	require.Equal(t, []string{""}, tags)
+}
+
+func TestCheckPnpmWorkspaceRegistryURLKeyed(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "package.json"), []byte("{}"), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "pnpm-workspace.yaml"), []byte("registries:\n  https://registry.example/:\n    scopes: [\"@\"]\n"), 0644))
+	t.Chdir(dir)
+
+	s := newTestSetup(t, "npm", "npmjs")
+	s.clientName = "pnpm"
+	require.ErrorContains(t, checkPnpmWorkspaceRegistry(s), "https://registry.example/")
+}
+
+func TestCheckCargoProjectConfigRejectsReplacementOnExplicitFalse(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "config.toml"), []byte("[source.crates-io]\nreplace-with = \"depot\"\n"), 0644))
+	s := newTestSetup(t, "cargo", "crates-io")
+	s.replaceUpstreamExplicit = true
+	require.ErrorContains(t, checkCargoProjectConfig(s, filepath.Join(dir, "config.toml"), map[string]bool{}, false), "still replaces")
 }

@@ -285,6 +285,22 @@ func checkPnpmWorkspaceRegistry(s *setup) error {
 		} else if def, ok := workspace.Registries["default"].(string); ok {
 			value, key = def, "registries.default"
 		}
+		// Current pnpm also keys registries by URL, with the scopes routed
+		// to each one; "@" is the default registry.
+		scope := s.opts.scope
+		if scope == "" {
+			scope = "@"
+		}
+		for url, declaration := range workspace.Registries {
+			fields, ok := declaration.(map[string]any)
+			if !ok {
+				continue
+			}
+			scopes, _ := fields["scopes"].([]any)
+			if slices.Contains(scopes, any(scope)) {
+				value, key = url, "registries."+url+".scopes"
+			}
+		}
 		if value != "" && strings.TrimSuffix(value, "/") != strings.TrimSuffix(s.repo.url(), "/") {
 			return fmt.Errorf("%s sets %s to %s, which takes precedence over ~/.npmrc for pnpm: remove it, then rerun this command", path, key, value)
 		}
