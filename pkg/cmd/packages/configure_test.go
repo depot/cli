@@ -335,6 +335,7 @@ func TestWriteCargoConfigUpdatesExistingSourceTable(t *testing.T) {
 	require.Equal(t, 1, strings.Count(string(data), "[source.crates-io]"))
 
 	s.replaceUpstream = false
+	s.replaceUpstreamExplicit = true
 	require.NoError(t, writeCargoConfig(s, path, []string{"cargo:token"}))
 	data, err = os.ReadFile(path)
 	require.NoError(t, err)
@@ -807,4 +808,53 @@ func TestWriteNpmrcRejectsCredentialEnvironmentOverride(t *testing.T) {
 
 	s := newTestSetup(t, "npm", "npmjs")
 	require.ErrorContains(t, writeNpmrc(s, ""), ":_authToken")
+}
+
+func TestCheckPnpmAuthEnvironment(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("PNPM_CONFIG_NPMRC_AUTH_FILE", "")
+	t.Setenv("pnpm_config__auth", `{"https://packages.depot.dev/org123/npm/":{"@":{"authToken":"stale"}}}`)
+
+	s := newTestSetup(t, "npm", "npmjs")
+	s.clientName = "pnpm"
+	require.ErrorContains(t, checkPnpmAuthFile(s, nil), "pnpm_config__auth")
+}
+
+func TestCheckCargoOverridesAllowsSelfIncludingHome(t *testing.T) {
+	home := t.TempDir()
+	require.NoError(t, os.Symlink(home, filepath.Join(home, "self")))
+	require.NoError(t, os.WriteFile(filepath.Join(home, "config.toml"), []byte("include = \"self/config.toml\"\n[registries.depot]\nindex = \"sparse+https://packages.depot.dev/org123/cargo/internal/index/\"\n"), 0644))
+	t.Chdir(t.TempDir())
+
+	s := newTestSetup(t, "cargo", "internal")
+	require.NoError(t, checkCargoOverrides(s, home))
+}
+
+func TestWriteCargoConfigKeepsReplacementOnImplicitRerun(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	s := newTestSetup(t, "cargo", "mirror")
+	s.replaceUpstream = true
+	require.NoError(t, writeCargoConfig(s, path, []string{"cargo:token"}))
+
+	s.replaceUpstream = false
+	require.NoError(t, writeCargoConfig(s, path, []string{"cargo:token"}))
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.Contains(t, string(data), "replace-with")
+
+	other := newTestSetup(t, "cargo", "internal")
+	require.NoError(t, writeCargoConfig(other, path, []string{"cargo:token"}))
+	data, err = os.ReadFile(path)
+	require.NoError(t, err)
+	require.NotContains(t, string(data), "replace-with")
+
+	explicit := newTestSetup(t, "cargo", "mirror")
+	explicit.replaceUpstream = true
+	require.NoError(t, writeCargoConfig(explicit, path, []string{"cargo:token"}))
+	explicit.replaceUpstream = false
+	explicit.replaceUpstreamExplicit = true
+	require.NoError(t, writeCargoConfig(explicit, path, []string{"cargo:token"}))
+	data, err = os.ReadFile(path)
+	require.NoError(t, err)
+	require.NotContains(t, string(data), "replace-with")
 }

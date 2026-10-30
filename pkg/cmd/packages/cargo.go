@@ -82,7 +82,8 @@ func checkCargoOverrides(s *setup, home string) error {
 		return nil
 	}
 	homeConfig := cargoFile(home, "config")
-	if err := checkCargoIncludes(s, homeConfig, map[string]bool{}); err != nil {
+	visited := map[string]bool{canonicalPath(homeConfig): true}
+	if err := checkCargoIncludes(s, homeConfig, visited); err != nil {
 		return err
 	}
 	for {
@@ -103,6 +104,7 @@ func checkCargoOverrides(s *setup, home string) error {
 // checkCargoProjectConfig rejects project settings that would redirect the
 // depot registry or source, including settings in included files.
 func checkCargoProjectConfig(s *setup, path string, visited map[string]bool) error {
+	path = canonicalPath(path)
 	if visited[path] {
 		return nil
 	}
@@ -146,14 +148,20 @@ func checkCargoIncludes(s *setup, path string, visited map[string]bool) error {
 		if !filepath.IsAbs(include) {
 			include = filepath.Join(filepath.Dir(path), include)
 		}
-		if resolved, err := filepath.EvalSymlinks(include); err == nil {
-			include = resolved
-		}
-		if err := checkCargoProjectConfig(s, filepath.Clean(include), visited); err != nil {
+		if err := checkCargoProjectConfig(s, include, visited); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// canonicalPath resolves symbolic links, so that one file has one path in
+// the include scan.
+func canonicalPath(path string) string {
+	if resolved, err := filepath.EvalSymlinks(path); err == nil {
+		return resolved
+	}
+	return filepath.Clean(path)
 }
 
 // cargoIncludes returns the paths of an include setting, which can be a
@@ -211,8 +219,8 @@ func writeCargoConfig(s *setup, path string, provider []string) error {
 	}
 
 	registryTable := "registries." + cargoRegistryName
-	if index := os.Getenv("CARGO_REGISTRIES_DEPOT_INDEX"); index != "" && index != "sparse+"+s.repo.url()+"index/" {
-		return fmt.Errorf("CARGO_REGISTRIES_DEPOT_INDEX is set to %s, which overrides the index in %s: unset it, then rerun this command", index, path)
+	if value := os.Getenv("CARGO_REGISTRIES_DEPOT_INDEX"); value != "" && value != "sparse+"+s.repo.url()+"index/" {
+		return fmt.Errorf("CARGO_REGISTRIES_DEPOT_INDEX is set to %s, which overrides the index in %s: unset it, then rerun this command", value, path)
 	}
 	existing, err := doc.values()
 	if err != nil {
@@ -221,9 +229,23 @@ func writeCargoConfig(s *setup, path string, provider []string) error {
 	if _, ok := tomlLookup(existing, "source", cargoRegistryName); ok {
 		return fmt.Errorf("%s defines a %q source, which takes precedence over the %q registry for source replacement: remove or rename that source, then rerun this command", path, cargoRegistryName, cargoRegistryName)
 	}
-	if index, ok := tomlLookup(existing, "registries", cargoRegistryName, "index"); ok {
-		if value, _ := index.(string); !strings.HasPrefix(value, "sparse+"+s.repo.server.String()+"/") {
-			return fmt.Errorf("%s already defines the %q registry with index %v: rename that registry, then rerun this command", path, cargoRegistryName, index)
+	index := "sparse+" + s.repo.url() + "index/"
+	previousIndex := ""
+	if value, ok := tomlLookup(existing, "registries", cargoRegistryName, "index"); ok {
+		previousIndex, _ = value.(string)
+		if !strings.HasPrefix(previousIndex, "sparse+"+s.repo.server.String()+"/") {
+			return fmt.Errorf("%s already defines the %q registry with index %v: rename that registry, then rerun this command", path, cargoRegistryName, value)
+		}
+	}
+	// A rerun for the same repository keeps an earlier opt-in to crates.io
+	// replacement unless --replace-upstream=false is passed. For another
+	// repository the replacement is removed, because it would route
+	// crates.io to that repository.
+	if replacement, ok := tomlLookup(existing, "source", "crates-io", "replace-with"); ok && replacement == cargoRegistryName && !s.replaceUpstreamExplicit {
+		if previousIndex == index {
+			s.replaceUpstream = true
+		} else {
+			s.notef("Removed the crates.io replacement, because the %q registry now points to %s. Rerun with --replace-upstream if this repository includes crates.io.", cargoRegistryName, s.repo.url())
 		}
 	}
 	doc.removeTable("registries", cargoRegistryName)
@@ -250,7 +272,7 @@ func writeCargoConfig(s *setup, path string, provider []string) error {
 	}
 
 	doc.appendTable(registryTable, [][2]string{
-		{"index", tomlString("sparse+" + s.repo.url() + "index/")},
+		{"index", tomlString(index)},
 		{"credential-provider", tomlStringArray(provider...)},
 	})
 

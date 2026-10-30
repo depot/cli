@@ -239,9 +239,9 @@ func checkProjectNpmrc(userPath string, keys map[string]string, dirs []string) e
 	return nil
 }
 
-// checkPnpmAuthFile rejects a repository credential in pnpm's own auth.ini or
-// in the _auth section of its global config.yaml, which pnpm reads before the
-// user .npmrc.
+// checkPnpmAuthFile rejects a repository credential in pnpm's own auth.ini,
+// in the pnpm_config__auth environment variable, or in the _auth section of
+// its global config.yaml, all of which pnpm reads before the user .npmrc.
 func checkPnpmAuthFile(s *setup, keys []string) error {
 	if s.clientName != "pnpm" {
 		return nil
@@ -264,6 +264,20 @@ func checkPnpmAuthFile(s *setup, keys []string) error {
 		}
 	}
 
+	for _, name := range []string{"pnpm_config__auth", "PNPM_CONFIG__AUTH"} {
+		value := os.Getenv(name)
+		if value == "" {
+			continue
+		}
+		var auth map[string]any
+		if yaml.Unmarshal([]byte(value), &auth) != nil {
+			return fmt.Errorf("%s is set, and pnpm uses it instead of ~/.npmrc, but setup can't read it: unset it, then rerun this command", name)
+		}
+		if registry, ok := pnpmAuthCovers(s, auth); ok {
+			return fmt.Errorf("%s has a credential for %s, which pnpm uses instead of ~/.npmrc: unset it or remove that entry, then rerun this command", name, registry)
+		}
+	}
+
 	configPath := filepath.Join(dir, "config.yaml")
 	data, err := os.ReadFile(configPath)
 	if err != nil {
@@ -275,17 +289,26 @@ func checkPnpmAuthFile(s *setup, keys []string) error {
 	if yaml.Unmarshal(data, &config) != nil {
 		return nil
 	}
-	for registry := range config.Auth {
+	if registry, ok := pnpmAuthCovers(s, config.Auth); ok {
+		return fmt.Errorf("%s has a credential for %s under _auth, which pnpm uses instead of ~/.npmrc: remove that entry, then rerun this command", configPath, registry)
+	}
+	return nil
+}
+
+// pnpmAuthCovers returns the registry of a structured _auth entry that covers
+// the repository.
+func pnpmAuthCovers(s *setup, auth map[string]any) (string, bool) {
+	for registry := range auth {
 		u, err := url.Parse(registry)
 		if err != nil {
 			continue
 		}
 		scoped := "//" + u.Host + strings.TrimSuffix(u.EscapedPath(), "/") + "/"
 		if strings.HasPrefix(s.repo.nerfDart(), scoped) {
-			return fmt.Errorf("%s has a credential for %s under _auth, which pnpm uses instead of ~/.npmrc: remove that entry, then rerun this command", configPath, registry)
+			return registry, true
 		}
 	}
-	return nil
+	return "", false
 }
 
 // pnpmConfigDir returns pnpm's global configuration directory.

@@ -47,7 +47,7 @@ func configureBundler(s *setup) error {
 		s.notef("Bundler now downloads gems from %s through the repository.", rubygemsUpstream)
 	} else {
 		mirror, _ := config.get(mirrorKey)
-		if mirror == s.repo.url() || (s.replaceUpstreamExplicit && strings.HasPrefix(mirror, s.repo.formatURL())) {
+		if s.replaceUpstreamExplicit && strings.HasPrefix(mirror, s.repo.formatURL()) {
 			config.remove(mirrorKey)
 			s.notef("Removed the Bundler mirror for %s.", rubygemsUpstream)
 		}
