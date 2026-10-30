@@ -219,7 +219,7 @@ func writeCargoConfig(s *setup, path string, provider []string) error {
 	}
 
 	registryTable := "registries." + cargoRegistryName
-	if value := os.Getenv("CARGO_REGISTRIES_DEPOT_INDEX"); value != "" && value != "sparse+"+s.repo.url()+"index/" {
+	if value, ok := os.LookupEnv("CARGO_REGISTRIES_DEPOT_INDEX"); ok && value != "sparse+"+s.repo.url()+"index/" {
 		return fmt.Errorf("CARGO_REGISTRIES_DEPOT_INDEX is set to %s, which overrides the index in %s: unset it, then rerun this command", value, path)
 	}
 	existing, err := doc.values()

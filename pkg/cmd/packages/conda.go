@@ -17,6 +17,8 @@ import (
 
 var mambaVersionPattern = regexp.MustCompile(`(?m)^(?:mamba )?([0-9]+)\.[0-9]+`)
 
+const condaForgeURL = "https://conda.anaconda.org/conda-forge"
+
 var condaUpstreamChannels = []string{
 	"conda-forge",
 	"defaults",
@@ -242,10 +244,12 @@ func writeMambarc(s *setup, path string, isUpstream func(string) bool) error {
 		if defaults := yamlMappingValue(root, "default_channels"); defaults != nil && defaults.Kind == yaml.SequenceNode && len(defaults.Content) == 0 {
 			removeYAMLMappingValue(root, "default_channels")
 		}
-		if !slices.ContainsFunc(channels, isCondaUpstream) {
-			channels = append(channels, "conda-forge")
-			nodes = append(nodes, &yaml.Node{Kind: yaml.ScalarNode, Value: "conda-forge"})
-			s.notef("Added conda-forge back to the channels in %s.", path)
+		// The absolute URL avoids a channel_alias or custom_channels entry that
+		// points the conda-forge name at a mirror.
+		if !slices.ContainsFunc(channels, isUpstream) {
+			channels = append(channels, condaForgeURL)
+			nodes = append(nodes, &yaml.Node{Kind: yaml.ScalarNode, Value: condaForgeURL})
+			s.notef("Added %s back to the channels in %s.", condaForgeURL, path)
 		}
 	}
 	setYAMLMappingValue(root, "channels", &yaml.Node{Kind: yaml.SequenceNode, Content: nodes})

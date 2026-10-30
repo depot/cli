@@ -126,7 +126,10 @@ func writeNpmrc(s *setup, helper string, flagKeys ...string) error {
 	if !s.opts.authOnly {
 		names := []string{"NPM_CONFIG_REGISTRY", "npm_config_registry"}
 		if s.opts.scope != "" {
-			names = []string{"npm_config_" + s.opts.scope + ":registry", "NPM_CONFIG_" + s.opts.scope + ":registry"}
+			names = nil
+			for _, scope := range []string{s.opts.scope, strings.ReplaceAll(s.opts.scope, "-", "_")} {
+				names = append(names, "npm_config_"+scope+":registry", "NPM_CONFIG_"+scope+":registry")
+			}
 		} else if s.clientName == "bun" {
 			names = append(names, "BUN_CONFIG_REGISTRY")
 		}
@@ -156,10 +159,14 @@ func writeNpmrc(s *setup, helper string, flagKeys ...string) error {
 
 	tokenKey := s.repo.nerfDart() + ":_authToken"
 	helperKey := s.repo.nerfDart() + ":tokenHelper"
-	for _, key := range []string{tokenKey, helperKey} {
+	expected := map[string]string{tokenKey: s.token, helperKey: helper}
+	for _, key := range flagKeys {
+		expected[key] = "true"
+	}
+	for _, key := range slices.Sorted(maps.Keys(expected)) {
 		for _, name := range []string{"npm_config_" + key, "NPM_CONFIG_" + key} {
-			if value := os.Getenv(name); value != "" && value != s.token && value != helper {
-				return fmt.Errorf("%s is set, which overrides the credential in %s: unset it, then rerun this command", name, path)
+			if value, ok := os.LookupEnv(name); ok && value != expected[key] {
+				return fmt.Errorf("%s is set, which overrides %s in %s: unset it, then rerun this command", name, key, path)
 			}
 		}
 	}

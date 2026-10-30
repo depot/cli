@@ -22,7 +22,10 @@ func (r repository) gemKeyName() string {
 	return "depot-" + r.org + "_" + r.name
 }
 
-var plainYAMLValue = regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
+var (
+	plainYAMLValue    = regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
+	gemCredentialLine = regexp.MustCompile(`^:?[A-Za-z0-9_.-]+: `)
+)
 
 func configureBundler(s *setup) error {
 	if os.Getenv("BUNDLE_IGNORE_CONFIG") != "" {
@@ -301,6 +304,15 @@ func writeGemCredential(s *setup, path string) error {
 		lines = []string{"---"}
 	} else {
 		lines = strings.Split(text, "\n")
+	}
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") || (i == 0 && trimmed == "---") {
+			continue
+		}
+		if !gemCredentialLine.MatchString(line) {
+			return fmt.Errorf("could not update %s: setup can only edit a file with one key on each line, such as :rubygems_api_key: <key>", path)
+		}
 	}
 
 	replaced := false

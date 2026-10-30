@@ -210,7 +210,7 @@ func TestWriteMambarcUndoesReplacement(t *testing.T) {
 
 	data, err := os.ReadFile(path)
 	require.NoError(t, err)
-	require.Equal(t, "channels:\n  - https://packages.depot.dev/org123/conda/conda-forge\n  - conda-forge\n", string(data))
+	require.Equal(t, "channels:\n  - https://packages.depot.dev/org123/conda/conda-forge\n  - https://conda.anaconda.org/conda-forge\n", string(data))
 }
 
 func TestSetNetrcMachineBeforeDefault(t *testing.T) {
@@ -857,4 +857,56 @@ func TestWriteCargoConfigKeepsReplacementOnImplicitRerun(t *testing.T) {
 	data, err = os.ReadFile(path)
 	require.NoError(t, err)
 	require.NotContains(t, string(data), "replace-with")
+}
+
+func TestWriteNpmrcChecksEachCredentialVariable(t *testing.T) {
+	t.Setenv("NPM_CONFIG_USERCONFIG", filepath.Join(t.TempDir(), ".npmrc"))
+	t.Chdir(t.TempDir())
+	s := newTestSetup(t, "npm", "npmjs")
+	s.clientName = "pnpm"
+	t.Setenv("npm_config_//packages.depot.dev/org123/npm/npmjs/:_authToken", "/helper")
+	require.ErrorContains(t, writeNpmrc(s, "/helper"), ":_authToken")
+}
+
+func TestWriteNpmrcChecksAlwaysAuthVariable(t *testing.T) {
+	t.Setenv("NPM_CONFIG_USERCONFIG", filepath.Join(t.TempDir(), ".npmrc"))
+	t.Chdir(t.TempDir())
+	key := "//packages.depot.dev/org123/npm/npmjs/:always-auth"
+	t.Setenv("npm_config_"+key, "false")
+	s := newTestSetup(t, "npm", "npmjs")
+	require.ErrorContains(t, writeNpmrc(s, "", key), "always-auth")
+}
+
+func TestWriteNpmrcChecksNormalizedScopeVariable(t *testing.T) {
+	t.Setenv("NPM_CONFIG_USERCONFIG", filepath.Join(t.TempDir(), ".npmrc"))
+	t.Setenv("npm_config_@acme_team:registry", "https://registry.example/")
+	t.Chdir(t.TempDir())
+	s := newTestSetup(t, "npm", "internal")
+	s.opts.scope = "@acme-team"
+	require.ErrorContains(t, writeNpmrc(s, ""), "@acme_team")
+}
+
+func TestWriteCargoConfigRejectsEmptyIndexVariable(t *testing.T) {
+	t.Setenv("CARGO_REGISTRIES_DEPOT_INDEX", "")
+	s := newTestSetup(t, "cargo", "internal")
+	require.ErrorContains(t, writeCargoConfig(s, filepath.Join(t.TempDir(), "config.toml"), []string{"cargo:token"}), "CARGO_REGISTRIES_DEPOT_INDEX")
+}
+
+func TestWriteMambarcRestoresAbsoluteCondaForge(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".mambarc")
+	require.NoError(t, os.WriteFile(path, []byte("channels:\n  - https://packages.depot.dev/org123/conda/conda-forge\n  - conda-forge\n"), 0644))
+	s := newTestSetup(t, "conda", "conda-forge")
+	s.replaceUpstreamExplicit = true
+	aliased := func(c string) bool { return c != "conda-forge" && isCondaUpstream(c) }
+	require.NoError(t, writeMambarc(s, path, aliased))
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.Contains(t, string(data), "https://conda.anaconda.org/conda-forge")
+}
+
+func TestWriteGemCredentialRejectsFlowMapping(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "credentials")
+	require.NoError(t, os.WriteFile(path, []byte("--- {:rubygems_api_key: abc}\n"), 0600))
+	s := newTestSetup(t, "rubygems", "internal")
+	require.ErrorContains(t, writeGemCredential(s, path), "one key on each line")
 }
