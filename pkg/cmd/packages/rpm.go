@@ -74,8 +74,12 @@ func prepareRPMRepository(s *setup) (rpmRepository, error) {
 		if err != nil {
 			return rpmRepository{}, err
 		}
-		if _, err := os.Stat(absolute); err != nil {
+		info, err := os.Stat(absolute)
+		if err != nil {
 			return rpmRepository{}, fmt.Errorf("package key %s: %w", packageKey, err)
+		}
+		if !info.Mode().IsRegular() {
+			return rpmRepository{}, fmt.Errorf("package key %s isn't a file: pass the key file, such as /etc/pki/rpm-gpg/RPM-GPG-KEY-Rocky-9", packageKey)
 		}
 		packageKey = absolute
 		s.notef("Packages are verified with %s. Repository metadata signatures aren't checked, because the client would also trust Depot's metadata key for packages.", packageKey)

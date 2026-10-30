@@ -64,6 +64,9 @@ func configureApk(s *setup) error {
 	if err := s.writeSystemFile("/etc/apk/keys/"+name, key, 0644); err != nil {
 		return err
 	}
+	if err := s.replaceApkKeyRecord(name); err != nil {
+		return err
+	}
 
 	netrc, err := s.readSystemFile(rootNetrcFile)
 	if err != nil {
@@ -93,6 +96,24 @@ func configureApk(s *setup) error {
 
 	s.notef("Existing apk repositories are unchanged; remove direct upstream entries from %s if all downloads should use Depot.", apkRepositoriesFile)
 	return nil
+}
+
+// replaceApkKeyRecord records the key name installed for the repository and
+// removes the key that the previous setup installed, if its name changed, so
+// a retired signing key is no longer trusted.
+func (s *setup) replaceApkKeyRecord(name string) error {
+	record := "/etc/apk/depot/" + s.repo.fileID() + ".key"
+	previous, err := s.readSystemFile(record)
+	if err != nil {
+		return err
+	}
+	if old := strings.TrimSpace(string(previous)); old != "" && old != name && apkKeyNamePattern.MatchString(old) {
+		if _, err := s.runPrivileged(nil, "rm", "-f", "/etc/apk/keys/"+old); err != nil {
+			return err
+		}
+		s.notef("Removed the previous repository key %s.", old)
+	}
+	return s.writeSystemFile(record, []byte(name+"\n"), 0644)
 }
 
 // withoutApkRepository returns the repository lines without those for the

@@ -185,6 +185,9 @@ func writeNpmrc(s *setup, helper string, flagKeys ...string) error {
 	for _, key := range flagKeys {
 		expected[key] = "true"
 	}
+	if s.opts.scope != "" {
+		expected[s.repo.nerfDart()+":"+s.opts.scope+":_authToken"] = ""
+	}
 	for _, key := range slices.Sorted(maps.Keys(expected)) {
 		for _, name := range configEnvNames(s, key) {
 			if value, ok := os.LookupEnv(name); ok && value != expected[key] {
@@ -260,52 +263,75 @@ func configEnvNames(s *setup, key string) []string {
 }
 
 // checkPnpmWorkspaceRegistry rejects a registry or scope registry in
-// pnpm-workspace.yaml, which takes precedence over the user .npmrc.
+// pnpm-workspace.yaml or pnpm's global config.yaml, which take precedence over
+// the user .npmrc. pnpm uses the first of those files that sets the key.
 func checkPnpmWorkspaceRegistry(s *setup) error {
 	if s.clientName != "pnpm" || s.opts.authOnly {
 		return nil
 	}
+	var paths []string
 	for _, dir := range npmProjectDirs() {
-		path := filepath.Join(dir, "pnpm-workspace.yaml")
+		paths = append(paths, filepath.Join(dir, "pnpm-workspace.yaml"))
+	}
+	if dir, err := pnpmConfigDir(); err == nil {
+		paths = append(paths, filepath.Join(dir, "config.yaml"))
+	}
+
+	for _, path := range paths {
 		data, err := os.ReadFile(path)
 		if err != nil {
 			continue
 		}
-		var workspace struct {
-			Registry   string         `yaml:"registry"`
-			Registries map[string]any `yaml:"registries"`
-		}
-		if yaml.Unmarshal(data, &workspace) != nil {
+		key, value := pnpmRegistrySetting(s, data)
+		if key == "" {
 			continue
 		}
-		value, key := workspace.Registry, "registry"
-		if s.opts.scope != "" {
-			value, _ = workspace.Registries[s.opts.scope].(string)
-			key = "registries." + s.opts.scope
-		} else if def, ok := workspace.Registries["default"].(string); ok {
-			value, key = def, "registries.default"
-		}
-		// Current pnpm also keys registries by URL, with the scopes routed
-		// to each one; "@" is the default registry.
-		scope := s.opts.scope
-		if scope == "" {
-			scope = "@"
-		}
-		for url, declaration := range workspace.Registries {
-			fields, ok := declaration.(map[string]any)
-			if !ok {
-				continue
-			}
-			scopes, _ := fields["scopes"].([]any)
-			if slices.Contains(scopes, any(scope)) {
-				value, key = url, "registries."+url+".scopes"
-			}
-		}
-		if value != "" && strings.TrimSuffix(value, "/") != strings.TrimSuffix(s.repo.url(), "/") {
+		if strings.TrimSuffix(value, "/") != strings.TrimSuffix(s.repo.url(), "/") {
 			return fmt.Errorf("%s sets %s to %s, which takes precedence over ~/.npmrc for pnpm: remove it, then rerun this command", path, key, value)
 		}
+		return nil
 	}
 	return nil
+}
+
+// pnpmRegistrySetting returns the registry setting for the repository's scope,
+// or for the default registry without a scope, from a pnpm YAML file. It
+// returns an empty key when the file doesn't set one.
+func pnpmRegistrySetting(s *setup, data []byte) (key, value string) {
+	var config struct {
+		Registry   string         `yaml:"registry"`
+		Registries map[string]any `yaml:"registries"`
+	}
+	if yaml.Unmarshal(data, &config) != nil {
+		return "", ""
+	}
+	if s.opts.scope == "" && config.Registry != "" {
+		key, value = "registry", config.Registry
+	}
+	name := s.opts.scope
+	if name == "" {
+		name = "default"
+	}
+	if url, ok := config.Registries[name].(string); ok {
+		key, value = "registries."+name, url
+	}
+	// Current pnpm also keys registries by URL, with the scopes routed to
+	// each one; "@" is the default registry.
+	scope := s.opts.scope
+	if scope == "" {
+		scope = "@"
+	}
+	for url, declaration := range config.Registries {
+		fields, ok := declaration.(map[string]any)
+		if !ok {
+			continue
+		}
+		scopes, _ := fields["scopes"].([]any)
+		if slices.Contains(scopes, any(scope)) {
+			key, value = "registries."+url+".scopes", url
+		}
+	}
+	return key, value
 }
 
 // npmCredentialKeys returns the credential keys for the repository, including
@@ -366,10 +392,7 @@ func checkPnpmAuthFile(s *setup, keys []string) error {
 		return nil
 	}
 
-	authPath := os.Getenv("PNPM_CONFIG_NPMRC_AUTH_FILE")
-	if authPath == "" {
-		authPath = filepath.Join(dir, "auth.ini")
-	}
+	authPath := pnpmAuthFilePath(dir)
 	if data, err := os.ReadFile(authPath); err == nil {
 		rc := parseNpmrc(data)
 		for _, key := range keys {
@@ -424,6 +447,27 @@ func pnpmAuthCovers(s *setup, auth map[string]any) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// pnpmAuthFilePath returns the auth file pnpm reads: the npmrcAuthFile
+// setting from the environment or the global config.yaml, or auth.ini in the
+// configuration directory.
+func pnpmAuthFilePath(dir string) string {
+	home, _ := os.UserHomeDir()
+	for _, name := range []string{"PNPM_CONFIG_NPMRC_AUTH_FILE", "pnpm_config_npmrc_auth_file"} {
+		if path := os.Getenv(name); path != "" {
+			return expandHome(path, home)
+		}
+	}
+	if data, err := os.ReadFile(filepath.Join(dir, "config.yaml")); err == nil {
+		var config struct {
+			NpmrcAuthFile string `yaml:"npmrcAuthFile"`
+		}
+		if yaml.Unmarshal(data, &config) == nil && config.NpmrcAuthFile != "" {
+			return expandHome(config.NpmrcAuthFile, home)
+		}
+	}
+	return filepath.Join(dir, "auth.ini")
 }
 
 // pnpmConfigDir returns pnpm's global configuration directory.

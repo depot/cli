@@ -1035,3 +1035,47 @@ func TestCheckCargoProjectConfigRejectsReplacementOnExplicitFalse(t *testing.T) 
 	s.replaceUpstreamExplicit = true
 	require.ErrorContains(t, checkCargoProjectConfig(s, filepath.Join(dir, "config.toml"), map[string]bool{}, false), "still replaces")
 }
+
+func TestWriteNpmrcChecksScopedTokenVariable(t *testing.T) {
+	t.Setenv("NPM_CONFIG_USERCONFIG", filepath.Join(t.TempDir(), ".npmrc"))
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("PNPM_CONFIG_NPMRC_AUTH_FILE", "")
+	t.Setenv("pnpm_config_//packages.depot.dev/org123/npm/internal/:@acme:_authToken", "stale")
+	t.Chdir(t.TempDir())
+
+	s := newTestSetup(t, "npm", "internal")
+	s.clientName = "pnpm"
+	s.opts.scope = "@acme"
+	require.ErrorContains(t, writeNpmrc(s, "/helper"), ":@acme:_authToken")
+}
+
+func TestPnpmAuthFilePathFromConfig(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("PNPM_CONFIG_NPMRC_AUTH_FILE", "")
+	t.Setenv("pnpm_config_npmrc_auth_file", "")
+	require.Equal(t, filepath.Join(dir, "auth.ini"), pnpmAuthFilePath(dir))
+
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "config.yaml"), []byte("npmrcAuthFile: /etc/pnpm-auth\n"), 0644))
+	require.Equal(t, "/etc/pnpm-auth", pnpmAuthFilePath(dir))
+
+	t.Setenv("pnpm_config_npmrc_auth_file", "/tmp/auth")
+	require.Equal(t, "/tmp/auth", pnpmAuthFilePath(dir))
+}
+
+func TestCheckPnpmGlobalRegistry(t *testing.T) {
+	xdg := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", xdg)
+	require.NoError(t, os.MkdirAll(filepath.Join(xdg, "pnpm"), 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(xdg, "pnpm", "config.yaml"), []byte("registry: https://registry.npmjs.org/\n"), 0644))
+	t.Chdir(t.TempDir())
+
+	s := newTestSetup(t, "npm", "npmjs")
+	s.clientName = "pnpm"
+	require.ErrorContains(t, checkPnpmWorkspaceRegistry(s), "config.yaml")
+
+	project := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(project, "package.json"), []byte("{}"), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(project, "pnpm-workspace.yaml"), []byte("registry: https://packages.depot.dev/org123/npm/npmjs/\n"), 0644))
+	t.Chdir(project)
+	require.NoError(t, checkPnpmWorkspaceRegistry(s))
+}
