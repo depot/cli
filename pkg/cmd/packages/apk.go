@@ -80,19 +80,9 @@ func configureApk(s *setup) error {
 	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
-	var lines []string
-	for _, line := range strings.Split(strings.TrimRight(string(repositories), "\n"), "\n") {
-		location := strings.TrimSpace(line)
-		if strings.HasPrefix(location, "@") {
-			_, location, _ = strings.Cut(location, " ")
-			location = strings.TrimSpace(location)
-		}
-		if line != "" && !strings.HasPrefix(location, s.repo.url()) {
-			lines = append(lines, line)
-		}
-	}
+	lines, tag := withoutApkRepository(string(repositories), s.repo.url())
 	for _, component := range components {
-		lines = append(lines, s.repo.url()+branch+"/"+component)
+		lines = append(lines, tag+s.repo.url()+branch+"/"+component)
 	}
 	if err := s.writeSystemFile(apkRepositoriesFile, []byte(strings.Join(lines, "\n")+"\n"), 0644); err != nil {
 		return err
@@ -100,6 +90,30 @@ func configureApk(s *setup) error {
 
 	s.notef("Existing apk repositories are unchanged; remove direct upstream entries from %s if all downloads should use Depot.", apkRepositoriesFile)
 	return nil
+}
+
+// withoutApkRepository returns the repository lines without those for the
+// repository URL, and the "@tag " prefix those lines had, so that packages
+// pinned to the tag keep a repository.
+func withoutApkRepository(repositories, url string) (lines []string, tag string) {
+	for _, line := range strings.Split(strings.TrimRight(repositories, "\n"), "\n") {
+		location := strings.TrimSpace(line)
+		lineTag := ""
+		if strings.HasPrefix(location, "@") {
+			lineTag, location, _ = strings.Cut(location, " ")
+			location = strings.TrimSpace(location)
+		}
+		switch {
+		case line == "":
+		case strings.HasPrefix(location, url):
+			if lineTag != "" {
+				tag = lineTag + " "
+			}
+		default:
+			lines = append(lines, line)
+		}
+	}
+	return lines, tag
 }
 
 func detectAlpineBranch() string {

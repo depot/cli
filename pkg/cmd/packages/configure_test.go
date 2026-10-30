@@ -1006,3 +1006,9 @@ func TestWriteNpmrcChecksPnpmEnvironmentPrefix(t *testing.T) {
 	s.clientName = "pnpm"
 	require.ErrorContains(t, writeNpmrc(s, "/helper"), "pnpm_config_registry")
 }
+
+func TestWithoutApkRepositoryKeepsTag(t *testing.T) {
+	lines, tag := withoutApkRepository("https://dl-cdn.alpinelinux.org/alpine/v3.22/main\n@private https://packages.depot.dev/org123/alpine/internal/v3.21/main\n", "https://packages.depot.dev/org123/alpine/internal/")
+	require.Equal(t, []string{"https://dl-cdn.alpinelinux.org/alpine/v3.22/main"}, lines)
+	require.Equal(t, "@private ", tag)
+}
