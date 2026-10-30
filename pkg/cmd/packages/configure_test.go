@@ -980,3 +980,29 @@ func TestWriteNpmrcRemovesScopedToken(t *testing.T) {
 	require.NoError(t, err)
 	require.NotContains(t, string(data), "stale")
 }
+
+func TestCheckPnpmWorkspaceRegistry(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "package.json"), []byte("{}"), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "pnpm-workspace.yaml"), []byte("registries:\n  \"@acme\": https://registry.example/\n"), 0644))
+	t.Chdir(dir)
+
+	s := newTestSetup(t, "npm", "internal")
+	s.clientName = "pnpm"
+	s.opts.scope = "@acme"
+	require.ErrorContains(t, checkPnpmWorkspaceRegistry(s), "registries.@acme")
+	s.opts.scope = ""
+	require.NoError(t, checkPnpmWorkspaceRegistry(s))
+}
+
+func TestWriteNpmrcChecksPnpmEnvironmentPrefix(t *testing.T) {
+	t.Setenv("NPM_CONFIG_USERCONFIG", filepath.Join(t.TempDir(), ".npmrc"))
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("PNPM_CONFIG_NPMRC_AUTH_FILE", "")
+	t.Setenv("pnpm_config_registry", "https://registry.npmjs.org/")
+	t.Chdir(t.TempDir())
+
+	s := newTestSetup(t, "npm", "npmjs")
+	s.clientName = "pnpm"
+	require.ErrorContains(t, writeNpmrc(s, "/helper"), "pnpm_config_registry")
+}

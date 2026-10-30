@@ -146,11 +146,11 @@ func writeNpmrc(s *setup, helper string, flagKeys ...string) error {
 	rc := parseNpmrc(data)
 
 	if !s.opts.authOnly {
-		names := []string{"NPM_CONFIG_REGISTRY", "npm_config_registry"}
+		names := configEnvNames(s, "registry")
 		if s.opts.scope != "" {
 			names = nil
 			for _, scope := range []string{s.opts.scope, strings.ReplaceAll(s.opts.scope, "-", "_")} {
-				names = append(names, "npm_config_"+scope+":registry", "NPM_CONFIG_"+scope+":registry")
+				names = append(names, configEnvNames(s, scope+":registry")...)
 			}
 		} else if s.clientName == "bun" {
 			names = append(names, "BUN_CONFIG_REGISTRY")
@@ -186,7 +186,7 @@ func writeNpmrc(s *setup, helper string, flagKeys ...string) error {
 		expected[key] = "true"
 	}
 	for _, key := range slices.Sorted(maps.Keys(expected)) {
-		for _, name := range []string{"npm_config_" + key, "NPM_CONFIG_" + key} {
+		for _, name := range configEnvNames(s, key) {
 			if value, ok := os.LookupEnv(name); ok && value != expected[key] {
 				return fmt.Errorf("%s is set, which overrides %s in %s: unset it, then rerun this command", name, key, path)
 			}
@@ -210,6 +210,9 @@ func writeNpmrc(s *setup, helper string, flagKeys ...string) error {
 		return err
 	}
 	if err := checkPnpmAuthFile(s, npmCredentialKeys(s)); err != nil {
+		return err
+	}
+	if err := checkPnpmWorkspaceRegistry(s); err != nil {
 		return err
 	}
 	if s.clientName == "bun" && !s.opts.authOnly {
@@ -236,6 +239,57 @@ func writeNpmrc(s *setup, helper string, flagKeys ...string) error {
 	}
 
 	return s.writeFile(path, rc.bytes(), 0600)
+}
+
+// configEnvNames returns the environment variable names that set the npm
+// configuration key. pnpm 11 and later read pnpm_config_ instead of
+// npm_config_.
+func configEnvNames(s *setup, key string) []string {
+	prefixes := []string{"npm_config_", "NPM_CONFIG_"}
+	if s.clientName == "pnpm" {
+		prefixes = append(prefixes, "pnpm_config_", "PNPM_CONFIG_")
+	}
+	var names []string
+	for _, prefix := range prefixes {
+		names = append(names, prefix+key)
+		if upper := strings.ToUpper(key); upper != key && prefix == strings.ToUpper(prefix) {
+			names = append(names, prefix+upper)
+		}
+	}
+	return names
+}
+
+// checkPnpmWorkspaceRegistry rejects a registry or scope registry in
+// pnpm-workspace.yaml, which takes precedence over the user .npmrc.
+func checkPnpmWorkspaceRegistry(s *setup) error {
+	if s.clientName != "pnpm" || s.opts.authOnly {
+		return nil
+	}
+	for _, dir := range npmProjectDirs() {
+		path := filepath.Join(dir, "pnpm-workspace.yaml")
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		var workspace struct {
+			Registry   string         `yaml:"registry"`
+			Registries map[string]any `yaml:"registries"`
+		}
+		if yaml.Unmarshal(data, &workspace) != nil {
+			continue
+		}
+		value, key := workspace.Registry, "registry"
+		if s.opts.scope != "" {
+			value, _ = workspace.Registries[s.opts.scope].(string)
+			key = "registries." + s.opts.scope
+		} else if def, ok := workspace.Registries["default"].(string); ok {
+			value, key = def, "registries.default"
+		}
+		if value != "" && strings.TrimSuffix(value, "/") != strings.TrimSuffix(s.repo.url(), "/") {
+			return fmt.Errorf("%s sets %s to %s, which takes precedence over ~/.npmrc for pnpm: remove it, then rerun this command", path, key, value)
+		}
+	}
+	return nil
 }
 
 // npmCredentialKeys returns the credential keys for the repository, including

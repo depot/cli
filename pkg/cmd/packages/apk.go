@@ -82,7 +82,12 @@ func configureApk(s *setup) error {
 	}
 	var lines []string
 	for _, line := range strings.Split(strings.TrimRight(string(repositories), "\n"), "\n") {
-		if line != "" && !strings.HasPrefix(strings.TrimSpace(line), s.repo.url()) {
+		location := strings.TrimSpace(line)
+		if strings.HasPrefix(location, "@") {
+			_, location, _ = strings.Cut(location, " ")
+			location = strings.TrimSpace(location)
+		}
+		if line != "" && !strings.HasPrefix(location, s.repo.url()) {
 			lines = append(lines, line)
 		}
 	}
