@@ -108,13 +108,13 @@ func checkCargoOverrides(s *setup, home string) error {
 	}
 	homeConfig := cargoFile(home, "config")
 	visited := map[string]bool{canonicalPath(homeConfig): true}
-	if err := checkCargoIncludes(s, homeConfig, visited); err != nil {
+	if err := checkCargoIncludes(s, homeConfig, visited, true); err != nil {
 		return err
 	}
 	for {
 		path := cargoFile(filepath.Join(dir, ".cargo"), "config")
 		if !sameFile(path, homeConfig) {
-			if err := checkCargoProjectConfig(s, path, map[string]bool{}); err != nil {
+			if err := checkCargoProjectConfig(s, path, map[string]bool{}, false); err != nil {
 				return err
 			}
 		}
@@ -128,7 +128,7 @@ func checkCargoOverrides(s *setup, home string) error {
 
 // checkCargoProjectConfig rejects project settings that would redirect the
 // depot registry or source, including settings in included files.
-func checkCargoProjectConfig(s *setup, path string, visited map[string]bool) error {
+func checkCargoProjectConfig(s *setup, path string, visited map[string]bool, fromHome bool) error {
 	path = canonicalPath(path)
 	if visited[path] {
 		return nil
@@ -143,7 +143,10 @@ func checkCargoProjectConfig(s *setup, path string, visited map[string]bool) err
 		return nil
 	}
 
-	if _, ok := tomlLookup(values, "registries", cargoRegistryName); ok {
+	// The home file's own values take precedence over the files it
+	// includes, so an included registry table can't override the one setup
+	// writes there.
+	if _, ok := tomlLookup(values, "registries", cargoRegistryName); ok && !fromHome {
 		return fmt.Errorf("%s defines the %q registry, which overrides the Cargo home configuration in this directory: remove it or rename that registry, then rerun this command", path, cargoRegistryName)
 	}
 	if _, ok := tomlLookup(values, "source", cargoRegistryName); ok {
@@ -153,14 +156,14 @@ func checkCargoProjectConfig(s *setup, path string, visited map[string]bool) err
 		return fmt.Errorf("%s replaces crates.io with %q, which overrides the replacement in the Cargo home configuration: remove it, then rerun this command", path, replacement)
 	}
 
-	return checkCargoIncludes(s, path, visited)
+	return checkCargoIncludes(s, path, visited, fromHome)
 }
 
 // checkCargoIncludes checks the files that the configuration file at path
 // includes, following the whole include chain and skipping files it has
 // already checked. Setup edits only the top-level home file, so settings in
 // its included files can also redirect the depot registry or source.
-func checkCargoIncludes(s *setup, path string, visited map[string]bool) error {
+func checkCargoIncludes(s *setup, path string, visited map[string]bool, fromHome bool) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil
@@ -173,7 +176,7 @@ func checkCargoIncludes(s *setup, path string, visited map[string]bool) error {
 		if !filepath.IsAbs(include) {
 			include = filepath.Join(filepath.Dir(path), include)
 		}
-		if err := checkCargoProjectConfig(s, include, visited); err != nil {
+		if err := checkCargoProjectConfig(s, include, visited, fromHome); err != nil {
 			return err
 		}
 	}

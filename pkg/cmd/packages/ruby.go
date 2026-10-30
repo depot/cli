@@ -41,6 +41,9 @@ func configureBundler(s *setup) error {
 		return err
 	}
 	config := parseRubyConfig(data)
+	if err := config.validate(path); err != nil {
+		return err
+	}
 
 	config.set(bundlerKey(s.repo.url()), "depot:"+s.token)
 
@@ -195,6 +198,9 @@ func writeGemSources(s *setup, path string) error {
 		return err
 	}
 	config := parseRubyConfig(data)
+	if err := config.validate(path); err != nil {
+		return err
+	}
 
 	sources, found, err := config.list(":sources")
 	if err != nil {

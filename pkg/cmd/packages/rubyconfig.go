@@ -2,6 +2,7 @@ package packages
 
 import (
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 )
@@ -23,6 +24,25 @@ func parseRubyConfig(data []byte) *rubyConfig {
 
 // keyLine returns the last line that assigns key, because Ruby's YAML loader
 // uses the last assignment of a duplicate key.
+var rubyConfigKeyLine = regexp.MustCompile(`^[^\s{\[#-][^\s]*:(\s|$)`)
+
+// validate rejects files that aren't flat block YAML, such as flow mappings
+// or a document end marker, because line edits would land outside the
+// mapping that Ruby reads.
+func (c *rubyConfig) validate(path string) error {
+	for i, line := range c.lines {
+		trimmed := strings.TrimSpace(line)
+		switch {
+		case trimmed == "" || strings.HasPrefix(trimmed, "#") || (i == 0 && trimmed == "---"):
+		case strings.HasPrefix(trimmed, "- "):
+		case rubyConfigKeyLine.MatchString(line):
+		default:
+			return fmt.Errorf("could not update %s: setup can only edit a file with one setting on each line, and line %d isn't in that form", path, i+1)
+		}
+	}
+	return nil
+}
+
 func (c *rubyConfig) keyLine(key string) int {
 	for i := len(c.lines) - 1; i >= 0; i-- {
 		if strings.HasPrefix(c.lines[i], key+":") {

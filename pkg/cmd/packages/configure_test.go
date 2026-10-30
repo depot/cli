@@ -525,7 +525,7 @@ func TestCheckCargoProjectConfigFollowsIncludes(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "extra.toml"), []byte("[source.depot]\nregistry = \"sparse+https://attacker.example/\"\n"), 0644))
 
 	s := newTestSetup(t, "cargo", "internal")
-	require.ErrorContains(t, checkCargoProjectConfig(s, filepath.Join(dir, "config.toml"), map[string]bool{}), "source")
+	require.ErrorContains(t, checkCargoProjectConfig(s, filepath.Join(dir, "config.toml"), map[string]bool{}, false), "source")
 }
 
 func TestCheckCargoOverridesUsesActiveFile(t *testing.T) {
@@ -634,7 +634,7 @@ func TestCheckCargoProjectConfigFollowsLongIncludeChains(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "c20.toml"), []byte("include = \"c0.toml\"\n[source.depot]\nregistry = \"x\"\n"), 0644))
 
 	s := newTestSetup(t, "cargo", "internal")
-	require.ErrorContains(t, checkCargoProjectConfig(s, filepath.Join(dir, "c0.toml"), map[string]bool{}), "c20.toml")
+	require.ErrorContains(t, checkCargoProjectConfig(s, filepath.Join(dir, "c0.toml"), map[string]bool{}, false), "c20.toml")
 }
 
 func TestWriteMambarcKeepsPrivateDefaultChannelsAndAnchors(t *testing.T) {
@@ -790,7 +790,7 @@ func TestCheckCargoProjectConfigStopsSymlinkCycles(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "config.toml"), []byte("include = \"link/config.toml\"\n"), 0644))
 
 	s := newTestSetup(t, "cargo", "internal")
-	require.NoError(t, checkCargoProjectConfig(s, filepath.Join(dir, "config.toml"), map[string]bool{}))
+	require.NoError(t, checkCargoProjectConfig(s, filepath.Join(dir, "config.toml"), map[string]bool{}, false))
 }
 
 func TestWriteNpmrcRejectsCredentialEnvironmentOverride(t *testing.T) {
@@ -932,4 +932,37 @@ func TestWriteMambarcRejectsAliasedDefaultChannels(t *testing.T) {
 	s := newTestSetup(t, "conda", "conda-forge")
 	s.replaceUpstream = true
 	require.ErrorContains(t, writeMambarc(s, path, func(c string) bool { return c != "defaults" && isCondaUpstream(c) }), "alias")
+}
+
+func TestCheckCargoOverridesAllowsRegistryInHomeInclude(t *testing.T) {
+	home := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(home, "config.toml"), []byte("include = \"extra.toml\"\n"), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(home, "extra.toml"), []byte("[registries.depot]\nindex = \"sparse+https://other.example/\"\n"), 0644))
+	t.Chdir(t.TempDir())
+
+	s := newTestSetup(t, "cargo", "internal")
+	require.NoError(t, checkCargoOverrides(s, home))
+}
+
+func TestRubyConfigValidate(t *testing.T) {
+	require.NoError(t, parseRubyConfig([]byte("---\n:sources:\n- \"https://a/\"\n# note\nBUNDLE_HTTPS://X/: \"v\"\n")).validate("x"))
+	require.Error(t, parseRubyConfig([]byte("--- {:sources: [a]}\n")).validate("x"))
+	require.Error(t, parseRubyConfig([]byte("---\n:verbose: true\n...\n")).validate("x"))
+}
+
+func TestCheckPnpmScopedAuthKey(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "auth.ini")
+	require.NoError(t, os.WriteFile(path, []byte("//packages.depot.dev/org123/npm/internal/:@acme:_authToken=stale\n"), 0600))
+	t.Setenv("PNPM_CONFIG_NPMRC_AUTH_FILE", path)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+
+	s := newTestSetup(t, "npm", "internal")
+	s.clientName = "pnpm"
+	s.opts.scope = "@acme"
+	require.ErrorContains(t, checkPnpmAuthFile(s, npmCredentialKeys(s)), ":@acme:_authToken")
+}
+
+func TestMambaFilterTreatsPublicCustomChannelAsUpstream(t *testing.T) {
+	require.True(t, isPublicCondaBase("https://conda.anaconda.org/"))
+	require.False(t, isPublicCondaBase("https://mirror.example/"))
 }

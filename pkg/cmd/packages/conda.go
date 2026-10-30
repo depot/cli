@@ -49,7 +49,7 @@ func mambaUpstreamFilter(s *setup) func(string) bool {
 	if err := json.Unmarshal(out, &config); err != nil {
 		return isCondaUpstream
 	}
-	aliased := config.ChannelAlias != "" && strings.TrimSuffix(config.ChannelAlias, "/") != "https://conda.anaconda.org"
+	aliased := config.ChannelAlias != "" && !isPublicCondaBase(config.ChannelAlias)
 
 	// isNamedUpstream classifies a channel other than defaults.
 	isNamedUpstream := func(channel string) bool {
@@ -59,8 +59,8 @@ func mambaUpstreamFilter(s *setup) func(string) bool {
 		if strings.Contains(channel, "://") {
 			return true
 		}
-		if _, ok := config.CustomChannels[channel]; ok {
-			return false
+		if base, ok := config.CustomChannels[channel]; ok {
+			return isPublicCondaBase(base)
 		}
 		return !aliased
 	}
@@ -297,6 +297,16 @@ func writeMambarc(s *setup, path string, isUpstream func(string) bool) error {
 		s.notef("%s also lists other channels after the repository: %s.", path, strings.Join(channels[1:], ", "))
 	}
 	return s.writeFile(path, out.Bytes(), configFileMode(path, 0644))
+}
+
+// isPublicCondaBase reports whether a channel_alias or custom_channels base
+// URL is the public anaconda.org channel host.
+func isPublicCondaBase(base string) bool {
+	switch strings.TrimSuffix(base, "/") {
+	case "https://conda.anaconda.org", "http://conda.anaconda.org":
+		return true
+	}
+	return false
 }
 
 // yamlScalarValue returns the value of a scalar node, following an alias to

@@ -192,7 +192,10 @@ func writeNpmrc(s *setup, helper string, flagKeys ...string) error {
 			}
 		}
 	}
-	managed := map[string]string{tokenKey: "", helperKey: ""}
+	managed := map[string]string{}
+	for _, key := range npmCredentialKeys(s) {
+		managed[key] = ""
+	}
 	if !s.opts.authOnly {
 		managed[registryKey(s)] = s.repo.url()
 	}
@@ -206,7 +209,7 @@ func writeNpmrc(s *setup, helper string, flagKeys ...string) error {
 	if err := checkProjectNpmrc(path, managed, dirs); err != nil {
 		return err
 	}
-	if err := checkPnpmAuthFile(s, []string{tokenKey, helperKey}); err != nil {
+	if err := checkPnpmAuthFile(s, npmCredentialKeys(s)); err != nil {
 		return err
 	}
 	if s.clientName == "bun" && !s.opts.authOnly {
@@ -230,6 +233,16 @@ func writeNpmrc(s *setup, helper string, flagKeys ...string) error {
 	}
 
 	return s.writeFile(path, rc.bytes(), 0600)
+}
+
+// npmCredentialKeys returns the credential keys for the repository, including
+// pnpm's scope-specific form when a scope is set.
+func npmCredentialKeys(s *setup) []string {
+	keys := []string{s.repo.nerfDart() + ":_authToken", s.repo.nerfDart() + ":tokenHelper"}
+	if s.opts.scope != "" {
+		keys = append(keys, s.repo.nerfDart()+":"+s.opts.scope+":_authToken")
+	}
+	return keys
 }
 
 func registryKey(s *setup) string {
