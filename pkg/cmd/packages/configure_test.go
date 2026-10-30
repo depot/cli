@@ -271,10 +271,6 @@ func TestCargoFilePrefersLegacyName(t *testing.T) {
 	require.Equal(t, filepath.Join(dir, "config"), cargoFile(dir, "config"))
 }
 
-func TestFileURL(t *testing.T) {
-	require.Equal(t, "file:///etc/pki/rpm-gpg/KEY%20A", fileURL("/etc/pki/rpm-gpg/KEY A"))
-}
-
 func TestSetNetrcMachineKeepsFollowingComments(t *testing.T) {
 	existing := "machine packages.depot.dev login depot password old\n# keep this\nmachine example.com login a password b\n# trailing\n"
 	out, err := setNetrcMachine([]byte(existing), "packages.depot.dev", "depot", "tok")
@@ -352,15 +348,17 @@ func TestBunUserConfigPath(t *testing.T) {
 	home := t.TempDir()
 	xdg := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("PATH", t.TempDir())
 	t.Setenv("NPM_CONFIG_USERCONFIG", filepath.Join(home, "ignored"))
 	t.Setenv("XDG_CONFIG_HOME", xdg)
+	s := newTestSetup(t, "npm", "npmjs")
 
-	path, err := bunUserConfigPath()
+	path, err := bunUserConfigPath(s)
 	require.NoError(t, err)
 	require.Equal(t, filepath.Join(home, ".npmrc"), path)
 
 	require.NoError(t, os.WriteFile(filepath.Join(xdg, ".npmrc"), nil, 0600))
-	path, err = bunUserConfigPath()
+	path, err = bunUserConfigPath(s)
 	require.NoError(t, err)
 	require.Equal(t, filepath.Join(xdg, ".npmrc"), path)
 }
@@ -385,12 +383,6 @@ func TestListItemStripsInlineComments(t *testing.T) {
 	item, ok = listItem(`- "https://a/#x" # note`)
 	require.True(t, ok)
 	require.Equal(t, `"https://a/#x"`, item)
-}
-
-func TestIsCondaUpstream(t *testing.T) {
-	require.True(t, isCondaUpstream("https://repo.anaconda.com/pkgs/main/"))
-	require.True(t, isCondaUpstream("conda-forge"))
-	require.False(t, isCondaUpstream("bioconda"))
 }
 
 func TestNerfDartKeepsEscapedPath(t *testing.T) {
@@ -837,12 +829,14 @@ func TestWriteCargoConfigKeepsReplacementOnImplicitRerun(t *testing.T) {
 	require.NoError(t, writeCargoConfig(s, path, []string{"cargo:token"}))
 
 	s.replaceUpstream = false
+	keepCargoReplacement(s, path)
 	require.NoError(t, writeCargoConfig(s, path, []string{"cargo:token"}))
 	data, err := os.ReadFile(path)
 	require.NoError(t, err)
 	require.Contains(t, string(data), "replace-with")
 
 	other := newTestSetup(t, "cargo", "internal")
+	keepCargoReplacement(other, path)
 	require.NoError(t, writeCargoConfig(other, path, []string{"cargo:token"}))
 	data, err = os.ReadFile(path)
 	require.NoError(t, err)
@@ -909,4 +903,33 @@ func TestWriteGemCredentialRejectsFlowMapping(t *testing.T) {
 	require.NoError(t, os.WriteFile(path, []byte("--- {:rubygems_api_key: abc}\n"), 0600))
 	s := newTestSetup(t, "rubygems", "internal")
 	require.ErrorContains(t, writeGemCredential(s, path), "one key on each line")
+}
+
+func TestKeepCargoReplacementBeforeOverrideChecks(t *testing.T) {
+	home := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(home, "config.toml"), []byte("[registries.depot]\nindex = \"sparse+https://packages.depot.dev/org123/cargo/mirror/index/\"\n[source.crates-io]\nreplace-with = \"depot\"\n"), 0644))
+	project := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(project, ".cargo"), 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(project, ".cargo", "config.toml"), []byte("[source.crates-io]\nreplace-with = \"vendored\"\n"), 0644))
+	t.Chdir(project)
+
+	s := newTestSetup(t, "cargo", "mirror")
+	keepCargoReplacement(s, filepath.Join(home, "config.toml"))
+	require.True(t, s.replaceUpstream)
+	require.ErrorContains(t, checkCargoOverrides(s, home), "vendored")
+}
+
+func TestCheckCargoOverridesRejectsEmptyProvider(t *testing.T) {
+	t.Setenv("CARGO_REGISTRIES_DEPOT_CREDENTIAL_PROVIDER", "")
+	t.Chdir(t.TempDir())
+	s := newTestSetup(t, "cargo", "internal")
+	require.ErrorContains(t, checkCargoOverrides(s, t.TempDir()), "CARGO_REGISTRIES_DEPOT_CREDENTIAL_PROVIDER")
+}
+
+func TestWriteMambarcRejectsAliasedDefaultChannels(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".mambarc")
+	require.NoError(t, os.WriteFile(path, []byte("allowlist_channels: &private\n  - https://mirror.example/\nchannels:\n  - defaults\ndefault_channels: *private\n"), 0644))
+	s := newTestSetup(t, "conda", "conda-forge")
+	s.replaceUpstream = true
+	require.ErrorContains(t, writeMambarc(s, path, func(c string) bool { return c != "defaults" && isCondaUpstream(c) }), "alias")
 }

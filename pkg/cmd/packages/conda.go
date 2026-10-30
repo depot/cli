@@ -51,12 +51,10 @@ func mambaUpstreamFilter(s *setup) func(string) bool {
 	}
 	aliased := config.ChannelAlias != "" && strings.TrimSuffix(config.ChannelAlias, "/") != "https://conda.anaconda.org"
 
-	return func(channel string) bool {
-		if !isCondaUpstream(channel) {
+	// isNamedUpstream classifies a channel other than defaults.
+	isNamedUpstream := func(channel string) bool {
+		if !isCondaUpstream(channel) || channel == "defaults" {
 			return false
-		}
-		if channel == "defaults" {
-			return !slices.ContainsFunc(config.DefaultChannels, func(c string) bool { return !isCondaUpstream(c) })
 		}
 		if strings.Contains(channel, "://") {
 			return true
@@ -65,6 +63,16 @@ func mambaUpstreamFilter(s *setup) func(string) bool {
 			return false
 		}
 		return !aliased
+	}
+
+	return func(channel string) bool {
+		if !isCondaUpstream(channel) {
+			return false
+		}
+		if channel == "defaults" {
+			return !slices.ContainsFunc(config.DefaultChannels, func(c string) bool { return !isNamedUpstream(c) })
+		}
+		return isNamedUpstream(channel)
 	}
 }
 
@@ -257,8 +265,11 @@ func writeMambarc(s *setup, path string, isUpstream func(string) bool) error {
 	if s.replaceUpstream {
 		var private []*yaml.Node
 		if defaults := yamlMappingValue(root, "default_channels"); defaults != nil {
+			if defaults.Kind == yaml.AliasNode {
+				return fmt.Errorf("could not update %s: default_channels is an alias, which setup can't edit: list the channels directly, then rerun this command", path)
+			}
 			for _, item := range defaults.Content {
-				if !isCondaUpstream(yamlScalarValue(item)) {
+				if !isUpstream(yamlScalarValue(item)) {
 					private = append(private, item)
 				} else if err := checkRemovableYAMLNode(path, item); err != nil {
 					return err

@@ -33,10 +33,15 @@ func npmUserConfigPath() (string, error) {
 	return filepath.Join(home, ".npmrc"), nil
 }
 
-// bunUserConfigPath returns the user file Bun reads. Bun doesn't read
-// NPM_CONFIG_USERCONFIG, and it prefers $XDG_CONFIG_HOME/.npmrc when that file
-// exists.
-func bunUserConfigPath() (string, error) {
+// bunUserConfigPath returns the user file Bun reads. Bun 1.4.4 and later read
+// NPM_CONFIG_USERCONFIG; otherwise Bun prefers $XDG_CONFIG_HOME/.npmrc when
+// that file exists.
+func bunUserConfigPath(s *setup) (string, error) {
+	if bunReadsUserConfigVariable(s) {
+		if path, err := npmUserConfigPath(); err == nil && (os.Getenv("NPM_CONFIG_USERCONFIG") != "" || os.Getenv("npm_config_userconfig") != "") {
+			return path, nil
+		}
+	}
 	if dir := os.Getenv("XDG_CONFIG_HOME"); dir != "" {
 		path := filepath.Join(dir, ".npmrc")
 		if _, err := os.Stat(path); err == nil {
@@ -48,6 +53,24 @@ func bunUserConfigPath() (string, error) {
 		return "", err
 	}
 	return filepath.Join(home, ".npmrc"), nil
+}
+
+var bunVersionPattern = regexp.MustCompile(`^([0-9]+)\.([0-9]+)\.([0-9]+)`)
+
+func bunReadsUserConfigVariable(s *setup) bool {
+	out, err := exec.CommandContext(s.ctx, "bun", "--version").Output()
+	if err != nil {
+		return false
+	}
+	match := bunVersionPattern.FindStringSubmatch(strings.TrimSpace(string(out)))
+	if match == nil {
+		return false
+	}
+	var version [3]int
+	for i := range version {
+		version[i], _ = strconv.Atoi(match[i+1])
+	}
+	return version[0] > 1 || (version[0] == 1 && (version[1] > 4 || (version[1] == 4 && version[2] >= 4)))
 }
 
 // expandHome replaces a leading ~ with the home directory, as npm does for
@@ -109,11 +132,10 @@ func writeNpmrc(s *setup, helper string, flagKeys ...string) error {
 		return fmt.Errorf("--scope and --auth-only can't be used together")
 	}
 
-	userConfigPath := npmUserConfigPath
+	path, err := npmUserConfigPath()
 	if s.clientName == "bun" {
-		userConfigPath = bunUserConfigPath
+		path, err = bunUserConfigPath(s)
 	}
-	path, err := userConfigPath()
 	if err != nil {
 		return err
 	}

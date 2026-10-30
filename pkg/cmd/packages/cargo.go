@@ -41,6 +41,7 @@ func configureCargo(s *setup) error {
 		return err
 	}
 
+	keepCargoReplacement(s, cargoFile(dir, "config"))
 	if err := checkCargoOverrides(s, dir); err != nil {
 		return err
 	}
@@ -66,14 +67,38 @@ func configureCargo(s *setup) error {
 	return writeCargoCredentials(s, cargoFile(dir, "credentials"))
 }
 
+// keepCargoReplacement keeps an earlier opt-in to crates.io replacement on a
+// rerun for the same repository, unless --replace-upstream=false is passed.
+// It runs before the override checks, so they check the replacement too. For
+// another repository the replacement is removed, because it would route
+// crates.io to that repository.
+func keepCargoReplacement(s *setup, path string) {
+	if s.replaceUpstream || s.replaceUpstreamExplicit {
+		return
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return
+	}
+	var values map[string]any
+	if toml.Unmarshal(data, &values) != nil {
+		return
+	}
+	replacement, _ := tomlLookup(values, "source", "crates-io", "replace-with")
+	index, _ := tomlLookup(values, "registries", cargoRegistryName, "index")
+	if replacement == cargoRegistryName && index == "sparse+"+s.repo.url()+"index/" {
+		s.replaceUpstream = true
+	}
+}
+
 // checkCargoOverrides rejects settings that take precedence over the Cargo
 // home configuration for the depot registry: environment variables and
 // project configuration files in the current directory and its parents.
 func checkCargoOverrides(s *setup, home string) error {
-	if os.Getenv("CARGO_REGISTRIES_DEPOT_CREDENTIAL_PROVIDER") != "" {
+	if _, ok := os.LookupEnv("CARGO_REGISTRIES_DEPOT_CREDENTIAL_PROVIDER"); ok {
 		return fmt.Errorf("CARGO_REGISTRIES_DEPOT_CREDENTIAL_PROVIDER is set, which overrides the credential provider setup configures: unset it, then rerun this command")
 	}
-	if s.store && os.Getenv("CARGO_REGISTRIES_DEPOT_TOKEN") != "" {
+	if _, ok := os.LookupEnv("CARGO_REGISTRIES_DEPOT_TOKEN"); ok && s.store {
 		return fmt.Errorf("CARGO_REGISTRIES_DEPOT_TOKEN is set, which overrides the token setup saves: unset it, then rerun this command")
 	}
 
@@ -237,16 +262,8 @@ func writeCargoConfig(s *setup, path string, provider []string) error {
 			return fmt.Errorf("%s already defines the %q registry with index %v: rename that registry, then rerun this command", path, cargoRegistryName, value)
 		}
 	}
-	// A rerun for the same repository keeps an earlier opt-in to crates.io
-	// replacement unless --replace-upstream=false is passed. For another
-	// repository the replacement is removed, because it would route
-	// crates.io to that repository.
-	if replacement, ok := tomlLookup(existing, "source", "crates-io", "replace-with"); ok && replacement == cargoRegistryName && !s.replaceUpstreamExplicit {
-		if previousIndex == index {
-			s.replaceUpstream = true
-		} else {
-			s.notef("Removed the crates.io replacement, because the %q registry now points to %s. Rerun with --replace-upstream if this repository includes crates.io.", cargoRegistryName, s.repo.url())
-		}
+	if replacement, ok := tomlLookup(existing, "source", "crates-io", "replace-with"); ok && replacement == cargoRegistryName && !s.replaceUpstream && previousIndex != index {
+		s.notef("Removed the crates.io replacement, because the %q registry now points to %s. Rerun with --replace-upstream if this repository includes crates.io.", cargoRegistryName, s.repo.url())
 	}
 	doc.removeTable("registries", cargoRegistryName)
 

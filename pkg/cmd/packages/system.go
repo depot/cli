@@ -15,15 +15,16 @@ import (
 	"github.com/cli/safeexec"
 )
 
-// systemWriteScript writes stdin to a file through a temporary file in the
-// same directory, so readers never see a partial file. It writes through a
+// systemWriteScript writes stdin to a file through a unique temporary file in
+// the same directory, so readers and concurrent writers never see a partial
+// file. It writes through a
 // symbolic link to its target, so a link to a managed file stays in place.
 const systemWriteScript = `set -e
 dest="$1"
 if [ -L "$dest" ]; then dest=$(readlink -f "$dest"); fi
 mkdir -p "$(dirname "$dest")"
-tmp="$dest.depot-tmp"
-umask 077
+tmp=$(mktemp "$dest.depot-tmp.XXXXXX")
+trap 'rm -f "$tmp"' EXIT
 cat > "$tmp"
 chmod "$2" "$tmp"
 mv -f "$tmp" "$dest"`
