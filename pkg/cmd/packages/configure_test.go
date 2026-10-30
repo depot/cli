@@ -966,3 +966,17 @@ func TestMambaFilterTreatsPublicCustomChannelAsUpstream(t *testing.T) {
 	require.True(t, isPublicCondaBase("https://conda.anaconda.org/"))
 	require.False(t, isPublicCondaBase("https://mirror.example/"))
 }
+
+func TestWriteNpmrcRemovesScopedToken(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".npmrc")
+	t.Setenv("NPM_CONFIG_USERCONFIG", path)
+	t.Chdir(t.TempDir())
+	require.NoError(t, os.WriteFile(path, []byte("//packages.depot.dev/org123/npm/internal/:@acme:_authToken=stale\n"), 0600))
+
+	s := newTestSetup(t, "npm", "internal")
+	s.opts.scope = "@acme"
+	require.NoError(t, writeNpmrc(s, ""))
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.NotContains(t, string(data), "stale")
+}

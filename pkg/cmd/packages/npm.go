@@ -221,6 +221,9 @@ func writeNpmrc(s *setup, helper string, flagKeys ...string) error {
 		checkYarnLockfile(s)
 	}
 	checkPublishConfig(s)
+	if s.opts.scope != "" {
+		rc.remove(s.repo.nerfDart() + ":" + s.opts.scope + ":_authToken")
+	}
 	if helper != "" {
 		rc.remove(tokenKey)
 		rc.set(helperKey, helper)
