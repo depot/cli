@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
@@ -110,7 +109,7 @@ func (s *setup) replaceApkKeyRecord(name string) error {
 		return err
 	}
 	old := strings.TrimSpace(string(previous))
-	if old != "" && old != name && apkKeyNamePattern.MatchString(old) && !apkKeyRecorded(old, record) {
+	if old != "" && old != name && apkKeyNamePattern.MatchString(old) && !s.apkKeyRecorded(old, record) {
 		if _, err := s.runPrivileged(nil, "rm", "-f", "/etc/apk/keys/"+old); err != nil {
 			return err
 		}
@@ -120,18 +119,15 @@ func (s *setup) replaceApkKeyRecord(name string) error {
 }
 
 // apkKeyRecorded reports whether another Depot repository's record still
-// names the key, in which case its repositories still need it.
-func apkKeyRecorded(name, except string) bool {
-	records, _ := filepath.Glob("/etc/apk/depot/*.key")
-	for _, record := range records {
-		if record == except {
-			continue
-		}
-		if data, err := os.ReadFile(record); err == nil && strings.TrimSpace(string(data)) == name {
-			return true
-		}
+// names the key, in which case its repositories still need it. It reads the
+// records with the same privileges as other system files, and reports true
+// when it can't read them, so that a key in use is never removed.
+func (s *setup) apkKeyRecorded(name, except string) bool {
+	out, err := s.runPrivileged(nil, "sh", "-c", `for f in /etc/apk/depot/*.key; do if [ -f "$f" ] && [ "$f" != "$1" ]; then cat "$f"; fi; done`, "sh", except)
+	if err != nil {
+		return true
 	}
-	return false
+	return slices.Contains(strings.Fields(string(out)), name)
 }
 
 // withoutApkRepository returns the repository lines without those for the
