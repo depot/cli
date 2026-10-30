@@ -212,7 +212,7 @@ func writeNpmrc(s *setup, helper string, flagKeys ...string) error {
 	if err := checkProjectNpmrc(path, managed, dirs); err != nil {
 		return err
 	}
-	if err := checkPnpmAuthFile(s, npmCredentialKeys(s)); err != nil {
+	if err := checkPnpmAuthFile(s, path, npmCredentialKeys(s)); err != nil {
 		return err
 	}
 	if err := checkPnpmWorkspaceRegistry(s); err != nil {
@@ -383,7 +383,7 @@ func checkProjectNpmrc(userPath string, keys map[string]string, dirs []string) e
 // checkPnpmAuthFile rejects a repository credential in pnpm's own auth.ini,
 // in the pnpm_config__auth environment variable, or in the _auth section of
 // its global config.yaml, all of which pnpm reads before the user .npmrc.
-func checkPnpmAuthFile(s *setup, keys []string) error {
+func checkPnpmAuthFile(s *setup, userPath string, keys []string) error {
 	if s.clientName != "pnpm" {
 		return nil
 	}
@@ -392,8 +392,10 @@ func checkPnpmAuthFile(s *setup, keys []string) error {
 		return nil
 	}
 
+	// The auth file can be the user .npmrc that setup writes, which isn't an
+	// override.
 	authPath := pnpmAuthFilePath(dir)
-	if data, err := os.ReadFile(authPath); err == nil {
+	if data, err := os.ReadFile(authPath); err == nil && !sameFile(authPath, userPath) {
 		rc := parseNpmrc(data)
 		for _, key := range keys {
 			if _, ok := rc.get(key); ok {

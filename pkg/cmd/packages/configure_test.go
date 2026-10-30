@@ -741,7 +741,7 @@ func TestCheckPnpmConfigYAMLAuth(t *testing.T) {
 
 	s := newTestSetup(t, "npm", "npmjs")
 	s.clientName = "pnpm"
-	require.ErrorContains(t, checkPnpmAuthFile(s, nil), "_auth")
+	require.ErrorContains(t, checkPnpmAuthFile(s, "", nil), "_auth")
 }
 
 func TestFileIDsDiffer(t *testing.T) {
@@ -760,7 +760,7 @@ func TestCheckPnpmAuthFile(t *testing.T) {
 
 	s := newTestSetup(t, "npm", "npmjs")
 	s.clientName = "pnpm"
-	require.ErrorContains(t, checkPnpmAuthFile(s, []string{s.repo.nerfDart() + ":_authToken"}), "pnpm config delete")
+	require.ErrorContains(t, checkPnpmAuthFile(s, "", []string{s.repo.nerfDart() + ":_authToken"}), "pnpm config delete")
 }
 
 func TestWriteMambarcResolvesAliases(t *testing.T) {
@@ -809,7 +809,7 @@ func TestCheckPnpmAuthEnvironment(t *testing.T) {
 
 	s := newTestSetup(t, "npm", "npmjs")
 	s.clientName = "pnpm"
-	require.ErrorContains(t, checkPnpmAuthFile(s, nil), "pnpm_config__auth")
+	require.ErrorContains(t, checkPnpmAuthFile(s, "", nil), "pnpm_config__auth")
 }
 
 func TestCheckCargoOverridesAllowsSelfIncludingHome(t *testing.T) {
@@ -959,7 +959,7 @@ func TestCheckPnpmScopedAuthKey(t *testing.T) {
 	s := newTestSetup(t, "npm", "internal")
 	s.clientName = "pnpm"
 	s.opts.scope = "@acme"
-	require.ErrorContains(t, checkPnpmAuthFile(s, npmCredentialKeys(s)), ":@acme:_authToken")
+	require.ErrorContains(t, checkPnpmAuthFile(s, "", npmCredentialKeys(s)), ":@acme:_authToken")
 }
 
 func TestMambaFilterTreatsPublicCustomChannelAsUpstream(t *testing.T) {
@@ -1078,4 +1078,15 @@ func TestCheckPnpmGlobalRegistry(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(project, "pnpm-workspace.yaml"), []byte("registry: https://packages.depot.dev/org123/npm/npmjs/\n"), 0644))
 	t.Chdir(project)
 	require.NoError(t, checkPnpmWorkspaceRegistry(s))
+}
+
+func TestCheckPnpmAuthFileSkipsUserNpmrc(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".npmrc")
+	require.NoError(t, os.WriteFile(path, []byte("//packages.depot.dev/org123/npm/npmjs/:_authToken=tok\n"), 0600))
+	t.Setenv("PNPM_CONFIG_NPMRC_AUTH_FILE", path)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+
+	s := newTestSetup(t, "npm", "npmjs")
+	s.clientName = "pnpm"
+	require.NoError(t, checkPnpmAuthFile(s, path, npmCredentialKeys(s)))
 }

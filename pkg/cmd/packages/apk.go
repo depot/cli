@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
@@ -99,21 +100,38 @@ func configureApk(s *setup) error {
 }
 
 // replaceApkKeyRecord records the key name installed for the repository and
-// removes the key that the previous setup installed, if its name changed, so
-// a retired signing key is no longer trusted.
+// removes the key that the previous setup installed, if its name changed and
+// no other Depot repository uses it, so a retired signing key is no longer
+// trusted.
 func (s *setup) replaceApkKeyRecord(name string) error {
 	record := "/etc/apk/depot/" + s.repo.fileID() + ".key"
 	previous, err := s.readSystemFile(record)
 	if err != nil {
 		return err
 	}
-	if old := strings.TrimSpace(string(previous)); old != "" && old != name && apkKeyNamePattern.MatchString(old) {
+	old := strings.TrimSpace(string(previous))
+	if old != "" && old != name && apkKeyNamePattern.MatchString(old) && !apkKeyRecorded(old, record) {
 		if _, err := s.runPrivileged(nil, "rm", "-f", "/etc/apk/keys/"+old); err != nil {
 			return err
 		}
 		s.notef("Removed the previous repository key %s.", old)
 	}
 	return s.writeSystemFile(record, []byte(name+"\n"), 0644)
+}
+
+// apkKeyRecorded reports whether another Depot repository's record still
+// names the key, in which case its repositories still need it.
+func apkKeyRecorded(name, except string) bool {
+	records, _ := filepath.Glob("/etc/apk/depot/*.key")
+	for _, record := range records {
+		if record == except {
+			continue
+		}
+		if data, err := os.ReadFile(record); err == nil && strings.TrimSpace(string(data)) == name {
+			return true
+		}
+	}
+	return false
 }
 
 // withoutApkRepository returns the repository lines without those for the
