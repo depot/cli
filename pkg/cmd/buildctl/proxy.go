@@ -14,14 +14,13 @@ import (
 
 	content "github.com/containerd/containerd/api/services/content/v1"
 	"github.com/containerd/containerd/api/services/leases/v1"
-	"github.com/containerd/containerd/defaults"
+	"github.com/containerd/containerd/v2/defaults"
+	"github.com/depot/cli/pkg/keepalive"
 	"github.com/depot/cli/pkg/progresshelper"
 	"github.com/docker/buildx/util/progress"
-	"github.com/gogo/protobuf/types"
 	control "github.com/moby/buildkit/api/services/control"
 	worker "github.com/moby/buildkit/api/types"
 	"github.com/moby/buildkit/client"
-	"github.com/moby/buildkit/depot"
 	gateway "github.com/moby/buildkit/frontend/gateway/pb"
 	"github.com/moby/buildkit/solver/pb"
 	trace "go.opentelemetry.io/proto/otlp/collector/trace/v1"
@@ -95,8 +94,8 @@ func Proxy(ctx context.Context, conn net.Conn, acquireState func() *ProxyState, 
 	}
 
 	opts := []grpc.ServerOption{
-		grpc.KeepaliveEnforcementPolicy(depot.LoadKeepaliveEnforcementPolicy()),
-		grpc.KeepaliveParams(depot.LoadKeepaliveServerParams()),
+		grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy()),
+		grpc.KeepaliveParams(keepalive.ServerParameters()),
 	}
 	server := grpc.NewServer(opts...)
 
@@ -358,7 +357,7 @@ func platformWorkerRecords(platform string) []*worker.WorkerRecord {
 	if platform == "amd64" {
 		return []*worker.WorkerRecord{
 			{
-				Platforms: []pb.Platform{
+				Platforms: []*pb.Platform{
 					{
 						Architecture: "amd64",
 						OS:           "linux",
@@ -388,7 +387,7 @@ func platformWorkerRecords(platform string) []*worker.WorkerRecord {
 	} else if platform == "arm64" {
 		return []*worker.WorkerRecord{
 			{
-				Platforms: []pb.Platform{
+				Platforms: []*pb.Platform{
 					{
 						Architecture: "arm64",
 						OS:           "linux",
@@ -547,8 +546,8 @@ func (p *GatewayProxy) Evaluate(ctx context.Context, in *gateway.EvaluateRequest
 // Turns out that this only matters for `gha` and `s3`.
 func (p *GatewayProxy) Ping(ctx context.Context, in *gateway.PingRequest) (*gateway.PongResponse, error) {
 	return &gateway.PongResponse{
-		FrontendAPICaps: gateway.Caps.All(),
-		LLBCaps:         pb.Caps.All(),
+		FrontendAPICaps: gatewayCapabilities,
+		LLBCaps:         llbCapabilities,
 		Workers:         platformWorkerRecords(p.platform),
 	}, nil
 }
@@ -667,6 +666,50 @@ func (p *GatewayProxy) Warn(ctx context.Context, in *gateway.WarnRequest) (*gate
 	return client.Warn(ctx, in)
 }
 
+// bridge returns the outgoing context and the gateway client of the builder.
+func (p *GatewayProxy) bridge(ctx context.Context) (context.Context, gateway.LLBBridgeClient, error) {
+	if md, ok := metadata.FromIncomingContext(ctx); ok {
+		ctx = metadata.NewOutgoingContext(ctx, md)
+	}
+	state := p.state()
+	if state.Err != nil {
+		return nil, nil, state.Err
+	}
+	return ctx, gateway.NewLLBBridgeClient(state.Conn), nil
+}
+
+func (p *GatewayProxy) ResolveSourceMeta(ctx context.Context, in *gateway.ResolveSourceMetaRequest) (*gateway.ResolveSourceMetaResponse, error) {
+	ctx, client, err := p.bridge(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return client.ResolveSourceMeta(ctx, in)
+}
+
+func (p *GatewayProxy) ReadFileContainer(ctx context.Context, in *gateway.ReadFileRequest) (*gateway.ReadFileResponse, error) {
+	ctx, client, err := p.bridge(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return client.ReadFileContainer(ctx, in)
+}
+
+func (p *GatewayProxy) ReadDirContainer(ctx context.Context, in *gateway.ReadDirRequest) (*gateway.ReadDirResponse, error) {
+	ctx, client, err := p.bridge(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return client.ReadDirContainer(ctx, in)
+}
+
+func (p *GatewayProxy) StatFileContainer(ctx context.Context, in *gateway.StatFileRequest) (*gateway.StatFileResponse, error) {
+	ctx, client, err := p.bridge(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return client.StatFileContainer(ctx, in)
+}
+
 type TracesProxy struct {
 	state func() *ProxyState
 	trace.UnimplementedTraceServiceServer
@@ -692,6 +735,7 @@ func (p *TracesProxy) Export(ctx context.Context, in *trace.ExportTraceServiceRe
 }
 
 type ContentProxy struct {
+	content.UnimplementedContentServer
 	state func() *ProxyState
 }
 
@@ -762,7 +806,7 @@ func (p *ContentProxy) List(in *content.ListContentRequest, toBuildx content.Con
 	return nil
 }
 
-func (p *ContentProxy) Delete(ctx context.Context, in *content.DeleteContentRequest) (*types.Empty, error) {
+func (p *ContentProxy) Delete(ctx context.Context, in *content.DeleteContentRequest) (*emptypb.Empty, error) {
 	md, ok := metadata.FromIncomingContext(ctx)
 	if ok {
 		ctx = metadata.NewOutgoingContext(ctx, md)
@@ -883,7 +927,7 @@ func (p *ContentProxy) Write(buildx content.Content_WriteServer) error {
 	return status.Errorf(codes.Internal, "unreachable")
 }
 
-func (p *ContentProxy) Abort(ctx context.Context, in *content.AbortRequest) (*types.Empty, error) {
+func (p *ContentProxy) Abort(ctx context.Context, in *content.AbortRequest) (*emptypb.Empty, error) {
 	md, ok := metadata.FromIncomingContext(ctx)
 	if ok {
 		ctx = metadata.NewOutgoingContext(ctx, md)
@@ -899,10 +943,11 @@ func (p *ContentProxy) Abort(ctx context.Context, in *content.AbortRequest) (*ty
 }
 
 type LeasesProxy struct {
+	leases.UnimplementedLeasesServer
 	state func() *ProxyState
 }
 
-func (p *LeasesProxy) Delete(ctx context.Context, in *leases.DeleteRequest) (*types.Empty, error) {
+func (p *LeasesProxy) Delete(ctx context.Context, in *leases.DeleteRequest) (*emptypb.Empty, error) {
 	md, ok := metadata.FromIncomingContext(ctx)
 	if ok {
 		ctx = metadata.NewOutgoingContext(ctx, md)
@@ -947,7 +992,7 @@ func (p *LeasesProxy) List(ctx context.Context, in *leases.ListRequest) (*leases
 	return client.List(ctx, in)
 }
 
-func (p *LeasesProxy) AddResource(ctx context.Context, in *leases.AddResourceRequest) (*types.Empty, error) {
+func (p *LeasesProxy) AddResource(ctx context.Context, in *leases.AddResourceRequest) (*emptypb.Empty, error) {
 	md, ok := metadata.FromIncomingContext(ctx)
 	if ok {
 		ctx = metadata.NewOutgoingContext(ctx, md)
@@ -962,7 +1007,7 @@ func (p *LeasesProxy) AddResource(ctx context.Context, in *leases.AddResourceReq
 	return client.AddResource(ctx, in)
 }
 
-func (p *LeasesProxy) DeleteResource(ctx context.Context, in *leases.DeleteResourceRequest) (*types.Empty, error) {
+func (p *LeasesProxy) DeleteResource(ctx context.Context, in *leases.DeleteResourceRequest) (*emptypb.Empty, error) {
 	md, ok := metadata.FromIncomingContext(ctx)
 	if ok {
 		ctx = metadata.NewOutgoingContext(ctx, md)

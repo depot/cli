@@ -8,6 +8,7 @@ import (
 	"net/http"
 
 	"charm.land/lipgloss/v2"
+	"github.com/depot/cli/pkg/runtoken"
 	"github.com/pkg/errors"
 )
 
@@ -34,7 +35,7 @@ func apiRequest[Response interface{}](method, url, token string, payload interfa
 		requestBody = nil
 	}
 
-	client := &http.Client{}
+	client := runtoken.WrapClient(&http.Client{})
 	req, err := http.NewRequest(method, url, requestBody)
 	if err != nil {
 		return nil, err

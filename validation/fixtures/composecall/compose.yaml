@@ -1,0 +1,10 @@
+services:
+  app:
+    build:
+      context: .
+      target: artifact
+    networks:
+      - backend
+
+networks:
+  backend: {}

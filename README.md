@@ -21,12 +21,17 @@ Official CLI for [Depot](https://depot.dev) - you can use the CLI to build Docke
       - [`depot build cancel`](#depot-build-cancel)
     - [`depot cache`](#depot-cache)
       - [`depot cache reset`](#depot-cache-reset)
+    - [`depot checks`](#depot-checks)
     - [`depot exec`](#depot-exec)
     - [`depot gocache`](#depot-gocache)
     - [`depot configure-docker`](#depot-configure-docker)
+    - [`depot jobs`](#depot-jobs)
+      - [`depot jobs metrics`](#depot-jobs-metrics)
+      - [`depot jobs analytics`](#depot-jobs-analytics)
     - [`depot list`](#depot-list)
       - [`depot list projects`](#depot-list-projects)
       - [`depot list builds`](#depot-list-builds)
+      - [`depot list jobs`](#depot-list-jobs)
     - [`depot projects`](#depot-projects)
       - [`depot projects create`](#depot-projects-create)
       - [`depot projects delete`](#depot-projects-delete)
@@ -35,6 +40,7 @@ Official CLI for [Depot](https://depot.dev) - you can use the CLI to build Docke
     - [`depot login`](#depot-login)
     - [`depot logout`](#depot-logout)
     - [`depot org`](#depot-org)
+      - [`depot org credits`](#depot-org-credits)
       - [`depot org list`](#depot-org-list)
       - [`depot org show`](#depot-org-show)
       - [`depot org switch`](#depot-org-switch)
@@ -307,6 +313,71 @@ Reset the cache of a specific project ID
 depot cache reset --project 12345678910
 ```
 
+### `depot checks`
+
+Manage Agent Checks and saved review agents. Requires Agent Checks access in the selected organization.
+
+```sh
+depot checks list --repo github:depot/api --outcome rejected
+depot checks get <check-id-or-attempt-id>
+depot checks attempts <check-id-or-attempt-id> -n 100 --output json
+depot checks run <agent-id> --repo github:depot/api --ref feature
+depot checks retry <check-id-or-attempt-id>
+depot checks transcript <check-id-or-attempt-id> --output json --output-file transcript.jsonl
+depot checks resolve <check-id-or-attempt-id> --finding 0
+depot checks unresolve <check-id-or-attempt-id> --all
+
+depot checks agents list
+depot checks agents get <agent-id>
+depot checks agents create --name Security --instructions-file review.md --repo github:depot/api
+depot checks agents update <agent-id> --model default
+depot checks agents models
+```
+
+A check ID selects its latest attempt; an attempt ID selects that execution. Results include both IDs, revision, state,
+outcome, summary, findings with original zero-based indexes, resolutions, and available execution details. JSON follows
+CI's snake_case convention: `run`/`retry` return `check_id` and `attempt_id`; `get` returns the selected attempt directly.
+Check lists return arrays of `{check_id, created_at, current_attempt}`; history returns an array of attempts.
+Resolve/unresolve return `{check_id, created_at, current_attempt}`. Each attempt includes structured `result` when its
+stored JSON is valid, plus the original `result_json` string when present. Agent reads/saves return the configuration
+directly (`agent_id`, `name`, `instructions`, `model_id`, `repos`, `events`); agent lists return an array of configurations.
+Models output includes `default_model_id` and `models`. Transcript `--output json` emits the exact JSONL archive;
+`--output jsonl` is an equivalent alias.
+
+List tables shorten long display names, repositories and branches, and show 12-character head SHAs. IDs remain complete;
+`get` and JSON retain full values. Transcript file exports confirm the destination and saved byte count on stderr after
+the file is saved successfully. API errors include the failed operation while preserving the underlying error status.
+
+`list` supports `--agent`, `--repo`, `--forge`, `--branch` (requires `--repo`), `--sha` (head or base prefix), `--outcome`, and
+`--query` (agent name, repository, branch, or SHA prefix). Outcomes are `running` (including queued), `done`, `passed`,
+`findings` (a passing review with advice), `rejected`, `resolved`, and `failed` (execution failure).
+`checks list`, `checks agents list`, and `checks attempts` use `-n` as a positive total result limit (default 50), matching CI run listing.
+The CLI follows API pages internally until that limit is reached or there are no more matches; no `--all` or `--page-token` is exposed.
+
+`checks list --repo owner/repo` matches that full name across forges. Add `--forge github`, `--forge origin`, or
+`--forge depot` to narrow the results, or use `--forge` alone to list checks from that forge.
+`cursor-origin` and `code` remain accepted aliases for `origin` and `depot`.
+Qualified repository selectors also work: `github:owner/repo`, `origin:owner/repo`, or `depot:name`
+(including the legacy `cursor-origin:owner/repo` and `code:name`). If `--forge` is also supplied, the forges must agree.
+`run` and agent create/update still require a qualified repository selector.
+`run` accepts `--ref` with an optional full `--commit-sha`, or `--head`, plus an optional `--base` for either mode.
+By default it reviews the default branch's HEAD against its first parent (or the empty tree for an initial commit).
+One-off runs do not change the agent's watched repositories. `retry` reuses the captured configuration and revisions,
+creates a new attempt under the same check, and only accepts checks whose current execution failed. An explicitly
+selected historical attempt cannot be retried or have its findings changed.
+
+Agent create/update supports `--name`, `--instructions` or `--instructions-file` (`-` reads stdin), `--model`, repeatable
+`--repo`, and repeatable `--event` (for example `github:opened`, `github:synchronize`, or `code:push`). Omitted update
+fields are preserved; supplied repositories/events replace that selection. Use `--clear-repos` to remove all watches,
+`--clear-events` to disable automatic checks, and `--model default` to follow the current default model. Creation defaults
+to no watched repositories and the supported events except `github:push`.
+
+Commands support `--org`, `--token` (or `DEPOT_TOKEN`), and `--output json`. Transcript output is readable text by default;
+`--output jsonl` preserves the original archived bytes. Archives are verified against their size and SHA-256 before
+output and are subject to availability and retention. There is no live transcript following or waiting option.
+Run/retry return both IDs immediately. Exit 0 means the operation succeeded, including inspecting failed/rejected checks;
+exit 1 means input, authentication/API, download, or output failure. Review outcomes are reported in the output.
+
 ### `depot exec`
 
 Execute a command with an injected BuildKit connection. This command launches a remote machine in Depot's infrastructure, establishes a connection to it, and makes this connection available to the specified command through an environment variable.
@@ -381,9 +452,88 @@ If you want to uninstall the plugin, you can specify the `--uninstall` flag.
 depot configure-docker --uninstall
 ```
 
+### `depot jobs`
+
+List GitHub Actions jobs run on Depot, newest first, or inspect one job by its GitHub job ID.
+This command is for Depot GitHub Actions runners; use `depot ci` for Depot CI executions.
+
+```shell
+depot jobs --repo acme/api --status finished --conclusion failure
+depot jobs 123456789 --repo acme/api --output json
+```
+
+Listings include job and workflow names, status, conclusion, runner label, execution duration,
+and queue time. Individual job details also include lifecycle timestamps, billable time,
+requested CPU and memory, and the GitHub URL. Requested resources describe runner capacity,
+not measured utilization. The API does not currently expose step timing breakdowns.
+
+Use `--org` to select an organization (otherwise the current organization is used).
+Authentication uses `--token`, `DEPOT_TOKEN`, or saved Depot credentials. Output defaults to a
+readable table in a terminal and JSON when piped. Explicit `--output json` never prompts for
+login. JSON follows the API's protobuf JSON format: field names use camelCase, enums use
+symbolic names, and 64-bit integers are strings to preserve precision.
+
+Filter listings with repeatable `--repo`, `--status`, `--conclusion`, and `--runner-label` flags.
+Use `--query` to search job/workflow names or exact numeric job/run IDs.
+A single-job lookup requires exactly one `--repo`; listing filters do not apply to it.
+
+#### `depot jobs metrics`
+
+Fetch CPU and memory utilization for one GitHub Actions job execution using its GitHub
+job ID and exactly one `--repo owner/name`. Use `depot jobs --repo owner/name` to find job IDs.
+Completed jobs return their execution metrics; running jobs return a snapshot that can grow
+on subsequent requests.
+
+```shell
+depot jobs metrics 123456789 --repo acme/api
+depot jobs metrics 123456789 --repo acme/api --org org_123 --output json
+```
+
+Uses the same authentication, organization selection, and `--output auto|table|json` behavior
+as `depot jobs`. Tables show job/runner context, snapshot time, availability and reason,
+observed timestamps, average/peak CPU and memory utilization, sample counts, and downsampling
+details. JSON includes the full API response with `job`, `availability`, `stats`, `cap`,
+`samples`, and `snapshotAt`. Samples are ordered by timestamp. CPU measures user-mode
+utilization averaged across cores; memory measures used memory as a fraction of total memory.
+Utilization is a fraction from 0 to 1 in JSON and a percentage in tables.
+
+Unavailable measurements are omitted from JSON's optional utilization fields and displayed
+as `n/a` in table summaries; measured zero remains zero. `availability` distinguishes available,
+partial, and unavailable telemetry and includes the API's reason. Availability describes the
+observed samples and does not guarantee coverage of the entire execution. Telemetry-store
+errors fail the command instead of returning an empty success response.
+
+The API limits execution windows to seven days and returns at most 5,000 samples. When samples
+are downsampled, `cap` reports the raw/returned counts, limit, and strategy. The `evenly_spaced`
+strategy retains the first and last samples but may omit intermediate peaks. Summary statistics
+are calculated by the API across all observed per-second samples before downsampling. This
+command has no time-range or pagination flags and does not expose per-step measurements.
+
+#### `depot jobs analytics`
+
+Show aggregate CPU and memory utilization (average and peak), average and p95 job duration,
+and failure rate by repository, workflow, and job. Groups are ordered by descending job count.
+These are metrics across job executions, not resource measurements for an individual job or step.
+Analytics may lag completed jobs by up to 15 minutes; `dataThrough` identifies data freshness.
+
+```shell
+depot jobs analytics --repo acme/api --job test --output json
+depot jobs analytics --start 2026-10-01T00:00:00Z --end 2026-10-08T00:00:00Z
+```
+
+Filter with repeatable `--repo`, `--workflow` (display name), `--workflow-path`, `--job`
+(workflow job key), and `--runner-label` flags. Table utilization and failure rates are
+percentages; JSON retains the API's fractions from 0 to 1. Durations are in seconds.
+
+Both listings and analytics default to the last 30 days. For an explicit time window, supply
+both `--start` (inclusive) and `--end` (exclusive) as RFC 3339 timestamps, at most 90 days apart.
+They return one page, with `--page-size` from 1 to 250 (default 50). To continue, pass the
+response's `nextPageToken` as `--page-token`, keeping all filters and the time range unchanged.
+Tables print the continuation token when another page is available.
+
 ### `depot list`
 
-Interact with Depot projects and builds.
+Interact with Depot projects, builds, and GitHub Actions jobs.
 
 #### `depot list projects`
 
@@ -428,6 +578,14 @@ Output builds in JSON for the project in the current directory.
 
 ```shell
 depot list builds --output json
+```
+
+#### `depot list jobs`
+
+List GitHub Actions jobs using the same flags and output as `depot jobs` without a job ID.
+
+```shell
+depot list jobs --repo acme/api --output json
 ```
 
 ### `depot projects`
@@ -591,6 +749,51 @@ depot logout
 ### `depot org`
 
 Manage Depot organizations. The `org` command consists of subcommands for each operation.
+
+#### `depot org credits`
+
+Show the organization's remaining posted Stripe invoice credits. This is the same
+balance shown on the billing page; unbilled usage and upcoming invoices are not
+deducted, and free-trial allowances and included plan minutes are excluded.
+
+Use an organization API token or a read-only organization token through
+`DEPOT_TOKEN`, `--token`, or the CLI configuration. A user token from `depot login`
+is not supported by this endpoint. The token determines the organization, so
+`depot org switch` does not change which balance is read and there is no `--org`
+flag. The command never prompts for login.
+
+```shell
+# With DEPOT_TOKEN set to an organization token:
+depot org credits
+depot org credits --output json
+```
+
+Default output uses the currency's decimal places without rounding the balance:
+
+```text
+Remaining credits: USD 125.00
+Observed at: 2026-10-27T12:00:00Z
+```
+
+JSON output preserves the API's exact minor-unit amount as a string, including
+`"0"` when credit is exhausted:
+
+```json
+{
+  "remainingCreditMinor": "12500",
+  "currency": "USD",
+  "observedAt": "2026-10-27T12:00:00Z"
+}
+```
+
+For USD, `12500` means $125.00. The timestamp records when the provider balance
+was read, not when usage was last processed.
+
+Each invocation reads the API once. Reads are limited to one per organization
+per minute across all tokens and ten per ten seconds across the API fleet.
+Excess polls exit with an error containing the server's retry delay. The command
+does not retry automatically or cache balances. Poll hourly for most credit
+alerts, and handle failed commands separately from a successful zero balance.
 
 #### `depot org list`
 

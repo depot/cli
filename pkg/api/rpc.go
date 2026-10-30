@@ -12,9 +12,11 @@ import (
 	"connectrpc.com/connect"
 	"github.com/depot/cli/pkg/proto/depot/agent/v1/agentv1connect"
 	"github.com/depot/cli/pkg/proto/depot/build/v1/buildv1connect"
+	"github.com/depot/cli/pkg/proto/depot/checks/v1/checksv1connect"
 	"github.com/depot/cli/pkg/proto/depot/ci/v1/civ1connect"
 	"github.com/depot/cli/pkg/proto/depot/cli/v1/cliv1connect"
 	"github.com/depot/cli/pkg/proto/depot/cli/v1beta1/cliv1beta1connect"
+	"github.com/depot/cli/pkg/runtoken"
 	"golang.org/x/net/http2"
 )
 
@@ -36,6 +38,10 @@ func NewProjectsClient() cliv1beta1connect.ProjectsServiceClient {
 
 func NewOrganizationsClient() corev1connect.OrganizationServiceClient {
 	return corev1connect.NewOrganizationServiceClient(getHTTPClient(getBaseURL()), getBaseURL(), WithUserAgent())
+}
+
+func NewCreditClient() corev1connect.CreditServiceClient {
+	return corev1connect.NewCreditServiceClient(getHTTPClient(getBaseURL()), getBaseURL(), WithUserAgent())
 }
 
 func NewSDKProjectsClient() corev1connect.ProjectServiceClient {
@@ -79,6 +85,14 @@ func NewMigrationClient() civ1connect.MigrationServiceClient {
 	return civ1connect.NewMigrationServiceClient(getHTTPClient(getBaseURL()), getBaseURL(), WithUserAgent())
 }
 
+func NewCheckClient() checksv1connect.CheckServiceClient {
+	return checksv1connect.NewCheckServiceClient(getHTTPClient(getBaseURL()), getBaseURL(), WithUserAgent())
+}
+
+func NewReviewAgentClient() checksv1connect.ReviewAgentServiceClient {
+	return checksv1connect.NewReviewAgentServiceClient(getHTTPClient(getBaseURL()), getBaseURL(), WithUserAgent())
+}
+
 func WithAuthentication[T any](req *connect.Request[T], token string) *connect.Request[T] {
 	req.Header().Add("Authorization", "Bearer "+token)
 	return req
@@ -97,19 +111,19 @@ func WithAuthenticationAndOrg[T any](req *connect.Request[T], token, orgID strin
 func getHTTPClient(baseURL string) *http.Client {
 	if strings.HasPrefix(baseURL, "http://") {
 		// Configure h2c (HTTP/2 over cleartext) for non-TLS connections
-		return &http.Client{
+		return runtoken.WrapClient(&http.Client{
 			Transport: &http2.Transport{
 				AllowHTTP: true,
 				DialTLS: func(network, addr string, _ *tls.Config) (net.Conn, error) {
 					return net.Dial(network, addr)
 				},
 			},
-		}
+		})
 	}
 
 	t, ok := http.DefaultTransport.(*http.Transport)
 	if !ok {
-		return http.DefaultClient
+		return runtoken.WrapClient(http.DefaultClient)
 	}
 
 	transport := t.Clone()
@@ -122,7 +136,7 @@ func getHTTPClient(baseURL string) *http.Client {
 		Transport: transport,
 	}
 
-	return racingClient
+	return runtoken.WrapClient(racingClient)
 }
 
 func getBaseURL() string {
@@ -139,4 +153,8 @@ func getExecBaseURL() string {
 		baseURL = "https://exec.depot.dev"
 	}
 	return baseURL
+}
+
+func NewDepotAgentLaunchClient() agentv1connect.DepotAgentLaunchServiceClient {
+	return agentv1connect.NewDepotAgentLaunchServiceClient(getHTTPClient(getBaseURL()), getBaseURL(), WithUserAgent())
 }

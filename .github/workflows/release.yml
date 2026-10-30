@@ -71,7 +71,7 @@ jobs:
 
       - uses: actions/setup-go@v7
         with:
-          go-version: "1.25.14"
+          go-version: "1.26.10"
           check-latest: true
           cache: true
 
@@ -98,9 +98,23 @@ jobs:
           role-to-assume: arn:aws:iam::375021575472:role/github-actions
           aws-region: us-east-1
 
+      # Without an explicit --tag, npm points `latest` at whatever was published
+      # last, so prereleases go to `next`. Decide from the git tag: every npm
+      # version is 0.0.1-cli.<tag>, which npm already counts as a prerelease.
       - name: Compute tag name
         id: tag-name
-        run: echo "tag-name=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+        env:
+          RELEASE_PRERELEASE: ${{ github.event.release.prerelease }}
+        run: |
+          tag_name="${GITHUB_REF#refs/tags/}"
+          npm_dist_tag=latest
+          if [[ "$tag_name" == *-* || "$RELEASE_PRERELEASE" == "true" ]]; then
+            npm_dist_tag=next
+          fi
+          {
+            echo "tag-name=$tag_name"
+            echo "npm-dist-tag=$npm_dist_tag"
+          } >> "$GITHUB_OUTPUT"
 
       - uses: goreleaser/goreleaser-action@v7
         with:
@@ -116,5 +130,7 @@ jobs:
           DEPOT_CLI_VERSION: ${{ steps.tag-name.outputs.tag-name }}
 
       - name: Release npm packages
-        run: pnpm publish -r --access public --no-git-checks
+        run: pnpm publish -r --access public --no-git-checks --tag "$NPM_DIST_TAG"
         working-directory: npm
+        env:
+          NPM_DIST_TAG: ${{ steps.tag-name.outputs.npm-dist-tag }}

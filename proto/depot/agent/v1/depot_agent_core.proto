@@ -1,0 +1,440 @@
+syntax = "proto3";
+
+package depot.agent.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// Runs Depot's own coding agent. A session is a durable conversation: Depot stores everything the
+// agent has done, so the sandbox running it can be replaced at any time and the session continues
+// where it stopped. Every method requires the managed agents feature for the organization.
+service DepotAgentService {
+  // Creates a session and queues its first message. A sandbox starts for it within a minute.
+  rpc CreateSession(CreateSessionRequest) returns (CreateSessionResponse);
+  // Queues a message for a session. A retry with the same `clientRequestId` returns the original, unless the
+  // Depot agent was disconnected for the organization in between: then it fails like every other method.
+  rpc SendInput(SendInputRequest) returns (SendInputResponse);
+  // Returns a session and the latest view of its conversation.
+  rpc GetSession(GetSessionRequest) returns (GetSessionResponse);
+  // Lists the organization's sessions, newest first.
+  rpc ListDepotAgentSessions(ListDepotAgentSessionsRequest) returns (ListDepotAgentSessionsResponse);
+  // Streams the session's view each time it changes.
+  rpc WatchSession(WatchSessionRequest) returns (stream WatchSessionResponse);
+  // Queues an interrupt, which stops whatever the agent is doing before it reads further messages.
+  rpc InterruptSession(InterruptSessionRequest) returns (InterruptSessionResponse);
+  // Archives a session. Its pending messages are cancelled and it never runs again.
+  rpc ArchiveSession(ArchiveSessionRequest) returns (ArchiveSessionResponse);
+  // Starts a new session from a copy of another one's conversation, either as it is now or as it was
+  // when one of its messages was answered. The original is left unchanged and can still be archived.
+  rpc ForkSession(ForkSessionRequest) returns (ForkSessionResponse);
+}
+
+// Called only by the agent running inside a session's sandbox. Each call authenticates with the
+// sandbox's own identity token for the "depot-agent-harness" audience. Every write carries the
+// `lease` returned by `OpenLease`; a write under an older lease fails with FAILED_PRECONDITION, and
+// the caller must stop, because a newer sandbox now owns the session.
+service DepotAgentHarnessService {
+  // Takes ownership of the session, fencing out any earlier sandbox, and returns what loading its state needs.
+  rpc OpenLease(OpenLeaseRequest) returns (OpenLeaseResponse);
+  // Returns the session's pending messages, oldest first.
+  rpc PullInputs(PullInputsRequest) returns (PullInputsResponse);
+  // Marks messages submitted. Call only after the commit that submits them is stored.
+  rpc AckInputs(AckInputsRequest) returns (AckInputsResponse);
+  // Replaces the session's view and reports its state.
+  rpc PushView(PushViewRequest) returns (PushViewResponse);
+  // Stores one commit's writes as rows. Fails with FAILED_PRECONDITION unless `seq` follows the last
+  // stored commit; resending the last stored commit's exact writes succeeds without storing them twice.
+  rpc CommitWrites(CommitWritesRequest) returns (CommitWritesResponse);
+  // Reads the session's stored rows a page at a time, for a new sandbox to rebuild its state from.
+  rpc LoadState(LoadStateRequest) returns (LoadStateResponse);
+  // Records how the sandbox's run went as it ends. A failed run's failure message repeats it.
+  rpc ReportOutcome(ReportOutcomeRequest) returns (ReportOutcomeResponse);
+  // Records how long the sandbox's phases and turns took, for Depot's tracing. Best effort: a timing
+  // with an unknown phase is dropped, an unknown label or count is left out of the span, and the agent
+  // never waits on the result.
+  rpc RecordTimings(RecordTimingsRequest) returns (RecordTimingsResponse);
+}
+
+// A session, as a harness call names it.
+message DepotAgentSessionRef {
+  // Unique identifier for the session the sandbox was started for.
+  string session_id = 1;
+}
+
+// A held lease on a session, as every harness call after `OpenLease` names it.
+message DepotAgentLeaseRef {
+  // Unique identifier for the session the sandbox was started for.
+  string session_id = 1;
+  // Fencing token returned by `OpenLease`.
+  uint32 epoch = 2;
+}
+
+message DepotAgentModel {
+  // Model provider. Default: "amazon-bedrock".
+  string provider = 1;
+  // Model at that provider. Default: Depot's current default coding model.
+  string model_id = 2;
+  // Reasoning effort. Can be "off", "minimal", "low", "medium", "high", "xhigh", or "max". Leave unset for the
+  // model's own default.
+  optional string thinking = 3;
+  // An array of models to try in order when the model fails before its first output: rate limited, unavailable,
+  // refused credential, or a server error. Each must be a model a connected provider offers, or Depot's own.
+  // Maximum: 4.
+  repeated DepotAgentModelRef fallbacks = 4;
+}
+
+message DepotAgentModelRef {
+  // Model provider, as in `DepotAgentModel.provider`.
+  string provider = 1;
+  // Model at that provider.
+  string model_id = 2;
+}
+
+message DepotAgentSession {
+  // Unique identifier for the session. Returned by `CreateSession` and `ListDepotAgentSessions`.
+  string session_id = 1;
+  // Human-readable name shown in the Depot app.
+  string title = 2;
+  // Model the agent runs on.
+  DepotAgentModel model = 3;
+  reserved 4, 5;
+  reserved "repo_url", "ref";
+  // Current state of the session. Can be "idle", "running", "waiting_input", "failed", or "archived".
+  string status = 6;
+  google.protobuf.Timestamp created_at = 7;
+  google.protobuf.Timestamp updated_at = 8;
+  // Empty unless the session is archived.
+  optional google.protobuf.Timestamp archived_at = 9;
+  // Unique identifier for the Depot user who started the session. Empty for a session started by a
+  // trigger, from Slack, or with an organization token.
+  optional string created_by_user_id = 10;
+  // Session this one was forked from. Empty for a session that was not started with `ForkSession`.
+  optional string forked_from_session_id = 11;
+  // Message of `forkedFromSessionId` the fork was taken at. Empty for a fork of the session's latest state.
+  optional string forked_from_input_id = 12;
+}
+
+// Who wrote a message.
+message InputAuthor {
+  oneof kind {
+    // Unique identifier for the Depot user who sent the message.
+    string depot_user_id = 1;
+    // Someone outside Depot, such as a Slack user.
+    ExternalAuthor external = 2;
+  }
+}
+
+message ExternalAuthor {
+  // Service the author wrote from. For example, "slack".
+  string provider = 1;
+  // Unique identifier for the author's workspace at that service.
+  string team_id = 2;
+  // Unique identifier for the author at that service.
+  string user_id = 3;
+  // Author's name at that service, as it was when they sent the message.
+  string display_name = 4;
+}
+
+// Who a message is shown as coming from.
+message InputSender {
+  // Kind of sender. For example, "user", "slack", "trigger", or "api".
+  string kind = 1;
+  // Sender's name: a Depot user's or Slack user's display name, the trigger's name, or "api" for a
+  // message sent with an organization token.
+  string name = 2;
+}
+
+message DepotAgentInput {
+  // Unique identifier for the message. Returned by `CreateSession`, `SendInput`, and `PullInputs`.
+  string input_id = 1;
+  // Message text.
+  string content = 2;
+  // How the agent receives the message. For example, "followup", "steer", or "interrupt".
+  string mode = 3;
+  // Current state of the message. Can be "pending", "submitted", or "cancelled".
+  string status = 4;
+  google.protobuf.Timestamp created_at = 5;
+  // Who wrote the message. Empty for a message from a trigger or an organization token.
+  InputAuthor author = 6;
+  // Who the message is shown as coming from. The agent sees the same name before the message.
+  InputSender sender = 7;
+  // What each feature adds to the message, by feature name. Set only by `PullInputs`.
+  map<string, bytes> contributions = 8;
+}
+
+message CreateSessionRequest {
+  // Human-readable name shown in the Depot app. Default: the first line of `message`.
+  string title = 1;
+  // Model the agent runs on. Default: Depot's current default coding model.
+  optional DepotAgentModel model = 2;
+  reserved 3, 4;
+  reserved "repo_url", "ref";
+  // First message to the agent. Required.
+  string message = 5;
+  // Key that makes a retry return the original session and first message instead of creating a second session.
+  // Unique per organization.
+  optional string client_request_id = 6;
+  // What each feature adds to the new session, by feature name.
+  map<string, bytes> contributions = 7;
+}
+
+message CreateSessionResponse {
+  DepotAgentSession session = 1;
+  // The queued first message.
+  DepotAgentInput input = 2;
+}
+
+message SendInputRequest {
+  // Unique identifier for the session. Returned by `CreateSession` and `ListDepotAgentSessions`.
+  string session_id = 1;
+  // Message text. Required.
+  string content = 2;
+  // How the agent receives the message. Can be "followup", which waits for the current turn,
+  // "steer", which reaches the agent mid-turn, or "subagent", which goes to one subagent named in the
+  // `subagents` contribution. Use `InterruptSession` to interrupt. Default: "followup".
+  optional string mode = 3;
+  // Key that makes a retry return the original message instead of queuing a second one. Unique per session.
+  optional string client_request_id = 4;
+  // What each feature adds to the message, by feature name.
+  map<string, bytes> contributions = 5;
+}
+
+message SendInputResponse {
+  DepotAgentInput input = 1;
+}
+
+message GetSessionRequest {
+  // Unique identifier for the session. Returned by `CreateSession` and `ListDepotAgentSessions`.
+  string session_id = 1;
+  // What to ask each feature for, by feature name.
+  map<string, bytes> contributions = 2;
+}
+
+message GetSessionResponse {
+  DepotAgentSession session = 1;
+  // JSON view of the conversation. Empty until the agent first reports one.
+  string view_json = 2;
+  // The last commit the view reflects. The view can change without it moving; WatchSession's `cursor` sees each change.
+  uint64 view_seq = 3;
+  // What each feature adds to the session, by feature name.
+  map<string, bytes> contributions = 4;
+}
+
+message ListDepotAgentSessionsRequest {
+  // Number of sessions to return per page. Maximum: 100. Default: 50.
+  optional int32 page_size = 1;
+  // Token to fetch the next page. Leave empty to fetch the first page.
+  optional string page_token = 2;
+}
+
+message ListDepotAgentSessionsResponse {
+  repeated DepotAgentSession sessions = 1;
+  // Token to fetch the next page. Empty on the last page.
+  optional string next_page_token = 2;
+}
+
+message WatchSessionRequest {
+  // Unique identifier for the session. Returned by `CreateSession` and `ListDepotAgentSessions`.
+  string session_id = 1;
+  // Send only views newer than this `viewSeq`. Default: 0, which sends the current view first.
+  optional uint64 after_seq = 2;
+  // `cursor` from the last response received. Takes precedence over `afterSeq`. The current view is sent
+  // first only if the view or the status has moved since that response, so a reconnect misses nothing.
+  optional string after_cursor = 3;
+  // What to ask each feature for, by feature name.
+  map<string, bytes> contributions = 4;
+}
+
+message WatchSessionResponse {
+  DepotAgentSession session = 1;
+  // JSON view of the conversation.
+  string view_json = 2;
+  // The last commit the view reflects. The view can change without it moving; `cursor` moves with every change.
+  uint64 view_seq = 3;
+  // Send it back as `afterCursor` to resume the watch from this response.
+  string cursor = 4;
+  // What each feature adds to the session, by feature name.
+  map<string, bytes> contributions = 5;
+}
+
+message InterruptSessionRequest {
+  // Unique identifier for the session. Returned by `CreateSession` and `ListDepotAgentSessions`.
+  string session_id = 1;
+}
+
+message InterruptSessionResponse {
+  // The queued interrupt.
+  DepotAgentInput input = 1;
+}
+
+message ArchiveSessionRequest {
+  // Unique identifier for the session. Returned by `CreateSession` and `ListDepotAgentSessions`.
+  string session_id = 1;
+}
+
+message ArchiveSessionResponse {
+  DepotAgentSession session = 1;
+}
+
+message OpenLeaseRequest {
+  DepotAgentSessionRef session = 1;
+}
+
+message OpenLeaseResponse {
+  // Lease to send with every later call from this sandbox.
+  DepotAgentLeaseRef lease = 1;
+  // Sequence number of the last stored commit. `LoadState` must reach this one. 0 for a new session.
+  uint64 last_seq = 2;
+  DepotAgentSession session = 3;
+  // What each feature adds to the lease, by feature name.
+  map<string, bytes> contributions = 4;
+}
+
+message PullInputsRequest {
+  DepotAgentLeaseRef lease = 1;
+  // What each feature the harness runs adds to the pull, by feature name. A feature that needs its entry stops
+  // the pull before the first message the harness cannot run without it.
+  map<string, bytes> contributions = 2;
+}
+
+message PullInputsResponse {
+  // Pending messages, oldest first.
+  repeated DepotAgentInput inputs = 1;
+  // What each feature adds to this pull, by feature name.
+  map<string, bytes> contributions = 2;
+}
+
+message AckInputsRequest {
+  DepotAgentLeaseRef lease = 1;
+  // An array of message IDs to mark submitted. Returned by `PullInputs`.
+  repeated string input_ids = 2;
+}
+
+message AckInputsResponse {}
+
+message PushViewRequest {
+  DepotAgentLeaseRef lease = 1;
+  // Sequence number of the last commit the view reflects.
+  uint64 seq = 2;
+  // JSON view of the conversation.
+  string view_json = 3;
+  // Current state of the session. Can be "idle", "running", or "waiting_input".
+  string status = 4;
+  map<string, bytes> contributions = 5;
+  // What this harness sends as `PullInputsRequest.contributions`, so the reply counts as pending only inputs it can run.
+  map<string, bytes> pull_contributions = 6;
+}
+
+message PushViewResponse {
+  // True when messages are pending, so an idle agent knows to pull them before it exits.
+  bool has_pending_inputs = 1;
+  map<string, bytes> contributions = 2;
+}
+
+message CommitWritesRequest {
+  DepotAgentLeaseRef lease = 1;
+  // Sequence number of the commit. Must be exactly one more than the last stored commit.
+  uint64 seq = 2;
+  // Gzipped JSON array of the commit's writes.
+  bytes writes = 3;
+}
+
+message CommitWritesResponse {
+  // Sequence number of the last stored commit.
+  uint64 last_seq = 1;
+}
+
+message LoadStateRequest {
+  DepotAgentLeaseRef lease = 1;
+  // Where to continue from. Returned by the previous `LoadState`. Leave empty for the first page.
+  string cursor = 2;
+  // Whether to leave out what the session's live conversations no longer read: entries before their latest head
+  // marker, and terminal tasks older than that. Every page of one load must send the same value.
+  bool recent = 3;
+}
+
+message LoadStateResponse {
+  // Sequence number of the last stored commit.
+  uint64 last_seq = 1;
+  // Gzipped JSON array of stored rows.
+  bytes rows = 2;
+  // Where the next page starts. Empty when this is the last page.
+  string next_cursor = 3;
+  // For a recent load, every conversation with the lowest entry ID loaded for it. Empty for a full load.
+  repeated LoadStateEntryFloor entry_floors = 4;
+  // For a recent load, terminal tasks with a lower ID were left out.
+  uint64 task_floor = 5;
+  // For a recent load, one past the highest ID the session has used, loaded or not. Zero for a full load.
+  uint64 next_id = 6;
+}
+
+message LoadStateEntryFloor {
+  // Unique identifier for the conversation.
+  uint64 conversation_id = 1;
+  // Lowest entry ID loaded for the conversation. Unset when all of its entries were left out.
+  optional uint64 from_entry_id = 2;
+}
+
+message ReportOutcomeRequest {
+  // Lease returned by `OpenLease`. A run whose lease was taken over still reports with it.
+  DepotAgentLeaseRef lease = 1;
+  // How the run ended. Can be "idle", "drained", "fenced", or "failed".
+  string outcome = 2;
+  // Why the run failed. Empty unless `outcome` is "failed" or "fenced".
+  optional string error = 3;
+  // What else the run reports about how it went, by name. For example, "setupExit" or "restore".
+  map<string, string> details = 4;
+}
+
+message ReportOutcomeResponse {}
+
+message RecordTimingsRequest {
+  // Lease returned by `OpenLease`. A run whose lease was taken over still reports with it.
+  DepotAgentLeaseRef lease = 1;
+  // An array of timings, oldest first. Timings past the first 256 are dropped.
+  repeated DepotAgentTiming timings = 2;
+}
+
+message DepotAgentTiming {
+  // What was timed. For example, "workspace_restore", "lease_load", or "turn".
+  string phase = 1;
+  // When it started, in milliseconds since the Unix epoch.
+  double start_ms = 2;
+  // How long it took, in milliseconds.
+  double duration_ms = 3;
+  // Unique identifier for the message whose turn this is. Empty outside a turn.
+  string turn_id = 4;
+  // One of the phase's fixed labels, such as a snapshot's reason. Leave empty when the phase has none.
+  string label = 5;
+  // Whether it failed.
+  bool failed = 6;
+  // Counts the phase reports, by name. For example, "bytes" or "output_tokens".
+  map<string, double> counts = 7;
+}
+
+message RecordTimingsResponse {}
+
+message ForkSessionRequest {
+  // Unique identifier for the session to fork. Returned by `CreateSession` and `ListDepotAgentSessions`.
+  string session_id = 1;
+  // Message to fork at: the new session has the conversation up to and including the agent's answer to it, or
+  // its failure to answer, and none of the messages after it. Fails with FAILED_PRECONDITION while that message
+  // is still waiting or being answered. Leave unset to fork the session as it is now; that also fails with
+  // FAILED_PRECONDITION while a turn is in progress, so retry once it ends. Messages still waiting stay with the
+  // original session alone. Returned by `CreateSession` and `SendInput`.
+  optional string at_input_id = 2;
+  // First message to the new session. Leave unset to start it with no new message.
+  optional string message = 3;
+  // Human-readable name shown in the Depot app. Default: the forked session's title.
+  optional string title = 4;
+  // Key that makes a retry return the original fork instead of creating a second session. Unique per
+  // organization.
+  optional string client_request_id = 5;
+  // What each feature adds to the new session, by feature name.
+  map<string, bytes> contributions = 6;
+}
+
+message ForkSessionResponse {
+  DepotAgentSession session = 1;
+  // The queued first message. Empty when the request had no `message`.
+  optional DepotAgentInput input = 2;
+}

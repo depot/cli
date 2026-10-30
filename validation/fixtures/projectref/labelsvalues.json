@@ -1,0 +1,26 @@
+{
+  "variable": {
+    "LABELS": {
+      "default": {
+        "foo": "bar"
+      }
+    }
+  },
+  "target": {
+    "variablelabels": {
+      "project_id": "vtproject-variable",
+      "target": "artifact",
+      "labels": "${LABELS}"
+    },
+    "nulllabels": {
+      "project_id": "vtproject-null",
+      "target": "artifact",
+      "labels": null
+    }
+  },
+  "group": {
+    "values": {
+      "targets": ["variablelabels", "nulllabels"]
+    }
+  }
+}
