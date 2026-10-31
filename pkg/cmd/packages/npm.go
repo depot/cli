@@ -1,6 +1,7 @@
 package packages
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"maps"
@@ -33,21 +34,45 @@ func npmUserConfigPath() (string, error) {
 	return filepath.Join(home, ".npmrc"), nil
 }
 
-var pnpmVersionPattern = regexp.MustCompile(`^([0-9]+)\.`)
+var clientVersionPattern = regexp.MustCompile(`^v?([0-9]+)\.([0-9]+)\.([0-9]+)`)
+
+func clientVersion(ctx context.Context, name string) ([3]int, error) {
+	var version [3]int
+	out, err := exec.CommandContext(ctx, name, "--version").Output()
+	if err != nil {
+		return version, err
+	}
+	match := clientVersionPattern.FindStringSubmatch(strings.TrimSpace(string(out)))
+	if match == nil {
+		return version, fmt.Errorf("%s --version printed an unrecognized version", name)
+	}
+	for i := range version {
+		version[i], _ = strconv.Atoi(match[i+1])
+	}
+	return version, nil
+}
+
+func versionAtLeast(version, minimum [3]int) bool {
+	return slices.Compare(version[:], minimum[:]) >= 0
+}
+
+// pnpmVersionAtLeast compares the installed pnpm version. When the version
+// can't be read, it assumes pnpm 11.0.0.
+func (s *setup) pnpmVersionAtLeast(minimum [3]int) bool {
+	if s.pnpmVersion == ([3]int{}) {
+		version, err := clientVersion(s.ctx, "pnpm")
+		if err != nil {
+			version = [3]int{11, 0, 0}
+		}
+		s.pnpmVersion = version
+	}
+	return versionAtLeast(s.pnpmVersion, minimum)
+}
 
 // pnpmReadsPnpmConfigEnv reports whether pnpm reads pnpm_config_ environment
-// variables, which pnpm 11 introduced. When the version can't be read, it
-// assumes a current pnpm.
+// variables, which pnpm 11 introduced.
 func (s *setup) pnpmReadsPnpmConfigEnv() bool {
-	if s.pnpmMajor == 0 {
-		s.pnpmMajor = 11
-		if out, err := exec.CommandContext(s.ctx, "pnpm", "--version").Output(); err == nil {
-			if match := pnpmVersionPattern.FindStringSubmatch(strings.TrimSpace(string(out))); match != nil {
-				s.pnpmMajor, _ = strconv.Atoi(match[1])
-			}
-		}
-	}
-	return s.pnpmMajor >= 11
+	return s.pnpmVersionAtLeast([3]int{11, 0, 0})
 }
 
 // pnpmUserConfigPath returns the user file pnpm 11 and later read:
@@ -69,9 +94,13 @@ func pnpmUserConfigPath() (string, error) {
 // NPM_CONFIG_USERCONFIG; otherwise Bun prefers $XDG_CONFIG_HOME/.npmrc when
 // that file exists.
 func bunUserConfigPath(s *setup) (string, error) {
-	if bunReadsUserConfigVariable(s) {
-		if path, err := npmUserConfigPath(); err == nil && (os.Getenv("NPM_CONFIG_USERCONFIG") != "" || os.Getenv("npm_config_userconfig") != "") {
-			return path, nil
+	if os.Getenv("NPM_CONFIG_USERCONFIG") != "" || os.Getenv("npm_config_userconfig") != "" {
+		version, err := clientVersion(s.ctx, "bun")
+		if err != nil {
+			return "", fmt.Errorf("could not read the Bun version, which decides whether Bun reads NPM_CONFIG_USERCONFIG: %w", err)
+		}
+		if versionAtLeast(version, [3]int{1, 4, 4}) {
+			return npmUserConfigPath()
 		}
 	}
 	if dir := os.Getenv("XDG_CONFIG_HOME"); dir != "" {
@@ -85,24 +114,6 @@ func bunUserConfigPath(s *setup) (string, error) {
 		return "", err
 	}
 	return filepath.Join(home, ".npmrc"), nil
-}
-
-var bunVersionPattern = regexp.MustCompile(`^([0-9]+)\.([0-9]+)\.([0-9]+)`)
-
-func bunReadsUserConfigVariable(s *setup) bool {
-	out, err := exec.CommandContext(s.ctx, "bun", "--version").Output()
-	if err != nil {
-		return false
-	}
-	match := bunVersionPattern.FindStringSubmatch(strings.TrimSpace(string(out)))
-	if match == nil {
-		return false
-	}
-	var version [3]int
-	for i := range version {
-		version[i], _ = strconv.Atoi(match[i+1])
-	}
-	return version[0] > 1 || (version[0] == 1 && (version[1] > 4 || (version[1] == 4 && version[2] >= 4)))
 }
 
 // expandHome replaces a leading ~ with the home directory, as npm does for
@@ -253,7 +264,7 @@ func writeNpmrc(s *setup, helper string, flagKeys ...string) error {
 	if s.clientName == "yarn" {
 		dirs = ancestorDirs()
 	}
-	if err := checkProjectNpmrc(path, managed, dirs); err != nil {
+	if err := checkProjectNpmrc(s, path, managed, dirs); err != nil {
 		return err
 	}
 	if err := checkPnpmAuthFile(s, path, npmCredentialKeys(s)); err != nil {
@@ -412,7 +423,21 @@ func registryKey(s *setup) string {
 // parent directories with a pnpm-workspace.yaml or a package.json that
 // declares workspaces. Yarn Classic reads .npmrc in every ancestor directory,
 // so callers pass the directories that the client reads.
-func checkProjectNpmrc(userPath string, keys map[string]string, dirs []string) error {
+// pnpmIgnoresProjectEntry reports whether pnpm ignores an entry in a project
+// .npmrc. pnpm never reads tokenHelper there, and pnpm 11.5.3 and later ignore
+// registry and credential entries that contain ${...} references.
+func pnpmIgnoresProjectEntry(s *setup, key, raw string) bool {
+	if s.clientName != "pnpm" {
+		return false
+	}
+	if strings.HasSuffix(key, ":tokenHelper") {
+		return true
+	}
+	protected := key == "registry" || strings.HasSuffix(key, ":registry") || strings.HasPrefix(key, "//")
+	return protected && strings.Contains(raw, "${") && s.pnpmVersionAtLeast([3]int{11, 5, 3})
+}
+
+func checkProjectNpmrc(s *setup, userPath string, keys map[string]string, dirs []string) error {
 	for _, dir := range dirs {
 		path := filepath.Join(dir, ".npmrc")
 		if sameFile(path, userPath) {
@@ -424,8 +449,12 @@ func checkProjectNpmrc(userPath string, keys map[string]string, dirs []string) e
 		}
 		rc := parseNpmrc(data)
 		for _, key := range slices.Sorted(maps.Keys(keys)) {
-			value, ok := rc.get(key)
-			if !ok || (keys[key] != "" && strings.TrimSuffix(value, "/") == strings.TrimSuffix(keys[key], "/")) {
+			raw, ok := rc.getRaw(key)
+			if !ok || pnpmIgnoresProjectEntry(s, key, raw) {
+				continue
+			}
+			value := expandNpmrcEnv(raw)
+			if keys[key] != "" && strings.TrimSuffix(value, "/") == strings.TrimSuffix(keys[key], "/") {
 				continue
 			}
 			return fmt.Errorf("%s sets %s, which takes precedence over %s in this project: remove that setting, then rerun this command", path, key, userPath)
@@ -458,11 +487,11 @@ func checkPnpmAuthFile(s *setup, userPath string, keys []string) error {
 		}
 	}
 
-	for _, name := range []string{"pnpm_config__auth", "PNPM_CONFIG__AUTH"} {
-		value := os.Getenv(name)
-		if value == "" {
-			continue
-		}
+	name := "pnpm_config__auth"
+	if os.Getenv(name) == "" {
+		name = "PNPM_CONFIG__AUTH"
+	}
+	if value := os.Getenv(name); value != "" {
 		var auth map[string]any
 		if yaml.Unmarshal([]byte(value), &auth) != nil {
 			return fmt.Errorf("%s is set, and pnpm uses it instead of ~/.npmrc, but setup can't read it: unset it, then rerun this command", name)

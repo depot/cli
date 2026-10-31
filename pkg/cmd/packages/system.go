@@ -78,13 +78,23 @@ func (s *setup) writeSystemFile(path string, data []byte, perm os.FileMode) erro
 	return nil
 }
 
+// readSystemFile reads a file that only root may be able to read. It rejects
+// a path that isn't a regular file, because reading a FIFO or device would
+// block or return unrelated data.
 func (s *setup) readSystemFile(path string) ([]byte, error) {
-	if data, err := os.ReadFile(path); err == nil {
-		return data, nil
-	} else if os.IsNotExist(err) {
+	info, err := os.Stat(path)
+	if os.IsNotExist(err) {
 		return nil, nil
 	}
-	return s.runPrivileged(nil, "sh", "-c", `if [ -e "$1" ]; then cat "$1"; fi`, "sh", path)
+	if err == nil {
+		if !info.Mode().IsRegular() {
+			return nil, fmt.Errorf("could not read %s: it isn't a regular file", path)
+		}
+		if data, err := os.ReadFile(path); err == nil {
+			return data, nil
+		}
+	}
+	return s.runPrivileged(nil, "sh", "-c", `if [ -e "$1" ]; then if [ ! -f "$1" ]; then echo "$1 isn't a regular file" >&2; exit 1; fi; cat "$1"; fi`, "sh", path)
 }
 
 func (s *setup) download(url string) ([]byte, error) {

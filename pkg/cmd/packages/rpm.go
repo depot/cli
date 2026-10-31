@@ -181,8 +181,11 @@ func checkZypperKeyMode(s *setup, repo rpmRepository) error {
 	if repo.packageCheck != "1" {
 		return nil
 	}
-	data, err := os.ReadFile("/etc/zypp/repos.d/" + repo.id + ".repo")
-	if err != nil || !strings.Contains(string(data), "repo_gpgcheck=1") {
+	data, err := s.readSystemFile("/etc/zypp/repos.d/" + repo.id + ".repo")
+	if err != nil {
+		return err
+	}
+	if !strings.Contains(string(data), "repo_gpgcheck=1") {
 		return nil
 	}
 	return fmt.Errorf("the %s repository verifies Depot's metadata key, which zypper may have added to the RPM database, where it would also verify packages. Remove the repository with `sudo zypper removerepo %s`, remove Depot's key from the keys that `rpm -q gpg-pubkey --qf '%%{NAME}-%%{VERSION}-%%{RELEASE}\\t%%{SUMMARY}\\n'` lists with `sudo rpm -e <name>`, then rerun this command", repo.id, repo.id)

@@ -348,12 +348,25 @@ func TestBunUserConfigPath(t *testing.T) {
 	home := t.TempDir()
 	xdg := t.TempDir()
 	t.Setenv("HOME", home)
-	t.Setenv("PATH", t.TempDir())
-	t.Setenv("NPM_CONFIG_USERCONFIG", filepath.Join(home, "ignored"))
+	bin := t.TempDir()
+	t.Setenv("PATH", bin)
+	t.Setenv("NPM_CONFIG_USERCONFIG", filepath.Join(home, "custom"))
 	t.Setenv("XDG_CONFIG_HOME", xdg)
 	s := newTestSetup(t, "npm", "npmjs")
 
+	_, err := bunUserConfigPath(s)
+	require.ErrorContains(t, err, "Bun version")
+
+	writeBun := func(version string) {
+		require.NoError(t, os.WriteFile(filepath.Join(bin, "bun"), []byte("#!/bin/sh\necho "+version+"\n"), 0755))
+	}
+	writeBun("1.4.4")
 	path, err := bunUserConfigPath(s)
+	require.NoError(t, err)
+	require.Equal(t, filepath.Join(home, "custom"), path)
+
+	writeBun("1.4.3")
+	path, err = bunUserConfigPath(s)
 	require.NoError(t, err)
 	require.Equal(t, filepath.Join(home, ".npmrc"), path)
 
@@ -464,9 +477,9 @@ func TestCheckProjectNpmrc(t *testing.T) {
 	t.Chdir(project)
 
 	user := filepath.Join(t.TempDir(), ".npmrc")
-	require.ErrorContains(t, checkProjectNpmrc(user, map[string]string{"registry": "https://packages.depot.dev/org123/npm/npmjs/"}, npmProjectDirs(newTestSetup(t, "npm", "npmjs"))), "takes precedence")
-	require.NoError(t, checkProjectNpmrc(user, map[string]string{"registry": "https://registry.npmjs.org"}, npmProjectDirs(newTestSetup(t, "npm", "npmjs"))))
-	require.NoError(t, checkProjectNpmrc(user, map[string]string{"@acme:registry": "https://packages.depot.dev/org123/npm/npmjs/"}, npmProjectDirs(newTestSetup(t, "npm", "npmjs"))))
+	require.ErrorContains(t, checkProjectNpmrc(newTestSetup(t, "npm", "npmjs"), user, map[string]string{"registry": "https://packages.depot.dev/org123/npm/npmjs/"}, npmProjectDirs(newTestSetup(t, "npm", "npmjs"))), "takes precedence")
+	require.NoError(t, checkProjectNpmrc(newTestSetup(t, "npm", "npmjs"), user, map[string]string{"registry": "https://registry.npmjs.org"}, npmProjectDirs(newTestSetup(t, "npm", "npmjs"))))
+	require.NoError(t, checkProjectNpmrc(newTestSetup(t, "npm", "npmjs"), user, map[string]string{"@acme:registry": "https://packages.depot.dev/org123/npm/npmjs/"}, npmProjectDirs(newTestSetup(t, "npm", "npmjs"))))
 }
 
 func TestCheckCargoOverridesRejectsProjectRegistry(t *testing.T) {
@@ -503,7 +516,7 @@ func TestCheckProjectNpmrcFindsWorkspaceRoot(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(pkg, "package.json"), []byte("{}"), 0644))
 	t.Chdir(pkg)
 
-	require.ErrorContains(t, checkProjectNpmrc(filepath.Join(t.TempDir(), ".npmrc"), map[string]string{"registry": "https://packages.depot.dev/org123/npm/npmjs/"}, npmProjectDirs(newTestSetup(t, "npm", "npmjs"))), filepath.Join(root, ".npmrc"))
+	require.ErrorContains(t, checkProjectNpmrc(newTestSetup(t, "npm", "npmjs"), filepath.Join(t.TempDir(), ".npmrc"), map[string]string{"registry": "https://packages.depot.dev/org123/npm/npmjs/"}, npmProjectDirs(newTestSetup(t, "npm", "npmjs"))), filepath.Join(root, ".npmrc"))
 }
 
 func TestCheckBunfig(t *testing.T) {
@@ -729,7 +742,7 @@ func TestCheckProjectNpmrcChecksAlwaysAuth(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, ".npmrc"), []byte("//packages.depot.dev/org123/npm/npmjs/:always-auth=false\n"), 0644))
 	t.Chdir(dir)
 	key := "//packages.depot.dev/org123/npm/npmjs/:always-auth"
-	require.ErrorContains(t, checkProjectNpmrc(filepath.Join(t.TempDir(), ".npmrc"), map[string]string{key: "true"}, ancestorDirs()), "always-auth")
+	require.ErrorContains(t, checkProjectNpmrc(newTestSetup(t, "npm", "npmjs"), filepath.Join(t.TempDir(), ".npmrc"), map[string]string{key: "true"}, ancestorDirs()), "always-auth")
 }
 
 func TestCheckPnpmConfigYAMLAuth(t *testing.T) {
@@ -810,6 +823,38 @@ func TestCheckPnpmAuthEnvironment(t *testing.T) {
 	s := newTestSetup(t, "npm", "npmjs")
 	s.clientName = "pnpm"
 	require.ErrorContains(t, checkPnpmAuthFile(s, "", nil), "pnpm_config__auth")
+
+	t.Setenv("PNPM_CONFIG__AUTH", "not yaml: [")
+	require.ErrorContains(t, checkPnpmAuthFile(s, "", nil), "pnpm_config__auth")
+	t.Setenv("pnpm_config__auth", "")
+	require.ErrorContains(t, checkPnpmAuthFile(s, "", nil), "PNPM_CONFIG__AUTH")
+}
+
+func TestCheckProjectNpmrcAppliesPnpmTrustRules(t *testing.T) {
+	project := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(project, "package.json"), []byte("{}"), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(project, ".npmrc"), []byte("registry=${PROJECT_REGISTRY}\n//packages.depot.dev/org123/npm/npmjs/:tokenHelper=/bin/echo\n"), 0644))
+	t.Chdir(project)
+	t.Setenv("PROJECT_REGISTRY", "https://registry.npmjs.org/")
+
+	user := filepath.Join(t.TempDir(), ".npmrc")
+	keys := map[string]string{
+		"registry": "https://packages.depot.dev/org123/npm/npmjs/",
+		"//packages.depot.dev/org123/npm/npmjs/:tokenHelper": "",
+	}
+	s := newTestSetup(t, "npm", "npmjs")
+	s.clientName = "pnpm"
+	s.pnpmVersion = [3]int{11, 5, 3}
+	require.NoError(t, checkProjectNpmrc(s, user, keys, npmProjectDirs(s)))
+
+	s.pnpmVersion = [3]int{11, 5, 2}
+	require.ErrorContains(t, checkProjectNpmrc(s, user, keys, npmProjectDirs(s)), "sets registry")
+
+	delete(keys, "registry")
+	require.NoError(t, checkProjectNpmrc(s, user, keys, npmProjectDirs(s)))
+
+	npm := newTestSetup(t, "npm", "npmjs")
+	require.ErrorContains(t, checkProjectNpmrc(npm, user, keys, npmProjectDirs(npm)), "tokenHelper")
 }
 
 func TestCheckCargoOverridesAllowsSelfIncludingHome(t *testing.T) {
@@ -858,7 +903,7 @@ func TestWriteNpmrcChecksEachCredentialVariable(t *testing.T) {
 	t.Chdir(t.TempDir())
 	s := newTestSetup(t, "npm", "npmjs")
 	s.clientName = "pnpm"
-	s.pnpmMajor = 10
+	s.pnpmVersion = [3]int{10, 0, 0}
 	t.Setenv("npm_config_//packages.depot.dev/org123/npm/npmjs/:_authToken", "/helper")
 	require.ErrorContains(t, writeNpmrc(s, "/helper"), ":_authToken")
 }
@@ -1005,10 +1050,10 @@ func TestWriteNpmrcChecksPnpmEnvironmentPrefix(t *testing.T) {
 
 	s := newTestSetup(t, "npm", "npmjs")
 	s.clientName = "pnpm"
-	s.pnpmMajor = 11
+	s.pnpmVersion = [3]int{11, 0, 0}
 	require.ErrorContains(t, writeNpmrc(s, "/helper"), "pnpm_config_registry")
 
-	s.pnpmMajor = 10
+	s.pnpmVersion = [3]int{10, 0, 0}
 	require.NoError(t, writeNpmrc(s, "/helper"))
 }
 
@@ -1053,7 +1098,7 @@ func TestWriteNpmrcChecksScopedTokenVariable(t *testing.T) {
 
 	s := newTestSetup(t, "npm", "internal")
 	s.clientName = "pnpm"
-	s.pnpmMajor = 11
+	s.pnpmVersion = [3]int{11, 0, 0}
 	s.opts.scope = "@acme"
 	require.ErrorContains(t, writeNpmrc(s, "/helper"), ":@acme:_authToken")
 }
@@ -1183,7 +1228,7 @@ func TestWriteNpmrcChecksNpmTokenVariableForPnpm11(t *testing.T) {
 
 	s := newTestSetup(t, "npm", "npmjs")
 	s.clientName = "pnpm"
-	s.pnpmMajor = 11
+	s.pnpmVersion = [3]int{11, 0, 0}
 	s.store = true
 	require.ErrorContains(t, writeNpmrc(s, ""), "npm_config_//")
 }

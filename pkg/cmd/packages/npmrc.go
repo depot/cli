@@ -34,10 +34,17 @@ func npmrcKey(line string) (string, bool) {
 // get returns the last assignment of key, which is the value npm uses, with
 // INI quotes removed and ${VAR} references expanded as npm does.
 func (n *npmrc) get(key string) (string, bool) {
+	value, ok := n.getRaw(key)
+	return expandNpmrcEnv(value), ok
+}
+
+// getRaw returns the last assignment of key without expanding ${VAR}
+// references.
+func (n *npmrc) getRaw(key string) (string, bool) {
 	for i := len(n.lines) - 1; i >= 0; i-- {
 		if k, ok := npmrcKey(n.lines[i]); ok && k == key {
 			_, value, _ := strings.Cut(n.lines[i], "=")
-			return expandNpmrcEnv(unquoteINIValue(stripINIComment(strings.TrimSpace(value)))), true
+			return unquoteINIValue(stripINIComment(strings.TrimSpace(value))), true
 		}
 	}
 	return "", false
