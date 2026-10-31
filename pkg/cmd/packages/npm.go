@@ -51,18 +51,18 @@ func (s *setup) pnpmReadsPnpmConfigEnv() bool {
 }
 
 // pnpmUserConfigPath returns the user file pnpm 11 and later read:
-// pnpm_config_userconfig, or ~/.npmrc. They don't read npm_config_userconfig.
+// pnpm_config_userconfig, then npm_config_userconfig, then ~/.npmrc.
 func pnpmUserConfigPath() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
-	}
 	for _, name := range []string{"PNPM_CONFIG_USERCONFIG", "pnpm_config_userconfig"} {
 		if path := os.Getenv(name); path != "" {
+			home, err := os.UserHomeDir()
+			if err != nil {
+				return "", err
+			}
 			return expandHome(path, home), nil
 		}
 	}
-	return filepath.Join(home, ".npmrc"), nil
+	return npmUserConfigPath()
 }
 
 // bunUserConfigPath returns the user file Bun reads. Bun 1.4.4 and later read
@@ -291,12 +291,17 @@ func writeNpmrc(s *setup, helper string, flagKeys ...string) error {
 }
 
 // configEnvNames returns the environment variable names that set the npm
-// configuration key. pnpm 11 and later read only pnpm_config_ instead of
-// npm_config_.
+// configuration key. pnpm 11 and later read pnpm_config_ for settings, and
+// both prefixes for URL-scoped credential keys.
 func configEnvNames(s *setup, key string) []string {
 	prefixes := []string{"npm_config_", "NPM_CONFIG_"}
 	if s.clientName == "pnpm" && s.pnpmReadsPnpmConfigEnv() {
-		prefixes = []string{"pnpm_config_", "PNPM_CONFIG_"}
+		pnpmPrefixes := []string{"pnpm_config_", "PNPM_CONFIG_"}
+		if strings.HasPrefix(key, "//") {
+			prefixes = append(prefixes, pnpmPrefixes...)
+		} else {
+			prefixes = pnpmPrefixes
+		}
 	}
 	var names []string
 	for _, prefix := range prefixes {
