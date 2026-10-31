@@ -26,7 +26,7 @@ func configureHelm(s *setup) error {
 	}
 
 	args := []string{"repo", "add", helmRepositoryName, s.repo.url(), "--username", "depot", "--password-stdin", "--force-update"}
-	if helmPassesCredentials(path, s.repo.url()) {
+	if helmPassesCredentials(s, path) {
 		args = append(args, "--pass-credentials")
 	}
 	if err := s.runQuietWithInput([]byte(s.token), "helm", args...); err != nil {
@@ -67,10 +67,11 @@ func checkHelmAlias(s *setup) error {
 	return nil
 }
 
-// helmPassesCredentials reports whether the existing depot entry for the URL
+// helmPassesCredentials reports whether the existing depot entry, which
+// checkHelmAlias allows only for a Depot Packages repository,
 // sends credentials to all domains, so that a token refresh keeps that
 // setting.
-func helmPassesCredentials(path, url string) bool {
+func helmPassesCredentials(s *setup, path string) bool {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return false
@@ -86,7 +87,7 @@ func helmPassesCredentials(path, url string) bool {
 		return false
 	}
 	for _, repository := range config.Repositories {
-		if repository.Name == helmRepositoryName && strings.TrimSuffix(repository.URL, "/") == strings.TrimSuffix(url, "/") {
+		if repository.Name == helmRepositoryName && s.repo.isServerRepositoryURL(repository.URL, "helm") {
 			return repository.PassCredentialsAll
 		}
 	}

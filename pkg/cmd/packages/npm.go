@@ -80,7 +80,7 @@ func (s *setup) pnpmReadsPnpmConfigEnv() bool {
 // order: the npmrcAuthFile variable, the pnpm userconfig variable, npmrcAuthFile
 // in the global config.yaml, the npm userconfig variable, then ~/.npmrc. Unlike
 // npm, pnpm reads the lowercase form of each variable first.
-func pnpmUserConfigPath() (string, error) {
+func pnpmUserConfigPath(s *setup) (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
@@ -100,10 +100,15 @@ func pnpmUserConfigPath() (string, error) {
 			NpmrcAuthFile string `yaml:"npmrcAuthFile"`
 		}
 		if yaml.Unmarshal(data, &config) == nil && config.NpmrcAuthFile != "" {
-			if !filepath.IsAbs(config.NpmrcAuthFile) {
-				return "", fmt.Errorf("%s sets npmrcAuthFile to %s, and pnpm doesn't expand ~ or relative paths there: set it to an absolute path, then rerun this command", configPath, config.NpmrcAuthFile)
+			path := config.NpmrcAuthFile
+			// pnpm 11 expands a leading ~/ here; pnpm 12 doesn't.
+			if strings.HasPrefix(path, "~/") && !s.pnpmVersionAtLeast([3]int{12, 0, 0}) {
+				path = expandHome(path, home)
 			}
-			return config.NpmrcAuthFile, nil
+			if !filepath.IsAbs(path) {
+				return "", fmt.Errorf("%s sets npmrcAuthFile to %s, which this pnpm version resolves from the current directory, so it differs between projects: set it to an absolute path, then rerun this command", configPath, config.NpmrcAuthFile)
+			}
+			return path, nil
 		}
 	}
 	for _, name := range []string{"npm_config_userconfig", "NPM_CONFIG_USERCONFIG"} {
@@ -205,7 +210,7 @@ func writeNpmrc(s *setup, helper string, flagKeys ...string) error {
 		path, err = bunUserConfigPath(s)
 	case "pnpm":
 		if s.pnpmReadsPnpmConfigEnv() {
-			path, err = pnpmUserConfigPath()
+			path, err = pnpmUserConfigPath(s)
 		}
 	}
 	if err != nil {
@@ -471,6 +476,15 @@ func checkProjectNpmrc(s *setup, userPath string, keys map[string]string, dirs [
 					return fmt.Errorf("%s sets %s, and pnpm refuses to run when a project .npmrc sets tokenHelper: remove that setting, then rerun this command", path, key)
 				}
 			}
+			// pnpm applies unscoped credentials to the registry that the same
+			// file sets.
+			if registry, ok := rc.get("registry"); ok && strings.TrimSuffix(registry, "/") == strings.TrimSuffix(s.repo.url(), "/") {
+				for _, key := range []string{"_authToken", "_auth", "_password", "username"} {
+					if _, ok := rc.get(key); ok {
+						return fmt.Errorf("%s sets %s, which pnpm uses for %s instead of %s: remove that setting, then rerun this command", path, key, s.repo.url(), userPath)
+					}
+				}
+			}
 		}
 		for _, key := range slices.Sorted(maps.Keys(keys)) {
 			raw, ok := rc.getRaw(key)
@@ -517,8 +531,8 @@ func checkPnpmAuthFile(s *setup, userPath string, keys []string) error {
 	}
 	if value := os.Getenv(name); value != "" {
 		var auth map[string]any
-		if yaml.Unmarshal([]byte(value), &auth) != nil {
-			return fmt.Errorf("%s is set, and pnpm uses it instead of ~/.npmrc, but setup can't read it: unset it, then rerun this command", name)
+		if json.Unmarshal([]byte(value), &auth) != nil {
+			return fmt.Errorf("%s isn't valid JSON, so pnpm refuses to run: fix or unset it, then rerun this command", name)
 		}
 		if registry, ok := pnpmAuthCovers(s, auth, true); ok {
 			return fmt.Errorf("%s has a credential for %s, which pnpm uses instead of ~/.npmrc: unset it or remove that entry, then rerun this command", name, registry)
@@ -658,6 +672,14 @@ func npmrcProjectDirs(s *setup) []string {
 				return []string{prefix}
 			}
 		}
+	case "pnpm":
+		// In a workspace, pnpm 11 and later read only the workspace root's
+		// .npmrc. The other directories are workspace roots.
+		dirs := npmProjectDirs(s)
+		if len(dirs) > 1 && s.pnpmVersionAtLeast([3]int{11, 0, 0}) {
+			return dirs[1:2]
+		}
+		return dirs
 	}
 	return npmProjectDirs(s)
 }

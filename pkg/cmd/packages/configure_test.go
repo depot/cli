@@ -824,7 +824,7 @@ func TestCheckPnpmAuthEnvironment(t *testing.T) {
 	s.clientName = "pnpm"
 	require.ErrorContains(t, checkPnpmAuthFile(s, "", nil), "pnpm_config__auth")
 
-	t.Setenv("PNPM_CONFIG__AUTH", "not yaml: [")
+	t.Setenv("PNPM_CONFIG__AUTH", "valid: yaml")
 	require.ErrorContains(t, checkPnpmAuthFile(s, "", nil), "pnpm_config__auth")
 	t.Setenv("pnpm_config__auth", "")
 	require.ErrorContains(t, checkPnpmAuthFile(s, "", nil), "PNPM_CONFIG__AUTH")
@@ -1166,6 +1166,8 @@ func TestWriteMambarcKeepsAnchoredEmptyDefaults(t *testing.T) {
 }
 
 func TestPnpmUserConfigPath(t *testing.T) {
+	ps := newTestSetup(t, "npm", "npmjs")
+	ps.pnpmVersion = [3]int{12, 0, 0}
 	xdg := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", xdg)
 	t.Setenv("NPM_CONFIG_USERCONFIG", "/tmp/npmrc")
@@ -1173,33 +1175,40 @@ func TestPnpmUserConfigPath(t *testing.T) {
 	t.Setenv("pnpm_config_userconfig", "")
 	t.Setenv("PNPM_CONFIG_NPMRC_AUTH_FILE", "")
 	t.Setenv("pnpm_config_npmrc_auth_file", "")
-	path, err := pnpmUserConfigPath()
+	path, err := pnpmUserConfigPath(ps)
 	require.NoError(t, err)
 	require.Equal(t, "/tmp/npmrc", path)
 
 	require.NoError(t, os.MkdirAll(filepath.Join(xdg, "pnpm"), 0755))
 	require.NoError(t, os.WriteFile(filepath.Join(xdg, "pnpm", "config.yaml"), []byte("npmrcAuthFile: /tmp/authrc\n"), 0644))
-	path, err = pnpmUserConfigPath()
+	path, err = pnpmUserConfigPath(ps)
 	require.NoError(t, err)
 	require.Equal(t, "/tmp/authrc", path)
 
 	t.Setenv("pnpm_config_userconfig", "/tmp/pnpmrc")
 	t.Setenv("PNPM_CONFIG_USERCONFIG", "/tmp/upper-pnpmrc")
-	path, err = pnpmUserConfigPath()
+	path, err = pnpmUserConfigPath(ps)
 	require.NoError(t, err)
 	require.Equal(t, "/tmp/pnpmrc", path)
 	t.Setenv("PNPM_CONFIG_USERCONFIG", "")
 
 	t.Setenv("PNPM_CONFIG_NPMRC_AUTH_FILE", "/tmp/envauthrc")
-	path, err = pnpmUserConfigPath()
+	path, err = pnpmUserConfigPath(ps)
 	require.NoError(t, err)
 	require.Equal(t, "/tmp/envauthrc", path)
 
 	t.Setenv("PNPM_CONFIG_NPMRC_AUTH_FILE", "")
 	t.Setenv("pnpm_config_userconfig", "")
 	require.NoError(t, os.WriteFile(filepath.Join(xdg, "pnpm", "config.yaml"), []byte("npmrcAuthFile: ~/authrc\n"), 0644))
-	_, err = pnpmUserConfigPath()
+	_, err = pnpmUserConfigPath(ps)
 	require.ErrorContains(t, err, "absolute path")
+
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	ps.pnpmVersion = [3]int{11, 22, 0}
+	path, err = pnpmUserConfigPath(ps)
+	require.NoError(t, err)
+	require.Equal(t, filepath.Join(home, "authrc"), path)
 }
 
 func TestNpmrcProjectDirsUsesNpmPrefix(t *testing.T) {
@@ -1351,8 +1360,10 @@ func TestCheckCargoOverridesRejectsImplicitReplacementVariable(t *testing.T) {
 func TestHelmPassesCredentials(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "repositories.yaml")
 	require.NoError(t, os.WriteFile(path, []byte("repositories:\n- name: depot\n  url: https://packages.depot.dev/org123/helm/team/\n  pass_credentials_all: true\n"), 0600))
-	require.True(t, helmPassesCredentials(path, "https://packages.depot.dev/org123/helm/team/"))
-	require.False(t, helmPassesCredentials(path, "https://packages.depot.dev/org123/helm/other/"))
+	require.True(t, helmPassesCredentials(newTestSetup(t, "helm", "team"), path))
+	require.True(t, helmPassesCredentials(newTestSetup(t, "helm", "other"), path))
+	require.NoError(t, os.WriteFile(path, []byte("repositories:\n- name: depot\n  url: https://charts.example/\n  pass_credentials_all: true\n"), 0600))
+	require.False(t, helmPassesCredentials(newTestSetup(t, "helm", "team"), path))
 }
 
 func TestNpmrcGetStripsCommentsAndKeepsUnsetReferences(t *testing.T) {
@@ -1438,4 +1449,37 @@ func TestCheckCargoProjectConfigAllowsHomeIncludedReplacement(t *testing.T) {
 	s.replaceUpstream = true
 	require.NoError(t, checkCargoProjectConfig(s, path, map[string]bool{}, true))
 	require.ErrorContains(t, checkCargoProjectConfig(s, path, map[string]bool{}, false), "replaces crates.io")
+}
+
+func TestCheckProjectNpmrcRejectsUnscopedPnpmCredentials(t *testing.T) {
+	project := t.TempDir()
+	npmrc := filepath.Join(project, ".npmrc")
+	require.NoError(t, os.WriteFile(filepath.Join(project, "package.json"), []byte("{}"), 0644))
+	require.NoError(t, os.WriteFile(npmrc, []byte("registry=https://packages.depot.dev/org123/npm/npmjs/\n_authToken=project\n"), 0644))
+	t.Chdir(project)
+	user := filepath.Join(t.TempDir(), ".npmrc")
+	keys := map[string]string{"registry": "https://packages.depot.dev/org123/npm/npmjs/"}
+
+	s := newTestSetup(t, "npm", "npmjs")
+	require.NoError(t, checkProjectNpmrc(s, user, keys, npmProjectDirs(s)))
+	s.clientName = "pnpm"
+	require.ErrorContains(t, checkProjectNpmrc(s, user, keys, npmProjectDirs(s)), "_authToken")
+
+	require.NoError(t, os.WriteFile(npmrc, []byte("registry=https://registry.npmjs.org/\n_authToken=project\n"), 0644))
+	require.ErrorContains(t, checkProjectNpmrc(s, user, keys, npmProjectDirs(s)), "sets registry")
+}
+
+func TestNpmrcProjectDirsUsesPnpmWorkspaceRoot(t *testing.T) {
+	root := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(root, "pnpm-workspace.yaml"), nil, 0644))
+	pkg := filepath.Join(root, "packages", "a")
+	require.NoError(t, os.MkdirAll(pkg, 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(pkg, "package.json"), []byte("{}"), 0644))
+	t.Chdir(pkg)
+	s := newTestSetup(t, "npm", "npmjs")
+	s.clientName = "pnpm"
+	s.pnpmVersion = [3]int{11, 0, 0}
+	require.Equal(t, []string{root}, npmrcProjectDirs(s))
+	s.pnpmVersion = [3]int{10, 28, 1}
+	require.Equal(t, []string{pkg, root}, npmrcProjectDirs(s))
 }

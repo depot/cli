@@ -41,7 +41,9 @@ func configureCargo(s *setup) error {
 		return err
 	}
 
-	keepCargoReplacement(s, cargoFile(dir, "config"))
+	if err := keepCargoReplacement(s, cargoFile(dir, "config")); err != nil {
+		return err
+	}
 	if err := checkCargoOverrides(s, dir); err != nil {
 		return err
 	}
@@ -72,23 +74,24 @@ func configureCargo(s *setup) error {
 // It runs before the override checks, so they check the replacement too. For
 // another repository the replacement is removed, because it would route
 // crates.io to that repository.
-func keepCargoReplacement(s *setup, path string) {
+func keepCargoReplacement(s *setup, path string) error {
 	if s.replaceUpstream || s.replaceUpstreamExplicit {
-		return
+		return nil
 	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return
+	data, err := readFileIfExists(path)
+	if err != nil || data == nil {
+		return err
 	}
 	var values map[string]any
 	if toml.Unmarshal(data, &values) != nil {
-		return
+		return nil
 	}
 	replacement, _ := tomlLookup(values, "source", "crates-io", "replace-with")
 	index, _ := tomlLookup(values, "registries", cargoRegistryName, "index")
 	if replacement == cargoRegistryName && index == "sparse+"+s.repo.url()+"index/" {
 		s.replaceUpstream = true
 	}
+	return nil
 }
 
 // checkCargoOverrides rejects settings that take precedence over the Cargo
