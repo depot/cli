@@ -1,6 +1,8 @@
 package packages
 
 import (
+	"os"
+	"regexp"
 	"strings"
 )
 
@@ -30,12 +32,12 @@ func npmrcKey(line string) (string, bool) {
 }
 
 // get returns the last assignment of key, which is the value npm uses, with
-// INI quotes removed.
+// INI quotes removed and ${VAR} references expanded as npm does.
 func (n *npmrc) get(key string) (string, bool) {
 	for i := len(n.lines) - 1; i >= 0; i-- {
 		if k, ok := npmrcKey(n.lines[i]); ok && k == key {
 			_, value, _ := strings.Cut(n.lines[i], "=")
-			return unquoteINIValue(strings.TrimSpace(value)), true
+			return expandNpmrcEnv(unquoteINIValue(strings.TrimSpace(value))), true
 		}
 	}
 	return "", false
@@ -77,6 +79,14 @@ func (n *npmrc) bytes() []byte {
 		return nil
 	}
 	return []byte(strings.Join(n.lines, "\n") + "\n")
+}
+
+var npmrcEnvReference = regexp.MustCompile(`\$\{([^}]+)\}`)
+
+func expandNpmrcEnv(value string) string {
+	return npmrcEnvReference.ReplaceAllStringFunc(value, func(reference string) string {
+		return os.Getenv(reference[2 : len(reference)-1])
+	})
 }
 
 func unquoteINIValue(value string) string {

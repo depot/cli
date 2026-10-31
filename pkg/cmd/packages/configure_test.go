@@ -1187,3 +1187,24 @@ func TestWriteNpmrcChecksNpmTokenVariableForPnpm11(t *testing.T) {
 	s.store = true
 	require.ErrorContains(t, writeNpmrc(s, ""), "npm_config_//")
 }
+
+func TestNpmrcGetExpandsEnvironmentReferences(t *testing.T) {
+	t.Setenv("DEPOT_REGISTRY", "https://packages.depot.dev/org123/npm/npmjs/")
+	value, ok := parseNpmrc([]byte("registry=${DEPOT_REGISTRY}\n")).get("registry")
+	require.True(t, ok)
+	require.Equal(t, "https://packages.depot.dev/org123/npm/npmjs/", value)
+}
+
+func TestCheckCargoOverridesRejectsImplicitReplacementVariable(t *testing.T) {
+	t.Setenv("CARGO_SOURCE_CRATES_IO_REPLACE_WITH", "depot")
+	t.Chdir(t.TempDir())
+	s := newTestSetup(t, "cargo", "internal")
+	require.ErrorContains(t, checkCargoOverrides(s, t.TempDir()), "CARGO_SOURCE_CRATES_IO_REPLACE_WITH")
+}
+
+func TestHelmPassesCredentials(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "repositories.yaml")
+	require.NoError(t, os.WriteFile(path, []byte("repositories:\n- name: depot\n  url: https://packages.depot.dev/org123/helm/team/\n  pass_credentials_all: true\n"), 0600))
+	require.True(t, helmPassesCredentials(path, "https://packages.depot.dev/org123/helm/team/"))
+	require.False(t, helmPassesCredentials(path, "https://packages.depot.dev/org123/helm/other/"))
+}

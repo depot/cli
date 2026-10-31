@@ -3,8 +3,11 @@ package packages
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
+
+	"gopkg.in/yaml.v3"
 )
 
 const helmRepositoryName = "depot"
@@ -14,17 +17,19 @@ func configureHelm(s *setup) error {
 		return err
 	}
 
-	err := s.runQuietWithInput([]byte(s.token), "helm", "repo", "add", helmRepositoryName, s.repo.url(),
-		"--username", "depot", "--password-stdin", "--force-update")
-	if err != nil {
-		return err
-	}
-
 	out, err := exec.CommandContext(s.ctx, "helm", "env", "HELM_REPOSITORY_CONFIG").Output()
 	if err != nil {
 		return fmt.Errorf("could not find the Helm repository configuration: %w", err)
 	}
 	path := strings.TrimSpace(string(out))
+
+	args := []string{"repo", "add", helmRepositoryName, s.repo.url(), "--username", "depot", "--password-stdin", "--force-update"}
+	if helmPassesCredentials(path, s.repo.url()) {
+		args = append(args, "--pass-credentials")
+	}
+	if err := s.runQuietWithInput([]byte(s.token), "helm", args...); err != nil {
+		return err
+	}
 	if err := restrictPermissions(path); err != nil {
 		return err
 	}
@@ -58,4 +63,30 @@ func checkHelmAlias(s *setup) error {
 		s.notef("The %q Helm repository now points to %s instead of %s.", helmRepositoryName, s.repo.url(), repository.URL)
 	}
 	return nil
+}
+
+// helmPassesCredentials reports whether the existing depot entry for the URL
+// sends credentials to all domains, so that a token refresh keeps that
+// setting.
+func helmPassesCredentials(path, url string) bool {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	var config struct {
+		Repositories []struct {
+			Name               string `yaml:"name"`
+			URL                string `yaml:"url"`
+			PassCredentialsAll bool   `yaml:"pass_credentials_all"`
+		} `yaml:"repositories"`
+	}
+	if yaml.Unmarshal(data, &config) != nil {
+		return false
+	}
+	for _, repository := range config.Repositories {
+		if repository.Name == helmRepositoryName && strings.TrimSuffix(repository.URL, "/") == strings.TrimSuffix(url, "/") {
+			return repository.PassCredentialsAll
+		}
+	}
+	return false
 }

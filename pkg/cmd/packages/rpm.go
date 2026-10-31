@@ -90,6 +90,11 @@ func prepareRPMRepository(s *setup) (rpmRepository, error) {
 	if err := checkRPMPackageKeyChange(s, repo); err != nil {
 		return rpmRepository{}, err
 	}
+	if repo.packageCheck == "1" {
+		if err := s.recordRPMPackageKey(repo); err != nil {
+			return rpmRepository{}, err
+		}
+	}
 	return repo, nil
 }
 
@@ -203,4 +208,26 @@ func checkRPMPackageKeyChange(s *setup, repo rpmRepository) error {
 		}
 	}
 	return nil
+}
+
+// recordRPMPackageKey records a digest of the package key's contents and
+// rejects a key file whose contents changed since the last setup, which the
+// path check can't detect. The RPM database still trusts the previous key.
+func (s *setup) recordRPMPackageKey(repo rpmRepository) error {
+	data, err := os.ReadFile(repo.key)
+	if err != nil {
+		return err
+	}
+	sum := sha256.Sum256(data)
+	digest := hex.EncodeToString(sum[:])
+
+	record := "/etc/depot/rpm/" + repo.id + ".package-key.sha256"
+	previous, err := s.readSystemFile(record)
+	if err != nil {
+		return err
+	}
+	if old := strings.TrimSpace(string(previous)); old != "" && old != digest {
+		return fmt.Errorf("the contents of %s changed since the last setup, and the RPM database may still trust the previous key. Remove that key from the keys that `rpm -q gpg-pubkey --qf '%%{NAME}-%%{VERSION}-%%{RELEASE}\\t%%{SUMMARY}\\n'` lists with `sudo rpm -e <name>`, remove %s, then rerun this command", repo.key, record)
+	}
+	return s.writeSystemFile(record, []byte(digest+"\n"), 0644)
 }

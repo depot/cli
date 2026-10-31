@@ -105,7 +105,7 @@ func checkCargoOverrides(s *setup, home string) error {
 		if s.replaceUpstream && value != cargoRegistryName {
 			return fmt.Errorf("CARGO_SOURCE_CRATES_IO_REPLACE_WITH is set to %q, which overrides the crates.io replacement setup configures: unset it, then rerun this command", value)
 		}
-		if s.replaceUpstreamExplicit && !s.replaceUpstream && value == cargoRegistryName {
+		if !s.replaceUpstream && value == cargoRegistryName {
 			return fmt.Errorf("CARGO_SOURCE_CRATES_IO_REPLACE_WITH is set to %q, which keeps the crates.io replacement: unset it, then rerun this command", value)
 		}
 	}
