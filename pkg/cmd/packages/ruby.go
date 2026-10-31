@@ -24,7 +24,7 @@ func (r repository) gemKeyName() string {
 
 var (
 	plainYAMLValue    = regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
-	gemCredentialLine = regexp.MustCompile(`^:?[A-Za-z0-9_.-]+: `)
+	gemCredentialLine = regexp.MustCompile(`^\S+: `)
 )
 
 func configureBundler(s *setup) error {
@@ -53,7 +53,7 @@ func configureBundler(s *setup) error {
 		s.notef("Bundler now downloads gems from %s through the repository.", rubygemsUpstream)
 	} else {
 		mirror, _ := config.get(mirrorKey)
-		if s.replaceUpstreamExplicit && strings.HasPrefix(mirror, s.repo.formatURL()) {
+		if s.replaceUpstreamExplicit && isDepotRubygemsURL(s, mirror) {
 			config.remove(mirrorKey)
 			s.notef("Removed the Bundler mirror for %s.", rubygemsUpstream)
 		}
@@ -85,7 +85,7 @@ func checkBundlerMirrorRemoved(s *setup) error {
 		return nil
 	}
 	mirror := strings.TrimPrefix(strings.TrimSpace(string(out)), key+"=")
-	if !strings.HasPrefix(mirror, s.repo.formatURL()) {
+	if !isDepotRubygemsURL(s, mirror) {
 		return nil
 	}
 	return fmt.Errorf("Bundler still uses the %s mirror %s from another configuration file: remove it with `bundle config unset --local %s`, then rerun this command", rubygemsUpstream, mirror, key)
@@ -124,6 +124,17 @@ func checkBundlerMirror(s *setup) error {
 	}
 	s.notef("In this directory, %s. Remove it with `bundle config unset --local %s` to use the repository.", message, key)
 	return nil
+}
+
+// isDepotRubygemsURL reports whether a URL is a RubyGems repository on the
+// Depot Packages server, in any organization.
+func isDepotRubygemsURL(s *setup, value string) bool {
+	path, ok := strings.CutPrefix(value, s.repo.server.String()+"/")
+	if !ok {
+		return false
+	}
+	parts := strings.Split(path, "/")
+	return len(parts) >= 3 && parts[1] == "rubygems"
 }
 
 func bundlerConfigPath() (string, error) {
@@ -284,14 +295,16 @@ keys[:rubygems_api_key] = keys.delete(:rubygems) if keys.key?(:rubygems)
 print keys.to_yaml`
 
 // rubygemsAPIKeys returns the API keys RubyGems reads from its configuration
-// files, to copy into a new credentials file. It returns nil when Ruby can't
-// report them.
-func rubygemsAPIKeys(s *setup) []byte {
+// files, to copy into a new credentials file.
+func rubygemsAPIKeys(s *setup) ([]byte, error) {
 	out, err := exec.CommandContext(s.ctx, "ruby", "-e", rubygemsAPIKeysScript).Output()
-	if err != nil || strings.TrimSpace(string(out)) == "--- {}" {
-		return nil
+	if err != nil {
+		return nil, fmt.Errorf("could not read the API keys RubyGems uses, which a new credentials file must keep: %w", err)
 	}
-	return out
+	if strings.TrimSpace(string(out)) == "--- {}" {
+		return nil, nil
+	}
+	return out, nil
 }
 
 // gemCredentialsPath follows RubyGems: it uses ~/.gem/credentials when that
@@ -326,7 +339,9 @@ func writeGemCredential(s *setup, path string) error {
 	entry := ":" + keyName + ": " + value
 
 	if data == nil {
-		data = rubygemsAPIKeys(s)
+		if data, err = rubygemsAPIKeys(s); err != nil {
+			return err
+		}
 	}
 
 	var lines []string

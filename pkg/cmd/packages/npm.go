@@ -231,7 +231,10 @@ func writeNpmrc(s *setup, helper string, flagKeys ...string) error {
 	}
 	for _, key := range slices.Sorted(maps.Keys(expected)) {
 		for _, name := range configEnvNames(s, key) {
-			if value, ok := os.LookupEnv(name); ok && value != expected[key] {
+			// With the pnpm helper, any token variable takes precedence over
+			// the helper, so even the current token would go stale.
+			value, ok := os.LookupEnv(name)
+			if ok && (value != expected[key] || (helper != "" && key == tokenKey)) {
 				return fmt.Errorf("%s is set, which overrides %s in %s: unset it, then rerun this command", name, key, path)
 			}
 		}
@@ -552,6 +555,10 @@ func pnpmConfigDir() (string, error) {
 	return filepath.Join(home, ".config", "pnpm"), nil
 }
 
+// npmProjectMarkers are the files that mark a project directory for npm and
+// pnpm.
+var npmProjectMarkers = []string{"package.json", "package.yaml", "package.json5", "pnpm-workspace.yaml", "node_modules"}
+
 func npmProjectDirs() []string {
 	dir, err := os.Getwd()
 	if err != nil {
@@ -560,7 +567,7 @@ func npmProjectDirs() []string {
 	var dirs []string
 	project := ""
 	for current := dir; ; current = filepath.Dir(current) {
-		isPackage := fileExists(filepath.Join(current, "package.json")) || fileExists(filepath.Join(current, "node_modules"))
+		isPackage := slices.ContainsFunc(npmProjectMarkers, func(marker string) bool { return fileExists(filepath.Join(current, marker)) })
 		if project == "" && isPackage {
 			project = current
 			dirs = append(dirs, current)

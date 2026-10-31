@@ -22,6 +22,9 @@ func configureHelm(s *setup) error {
 		return fmt.Errorf("could not find the Helm repository configuration: %w", err)
 	}
 	path := strings.TrimSpace(string(out))
+	if info, err := os.Stat(resolveLink(path)); err == nil && !info.Mode().IsRegular() {
+		return fmt.Errorf("the Helm repository configuration %s isn't a regular file: set HELM_REPOSITORY_CONFIG to a file, then rerun this command", path)
+	}
 
 	args := []string{"repo", "add", helmRepositoryName, s.repo.url(), "--username", "depot", "--password-stdin", "--force-update"}
 	if helmPassesCredentials(path, s.repo.url()) {

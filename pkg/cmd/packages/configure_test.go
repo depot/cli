@@ -1218,3 +1218,29 @@ func TestNpmrcGetStripsCommentsAndKeepsUnsetReferences(t *testing.T) {
 	value, _ = parseNpmrc([]byte("registry=https://${OPTIONAL_PREFIX}a/\n")).get("registry")
 	require.Equal(t, "https://${OPTIONAL_PREFIX}a/", value)
 }
+
+func TestIsDepotRubygemsURL(t *testing.T) {
+	s := newTestSetup(t, "rubygems", "rubygems")
+	require.True(t, isDepotRubygemsURL(s, "https://packages.depot.dev/other-org/rubygems/rubygems/"))
+	require.False(t, isDepotRubygemsURL(s, "https://packages.depot.dev/org123/npm/npmjs/"))
+	require.False(t, isDepotRubygemsURL(s, "https://mirror.example/"))
+}
+
+func TestWriteGemCredentialKeepsURLKeys(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "credentials")
+	require.NoError(t, os.WriteFile(path, []byte("---\nhttps://gems.example.com: abc\n"), 0600))
+	s := newTestSetup(t, "rubygems", "internal")
+	require.NoError(t, writeGemCredential(s, path))
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.Contains(t, string(data), "https://gems.example.com: abc")
+}
+
+func TestNpmProjectDirsRecognizesPnpmMarkers(t *testing.T) {
+	root := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(root, "pnpm-workspace.yaml"), nil, 0644))
+	sub := filepath.Join(root, "src")
+	require.NoError(t, os.MkdirAll(sub, 0755))
+	t.Chdir(sub)
+	require.Equal(t, canonicalPath(root), canonicalPath(npmProjectDirs()[0]))
+}

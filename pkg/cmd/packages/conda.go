@@ -36,10 +36,13 @@ func isCondaUpstream(channel string) bool {
 // channel_alias, custom_channels, and default_channels into account, because
 // they can point a channel name such as conda-forge or defaults at a private
 // mirror.
-func mambaUpstreamFilter(s *setup) func(string) bool {
+func mambaUpstreamFilter(s *setup) (func(string) bool, error) {
 	out, err := exec.CommandContext(s.ctx, s.clientName, "config", "list", "channel_alias", "custom_channels", "default_channels", "--json").Output()
 	if err != nil {
-		return isCondaUpstream
+		if s.replaceUpstream {
+			return nil, fmt.Errorf("could not read channel_alias and custom_channels with `%s config list`, which setup needs before it replaces channels: %w", s.clientName, err)
+		}
+		return isCondaUpstream, nil
 	}
 	var config struct {
 		ChannelAlias    string            `json:"channel_alias"`
@@ -47,7 +50,10 @@ func mambaUpstreamFilter(s *setup) func(string) bool {
 		DefaultChannels []string          `json:"default_channels"`
 	}
 	if err := json.Unmarshal(out, &config); err != nil {
-		return isCondaUpstream
+		if s.replaceUpstream {
+			return nil, fmt.Errorf("could not read the output of `%s config list`: %w", s.clientName, err)
+		}
+		return isCondaUpstream, nil
 	}
 	aliased := config.ChannelAlias != "" && !isPublicCondaBase(config.ChannelAlias)
 
@@ -73,7 +79,7 @@ func mambaUpstreamFilter(s *setup) func(string) bool {
 			return !slices.ContainsFunc(config.DefaultChannels, func(c string) bool { return !isNamedUpstream(c) })
 		}
 		return isNamedUpstream(channel)
-	}
+	}, nil
 }
 
 func (r repository) condaChannel() string {
@@ -95,7 +101,10 @@ func configureMamba(s *setup) error {
 		return err
 	}
 	path := mambaConfigPath(home)
-	isUpstream := mambaUpstreamFilter(s)
+	isUpstream, err := mambaUpstreamFilter(s)
+	if err != nil {
+		return err
+	}
 	if err := writeMambarc(s, path, isUpstream); err != nil {
 		return err
 	}
