@@ -161,7 +161,9 @@ func checkCargoProjectConfig(s *setup, path string, visited map[string]bool, fro
 		return fmt.Errorf("%s defines a %q source, which overrides the Depot registry in this directory: remove it or rename that source, then rerun this command", path, cargoRegistryName)
 	}
 	if replacement, ok := tomlLookup(values, "source", "crates-io", "replace-with"); ok {
-		if s.replaceUpstream && replacement != cargoRegistryName {
+		// The home file's own replace-with, which setup writes, takes
+		// precedence over the files it includes.
+		if s.replaceUpstream && replacement != cargoRegistryName && !fromHome {
 			return fmt.Errorf("%s replaces crates.io with %q, which overrides the replacement in the Cargo home configuration: remove it, then rerun this command", path, replacement)
 		}
 		if !s.replaceUpstream && replacement == cargoRegistryName {

@@ -15,6 +15,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/pelletier/go-toml/v2"
 	"gopkg.in/yaml.v3"
@@ -78,13 +79,14 @@ func (s *setup) pnpmReadsPnpmConfigEnv() bool {
 
 // pnpmUserConfigPath returns the user file pnpm 11 and later read, in this
 // order: the npmrcAuthFile variable, the pnpm userconfig variable, npmrcAuthFile
-// in the global config.yaml, the npm userconfig variable, then ~/.npmrc.
+// in the global config.yaml, the npm userconfig variable, then ~/.npmrc. Unlike
+// npm, pnpm reads the lowercase form of each variable first.
 func pnpmUserConfigPath() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
 	}
-	for _, name := range []string{"PNPM_CONFIG_NPMRC_AUTH_FILE", "pnpm_config_npmrc_auth_file", "PNPM_CONFIG_USERCONFIG", "pnpm_config_userconfig"} {
+	for _, name := range []string{"pnpm_config_npmrc_auth_file", "PNPM_CONFIG_NPMRC_AUTH_FILE", "pnpm_config_userconfig", "PNPM_CONFIG_USERCONFIG"} {
 		if path := os.Getenv(name); path != "" {
 			return expandHome(path, home), nil
 		}
@@ -105,7 +107,12 @@ func pnpmUserConfigPath() (string, error) {
 			return config.NpmrcAuthFile, nil
 		}
 	}
-	return npmUserConfigPath()
+	for _, name := range []string{"npm_config_userconfig", "NPM_CONFIG_USERCONFIG"} {
+		if path := os.Getenv(name); path != "" {
+			return expandHome(path, home), nil
+		}
+	}
+	return filepath.Join(home, ".npmrc"), nil
 }
 
 // bunUserConfigPath returns the user file Bun reads. Bun 1.4.4 and later read
@@ -158,8 +165,8 @@ func configurePnpm(s *setup) error {
 	if err != nil {
 		return err
 	}
-	if strings.ContainsAny(dir, " \t") {
-		return fmt.Errorf("pnpm can't run a token helper whose path contains spaces (%s): rerun with --auth store to save the token instead", dir)
+	if strings.ContainsFunc(dir, func(r rune) bool { return unicode.IsSpace(r) || strings.ContainsRune("$%`'\"", r) }) {
+		return fmt.Errorf("pnpm can't run a token helper whose path contains whitespace, quotes, $, %%, or ` (%s): rerun with --auth store to save the token instead", dir)
 	}
 	helper, err := s.installTokenHelper()
 	if err != nil {
@@ -438,14 +445,11 @@ func registryKey(s *setup) string {
 // declares workspaces. Yarn Classic reads .npmrc in every ancestor directory,
 // so callers pass the directories that the client reads.
 // pnpmIgnoresProjectEntry reports whether pnpm ignores an entry in a project
-// .npmrc. pnpm never reads tokenHelper there, and pnpm 11.5.3 and later ignore
-// registry and credential entries that contain ${...} references.
+// .npmrc. pnpm 11.5.3 and later ignore registry and credential entries that
+// contain ${...} references.
 func pnpmIgnoresProjectEntry(s *setup, key, raw string) bool {
 	if s.clientName != "pnpm" {
 		return false
-	}
-	if strings.HasSuffix(key, ":tokenHelper") {
-		return true
 	}
 	protected := key == "registry" || strings.HasSuffix(key, ":registry") || strings.HasPrefix(key, "//")
 	return protected && strings.Contains(raw, "${") && s.pnpmVersionAtLeast([3]int{11, 5, 3})
@@ -462,6 +466,13 @@ func checkProjectNpmrc(s *setup, userPath string, keys map[string]string, dirs [
 			continue
 		}
 		rc := parseNpmrc(data)
+		if s.clientName == "pnpm" {
+			for _, line := range rc.lines {
+				if key, ok := npmrcKey(line); ok && strings.HasSuffix(key, ":tokenHelper") {
+					return fmt.Errorf("%s sets %s, and pnpm refuses to run when a project .npmrc sets tokenHelper: remove that setting, then rerun this command", path, key)
+				}
+			}
+		}
 		for _, key := range slices.Sorted(maps.Keys(keys)) {
 			raw, ok := rc.getRaw(key)
 			if !ok || pnpmIgnoresProjectEntry(s, key, raw) {
@@ -564,7 +575,7 @@ func pnpmAuthCovers(s *setup, auth map[string]any, routing bool) (string, bool) 
 // configuration directory.
 func pnpmAuthFilePath(dir string) string {
 	home, _ := os.UserHomeDir()
-	for _, name := range []string{"PNPM_CONFIG_NPMRC_AUTH_FILE", "pnpm_config_npmrc_auth_file"} {
+	for _, name := range []string{"pnpm_config_npmrc_auth_file", "PNPM_CONFIG_NPMRC_AUTH_FILE"} {
 		if path := os.Getenv(name); path != "" {
 			return expandHome(path, home)
 		}
@@ -642,7 +653,7 @@ func npmrcProjectDirs(s *setup) []string {
 		return ancestorDirs()
 	}
 	dirs := npmProjectDirs(s)
-	if s.clientName == "npm" && len(dirs) > 1 && slices.ContainsFunc(dirs[1:], func(root string) bool { return npmWorkspaceIncludes(root, dirs[0]) }) {
+	if s.clientName == "npm" && len(dirs) > 1 && fileExists(filepath.Join(dirs[0], "package.json")) && slices.ContainsFunc(dirs[1:], func(root string) bool { return npmWorkspaceIncludes(root, dirs[0]) }) {
 		return dirs[1:]
 	}
 	return dirs
@@ -669,7 +680,10 @@ func npmWorkspaceIncludes(root, dir string) bool {
 	included := false
 	for _, pattern := range manifest.Workspaces {
 		negated := strings.HasPrefix(pattern, "!")
-		if matchGlobSegments(strings.Split(path.Clean(strings.TrimPrefix(pattern, "!")), "/"), segments) {
+		for _, expanded := range expandBraces(strings.TrimPrefix(pattern, "!")) {
+			if !matchGlobSegments(strings.Split(path.Clean(expanded), "/"), segments) {
+				continue
+			}
 			if negated {
 				return false
 			}
@@ -677,6 +691,43 @@ func npmWorkspaceIncludes(root, dir string) bool {
 		}
 	}
 	return included
+}
+
+// expandBraces expands {a,b} alternatives in a glob into separate patterns.
+func expandBraces(pattern string) []string {
+	start := strings.IndexByte(pattern, '{')
+	if start < 0 {
+		return []string{pattern}
+	}
+	depth := 0
+	var options []string
+	last := start + 1
+	for i := start; i < len(pattern); i++ {
+		switch pattern[i] {
+		case '{':
+			depth++
+		case ',':
+			if depth == 1 {
+				options = append(options, pattern[last:i])
+				last = i + 1
+			}
+		case '}':
+			depth--
+			if depth > 0 {
+				continue
+			}
+			if options == nil {
+				return []string{pattern}
+			}
+			options = append(options, pattern[last:i])
+			var expanded []string
+			for _, option := range options {
+				expanded = append(expanded, expandBraces(pattern[:start]+option+pattern[i+1:])...)
+			}
+			return expanded
+		}
+	}
+	return []string{pattern}
 }
 
 // matchGlobSegments matches path segments against a glob in which ** matches

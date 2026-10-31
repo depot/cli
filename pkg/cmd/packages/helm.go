@@ -13,10 +13,6 @@ import (
 const helmRepositoryName = "depot"
 
 func configureHelm(s *setup) error {
-	if err := checkHelmAlias(s); err != nil {
-		return err
-	}
-
 	out, err := exec.CommandContext(s.ctx, "helm", "env", "HELM_REPOSITORY_CONFIG").Output()
 	if err != nil {
 		return fmt.Errorf("could not find the Helm repository configuration: %w", err)
@@ -24,6 +20,9 @@ func configureHelm(s *setup) error {
 	path := strings.TrimSpace(string(out))
 	if info, err := os.Stat(resolveLink(path)); err == nil && !info.Mode().IsRegular() {
 		return fmt.Errorf("the Helm repository configuration %s isn't a regular file: set HELM_REPOSITORY_CONFIG to a file, then rerun this command", path)
+	}
+	if err := checkHelmAlias(s); err != nil {
+		return err
 	}
 
 	args := []string{"repo", "add", helmRepositoryName, s.repo.url(), "--username", "depot", "--password-stdin", "--force-update"}

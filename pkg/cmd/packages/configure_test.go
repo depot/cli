@@ -832,16 +832,14 @@ func TestCheckPnpmAuthEnvironment(t *testing.T) {
 
 func TestCheckProjectNpmrcAppliesPnpmTrustRules(t *testing.T) {
 	project := t.TempDir()
+	npmrc := filepath.Join(project, ".npmrc")
 	require.NoError(t, os.WriteFile(filepath.Join(project, "package.json"), []byte("{}"), 0644))
-	require.NoError(t, os.WriteFile(filepath.Join(project, ".npmrc"), []byte("registry=${PROJECT_REGISTRY}\n//packages.depot.dev/org123/npm/npmjs/:tokenHelper=/bin/echo\n"), 0644))
+	require.NoError(t, os.WriteFile(npmrc, []byte("registry=${PROJECT_REGISTRY}\n"), 0644))
 	t.Chdir(project)
 	t.Setenv("PROJECT_REGISTRY", "https://registry.npmjs.org/")
 
 	user := filepath.Join(t.TempDir(), ".npmrc")
-	keys := map[string]string{
-		"registry": "https://packages.depot.dev/org123/npm/npmjs/",
-		"//packages.depot.dev/org123/npm/npmjs/:tokenHelper": "",
-	}
+	keys := map[string]string{"registry": "https://packages.depot.dev/org123/npm/npmjs/"}
 	s := newTestSetup(t, "npm", "npmjs")
 	s.clientName = "pnpm"
 	s.pnpmVersion = [3]int{11, 5, 3}
@@ -850,11 +848,11 @@ func TestCheckProjectNpmrcAppliesPnpmTrustRules(t *testing.T) {
 	s.pnpmVersion = [3]int{11, 5, 2}
 	require.ErrorContains(t, checkProjectNpmrc(s, user, keys, npmProjectDirs(s)), "sets registry")
 
-	delete(keys, "registry")
-	require.NoError(t, checkProjectNpmrc(s, user, keys, npmProjectDirs(s)))
+	require.NoError(t, os.WriteFile(npmrc, []byte("//other.example/:tokenHelper=/bin/echo\n"), 0644))
+	require.ErrorContains(t, checkProjectNpmrc(s, user, keys, npmProjectDirs(s)), "pnpm refuses")
 
 	npm := newTestSetup(t, "npm", "npmjs")
-	require.ErrorContains(t, checkProjectNpmrc(npm, user, keys, npmProjectDirs(npm)), "tokenHelper")
+	require.NoError(t, checkProjectNpmrc(npm, user, keys, npmProjectDirs(npm)))
 }
 
 func TestCheckCargoOverridesAllowsSelfIncludingHome(t *testing.T) {
@@ -1186,9 +1184,11 @@ func TestPnpmUserConfigPath(t *testing.T) {
 	require.Equal(t, "/tmp/authrc", path)
 
 	t.Setenv("pnpm_config_userconfig", "/tmp/pnpmrc")
+	t.Setenv("PNPM_CONFIG_USERCONFIG", "/tmp/upper-pnpmrc")
 	path, err = pnpmUserConfigPath()
 	require.NoError(t, err)
 	require.Equal(t, "/tmp/pnpmrc", path)
+	t.Setenv("PNPM_CONFIG_USERCONFIG", "")
 
 	t.Setenv("PNPM_CONFIG_NPMRC_AUTH_FILE", "/tmp/envauthrc")
 	path, err = pnpmUserConfigPath()
@@ -1220,8 +1220,13 @@ func TestNpmrcProjectDirsSkipsWorkspaceMember(t *testing.T) {
 	s.clientName = "pnpm"
 	require.ErrorContains(t, checkProjectNpmrc(s, user, keys, npmrcProjectDirs(s)), filepath.Join(pkg, ".npmrc"))
 
-	require.NoError(t, os.WriteFile(filepath.Join(root, "package.json"), []byte(`{"workspaces":["other/*"]}`), 0644))
+	require.NoError(t, os.Remove(filepath.Join(pkg, "package.json")))
+	require.NoError(t, os.Mkdir(filepath.Join(pkg, "node_modules"), 0755))
 	s.clientName = "npm"
+	require.ErrorContains(t, checkProjectNpmrc(s, user, keys, npmrcProjectDirs(s)), filepath.Join(pkg, ".npmrc"))
+	require.NoError(t, os.WriteFile(filepath.Join(pkg, "package.json"), []byte("{}"), 0644))
+
+	require.NoError(t, os.WriteFile(filepath.Join(root, "package.json"), []byte(`{"workspaces":["other/*"]}`), 0644))
 	require.ErrorContains(t, checkProjectNpmrc(s, user, keys, npmrcProjectDirs(s)), filepath.Join(pkg, ".npmrc"))
 
 	require.Equal(t, pkg, npmProjectDirs(s)[0])
@@ -1407,6 +1412,11 @@ func TestNpmWorkspaceIncludesGlobstar(t *testing.T) {
 	require.True(t, npmWorkspaceIncludes(root, filepath.Join(root, "packages", "a")))
 	require.False(t, npmWorkspaceIncludes(root, filepath.Join(root, "apps", "a")))
 
+	write(`["packages/{a,b/c}"]`)
+	require.True(t, npmWorkspaceIncludes(root, filepath.Join(root, "packages", "a")))
+	require.True(t, npmWorkspaceIncludes(root, filepath.Join(root, "packages", "b", "c")))
+	require.False(t, npmWorkspaceIncludes(root, filepath.Join(root, "packages", "b")))
+
 	write(`["./packages/*", "!packages/private"]`)
 	require.True(t, npmWorkspaceIncludes(root, filepath.Join(root, "packages", "a")))
 	require.False(t, npmWorkspaceIncludes(root, filepath.Join(root, "packages", "private")))
@@ -1427,4 +1437,14 @@ func TestCheckHelmAliasAcceptsOtherOrganization(t *testing.T) {
 
 	writeHelm("https://charts.example/")
 	require.ErrorContains(t, checkHelmAlias(s), "already points to")
+}
+
+func TestCheckCargoProjectConfigAllowsHomeIncludedReplacement(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "extra.toml")
+	require.NoError(t, os.WriteFile(path, []byte("[source.crates-io]\nreplace-with = \"mirror\"\n"), 0644))
+	s := newTestSetup(t, "cargo", "crates-io")
+	s.replaceUpstream = true
+	require.NoError(t, checkCargoProjectConfig(s, path, map[string]bool{}, true))
+	require.ErrorContains(t, checkCargoProjectConfig(s, path, map[string]bool{}, false), "replaces crates.io")
 }
