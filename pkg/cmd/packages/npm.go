@@ -51,18 +51,18 @@ func (s *setup) pnpmReadsPnpmConfigEnv() bool {
 }
 
 // pnpmUserConfigPath returns the user file pnpm 11 and later read:
-// pnpm_config_userconfig before the npm setting.
-func pnpmUserConfigPath(npmPath string, npmErr error) (string, error) {
+// pnpm_config_userconfig, or ~/.npmrc. They don't read npm_config_userconfig.
+func pnpmUserConfigPath() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
 	for _, name := range []string{"PNPM_CONFIG_USERCONFIG", "pnpm_config_userconfig"} {
 		if path := os.Getenv(name); path != "" {
-			home, err := os.UserHomeDir()
-			if err != nil {
-				return "", err
-			}
 			return expandHome(path, home), nil
 		}
 	}
-	return npmPath, npmErr
+	return filepath.Join(home, ".npmrc"), nil
 }
 
 // bunUserConfigPath returns the user file Bun reads. Bun 1.4.4 and later read
@@ -170,7 +170,7 @@ func writeNpmrc(s *setup, helper string, flagKeys ...string) error {
 		path, err = bunUserConfigPath(s)
 	case "pnpm":
 		if s.pnpmReadsPnpmConfigEnv() {
-			path, err = pnpmUserConfigPath(path, err)
+			path, err = pnpmUserConfigPath()
 		}
 	}
 	if err != nil {
@@ -191,6 +191,8 @@ func writeNpmrc(s *setup, helper string, flagKeys ...string) error {
 			}
 		} else if s.clientName == "bun" {
 			names = append(names, "BUN_CONFIG_REGISTRY")
+		} else if s.clientName == "yarn" {
+			names = append(names, "YARN_REGISTRY", "yarn_registry")
 		}
 		for _, name := range names {
 			if value := os.Getenv(name); value != "" && strings.TrimSuffix(value, "/") != strings.TrimSuffix(s.repo.url(), "/") {
@@ -289,12 +291,12 @@ func writeNpmrc(s *setup, helper string, flagKeys ...string) error {
 }
 
 // configEnvNames returns the environment variable names that set the npm
-// configuration key. pnpm 11 and later read pnpm_config_ instead of
+// configuration key. pnpm 11 and later read only pnpm_config_ instead of
 // npm_config_.
 func configEnvNames(s *setup, key string) []string {
 	prefixes := []string{"npm_config_", "NPM_CONFIG_"}
 	if s.clientName == "pnpm" && s.pnpmReadsPnpmConfigEnv() {
-		prefixes = append(prefixes, "pnpm_config_", "PNPM_CONFIG_")
+		prefixes = []string{"pnpm_config_", "PNPM_CONFIG_"}
 	}
 	var names []string
 	for _, prefix := range prefixes {

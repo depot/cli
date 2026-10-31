@@ -858,6 +858,7 @@ func TestWriteNpmrcChecksEachCredentialVariable(t *testing.T) {
 	t.Chdir(t.TempDir())
 	s := newTestSetup(t, "npm", "npmjs")
 	s.clientName = "pnpm"
+	s.pnpmMajor = 10
 	t.Setenv("npm_config_//packages.depot.dev/org123/npm/npmjs/:_authToken", "/helper")
 	require.ErrorContains(t, writeNpmrc(s, "/helper"), ":_authToken")
 }
@@ -1119,9 +1120,17 @@ func TestWriteMambarcKeepsAnchoredEmptyDefaults(t *testing.T) {
 }
 
 func TestPnpmUserConfigPath(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("NPM_CONFIG_USERCONFIG", "/tmp/npmrc")
 	t.Setenv("PNPM_CONFIG_USERCONFIG", "")
+	t.Setenv("pnpm_config_userconfig", "")
+	path, err := pnpmUserConfigPath()
+	require.NoError(t, err)
+	require.Equal(t, filepath.Join(home, ".npmrc"), path)
+
 	t.Setenv("pnpm_config_userconfig", "/tmp/pnpmrc")
-	path, err := pnpmUserConfigPath("/home/me/.npmrc", nil)
+	path, err = pnpmUserConfigPath()
 	require.NoError(t, err)
 	require.Equal(t, "/tmp/pnpmrc", path)
 }
@@ -1149,4 +1158,21 @@ func TestCheckYarnrcRegistry(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	s := newTestSetup(t, "npm", "npmjs")
 	require.ErrorContains(t, checkYarnrcRegistry(s), ".yarnrc")
+}
+
+func TestConfigEnvNamesForPnpm11(t *testing.T) {
+	s := newTestSetup(t, "npm", "npmjs")
+	s.clientName = "pnpm"
+	s.pnpmMajor = 11
+	require.Equal(t, []string{"pnpm_config_registry", "PNPM_CONFIG_registry", "PNPM_CONFIG_REGISTRY"}, configEnvNames(s, "registry"))
+}
+
+func TestWriteNpmrcChecksYarnRegistryVariable(t *testing.T) {
+	t.Setenv("NPM_CONFIG_USERCONFIG", filepath.Join(t.TempDir(), ".npmrc"))
+	t.Setenv("YARN_REGISTRY", "https://registry.yarnpkg.com/")
+	t.Setenv("HOME", t.TempDir())
+	t.Chdir(t.TempDir())
+	s := newTestSetup(t, "npm", "npmjs")
+	s.clientName = "yarn"
+	require.ErrorContains(t, writeNpmrc(s, ""), "YARN_REGISTRY")
 }
