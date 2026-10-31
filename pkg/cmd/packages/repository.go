@@ -64,6 +64,17 @@ func (r repository) formatURL() string {
 	return fmt.Sprintf("%s/%s/%s/", r.server.String(), r.org, r.format)
 }
 
+// isServerRepositoryURL reports whether value is a repository of the given
+// format on the same Depot Packages server, in any organization.
+func (r repository) isServerRepositoryURL(value, format string) bool {
+	path, ok := strings.CutPrefix(value, r.server.String()+"/")
+	if !ok {
+		return false
+	}
+	parts := strings.Split(path, "/")
+	return len(parts) >= 3 && parts[1] == format && parts[2] != ""
+}
+
 func (r repository) url() string {
 	return r.formatURL() + r.name + "/"
 }

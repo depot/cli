@@ -1350,9 +1350,9 @@ func TestNpmrcGetStripsCommentsAndKeepsUnsetReferences(t *testing.T) {
 
 func TestIsDepotRubygemsURL(t *testing.T) {
 	s := newTestSetup(t, "rubygems", "rubygems")
-	require.True(t, isDepotRubygemsURL(s, "https://packages.depot.dev/other-org/rubygems/rubygems/"))
-	require.False(t, isDepotRubygemsURL(s, "https://packages.depot.dev/org123/npm/npmjs/"))
-	require.False(t, isDepotRubygemsURL(s, "https://mirror.example/"))
+	require.True(t, s.repo.isServerRepositoryURL("https://packages.depot.dev/other-org/rubygems/rubygems/", "rubygems"))
+	require.False(t, s.repo.isServerRepositoryURL("https://packages.depot.dev/org123/npm/npmjs/", "rubygems"))
+	require.False(t, s.repo.isServerRepositoryURL("https://mirror.example/", "rubygems"))
 }
 
 func TestWriteGemCredentialKeepsURLKeys(t *testing.T) {
@@ -1395,4 +1395,36 @@ func TestCheckYarnrcRegistryDashedKey(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	s := newTestSetup(t, "npm", "npmjs")
 	require.ErrorContains(t, checkYarnrcRegistry(s), "https://other.example/")
+}
+
+func TestNpmWorkspaceIncludesGlobstar(t *testing.T) {
+	root := t.TempDir()
+	write := func(workspaces string) {
+		require.NoError(t, os.WriteFile(filepath.Join(root, "package.json"), []byte(`{"workspaces":`+workspaces+`}`), 0644))
+	}
+	write(`["packages/**"]`)
+	require.True(t, npmWorkspaceIncludes(root, filepath.Join(root, "packages", "a", "b")))
+	require.True(t, npmWorkspaceIncludes(root, filepath.Join(root, "packages", "a")))
+	require.False(t, npmWorkspaceIncludes(root, filepath.Join(root, "apps", "a")))
+
+	write(`["./packages/*", "!packages/private"]`)
+	require.True(t, npmWorkspaceIncludes(root, filepath.Join(root, "packages", "a")))
+	require.False(t, npmWorkspaceIncludes(root, filepath.Join(root, "packages", "private")))
+	require.False(t, npmWorkspaceIncludes(root, filepath.Join(root, "packages", "a", "b")))
+}
+
+func TestCheckHelmAliasAcceptsOtherOrganization(t *testing.T) {
+	bin := t.TempDir()
+	t.Setenv("PATH", bin)
+	writeHelm := func(url string) {
+		script := "#!/bin/sh\necho '[{\"name\":\"depot\",\"url\":\"" + url + "\"}]'\n"
+		require.NoError(t, os.WriteFile(filepath.Join(bin, "helm"), []byte(script), 0755))
+	}
+	s := newTestSetup(t, "helm", "charts")
+
+	writeHelm("https://packages.depot.dev/other-org/helm/charts/")
+	require.NoError(t, checkHelmAlias(s))
+
+	writeHelm("https://charts.example/")
+	require.ErrorContains(t, checkHelmAlias(s), "already points to")
 }

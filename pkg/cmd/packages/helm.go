@@ -60,7 +60,7 @@ func checkHelmAlias(s *setup) error {
 		if repository.Name != helmRepositoryName || strings.TrimSuffix(repository.URL, "/") == strings.TrimSuffix(s.repo.url(), "/") {
 			continue
 		}
-		if !strings.HasPrefix(repository.URL, s.repo.formatURL()) {
+		if !s.repo.isServerRepositoryURL(repository.URL, "helm") {
 			return fmt.Errorf("the Helm repository %q already points to %s: rename or remove it with `helm repo remove %s`, then rerun this command", helmRepositoryName, repository.URL, helmRepositoryName)
 		}
 		s.notef("The %q Helm repository now points to %s instead of %s.", helmRepositoryName, s.repo.url(), repository.URL)

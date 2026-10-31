@@ -55,7 +55,7 @@ func configureBundler(s *setup) error {
 		s.notef("Bundler now downloads gems from %s through the repository.", rubygemsUpstream)
 	} else {
 		mirror, _ := config.get(mirrorKey)
-		if s.replaceUpstreamExplicit && isDepotRubygemsURL(s, mirror) {
+		if s.replaceUpstreamExplicit && s.repo.isServerRepositoryURL(mirror, "rubygems") {
 			config.remove(mirrorKey)
 			s.notef("Removed the Bundler mirror for %s.", rubygemsUpstream)
 		}
@@ -87,7 +87,7 @@ func checkBundlerMirrorRemoved(s *setup) error {
 		return err
 	}
 	mirror := out
-	if !isDepotRubygemsURL(s, mirror) {
+	if !s.repo.isServerRepositoryURL(mirror, "rubygems") {
 		return nil
 	}
 	return fmt.Errorf("Bundler still uses the %s mirror %s from another configuration file: remove it with `bundle config unset --local %s`, then rerun this command", rubygemsUpstream, mirror, key)
@@ -145,17 +145,6 @@ func checkBundlerMirror(s *setup) error {
 	}
 	s.notef("In this directory, %s. Remove it with `bundle config unset --local %s` to use the repository.", message, key)
 	return nil
-}
-
-// isDepotRubygemsURL reports whether a URL is a RubyGems repository on the
-// Depot Packages server, in any organization.
-func isDepotRubygemsURL(s *setup, value string) bool {
-	path, ok := strings.CutPrefix(value, s.repo.server.String()+"/")
-	if !ok {
-		return false
-	}
-	parts := strings.Split(path, "/")
-	return len(parts) >= 3 && parts[1] == "rubygems"
 }
 
 func bundlerConfigPath() (string, error) {

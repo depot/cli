@@ -35,7 +35,11 @@ func configureApk(s *setup) error {
 
 	branch := s.opts.branch
 	if branch == "" {
-		branch = detectAlpineBranch()
+		detected, err := s.detectAlpineBranch()
+		if err != nil {
+			return err
+		}
+		branch = detected
 	}
 	if branch == "" {
 		return fmt.Errorf("could not detect the Alpine branch: specify --branch, such as --branch v3.22")
@@ -159,10 +163,13 @@ func withoutApkRepository(repositories, url string) (lines []string, tags []stri
 	return lines, tags
 }
 
-func detectAlpineBranch() string {
-	repositories, _ := os.ReadFile(apkRepositoriesFile)
+func (s *setup) detectAlpineBranch() (string, error) {
+	repositories, err := s.readSystemFile(apkRepositoriesFile)
+	if err != nil {
+		return "", err
+	}
 	release, _ := os.ReadFile("/etc/alpine-release")
-	return alpineBranch(string(repositories), string(release))
+	return alpineBranch(string(repositories), string(release)), nil
 }
 
 // alpineBranch prefers the branch of the existing untagged repositories,

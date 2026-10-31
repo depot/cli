@@ -665,12 +665,39 @@ func npmWorkspaceIncludes(root, dir string) bool {
 	if err != nil {
 		return false
 	}
+	segments := strings.Split(filepath.ToSlash(rel), "/")
+	included := false
 	for _, pattern := range manifest.Workspaces {
-		if ok, _ := path.Match(path.Clean(pattern), filepath.ToSlash(rel)); ok {
-			return true
+		negated := strings.HasPrefix(pattern, "!")
+		if matchGlobSegments(strings.Split(path.Clean(strings.TrimPrefix(pattern, "!")), "/"), segments) {
+			if negated {
+				return false
+			}
+			included = true
 		}
 	}
-	return false
+	return included
+}
+
+// matchGlobSegments matches path segments against a glob in which ** matches
+// any number of segments, as npm workspace patterns do.
+func matchGlobSegments(pattern, segments []string) bool {
+	if len(pattern) == 0 {
+		return len(segments) == 0
+	}
+	if pattern[0] == "**" {
+		for i := 0; i <= len(segments); i++ {
+			if matchGlobSegments(pattern[1:], segments[i:]) {
+				return true
+			}
+		}
+		return false
+	}
+	if len(segments) == 0 {
+		return false
+	}
+	ok, _ := path.Match(pattern[0], segments[0])
+	return ok && matchGlobSegments(pattern[1:], segments[1:])
 }
 
 // ancestorDirs returns the current directory and each of its parents.
