@@ -249,7 +249,7 @@ func writeMambarc(s *setup, path string, isUpstream func(string) bool) error {
 		}
 	}
 	if s.replaceUpstreamExplicit && !s.replaceUpstream {
-		if defaults := yamlMappingValue(root, "default_channels"); defaults != nil && defaults.Kind == yaml.SequenceNode && len(defaults.Content) == 0 {
+		if defaults := yamlMappingValue(root, "default_channels"); defaults != nil && defaults.Kind == yaml.SequenceNode && len(defaults.Content) == 0 && defaults.Anchor == "" {
 			removeYAMLMappingValue(root, "default_channels")
 		}
 		// The absolute URL avoids a channel_alias or custom_channels entry that

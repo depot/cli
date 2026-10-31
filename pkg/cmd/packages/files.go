@@ -2,6 +2,7 @@ package packages
 
 import (
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -49,6 +50,9 @@ func restrictPermissions(path string) error {
 // that configuration files managed from a dotfiles directory stay linked.
 func (s *setup) writeFile(path string, data []byte, perm os.FileMode) error {
 	path = resolveLink(path)
+	if info, err := os.Lstat(path); err == nil && !info.Mode().IsRegular() {
+		return fmt.Errorf("could not update %s: it isn't a regular file", path)
+	}
 
 	existing, err := readFileIfExists(path)
 	if err != nil {

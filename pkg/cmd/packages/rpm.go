@@ -87,6 +87,9 @@ func prepareRPMRepository(s *setup) (rpmRepository, error) {
 		repo.repoCheck, repo.packageCheck = "0", "1"
 	}
 
+	if err := checkRPMPackageKeyChange(s, repo); err != nil {
+		return rpmRepository{}, err
+	}
 	return repo, nil
 }
 
@@ -178,4 +181,26 @@ func checkZypperKeyMode(s *setup, repo rpmRepository) error {
 		return nil
 	}
 	return fmt.Errorf("the %s repository verifies Depot's metadata key, which zypper may have added to the RPM database, where it would also verify packages. Remove the repository with `sudo zypper removerepo %s`, remove Depot's key from the keys that `rpm -q gpg-pubkey --qf '%%{NAME}-%%{VERSION}-%%{RELEASE}\\t%%{SUMMARY}\\n'` lists with `sudo rpm -e <name>`, then rerun this command", repo.id, repo.id)
+}
+
+// checkRPMPackageKeyChange rejects replacing the package key of an existing
+// repository. The client imports the old key into the RPM database, where it
+// keeps verifying packages, and setup can't identify that key reliably.
+func checkRPMPackageKeyChange(s *setup, repo rpmRepository) error {
+	for _, path := range []string{"/etc/yum.repos.d/" + repo.id + ".repo", "/etc/zypp/repos.d/" + repo.id + ".repo"} {
+		data, err := s.readSystemFile(path)
+		if err != nil {
+			return err
+		}
+		for _, line := range strings.Split(string(data), "\n") {
+			previous, ok := strings.CutPrefix(strings.TrimSpace(line), "gpgkey=")
+			if !ok || previous == fileURL(repo.key) {
+				continue
+			}
+			if strings.Contains(string(data), "repo_gpgcheck=0") {
+				return fmt.Errorf("%s verifies packages with %s, which the RPM database may still trust. Remove that key from the keys that `rpm -q gpg-pubkey --qf '%%{NAME}-%%{VERSION}-%%{RELEASE}\\t%%{SUMMARY}\\n'` lists with `sudo rpm -e <name>`, remove %s, then rerun this command", path, previous, path)
+			}
+		}
+	}
+	return nil
 }

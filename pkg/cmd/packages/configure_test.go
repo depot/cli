@@ -1090,3 +1090,25 @@ func TestCheckPnpmAuthFileSkipsUserNpmrc(t *testing.T) {
 	s.clientName = "pnpm"
 	require.NoError(t, checkPnpmAuthFile(s, path, npmCredentialKeys(s)))
 }
+
+func TestNpmrcGetRemovesQuotes(t *testing.T) {
+	value, ok := parseNpmrc([]byte("registry=\"https://a/\"\n")).get("registry")
+	require.True(t, ok)
+	require.Equal(t, "https://a/", value)
+}
+
+func TestWriteFileRejectsSpecialFiles(t *testing.T) {
+	s := newTestSetup(t, "npm", "npmjs")
+	require.ErrorContains(t, s.writeFile(t.TempDir(), []byte("x"), 0600), "isn't a regular file")
+}
+
+func TestWriteMambarcKeepsAnchoredEmptyDefaults(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".mambarc")
+	require.NoError(t, os.WriteFile(path, []byte("default_channels: &empty []\nallowlist_channels: *empty\nchannels:\n  - conda-forge\n"), 0644))
+	s := newTestSetup(t, "conda", "conda-forge")
+	s.replaceUpstreamExplicit = true
+	require.NoError(t, writeMambarc(s, path, isCondaUpstream))
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.Contains(t, string(data), "&empty")
+}

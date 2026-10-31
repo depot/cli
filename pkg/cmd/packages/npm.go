@@ -181,7 +181,9 @@ func writeNpmrc(s *setup, helper string, flagKeys ...string) error {
 
 	tokenKey := s.repo.nerfDart() + ":_authToken"
 	helperKey := s.repo.nerfDart() + ":tokenHelper"
-	expected := map[string]string{tokenKey: s.token, helperKey: helper}
+	// pnpm ignores tokenHelper settings from the environment, and npm doesn't
+	// use tokenHelper, so only the token key is checked.
+	expected := map[string]string{tokenKey: s.token}
 	for _, key := range flagKeys {
 		expected[key] = "true"
 	}
