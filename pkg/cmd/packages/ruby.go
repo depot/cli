@@ -1,6 +1,8 @@
 package packages
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -92,11 +94,20 @@ func checkBundlerMirrorRemoved(s *setup) error {
 }
 
 // bundleConfigGet returns the value Bundler uses for key in the current
-// directory. Bundler prints an empty value for an unset key.
+// directory. For an unset key, Bundler prints nothing and, from version
+// 4.0.12, exits with status 1.
 func bundleConfigGet(s *setup, key string) (string, error) {
 	out, err := exec.CommandContext(s.ctx, "bundle", "config", "get", "--parseable", key).Output()
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 && len(bytes.TrimSpace(out)) == 0 && len(bytes.TrimSpace(exitErr.Stderr)) == 0 {
+		return "", nil
+	}
 	if err != nil {
-		return "", fmt.Errorf("could not read the effective Bundler setting %s with `bundle config get`: %w", key, err)
+		message := ""
+		if exitErr != nil {
+			message = "\n" + strings.TrimSpace(string(exitErr.Stderr))
+		}
+		return "", fmt.Errorf("could not read the effective Bundler setting %s with `bundle config get`: %w%s", key, err, message)
 	}
 	return strings.TrimPrefix(strings.TrimSpace(string(out)), key+"="), nil
 }

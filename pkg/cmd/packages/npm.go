@@ -278,11 +278,7 @@ func writeNpmrc(s *setup, helper string, flagKeys ...string) error {
 	for _, key := range flagKeys {
 		managed[key] = "true"
 	}
-	dirs := npmProjectDirs(s)
-	if s.clientName == "yarn" {
-		dirs = ancestorDirs()
-	}
-	if err := checkProjectNpmrc(s, path, managed, dirs); err != nil {
+	if err := checkProjectNpmrc(s, path, managed, npmrcProjectDirs(s)); err != nil {
 		return err
 	}
 	if err := checkPnpmAuthFile(s, path, npmCredentialKeys(s)); err != nil {
@@ -635,10 +631,19 @@ func npmProjectDirs(s *setup) []string {
 	if project == "" {
 		dirs = append(dirs, dir)
 	}
-	// npm uses the workspace root as the project and ignores the .npmrc of a
-	// workspace member.
-	if s.clientName == "npm" && project != "" && slices.ContainsFunc(dirs[1:], func(root string) bool { return npmWorkspaceIncludes(root, project) }) {
-		dirs = dirs[1:]
+	return dirs
+}
+
+// npmrcProjectDirs returns the directories whose .npmrc the client reads. npm
+// uses the workspace root as the project and ignores the .npmrc of a workspace
+// member.
+func npmrcProjectDirs(s *setup) []string {
+	if s.clientName == "yarn" {
+		return ancestorDirs()
+	}
+	dirs := npmProjectDirs(s)
+	if s.clientName == "npm" && len(dirs) > 1 && slices.ContainsFunc(dirs[1:], func(root string) bool { return npmWorkspaceIncludes(root, dirs[0]) }) {
+		return dirs[1:]
 	}
 	return dirs
 }

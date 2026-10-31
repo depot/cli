@@ -1202,7 +1202,7 @@ func TestPnpmUserConfigPath(t *testing.T) {
 	require.ErrorContains(t, err, "absolute path")
 }
 
-func TestNpmProjectDirsSkipsWorkspaceMember(t *testing.T) {
+func TestNpmrcProjectDirsSkipsWorkspaceMember(t *testing.T) {
 	root := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(root, "package.json"), []byte(`{"workspaces":["packages/*"]}`), 0644))
 	pkg := filepath.Join(root, "packages", "a")
@@ -1215,14 +1215,16 @@ func TestNpmProjectDirsSkipsWorkspaceMember(t *testing.T) {
 
 	s := newTestSetup(t, "npm", "npmjs")
 	s.clientName = "npm"
-	require.NoError(t, checkProjectNpmrc(s, user, keys, npmProjectDirs(s)))
+	require.NoError(t, checkProjectNpmrc(s, user, keys, npmrcProjectDirs(s)))
 
 	s.clientName = "pnpm"
-	require.ErrorContains(t, checkProjectNpmrc(s, user, keys, npmProjectDirs(s)), filepath.Join(pkg, ".npmrc"))
+	require.ErrorContains(t, checkProjectNpmrc(s, user, keys, npmrcProjectDirs(s)), filepath.Join(pkg, ".npmrc"))
 
 	require.NoError(t, os.WriteFile(filepath.Join(root, "package.json"), []byte(`{"workspaces":["other/*"]}`), 0644))
 	s.clientName = "npm"
-	require.ErrorContains(t, checkProjectNpmrc(s, user, keys, npmProjectDirs(s)), filepath.Join(pkg, ".npmrc"))
+	require.ErrorContains(t, checkProjectNpmrc(s, user, keys, npmrcProjectDirs(s)), filepath.Join(pkg, ".npmrc"))
+
+	require.Equal(t, pkg, npmProjectDirs(s)[0])
 }
 
 func TestBundlerScalarValue(t *testing.T) {
@@ -1232,9 +1234,20 @@ func TestBundlerScalarValue(t *testing.T) {
 }
 
 func TestBundleConfigGetReportsFailure(t *testing.T) {
-	t.Setenv("PATH", t.TempDir())
-	_, err := bundleConfigGet(newTestSetup(t, "rubygems", "rubygems"), "mirror.https://rubygems.org/")
+	bin := t.TempDir()
+	t.Setenv("PATH", bin)
+	s := newTestSetup(t, "rubygems", "rubygems")
+	_, err := bundleConfigGet(s, "mirror.https://rubygems.org/")
 	require.ErrorContains(t, err, "bundle config get")
+
+	require.NoError(t, os.WriteFile(filepath.Join(bin, "bundle"), []byte("#!/bin/sh\nexit 1\n"), 0755))
+	value, err := bundleConfigGet(s, "mirror.https://rubygems.org/")
+	require.NoError(t, err)
+	require.Empty(t, value)
+
+	require.NoError(t, os.WriteFile(filepath.Join(bin, "bundle"), []byte("#!/bin/sh\necho 'unreadable config' >&2\nexit 1\n"), 0755))
+	_, err = bundleConfigGet(s, "mirror.https://rubygems.org/")
+	require.ErrorContains(t, err, "unreadable config")
 }
 
 func TestMambaUpstreamFilterReadsCustomMultichannels(t *testing.T) {
