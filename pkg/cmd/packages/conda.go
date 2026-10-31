@@ -33,21 +33,22 @@ func isCondaUpstream(channel string) bool {
 }
 
 // mambaUpstreamFilter returns a check for public upstream channels that takes
-// channel_alias, custom_channels, and default_channels into account, because
-// they can point a channel name such as conda-forge or defaults at a private
-// mirror.
+// channel_alias, custom_channels, custom_multichannels, and default_channels
+// into account, because they can point a channel name such as conda-forge or
+// defaults at a private mirror.
 func mambaUpstreamFilter(s *setup) (func(string) bool, error) {
-	out, err := exec.CommandContext(s.ctx, s.clientName, "config", "list", "channel_alias", "custom_channels", "default_channels", "--json").Output()
+	out, err := exec.CommandContext(s.ctx, s.clientName, "config", "list", "channel_alias", "custom_channels", "custom_multichannels", "default_channels", "--json").Output()
 	if err != nil {
 		if s.replaceUpstream {
-			return nil, fmt.Errorf("could not read channel_alias and custom_channels with `%s config list`, which setup needs before it replaces channels: %w", s.clientName, err)
+			return nil, fmt.Errorf("could not read the channel settings with `%s config list`, which setup needs before it replaces channels: %w", s.clientName, err)
 		}
 		return isCondaUpstream, nil
 	}
 	var config struct {
-		ChannelAlias    string            `json:"channel_alias"`
-		CustomChannels  map[string]string `json:"custom_channels"`
-		DefaultChannels []string          `json:"default_channels"`
+		ChannelAlias        string              `json:"channel_alias"`
+		CustomChannels      map[string]string   `json:"custom_channels"`
+		CustomMultichannels map[string][]string `json:"custom_multichannels"`
+		DefaultChannels     []string            `json:"default_channels"`
 	}
 	if err := json.Unmarshal(out, &config); err != nil {
 		if s.replaceUpstream {
@@ -57,8 +58,9 @@ func mambaUpstreamFilter(s *setup) (func(string) bool, error) {
 	}
 	aliased := config.ChannelAlias != "" && !isPublicCondaBase(config.ChannelAlias)
 
-	// isNamedUpstream classifies a channel other than defaults.
-	isNamedUpstream := func(channel string) bool {
+	// isSingleUpstream classifies a channel other than defaults that isn't a
+	// custom multichannel.
+	isSingleUpstream := func(channel string) bool {
 		if !isCondaUpstream(channel) || channel == "defaults" {
 			return false
 		}
@@ -70,15 +72,21 @@ func mambaUpstreamFilter(s *setup) (func(string) bool, error) {
 		}
 		return !aliased
 	}
+	allUpstream := func(channels []string) bool {
+		return !slices.ContainsFunc(channels, func(c string) bool { return !isSingleUpstream(c) })
+	}
 
 	return func(channel string) bool {
 		if !isCondaUpstream(channel) {
 			return false
 		}
-		if channel == "defaults" {
-			return !slices.ContainsFunc(config.DefaultChannels, func(c string) bool { return !isNamedUpstream(c) })
+		if members, ok := config.CustomMultichannels[channel]; ok {
+			return allUpstream(members)
 		}
-		return isNamedUpstream(channel)
+		if channel == "defaults" {
+			return allUpstream(config.DefaultChannels)
+		}
+		return isSingleUpstream(channel)
 	}, nil
 }
 

@@ -1168,17 +1168,88 @@ func TestWriteMambarcKeepsAnchoredEmptyDefaults(t *testing.T) {
 }
 
 func TestPnpmUserConfigPath(t *testing.T) {
+	xdg := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", xdg)
 	t.Setenv("NPM_CONFIG_USERCONFIG", "/tmp/npmrc")
 	t.Setenv("PNPM_CONFIG_USERCONFIG", "")
 	t.Setenv("pnpm_config_userconfig", "")
+	t.Setenv("PNPM_CONFIG_NPMRC_AUTH_FILE", "")
+	t.Setenv("pnpm_config_npmrc_auth_file", "")
 	path, err := pnpmUserConfigPath()
 	require.NoError(t, err)
 	require.Equal(t, "/tmp/npmrc", path)
+
+	require.NoError(t, os.MkdirAll(filepath.Join(xdg, "pnpm"), 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(xdg, "pnpm", "config.yaml"), []byte("npmrcAuthFile: /tmp/authrc\n"), 0644))
+	path, err = pnpmUserConfigPath()
+	require.NoError(t, err)
+	require.Equal(t, "/tmp/authrc", path)
 
 	t.Setenv("pnpm_config_userconfig", "/tmp/pnpmrc")
 	path, err = pnpmUserConfigPath()
 	require.NoError(t, err)
 	require.Equal(t, "/tmp/pnpmrc", path)
+
+	t.Setenv("PNPM_CONFIG_NPMRC_AUTH_FILE", "/tmp/envauthrc")
+	path, err = pnpmUserConfigPath()
+	require.NoError(t, err)
+	require.Equal(t, "/tmp/envauthrc", path)
+
+	t.Setenv("PNPM_CONFIG_NPMRC_AUTH_FILE", "")
+	t.Setenv("pnpm_config_userconfig", "")
+	require.NoError(t, os.WriteFile(filepath.Join(xdg, "pnpm", "config.yaml"), []byte("npmrcAuthFile: ~/authrc\n"), 0644))
+	_, err = pnpmUserConfigPath()
+	require.ErrorContains(t, err, "absolute path")
+}
+
+func TestNpmProjectDirsSkipsWorkspaceMember(t *testing.T) {
+	root := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(root, "package.json"), []byte(`{"workspaces":["packages/*"]}`), 0644))
+	pkg := filepath.Join(root, "packages", "a")
+	require.NoError(t, os.MkdirAll(pkg, 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(pkg, "package.json"), []byte("{}"), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(pkg, ".npmrc"), []byte("registry=https://member.example/\n"), 0644))
+	t.Chdir(pkg)
+	keys := map[string]string{"registry": "https://packages.depot.dev/org123/npm/npmjs/"}
+	user := filepath.Join(t.TempDir(), ".npmrc")
+
+	s := newTestSetup(t, "npm", "npmjs")
+	s.clientName = "npm"
+	require.NoError(t, checkProjectNpmrc(s, user, keys, npmProjectDirs(s)))
+
+	s.clientName = "pnpm"
+	require.ErrorContains(t, checkProjectNpmrc(s, user, keys, npmProjectDirs(s)), filepath.Join(pkg, ".npmrc"))
+
+	require.NoError(t, os.WriteFile(filepath.Join(root, "package.json"), []byte(`{"workspaces":["other/*"]}`), 0644))
+	s.clientName = "npm"
+	require.ErrorContains(t, checkProjectNpmrc(s, user, keys, npmProjectDirs(s)), filepath.Join(pkg, ".npmrc"))
+}
+
+func TestBundlerScalarValue(t *testing.T) {
+	require.Equal(t, "https://a.example/", bundlerScalarValue(`"https://a.example/"`))
+	require.Equal(t, "https://a.example/", bundlerScalarValue(`https://a.example/ # managed`))
+	require.Equal(t, `"https://a.example/"`, bundlerScalarValue(`"https://a.example/" # managed`))
+}
+
+func TestBundleConfigGetReportsFailure(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	_, err := bundleConfigGet(newTestSetup(t, "rubygems", "rubygems"), "mirror.https://rubygems.org/")
+	require.ErrorContains(t, err, "bundle config get")
+}
+
+func TestMambaUpstreamFilterReadsCustomMultichannels(t *testing.T) {
+	bin := t.TempDir()
+	t.Setenv("PATH", bin)
+	output := `{"channel_alias":"https://conda.anaconda.org","custom_channels":{},"custom_multichannels":{"conda-forge":["https://private.example/cf"],"defaults":["conda-forge"]},"default_channels":["https://repo.anaconda.com/pkgs/main"]}`
+	require.NoError(t, os.WriteFile(filepath.Join(bin, "micromamba"), []byte("#!/bin/sh\necho '"+output+"'\n"), 0755))
+	s := newTestSetup(t, "conda", "conda-forge")
+	s.clientName = "micromamba"
+	s.replaceUpstream = true
+	isUpstream, err := mambaUpstreamFilter(s)
+	require.NoError(t, err)
+	require.False(t, isUpstream("conda-forge"))
+	require.True(t, isUpstream("defaults"))
+	require.True(t, isUpstream("https://conda.anaconda.org/conda-forge"))
 }
 
 func TestCheckCargoOverridesRejectsReplacementVariable(t *testing.T) {
@@ -1292,6 +1363,16 @@ func TestNpmProjectDirsRecognizesPnpmMarkers(t *testing.T) {
 	require.Equal(t, canonicalPath(root), canonicalPath(npmProjectDirs(s)[0]))
 	s.clientName = "npm"
 	require.Equal(t, canonicalPath(sub), canonicalPath(npmProjectDirs(s)[0]))
+}
+
+func TestCheckYarnrcRegistryQuotedScopedDashedKey(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".yarnrc"), []byte("--\"@acme:registry\" \"https://other.example/\"\n"), 0644))
+	t.Chdir(dir)
+	t.Setenv("HOME", t.TempDir())
+	s := newTestSetup(t, "npm", "npmjs")
+	s.opts.scope = "@acme"
+	require.ErrorContains(t, checkYarnrcRegistry(s), "https://other.example/")
 }
 
 func TestCheckYarnrcRegistryDashedKey(t *testing.T) {

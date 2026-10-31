@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -75,16 +76,33 @@ func (s *setup) pnpmReadsPnpmConfigEnv() bool {
 	return s.pnpmVersionAtLeast([3]int{11, 0, 0})
 }
 
-// pnpmUserConfigPath returns the user file pnpm 11 and later read:
-// pnpm_config_userconfig, then npm_config_userconfig, then ~/.npmrc.
+// pnpmUserConfigPath returns the user file pnpm 11 and later read, in this
+// order: the npmrcAuthFile variable, the pnpm userconfig variable, npmrcAuthFile
+// in the global config.yaml, the npm userconfig variable, then ~/.npmrc.
 func pnpmUserConfigPath() (string, error) {
-	for _, name := range []string{"PNPM_CONFIG_USERCONFIG", "pnpm_config_userconfig"} {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	for _, name := range []string{"PNPM_CONFIG_NPMRC_AUTH_FILE", "pnpm_config_npmrc_auth_file", "PNPM_CONFIG_USERCONFIG", "pnpm_config_userconfig"} {
 		if path := os.Getenv(name); path != "" {
-			home, err := os.UserHomeDir()
-			if err != nil {
-				return "", err
-			}
 			return expandHome(path, home), nil
+		}
+	}
+	dir, err := pnpmConfigDir()
+	if err != nil {
+		return "", err
+	}
+	configPath := filepath.Join(dir, "config.yaml")
+	if data, err := os.ReadFile(configPath); err == nil {
+		var config struct {
+			NpmrcAuthFile string `yaml:"npmrcAuthFile"`
+		}
+		if yaml.Unmarshal(data, &config) == nil && config.NpmrcAuthFile != "" {
+			if !filepath.IsAbs(config.NpmrcAuthFile) {
+				return "", fmt.Errorf("%s sets npmrcAuthFile to %s, and pnpm doesn't expand ~ or relative paths there: set it to an absolute path, then rerun this command", configPath, config.NpmrcAuthFile)
+			}
+			return config.NpmrcAuthFile, nil
 		}
 	}
 	return npmUserConfigPath()
@@ -617,7 +635,37 @@ func npmProjectDirs(s *setup) []string {
 	if project == "" {
 		dirs = append(dirs, dir)
 	}
+	// npm uses the workspace root as the project and ignores the .npmrc of a
+	// workspace member.
+	if s.clientName == "npm" && project != "" && slices.ContainsFunc(dirs[1:], func(root string) bool { return npmWorkspaceIncludes(root, project) }) {
+		dirs = dirs[1:]
+	}
 	return dirs
+}
+
+// npmWorkspaceIncludes reports whether a workspaces pattern in the package.json
+// of root matches dir.
+func npmWorkspaceIncludes(root, dir string) bool {
+	data, err := os.ReadFile(filepath.Join(root, "package.json"))
+	if err != nil {
+		return false
+	}
+	var manifest struct {
+		Workspaces []string `json:"workspaces"`
+	}
+	if json.Unmarshal(data, &manifest) != nil {
+		return false
+	}
+	rel, err := filepath.Rel(root, dir)
+	if err != nil {
+		return false
+	}
+	for _, pattern := range manifest.Workspaces {
+		if ok, _ := path.Match(path.Clean(pattern), filepath.ToSlash(rel)); ok {
+			return true
+		}
+	}
+	return false
 }
 
 // ancestorDirs returns the current directory and each of its parents.
@@ -732,7 +780,7 @@ func checkYarnrcRegistry(s *setup) error {
 		}
 		for _, line := range strings.Split(string(data), "\n") {
 			name, value, found := strings.Cut(strings.TrimSpace(line), " ")
-			if !found || strings.TrimPrefix(strings.Trim(name, `"`), "--") != key {
+			if !found || strings.Trim(strings.TrimPrefix(strings.Trim(name, `"`), "--"), `"`) != key {
 				continue
 			}
 			value = strings.Trim(strings.TrimSpace(value), `"'`)

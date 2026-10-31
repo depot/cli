@@ -80,26 +80,36 @@ func configureBundler(s *setup) error {
 // configuration. Mirrors outside Depot are left as they are.
 func checkBundlerMirrorRemoved(s *setup) error {
 	key := "mirror." + rubygemsUpstream
-	out, err := exec.CommandContext(s.ctx, "bundle", "config", "get", "--parseable", key).Output()
+	out, err := bundleConfigGet(s, key)
 	if err != nil {
-		return nil
+		return err
 	}
-	mirror := strings.TrimPrefix(strings.TrimSpace(string(out)), key+"=")
+	mirror := out
 	if !isDepotRubygemsURL(s, mirror) {
 		return nil
 	}
 	return fmt.Errorf("Bundler still uses the %s mirror %s from another configuration file: remove it with `bundle config unset --local %s`, then rerun this command", rubygemsUpstream, mirror, key)
 }
 
+// bundleConfigGet returns the value Bundler uses for key in the current
+// directory. Bundler prints an empty value for an unset key.
+func bundleConfigGet(s *setup, key string) (string, error) {
+	out, err := exec.CommandContext(s.ctx, "bundle", "config", "get", "--parseable", key).Output()
+	if err != nil {
+		return "", fmt.Errorf("could not read the effective Bundler setting %s with `bundle config get`: %w", key, err)
+	}
+	return strings.TrimPrefix(strings.TrimSpace(string(out)), key+"="), nil
+}
+
 // checkBundlerCredential rejects an application credential for the
 // repository, which takes precedence over the user configuration.
 func checkBundlerCredential(s *setup) error {
 	key := s.repo.url()
-	out, err := exec.CommandContext(s.ctx, "bundle", "config", "get", "--parseable", key).Output()
+	out, err := bundleConfigGet(s, key)
 	if err != nil {
-		return nil
+		return err
 	}
-	if strings.TrimPrefix(strings.TrimSpace(string(out)), key+"=") == "depot:"+s.token {
+	if out == "depot:"+s.token {
 		return nil
 	}
 	return fmt.Errorf("this application's Bundler configuration has another credential for %s, which takes precedence: remove it with `bundle config unset --local %s`, then rerun this command", key, key)
@@ -109,11 +119,11 @@ func checkBundlerCredential(s *setup) error {
 // which takes precedence over the user configuration that setup edits.
 func checkBundlerMirror(s *setup) error {
 	key := "mirror." + rubygemsUpstream
-	out, err := exec.CommandContext(s.ctx, "bundle", "config", "get", "--parseable", key).Output()
+	out, err := bundleConfigGet(s, key)
 	if err != nil {
-		return nil
+		return err
 	}
-	mirror := strings.TrimPrefix(strings.TrimSpace(string(out)), key+"=")
+	mirror := out
 	if mirror == "" || mirror == s.repo.url() {
 		return nil
 	}

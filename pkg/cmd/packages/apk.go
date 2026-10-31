@@ -80,8 +80,8 @@ func configureApk(s *setup) error {
 		return err
 	}
 
-	repositories, err := os.ReadFile(apkRepositoriesFile)
-	if err != nil && !os.IsNotExist(err) {
+	repositories, err := s.readSystemFile(apkRepositoriesFile)
+	if err != nil {
 		return err
 	}
 	lines, tags := withoutApkRepository(string(repositories), s.repo.url())

@@ -52,12 +52,26 @@ func (c *rubyConfig) keyLine(key string) int {
 	return -1
 }
 
+// get returns the value of key as Bundler reads it.
 func (c *rubyConfig) get(key string) (string, bool) {
 	i := c.keyLine(key)
 	if i < 0 {
 		return "", false
 	}
-	return unquoteRubyValue(strings.TrimSpace(strings.TrimPrefix(c.lines[i], key+":"))), true
+	return bundlerScalarValue(strings.TrimSpace(strings.TrimPrefix(c.lines[i], key+":"))), true
+}
+
+// bundlerScalarValue applies Bundler's own parsing rules: it removes quotes
+// only when they enclose the whole value, then removes everything from the
+// first #.
+func bundlerScalarValue(value string) string {
+	if len(value) >= 2 && (value[0] == '"' || value[0] == '\'') && value[len(value)-1] == value[0] {
+		value = value[1 : len(value)-1]
+	}
+	if i := strings.Index(value, "#"); i > 0 {
+		value = strings.TrimSpace(value[:i])
+	}
+	return value
 }
 
 // set replaces the last assignment of key and removes the others.
