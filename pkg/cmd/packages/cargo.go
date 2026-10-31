@@ -164,8 +164,8 @@ func checkCargoProjectConfig(s *setup, path string, visited map[string]bool, fro
 		if s.replaceUpstream && replacement != cargoRegistryName {
 			return fmt.Errorf("%s replaces crates.io with %q, which overrides the replacement in the Cargo home configuration: remove it, then rerun this command", path, replacement)
 		}
-		if s.replaceUpstreamExplicit && !s.replaceUpstream && replacement == cargoRegistryName {
-			return fmt.Errorf("%s still replaces crates.io with %q, which --replace-upstream=false can't remove: remove it, then rerun this command", path, replacement)
+		if !s.replaceUpstream && replacement == cargoRegistryName {
+			return fmt.Errorf("%s replaces crates.io with %q, which would route crates.io to %s and which setup can't remove: remove it or rerun with --replace-upstream, then rerun this command", path, replacement, s.repo.url())
 		}
 	}
 

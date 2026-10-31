@@ -1038,7 +1038,10 @@ func TestCheckCargoProjectConfigRejectsReplacementOnExplicitFalse(t *testing.T) 
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "config.toml"), []byte("[source.crates-io]\nreplace-with = \"depot\"\n"), 0644))
 	s := newTestSetup(t, "cargo", "crates-io")
 	s.replaceUpstreamExplicit = true
-	require.ErrorContains(t, checkCargoProjectConfig(s, filepath.Join(dir, "config.toml"), map[string]bool{}, false), "still replaces")
+	require.ErrorContains(t, checkCargoProjectConfig(s, filepath.Join(dir, "config.toml"), map[string]bool{}, false), "replaces crates.io")
+
+	s.replaceUpstreamExplicit = false
+	require.ErrorContains(t, checkCargoProjectConfig(s, filepath.Join(dir, "config.toml"), map[string]bool{}, false), "replaces crates.io")
 }
 
 func TestWriteNpmrcChecksScopedTokenVariable(t *testing.T) {
@@ -1144,9 +1147,12 @@ func TestCheckCargoOverridesRejectsReplacementVariable(t *testing.T) {
 func TestPnpmAuthCoversScopeRouting(t *testing.T) {
 	s := newTestSetup(t, "npm", "internal")
 	s.opts.scope = "@acme"
-	registry, ok := pnpmAuthCovers(s, map[string]any{"https://other.example/": map[string]any{"@acme": map[string]any{"authToken": "x"}}})
+	auth := map[string]any{"https://other.example/": map[string]any{"@acme": map[string]any{"authToken": "x"}}}
+	registry, ok := pnpmAuthCovers(s, auth, true)
 	require.True(t, ok)
 	require.Equal(t, "https://other.example/", registry)
+	_, ok = pnpmAuthCovers(s, auth, false)
+	require.False(t, ok)
 }
 
 func TestCheckYarnrcRegistry(t *testing.T) {

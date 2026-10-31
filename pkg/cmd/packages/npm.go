@@ -464,7 +464,7 @@ func checkPnpmAuthFile(s *setup, userPath string, keys []string) error {
 		if yaml.Unmarshal([]byte(value), &auth) != nil {
 			return fmt.Errorf("%s is set, and pnpm uses it instead of ~/.npmrc, but setup can't read it: unset it, then rerun this command", name)
 		}
-		if registry, ok := pnpmAuthCovers(s, auth); ok {
+		if registry, ok := pnpmAuthCovers(s, auth, true); ok {
 			return fmt.Errorf("%s has a credential for %s, which pnpm uses instead of ~/.npmrc: unset it or remove that entry, then rerun this command", name, registry)
 		}
 	}
@@ -480,16 +480,17 @@ func checkPnpmAuthFile(s *setup, userPath string, keys []string) error {
 	if yaml.Unmarshal(data, &config) != nil {
 		return nil
 	}
-	if registry, ok := pnpmAuthCovers(s, config.Auth); ok {
+	if registry, ok := pnpmAuthCovers(s, config.Auth, false); ok {
 		return fmt.Errorf("%s has a credential for %s under _auth, which pnpm uses instead of ~/.npmrc: remove that entry, then rerun this command", configPath, registry)
 	}
 	return nil
 }
 
-// pnpmAuthCovers returns the registry of a structured _auth entry that either
-// has a credential for the repository or routes the configured scope ("@"
-// for the default registry) to another registry.
-func pnpmAuthCovers(s *setup, auth map[string]any) (string, bool) {
+// pnpmAuthCovers returns the registry of a structured _auth entry that has a
+// credential for the repository or, when routing is true, routes the
+// configured scope ("@" for the default registry) to another registry. Only
+// the environment form of _auth overrides an explicit registry setting.
+func pnpmAuthCovers(s *setup, auth map[string]any, routing bool) (string, bool) {
 	scope := s.opts.scope
 	if scope == "" {
 		scope = "@"
@@ -503,7 +504,7 @@ func pnpmAuthCovers(s *setup, auth map[string]any) (string, bool) {
 		if strings.HasPrefix(s.repo.nerfDart(), scoped) {
 			return registry, true
 		}
-		if scopes, ok := entry.(map[string]any); ok && !s.opts.authOnly {
+		if scopes, ok := entry.(map[string]any); ok && routing && !s.opts.authOnly {
 			if _, routed := scopes[scope]; routed {
 				return registry, true
 			}
