@@ -33,6 +33,21 @@ func npmUserConfigPath() (string, error) {
 	return filepath.Join(home, ".npmrc"), nil
 }
 
+// pnpmUserConfigPath returns the user file pnpm reads. pnpm 11 and later read
+// pnpm_config_userconfig before the npm setting.
+func pnpmUserConfigPath(npmPath string, npmErr error) (string, error) {
+	for _, name := range []string{"PNPM_CONFIG_USERCONFIG", "pnpm_config_userconfig"} {
+		if path := os.Getenv(name); path != "" {
+			home, err := os.UserHomeDir()
+			if err != nil {
+				return "", err
+			}
+			return expandHome(path, home), nil
+		}
+	}
+	return npmPath, npmErr
+}
+
 // bunUserConfigPath returns the user file Bun reads. Bun 1.4.4 and later read
 // NPM_CONFIG_USERCONFIG; otherwise Bun prefers $XDG_CONFIG_HOME/.npmrc when
 // that file exists.
@@ -133,8 +148,11 @@ func writeNpmrc(s *setup, helper string, flagKeys ...string) error {
 	}
 
 	path, err := npmUserConfigPath()
-	if s.clientName == "bun" {
+	switch s.clientName {
+	case "bun":
 		path, err = bunUserConfigPath(s)
+	case "pnpm":
+		path, err = pnpmUserConfigPath(path, err)
 	}
 	if err != nil {
 		return err
@@ -225,8 +243,13 @@ func writeNpmrc(s *setup, helper string, flagKeys ...string) error {
 			return err
 		}
 	}
-	if s.clientName == "yarn" && !s.opts.authOnly && s.opts.scope == "" {
-		checkYarnLockfile(s)
+	if s.clientName == "yarn" && !s.opts.authOnly {
+		if err := checkYarnrcRegistry(s); err != nil {
+			return err
+		}
+		if s.opts.scope == "" {
+			checkYarnLockfile(s)
+		}
 	}
 	checkPublishConfig(s)
 	if s.opts.scope != "" {
@@ -437,10 +460,15 @@ func checkPnpmAuthFile(s *setup, userPath string, keys []string) error {
 	return nil
 }
 
-// pnpmAuthCovers returns the registry of a structured _auth entry that covers
-// the repository.
+// pnpmAuthCovers returns the registry of a structured _auth entry that either
+// has a credential for the repository or routes the configured scope ("@"
+// for the default registry) to another registry.
 func pnpmAuthCovers(s *setup, auth map[string]any) (string, bool) {
-	for registry := range auth {
+	scope := s.opts.scope
+	if scope == "" {
+		scope = "@"
+	}
+	for registry, entry := range auth {
 		u, err := url.Parse(registry)
 		if err != nil {
 			continue
@@ -448,6 +476,11 @@ func pnpmAuthCovers(s *setup, auth map[string]any) (string, bool) {
 		scoped := "//" + u.Host + strings.TrimSuffix(u.EscapedPath(), "/") + "/"
 		if strings.HasPrefix(s.repo.nerfDart(), scoped) {
 			return registry, true
+		}
+		if scopes, ok := entry.(map[string]any); ok && !s.opts.authOnly {
+			if _, routed := scopes[scope]; routed {
+				return registry, true
+			}
 		}
 	}
 	return "", false
@@ -605,6 +638,38 @@ func checkBunfig(s *setup) error {
 			}
 		}
 		return nil
+	}
+	return nil
+}
+
+// checkYarnrcRegistry rejects a registry in a .yarnrc file, which Yarn
+// Classic reads before .npmrc. Yarn reads .yarnrc in the current directory,
+// each parent, and the home directory.
+func checkYarnrcRegistry(s *setup) error {
+	key := "registry"
+	if s.opts.scope != "" {
+		key = s.opts.scope + ":registry"
+	}
+	dirs := ancestorDirs()
+	if home, err := os.UserHomeDir(); err == nil {
+		dirs = append(dirs, home)
+	}
+	for _, dir := range dirs {
+		path := filepath.Join(dir, ".yarnrc")
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		for _, line := range strings.Split(string(data), "\n") {
+			name, value, found := strings.Cut(strings.TrimSpace(line), " ")
+			if !found || strings.Trim(name, `"`) != key {
+				continue
+			}
+			value = strings.Trim(strings.TrimSpace(value), `"'`)
+			if strings.TrimSuffix(value, "/") != strings.TrimSuffix(s.repo.url(), "/") {
+				return fmt.Errorf("%s sets %s to %s, which Yarn uses instead of .npmrc: remove it, then rerun this command", path, key, value)
+			}
+		}
 	}
 	return nil
 }

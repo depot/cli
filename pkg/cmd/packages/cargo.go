@@ -101,6 +101,14 @@ func checkCargoOverrides(s *setup, home string) error {
 	if _, ok := os.LookupEnv("CARGO_REGISTRIES_DEPOT_TOKEN"); ok && s.store {
 		return fmt.Errorf("CARGO_REGISTRIES_DEPOT_TOKEN is set, which overrides the token setup saves: unset it, then rerun this command")
 	}
+	if value, ok := os.LookupEnv("CARGO_SOURCE_CRATES_IO_REPLACE_WITH"); ok {
+		if s.replaceUpstream && value != cargoRegistryName {
+			return fmt.Errorf("CARGO_SOURCE_CRATES_IO_REPLACE_WITH is set to %q, which overrides the crates.io replacement setup configures: unset it, then rerun this command", value)
+		}
+		if s.replaceUpstreamExplicit && !s.replaceUpstream && value == cargoRegistryName {
+			return fmt.Errorf("CARGO_SOURCE_CRATES_IO_REPLACE_WITH is set to %q, which keeps the crates.io replacement: unset it, then rerun this command", value)
+		}
+	}
 
 	dir, err := os.Getwd()
 	if err != nil {

@@ -1112,3 +1112,36 @@ func TestWriteMambarcKeepsAnchoredEmptyDefaults(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, string(data), "&empty")
 }
+
+func TestPnpmUserConfigPath(t *testing.T) {
+	t.Setenv("PNPM_CONFIG_USERCONFIG", "")
+	t.Setenv("pnpm_config_userconfig", "/tmp/pnpmrc")
+	path, err := pnpmUserConfigPath("/home/me/.npmrc", nil)
+	require.NoError(t, err)
+	require.Equal(t, "/tmp/pnpmrc", path)
+}
+
+func TestCheckCargoOverridesRejectsReplacementVariable(t *testing.T) {
+	t.Setenv("CARGO_SOURCE_CRATES_IO_REPLACE_WITH", "other")
+	t.Chdir(t.TempDir())
+	s := newTestSetup(t, "cargo", "crates-io")
+	s.replaceUpstream = true
+	require.ErrorContains(t, checkCargoOverrides(s, t.TempDir()), "CARGO_SOURCE_CRATES_IO_REPLACE_WITH")
+}
+
+func TestPnpmAuthCoversScopeRouting(t *testing.T) {
+	s := newTestSetup(t, "npm", "internal")
+	s.opts.scope = "@acme"
+	registry, ok := pnpmAuthCovers(s, map[string]any{"https://other.example/": map[string]any{"@acme": map[string]any{"authToken": "x"}}})
+	require.True(t, ok)
+	require.Equal(t, "https://other.example/", registry)
+}
+
+func TestCheckYarnrcRegistry(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".yarnrc"), []byte("registry \"https://registry.yarnpkg.com\"\n"), 0644))
+	t.Chdir(dir)
+	t.Setenv("HOME", t.TempDir())
+	s := newTestSetup(t, "npm", "npmjs")
+	require.ErrorContains(t, checkYarnrcRegistry(s), ".yarnrc")
+}
