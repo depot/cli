@@ -767,9 +767,10 @@ func TestFileIDsDiffer(t *testing.T) {
 }
 
 func TestCheckPnpmAuthFile(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "auth.ini")
-	require.NoError(t, os.WriteFile(path, []byte("//packages.depot.dev/org123/npm/npmjs/:_authToken=stale\n"), 0600))
-	t.Setenv("PNPM_CONFIG_NPMRC_AUTH_FILE", path)
+	xdg := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", xdg)
+	require.NoError(t, os.MkdirAll(filepath.Join(xdg, "pnpm"), 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(xdg, "pnpm", "auth.ini"), []byte("//packages.depot.dev/org123/npm/npmjs/:_authToken=stale\n"), 0600))
 
 	s := newTestSetup(t, "npm", "npmjs")
 	s.clientName = "pnpm"
@@ -995,10 +996,10 @@ func TestRubyConfigValidate(t *testing.T) {
 }
 
 func TestCheckPnpmScopedAuthKey(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "auth.ini")
-	require.NoError(t, os.WriteFile(path, []byte("//packages.depot.dev/org123/npm/internal/:@acme:_authToken=stale\n"), 0600))
-	t.Setenv("PNPM_CONFIG_NPMRC_AUTH_FILE", path)
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	xdg := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", xdg)
+	require.NoError(t, os.MkdirAll(filepath.Join(xdg, "pnpm"), 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(xdg, "pnpm", "auth.ini"), []byte("//packages.depot.dev/org123/npm/internal/:@acme:_authToken=stale\n"), 0600))
 
 	s := newTestSetup(t, "npm", "internal")
 	s.clientName = "pnpm"
@@ -1101,17 +1102,32 @@ func TestWriteNpmrcChecksScopedTokenVariable(t *testing.T) {
 	require.ErrorContains(t, writeNpmrc(s, "/helper"), ":@acme:_authToken")
 }
 
-func TestPnpmAuthFilePathFromConfig(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("PNPM_CONFIG_NPMRC_AUTH_FILE", "")
-	t.Setenv("pnpm_config_npmrc_auth_file", "")
-	require.Equal(t, filepath.Join(dir, "auth.ini"), pnpmAuthFilePath(dir))
+func TestCheckPnpmAuthFileReadsAuthIniWithAuthFileSetting(t *testing.T) {
+	xdg := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", xdg)
+	t.Setenv("pnpm_config__auth", "")
+	t.Setenv("PNPM_CONFIG__AUTH", "")
+	user := filepath.Join(t.TempDir(), "custom.npmrc")
+	t.Setenv("PNPM_CONFIG_NPMRC_AUTH_FILE", user)
+	require.NoError(t, os.MkdirAll(filepath.Join(xdg, "pnpm"), 0755))
+	key := "//packages.depot.dev/org123/npm/npmjs/:_authToken"
+	require.NoError(t, os.WriteFile(filepath.Join(xdg, "pnpm", "auth.ini"), []byte(key+"=stale\n"), 0600))
 
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "config.yaml"), []byte("npmrcAuthFile: /etc/pnpm-auth\n"), 0644))
-	require.Equal(t, "/etc/pnpm-auth", pnpmAuthFilePath(dir))
+	s := newTestSetup(t, "npm", "npmjs")
+	s.clientName = "pnpm"
+	require.ErrorContains(t, checkPnpmAuthFile(s, user, []string{key}), "auth.ini")
+}
 
-	t.Setenv("pnpm_config_npmrc_auth_file", "/tmp/auth")
-	require.Equal(t, "/tmp/auth", pnpmAuthFilePath(dir))
+func TestCheckBunfigSkipsHomeWithXDG(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Chdir(t.TempDir())
+	require.NoError(t, os.WriteFile(filepath.Join(home, ".bunfig.toml"), []byte("[install]\nregistry = \"https://registry.npmjs.org/\"\n"), 0644))
+	s := newTestSetup(t, "npm", "npmjs")
+	require.NoError(t, checkBunfig(s))
+	t.Setenv("XDG_CONFIG_HOME", "")
+	require.ErrorContains(t, checkBunfig(s), "install.registry")
 }
 
 func TestCheckPnpmGlobalRegistry(t *testing.T) {

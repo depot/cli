@@ -513,9 +513,9 @@ func checkPnpmAuthFile(s *setup, userPath string, keys []string) error {
 		return nil
 	}
 
-	// The auth file can be the user .npmrc that setup writes, which isn't an
-	// override.
-	authPath := pnpmAuthFilePath(dir)
+	// pnpm reads auth.ini before the user .npmrc, even when npmrcAuthFile
+	// selects another user .npmrc.
+	authPath := filepath.Join(dir, "auth.ini")
 	if data, err := os.ReadFile(authPath); err == nil && !sameFile(authPath, userPath) {
 		rc := parseNpmrc(data)
 		for _, key := range keys {
@@ -581,27 +581,6 @@ func pnpmAuthCovers(s *setup, auth map[string]any, routing bool) (string, bool) 
 		}
 	}
 	return "", false
-}
-
-// pnpmAuthFilePath returns the auth file pnpm reads: the npmrcAuthFile
-// setting from the environment or the global config.yaml, or auth.ini in the
-// configuration directory.
-func pnpmAuthFilePath(dir string) string {
-	home, _ := os.UserHomeDir()
-	for _, name := range []string{"pnpm_config_npmrc_auth_file", "PNPM_CONFIG_NPMRC_AUTH_FILE"} {
-		if path := os.Getenv(name); path != "" {
-			return expandHome(path, home)
-		}
-	}
-	if data, err := os.ReadFile(filepath.Join(dir, "config.yaml")); err == nil {
-		var config struct {
-			NpmrcAuthFile string `yaml:"npmrcAuthFile"`
-		}
-		if yaml.Unmarshal(data, &config) == nil && config.NpmrcAuthFile != "" {
-			return expandHome(config.NpmrcAuthFile, home)
-		}
-	}
-	return filepath.Join(dir, "auth.ini")
 }
 
 // pnpmConfigDir returns pnpm's global configuration directory.
@@ -738,10 +717,11 @@ func checkBunfig(s *setup) error {
 	for _, dir := range npmProjectDirs(s) {
 		paths = append(paths, filepath.Join(dir, "bunfig.toml"))
 	}
+	// Bun ignores ~/.bunfig.toml when XDG_CONFIG_HOME is set, even if
+	// $XDG_CONFIG_HOME/.bunfig.toml doesn't exist.
 	if dir := os.Getenv("XDG_CONFIG_HOME"); dir != "" {
 		paths = append(paths, filepath.Join(dir, ".bunfig.toml"))
-	}
-	if home, err := os.UserHomeDir(); err == nil {
+	} else if home, err := os.UserHomeDir(); err == nil {
 		paths = append(paths, filepath.Join(home, ".bunfig.toml"))
 	}
 
