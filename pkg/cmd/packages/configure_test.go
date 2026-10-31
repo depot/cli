@@ -1467,6 +1467,13 @@ func TestCheckProjectNpmrcRejectsUnscopedPnpmCredentials(t *testing.T) {
 
 	require.NoError(t, os.WriteFile(npmrc, []byte("registry=https://registry.npmjs.org/\n_authToken=project\n"), 0644))
 	require.ErrorContains(t, checkProjectNpmrc(s, user, keys, npmProjectDirs(s)), "sets registry")
+
+	t.Setenv("PROJECT_REGISTRY", "https://packages.depot.dev/org123/npm/npmjs/")
+	require.NoError(t, os.WriteFile(npmrc, []byte("registry=${PROJECT_REGISTRY}\n_authToken=project\n"), 0644))
+	s.pnpmVersion = [3]int{11, 5, 3}
+	require.NoError(t, checkProjectNpmrc(s, user, keys, npmProjectDirs(s)))
+	s.pnpmVersion = [3]int{11, 5, 2}
+	require.ErrorContains(t, checkProjectNpmrc(s, user, keys, npmProjectDirs(s)), "_authToken")
 }
 
 func TestNpmrcProjectDirsUsesPnpmWorkspaceRoot(t *testing.T) {
@@ -1482,4 +1489,10 @@ func TestNpmrcProjectDirsUsesPnpmWorkspaceRoot(t *testing.T) {
 	require.Equal(t, []string{root}, npmrcProjectDirs(s))
 	s.pnpmVersion = [3]int{10, 28, 1}
 	require.Equal(t, []string{pkg, root}, npmrcProjectDirs(s))
+
+	outer := filepath.Dir(root)
+	require.NoError(t, os.WriteFile(filepath.Join(outer, "pnpm-workspace.yaml"), nil, 0644))
+	t.Chdir(root)
+	s.pnpmVersion = [3]int{11, 0, 0}
+	require.Equal(t, []string{root}, npmrcProjectDirs(s))
 }

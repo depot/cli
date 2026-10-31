@@ -478,7 +478,7 @@ func checkProjectNpmrc(s *setup, userPath string, keys map[string]string, dirs [
 			}
 			// pnpm applies unscoped credentials to the registry that the same
 			// file sets.
-			if registry, ok := rc.get("registry"); ok && strings.TrimSuffix(registry, "/") == strings.TrimSuffix(s.repo.url(), "/") {
+			if raw, ok := rc.getRaw("registry"); ok && !pnpmIgnoresProjectEntry(s, "registry", raw) && strings.TrimSuffix(expandNpmrcEnv(raw), "/") == strings.TrimSuffix(s.repo.url(), "/") {
 				for _, key := range []string{"_authToken", "_auth", "_password", "username"} {
 					if _, ok := rc.get(key); ok {
 						return fmt.Errorf("%s sets %s, which pnpm uses for %s instead of %s: remove that setting, then rerun this command", path, key, s.repo.url(), userPath)
@@ -673,11 +673,15 @@ func npmrcProjectDirs(s *setup) []string {
 			}
 		}
 	case "pnpm":
-		// In a workspace, pnpm 11 and later read only the workspace root's
-		// .npmrc. The other directories are workspace roots.
+		// In a workspace, pnpm 11 and later read only the .npmrc of the
+		// nearest workspace root.
 		dirs := npmProjectDirs(s)
-		if len(dirs) > 1 && s.pnpmVersionAtLeast([3]int{11, 0, 0}) {
-			return dirs[1:2]
+		if s.pnpmVersionAtLeast([3]int{11, 0, 0}) {
+			for _, dir := range dirs {
+				if fileExists(filepath.Join(dir, "pnpm-workspace.yaml")) {
+					return []string{dir}
+				}
+			}
 		}
 		return dirs
 	}
