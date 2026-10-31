@@ -33,7 +33,24 @@ func npmUserConfigPath() (string, error) {
 	return filepath.Join(home, ".npmrc"), nil
 }
 
-// pnpmUserConfigPath returns the user file pnpm reads. pnpm 11 and later read
+var pnpmVersionPattern = regexp.MustCompile(`^([0-9]+)\.`)
+
+// pnpmReadsPnpmConfigEnv reports whether pnpm reads pnpm_config_ environment
+// variables, which pnpm 11 introduced. When the version can't be read, it
+// assumes a current pnpm.
+func (s *setup) pnpmReadsPnpmConfigEnv() bool {
+	if s.pnpmMajor == 0 {
+		s.pnpmMajor = 11
+		if out, err := exec.CommandContext(s.ctx, "pnpm", "--version").Output(); err == nil {
+			if match := pnpmVersionPattern.FindStringSubmatch(strings.TrimSpace(string(out))); match != nil {
+				s.pnpmMajor, _ = strconv.Atoi(match[1])
+			}
+		}
+	}
+	return s.pnpmMajor >= 11
+}
+
+// pnpmUserConfigPath returns the user file pnpm 11 and later read:
 // pnpm_config_userconfig before the npm setting.
 func pnpmUserConfigPath(npmPath string, npmErr error) (string, error) {
 	for _, name := range []string{"PNPM_CONFIG_USERCONFIG", "pnpm_config_userconfig"} {
@@ -152,7 +169,9 @@ func writeNpmrc(s *setup, helper string, flagKeys ...string) error {
 	case "bun":
 		path, err = bunUserConfigPath(s)
 	case "pnpm":
-		path, err = pnpmUserConfigPath(path, err)
+		if s.pnpmReadsPnpmConfigEnv() {
+			path, err = pnpmUserConfigPath(path, err)
+		}
 	}
 	if err != nil {
 		return err
@@ -274,7 +293,7 @@ func writeNpmrc(s *setup, helper string, flagKeys ...string) error {
 // npm_config_.
 func configEnvNames(s *setup, key string) []string {
 	prefixes := []string{"npm_config_", "NPM_CONFIG_"}
-	if s.clientName == "pnpm" {
+	if s.clientName == "pnpm" && s.pnpmReadsPnpmConfigEnv() {
 		prefixes = append(prefixes, "pnpm_config_", "PNPM_CONFIG_")
 	}
 	var names []string

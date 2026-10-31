@@ -1004,7 +1004,11 @@ func TestWriteNpmrcChecksPnpmEnvironmentPrefix(t *testing.T) {
 
 	s := newTestSetup(t, "npm", "npmjs")
 	s.clientName = "pnpm"
+	s.pnpmMajor = 11
 	require.ErrorContains(t, writeNpmrc(s, "/helper"), "pnpm_config_registry")
+
+	s.pnpmMajor = 10
+	require.NoError(t, writeNpmrc(s, "/helper"))
 }
 
 func TestWithoutApkRepositoryKeepsTags(t *testing.T) {
@@ -1045,6 +1049,7 @@ func TestWriteNpmrcChecksScopedTokenVariable(t *testing.T) {
 
 	s := newTestSetup(t, "npm", "internal")
 	s.clientName = "pnpm"
+	s.pnpmMajor = 11
 	s.opts.scope = "@acme"
 	require.ErrorContains(t, writeNpmrc(s, "/helper"), ":@acme:_authToken")
 }

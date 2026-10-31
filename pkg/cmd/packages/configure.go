@@ -85,6 +85,7 @@ type setup struct {
 	changes                 []string
 	notes                   []string
 	elevationNoticeShown    bool
+	pnpmMajor               int
 }
 
 func (s *setup) changedFile(path string) {
