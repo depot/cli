@@ -192,6 +192,9 @@ func checkZypperKeyMode(s *setup, repo rpmRepository) error {
 // repository. The client imports the old key into the RPM database, where it
 // keeps verifying packages, and setup can't identify that key reliably.
 func checkRPMPackageKeyChange(s *setup, repo rpmRepository) error {
+	if repo.packageCheck != "1" {
+		return nil
+	}
 	for _, path := range []string{"/etc/yum.repos.d/" + repo.id + ".repo", "/etc/zypp/repos.d/" + repo.id + ".repo"} {
 		data, err := s.readSystemFile(path)
 		if err != nil {

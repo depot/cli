@@ -17,11 +17,12 @@ import (
 
 // systemWriteScript writes stdin to a file through a unique temporary file in
 // the same directory, so readers and concurrent writers never see a partial
-// file. It writes through a
-// symbolic link to its target, so a link to a managed file stays in place.
+// file. It writes through a symbolic link to its target, so a link to a
+// managed file stays in place, and refuses a target that isn't a regular file.
 const systemWriteScript = `set -e
 dest="$1"
 if [ -L "$dest" ]; then dest=$(readlink -f "$dest"); fi
+if [ -e "$dest" ] && [ ! -f "$dest" ]; then echo "$dest isn't a regular file" >&2; exit 1; fi
 mkdir -p "$(dirname "$dest")"
 tmp=$(mktemp "$dest.depot-tmp.XXXXXX")
 trap 'rm -f "$tmp"' EXIT

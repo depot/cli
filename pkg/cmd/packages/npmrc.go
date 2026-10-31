@@ -37,7 +37,7 @@ func (n *npmrc) get(key string) (string, bool) {
 	for i := len(n.lines) - 1; i >= 0; i-- {
 		if k, ok := npmrcKey(n.lines[i]); ok && k == key {
 			_, value, _ := strings.Cut(n.lines[i], "=")
-			return expandNpmrcEnv(unquoteINIValue(strings.TrimSpace(value))), true
+			return expandNpmrcEnv(unquoteINIValue(stripINIComment(strings.TrimSpace(value)))), true
 		}
 	}
 	return "", false
@@ -83,10 +83,29 @@ func (n *npmrc) bytes() []byte {
 
 var npmrcEnvReference = regexp.MustCompile(`\$\{([^}]+)\}`)
 
+// expandNpmrcEnv expands ${VAR} references. Like npm, it leaves a reference
+// to an unset variable unchanged.
 func expandNpmrcEnv(value string) string {
 	return npmrcEnvReference.ReplaceAllStringFunc(value, func(reference string) string {
-		return os.Getenv(reference[2 : len(reference)-1])
+		if value, ok := os.LookupEnv(reference[2 : len(reference)-1]); ok {
+			return value
+		}
+		return reference
 	})
+}
+
+// stripINIComment removes an inline comment, which starts with ; or # after
+// whitespace, from an unquoted value.
+func stripINIComment(value string) string {
+	if value != "" && (value[0] == '"' || value[0] == '\'') {
+		return value
+	}
+	for i := 1; i < len(value); i++ {
+		if (value[i] == '#' || value[i] == ';') && (value[i-1] == ' ' || value[i-1] == '\t') {
+			return strings.TrimSpace(value[:i])
+		}
+	}
+	return value
 }
 
 func unquoteINIValue(value string) string {

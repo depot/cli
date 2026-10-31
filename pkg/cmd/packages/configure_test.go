@@ -1208,3 +1208,13 @@ func TestHelmPassesCredentials(t *testing.T) {
 	require.True(t, helmPassesCredentials(path, "https://packages.depot.dev/org123/helm/team/"))
 	require.False(t, helmPassesCredentials(path, "https://packages.depot.dev/org123/helm/other/"))
 }
+
+func TestNpmrcGetStripsCommentsAndKeepsUnsetReferences(t *testing.T) {
+	value, _ := parseNpmrc([]byte("registry=https://a/ # mirror\n")).get("registry")
+	require.Equal(t, "https://a/", value)
+
+	t.Setenv("OPTIONAL_PREFIX", "")
+	os.Unsetenv("OPTIONAL_PREFIX")
+	value, _ = parseNpmrc([]byte("registry=https://${OPTIONAL_PREFIX}a/\n")).get("registry")
+	require.Equal(t, "https://${OPTIONAL_PREFIX}a/", value)
+}

@@ -207,7 +207,9 @@ func writeGemSources(s *setup, path string) error {
 		return fmt.Errorf("could not update %s: %w", path, err)
 	}
 	if !found {
-		sources = effectiveGemSources(s)
+		if sources, err = effectiveGemSources(s); err != nil {
+			return err
+		}
 	}
 
 	var updated []string
@@ -232,10 +234,10 @@ func writeGemSources(s *setup, path string) error {
 
 // effectiveGemSources returns the sources RubyGems uses from all of its
 // configuration files, such as /etc/gemrc, so writing the user file keeps them.
-func effectiveGemSources(s *setup) []string {
+func effectiveGemSources(s *setup) ([]string, error) {
 	out, err := exec.CommandContext(s.ctx, "gem", "sources", "--list").Output()
 	if err != nil {
-		return []string{rubygemsUpstream}
+		return nil, fmt.Errorf("could not read the current gem sources with `gem sources --list`, which setup needs to keep them: %w", err)
 	}
 	var sources []string
 	for _, line := range strings.Split(string(out), "\n") {
@@ -244,10 +246,7 @@ func effectiveGemSources(s *setup) []string {
 			sources = append(sources, line)
 		}
 	}
-	if len(sources) == 0 {
-		return []string{rubygemsUpstream}
-	}
-	return sources
+	return sources, nil
 }
 
 // isRubygemsUpstream matches rubygems.org over HTTP or HTTPS, with or without
