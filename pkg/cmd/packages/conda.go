@@ -134,6 +134,17 @@ func isMambaConfigName(name string) bool {
 	return strings.HasSuffix(name, ".yml") || strings.HasSuffix(name, ".yaml")
 }
 
+// channelCheckFailed reports that the other configuration files couldn't be
+// checked. With an explicit --replace-upstream, the replacement can't be
+// confirmed, so it's an error.
+func (s *setup) channelCheckFailed(err error) error {
+	if s.replaceUpstreamExplicit {
+		return fmt.Errorf("could not check the other %s configuration files for upstream channels, so the replacement can't be confirmed: %w", s.clientName, err)
+	}
+	s.notef("Could not check the other %s configuration files for upstream channels: %v.", s.clientName, err)
+	return nil
+}
+
 // checkMambaUpstreamChannels finds upstream channels in other configuration
 // files. The client combines channel lists from all of its files, so editing
 // one file can't remove them. It runs after the file is updated because the
@@ -141,8 +152,7 @@ func isMambaConfigName(name string) bool {
 func checkMambaUpstreamChannels(s *setup, path, home string, isUpstream func(string) bool) error {
 	out, err := exec.CommandContext(s.ctx, s.clientName, "config", "list", "channels", "--sources", "--json").Output()
 	if err != nil {
-		s.notef("Could not check the other %s configuration files for upstream channels: %v.", s.clientName, err)
-		return nil
+		return s.channelCheckFailed(err)
 	}
 
 	var config struct {
@@ -152,8 +162,7 @@ func checkMambaUpstreamChannels(s *setup, path, home string, isUpstream func(str
 		} `json:"channels"`
 	}
 	if err := json.Unmarshal(out, &config); err != nil {
-		s.notef("Could not check the other %s configuration files for upstream channels: %v.", s.clientName, err)
-		return nil
+		return s.channelCheckFailed(err)
 	}
 
 	var found []string

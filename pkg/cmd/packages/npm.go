@@ -249,7 +249,7 @@ func writeNpmrc(s *setup, helper string, flagKeys ...string) error {
 	for _, key := range flagKeys {
 		managed[key] = "true"
 	}
-	dirs := npmProjectDirs()
+	dirs := npmProjectDirs(s)
 	if s.clientName == "yarn" {
 		dirs = ancestorDirs()
 	}
@@ -324,7 +324,7 @@ func checkPnpmWorkspaceRegistry(s *setup) error {
 		return nil
 	}
 	var paths []string
-	for _, dir := range npmProjectDirs() {
+	for _, dir := range npmProjectDirs(s) {
 		paths = append(paths, filepath.Join(dir, "pnpm-workspace.yaml"))
 	}
 	if dir, err := pnpmConfigDir(); err == nil {
@@ -555,11 +555,18 @@ func pnpmConfigDir() (string, error) {
 	return filepath.Join(home, ".config", "pnpm"), nil
 }
 
-// npmProjectMarkers are the files that mark a project directory for npm and
-// pnpm.
-var npmProjectMarkers = []string{"package.json", "package.yaml", "package.json5", "pnpm-workspace.yaml", "node_modules"}
+// npmProjectMarkers are the files that mark a project directory for npm. pnpm
+// also accepts pnpmProjectMarkers.
+var (
+	npmProjectMarkers  = []string{"package.json", "node_modules"}
+	pnpmProjectMarkers = []string{"package.json", "package.yaml", "package.json5", "pnpm-workspace.yaml", "node_modules"}
+)
 
-func npmProjectDirs() []string {
+func npmProjectDirs(s *setup) []string {
+	markers := npmProjectMarkers
+	if s.clientName == "pnpm" {
+		markers = pnpmProjectMarkers
+	}
 	dir, err := os.Getwd()
 	if err != nil {
 		return nil
@@ -567,7 +574,7 @@ func npmProjectDirs() []string {
 	var dirs []string
 	project := ""
 	for current := dir; ; current = filepath.Dir(current) {
-		isPackage := slices.ContainsFunc(npmProjectMarkers, func(marker string) bool { return fileExists(filepath.Join(current, marker)) })
+		isPackage := slices.ContainsFunc(markers, func(marker string) bool { return fileExists(filepath.Join(current, marker)) })
 		if project == "" && isPackage {
 			project = current
 			dirs = append(dirs, current)
@@ -626,7 +633,7 @@ func checkBunfig(s *setup) error {
 	if dir, err := os.Getwd(); err == nil {
 		paths = append(paths, filepath.Join(dir, "bunfig.toml"))
 	}
-	for _, dir := range npmProjectDirs() {
+	for _, dir := range npmProjectDirs(s) {
 		paths = append(paths, filepath.Join(dir, "bunfig.toml"))
 	}
 	if dir := os.Getenv("XDG_CONFIG_HOME"); dir != "" {
@@ -696,7 +703,7 @@ func checkYarnrcRegistry(s *setup) error {
 		}
 		for _, line := range strings.Split(string(data), "\n") {
 			name, value, found := strings.Cut(strings.TrimSpace(line), " ")
-			if !found || strings.Trim(name, `"`) != key {
+			if !found || strings.TrimPrefix(strings.Trim(name, `"`), "--") != key {
 				continue
 			}
 			value = strings.Trim(strings.TrimSpace(value), `"'`)
@@ -712,7 +719,7 @@ func checkYarnrcRegistry(s *setup) error {
 // because Yarn Classic downloads them directly instead of from the configured
 // registry.
 func checkYarnLockfile(s *setup) {
-	for _, dir := range npmProjectDirs() {
+	for _, dir := range npmProjectDirs(s) {
 		path := filepath.Join(dir, "yarn.lock")
 		data, err := os.ReadFile(path)
 		if err != nil {
@@ -734,7 +741,7 @@ func fileExists(path string) bool {
 // checkPublishConfig reports a package.json publishConfig registry outside
 // Depot Packages, because it overrides the configured registry for publish.
 func checkPublishConfig(s *setup) {
-	dirs := npmProjectDirs()
+	dirs := npmProjectDirs(s)
 	if len(dirs) == 0 {
 		return
 	}

@@ -464,9 +464,9 @@ func TestCheckProjectNpmrc(t *testing.T) {
 	t.Chdir(project)
 
 	user := filepath.Join(t.TempDir(), ".npmrc")
-	require.ErrorContains(t, checkProjectNpmrc(user, map[string]string{"registry": "https://packages.depot.dev/org123/npm/npmjs/"}, npmProjectDirs()), "takes precedence")
-	require.NoError(t, checkProjectNpmrc(user, map[string]string{"registry": "https://registry.npmjs.org"}, npmProjectDirs()))
-	require.NoError(t, checkProjectNpmrc(user, map[string]string{"@acme:registry": "https://packages.depot.dev/org123/npm/npmjs/"}, npmProjectDirs()))
+	require.ErrorContains(t, checkProjectNpmrc(user, map[string]string{"registry": "https://packages.depot.dev/org123/npm/npmjs/"}, npmProjectDirs(newTestSetup(t, "npm", "npmjs"))), "takes precedence")
+	require.NoError(t, checkProjectNpmrc(user, map[string]string{"registry": "https://registry.npmjs.org"}, npmProjectDirs(newTestSetup(t, "npm", "npmjs"))))
+	require.NoError(t, checkProjectNpmrc(user, map[string]string{"@acme:registry": "https://packages.depot.dev/org123/npm/npmjs/"}, npmProjectDirs(newTestSetup(t, "npm", "npmjs"))))
 }
 
 func TestCheckCargoOverridesRejectsProjectRegistry(t *testing.T) {
@@ -503,7 +503,7 @@ func TestCheckProjectNpmrcFindsWorkspaceRoot(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(pkg, "package.json"), []byte("{}"), 0644))
 	t.Chdir(pkg)
 
-	require.ErrorContains(t, checkProjectNpmrc(filepath.Join(t.TempDir(), ".npmrc"), map[string]string{"registry": "https://packages.depot.dev/org123/npm/npmjs/"}, npmProjectDirs()), filepath.Join(root, ".npmrc"))
+	require.ErrorContains(t, checkProjectNpmrc(filepath.Join(t.TempDir(), ".npmrc"), map[string]string{"registry": "https://packages.depot.dev/org123/npm/npmjs/"}, npmProjectDirs(newTestSetup(t, "npm", "npmjs"))), filepath.Join(root, ".npmrc"))
 }
 
 func TestCheckBunfig(t *testing.T) {
@@ -1242,5 +1242,18 @@ func TestNpmProjectDirsRecognizesPnpmMarkers(t *testing.T) {
 	sub := filepath.Join(root, "src")
 	require.NoError(t, os.MkdirAll(sub, 0755))
 	t.Chdir(sub)
-	require.Equal(t, canonicalPath(root), canonicalPath(npmProjectDirs()[0]))
+	s := newTestSetup(t, "npm", "npmjs")
+	s.clientName = "pnpm"
+	require.Equal(t, canonicalPath(root), canonicalPath(npmProjectDirs(s)[0]))
+	s.clientName = "npm"
+	require.Equal(t, canonicalPath(sub), canonicalPath(npmProjectDirs(s)[0]))
+}
+
+func TestCheckYarnrcRegistryDashedKey(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".yarnrc"), []byte("--registry \"https://other.example/\"\n"), 0644))
+	t.Chdir(dir)
+	t.Setenv("HOME", t.TempDir())
+	s := newTestSetup(t, "npm", "npmjs")
+	require.ErrorContains(t, checkYarnrcRegistry(s), "https://other.example/")
 }
