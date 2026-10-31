@@ -8,7 +8,16 @@ import (
 	"path/filepath"
 )
 
+// readFileIfExists rejects a path that isn't a regular file, because reading
+// a FIFO or device would block or return unrelated data.
 func readFileIfExists(path string) ([]byte, error) {
+	info, err := os.Stat(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err == nil && !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("could not read %s: it isn't a regular file", path)
+	}
 	data, err := os.ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil

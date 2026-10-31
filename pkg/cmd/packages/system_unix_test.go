@@ -22,3 +22,10 @@ func TestReadSystemFileRejectsSpecialFiles(t *testing.T) {
 	require.NoError(t, err)
 	require.Nil(t, data)
 }
+
+func TestReadFileIfExistsRejectsSpecialFiles(t *testing.T) {
+	fifo := filepath.Join(t.TempDir(), "fifo")
+	require.NoError(t, syscall.Mkfifo(fifo, 0600))
+	_, err := readFileIfExists(fifo)
+	require.ErrorContains(t, err, "isn't a regular file")
+}

@@ -1202,7 +1202,7 @@ func TestPnpmUserConfigPath(t *testing.T) {
 	require.ErrorContains(t, err, "absolute path")
 }
 
-func TestNpmrcProjectDirsSkipsWorkspaceMember(t *testing.T) {
+func TestNpmrcProjectDirsUsesNpmPrefix(t *testing.T) {
 	root := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(root, "package.json"), []byte(`{"workspaces":["packages/*"]}`), 0644))
 	pkg := filepath.Join(root, "packages", "a")
@@ -1210,26 +1210,38 @@ func TestNpmrcProjectDirsSkipsWorkspaceMember(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(pkg, "package.json"), []byte("{}"), 0644))
 	require.NoError(t, os.WriteFile(filepath.Join(pkg, ".npmrc"), []byte("registry=https://member.example/\n"), 0644))
 	t.Chdir(pkg)
+	bin := t.TempDir()
+	t.Setenv("PATH", bin)
 	keys := map[string]string{"registry": "https://packages.depot.dev/org123/npm/npmjs/"}
 	user := filepath.Join(t.TempDir(), ".npmrc")
-
 	s := newTestSetup(t, "npm", "npmjs")
 	s.clientName = "npm"
+
+	require.ErrorContains(t, checkProjectNpmrc(s, user, keys, npmrcProjectDirs(s)), filepath.Join(pkg, ".npmrc"))
+
+	require.NoError(t, os.WriteFile(filepath.Join(bin, "npm"), []byte("#!/bin/sh\necho "+root+"\n"), 0755))
+	require.Equal(t, []string{root}, npmrcProjectDirs(s))
 	require.NoError(t, checkProjectNpmrc(s, user, keys, npmrcProjectDirs(s)))
 
 	s.clientName = "pnpm"
 	require.ErrorContains(t, checkProjectNpmrc(s, user, keys, npmrcProjectDirs(s)), filepath.Join(pkg, ".npmrc"))
+}
 
-	require.NoError(t, os.Remove(filepath.Join(pkg, "package.json")))
-	require.NoError(t, os.Mkdir(filepath.Join(pkg, "node_modules"), 0755))
-	s.clientName = "npm"
-	require.ErrorContains(t, checkProjectNpmrc(s, user, keys, npmrcProjectDirs(s)), filepath.Join(pkg, ".npmrc"))
+func TestNpmProjectDirsUsesPnpmWorkspaceMarkers(t *testing.T) {
+	root := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(root, "package.json"), []byte(`{"workspaces":["packages/*"]}`), 0644))
+	pkg := filepath.Join(root, "packages", "a")
+	require.NoError(t, os.MkdirAll(pkg, 0755))
 	require.NoError(t, os.WriteFile(filepath.Join(pkg, "package.json"), []byte("{}"), 0644))
+	t.Chdir(pkg)
+	s := newTestSetup(t, "npm", "npmjs")
 
-	require.NoError(t, os.WriteFile(filepath.Join(root, "package.json"), []byte(`{"workspaces":["other/*"]}`), 0644))
-	require.ErrorContains(t, checkProjectNpmrc(s, user, keys, npmrcProjectDirs(s)), filepath.Join(pkg, ".npmrc"))
-
-	require.Equal(t, pkg, npmProjectDirs(s)[0])
+	s.clientName = "bun"
+	require.Equal(t, []string{pkg, root}, npmProjectDirs(s))
+	s.clientName = "pnpm"
+	require.Equal(t, []string{pkg}, npmProjectDirs(s))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "pnpm-workspace.yaml"), nil, 0644))
+	require.Equal(t, []string{pkg, root}, npmProjectDirs(s))
 }
 
 func TestBundlerScalarValue(t *testing.T) {
@@ -1400,27 +1412,6 @@ func TestCheckYarnrcRegistryDashedKey(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	s := newTestSetup(t, "npm", "npmjs")
 	require.ErrorContains(t, checkYarnrcRegistry(s), "https://other.example/")
-}
-
-func TestNpmWorkspaceIncludesGlobstar(t *testing.T) {
-	root := t.TempDir()
-	write := func(workspaces string) {
-		require.NoError(t, os.WriteFile(filepath.Join(root, "package.json"), []byte(`{"workspaces":`+workspaces+`}`), 0644))
-	}
-	write(`["packages/**"]`)
-	require.True(t, npmWorkspaceIncludes(root, filepath.Join(root, "packages", "a", "b")))
-	require.True(t, npmWorkspaceIncludes(root, filepath.Join(root, "packages", "a")))
-	require.False(t, npmWorkspaceIncludes(root, filepath.Join(root, "apps", "a")))
-
-	write(`["packages/{a,b/c}"]`)
-	require.True(t, npmWorkspaceIncludes(root, filepath.Join(root, "packages", "a")))
-	require.True(t, npmWorkspaceIncludes(root, filepath.Join(root, "packages", "b", "c")))
-	require.False(t, npmWorkspaceIncludes(root, filepath.Join(root, "packages", "b")))
-
-	write(`["./packages/*", "!packages/private"]`)
-	require.True(t, npmWorkspaceIncludes(root, filepath.Join(root, "packages", "a")))
-	require.False(t, npmWorkspaceIncludes(root, filepath.Join(root, "packages", "private")))
-	require.False(t, npmWorkspaceIncludes(root, filepath.Join(root, "packages", "a", "b")))
 }
 
 func TestCheckHelmAliasAcceptsOtherOrganization(t *testing.T) {

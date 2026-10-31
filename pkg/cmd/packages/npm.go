@@ -8,7 +8,6 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
-	"path"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -632,7 +631,7 @@ func npmProjectDirs(s *setup) []string {
 		if project == "" && isPackage {
 			project = current
 			dirs = append(dirs, current)
-		} else if project != "" && isWorkspaceRoot(current) {
+		} else if project != "" && isWorkspaceRoot(s, current) {
 			dirs = append(dirs, current)
 		}
 		if filepath.Dir(current) == current {
@@ -645,110 +644,22 @@ func npmProjectDirs(s *setup) []string {
 	return dirs
 }
 
-// npmrcProjectDirs returns the directories whose .npmrc the client reads. npm
-// uses the workspace root as the project and ignores the .npmrc of a workspace
-// member.
+// npmrcProjectDirs returns the directories whose .npmrc the client reads.
+// npm reads only the .npmrc in its local prefix, which is the workspace root
+// for a workspace member, so setup asks npm for that directory.
 func npmrcProjectDirs(s *setup) []string {
-	if s.clientName == "yarn" {
+	switch s.clientName {
+	case "yarn":
 		return ancestorDirs()
-	}
-	dirs := npmProjectDirs(s)
-	if s.clientName == "npm" && len(dirs) > 1 && fileExists(filepath.Join(dirs[0], "package.json")) && slices.ContainsFunc(dirs[1:], func(root string) bool { return npmWorkspaceIncludes(root, dirs[0]) }) {
-		return dirs[1:]
-	}
-	return dirs
-}
-
-// npmWorkspaceIncludes reports whether a workspaces pattern in the package.json
-// of root matches dir.
-func npmWorkspaceIncludes(root, dir string) bool {
-	data, err := os.ReadFile(filepath.Join(root, "package.json"))
-	if err != nil {
-		return false
-	}
-	var manifest struct {
-		Workspaces []string `json:"workspaces"`
-	}
-	if json.Unmarshal(data, &manifest) != nil {
-		return false
-	}
-	rel, err := filepath.Rel(root, dir)
-	if err != nil {
-		return false
-	}
-	segments := strings.Split(filepath.ToSlash(rel), "/")
-	included := false
-	for _, pattern := range manifest.Workspaces {
-		negated := strings.HasPrefix(pattern, "!")
-		for _, expanded := range expandBraces(strings.TrimPrefix(pattern, "!")) {
-			if !matchGlobSegments(strings.Split(path.Clean(expanded), "/"), segments) {
-				continue
-			}
-			if negated {
-				return false
-			}
-			included = true
-		}
-	}
-	return included
-}
-
-// expandBraces expands {a,b} alternatives in a glob into separate patterns.
-func expandBraces(pattern string) []string {
-	start := strings.IndexByte(pattern, '{')
-	if start < 0 {
-		return []string{pattern}
-	}
-	depth := 0
-	var options []string
-	last := start + 1
-	for i := start; i < len(pattern); i++ {
-		switch pattern[i] {
-		case '{':
-			depth++
-		case ',':
-			if depth == 1 {
-				options = append(options, pattern[last:i])
-				last = i + 1
-			}
-		case '}':
-			depth--
-			if depth > 0 {
-				continue
-			}
-			if options == nil {
-				return []string{pattern}
-			}
-			options = append(options, pattern[last:i])
-			var expanded []string
-			for _, option := range options {
-				expanded = append(expanded, expandBraces(pattern[:start]+option+pattern[i+1:])...)
-			}
-			return expanded
-		}
-	}
-	return []string{pattern}
-}
-
-// matchGlobSegments matches path segments against a glob in which ** matches
-// any number of segments, as npm workspace patterns do.
-func matchGlobSegments(pattern, segments []string) bool {
-	if len(pattern) == 0 {
-		return len(segments) == 0
-	}
-	if pattern[0] == "**" {
-		for i := 0; i <= len(segments); i++ {
-			if matchGlobSegments(pattern[1:], segments[i:]) {
-				return true
+	case "npm":
+		if out, err := exec.CommandContext(s.ctx, "npm", "prefix").Output(); err == nil {
+			lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+			if prefix := strings.TrimSpace(lines[len(lines)-1]); filepath.IsAbs(prefix) {
+				return []string{prefix}
 			}
 		}
-		return false
 	}
-	if len(segments) == 0 {
-		return false
-	}
-	ok, _ := path.Match(pattern[0], segments[0])
-	return ok && matchGlobSegments(pattern[1:], segments[1:])
+	return npmProjectDirs(s)
 }
 
 // ancestorDirs returns the current directory and each of its parents.
@@ -768,9 +679,14 @@ func ancestorDirs() []string {
 	}
 }
 
-func isWorkspaceRoot(dir string) bool {
+// isWorkspaceRoot reports whether dir is a workspace root for the client.
+// pnpm doesn't read the workspaces field of package.json.
+func isWorkspaceRoot(s *setup, dir string) bool {
 	if fileExists(filepath.Join(dir, "pnpm-workspace.yaml")) {
 		return true
+	}
+	if s.clientName == "pnpm" {
+		return false
 	}
 	data, err := os.ReadFile(filepath.Join(dir, "package.json"))
 	if err != nil {
