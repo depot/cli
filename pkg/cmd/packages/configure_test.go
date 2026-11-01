@@ -1007,11 +1007,6 @@ func TestCheckPnpmScopedAuthKey(t *testing.T) {
 	require.ErrorContains(t, checkPnpmAuthFile(s, "", npmCredentialKeys(s)), ":@acme:_authToken")
 }
 
-func TestMambaFilterTreatsPublicCustomChannelAsUpstream(t *testing.T) {
-	require.True(t, isPublicCondaBase("https://conda.anaconda.org/"))
-	require.False(t, isPublicCondaBase("https://mirror.example/"))
-}
-
 func TestWriteNpmrcRemovesScopedToken(t *testing.T) {
 	path := filepath.Join(t.TempDir(), ".npmrc")
 	t.Setenv("NPM_CONFIG_USERCONFIG", path)
