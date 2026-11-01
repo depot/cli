@@ -853,6 +853,51 @@ Switch to an organization interactively:
 depot org switch
 ```
 
+### `depot packages`
+
+Configure package managers to use Depot Packages.
+
+#### `depot packages configure`
+
+Configure a package manager to install and publish packages through a Depot Packages repository. Supported clients are `npm`, `pnpm`, `yarn` (Yarn Classic), `bun`, `cargo`, `bundler`, `gem`, `helm`, `mamba`, `micromamba`, `pixi`, `apt`, `dnf`, `yum`, `zypper`, and `apk`.
+
+pnpm and Cargo get the current Depot token from a credential helper. The other clients save a copy of the token in their own configuration, so rerun the command when the token changes. The token comes from `DEPOT_TOKEN` when it is set, and otherwise from `depot login`.
+
+**Example**
+
+```shell
+depot packages configure npm --org <org-id> --repository npmjs
+```
+
+Route only one npm scope to a private repository:
+
+```shell
+depot packages configure npm --org <org-id> --repository internal --scope @acme
+```
+
+Configure APT on Debian or Ubuntu. Setup asks for administrator access to change system files:
+
+```shell
+depot packages configure apt --org <org-id> --repository debian --suite bookworm
+```
+
+#### Flags for `packages configure`
+
+| Name                 | Description                                                                                                  |
+| -------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `org`                | Depot organization ID (defaults to the current organization)                                                 |
+| `repository`         | Repository name                                                                                              |
+| `auth`               | `store` saves the token in the client's configuration instead of using a credential helper (pnpm and Cargo) |
+| `replace-upstream`   | Route the client's default public registry through the repository (Cargo, Bundler, gem, mamba, micromamba, and Pixi). Defaults to true for that registry's built-in cache |
+| `scope`              | npm clients: route only this package scope to the repository                                                 |
+| `auth-only`          | npm clients: save credentials without changing the registry                                                  |
+| `suite`              | apt: distribution suite (defaults to this system's codename)                                                 |
+| `components`         | apt and apk: repository components (defaults to `main`)                                                      |
+| `signing-key`        | apt: `repository` or `upstream` keyring (defaults to `upstream` for built-in caches)                         |
+| `branch`             | apk: Alpine branch, such as `v3.22` (defaults to this system's branch)                                       |
+| `path`               | dnf, yum, and zypper: distribution path in the repository, such as `el/9`                                    |
+| `package-key`        | dnf, yum, and zypper: local key file for package signatures, or `none`                                       |
+
 ### `depot pull`
 
 Pull an image from the Depot registry to your local Docker daemon.
