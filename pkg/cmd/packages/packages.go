@@ -6,8 +6,9 @@ import (
 
 func NewCmdPackages() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "packages",
-		Short: "Configure package managers to use Depot Packages",
+		Use:    "packages",
+		Short:  "Configure package managers to use Depot Packages",
+		Hidden: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return cmd.Help()
 		},
