@@ -22,24 +22,10 @@ import (
 
 	contentv1 "github.com/containerd/containerd/api/services/content/v1"
 	"github.com/containerd/containerd/v2/defaults"
-	"github.com/spf13/cobra"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
 )
-
-func NewCmdRegistry() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:    "registry",
-		Short:  "Run a local registry",
-		Hidden: true,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return run()
-		},
-	}
-
-	return cmd
-}
 
 func run() error {
 	caCert, err := base64.StdEncoding.DecodeString(os.Getenv("CA_CERT"))

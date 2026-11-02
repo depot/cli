@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"buf.build/gen/go/depot/api/connectrpc/go/depot/core/v1/corev1connect"
+	"buf.build/gen/go/depot/api/connectrpc/go/depot/registry/v1beta1/registryv1beta1connect"
 	"connectrpc.com/connect"
 	"github.com/depot/cli/pkg/proto/depot/agent/v1/agentv1connect"
 	"github.com/depot/cli/pkg/proto/depot/build/v1/buildv1connect"
@@ -62,6 +63,11 @@ func NewSessionClient() agentv1connect.SessionServiceClient {
 
 func NewSandboxClient() agentv1connect.SandboxServiceClient {
 	return agentv1connect.NewSandboxServiceClient(getHTTPClient(getBaseURL()), getBaseURL(), WithUserAgent())
+}
+
+// NewSDKRegistryClient addresses the public organization Registry API.
+func NewSDKRegistryClient() registryv1beta1connect.RegistryServiceClient {
+	return registryv1beta1connect.NewRegistryServiceClient(getHTTPClient(getBaseURL()), getBaseURL(), WithUserAgent())
 }
 
 func NewRegistryClient() buildv1connect.RegistryServiceClient {
