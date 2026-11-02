@@ -19,6 +19,7 @@ func NewCmdProjects() *cobra.Command {
 	cmd.AddCommand(NewCmdGet())
 	cmd.AddCommand(NewCmdUpdate())
 	cmd.AddCommand(NewCmdDelete())
+	cmd.AddCommand(newCmdTrustPolicy())
 	cmd.AddCommand(list.NewCmdProjects("list", "ls"))
 
 	return cmd
