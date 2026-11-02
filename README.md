@@ -759,8 +759,6 @@ Adding an existing policy returns its saved settings without changing its restri
 
 JSON uses snake_case API fields: `list` returns `{ "trust_policies": [...], "next_page_token": "..." }` (the token is absent on the last page); `add` and `update` return a policy object with `trust_policy_id` and a provider object. Boolean restrictions are included even when false. `remove` returns `{}` on success. API errors produce a nonzero exit status.
 
-These commands require an API deployment with GitLab protected-ref and `UpdateTrustPolicy` support (depot/api#5971). Older API deployments may not support the operations or restriction fields. An unsupported operation fails without falling back to deleting and recreating a policy.
-
 ### `depot init`
 
 Initialize an existing Depot project in the current directory. The CLI will display an interactive list of your Depot projects for you to choose from, then write a `depot.json` file in the current directory with the contents `{"projectID": "xxxxxxxxxx"}`.
