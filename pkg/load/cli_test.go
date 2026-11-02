@@ -1,13 +1,6 @@
 package load
 
-import (
-	"io"
-	"reflect"
-	"testing"
-
-	"github.com/docker/buildx/build"
-	"github.com/moby/buildkit/client"
-)
+import "testing"
 
 func Test_defaultImageName(t *testing.T) {
 	type args struct {
@@ -68,63 +61,5 @@ func Test_defaultImageName(t *testing.T) {
 				t.Errorf("defaultImageName() = %v, want %v", got, tt.want)
 			}
 		})
-	}
-}
-
-func TestDockerLoadPreservesOtherOutputs(t *testing.T) {
-	tarOutput := func(map[string]string) (io.WriteCloser, error) { return nil, nil }
-	cases := []struct {
-		name    string
-		exports []client.ExportEntry
-		want    []string
-	}{
-		{"default", nil, []string{"docker"}},
-		{"local output", []client.ExportEntry{{Type: "local", OutputDir: "out"}}, []string{"local", "docker"}},
-		{"push", []client.ExportEntry{{Type: "image", Attrs: map[string]string{"push": "true"}}}, []string{"image", "docker"}},
-		{"docker tar", []client.ExportEntry{{Type: "docker", Output: tarOutput}}, []string{"docker", "docker"}},
-		{"already loading", []client.ExportEntry{{Type: "docker"}}, []string{"docker"}},
-		{"cache only", []client.ExportEntry{{Type: "cacheonly"}}, []string{"cacheonly"}},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			opts := map[string]build.Options{"app": {Exports: tc.exports, Tags: []string{"example:latest"}}}
-			got := WithDockerLoadOutput(opts, nil)["app"]
-			var kinds []string
-			for _, e := range got.Exports {
-				kinds = append(kinds, e.Type)
-			}
-			if !reflect.DeepEqual(kinds, tc.want) {
-				t.Fatalf("exports = %v, want %v", kinds, tc.want)
-			}
-			if !reflect.DeepEqual(got.Tags, []string{"example:latest"}) {
-				t.Fatalf("tags changed: %v", got.Tags)
-			}
-			for i, e := range tc.exports {
-				if !reflect.DeepEqual(got.Exports[i].Attrs, e.Attrs) || got.Exports[i].OutputDir != e.OutputDir || (got.Exports[i].Output == nil) != (e.Output == nil) {
-					t.Fatalf("original output %d changed: %+v", i, got.Exports[i])
-				}
-			}
-		})
-	}
-}
-
-func TestDockerLoadOnlySelectedBuildTargets(t *testing.T) {
-	for _, selected := range [][]string{{"app", "outline"}, {}} {
-		opts := map[string]build.Options{
-			"app":        {},
-			"dependency": {},
-			"outline":    {CallFunc: &build.CallFunc{Name: "outline"}},
-		}
-		got := WithDockerLoadOutput(opts, selected)
-		if len(got["dependency"].Exports) != 0 || len(got["outline"].Exports) != 0 {
-			t.Fatal("loaded an unrequested target or call target")
-		}
-		want := 0
-		if len(selected) != 0 {
-			want = 1
-		}
-		if len(got["app"].Exports) != want {
-			t.Fatalf("app exports = %v", got["app"].Exports)
-		}
 	}
 }

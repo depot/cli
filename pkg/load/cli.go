@@ -18,7 +18,8 @@ type DepotLoadOptions struct {
 	BuildID       string               // Depot build ID; used to tag images.
 	IsBake        bool                 // If run from bake, we add the bake target to the image tag.
 	ProgressMode  string               // ProgressMode quiet will not print progress.
-	PullInfo      *depotbuild.PullInfo // The credentials for pulling from registry
+	UseRegistry   bool                 // If UseRegistry, load build from registry instead of proxy
+	PullInfo      *depotbuild.PullInfo // If UseRegistry, the credentials for pulling from registry
 	BuildPlatform string               // If set (e.g. "linux/amd64"), used as the pull platform when buildOpt.Platforms is empty.
 }
 
@@ -95,7 +96,7 @@ func WithDepotImagePull(buildOpts map[string]build.Options, loadOpts DepotLoadOp
 				pullOpt.Platform = &loadOpts.BuildPlatform
 			}
 
-			if loadOpts.PullInfo != nil {
+			if loadOpts.UseRegistry && loadOpts.PullInfo != nil {
 				serverAddress := "registry.depot.dev"
 				pullOpt.KeepImage = true
 				pullOpt.Username = &loadOpts.PullInfo.Username
@@ -148,25 +149,10 @@ func WithDepotImagePull(buildOpts map[string]build.Options, loadOpts DepotLoadOp
 	return buildOpts, toPull
 }
 
-// WithDockerLoadOutput adds a local Docker export without replacing other outputs.
-// A nil targetsToLoad selects all targets; bake passes only its requested targets.
-func WithDockerLoadOutput(buildOpts map[string]build.Options, targetsToLoad []string) map[string]build.Options {
-	for target, buildOpt := range buildOpts {
-		if buildOpt.CallFunc != nil || (targetsToLoad != nil && !slices.Contains(targetsToLoad, target)) {
-			continue
-		}
-		hasLoad := slices.ContainsFunc(buildOpt.Exports, func(e client.ExportEntry) bool {
-			return e.Type == "cacheonly" || (e.Type == "docker" && e.Output == nil && e.OutputDir == "")
-		})
-		if !hasLoad {
-			buildOpt.Exports = append(buildOpt.Exports, client.ExportEntry{Type: "docker", Attrs: map[string]string{}})
-			buildOpts[target] = buildOpt
-		}
-	}
-	return buildOpts
-}
-
-// WithDockerLoad retries a failed registry pull using Docker exports.
+// For backwards compatibility if the API does not support the depot registry,
+// we use the previous buildx behavior of pulling the image via the output docker.
+// NOTE: this means that a single tar will be sent from buildkit to the client and
+// imported into the docker daemon.  This is quite slow.
 func WithDockerLoad(buildOpts map[string]build.Options) map[string]build.Options {
 	targetsToLoad := make([]string, 0, len(buildOpts))
 	for key := range buildOpts {

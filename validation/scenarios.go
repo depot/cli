@@ -17,6 +17,7 @@ func allScenarios() []scenario {
 	var all []scenario
 	all = append(all, commandLineScenarios()...)
 	all = append(all, buildScenarios()...)
+	all = append(all, fastLoadScenarios()...)
 	all = append(all, bakeScenarios()...)
 	all = append(all, dockerScenarios()...)
 	all = append(all, savedBuildScenarios()...)
@@ -407,8 +408,8 @@ func buildScenarios() []scenario {
 			"--platform", "linux/amd64", "--load", "-t", "validation-{{run}}:latest"), "validation-{{run}}:latest"),
 		withImages(build("build-load-native", "native-platform image loaded into Docker", "basic",
 			"--load", "-t", "validation-{{run}}:latest"), "validation-{{run}}:latest"),
-		withImages(withAPI(build("build-load-multiplatform", "two-platform build loads the host image through the Depot registry", "basic",
-			"--platform", "linux/amd64,linux/arm64", "--load", "-t", "validation-{{run}}:latest"), apiBehavior{LoadUsingRegistry: true}), "validation-{{run}}:latest"),
+		withImages(build("build-load-multiplatform", "two-platform build with --load loads the image for the host platform", "basic",
+			"--platform", "linux/amd64,linux/arm64", "--load", "-t", "validation-{{run}}:latest"), "validation-{{run}}:latest"),
 		withImages(withAPI(build("build-load-registry", "--load through the Depot registry when the API requests it", "basic",
 			"--platform", "linux/amd64", "--load", "-t", "validation-{{run}}:latest"), apiBehavior{LoadUsingRegistry: true}), "validation-{{run}}:latest"),
 		baselineDefect(loadsImage(withFiles(build("build-load-local-output", "--load with a local output loads the image and writes the output", "basic",
