@@ -716,6 +716,51 @@ List Depot projects. This command is functionally identical to `depot list proje
 depot projects list
 ```
 
+#### `depot projects trust-policy`
+
+Manage the CI providers allowed to authenticate to a Depot project. Requires an **organization API token**, supplied with `--token` or `DEPOT_TOKEN`. Project tokens, OIDC tokens, and read-only organization tokens cannot manage or list trust policies.
+
+Select the Depot project with `--project-id` / `-p`. If omitted, the command uses `DEPOT_PROJECT_ID`, then `depot.json`. Every subcommand supports `--output json` / `-o json`.
+
+```shell
+# List policies for a project
+depot projects trust-policy list -p your-project-id
+
+# Allow only protected GitLab refs
+depot projects trust-policy add -p your-project-id --provider gitlab \
+  --namespace-id 12345 --gitlab-project-id 67890 --protected-refs-only
+
+# Allow a GitHub repository (public pull requests from forks are denied by default)
+depot projects trust-policy add -p your-project-id --provider github \
+  --repository-owner acme --repository app
+
+# Enable or disable a restriction explicitly
+depot projects trust-policy update your-policy-id -p your-project-id --protected-refs-only=false
+depot projects trust-policy update your-policy-id -p your-project-id --allow-public-pull-requests=false
+
+# Remove one policy without an interactive prompt
+depot projects trust-policy remove your-policy-id -p your-project-id
+```
+
+`add` supports these provider-specific flags:
+
+| Provider | Required flags | Optional restriction |
+| --- | --- | --- |
+| `github` | `--repository-owner`, `--repository` | `--allow-public-pull-requests` (default: false) |
+| `gitlab` | `--namespace-id`, `--gitlab-project-id` (numeric GitLab IDs) | `--protected-refs-only` (default: false) |
+| `circleci` | `--organization-uuid`, `--project-uuid` | — |
+| `buildkite` | `--organization-slug`, `--pipeline-slug` | — |
+
+The GitLab project ID is separate from the Depot project ID. Flags for other providers are rejected, including explicit `false` restriction flags.
+
+Adding an existing policy returns its saved settings without changing its restrictions. Check the returned policy; use `update` to change restrictions. `update` requires exactly one of `--protected-refs-only` (GitLab) or `--allow-public-pull-requests` (GitHub). Omitted fields remain unchanged, and `=false` explicitly disables the selected setting. To change a provider or repository identity, add a new policy and remove the old one.
+
+`list` returns one page (up to 250 policies). Use `--provider github|gitlab|circleci|buildkite` to filter, `--page-size 1..250` to set the page size, and `--page-token` to retrieve the next page while keeping the project and provider filter unchanged. Text output displays restrictions and the next page token when present.
+
+JSON uses snake_case API fields: `list` returns `{ "trust_policies": [...], "next_page_token": "..." }` (the token is absent on the last page); `add` and `update` return a policy object with `trust_policy_id` and a provider object. Boolean restrictions are included even when false. `remove` returns `{}` on success. API errors produce a nonzero exit status.
+
+These commands require an API deployment with GitLab protected-ref and `UpdateTrustPolicy` support (depot/api#5971). Older API deployments may not support the operations or restriction fields. An unsupported operation fails without falling back to deleting and recreating a policy.
+
 ### `depot init`
 
 Initialize an existing Depot project in the current directory. The CLI will display an interactive list of your Depot projects for you to choose from, then write a `depot.json` file in the current directory with the contents `{"projectID": "xxxxxxxxxx"}`.
