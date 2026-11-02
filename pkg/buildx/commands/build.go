@@ -168,17 +168,18 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, opts map[string]bu
 		pullOpts     map[string]load.PullOptions
 		fallbackOpts map[string]build.Options
 	)
-	if in.exportLoad {
+	if in.exportLoad && depotOpts.loadUsingRegistry && depotOpts.pullInfo != nil {
 		fallbackOpts = cloneOptions(opts)
 		opts, pullOpts = load.WithDepotImagePull(opts, load.DepotLoadOptions{
 			Project:       depotOpts.project,
 			BuildID:       depotOpts.buildID,
 			IsBake:        false,
 			ProgressMode:  progressMode,
-			UseRegistry:   depotOpts.loadUsingRegistry,
 			PullInfo:      depotOpts.pullInfo,
 			BuildPlatform: depotOpts.buildPlatform,
 		})
+	} else if in.exportLoad {
+		opts = load.WithDockerLoadOutput(opts, nil)
 	}
 	if depotOpts.save {
 		opts = registry.WithDepotSave(opts, registry.SaveOptions{
@@ -250,8 +251,6 @@ func buildTargets(ctx context.Context, dockerCli command.Cli, opts map[string]bu
 				break
 			}
 		}
-	} else {
-		err = load.DepotFastLoad(ctx, dockerCli.Client(), resp.targets, pullOpts, reportingPrinter)
 	}
 
 	if err != nil && !errors.Is(err, context.Canceled) && in.exportLoad && retryableWithoutStdin(opts) {

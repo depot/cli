@@ -85,7 +85,7 @@ func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator, pri
 	}
 	requestedTargets = projectRequestedTargets
 
-	var targetsToLoad []string
+	targetsToLoad := make([]string, 0, len(requestedTargets))
 	for target, opts := range buildOpts {
 		shouldLoad := opts.CallFunc == nil && !slices.ContainsFunc(opts.Exports, func(e client.ExportEntry) bool { return e.Type == "cacheonly" })
 		if in.exportLoad {
@@ -100,17 +100,18 @@ func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator, pri
 		pullOpts     map[string]load.PullOptions
 		fallbackOpts map[string]build.Options
 	)
-	if in.exportLoad {
+	if in.exportLoad && in.loadUsingRegistry && in.pullInfo != nil {
 		fallbackOpts = cloneOptions(buildOpts)
 		buildOpts, pullOpts = load.WithDepotImagePull(buildOpts, load.DepotLoadOptions{
 			Project:       in.project,
 			BuildID:       in.buildID,
 			IsBake:        true,
 			ProgressMode:  in.progress,
-			UseRegistry:   in.loadUsingRegistry,
 			PullInfo:      in.pullInfo,
 			BuildPlatform: in.buildPlatform,
 		})
+	} else if in.exportLoad {
+		buildOpts = load.WithDockerLoadOutput(buildOpts, targetsToLoad)
 	}
 	if in.save {
 		buildOpts = registry.WithDepotSave(buildOpts, registry.SaveOptions{
@@ -170,8 +171,6 @@ func RunBake(dockerCli command.Cli, in BakeOptions, validator BakeValidator, pri
 							pw := progress.WithPrefix(reportingPrinter, target.Name, len(pullOpts) > 1)
 							err = load.PullImages(ctx, dockerCli.Client(), fmt.Sprintf("%s-%s", in.pullInfo.Reference, target.Name), pullOpt, pw)
 						}
-					} else {
-						err = load.DepotFastLoad(ctx2, dockerCli.Client(), targetResponses, pullOpts, reportingPrinter)
 					}
 				}
 				load.DeleteExportLeases(ctx2, targetResponses)

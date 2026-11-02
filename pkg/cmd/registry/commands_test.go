@@ -205,41 +205,19 @@ func TestRegistryClearsPasswordOnlyWhenExplicit(t *testing.T) {
 		t.Fatal(err)
 	}
 }
-func TestRegistryLegacyProxyAndPublicHelp(t *testing.T) {
-	keys := []string{"CA_CERT", "KEY", "CERT", "ADDR", "SERVER_NAME", "MANIFEST", "CONFIG"}
-	for _, key := range keys {
-		t.Setenv(key, "")
+func TestRegistryAlwaysShowsPublicHelp(t *testing.T) {
+	// Even a proxy container's environment must not select an internal mode.
+	for _, key := range []string{"CA_CERT", "KEY", "CERT", "ADDR", "SERVER_NAME", "MANIFEST", "CONFIG"} {
+		t.Setenv(key, "invalid-base64!")
 	}
-	for _, complete := range []bool{false, true} {
-		if complete {
-			for _, key := range keys {
-				t.Setenv(key, "fixture")
-			}
-		}
-		called := false
-		cmd := newCmdRegistry(func() error { called = true; return nil })
-		cmd.SetArgs(nil)
-		var out bytes.Buffer
-		cmd.SetOut(&out)
-		if err := cmd.Execute(); err != nil {
+	for _, args := range [][]string{nil, {"--help"}} {
+		out, err := execute(args, "")
+		if err != nil {
 			t.Fatal(err)
 		}
-		if called != complete {
-			t.Fatalf("proxy called=%t with complete environment=%t", called, complete)
+		if !strings.Contains(out, "repository") {
+			t.Fatalf("missing public help: %q", out)
 		}
-		if !complete && !strings.Contains(out.String(), "repository") {
-			t.Fatal("public help missing")
-		}
-	}
-	called := false
-	cmd := newCmdRegistry(func() error { called = true; return nil })
-	cmd.SetArgs([]string{"--help"})
-	cmd.SetOut(io.Discard)
-	if err := cmd.Execute(); err != nil {
-		t.Fatal(err)
-	}
-	if called {
-		t.Fatal("help started proxy")
 	}
 }
 

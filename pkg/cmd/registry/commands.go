@@ -18,9 +18,7 @@ import (
 
 type options struct{ token, output string }
 
-func NewCmdRegistry() *cobra.Command { return newCmdRegistry(run) }
-
-func newCmdRegistry(proxy func() error) *cobra.Command {
+func NewCmdRegistry() *cobra.Command {
 	o := &options{}
 	cmd := &cobra.Command{
 		Use: "registry", Short: "Manage container registry repositories, images, and policies", Args: cobra.NoArgs,
@@ -28,14 +26,7 @@ func newCmdRegistry(proxy func() error) *cobra.Command {
 via --token or DEPOT_TOKEN. The token selects the organization. Commands return
 JSON; list commands return one page with pagination metadata.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			// Released proxy images and older clients invoke `depot registry` directly.
-			// Only the complete internal configuration selects that legacy mode.
-			for _, key := range []string{"CA_CERT", "KEY", "CERT", "ADDR", "SERVER_NAME", "MANIFEST", "CONFIG"} {
-				if os.Getenv(key) == "" {
-					return cmd.Help()
-				}
-			}
-			return proxy()
+			return cmd.Help()
 		},
 	}
 	cmd.PersistentFlags().StringVar(&o.token, "token", "", "Organization API token (or DEPOT_TOKEN)")
