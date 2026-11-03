@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"maps"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -15,7 +14,7 @@ import (
 )
 
 // linkNoReplace stands in for MoveFileExW without MOVEFILE_REPLACE_EXISTING, so
-// that writeOutputNoReplace is tested on every platform: a hard link also
+// that writeOutputNoReplace is also tested on Linux and macOS: a hard link also
 // fails when the destination exists.
 func linkNoReplace(from, to string) error {
 	if err := os.Link(from, to); err != nil {
@@ -32,11 +31,10 @@ func mutexLock(string) (func(), error) {
 	return testLockMu.Unlock, nil
 }
 
-// noReplaceOpsToTest returns the implementations of noReplaceOps to test.
+// noReplaceOpsToTest returns the implementations of noReplaceOps to test on
+// this platform.
 func noReplaceOpsToTest() map[string]noReplaceOps {
-	all := map[string]noReplaceOps{"hard link": {renameNoReplace: linkNoReplace, replace: os.Rename, lock: mutexLock}}
-	maps.Copy(all, platformNoReplaceOps)
-	return all
+	return platformNoReplaceOps
 }
 
 func writeTestOutput(t *testing.T, dest string, content []byte, ops noReplaceOps) {
