@@ -40,7 +40,7 @@ jobs:
       - name: Remote hits with concurrent vet readers
         shell: pwsh
         run: |
-          for ($i = 1; $i -le 10; $i+
+          for ($i = 1; $i -le 10; $i++) {
             Remove-Item -Recurse -Force (go env GOCACHE)
             go vet ./cmd/... ./pkg/...
             if ($LASTEXITCODE -ne 0) { throw "run $i failed" }
