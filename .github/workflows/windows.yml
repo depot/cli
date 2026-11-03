@@ -30,10 +30,15 @@ jobs:
         shell: pwsh
         run: |
           go build -o "$env:RUNNER_TEMP\depot-dev.exe" ./cmd/depot
-          "GOCACHEPROG=$env:RUNNER_TE-verbose" >> $env:GITHUB_ENV
+          "GOCACHEPROG=$env:RUNNER_TEMP\depot-dev.exe gocache --verbose" >> $env:GITHUB_ENV
           & "$env:RUNNER_TEMP\depot-dev.exe" version
 
-      - run: go env GOCACHEPROG   # cn use
+      - name: Check the branch CLI is the GOCACHEPROG
+        shell: pwsh
+        run: |
+          $prog = go env GOCACHEPROG
+          "GOCACHEPROG = $prog"
+          if ($prog -notlike '*depot-dev.exe gocache*') { throw "GOCACHEPROG is not the branch CLI" }
 
       - name: Fill the remote cache
         run: go vet ./cmd/... ./pkg/...
