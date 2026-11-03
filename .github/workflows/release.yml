@@ -144,17 +144,28 @@ jobs:
     timeout-minutes: 5
     permissions:
       contents: read
+    env:
+      LINEAR_ACCESS_KEY: ${{ secrets.LINEAR_RELEASES_ACCESS_KEY }}
     steps:
+      - name: Skip until the Linear key is configured
+        if: env.LINEAR_ACCESS_KEY == ''
+        run: |
+          echo "::notice::LINEAR_RELEASES_ACCESS_KEY is not configured; skipping Linear release reporting."
+          echo "### Linear release reporting skipped" >> "$GITHUB_STEP_SUMMARY"
+          echo "LINEAR_RELEASES_ACCESS_KEY is not configured, so this release was not reported to Linear." >> "$GITHUB_STEP_SUMMARY"
+
       - name: Checkout released revision
+        if: env.LINEAR_ACCESS_KEY != ''
         uses: actions/checkout@v7
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
 
       - name: Report Linear release
+        if: env.LINEAR_ACCESS_KEY != ''
         uses: linear/linear-release-action@v0.17.2
         with:
-          access_key: ${{ secrets.LINEAR_RELEASES_ACCESS_KEY }}
+          access_key: ${{ env.LINEAR_ACCESS_KEY }}
           version: ${{ github.event.release.tag_name }}
 
       - name: Surface reporting failure
