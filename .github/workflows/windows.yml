@@ -39,20 +39,6 @@ jobs:
           $rootenv = Join-Path (go env GOROOT) go.env
           if (Test-Path $rootenv) { "--- $rootenv"; Get-Content $rootenv }
 
-      - name: Install branch CLI over the runner's depot.exe
-        shell: pwsh
-        run: |
-          $depot = "C:\Program Files\depot\depot.exe"
-          go build -o "$env:RUNNER_TEMP\depot-dev.exe" ./cmd/depot
-          # depot version prints several lines, so compare the joined output.
-          $want = (& "$env:RUNNER_TEMP\depot-dev.exe" version) -join "`n"
-          # A running exe can be renamed but not overwritten on Windows.
-          Move-Item -Force $depot "$depot.orig"
-          Copy-Item "$env:RUNNER_TEMP\depot-dev.exe" $depot
-          $got = (& $depot version) -join "`n"
-          "installed: $got"
-          if ($got -ne $want) { throw "depot.exe is not the branch CLI" }
-
       - name: Fill the remote cache
         run: go vet ./cmd/... ./pkg/...
 
