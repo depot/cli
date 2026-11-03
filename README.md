@@ -19,6 +19,7 @@ Official CLI for [Depot](https://depot.dev) - you can use the CLI to build Docke
     - [`depot build`](#depot-build)
       - [Flags for `build`](#flags-for-build)
       - [`depot build cancel`](#depot-build-cancel)
+    - [`depot builds`](#depot-builds)
     - [`depot cache`](#depot-cache)
       - [`depot cache reset`](#depot-cache-reset)
     - [`depot checks`](#depot-checks)
@@ -290,6 +291,17 @@ running builds before requesting confirmation; use `--yes` for scripts.
 
 See [build cancellation](docs/build-cancellation.md) for authentication, selection,
 and output details. To build a directory named `cancel`, use `depot build ./cancel`.
+
+### `depot builds`
+
+Export container-build CPU and memory measurements with `depot builds metrics`, or get project and architecture summaries with `depot builds analytics`:
+
+```shell
+depot builds analytics --project <project-id> \
+  --start 2026-11-01T00:00:00Z --end 2026-11-02T00:00:00Z --output table
+```
+
+Both commands support table, JSON, and CSV output and require an organization API token in `DEPOT_TOKEN` or `--token`. Measurements cover build-owned executor work and require a builder with collection enabled. See [container-build metrics](docs/build-metrics.md) for pagination, units, weighting, and missing-data behavior.
 
 ### `depot cache`
 

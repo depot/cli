@@ -1,7 +1,7 @@
-buf.build/gen/go/depot/api/connectrpc/go v1.15.0-20261027120211-654d30620337.1 h1:3BKAM0r63Pho+G/pv3ee2QlecyOfR8qjP+J6aap5fgM=
-buf.build/gen/go/depot/api/connectrpc/go v1.15.0-20261027120211-654d30620337.1/go.mod h1:wQpUwo9QREPMGVrewsVebSjY7+hVeeCM0tzuUbr8lWs=
-buf.build/gen/go/depot/api/protocolbuffers/go v1.32.0-20261027120211-654d30620337.1 h1:PBhFKLoMH99qsKwZ3IHvzFqJ2w/EEtIYhjiSNxq86HM=
-buf.build/gen/go/depot/api/protocolbuffers/go v1.32.0-20261027120211-654d30620337.1/go.mod h1:MP5BDdzxwFdhf/KEm27tKfz9dKjtC9C1kXdpuSOb09g=
+buf.build/gen/go/depot/api/connectrpc/go v1.15.0-20261103141339-236d6ca22cfb.1 h1:NhIDkvPH1ESbinsByKRljthDfkDbqK0Smho5OkN6QH4=
+buf.build/gen/go/depot/api/connectrpc/go v1.15.0-20261103141339-236d6ca22cfb.1/go.mod h1:DGeFUqtEfT6wIct75qati0Gq3/3KbR8GqqJ5RyGl5a0=
+buf.build/gen/go/depot/api/protocolbuffers/go v1.32.0-20261103141339-236d6ca22cfb.1 h1:vDVhuYrMlEmqC7NC20u4MszcppMOK0Bv9UTfOL4i05c=
+buf.build/gen/go/depot/api/protocolbuffers/go v1.32.0-20261103141339-236d6ca22cfb.1/go.mod h1:MP5BDdzxwFdhf/KEm27tKfz9dKjtC9C1kXdpuSOb09g=
 charm.land/bubbles/v2 v2.0.0 h1:tE3eK/pHjmtrDiRdoC9uGNLgpopOd8fjhEe31B/ai5s=
 charm.land/bubbles/v2 v2.0.0/go.mod h1:rCHoleP2XhU8um45NTuOWBPNVHxnkXKTiZqcclL/qOI=
 charm.land/bubbletea/v2 v2.0.2 h1:4CRtRnuZOdFDTWSff9r8QFt/9+z6Emubz3aDMnf/dx0=
