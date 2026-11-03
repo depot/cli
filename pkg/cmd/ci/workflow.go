@@ -1,6 +1,7 @@
 package ci
 
 import (
+	"cmp"
 	"fmt"
 	"strings"
 	"time"
@@ -71,12 +72,13 @@ type workflowExecutionJSON struct {
 }
 
 type workflowShowJobJSON struct {
-	JobID      string                    `json:"job_id"`
-	JobKey     string                    `json:"job_key"`
-	Status     string                    `json:"status"`
-	StartedAt  string                    `json:"started_at"`
-	FinishedAt string                    `json:"finished_at"`
-	Attempts   []workflowShowAttemptJSON `json:"attempts"`
+	JobDisplayName string                    `json:"job_display_name"`
+	JobID          string                    `json:"job_id"`
+	JobKey         string                    `json:"job_key"`
+	Status         string                    `json:"status"`
+	StartedAt      string                    `json:"started_at"`
+	FinishedAt     string                    `json:"finished_at"`
+	Attempts       []workflowShowAttemptJSON `json:"attempts"`
 }
 
 type workflowShowAttemptJSON struct {
@@ -370,12 +372,13 @@ func workflowShowToJSON(workflow *civ1.GetWorkflowResponse) workflowShowJSON {
 
 	for _, job := range workflow.GetJobs() {
 		outJob := workflowShowJobJSON{
-			JobID:      job.GetJobId(),
-			JobKey:     job.GetJobKey(),
-			Status:     job.GetStatus(),
-			StartedAt:  job.GetStartedAt(),
-			FinishedAt: job.GetFinishedAt(),
-			Attempts:   make([]workflowShowAttemptJSON, 0, len(job.GetAttempts())),
+			JobDisplayName: cmp.Or(job.GetJobDisplayName(), job.GetJobKey()),
+			JobID:          job.GetJobId(),
+			JobKey:         job.GetJobKey(),
+			Status:         job.GetStatus(),
+			StartedAt:      job.GetStartedAt(),
+			FinishedAt:     job.GetFinishedAt(),
+			Attempts:       make([]workflowShowAttemptJSON, 0, len(job.GetAttempts())),
 		}
 		for _, attempt := range job.GetAttempts() {
 			outJob.Attempts = append(outJob.Attempts, workflowShowAttemptJSON{
@@ -439,7 +442,7 @@ func printWorkflow(workflow *civ1.GetWorkflowResponse, orgFlag string) {
 
 	for _, job := range workflow.GetJobs() {
 		duration := formatDuration(job.GetStartedAt(), job.GetFinishedAt())
-		fmt.Printf("  %s [%s]%s\n", jobKeyShort(job.GetJobKey()), job.GetStatus(), durationSuffix(duration))
+		fmt.Printf("  %s [%s]%s\n", cmp.Or(job.GetJobDisplayName(), jobKeyShort(job.GetJobKey())), job.GetStatus(), durationSuffix(duration))
 		fmt.Printf("    Job ID: %s\n", job.GetJobId())
 
 		latest := latestWorkflowAttempt(job.GetAttempts())

@@ -11,6 +11,7 @@ import (
 	"github.com/depot/cli/pkg/cmd/gocache"
 	"github.com/depot/cli/pkg/config"
 	"github.com/depot/cli/pkg/helpers"
+	"github.com/depot/cli/pkg/runtoken"
 	"github.com/spf13/cobra"
 )
 
@@ -52,9 +53,13 @@ func NewCmdCargo() *cobra.Command {
 				return fmt.Errorf("sccache not found in PATH: %w\n\nPlease install sccache: cargo install sccache", err)
 			}
 
-			token, err := helpers.ResolveOrgAuth(ctx, "")
+			token, err := helpers.ResolveCacheAuth(ctx, "")
 			if err != nil {
 				return fmt.Errorf("failed to resolve token: %w", err)
+			}
+			// sccache keeps the token for the whole build, and a managed run's own expires in minutes.
+			if source := runtoken.Default(); source != nil && source.Minted(token) {
+				return fmt.Errorf("depot cargo needs a long-lived token: pass DEPOT_TOKEN or DEPOT_CACHE_TOKEN")
 			}
 
 			// Create cargo command

@@ -21,6 +21,7 @@ import (
 	"github.com/depot/cli/pkg/cmd/gocache/wire"
 	"github.com/depot/cli/pkg/config"
 	"github.com/depot/cli/pkg/helpers"
+	"github.com/depot/cli/pkg/runtoken"
 	"github.com/spf13/cobra"
 )
 
@@ -49,7 +50,7 @@ func NewCmdGoCache() *cobra.Command {
 				return err
 			}
 
-			token, err = helpers.ResolveOrgAuth(ctx, token)
+			token, err = helpers.ResolveCacheAuth(ctx, token)
 			if err != nil {
 				return err
 			}
@@ -307,7 +308,7 @@ type RemoteCache struct {
 	Disk *DiskCache
 
 	// HTTPClient optionally specifies the http.Client to use.
-	// If nil, http.DefaultClient is used.
+	// If nil, a client that keeps connections to each host open is used.
 	HTTPClient *http.Client
 
 	Verbose bool
@@ -336,7 +337,19 @@ func (c *RemoteCache) httpClient() *http.Client {
 	if c.HTTPClient != nil {
 		return c.HTTPClient
 	}
-	return http.DefaultClient
+	return runtoken.WrapClient(defaultHTTPClient)
+}
+
+// Large hits redirect to an HTTP/1.1 CDN, where 2 idle conns force new TLS handshakes (DEP-3721).
+const maxIdleConnsPerHost = 128
+
+var defaultHTTPClient = newHTTPClient()
+
+func newHTTPClient() *http.Client {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.MaxIdleConns = 0
+	transport.MaxIdleConnsPerHost = maxIdleConnsPerHost
+	return &http.Client{Transport: transport}
 }
 
 func (c *RemoteCache) Get(ctx context.Context, actionID string) (outputID, diskPath string, err error) {

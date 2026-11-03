@@ -5,11 +5,11 @@ import (
 	"errors"
 	"fmt"
 
+	corev1 "buf.build/gen/go/depot/api/protocolbuffers/go/depot/core/v1"
 	"charm.land/huh/v2"
 	"connectrpc.com/connect"
 	"github.com/depot/cli/pkg/api"
 	"github.com/depot/cli/pkg/config"
-	corev1 "github.com/depot/cli/pkg/proto/depot/core/v1"
 )
 
 var ErrNoOrganizations = errors.New("no organizations found")

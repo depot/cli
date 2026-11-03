@@ -29,7 +29,7 @@ type SharedPrinter struct {
 
 func NewSharedPrinter(mode string) (*SharedPrinter, error) {
 	ctx, cancel := context.WithCancel(context.Background())
-	printer, err := progress.NewPrinter(ctx, os.Stderr, os.Stderr, mode)
+	printer, err := progress.NewPrinter(ctx, os.Stderr, DisplayMode(mode))
 	if err != nil {
 		cancel()
 		return nil, err
@@ -67,7 +67,9 @@ func (w *SharedPrinter) Wait() error {
 }
 
 func (w *SharedPrinter) Write(status *client.SolveStatus) { w.printer.Write(status) }
-func (w *SharedPrinter) ClearLogSource(v interface{})     { w.printer.ClearLogSource(v) }
-func (w *SharedPrinter) ValidateLogSource(d digest.Digest, v interface{}) bool {
+func (w *SharedPrinter) ClearLogSource(v any)             { w.printer.ClearLogSource(v) }
+func (w *SharedPrinter) WriteBuildRef(target, ref string) { w.printer.WriteBuildRef(target, ref) }
+func (w *SharedPrinter) Warnings() []client.VertexWarning { return w.printer.Warnings() }
+func (w *SharedPrinter) ValidateLogSource(d digest.Digest, v any) bool {
 	return w.printer.ValidateLogSource(d, v)
 }

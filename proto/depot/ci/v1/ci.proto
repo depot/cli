@@ -96,6 +96,8 @@ service CIService {
 service MigrationService {
   rpc GetInstallation(GetInstallationRequest) returns (GetInstallationResponse) {}
   rpc ImportSecretsAndVars(ImportSecretsAndVarsRequest) returns (ImportSecretsAndVarsResponse) {}
+  // Reports whether the organization's Entire installations grant Depot access to a repository.
+  rpc GetEntireRepositoryAccess(GetEntireRepositoryAccessRequest) returns (GetEntireRepositoryAccessResponse) {}
 }
 
 message GetInstallationRequest {
@@ -105,6 +107,18 @@ message GetInstallationRequest {
 
 message GetInstallationResponse {
   repeated Installation installations = 1;
+}
+
+message GetEntireRepositoryAccessRequest {
+  // Entire repository name, as the `namespace/project/name` path of its clone URL. For example, "et/acme/api".
+  string repo = 1;
+}
+
+message GetEntireRepositoryAccessResponse {
+  // Whether the organization has an active Entire installation. False when Entire is not enabled for the organization.
+  bool installed = 1;
+  // Whether one of the organization's Entire installations grants Depot access to `repo`.
+  bool repo_accessible = 2;
 }
 
 message ImportSecretsAndVarsRequest {
@@ -146,7 +160,8 @@ message Installation {
 }
 
 message RunRequest {
-  // repo identifies the target GitHub or Origin repository in owner/repo format.
+  // repo identifies the target repository. GitHub and Origin repositories use owner/repo format;
+  // Depot Code repositories use the repository name.
   string repo = 1;
   // sha points to a snapshot of code, used as context for the run
   // defaults to HEAD of default branch
@@ -165,6 +180,9 @@ message RunRequest {
   optional string workspace_patch_cache_key = 6;
   // forge identifies the source-code host. Unspecified defaults to GitHub for compatibility.
   Forge forge = 7;
+  // Branch or tag the `sha` was checked out from, used to attribute test results. For example, "refs/heads/feature".
+  // It does not change what is checked out. Only valid when `sha` is set.
+  optional string ref = 8;
 }
 
 message RunResponse {
@@ -342,6 +360,8 @@ message JobStatus {
   string job_key = 2;
   string status = 3;
   repeated AttemptStatus attempts = 4;
+  // Resolved job name for display. Falls back to the leaf job name, then `jobKey`, when unavailable. Use `jobId` or `jobKey` to identify the job.
+  string job_display_name = 5;
 }
 
 message AttemptStatus {
@@ -410,6 +430,8 @@ message GetWorkflowJob {
   string finished_at = 5;
   // attempts are per-job attempts, not workflow execution records.
   repeated GetWorkflowJobAttempt attempts = 6;
+  // Resolved job name for display. Falls back to the leaf job name, then `jobKey`, when unavailable. Use `jobId` or `jobKey` to identify the job.
+  string job_display_name = 7;
 }
 
 // GetWorkflowJobAttempt describes one attempt of a job returned by GetWorkflow.
@@ -1044,4 +1066,6 @@ enum Forge {
   FORGE_UNSPECIFIED = 0;
   FORGE_GITHUB = 1;
   FORGE_ORIGIN = 2;
+  FORGE_DEPOT_CODE = 3;
+  FORGE_ENTIRE = 4;
 }

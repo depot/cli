@@ -15,6 +15,7 @@ import (
 	progress "github.com/docker/buildx/util/progress"
 	"github.com/moby/buildkit/client"
 	"github.com/moby/buildkit/client/llb"
+	"github.com/moby/buildkit/util/progress/progressui"
 )
 
 func main() {
@@ -44,13 +45,13 @@ func main() {
 	defer build.Finish(buildErr)
 
 	ctx, cancel := context.WithCancel(ctx)
-	printer, buildErr := progress.NewPrinter(ctx, os.Stderr, os.Stderr, "quiet")
+	printer, buildErr := progress.NewPrinter(ctx, os.Stderr, progressui.QuietMode)
 	if buildErr != nil {
 		return
 	}
 	defer cancel()
 
-	reportingWriter := progresshelper.NewReportingWriter(printer, build.ID, build.Token)
+	reportingWriter := progresshelper.NewReporter(ctx, printer, build.ID, build.Token)
 
 	// 3. Acquire a buildkit machine.
 	var buildkit *machine.Machine

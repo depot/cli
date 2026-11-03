@@ -67,8 +67,9 @@ func NewCmdVarsSet() *cobra.Command {
 		Long: `Create or update a CI variable variant.
 
 Variants let one variable name have different values for matching repositories,
-environments, branches, or workflows. When variant is omitted, the variant is
-named "default".`,
+environments, branches, or workflows. When variant is omitted, the server picks
+it: the variant scoped to exactly these match flags, or a new one named after the
+repository (owner-repo), or "default" when no match flags are given.`,
 		Example: `  # Set the default variant
   depot ci vars set DEPLOY_ENV --value "staging"
 
@@ -278,7 +279,7 @@ Without match flags, the variant applies to all workflow runs in the organizatio
 				}
 
 				for _, v := range variables {
-					fmt.Printf("Successfully added CI variable '%s' variant '%s' (%s)\n", v.name, displayVariantName(variant), scope)
+					printVariableAddSuccess(v.name, variant, scope)
 				}
 				return nil
 			}
@@ -317,7 +318,7 @@ Without match flags, the variant applies to all workflow runs in the organizatio
 				return fmt.Errorf("failed to add CI variable: %w", err)
 			}
 
-			fmt.Printf("Successfully added CI variable '%s' variant '%s' (%s)\n", varName, displayVariantName(variant), scope)
+			printVariableAddSuccess(varName, variant, scope)
 			return nil
 		},
 	}
@@ -382,29 +383,31 @@ attributes. Passing a variable name lists one grouped variable.`,
 				}
 			}
 
+			filter := api.CIListVariableVariantsOptions{
+				Repo: repo, Environment: environment, Branch: branch, Workflow: workflow, AsContext: true,
+			}
 			var result api.CIListVariableVariantsResult
 			if len(args) == 1 {
-				variable, err := api.CIGetVariableVariantGroup(ctx, tokenVal, orgID, args[0])
+				variable, found, err := api.CIFindVariableVariantGroup(ctx, tokenVal, orgID, args[0], filter)
+				if err == nil && !found {
+					// No variant applies; show the variable without variants, or fail if it does not exist.
+					variable, err = api.CIGetVariableVariantGroup(ctx, tokenVal, orgID, args[0])
+					variable.Variants, variable.VariantCount = nil, 0
+				}
 				if err != nil {
 					return fmt.Errorf("failed to get CI variable: %w", err)
 				}
-				result.Variables = []api.CIVariableGroup{filterVariableVariantsForList(variable, repo, environment, branch, workflow)}
+				result.Variables = []api.CIVariableGroup{variable}
 			} else {
 				var err error
-				result, err = api.CIListVariableVariants(ctx, tokenVal, orgID, api.CIListVariableVariantsOptions{
-					Repo:        nil,
-					Environment: nil,
-					Branch:      nil,
-					Workflow:    nil,
-				})
+				result, err = api.CIListVariableVariants(ctx, tokenVal, orgID, filter)
 				if err != nil {
 					return fmt.Errorf("failed to list CI variables: %w", err)
 				}
 				filtered := result.Variables[:0]
-				for i := range result.Variables {
-					result.Variables[i] = filterVariableVariantsForList(result.Variables[i], repo, environment, branch, workflow)
-					if len(result.Variables[i].Variants) > 0 {
-						filtered = append(filtered, result.Variables[i])
+				for _, variable := range result.Variables {
+					if len(variable.Variants) > 0 {
+						filtered = append(filtered, variable)
 					}
 				}
 				result.Variables = filtered
@@ -541,14 +544,9 @@ explicit and cannot be combined with selector flags or --variant.`,
 					continue
 				}
 
-				group, err := api.CIGetVariableVariantGroup(ctx, tokenVal, orgID, varName)
+				matches, err := findVariableVariants(ctx, tokenVal, orgID, varName, variant, repo, environment, branch, workflow)
 				if err != nil {
 					return fmt.Errorf("failed to get CI variable '%s': %w", varName, err)
-				}
-
-				matches, err := resolveVariableVariant(group, variant, repo, environment, branch, workflow)
-				if err != nil {
-					return err
 				}
 				if len(matches) == 0 {
 					return fmt.Errorf("no matching variant found for CI variable '%s'", varName)
@@ -578,4 +576,12 @@ explicit and cannot be combined with selector flags or --variant.`,
 	cmd.Flags().BoolVar(&all, "all", false, "Remove the variable and all variants")
 
 	return cmd
+}
+
+func printVariableAddSuccess(name, variant, scope string) {
+	if variant == "" {
+		fmt.Printf("Successfully added CI variable '%s' (%s)\n", name, scope)
+		return
+	}
+	fmt.Printf("Successfully added CI variable '%s' variant '%s' (%s)\n", name, variant, scope)
 }

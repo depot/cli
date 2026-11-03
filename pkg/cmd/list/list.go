@@ -3,6 +3,7 @@ package list
 import (
 	"fmt"
 
+	"github.com/depot/cli/pkg/cmd/jobs"
 	"github.com/spf13/cobra"
 )
 
@@ -10,7 +11,7 @@ func NewCmdList() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "list",
 		Aliases: []string{"ls"},
-		Short:   "Display depot project and build information",
+		Short:   "Display Depot project, build, and GitHub Actions job information",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("missing subcommand, please run `depot list --help`")
 		},
@@ -18,6 +19,7 @@ func NewCmdList() *cobra.Command {
 
 	cmd.AddCommand(NewCmdProjects("projects", "p"))
 	cmd.AddCommand(NewCmdBuilds())
+	cmd.AddCommand(jobs.NewCmdListJobs())
 
 	return cmd
 }

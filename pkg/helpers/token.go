@@ -8,6 +8,7 @@ import (
 	"github.com/depot/cli/pkg/api"
 	"github.com/depot/cli/pkg/config"
 	"github.com/depot/cli/pkg/oidc"
+	"github.com/depot/cli/pkg/runtoken"
 )
 
 func ResolveOrgAuth(ctx context.Context, tok string) (string, error) {
@@ -20,6 +21,17 @@ func ResolveOrgAuth(ctx context.Context, tok string) (string, error) {
 	}
 
 	return "", nil
+}
+
+// ResolveCacheAuth is ResolveOrgAuth for cache tools, which keep a cache token over a run token that expires mid-build.
+func ResolveCacheAuth(ctx context.Context, tok string) (string, error) {
+	token, err := ResolveOrgAuth(ctx, tok)
+	if source := runTokenSource(); err == nil && source != nil && source.Minted(token) {
+		if cacheToken := resolveJITToken(); cacheToken != "" {
+			return cacheToken, nil
+		}
+	}
+	return token, err
 }
 
 func ResolveStaticOrgAuth(tok string) string {
@@ -35,11 +47,19 @@ func ResolveStaticOrgAuth(tok string) string {
 		return token
 	}
 
+	if token := resolveRunToken(context.Background()); token != "" {
+		return token
+	}
+
 	return resolveJITToken()
 }
 
 func ResolveProjectAuth(ctx context.Context, tok string) (string, error) {
 	if token := resolveStaticProjectAuth(tok); token != "" {
+		return token, nil
+	}
+
+	if token := resolveRunToken(ctx); token != "" {
 		return token, nil
 	}
 
@@ -124,6 +144,22 @@ func resolveOIDCToken(ctx context.Context) string {
 	}
 
 	return ""
+}
+
+var runTokenSource = runtoken.Default
+
+// resolveRunToken mints a managed run's own token; the API client refreshes it per request.
+func resolveRunToken(ctx context.Context) string {
+	source := runTokenSource()
+	if source == nil {
+		return ""
+	}
+	token, err := source.Token(ctx)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: %v\n", err)
+		return ""
+	}
+	return token
 }
 
 func resolveJITToken() string {

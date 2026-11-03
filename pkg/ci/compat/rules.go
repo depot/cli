@@ -110,10 +110,9 @@ var TriggerRules = map[string]CompatibilityRule{
 		Suggestion: "Remove this trigger or use a webhook-based alternative.",
 	},
 	"issue_comment": {
-		Feature:    "issue_comment",
-		Supported:  Unsupported,
-		Note:       "Issue comment events are not supported.",
-		Suggestion: "Remove this trigger or use a webhook-based alternative.",
+		Feature:   "issue_comment",
+		Supported: Supported,
+		Note:      "Conversation comments on issues and pull requests are supported.",
 	},
 	"issues": {
 		Feature:    "issues",
@@ -157,16 +156,14 @@ var TriggerRules = map[string]CompatibilityRule{
 		Suggestion: "Remove this trigger or use a webhook-based alternative.",
 	},
 	"pull_request_review": {
-		Feature:    "pull_request_review",
-		Supported:  Unsupported,
-		Note:       "Pull request review events are not supported.",
-		Suggestion: "Remove this trigger or use a webhook-based alternative.",
+		Feature:   "pull_request_review",
+		Supported: Supported,
+		Note:      "Pull request review events are supported.",
 	},
 	"pull_request_review_comment": {
-		Feature:    "pull_request_review_comment",
-		Supported:  Unsupported,
-		Note:       "Pull request review comment events are not supported.",
-		Suggestion: "Remove this trigger or use a webhook-based alternative.",
+		Feature:   "pull_request_review_comment",
+		Supported: Supported,
+		Note:      "Pull request review comment events are supported.",
 	},
 	"registry_package": {
 		Feature:    "registry_package",
@@ -260,8 +257,14 @@ var JobFeatureRules = map[string]CompatibilityRule{
 	"runs-on (custom labels)": {
 		Feature:    "runs-on (custom labels)",
 		Supported:  Partial,
-		Note:       "Unknown runner labels are treated as depot_ubuntu_latest.",
-		Suggestion: "Use Depot runner labels (for example depot_ubuntu_latest) for predictable behavior.",
+		Note:       "Custom, unsupported, or conflicting runner labels may not run as expected on Depot CI.",
+		Suggestion: "Use one supported Depot Ubuntu runner label (for example depot-ubuntu-latest) for predictable behavior.",
+	},
+	"runs-on (unavailable labels)": {
+		Feature:    "runs-on (unavailable labels)",
+		Supported:  Partial,
+		Note:       "Depot CI has no runner for this GitHub-hosted label, so migration kept it unchanged. Depot CI runs jobs without a depot-* label on depot-ubuntu-latest.",
+		Suggestion: "Choose a supported Depot runner label for this job before activating the workflow.",
 	},
 	"strategy.matrix + self-hosted": {
 		Feature:    "strategy.matrix + self-hosted",

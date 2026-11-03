@@ -1,0 +1,13 @@
+{
+  "target": {
+    "_base": {
+      "project_id": "vtproject-keys"
+    },
+    "keys": {
+      "target": "artifact",
+      "args": {
+        "${target._base.project_id}": "value"
+      }
+    }
+  }
+}

@@ -7,9 +7,9 @@ import (
 
 	"connectrpc.com/connect"
 	"github.com/depot/cli/pkg/api"
+	"github.com/depot/cli/pkg/arguments"
 	"github.com/depot/cli/pkg/helpers"
 	cliv1beta1 "github.com/depot/cli/pkg/proto/depot/cli/v1beta1"
-	"github.com/docker/cli/cli"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 )
@@ -21,7 +21,7 @@ func NewCmdResetCache() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "reset",
 		Short: "Reset the cache for a project",
-		Args:  cli.RequiresMaxArgs(1),
+		Args:  arguments.AtMost(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var cwd string
 			if len(args) > 0 {

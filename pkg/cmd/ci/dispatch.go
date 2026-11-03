@@ -83,7 +83,7 @@ This matches GitHub's workflow_dispatch API convention.`,
 
 	cmd.Flags().StringVar(&orgID, "org", "", "Organization ID (required when user is a member of multiple organizations)")
 	cmd.Flags().StringVar(&token, "token", "", "Depot API token")
-	cmd.Flags().StringVar(&repo, "repo", "", "Target GitHub repository in {org}/{repo} format (required)")
+	cmd.Flags().StringVar(&repo, "repo", "", "Target repository in {owner}/{repo} format, or {namespace}/{owner}/{repo} for Entire (required)")
 	cmd.Flags().StringVar(&workflow, "workflow", "", "Workflow file basename, e.g. deploy.yml — NOT the full path (required)")
 	cmd.Flags().StringVar(&ref, "ref", "", "Branch or tag name to run the workflow on (required)")
 	cmd.Flags().StringArrayVar(&inputs, "input", nil, "Workflow input as key=value; repeat for multiple inputs")

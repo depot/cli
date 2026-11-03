@@ -1,6 +1,8 @@
 package compat
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -16,6 +18,18 @@ func TestAnalyzeWorkflowSupportedTriggersOnly(t *testing.T) {
 	report := AnalyzeWorkflow(workflow)
 	if got := len(report.Issues); got != 0 {
 		t.Fatalf("expected zero issues, got %d", got)
+	}
+}
+
+func TestAnalyzeWorkflowIssueCommentSupported(t *testing.T) {
+	workflow := &migrate.WorkflowFile{
+		Path:     ".github/workflows/comment.yml",
+		Triggers: []string{"issue_comment"},
+	}
+
+	report := AnalyzeWorkflow(workflow)
+	if len(report.Issues) != 0 {
+		t.Fatalf("expected issue_comment to have no compatibility issues, got %v", report.Issues)
 	}
 }
 
@@ -159,5 +173,181 @@ func TestHasCriticalIssues(t *testing.T) {
 	}
 	if HasCriticalIssues(withoutCritical) {
 		t.Fatal("expected critical issues to be false")
+	}
+}
+
+// testRunnerPolicy pins label support so these cases exercise label selection,
+// not the backend's current decisions. MapLabel targets are listed so standard
+// GitHub labels resolve through the policy like Depot labels.
+var testRunnerPolicy = map[string]bool{
+	"depot-ok":            true,
+	"depot-ok-2":          true,
+	"depot-no":            false,
+	"depot-ubuntu-latest": true,
+	"depot-ubuntu-22.04":  true,
+	"depot-ubuntu-24.04":  false,
+}
+
+func TestAnalyzeJobsRunnerLabels(t *testing.T) {
+	cases := []struct {
+		name       string
+		runsOn     string // YAML value of the job's runs-on
+		wantCustom bool
+	}{
+		{"githubLatest", "ubuntu-latest", false},
+		{"githubCaseWhitespace", "'  Ubuntu-22.04 '", false},
+		{"githubMappedUnsupported", "ubuntu-24.04", true},
+		{"depotSupported", "depot-ok", false},
+		{"depotUnsupported", "depot-no", true},
+		{"githubWindows", "windows-latest", true},
+		{"unknown", "custom-runner", true},
+		{"legacyUnderscore", "depot_ubuntu_latest", true},
+		{"depotUnknownAlone", "depot-made-up", true},
+		// The backend matches depot- labels case-sensitively and replaces the
+		// rest with depot-ubuntu-latest, silently dropping the requested runner.
+		{"depotUppercase", "DEPOT-OK", true},
+		{"depotLeadingWhitespace", "'  depot-ok'", true},
+		// Within one element, only the first comma-separated part selects a
+		// runner; the rest are secondary labels the backend ignores.
+		{"commaSecondary", "depot-ok , dagger=0.18.6", false},
+		{"commaSecondaryDepotLabel", "depot-ok,depot-no", false},
+		{"commaUnsupportedPrimary", "depot-no,depot-ok", true},
+		{"arrayUnknownDepotSecondary", "[depot-ok, depot-made-up]", false},
+		{"arrayDistinctPrimaries", "[depot-ok, depot-no]", true},
+		{"arrayDistinctSupportedPrimaries", "[depot-ok, depot-ok-2]", true},
+		{"arrayMappedDistinctPrimaries", "[ubuntu-latest, depot-ok]", true},
+		{"arrayIdenticalPrimaries", "[depot-ok, depot-ok]", false},
+		{"arrayMappedIdenticalPrimaries", "[ubuntu-latest, depot-ubuntu-latest]", false},
+		// The backend allows one element with secondaries per primary runner.
+		{"arrayPlainThenQualified", "[depot-ok, 'depot-ok,dagger=1']", false},
+		{"arrayQualifiedThenPlain", "['depot-ok,dagger=1', depot-ok]", false},
+		{"arrayDoubleQualified", "['depot-ok,dagger=1', 'depot-ok,dagger=2']", true},
+		{"arrayTrailingCommaQualified", "['depot-ok,', 'depot-ok, ']", true},
+		{"arrayCustom", "[depot-ok, custom-runner]", true},
+		{"expression", "${{ matrix.runner }}", false},
+		{"expressionDepotPrefixed", "depot-${{ matrix.size }}", false},
+		{"expressionCommaScalar", "${{ matrix.runner }},custom-runner", false},
+		{"expressionWithPrimary", "['${{ matrix.runner }}', depot-ok]", false},
+		{"expressionWithUnknownDepot", "['${{ matrix.runner }}', depot-made-up]", false},
+		{"expressionWithCustom", "['${{ matrix.runner }}', custom-runner]", true},
+		// Commas inside an expression in the first part still leave the
+		// primary runner dynamic.
+		{"expressionFormatComma", `"${{ format('{0},{1}', matrix.a, matrix.b) }}"`, false},
+		{"expressionJoinComma", `"depot-${{ join(matrix.x, ',') }}"`, false},
+		// An expression after the first literal comma only affects secondary
+		// labels, so the literal primary is still checked.
+		{"dynamicSecondarySupported", "'depot-ok,dagger=${{ matrix.version }}'", false},
+		{"dynamicSecondaryUnsupported", "'depot-no,dagger=${{ matrix.version }}'", true},
+		{"dynamicSecondaryUnknownDepot", "'depot-made-up,x=${{ matrix.v }}'", true},
+		{"dynamicSecondaryUnknownDepotWithPrimary", "['depot-made-up,x=${{ matrix.v }}', depot-ok]", false},
+		{"dynamicSecondaryGitHub", "'ubuntu-latest,x=${{ matrix.v }}'", true},
+		{"dynamicSecondaryUppercase", "'DEPOT-OK,x=${{ matrix.v }}'", true},
+		{"dynamicSecondaryThenQualified", "['depot-ok,x=${{ matrix.v }}', 'depot-ok,dagger=2']", true},
+		{"dynamicSecondaryThenPlain", "['depot-ok,x=${{ matrix.v }}', depot-ok]", false},
+		{"dynamicSecondaryDistinctPrimaries", "['depot-ok,x=${{ matrix.v }}', depot-ok-2]", true},
+		{"emptyArray", "[]", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			wf := parseTestWorkflow(t, "jobs:\n  build:\n    runs-on: "+tc.runsOn+"\n")
+			assertCustomRunsOn(t, analyzeJobs(wf.Jobs, testRunnerPolicy), tc.wantCustom)
+		})
+	}
+}
+
+func TestAnalyzeJobsRunnerLabelFollowsPolicy(t *testing.T) {
+	wf := parseTestWorkflow(t, "jobs:\n  build:\n    runs-on: depot-x\n")
+	for _, tc := range []struct {
+		name       string
+		policy     map[string]bool
+		wantCustom bool
+	}{
+		{"supported", map[string]bool{"depot-x": true}, false},
+		{"unsupported", map[string]bool{"depot-x": false}, true},
+		{"unknown", map[string]bool{}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			assertCustomRunsOn(t, analyzeJobs(wf.Jobs, tc.policy), tc.wantCustom)
+		})
+	}
+}
+
+// TestAnalyzeWorkflowEmbeddedRunnerPolicy checks that the public entry point
+// reads the embedded policy, using whichever labels it currently lists.
+func TestAnalyzeWorkflowEmbeddedRunnerPolicy(t *testing.T) {
+	tested := map[bool]bool{}
+	for label, supported := range runnerPolicy() {
+		if tested[supported] {
+			continue
+		}
+		tested[supported] = true
+		wf := parseTestWorkflow(t, "jobs:\n  build:\n    runs-on: "+label+"\n")
+		assertCustomRunsOn(t, AnalyzeWorkflow(wf).Issues, !supported)
+	}
+}
+
+func assertCustomRunsOn(t *testing.T, issues []CompatibilityIssue, wantCustom bool) {
+	t.Helper()
+	want := 0
+	if wantCustom {
+		want = 1
+	}
+	if len(issues) != want {
+		t.Fatalf("got %+v, want %d issues", issues, want)
+	}
+	if wantCustom && (issues[0].Feature != "runs-on (custom labels)" || issues[0].Level != Partial) {
+		t.Fatalf("unexpected custom runner issue: %+v", issues[0])
+	}
+}
+
+func TestAnalyzeWorkflowMatrixSelfHostedFromArray(t *testing.T) {
+	wf := parseTestWorkflow(t, "jobs:\n  build:\n    runs-on: [self-hosted, linux]\n    strategy:\n      matrix:\n        go: [1, 2]\n")
+	report := AnalyzeWorkflow(wf)
+	if !HasCriticalIssues(report) {
+		t.Fatalf("expected matrix + self-hosted issue, got %+v", report.Issues)
+	}
+}
+
+func parseTestWorkflow(t *testing.T, jobs string) *migrate.WorkflowFile {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "ci.yml")
+	if err := os.WriteFile(path, []byte("on: push\n"+jobs), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	wf, err := migrate.ParseWorkflowFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return wf
+}
+
+func TestAnalyzeJobsUnavailableRunnerLabels(t *testing.T) {
+	cases := []struct {
+		name         string
+		runsOn       string
+		wantFeatures []string
+	}{
+		{"ubuntu20", "ubuntu-20.04", []string{"runs-on (unavailable labels)"}},
+		{"caseWhitespace", "' Ubuntu-20.04 '", []string{"runs-on (unavailable labels)"}},
+		{"supportedList", "[ubuntu-22.04, ubuntu-20.04]", []string{"runs-on (unavailable labels)"}},
+		{"customList", "[ubuntu-20.04, custom-runner]", []string{"runs-on (custom labels)", "runs-on (unavailable labels)"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			wf := parseTestWorkflow(t, "jobs:\n  build:\n    runs-on: "+tc.runsOn+"\n")
+			issues := analyzeJobs(wf.Jobs, testRunnerPolicy)
+			if len(issues) != len(tc.wantFeatures) {
+				t.Fatalf("AnalyzeJobs(%q) = %v, want features %v", tc.runsOn, issues, tc.wantFeatures)
+			}
+			for i, issue := range issues {
+				if issue.Feature != tc.wantFeatures[i] || issue.Level != Partial {
+					t.Fatalf("issue %d = %v, want Partial %q", i, issue, tc.wantFeatures[i])
+				}
+			}
+			last := issues[len(issues)-1]
+			if !strings.Contains(strings.ToLower(last.Message), "ubuntu-20.04") || !strings.Contains(last.Suggestion, "Choose a supported Depot runner label") {
+				t.Fatalf("unavailable runner issue does not ask for a runner choice: %v", last)
+			}
+		})
 	}
 }

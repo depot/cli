@@ -1,0 +1,20 @@
+{
+  "variable": {
+    "SUFFIX": {"default": "json"}
+  },
+  "group": {
+    "default": {"targets": ["one", "two"]}
+  },
+  "target": {
+    "one": {
+      "target": "artifact",
+      "description": "first target",
+      "output": ["type=local,dest=out/one"]
+    },
+    "two": {
+      "target": "artifact",
+      "project_id": "vtproject-${SUFFIX}",
+      "output": ["type=local,dest=out/two"]
+    }
+  }
+}

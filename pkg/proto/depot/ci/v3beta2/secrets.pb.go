@@ -666,7 +666,10 @@ type SetSecretVariantRequest struct {
 	unknownFields protoimpl.UnknownFields
 
 	SecretName string `protobuf:"bytes,1,opt,name=secret_name,json=secretName,proto3" json:"secret_name,omitempty"`
-	// Defaults to "default" when empty.
+	// Name of the variant to write. Leave empty, or pass "default", to write the variant whose `attributes` match
+	// exactly, or else create one named after them: after the repository for a `repository` attribute, or "default"
+	// with no attributes, suffixed "-2", "-3", and so on when that name is taken. For example, a new variant for
+	// "acme/api" is named "acme-api".
 	VariantName string  `protobuf:"bytes,2,opt,name=variant_name,json=variantName,proto3" json:"variant_name,omitempty"`
 	Value       string  `protobuf:"bytes,3,opt,name=value,proto3" json:"value,omitempty"`
 	Description *string `protobuf:"bytes,4,opt,name=description,proto3,oneof" json:"description,omitempty"`
@@ -819,7 +822,10 @@ type CreateSecretVariantRequest struct {
 	unknownFields protoimpl.UnknownFields
 
 	SecretName string `protobuf:"bytes,1,opt,name=secret_name,json=secretName,proto3" json:"secret_name,omitempty"`
-	// Defaults to "default" when empty.
+	// Name of the variant to create. Leave empty to name it after its `attributes`: after the repository for a
+	// `repository` attribute, or "default" with no attributes, suffixed "-2", "-3", and so on when that name is taken.
+	// For example, a variant for "acme/api" is named "acme-api". Fails when a variant with exactly these `attributes`
+	// already exists.
 	VariantName string  `protobuf:"bytes,2,opt,name=variant_name,json=variantName,proto3" json:"variant_name,omitempty"`
 	Value       string  `protobuf:"bytes,3,opt,name=value,proto3" json:"value,omitempty"`
 	Description *string `protobuf:"bytes,4,opt,name=description,proto3,oneof" json:"description,omitempty"`

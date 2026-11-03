@@ -1,9 +1,11 @@
 package ci
 
 import (
+	"cmp"
 	"fmt"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/depot/cli/pkg/config"
 	"github.com/depot/cli/pkg/helpers"
@@ -16,12 +18,22 @@ func NewCmdStatus() *cobra.Command {
 		orgID  string
 		token  string
 		output string
+		wait   bool
 	)
 
 	cmd := &cobra.Command{
 		Use:   "status <run-id>",
 		Short: "Look up the status of a CI run",
-		Long:  "Look up the status of a CI run, including its workflows, jobs, and attempts.",
+		Long: `Look up the status of a CI run, including its workflows, jobs, and attempts.
+
+With --wait, poll every five seconds until the run finishes, fails, or is cancelled.
+Progress updates are written to stderr and the final status is written to stdout.
+Exit with code 0 for a finished run, or code 1 for a failed or cancelled run.`,
+		Example: `  # Look up the current status
+  depot ci status <run-id>
+
+  # Wait for completion and print the final status as JSON
+  depot ci status <run-id> --wait --output json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 0 {
 				return cmd.Help()
@@ -52,13 +64,35 @@ func NewCmdStatus() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("failed to get run status: %w", err)
 			}
+			for wait && statusIsRunning(resp.Status) {
+				fmt.Fprintf(cmd.ErrOrStderr(), "Run: %s (%s)\n", resp.RunId, resp.Status)
+				timer := time.NewTimer(5 * time.Second)
+				select {
+				case <-ctx.Done():
+					timer.Stop()
+					return ctx.Err()
+				case <-timer.C:
+				}
+				resp, err = ciGetRunStatus(ctx, tokenVal, orgID, runID)
+				if err != nil {
+					return fmt.Errorf("failed to get run status: %w", err)
+				}
+			}
+
+			var runErr error
+			if wait && (resp.Status == "failed" || resp.Status == "cancelled") {
+				runErr = fmt.Errorf("run %s %s", resp.RunId, resp.Status)
+			}
 
 			orgFlag := ""
 			if cmd.Flags().Changed("org") {
 				orgFlag = " --org " + orgID
 			}
 			if output == "json" {
-				return writeJSON(statusToJSON(resp, orgFlag))
+				if err := writeJSON(statusToJSON(resp, orgFlag)); err != nil {
+					return err
+				}
+				return runErr
 			}
 
 			fmt.Printf("Org: %s\n", resp.OrgId)
@@ -75,7 +109,7 @@ func NewCmdStatus() *cobra.Command {
 				}
 
 				for _, job := range workflow.Jobs {
-					fmt.Printf("    Job: %s [%s] (%s)\n", job.JobId, job.JobKey, job.Status)
+					fmt.Printf("    Job: %s [%s] (%s)\n", job.JobId, cmp.Or(job.GetJobDisplayName(), job.JobKey), job.Status)
 
 					for _, attempt := range job.Attempts {
 						fmt.Printf("      Attempt #%d (%s)\n", attempt.Attempt, attempt.Status)
@@ -91,13 +125,14 @@ func NewCmdStatus() *cobra.Command {
 				}
 			}
 
-			return nil
+			return runErr
 		},
 	}
 
 	cmd.Flags().StringVar(&orgID, "org", "", "Organization ID (required when user is a member of multiple organizations)")
 	cmd.Flags().StringVar(&token, "token", "", "Depot API token")
 	cmd.Flags().StringVarP(&output, "output", "o", "", "Output format (json)")
+	cmd.Flags().BoolVar(&wait, "wait", false, "Wait for the run to complete")
 
 	return cmd
 }
@@ -119,10 +154,11 @@ type statusWorkflowJSON struct {
 }
 
 type statusJobJSON struct {
-	JobID    string              `json:"job_id"`
-	JobKey   string              `json:"job_key"`
-	Status   string              `json:"status"`
-	Attempts []statusAttemptJSON `json:"attempts"`
+	JobDisplayName string              `json:"job_display_name"`
+	JobID          string              `json:"job_id"`
+	JobKey         string              `json:"job_key"`
+	Status         string              `json:"status"`
+	Attempts       []statusAttemptJSON `json:"attempts"`
 }
 
 type statusAttemptJSON struct {
@@ -159,10 +195,11 @@ func statusToJSON(resp *civ1.GetRunStatusResponse, orgFlag string) statusJSON {
 
 		for _, job := range workflow.GetJobs() {
 			j := statusJobJSON{
-				JobID:    job.GetJobId(),
-				JobKey:   job.GetJobKey(),
-				Status:   job.GetStatus(),
-				Attempts: make([]statusAttemptJSON, 0, len(job.GetAttempts())),
+				JobDisplayName: cmp.Or(job.GetJobDisplayName(), job.GetJobKey()),
+				JobID:          job.GetJobId(),
+				JobKey:         job.GetJobKey(),
+				Status:         job.GetStatus(),
+				Attempts:       make([]statusAttemptJSON, 0, len(job.GetAttempts())),
 			}
 
 			for _, attempt := range job.GetAttempts() {

@@ -23,7 +23,10 @@ func NewCmdGet() *cobra.Command {
 		Long: `Get the details and configuration of a Depot project.
 
 If no project ID is provided, the command uses DEPOT_PROJECT_ID or the project
-configured in depot.json in the current directory.`,
+configured in depot.json in the current directory.
+
+Requires an organization API token. Create one in your organization's
+Organization Settings > API Tokens and pass it with --token or DEPOT_TOKEN.`,
 		Example: `  # Get the project configured in the current directory
   depot projects get
 
@@ -40,12 +43,9 @@ configured in depot.json in the current directory.`,
 				return err
 			}
 
-			token, err := helpers.ResolveProjectAuth(cmd.Context(), token)
-			if err != nil {
-				return err
-			}
+			token := helpers.ResolveStaticOrgAuth(token)
 			if token == "" {
-				return fmt.Errorf("missing API token, please run `depot login`")
+				return fmt.Errorf("missing organization API token; create one in Organization Settings > API Tokens and pass it with --token or DEPOT_TOKEN")
 			}
 
 			request := connect.NewRequest(&corev1.GetProjectRequest{ProjectId: resolvedProjectID})
@@ -62,7 +62,7 @@ configured in depot.json in the current directory.`,
 	}
 
 	cmd.Flags().StringVarP(&projectID, "project-id", "p", "", "Depot project ID")
-	cmd.Flags().StringVar(&token, "token", "", "Depot API token")
+	cmd.Flags().StringVar(&token, "token", "", "Depot organization API token (or DEPOT_TOKEN)")
 	cmd.Flags().StringVarP(&output, "output", "o", "", "Output format (json)")
 
 	return cmd

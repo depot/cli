@@ -58,6 +58,12 @@ func AnalyzeTriggers(triggers []string) []CompatibilityIssue {
 }
 
 func AnalyzeJobs(jobs []migrate.JobInfo) []CompatibilityIssue {
+	return analyzeJobs(jobs, runnerPolicy())
+}
+
+// analyzeJobs takes the runner policy so tests can pin label support instead of
+// depending on the backend's current decisions.
+func analyzeJobs(jobs []migrate.JobInfo, policy map[string]bool) []CompatibilityIssue {
 	issues := make([]CompatibilityIssue, 0)
 
 	containerRule := JobFeatureRules["container"]
@@ -65,6 +71,7 @@ func AnalyzeJobs(jobs []migrate.JobInfo) []CompatibilityIssue {
 	matrixSelfHostedRule := JobFeatureRules["strategy.matrix + self-hosted"]
 	reusableRule := JobFeatureRules["uses"]
 	runsOnRule := JobFeatureRules["runs-on (custom labels)"]
+	unavailableRunsOnRule := JobFeatureRules["runs-on (unavailable labels)"]
 
 	for _, job := range jobs {
 		jobLabel := job.Name
@@ -99,7 +106,9 @@ func AnalyzeJobs(jobs []migrate.JobInfo) []CompatibilityIssue {
 			})
 		}
 
-		if job.HasMatrix && hasSelfHostedRunsOn(job.RunsOn) {
+		runsOn := jobRunsOnLabels(job)
+
+		if job.HasMatrix && hasSelfHostedRunsOn(runsOn) {
 			issues = append(issues, CompatibilityIssue{
 				Feature:    "strategy.matrix + self-hosted",
 				Level:      matrixSelfHostedRule.Supported,
@@ -108,12 +117,23 @@ func AnalyzeJobs(jobs []migrate.JobInfo) []CompatibilityIssue {
 			})
 		}
 
-		if hasCustomRunsOn(job.RunsOn) {
+		if hasCustomRunsOn(runsOn, policy) {
 			issues = append(issues, CompatibilityIssue{
 				Feature:    "runs-on (custom labels)",
 				Level:      runsOnRule.Supported,
 				Message:    fmt.Sprintf("Job %q uses runs-on %q: %s", jobLabel, job.RunsOn, runsOnRule.Note),
 				Suggestion: runsOnRule.Suggestion,
+			})
+		}
+		for _, label := range runsOn {
+			if migrate.ClassifyLabel(label) != migrate.LabelUnavailableGitHub {
+				continue
+			}
+			issues = append(issues, CompatibilityIssue{
+				Feature:    "runs-on (unavailable labels)",
+				Level:      unavailableRunsOnRule.Supported,
+				Message:    fmt.Sprintf("Job %q uses runs-on %q: %s", jobLabel, label, unavailableRunsOnRule.Note),
+				Suggestion: unavailableRunsOnRule.Suggestion,
 			})
 		}
 	}
@@ -179,48 +199,88 @@ func isLocalReusableWorkflow(uses string) bool {
 	return strings.HasPrefix(strings.TrimSpace(uses), "./")
 }
 
-func hasCustomRunsOn(runsOn string) bool {
-	labels := parseRunsOnLabels(runsOn)
-	for _, label := range labels {
-		if label == "ubuntu-latest" || label == "depot_ubuntu_latest" {
-			continue
-		}
-		if strings.HasPrefix(label, "depot_") {
-			continue
-		}
-		if strings.Contains(label, "${{") {
-			continue
-		}
-		return true
+// jobRunsOnLabels reads a JobInfo without RunsOnLabels as one scalar runs-on.
+func jobRunsOnLabels(job migrate.JobInfo) []string {
+	if job.RunsOnLabels != nil {
+		return job.RunsOnLabels
 	}
-
-	return false
+	return []string{job.RunsOn}
 }
 
-func hasSelfHostedRunsOn(runsOn string) bool {
-	labels := parseRunsOnLabels(runsOn)
+// hasCustomRunsOn reports whether Depot CI may not run a job on the runner its
+// runs-on labels request, after migration rewrites standard GitHub labels.
+//
+// It mirrors the backend's label selection: each element that starts with
+// depot- (case-sensitive) selects its first comma-separated part as the
+// primary runner when that part is a known label. Remaining parts and unknown
+// depot- elements are secondary labels; the backend ignores them, so they only
+// matter when no element selects a runner. An element whose first part
+// contains an expression selects its runner at run time, so a job using one is
+// never reported for lacking a runner.
+func hasCustomRunsOn(labels []string, policy map[string]bool) bool {
+	// primaries records, per selected runner, whether an element carrying
+	// secondary labels already selected it.
+	primaries := make(map[string]bool)
+	hasSecondary, hasExpression := false, false
 	for _, label := range labels {
-		if label == "self-hosted" {
+		if strings.TrimSpace(label) == "" {
+			continue
+		}
+
+		// a literal comma before an expression fixes the primary runner and
+		// guarantees secondaries, regardless of what the suffix expands to.
+		if head, _, _ := strings.Cut(label, ","); strings.Contains(head, "${{") {
+			hasExpression = true
+			continue
+		}
+
+		// MapLabel leaves expression-containing elements untouched, so a
+		// standard GitHub primary with a dynamic secondary stays unmapped.
+		switch migrate.ClassifyLabel(label) {
+		case migrate.LabelUnavailableGitHub:
+			continue
+		case migrate.LabelNonstandard:
+			return true
+		case migrate.LabelStandardGitHub:
+			label, _, _ = migrate.MapLabel(label)
+		}
+
+		// ClassifyLabel ignores case and surrounding whitespace, but the backend
+		// does not: "DEPOT-UBUNTU-24.04-32" silently runs on depot-ubuntu-latest.
+		if !strings.HasPrefix(label, "depot-") {
 			return true
 		}
+
+		parts := strings.Split(label, ",")
+		primary := strings.TrimSpace(parts[0])
+		supported, known := policy[primary]
+		if !known {
+			hasSecondary = true
+			continue
+		}
+		if !supported {
+			return true
+		}
+		// The backend rejects a runner selected twice with secondary labels. Like
+		// the backend, a trailing comma counts as having secondaries.
+		qualified := len(parts) > 1
+		if qualified && primaries[primary] {
+			return true
+		}
+		primaries[primary] = primaries[primary] || qualified
 	}
-	return false
+
+	// The backend rejects jobs that select more than one distinct runner, or none.
+	return len(primaries) > 1 || (len(primaries) == 0 && hasSecondary && !hasExpression)
 }
 
-func parseRunsOnLabels(runsOn string) []string {
-	trimmed := strings.TrimSpace(runsOn)
-	if trimmed == "" {
-		return nil
-	}
-
-	parts := strings.Split(trimmed, ",")
-	labels := make([]string, 0, len(parts))
-	for _, part := range parts {
-		label := strings.ToLower(strings.TrimSpace(part))
-		if label != "" {
-			labels = append(labels, label)
+func hasSelfHostedRunsOn(labels []string) bool {
+	for _, label := range labels {
+		for _, part := range strings.Split(label, ",") {
+			if strings.ToLower(strings.TrimSpace(part)) == "self-hosted" {
+				return true
+			}
 		}
 	}
-
-	return labels
+	return false
 }

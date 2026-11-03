@@ -6,9 +6,9 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/containerd/containerd/reference"
-	"github.com/containerd/containerd/remotes/docker"
-	"github.com/containerd/containerd/remotes/docker/auth"
+	"github.com/containerd/containerd/v2/core/remotes/docker"
+	"github.com/containerd/containerd/v2/core/remotes/docker/auth"
+	"github.com/containerd/containerd/v2/pkg/reference"
 	depotapi "github.com/depot/cli/pkg/api"
 	"github.com/depot/cli/pkg/registry"
 	"github.com/docker/cli/cli/command"

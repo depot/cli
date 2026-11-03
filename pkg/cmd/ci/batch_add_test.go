@@ -211,8 +211,8 @@ func assertSecretVariantRequests(t *testing.T, requests []*civ3beta2.SetSecretVa
 		t.Fatalf("secret variant requests = %d, want %d", len(requests), len(names))
 	}
 	for i, request := range requests {
-		if request.GetSecretName() != names[i] || request.GetVariantName() != "default" {
-			t.Fatalf("secret request %d = (%q, %q), want (%q, default)", i, request.GetSecretName(), request.GetVariantName(), names[i])
+		if request.GetSecretName() != names[i] || request.GetVariantName() != "" {
+			t.Fatalf("secret request %d = (%q, %q), want (%q, \"\")", i, request.GetSecretName(), request.GetVariantName(), names[i])
 		}
 		assertRepoAttribute(t, request.GetAttributes())
 	}
@@ -224,8 +224,8 @@ func assertVariableVariantRequests(t *testing.T, requests []*civ3beta2.SetVariab
 		t.Fatalf("variable variant requests = %d, want %d", len(requests), len(names))
 	}
 	for i, request := range requests {
-		if request.GetVariableName() != names[i] || request.GetVariantName() != "default" {
-			t.Fatalf("variable request %d = (%q, %q), want (%q, default)", i, request.GetVariableName(), request.GetVariantName(), names[i])
+		if request.GetVariableName() != names[i] || request.GetVariantName() != "" {
+			t.Fatalf("variable request %d = (%q, %q), want (%q, \"\")", i, request.GetVariableName(), request.GetVariantName(), names[i])
 		}
 		assertRepoAttribute(t, request.GetAttributes())
 	}

@@ -78,8 +78,9 @@ func NewCmdSecretsSet() *cobra.Command {
 		Long: `Create or update a CI secret variant.
 
 Variants let one secret name have different values for matching repositories,
-environments, branches, or workflows. When variant is omitted, the variant is
-named "default".`,
+environments, branches, or workflows. When variant is omitted, the server picks
+it: the variant scoped to exactly these match flags, or a new one named after the
+repository (owner-repo), or "default" when no match flags are given.`,
 		Example: `  # Set the default variant
   depot ci secrets set MY_API_KEY
 
@@ -581,14 +582,9 @@ with an optional variant and match flags to resolve one variant.`,
 				if len(args) == 2 {
 					variant = args[1]
 				}
-				group, err := api.CIGetSecretVariantGroup(ctx, tokenVal, orgID, secretName)
+				matches, err := findSecretVariants(ctx, tokenVal, orgID, secretName, variant, repo, environment, branch, workflow)
 				if err != nil {
 					return fmt.Errorf("failed to get secret: %w", err)
-				}
-
-				matches, err := resolveSecretVariant(group, variant, repo, environment, branch, workflow)
-				if err != nil {
-					return err
 				}
 				if len(matches) == 0 {
 					return fmt.Errorf("no matching variant found for secret '%s'", secretName)
@@ -710,29 +706,31 @@ attributes. Passing a secret name lists one grouped secret.`,
 				}
 			}
 
+			filter := api.CIListSecretVariantsOptions{
+				Repo: repo, Environment: environment, Branch: branch, Workflow: workflow, AsContext: true,
+			}
 			var result api.CIListSecretVariantsResult
 			if len(args) == 1 {
-				secret, err := api.CIGetSecretVariantGroup(ctx, tokenVal, orgID, args[0])
+				secret, found, err := api.CIFindSecretVariantGroup(ctx, tokenVal, orgID, args[0], filter)
+				if err == nil && !found {
+					// No variant applies; show the secret without variants, or fail if it does not exist.
+					secret, err = api.CIGetSecretVariantGroup(ctx, tokenVal, orgID, args[0])
+					secret.Variants, secret.VariantCount = nil, 0
+				}
 				if err != nil {
 					return fmt.Errorf("failed to get secret: %w", err)
 				}
-				result.Secrets = []api.CISecretGroup{filterSecretVariantsForList(secret, repo, environment, branch, workflow)}
+				result.Secrets = []api.CISecretGroup{secret}
 			} else {
 				var err error
-				result, err = api.CIListSecretVariants(ctx, tokenVal, orgID, api.CIListSecretVariantsOptions{
-					Repo:        nil,
-					Environment: nil,
-					Branch:      nil,
-					Workflow:    nil,
-				})
+				result, err = api.CIListSecretVariants(ctx, tokenVal, orgID, filter)
 				if err != nil {
 					return fmt.Errorf("failed to list secrets: %w", err)
 				}
 				filtered := result.Secrets[:0]
-				for i := range result.Secrets {
-					result.Secrets[i] = filterSecretVariantsForList(result.Secrets[i], repo, environment, branch, workflow)
-					if len(result.Secrets[i].Variants) > 0 {
-						filtered = append(filtered, result.Secrets[i])
+				for _, secret := range result.Secrets {
+					if len(secret.Variants) > 0 {
+						filtered = append(filtered, secret)
 					}
 				}
 				result.Secrets = filtered
@@ -867,14 +865,9 @@ explicit and cannot be combined with selector flags or --variant.`,
 					continue
 				}
 
-				group, err := api.CIGetSecretVariantGroup(ctx, tokenVal, orgID, secretName)
+				matches, err := findSecretVariants(ctx, tokenVal, orgID, secretName, variant, repo, environment, branch, workflow)
 				if err != nil {
 					return fmt.Errorf("failed to get secret '%s': %w", secretName, err)
-				}
-
-				matches, err := resolveSecretVariant(group, variant, repo, environment, branch, workflow)
-				if err != nil {
-					return err
 				}
 				if len(matches) == 0 {
 					return fmt.Errorf("no matching variant found for secret '%s'", secretName)

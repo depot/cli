@@ -14,12 +14,13 @@ import (
 const bytesPerGigabyte int64 = 1024 * 1024 * 1024
 
 type projectOutput struct {
-	ProjectID      string              `json:"project_id"`
-	OrganizationID string              `json:"organization_id"`
-	Name           string              `json:"name"`
-	RegionID       string              `json:"region_id"`
-	CreatedAt      string              `json:"created_at,omitempty"`
-	CachePolicy    *corev1.CachePolicy `json:"cache_policy,omitempty"`
+	ProjectID           string              `json:"project_id"`
+	OrganizationID      string              `json:"organization_id"`
+	Name                string              `json:"name"`
+	RegionID            string              `json:"region_id"`
+	CreatedAt           string              `json:"created_at,omitempty"`
+	CachePolicy         *corev1.CachePolicy `json:"cache_policy,omitempty"`
+	MaxConcurrentBuilds *int32              `json:"max_concurrent_builds"`
 }
 
 func newProjectOutput(project *corev1.Project) (*projectOutput, error) {
@@ -33,12 +34,13 @@ func newProjectOutput(project *corev1.Project) (*projectOutput, error) {
 	}
 
 	return &projectOutput{
-		ProjectID:      project.GetProjectId(),
-		OrganizationID: project.GetOrganizationId(),
-		Name:           project.GetName(),
-		RegionID:       project.GetRegionId(),
-		CreatedAt:      createdAt,
-		CachePolicy:    project.GetCachePolicy(),
+		ProjectID:           project.GetProjectId(),
+		OrganizationID:      project.GetOrganizationId(),
+		Name:                project.GetName(),
+		RegionID:            project.GetRegionId(),
+		CreatedAt:           createdAt,
+		CachePolicy:         project.GetCachePolicy(),
+		MaxConcurrentBuilds: project.MaxConcurrentBuilds,
 	}, nil
 }
 
@@ -63,6 +65,11 @@ func writeProjectOutput(w io.Writer, project *corev1.Project, output string) err
 	if view.CachePolicy != nil {
 		fmt.Fprintf(table, "Cache storage:\t%s\n", formatCacheStorage(view.CachePolicy.GetKeepBytes()))
 		fmt.Fprintf(table, "Cache retention:\t%s\n", formatCacheRetention(view.CachePolicy.GetKeepDays()))
+	}
+	if view.MaxConcurrentBuilds == nil {
+		fmt.Fprintln(table, "Builds per instance:\tDisabled")
+	} else {
+		fmt.Fprintf(table, "Builds per instance:\t%d\n", *view.MaxConcurrentBuilds)
 	}
 	return table.Flush()
 }

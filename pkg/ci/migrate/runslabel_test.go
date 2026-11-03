@@ -16,7 +16,8 @@ func TestClassifyLabel(t *testing.T) {
 		{"ubuntu-latest", LabelStandardGitHub},
 		{"ubuntu-24.04", LabelStandardGitHub},
 		{"ubuntu-22.04", LabelStandardGitHub},
-		{"ubuntu-20.04", LabelStandardGitHub},
+		{"ubuntu-20.04", LabelUnavailableGitHub},
+		{" Ubuntu-20.04 ", LabelUnavailableGitHub},
 		{"Ubuntu-Latest", LabelStandardGitHub},
 
 		// Expression
@@ -56,7 +57,9 @@ func TestMapLabel(t *testing.T) {
 		{"ubuntu-latest", "depot-ubuntu-latest", true, true},
 		{"ubuntu-22.04", "depot-ubuntu-22.04", true, true},
 		{"ubuntu-24.04", "depot-ubuntu-24.04", true, true},
-		{"ubuntu-20.04", "depot-ubuntu-20.04", true, true},
+
+		// Standard GitHub without a Depot runner — kept, with a review note
+		{"ubuntu-20.04", "ubuntu-20.04", false, true},
 
 		// Expression — no change
 		{"${{ matrix.os }}", "${{ matrix.os }}", false, false},

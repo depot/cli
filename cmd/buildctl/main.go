@@ -5,7 +5,6 @@ import (
 	"os"
 
 	"github.com/depot/cli/internal/build"
-	"github.com/depot/cli/pkg/cleanup"
 	"github.com/depot/cli/pkg/cmd/buildctl"
 	"github.com/getsentry/sentry-go"
 )
@@ -26,8 +25,6 @@ func runMain() int {
 			log.Fatalf("sentry.Init: %s", err)
 		}
 	}
-
-	defer cleanup.CleanupTmpfiles()
 
 	err := buildctl.NewBuildctl().Execute()
 	if err != nil {

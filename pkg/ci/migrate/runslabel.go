@@ -6,10 +6,11 @@ import "strings"
 type LabelClass int
 
 const (
-	LabelDepotNative    LabelClass = iota // depot-* prefixed labels
-	LabelStandardGitHub                   // Standard GitHub-hosted runner labels
-	LabelExpression                       // Dynamic expression labels containing ${{
-	LabelNonstandard                      // Unknown/third-party labels
+	LabelDepotNative       LabelClass = iota // depot-* prefixed labels
+	LabelStandardGitHub                      // Standard GitHub-hosted runner labels
+	LabelExpression                          // Dynamic expression labels containing ${{
+	LabelNonstandard                         // Unknown/third-party labels
+	LabelUnavailableGitHub                   // Standard GitHub-hosted labels with no Depot equivalent
 )
 
 // GitHubToDepotRunner maps standard GitHub runner labels to their Depot equivalents.
@@ -17,7 +18,6 @@ var GitHubToDepotRunner = map[string]string{
 	"ubuntu-latest": "depot-ubuntu-latest",
 	"ubuntu-24.04":  "depot-ubuntu-24.04",
 	"ubuntu-22.04":  "depot-ubuntu-22.04",
-	"ubuntu-20.04":  "depot-ubuntu-20.04",
 }
 
 // ClassifyLabel determines the category of a runs-on label.
@@ -39,11 +39,17 @@ func ClassifyLabel(label string) LabelClass {
 		return LabelStandardGitHub
 	}
 
+	// Depot CI has no 20.04 runner; keep the label so the user picks one instead of silently upgrading the OS.
+	if lower == "ubuntu-20.04" {
+		return LabelUnavailableGitHub
+	}
+
 	return LabelNonstandard
 }
 
 // MapLabel maps a runs-on label to its Depot equivalent.
 // Returns the new label, whether it changed, and a reason string for the comment.
+// A non-empty reason with changed == false means the label was kept but needs review.
 func MapLabel(label string) (newLabel string, changed bool, reason string) {
 	cls := ClassifyLabel(label)
 	switch cls {
@@ -53,6 +59,8 @@ func MapLabel(label string) (newLabel string, changed bool, reason string) {
 		lower := strings.ToLower(strings.TrimSpace(label))
 		mapped := GitHubToDepotRunner[lower]
 		return mapped, true, "Mapped standard GitHub runner to Depot equivalent."
+	case LabelUnavailableGitHub:
+		return label, false, "Depot CI has no equivalent runner; choose a supported Depot runner label."
 	case LabelNonstandard:
 		return "depot-ubuntu-latest", true, "Nonstandard GitHub runner label detected, changed to default Depot runner."
 	default:

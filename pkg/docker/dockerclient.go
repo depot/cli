@@ -7,8 +7,8 @@ import (
 	"github.com/docker/cli/cli/command"
 	"github.com/docker/cli/cli/config"
 	cliflags "github.com/docker/cli/cli/flags"
-	"github.com/docker/docker/client"
 	"github.com/docker/go-connections/tlsconfig"
+	"github.com/moby/moby/client"
 )
 
 // Copied from github.com/docker/cli/cli/flags/common.go

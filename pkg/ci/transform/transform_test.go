@@ -43,12 +43,45 @@ jobs:
 	}
 
 	content := string(result.Content)
-	if !strings.Contains(content, "No changes were necessary") {
-		t.Errorf("expected 'No changes were necessary' in header, got:\n%s", content)
+	if !strings.Contains(content, "No automatic rewrites were applied; review any notes below") {
+		t.Errorf("expected 'No automatic rewrites were applied; review any notes below' in header, got:\n%s", content)
 	}
 
 	if !strings.Contains(content, "runs-on: depot-ubuntu-latest") {
 		t.Errorf("expected depot-ubuntu-latest preserved, got:\n%s", content)
+	}
+}
+
+func TestTransformWorkflow_PreservesIssueComment(t *testing.T) {
+	raw := []byte(`name: Comment
+on:
+  issue_comment:
+    types: [created, edited, deleted]
+jobs:
+  smoke:
+    runs-on: depot-ubuntu-latest
+    steps:
+      - run: echo comment
+`)
+	wf := &migrate.WorkflowFile{
+		Path:     ".github/workflows/comment.yml",
+		Name:     "Comment",
+		Triggers: []string{"issue_comment"},
+		Jobs:     []migrate.JobInfo{{Name: "smoke", RunsOn: "depot-ubuntu-latest"}},
+	}
+	report := compat.AnalyzeWorkflow(wf)
+
+	result, err := TransformWorkflow(raw, wf, report, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	for _, change := range result.Changes {
+		if change.Type == ChangeTriggerRemoved {
+			t.Fatalf("issue_comment was removed: %v", result.Changes)
+		}
+	}
+	if !strings.Contains(string(result.Content), "issue_comment:\n    types: [created, edited, deleted]") {
+		t.Fatalf("issue_comment activity types were not preserved:\n%s", result.Content)
 	}
 }
 
@@ -1311,7 +1344,7 @@ runs:
 func TestBuildHeaderComment_NoChanges(t *testing.T) {
 	wf := &migrate.WorkflowFile{Path: ".github/workflows/ci.yml"}
 	header := buildHeaderComment(wf, nil)
-	if !strings.Contains(header, "No changes were necessary") {
+	if !strings.Contains(header, "No automatic rewrites were applied; review any notes below") {
 		t.Errorf("expected no-changes header, got: %s", header)
 	}
 }

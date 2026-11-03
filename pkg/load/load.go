@@ -10,14 +10,14 @@ import (
 	"strings"
 	"time"
 
-	depotbuild "github.com/depot/cli/pkg/buildx/build"
+	"github.com/depot/cli/pkg/buildxdriver"
 	"github.com/docker/buildx/util/progress"
-	docker "github.com/docker/docker/client"
 	"github.com/moby/buildkit/exporter/containerimage/exptypes"
+	docker "github.com/moby/moby/client"
 	ocispecs "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
-func DepotFastLoad(ctx context.Context, dockerapi docker.APIClient, resp []depotbuild.DepotBuildResponse, pullOpts map[string]PullOptions, printer progress.Writer) error {
+func DepotFastLoad(ctx context.Context, dockerapi docker.APIClient, resp []buildxdriver.TargetResponse, pullOpts map[string]PullOptions, printer progress.Writer) error {
 	if len(resp) == 0 {
 		return nil
 	}
@@ -32,19 +32,23 @@ func DepotFastLoad(ctx context.Context, dockerapi docker.APIClient, resp []depot
 		nodeRes := chooseNodeResponse(buildRes.NodeResponses)
 		pullOpt := pullOpts[buildRes.Name]
 
-		architecture := nodeRes.Node.DriverOpts["platform"]
+		architecture := nodeRes.Driver.Platform()
 		manifest, config, err := decodeNodeResponse(architecture, nodeRes)
 		if err != nil {
 			return err
 		}
+		machine := nodeRes.Driver.Machine()
+		if machine == nil {
+			return errors.New("the builder machine is not connected")
+		}
 		proxyOpts := &ProxyConfig{
 			RawManifest: manifest,
 			RawConfig:   config,
-			Addr:        nodeRes.Node.DriverOpts["addr"],
-			ServerName:  nodeRes.Node.DriverOpts["serverName"],
-			CACert:      []byte(nodeRes.Node.DriverOpts["caCert"]),
-			Key:         []byte(nodeRes.Node.DriverOpts["key"]),
-			Cert:        []byte(nodeRes.Node.DriverOpts["cert"]),
+			Addr:        machine.Addr,
+			ServerName:  machine.ServerName,
+			CACert:      []byte(machine.CACert),
+			Key:         []byte(machine.Key),
+			Cert:        []byte(machine.Cert),
 		}
 
 		// Start the depot registry proxy.
@@ -78,11 +82,10 @@ func DepotFastLoad(ctx context.Context, dockerapi docker.APIClient, resp []depot
 // For now if there is a multi-platform build we try to only download the
 // architecture of the depot CLI host.  If there is not a node with the same
 // architecture as the  depot CLI host, we take the first node in the list.
-func chooseNodeResponse(nodeResponses []depotbuild.DepotNodeResponse) depotbuild.DepotNodeResponse {
+func chooseNodeResponse(nodeResponses []buildxdriver.NodeResponse) buildxdriver.NodeResponse {
 	var nodeIdx int
 	for i, nodeResponse := range nodeResponses {
-		platform, ok := nodeResponse.Node.DriverOpts["platform"]
-		if ok && strings.Contains(platform, runtime.GOARCH) {
+		if nodeResponse.Driver != nil && strings.Contains(nodeResponse.Driver.Platform(), runtime.GOARCH) {
 			nodeIdx = i
 			break
 		}
@@ -94,7 +97,7 @@ func chooseNodeResponse(nodeResponses []depotbuild.DepotNodeResponse) depotbuild
 // ImageExported is the solve response key added for `depot.export.image.version=2`.
 const ImagesExported = "depot/images.exported"
 
-func decodeNodeResponse(architecture string, nodeRes depotbuild.DepotNodeResponse) (rawManifest, rawConfig []byte, err error) {
+func decodeNodeResponse(architecture string, nodeRes buildxdriver.NodeResponse) (rawManifest, rawConfig []byte, err error) {
 	if _, err := EncodedExportedImages(nodeRes.SolveResponse.ExporterResponse); err == nil {
 		return decodeNodeResponseV2(architecture, nodeRes)
 	}
@@ -103,7 +106,7 @@ func decodeNodeResponse(architecture string, nodeRes depotbuild.DepotNodeRespons
 	return decodeNodeResponseV1(architecture, nodeRes)
 }
 
-func decodeNodeResponseV2(architecture string, nodeRes depotbuild.DepotNodeResponse) (rawManifest, rawConfig []byte, err error) {
+func decodeNodeResponseV2(architecture string, nodeRes buildxdriver.NodeResponse) (rawManifest, rawConfig []byte, err error) {
 	encodedExportedImages, err := EncodedExportedImages(nodeRes.SolveResponse.ExporterResponse)
 	if err != nil {
 		return nil, nil, err
@@ -180,7 +183,7 @@ func DecodeExportImages(encodedExportedImages string) ([]RawExportedImage, []oci
 
 // We encode the image manifest and image config within the buildkitd Solve response
 // because the content may be GCed by the time this load occurs.
-func decodeNodeResponseV1(architecture string, nodeRes depotbuild.DepotNodeResponse) (rawManifest, rawConfig []byte, err error) {
+func decodeNodeResponseV1(architecture string, nodeRes buildxdriver.NodeResponse) (rawManifest, rawConfig []byte, err error) {
 	encodedDesc, ok := nodeRes.SolveResponse.ExporterResponse[exptypes.ExporterImageDescriptorKey]
 	if !ok {
 		return nil, nil, errors.New("missing image descriptor")

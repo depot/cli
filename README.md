@@ -18,14 +18,20 @@ Official CLI for [Depot](https://depot.dev) - you can use the CLI to build Docke
       - [Flags for `bake`](#flags-for-bake)
     - [`depot build`](#depot-build)
       - [Flags for `build`](#flags-for-build)
+      - [`depot build cancel`](#depot-build-cancel)
     - [`depot cache`](#depot-cache)
       - [`depot cache reset`](#depot-cache-reset)
+    - [`depot checks`](#depot-checks)
     - [`depot exec`](#depot-exec)
     - [`depot gocache`](#depot-gocache)
     - [`depot configure-docker`](#depot-configure-docker)
+    - [`depot jobs`](#depot-jobs)
+      - [`depot jobs metrics`](#depot-jobs-metrics)
+      - [`depot jobs analytics`](#depot-jobs-analytics)
     - [`depot list`](#depot-list)
       - [`depot list projects`](#depot-list-projects)
       - [`depot list builds`](#depot-list-builds)
+      - [`depot list jobs`](#depot-list-jobs)
     - [`depot projects`](#depot-projects)
       - [`depot projects create`](#depot-projects-create)
       - [`depot projects delete`](#depot-projects-delete)
@@ -34,6 +40,7 @@ Official CLI for [Depot](https://depot.dev) - you can use the CLI to build Docke
     - [`depot login`](#depot-login)
     - [`depot logout`](#depot-logout)
     - [`depot org`](#depot-org)
+      - [`depot org credits`](#depot-org-credits)
       - [`depot org list`](#depot-org-list)
       - [`depot org show`](#depot-org-show)
       - [`depot org switch`](#depot-org-switch)
@@ -79,6 +86,8 @@ For all other platforms, you can download the binary directly from [the latest r
 4. Run `depot build -t repo/image:tag .`
 
 ## Usage
+
+Set `DEPOT_IN_AUTOMATION=1` to suppress build summary URLs, saved-image pull/push hints, and new-version notifications in scripts and CI. Any non-empty value enables this behavior; build progress and errors are still printed.
 
 ### `depot bake`
 
@@ -264,6 +273,24 @@ depot build -t repo/image:tag . --push
 | `token`           | Depot API token                                                                                           |
 | `ulimit`          | Ulimit options (default [])                                                                               |
 
+#### `depot build cancel`
+
+Request cancellation of container builds using an organization API token supplied
+through `DEPOT_TOKEN` or `--token`.
+
+```shell
+depot build cancel <build-id> [<build-id>...]
+depot build cancel --project <project-id> --all-running --dry-run
+depot build cancel --project <project-id> --all-running --yes --output json
+```
+
+Cancellation is asynchronous. Finished builds are successful no-ops; failures are
+reported per build and cause a nonzero exit status. Bulk cancellation selects all
+running builds before requesting confirmation; use `--yes` for scripts.
+
+See [build cancellation](docs/build-cancellation.md) for authentication, selection,
+and output details. To build a directory named `cancel`, use `depot build ./cancel`.
+
 ### `depot cache`
 
 Interact with the cache associated with a Depot project. The `cache` command consists of subcommands for each operation.
@@ -285,6 +312,71 @@ Reset the cache of a specific project ID
 ```shell
 depot cache reset --project 12345678910
 ```
+
+### `depot checks`
+
+Manage Agent Checks and saved review agents. Requires Agent Checks access in the selected organization.
+
+```sh
+depot checks list --repo github:depot/api --outcome rejected
+depot checks get <check-id-or-attempt-id>
+depot checks attempts <check-id-or-attempt-id> -n 100 --output json
+depot checks run <agent-id> --repo github:depot/api --ref feature
+depot checks retry <check-id-or-attempt-id>
+depot checks transcript <check-id-or-attempt-id> --output json --output-file transcript.jsonl
+depot checks resolve <check-id-or-attempt-id> --finding 0
+depot checks unresolve <check-id-or-attempt-id> --all
+
+depot checks agents list
+depot checks agents get <agent-id>
+depot checks agents create --name Security --instructions-file review.md --repo github:depot/api
+depot checks agents update <agent-id> --model default
+depot checks agents models
+```
+
+A check ID selects its latest attempt; an attempt ID selects that execution. Results include both IDs, revision, state,
+outcome, summary, findings with original zero-based indexes, resolutions, and available execution details. JSON follows
+CI's snake_case convention: `run`/`retry` return `check_id` and `attempt_id`; `get` returns the selected attempt directly.
+Check lists return arrays of `{check_id, created_at, current_attempt}`; history returns an array of attempts.
+Resolve/unresolve return `{check_id, created_at, current_attempt}`. Each attempt includes structured `result` when its
+stored JSON is valid, plus the original `result_json` string when present. Agent reads/saves return the configuration
+directly (`agent_id`, `name`, `instructions`, `model_id`, `repos`, `events`); agent lists return an array of configurations.
+Models output includes `default_model_id` and `models`. Transcript `--output json` emits the exact JSONL archive;
+`--output jsonl` is an equivalent alias.
+
+List tables shorten long display names, repositories and branches, and show 12-character head SHAs. IDs remain complete;
+`get` and JSON retain full values. Transcript file exports confirm the destination and saved byte count on stderr after
+the file is saved successfully. API errors include the failed operation while preserving the underlying error status.
+
+`list` supports `--agent`, `--repo`, `--forge`, `--branch` (requires `--repo`), `--sha` (head or base prefix), `--outcome`, and
+`--query` (agent name, repository, branch, or SHA prefix). Outcomes are `running` (including queued), `done`, `passed`,
+`findings` (a passing review with advice), `rejected`, `resolved`, and `failed` (execution failure).
+`checks list`, `checks agents list`, and `checks attempts` use `-n` as a positive total result limit (default 50), matching CI run listing.
+The CLI follows API pages internally until that limit is reached or there are no more matches; no `--all` or `--page-token` is exposed.
+
+`checks list --repo owner/repo` matches that full name across forges. Add `--forge github`, `--forge origin`, or
+`--forge depot` to narrow the results, or use `--forge` alone to list checks from that forge.
+`cursor-origin` and `code` remain accepted aliases for `origin` and `depot`.
+Qualified repository selectors also work: `github:owner/repo`, `origin:owner/repo`, or `depot:name`
+(including the legacy `cursor-origin:owner/repo` and `code:name`). If `--forge` is also supplied, the forges must agree.
+`run` and agent create/update still require a qualified repository selector.
+`run` accepts `--ref` with an optional full `--commit-sha`, or `--head`, plus an optional `--base` for either mode.
+By default it reviews the default branch's HEAD against its first parent (or the empty tree for an initial commit).
+One-off runs do not change the agent's watched repositories. `retry` reuses the captured configuration and revisions,
+creates a new attempt under the same check, and only accepts checks whose current execution failed. An explicitly
+selected historical attempt cannot be retried or have its findings changed.
+
+Agent create/update supports `--name`, `--instructions` or `--instructions-file` (`-` reads stdin), `--model`, repeatable
+`--repo`, and repeatable `--event` (for example `github:opened`, `github:synchronize`, or `code:push`). Omitted update
+fields are preserved; supplied repositories/events replace that selection. Use `--clear-repos` to remove all watches,
+`--clear-events` to disable automatic checks, and `--model default` to follow the current default model. Creation defaults
+to no watched repositories and the supported events except `github:push`.
+
+Commands support `--org`, `--token` (or `DEPOT_TOKEN`), and `--output json`. Transcript output is readable text by default;
+`--output jsonl` preserves the original archived bytes. Archives are verified against their size and SHA-256 before
+output and are subject to availability and retention. There is no live transcript following or waiting option.
+Run/retry return both IDs immediately. Exit 0 means the operation succeeded, including inspecting failed/rejected checks;
+exit 1 means input, authentication/API, download, or output failure. Review outcomes are reported in the output.
 
 ### `depot exec`
 
@@ -360,9 +452,88 @@ If you want to uninstall the plugin, you can specify the `--uninstall` flag.
 depot configure-docker --uninstall
 ```
 
+### `depot jobs`
+
+List GitHub Actions jobs run on Depot, newest first, or inspect one job by its GitHub job ID.
+This command is for Depot GitHub Actions runners; use `depot ci` for Depot CI executions.
+
+```shell
+depot jobs --repo acme/api --status finished --conclusion failure
+depot jobs 123456789 --repo acme/api --output json
+```
+
+Listings include job and workflow names, status, conclusion, runner label, execution duration,
+and queue time. Individual job details also include lifecycle timestamps, billable time,
+requested CPU and memory, and the GitHub URL. Requested resources describe runner capacity,
+not measured utilization. The API does not currently expose step timing breakdowns.
+
+Use `--org` to select an organization (otherwise the current organization is used).
+Authentication uses `--token`, `DEPOT_TOKEN`, or saved Depot credentials. Output defaults to a
+readable table in a terminal and JSON when piped. Explicit `--output json` never prompts for
+login. JSON follows the API's protobuf JSON format: field names use camelCase, enums use
+symbolic names, and 64-bit integers are strings to preserve precision.
+
+Filter listings with repeatable `--repo`, `--status`, `--conclusion`, and `--runner-label` flags.
+Use `--query` to search job/workflow names or exact numeric job/run IDs.
+A single-job lookup requires exactly one `--repo`; listing filters do not apply to it.
+
+#### `depot jobs metrics`
+
+Fetch CPU and memory utilization for one GitHub Actions job execution using its GitHub
+job ID and exactly one `--repo owner/name`. Use `depot jobs --repo owner/name` to find job IDs.
+Completed jobs return their execution metrics; running jobs return a snapshot that can grow
+on subsequent requests.
+
+```shell
+depot jobs metrics 123456789 --repo acme/api
+depot jobs metrics 123456789 --repo acme/api --org org_123 --output json
+```
+
+Uses the same authentication, organization selection, and `--output auto|table|json` behavior
+as `depot jobs`. Tables show job/runner context, snapshot time, availability and reason,
+observed timestamps, average/peak CPU and memory utilization, sample counts, and downsampling
+details. JSON includes the full API response with `job`, `availability`, `stats`, `cap`,
+`samples`, and `snapshotAt`. Samples are ordered by timestamp. CPU measures user-mode
+utilization averaged across cores; memory measures used memory as a fraction of total memory.
+Utilization is a fraction from 0 to 1 in JSON and a percentage in tables.
+
+Unavailable measurements are omitted from JSON's optional utilization fields and displayed
+as `n/a` in table summaries; measured zero remains zero. `availability` distinguishes available,
+partial, and unavailable telemetry and includes the API's reason. Availability describes the
+observed samples and does not guarantee coverage of the entire execution. Telemetry-store
+errors fail the command instead of returning an empty success response.
+
+The API limits execution windows to seven days and returns at most 5,000 samples. When samples
+are downsampled, `cap` reports the raw/returned counts, limit, and strategy. The `evenly_spaced`
+strategy retains the first and last samples but may omit intermediate peaks. Summary statistics
+are calculated by the API across all observed per-second samples before downsampling. This
+command has no time-range or pagination flags and does not expose per-step measurements.
+
+#### `depot jobs analytics`
+
+Show aggregate CPU and memory utilization (average and peak), average and p95 job duration,
+and failure rate by repository, workflow, and job. Groups are ordered by descending job count.
+These are metrics across job executions, not resource measurements for an individual job or step.
+Analytics may lag completed jobs by up to 15 minutes; `dataThrough` identifies data freshness.
+
+```shell
+depot jobs analytics --repo acme/api --job test --output json
+depot jobs analytics --start 2026-10-01T00:00:00Z --end 2026-10-08T00:00:00Z
+```
+
+Filter with repeatable `--repo`, `--workflow` (display name), `--workflow-path`, `--job`
+(workflow job key), and `--runner-label` flags. Table utilization and failure rates are
+percentages; JSON retains the API's fractions from 0 to 1. Durations are in seconds.
+
+Both listings and analytics default to the last 30 days. For an explicit time window, supply
+both `--start` (inclusive) and `--end` (exclusive) as RFC 3339 timestamps, at most 90 days apart.
+They return one page, with `--page-size` from 1 to 250 (default 50). To continue, pass the
+response's `nextPageToken` as `--page-token`, keeping all filters and the time range unchanged.
+Tables print the continuation token when another page is available.
+
 ### `depot list`
 
-Interact with Depot projects and builds.
+Interact with Depot projects, builds, and GitHub Actions jobs.
 
 #### `depot list projects`
 
@@ -409,6 +580,14 @@ Output builds in JSON for the project in the current directory.
 depot list builds --output json
 ```
 
+#### `depot list jobs`
+
+List GitHub Actions jobs using the same flags and output as `depot jobs` without a job ID.
+
+```shell
+depot list jobs --repo acme/api --output json
+```
+
 ### `depot projects`
 
 Create and manage Depot projects.
@@ -417,14 +596,19 @@ Create and manage Depot projects.
 
 Create a new Depot project. This command creates a new project in your Depot account with the specified configuration.
 
+Use `--max-concurrent-builds` to set the number of concurrent builds per builder instance before horizontal autoscaling adds another instance. Accepts integers from 1 to 2147483647; omitting it disables autoscaling for a new project. This is a per-instance threshold, not a project-wide build limit.
+
 **Example**
 
 ```shell
 # Create a project with default settings
-depot projects create
+depot projects create your-project-name
 
 # Create a project with custom settings
 depot projects create --organization your-org-id --region us-west-2 --cache-storage-policy 100 --cache-policy-keep-days 30 your-project-name
+
+# Allow up to three concurrent builds per builder instance
+depot projects create your-project-name --max-concurrent-builds 3
 ```
 
 #### Flags for `projects create`
@@ -435,11 +619,14 @@ depot projects create --organization your-org-id --region us-west-2 --cache-stor
 | `region`                 | Build data storage region (default: "us-east-1")         |
 | `cache-storage-policy`   | Build cache to keep per architecture in GB (default: 50) |
 | `cache-policy-keep-days` | Build cache retention in days (default: 14)              |
+| `max-concurrent-builds` | Concurrent builds per builder instance before autoscaling (positive integer) |
 | `token`                  | Depot API token                                          |
 
 #### `depot projects get`
 
 View a Depot project's details and configuration. Pass a project ID as an argument or with `--project-id`. If neither is provided, the command uses `DEPOT_PROJECT_ID` or the project configured in `depot.json`.
+
+Text output includes **Builds per instance**, or **Disabled** when autoscaling is disabled. Project create, get, and update JSON output includes `max_concurrent_builds` as a number, or `null` when autoscaling is disabled.
 
 **Example**
 
@@ -461,7 +648,9 @@ depot projects get your-project-id --output json
 
 #### `depot projects update`
 
-Update a Depot project's name, region, or cache storage policy. Only values passed as flags are changed. Pass a project ID as an argument or with `--project-id`. If neither is provided, the command uses `DEPOT_PROJECT_ID` or the project configured in `depot.json`.
+Update a Depot project's name, region, cache storage policy, or autoscaling. Only values passed as flags are changed. Pass a project ID as an argument or with `--project-id`. If neither is provided, the command uses `DEPOT_PROJECT_ID` or the project configured in `depot.json`.
+
+Set `--max-concurrent-builds` to a positive integer to enable or change autoscaling, or use `--disable-autoscaling` to remove the threshold. These flags are mutually exclusive. Omitting both preserves the existing autoscaling setting.
 
 **Example**
 
@@ -471,6 +660,12 @@ depot projects update --name "New project name"
 
 # Update a specific project's region and cache storage policy
 depot projects update your-project-id --region eu-central-1 --cache-storage-policy 100
+
+# Set the autoscaling threshold to three builds per builder instance
+depot projects update your-project-id --max-concurrent-builds 3
+
+# Disable project autoscaling
+depot projects update your-project-id --disable-autoscaling
 ```
 
 #### Flags for `projects update`
@@ -481,6 +676,8 @@ depot projects update your-project-id --region eu-central-1 --cache-storage-poli
 | `name`                 | Project name                                   |
 | `region`               | Build data storage region                      |
 | `cache-storage-policy` | Build cache to keep per architecture in GB     |
+| `max-concurrent-builds` | Concurrent builds per builder instance before autoscaling (positive integer) |
+| `disable-autoscaling` | Disable project autoscaling |
 | `output` / `-o`        | Output format (`json`)                         |
 | `token`                | Depot API token                                |
 
@@ -519,6 +716,49 @@ List Depot projects. This command is functionally identical to `depot list proje
 depot projects list
 ```
 
+#### `depot projects trust-policy`
+
+Manage the CI providers allowed to authenticate to a Depot project. Requires an **organization API token**, supplied with `--token` or `DEPOT_TOKEN`. Project tokens, OIDC tokens, and read-only organization tokens cannot manage or list trust policies.
+
+Select the Depot project with `--project-id` / `-p`. If omitted, the command uses `DEPOT_PROJECT_ID`, then `depot.json`. Every subcommand supports `--output json` / `-o json`.
+
+```shell
+# List policies for a project
+depot projects trust-policy list -p your-project-id
+
+# Allow only protected GitLab refs
+depot projects trust-policy add -p your-project-id --provider gitlab \
+  --namespace-id 12345 --gitlab-project-id 67890 --protected-refs-only
+
+# Allow a GitHub repository (public pull requests from forks are denied by default)
+depot projects trust-policy add -p your-project-id --provider github \
+  --repository-owner acme --repository app
+
+# Enable or disable a restriction explicitly
+depot projects trust-policy update your-policy-id -p your-project-id --protected-refs-only=false
+depot projects trust-policy update your-policy-id -p your-project-id --allow-public-pull-requests=false
+
+# Remove one policy without an interactive prompt
+depot projects trust-policy remove your-policy-id -p your-project-id
+```
+
+`add` supports these provider-specific flags:
+
+| Provider | Required flags | Optional restriction |
+| --- | --- | --- |
+| `github` | `--repository-owner`, `--repository` | `--allow-public-pull-requests` (default: false) |
+| `gitlab` | `--namespace-id`, `--gitlab-project-id` (numeric GitLab IDs) | `--protected-refs-only` (default: false) |
+| `circleci` | `--organization-uuid`, `--project-uuid` | — |
+| `buildkite` | `--organization-slug`, `--pipeline-slug` | — |
+
+The GitLab project ID is separate from the Depot project ID. Flags for other providers are rejected, including explicit `false` restriction flags.
+
+Adding an existing policy returns its saved settings without changing its restrictions. Check the returned policy; use `update` to change restrictions. `update` requires exactly one of `--protected-refs-only` (GitLab) or `--allow-public-pull-requests` (GitHub). Omitted fields remain unchanged, and `=false` explicitly disables the selected setting. To change a provider or repository identity, add a new policy and remove the old one.
+
+`list` returns one page (up to 250 policies). Use `--provider github|gitlab|circleci|buildkite` to filter, `--page-size 1..250` to set the page size, and `--page-token` to retrieve the next page while keeping the project and provider filter unchanged. Text output displays restrictions and the next page token when present.
+
+JSON uses snake_case API fields: `list` returns `{ "trust_policies": [...], "next_page_token": "..." }` (the token is absent on the last page); `add` and `update` return a policy object with `trust_policy_id` and a provider object. Boolean restrictions are included even when false. `remove` returns `{}` on success. API errors produce a nonzero exit status.
+
 ### `depot init`
 
 Initialize an existing Depot project in the current directory. The CLI will display an interactive list of your Depot projects for you to choose from, then write a `depot.json` file in the current directory with the contents `{"projectID": "xxxxxxxxxx"}`.
@@ -552,6 +792,51 @@ depot logout
 ### `depot org`
 
 Manage Depot organizations. The `org` command consists of subcommands for each operation.
+
+#### `depot org credits`
+
+Show the organization's remaining posted Stripe invoice credits. This is the same
+balance shown on the billing page; unbilled usage and upcoming invoices are not
+deducted, and free-trial allowances and included plan minutes are excluded.
+
+Use an organization API token or a read-only organization token through
+`DEPOT_TOKEN`, `--token`, or the CLI configuration. A user token from `depot login`
+is not supported by this endpoint. The token determines the organization, so
+`depot org switch` does not change which balance is read and there is no `--org`
+flag. The command never prompts for login.
+
+```shell
+# With DEPOT_TOKEN set to an organization token:
+depot org credits
+depot org credits --output json
+```
+
+Default output uses the currency's decimal places without rounding the balance:
+
+```text
+Remaining credits: USD 125.00
+Observed at: 2026-10-27T12:00:00Z
+```
+
+JSON output preserves the API's exact minor-unit amount as a string, including
+`"0"` when credit is exhausted:
+
+```json
+{
+  "remainingCreditMinor": "12500",
+  "currency": "USD",
+  "observedAt": "2026-10-27T12:00:00Z"
+}
+```
+
+For USD, `12500` means $125.00. The timestamp records when the provider balance
+was read, not when usage was last processed.
+
+Each invocation reads the API once. Reads are limited to one per organization
+per minute across all tokens and ten per ten seconds across the API fleet.
+Excess polls exit with an error containing the server's retry delay. The command
+does not retry automatically or cache balances. Poll hourly for most credit
+alerts, and handle failed commands separately from a successful zero balance.
 
 #### `depot org list`
 
@@ -611,6 +896,51 @@ Switch to an organization interactively:
 depot org switch
 ```
 
+### `depot packages`
+
+Configure package managers to use Depot Packages.
+
+#### `depot packages configure`
+
+Configure a package manager to install and publish packages through a Depot Packages repository. Supported clients are `npm`, `pnpm`, `yarn` (Yarn Classic), `bun`, `cargo`, `bundler`, `gem`, `helm`, `mamba`, `micromamba`, `pixi`, `apt`, `dnf`, `yum`, `zypper`, and `apk`.
+
+pnpm and Cargo get the current Depot token from a credential helper. The other clients save a copy of the token in their own configuration, so rerun the command when the token changes. The token comes from `DEPOT_TOKEN` when it is set, and otherwise from `depot login`.
+
+**Example**
+
+```shell
+depot packages configure npm --org <org-id> --repository npmjs
+```
+
+Route only one npm scope to a private repository:
+
+```shell
+depot packages configure npm --org <org-id> --repository internal --scope @acme
+```
+
+Configure APT on Debian or Ubuntu. Setup asks for administrator access to change system files:
+
+```shell
+depot packages configure apt --org <org-id> --repository debian --suite bookworm
+```
+
+#### Flags for `packages configure`
+
+| Name                 | Description                                                                                                  |
+| -------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `org`                | Depot organization ID (defaults to the current organization)                                                 |
+| `repository`         | Repository name                                                                                              |
+| `auth`               | `store` saves the token in the client's configuration instead of using a credential helper (pnpm and Cargo) |
+| `replace-upstream`   | Route the client's default public registry through the repository (Cargo, Bundler, gem, mamba, micromamba, and Pixi). Defaults to true for that registry's built-in cache |
+| `scope`              | npm clients: route only this package scope to the repository                                                 |
+| `auth-only`          | npm clients: save credentials without changing the registry                                                  |
+| `suite`              | apt: distribution suite (defaults to this system's codename)                                                 |
+| `components`         | apt and apk: repository components (defaults to `main`)                                                      |
+| `signing-key`        | apt: `repository` or `upstream` keyring (defaults to `upstream` for built-in caches)                         |
+| `branch`             | apk: Alpine branch, such as `v3.22` (defaults to this system's branch)                                       |
+| `path`               | dnf, yum, and zypper: distribution path in the repository, such as `el/9`                                    |
+| `package-key`        | dnf, yum, and zypper: local key file for package signatures, or `none`                                       |
+
 ### `depot pull`
 
 Pull an image from the Depot registry to your local Docker daemon.
@@ -660,6 +990,72 @@ depot pull-token --project <PROJECT_ID>
 | --------- | ---------------- |
 | `project` | Depot project ID |
 | `token`   | Depot API token  |
+
+### `depot registry`
+
+Manage organization repositories, images, registry access tokens, retention policies,
+and upstream registries. Pass an **organization API token** with `--token` or
+`DEPOT_TOKEN`. The token selects the organization; project tokens, registry
+pull/push tokens, and interactive login credentials cannot authorize these operations.
+
+All commands return JSON. List commands return one page; use `--page` (starting
+at 1), `--page-size` (1–100), and `--query` to filter. Repository and image lists
+include `hasMore`; token lists include `totalCount`. Upstream lists are unpaginated.
+Protobuf JSON represents 64-bit sizes as strings and image manifests as base64.
+
+```bash
+depot registry repository list --query team/
+depot registry repository create team/app
+depot registry image list team/app --tag-status tagged
+depot registry image inspect team/app latest
+depot registry tag delete team/app old-tag --yes
+depot registry image delete team/app --digest sha256:<digest> --yes
+depot registry repository delete team/app --yes
+```
+
+Repository arguments are paths such as `team/app`, without the registry host,
+organization prefix, tag, or digest. Image deletion accepts repeated `--tag` and
+`--digest` flags. Deleting a digest removes its associated tags. Batch deletion
+prints both successful results and failures, and exits unsuccessfully if any item
+failed. Repository deletion removes the repository and its images.
+
+```bash
+depot registry token list
+depot registry token create ci-pull --permission pull --scope 'team/*' --expires-at 2027-01-01T00:00:00Z
+depot registry token revoke <token-id> --yes
+```
+
+Token creation requires explicit `--permission pull|push` and one or more
+`--scope` flags. Wildcards occupy entire path segments (`team/*` or `**`). The
+secret appears once in stdout: store it securely. Omitting `--expires-at` creates
+a token without expiry. Token creation through organization API tokens must be
+enabled for your organization.
+
+```bash
+depot registry retention get team/app
+depot registry retention set team/app --keep-count 10 --yes
+depot registry retention set 'team/*' --keep-days 30 --yes
+depot registry retention delete team/app --yes
+```
+
+Set exactly one positive `--keep-count` or `--keep-days`. Retention can delete
+older images. `get` returns the explicit policy, or `policy: null` when absent;
+it does not resolve inheritance. Deleting a policy removes that override, so an
+inherited policy may still apply. Quote `**` to address the organization default.
+
+```bash
+depot registry upstream list
+depot registry upstream create public-images --url https://ghcr.io
+depot registry repository create team/mirror --upstream-id <id> --upstream-repository owner/image
+depot registry upstream update <id> --username robot --password-stdin < password.txt
+depot registry upstream delete <id> --yes
+```
+
+Use `--auth-type ecr --role-arn <arn>` when creating an ECR upstream. Passwords
+are accepted only through `--password-stdin`; responses report `hasPassword` and
+never return passwords. Updates preserve omitted fields. An explicit empty
+`--username=` or empty password input clears that field. Deletion and token
+revocation require `--yes`; retention updates require it too.
 
 ### `depot version`
 

@@ -5,11 +5,14 @@ import (
 
 	"github.com/spf13/cobra"
 
+	agentCmd "github.com/depot/cli/pkg/cmd/agent"
 	bakeCmd "github.com/depot/cli/pkg/cmd/bake"
 	"github.com/depot/cli/pkg/cmd/blog"
 	buildCmd "github.com/depot/cli/pkg/cmd/build"
+	"github.com/depot/cli/pkg/cmd/buildkitregistryproxy"
 	cacheCmd "github.com/depot/cli/pkg/cmd/cache"
 	cargoCmd "github.com/depot/cli/pkg/cmd/cargo"
+	"github.com/depot/cli/pkg/cmd/checks"
 	ciCmd "github.com/depot/cli/pkg/cmd/ci"
 	claudeCmd "github.com/depot/cli/pkg/cmd/claude"
 	dockerCmd "github.com/depot/cli/pkg/cmd/docker"
@@ -17,10 +20,12 @@ import (
 	"github.com/depot/cli/pkg/cmd/gocache"
 	"github.com/depot/cli/pkg/cmd/image"
 	initCmd "github.com/depot/cli/pkg/cmd/init"
+	"github.com/depot/cli/pkg/cmd/jobs"
 	"github.com/depot/cli/pkg/cmd/list"
 	loginCmd "github.com/depot/cli/pkg/cmd/login"
 	logout "github.com/depot/cli/pkg/cmd/logout"
 	"github.com/depot/cli/pkg/cmd/org"
+	"github.com/depot/cli/pkg/cmd/packages"
 	"github.com/depot/cli/pkg/cmd/projects"
 	"github.com/depot/cli/pkg/cmd/pull"
 	"github.com/depot/cli/pkg/cmd/pulltoken"
@@ -63,6 +68,7 @@ func NewCmdRoot(version, buildDate string) *cobra.Command {
 	_ = cmd.PersistentFlags().MarkHidden("config")
 
 	// Child commands
+	cmd.AddCommand(agentCmd.NewCmdAgent())
 	cmd.AddCommand(bakeCmd.NewCmdBake())
 	cmd.AddCommand(blog.NewCmdBlog())
 	cmd.AddCommand(buildCmd.NewCmdBuild())
@@ -72,6 +78,7 @@ func NewCmdRoot(version, buildDate string) *cobra.Command {
 	cmd.AddCommand(image.NewCmdImage())
 	cmd.AddCommand(initCmd.NewCmdInit())
 	cmd.AddCommand(list.NewCmdList())
+	cmd.AddCommand(jobs.NewCmdJobs())
 	cmd.AddCommand(loginCmd.NewCmdLogin())
 	cmd.AddCommand(logout.NewCmdLogout())
 	cmd.AddCommand(pull.NewCmdPull())
@@ -80,11 +87,14 @@ func NewCmdRoot(version, buildDate string) *cobra.Command {
 	cmd.AddCommand(versionCmd.NewCmdVersion(version, buildDate))
 	cmd.AddCommand(dockerCmd.NewCmdConfigureDocker())
 	cmd.AddCommand(registry.NewCmdRegistry())
+	cmd.AddCommand(buildkitregistryproxy.NewCmdBuildkitRegistryProxy())
 	cmd.AddCommand(org.NewCmdOrg())
+	cmd.AddCommand(packages.NewCmdPackages())
 	cmd.AddCommand(projects.NewCmdProjects())
 	cmd.AddCommand(gocache.NewCmdGoCache())
 	cmd.AddCommand(exec.NewCmdExec())
 	cmd.AddCommand(ciCmd.NewCmdCI())
+	cmd.AddCommand(checks.NewCmdChecks())
 	cmd.AddCommand(sandboxCmd.NewCmdSandbox())
 	cmd.AddCommand(testsCmd.NewCmdTests())
 

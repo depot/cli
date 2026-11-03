@@ -82,8 +82,6 @@ importers:
 
   packages/cli-linux-x64: {}
 
-  packages/cli-win32-arm: {}
-
   packages/cli-win32-arm64: {}
 
   packages/cli-win32-ia32: {}

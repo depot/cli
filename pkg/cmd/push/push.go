@@ -7,13 +7,13 @@ import (
 	"connectrpc.com/connect"
 	"github.com/depot/cli/pkg/api"
 	depotapi "github.com/depot/cli/pkg/api"
+	"github.com/depot/cli/pkg/arguments"
 	"github.com/depot/cli/pkg/ci"
 	"github.com/depot/cli/pkg/dockerclient"
 	"github.com/depot/cli/pkg/helpers"
 	cliv1 "github.com/depot/cli/pkg/proto/depot/cli/v1"
-	prog "github.com/docker/buildx/util/progress"
-	"github.com/docker/cli/cli"
 	"github.com/docker/cli/cli/command"
+	"github.com/moby/buildkit/util/progress/progressui"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 	"golang.org/x/sync/errgroup"
@@ -33,7 +33,7 @@ func NewCmdPush() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "push [flags] [buildID]",
 		Short: "Push a project's build from the Depot registry to a destination registry",
-		Args:  cli.RequiresMaxArgs(1),
+		Args:  arguments.AtMost(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			dockerCli, err := dockerclient.NewDockerCLI()
 			if err != nil {
@@ -45,8 +45,8 @@ func NewCmdPush() *cobra.Command {
 			}
 
 			_, isCI := ci.Provider()
-			if progressFmt == prog.PrinterModeAuto && isCI {
-				progressFmt = prog.PrinterModePlain
+			if progressFmt == string(progressui.AutoMode) && isCI {
+				progressFmt = string(progressui.PlainMode)
 			}
 
 			ctx := cmd.Context()

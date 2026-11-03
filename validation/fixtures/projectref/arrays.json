@@ -1,0 +1,27 @@
+{
+  "function": {
+    "project_of": {
+      "params": ["target"],
+      "result": "${target.base.project_id}"
+    }
+  },
+  "target": [
+    {
+      "_array": [
+        {
+          "project_id": "vtproject-array"
+        }
+      ]
+    },
+    {
+      "arrays": {
+        "project_id": "vtproject-root",
+        "target": "artifact",
+        "args": {
+          "MESSAGE": "${target._array.project_id}",
+          "PARAMETER": "${project_of({ base = { project_id = \"parameter\" } })}"
+        }
+      }
+    }
+  ]
+}
