@@ -634,7 +634,7 @@ func (dc *DiskCache) Put(ctx context.Context, actionID, objectID string, size in
 		}
 		zf.Close()
 	} else {
-		wrote, err := writeAtomic(file, body)
+		wrote, err := writeOutput(file, objectID, size, body)
 		if err != nil {
 			return "", fmt.Errorf("unable to write to disk: %w", err)
 		}
