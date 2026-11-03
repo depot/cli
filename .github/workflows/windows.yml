@@ -26,11 +26,12 @@ jobs:
           check-latest: false
           cache: true
 
-      # - name: Build branch CLI and use it as GOCACHEPROG
-      #   shell: pwsh
-      #   run: |
-      #     go build -o "$env:RUNNER_TEMP\depot-dev.exe" ./cmd/depot
-      #     "GOCACHEPROG=$env:RUNNER_TE-verbose" >> $env:GITHUB_ENV
+      - name: Build branch CLI and use it as GOCACHEPROG
+        shell: pwsh
+        run: |
+          go build -o "$env:RUNNER_TEMP\depot-dev.exe" ./cmd/depot
+          "GOCACHEPROG=$env:RUNNER_TE-verbose" >> $env:GITHUB_ENV
+          & "$env:RUNNER_TEMP\depot-dev.exe" version
 
       - run: go env GOCACHEPROG   # cn use
 
