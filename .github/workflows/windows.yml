@@ -26,19 +26,31 @@ jobs:
           check-latest: false
           cache: true
 
-      - name: Build branch CLI and use it as GOCACHEPROG
+      - name: Show where GOCACHEPROG comes from
         shell: pwsh
         run: |
-          go build -o "$env:RUNNER_TEMP\depot-dev.exe" ./cmd/depot
-          "GOCACHEPROG=$env:RUNNER_TEMP\depot-dev.exe gocache --verbose" >> $env:GITHUB_ENV
-          & "$env:RUNNER_TEMP\depot-dev.exe" version
+          Get-Command go -All | Format-Table CommandType, Source
+          "process env: $env:GOCACHEPROG"
+          "machine env: $([Environment]::GetEnvironmentVariable('GOCACHEPROG', 'Machine'))"
+          "user env:    $([Environment]::GetEnvironmentVariable('GOCACHEPROG', 'User'))"
+          go env GOENV GOROOT GOCACHEPROG
+          $goenv = go env GOENV
+          if (Test-Path $goenv) { "--- $goenv"; Get-Content $goenv }
+          $rootenv = Join-Path (go env GOROOT) go.env
+          if (Test-Path $rootenv) { "--- $rootenv"; Get-Content $rootenv }
 
-      - name: Check the branch CLI is the GOCACHEPROG
+      - name: Install branch CLI over the runner's depot.exe
         shell: pwsh
         run: |
-          $prog = go env GOCACHEPROG
-          "GOCACHEPROG = $prog"
-          if ($prog -notlike '*depot-dev.exe gocache*') { throw "GOCACHEPROG is not the branch CLI" }
+          $depot = "C:\Program Files\depot\depot.exe"
+          go build -o "$env:RUNNER_TEMP\depot-dev.exe" ./cmd/depot
+          $want = & "$env:RUNNER_TEMP\depot-dev.exe" version
+          # A running exe can be renamed but not overwritten on Windows.
+          Move-Item -Force $depot "$depot.orig"
+          Copy-Item "$env:RUNNER_TEMP\depot-dev.exe" $depot
+          $got = & $depot version
+          "installed: $got"
+          if ($got -ne $want) { throw "depot.exe is not the branch CLI" }
 
       - name: Fill the remote cache
         run: go vet ./cmd/... ./pkg/...
