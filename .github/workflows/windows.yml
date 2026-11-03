@@ -1,0 +1,47 @@
+name: gocache-windows
+on:
+  workflow_dispatch:
+  push:
+    branches: [windows-cache-test]
+
+jobs:
+  unit:
+    runs-on: depot-windows-2025-4
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: 1.27.1
+          check-latest: false
+          cache: true
+      - run: go test -count=1 -v ./pkg/cmd/gocache/
+
+  e2e:
+    runs-on: depot-windows-2025-4
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: 1.27.1
+          check-latest: false
+          cache: true
+
+      # - name: Build branch CLI and use it as GOCACHEPROG
+      #   shell: pwsh
+      #   run: |
+      #     go build -o "$env:RUNNER_TEMP\depot-dev.exe" ./cmd/depot
+      #     "GOCACHEPROG=$env:RUNNER_TE-verbose" >> $env:GITHUB_ENV
+
+      - run: go env GOCACHEPROG   # cn use
+
+      - name: Fill the remote cache
+        run: go vet ./...
+
+      - name: Remote hits with concurrent vet readers
+        shell: pwsh
+        run: |
+          for ($i = 1; $i -le 10; $i+
+            Remove-Item -Recurse -Force (go env GOCACHE)
+            go vet ./...
+            if ($LASTEXITCODE -ne 0) { throw "run $i failed" }
+          }
