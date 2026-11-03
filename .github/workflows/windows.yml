@@ -44,11 +44,12 @@ jobs:
         run: |
           $depot = "C:\Program Files\depot\depot.exe"
           go build -o "$env:RUNNER_TEMP\depot-dev.exe" ./cmd/depot
-          $want = & "$env:RUNNER_TEMP\depot-dev.exe" version
+          # depot version prints several lines, so compare the joined output.
+          $want = (& "$env:RUNNER_TEMP\depot-dev.exe" version) -join "`n"
           # A running exe can be renamed but not overwritten on Windows.
           Move-Item -Force $depot "$depot.orig"
           Copy-Item "$env:RUNNER_TEMP\depot-dev.exe" $depot
-          $got = & $depot version
+          $got = (& $depot version) -join "`n"
           "installed: $got"
           if ($got -ne $want) { throw "depot.exe is not the branch CLI" }
 
