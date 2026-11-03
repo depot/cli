@@ -17,6 +17,7 @@ func allScenarios() []scenario {
 	var all []scenario
 	all = append(all, commandLineScenarios()...)
 	all = append(all, buildScenarios()...)
+	all = append(all, fastLoadScenarios()...)
 	all = append(all, bakeScenarios()...)
 	all = append(all, dockerScenarios()...)
 	all = append(all, savedBuildScenarios()...)

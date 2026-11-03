@@ -991,6 +991,72 @@ depot pull-token --project <PROJECT_ID>
 | `project` | Depot project ID |
 | `token`   | Depot API token  |
 
+### `depot registry`
+
+Manage organization repositories, images, registry access tokens, retention policies,
+and upstream registries. Pass an **organization API token** with `--token` or
+`DEPOT_TOKEN`. The token selects the organization; project tokens, registry
+pull/push tokens, and interactive login credentials cannot authorize these operations.
+
+All commands return JSON. List commands return one page; use `--page` (starting
+at 1), `--page-size` (1–100), and `--query` to filter. Repository and image lists
+include `hasMore`; token lists include `totalCount`. Upstream lists are unpaginated.
+Protobuf JSON represents 64-bit sizes as strings and image manifests as base64.
+
+```bash
+depot registry repository list --query team/
+depot registry repository create team/app
+depot registry image list team/app --tag-status tagged
+depot registry image inspect team/app latest
+depot registry tag delete team/app old-tag --yes
+depot registry image delete team/app --digest sha256:<digest> --yes
+depot registry repository delete team/app --yes
+```
+
+Repository arguments are paths such as `team/app`, without the registry host,
+organization prefix, tag, or digest. Image deletion accepts repeated `--tag` and
+`--digest` flags. Deleting a digest removes its associated tags. Batch deletion
+prints both successful results and failures, and exits unsuccessfully if any item
+failed. Repository deletion removes the repository and its images.
+
+```bash
+depot registry token list
+depot registry token create ci-pull --permission pull --scope 'team/*' --expires-at 2027-01-01T00:00:00Z
+depot registry token revoke <token-id> --yes
+```
+
+Token creation requires explicit `--permission pull|push` and one or more
+`--scope` flags. Wildcards occupy entire path segments (`team/*` or `**`). The
+secret appears once in stdout: store it securely. Omitting `--expires-at` creates
+a token without expiry. Token creation through organization API tokens must be
+enabled for your organization.
+
+```bash
+depot registry retention get team/app
+depot registry retention set team/app --keep-count 10 --yes
+depot registry retention set 'team/*' --keep-days 30 --yes
+depot registry retention delete team/app --yes
+```
+
+Set exactly one positive `--keep-count` or `--keep-days`. Retention can delete
+older images. `get` returns the explicit policy, or `policy: null` when absent;
+it does not resolve inheritance. Deleting a policy removes that override, so an
+inherited policy may still apply. Quote `**` to address the organization default.
+
+```bash
+depot registry upstream list
+depot registry upstream create public-images --url https://ghcr.io
+depot registry repository create team/mirror --upstream-id <id> --upstream-repository owner/image
+depot registry upstream update <id> --username robot --password-stdin < password.txt
+depot registry upstream delete <id> --yes
+```
+
+Use `--auth-type ecr --role-arn <arn>` when creating an ECR upstream. Passwords
+are accepted only through `--password-stdin`; responses report `hasPassword` and
+never return passwords. Updates preserve omitted fields. An explicit empty
+`--username=` or empty password input clears that field. Deletion and token
+revocation require `--yes`; retention updates require it too.
+
 ### `depot version`
 
 Display version information for the Depot CLI, including the version number, build date, and a link to the corresponding GitHub release.
