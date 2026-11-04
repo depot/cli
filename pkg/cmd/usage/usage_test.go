@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
+	"buf.build/gen/go/depot/api/connectrpc/go/depot/core/v1/corev1connect"
+	usagev1 "buf.build/gen/go/depot/api/protocolbuffers/go/depot/core/v1"
 	"connectrpc.com/connect"
-	usagev1 "github.com/depot/cli/pkg/proto/depot/core/v1"
-	"github.com/depot/cli/pkg/proto/depot/core/v1/corev1connect"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
 )
