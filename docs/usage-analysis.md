@@ -26,9 +26,6 @@ Additional reads: `usage report`, `usage agents`, `usage current`. See the
 Requires the API deployment containing `UsageAnalyticsService`; old servers return
 `Unimplemented` and the command exits without printing partial JSON.
 
-The contract is owned by [depot/proto#63](https://github.com/depot/proto/pull/63).
-During review, `buf generate --template buf.gen.usage.yaml` generates from that PR's
-pinned commit. Before merging, update the two `buf.build/gen/go/depot/api` modules in
-`go.mod` to its published revision, switch usage imports to those packages, and remove
-the review-only generator and local generated usage clients. Release the CLI after the
-API implementation deploys.
+The contract is owned by [depot/proto](https://github.com/depot/proto).
+The CLI imports its published Go and Connect clients from the two
+`buf.build/gen/go/depot/api` modules pinned in `go.mod`.

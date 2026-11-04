@@ -17,7 +17,6 @@ clean:
 .PHONY: generate
 generate:
 	buf generate
-	buf generate --template buf.gen.usage.yaml
 
 .PHONY: test
 test:
