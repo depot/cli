@@ -33,6 +33,7 @@ import (
 	"github.com/depot/cli/pkg/cmd/registry"
 	sandboxCmd "github.com/depot/cli/pkg/cmd/sandbox"
 	testsCmd "github.com/depot/cli/pkg/cmd/tests"
+	"github.com/depot/cli/pkg/cmd/usage"
 	versionCmd "github.com/depot/cli/pkg/cmd/version"
 	"github.com/depot/cli/pkg/config"
 )
@@ -89,6 +90,7 @@ func NewCmdRoot(version, buildDate string) *cobra.Command {
 	cmd.AddCommand(registry.NewCmdRegistry())
 	cmd.AddCommand(buildkitregistryproxy.NewCmdBuildkitRegistryProxy())
 	cmd.AddCommand(org.NewCmdOrg())
+	cmd.AddCommand(usage.NewCmdUsage())
 	cmd.AddCommand(packages.NewCmdPackages())
 	cmd.AddCommand(projects.NewCmdProjects())
 	cmd.AddCommand(gocache.NewCmdGoCache())
