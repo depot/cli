@@ -66,6 +66,9 @@ const (
 	// CIServiceGetJobAttemptMetricsProcedure is the fully-qualified name of the CIService's
 	// GetJobAttemptMetrics RPC.
 	CIServiceGetJobAttemptMetricsProcedure = "/depot.ci.v1.CIService/GetJobAttemptMetrics"
+	// CIServiceGetJobAttemptStepsProcedure is the fully-qualified name of the CIService's
+	// GetJobAttemptSteps RPC.
+	CIServiceGetJobAttemptStepsProcedure = "/depot.ci.v1.CIService/GetJobAttemptSteps"
 	// CIServiceGetJobMetricsProcedure is the fully-qualified name of the CIService's GetJobMetrics RPC.
 	CIServiceGetJobMetricsProcedure = "/depot.ci.v1.CIService/GetJobMetrics"
 	// CIServiceGetRunMetricsProcedure is the fully-qualified name of the CIService's GetRunMetrics RPC.
@@ -129,6 +132,8 @@ type CIServiceClient interface {
 	GetFailureDiagnosis(context.Context, *connect.Request[v1.GetFailureDiagnosisRequest]) (*connect.Response[v1.GetFailureDiagnosisResponse], error)
 	// GetJobAttemptMetrics returns CPU and memory metrics for one concrete job attempt
 	GetJobAttemptMetrics(context.Context, *connect.Request[v1.GetJobAttemptMetricsRequest]) (*connect.Response[v1.GetJobAttemptMetricsResponse], error)
+	// Returns recorded execution steps and timings for one job attempt. Requires CI read access. Historical attempts may have no recorded steps; log timestamps are never substituted for step timings.
+	GetJobAttemptSteps(context.Context, *connect.Request[v1.GetJobAttemptStepsRequest]) (*connect.Response[v1.GetJobAttemptStepsResponse], error)
 	// GetJobMetrics returns per-attempt CPU and memory metric summaries for one job
 	GetJobMetrics(context.Context, *connect.Request[v1.GetJobMetricsRequest]) (*connect.Response[v1.GetJobMetricsResponse], error)
 	// GetRunMetrics returns workflow/job/attempt CPU and memory metric summaries for one run
@@ -242,6 +247,11 @@ func NewCIServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...c
 			baseURL+CIServiceGetJobAttemptMetricsProcedure,
 			opts...,
 		),
+		getJobAttemptSteps: connect.NewClient[v1.GetJobAttemptStepsRequest, v1.GetJobAttemptStepsResponse](
+			httpClient,
+			baseURL+CIServiceGetJobAttemptStepsProcedure,
+			opts...,
+		),
 		getJobMetrics: connect.NewClient[v1.GetJobMetricsRequest, v1.GetJobMetricsResponse](
 			httpClient,
 			baseURL+CIServiceGetJobMetricsProcedure,
@@ -310,6 +320,7 @@ type cIServiceClient struct {
 	getWorkflow            *connect.Client[v1.GetWorkflowRequest, v1.GetWorkflowResponse]
 	getFailureDiagnosis    *connect.Client[v1.GetFailureDiagnosisRequest, v1.GetFailureDiagnosisResponse]
 	getJobAttemptMetrics   *connect.Client[v1.GetJobAttemptMetricsRequest, v1.GetJobAttemptMetricsResponse]
+	getJobAttemptSteps     *connect.Client[v1.GetJobAttemptStepsRequest, v1.GetJobAttemptStepsResponse]
 	getJobMetrics          *connect.Client[v1.GetJobMetricsRequest, v1.GetJobMetricsResponse]
 	getRunMetrics          *connect.Client[v1.GetRunMetricsRequest, v1.GetRunMetricsResponse]
 	getJobSummary          *connect.Client[v1.GetJobSummaryRequest, v1.GetJobSummaryResponse]
@@ -385,6 +396,11 @@ func (c *cIServiceClient) GetFailureDiagnosis(ctx context.Context, req *connect.
 // GetJobAttemptMetrics calls depot.ci.v1.CIService.GetJobAttemptMetrics.
 func (c *cIServiceClient) GetJobAttemptMetrics(ctx context.Context, req *connect.Request[v1.GetJobAttemptMetricsRequest]) (*connect.Response[v1.GetJobAttemptMetricsResponse], error) {
 	return c.getJobAttemptMetrics.CallUnary(ctx, req)
+}
+
+// GetJobAttemptSteps calls depot.ci.v1.CIService.GetJobAttemptSteps.
+func (c *cIServiceClient) GetJobAttemptSteps(ctx context.Context, req *connect.Request[v1.GetJobAttemptStepsRequest]) (*connect.Response[v1.GetJobAttemptStepsResponse], error) {
+	return c.getJobAttemptSteps.CallUnary(ctx, req)
 }
 
 // GetJobMetrics calls depot.ci.v1.CIService.GetJobMetrics.
@@ -465,6 +481,8 @@ type CIServiceHandler interface {
 	GetFailureDiagnosis(context.Context, *connect.Request[v1.GetFailureDiagnosisRequest]) (*connect.Response[v1.GetFailureDiagnosisResponse], error)
 	// GetJobAttemptMetrics returns CPU and memory metrics for one concrete job attempt
 	GetJobAttemptMetrics(context.Context, *connect.Request[v1.GetJobAttemptMetricsRequest]) (*connect.Response[v1.GetJobAttemptMetricsResponse], error)
+	// Returns recorded execution steps and timings for one job attempt. Requires CI read access. Historical attempts may have no recorded steps; log timestamps are never substituted for step timings.
+	GetJobAttemptSteps(context.Context, *connect.Request[v1.GetJobAttemptStepsRequest]) (*connect.Response[v1.GetJobAttemptStepsResponse], error)
 	// GetJobMetrics returns per-attempt CPU and memory metric summaries for one job
 	GetJobMetrics(context.Context, *connect.Request[v1.GetJobMetricsRequest]) (*connect.Response[v1.GetJobMetricsResponse], error)
 	// GetRunMetrics returns workflow/job/attempt CPU and memory metric summaries for one run
@@ -574,6 +592,11 @@ func NewCIServiceHandler(svc CIServiceHandler, opts ...connect.HandlerOption) (s
 		svc.GetJobAttemptMetrics,
 		opts...,
 	)
+	cIServiceGetJobAttemptStepsHandler := connect.NewUnaryHandler(
+		CIServiceGetJobAttemptStepsProcedure,
+		svc.GetJobAttemptSteps,
+		opts...,
+	)
 	cIServiceGetJobMetricsHandler := connect.NewUnaryHandler(
 		CIServiceGetJobMetricsProcedure,
 		svc.GetJobMetrics,
@@ -652,6 +675,8 @@ func NewCIServiceHandler(svc CIServiceHandler, opts ...connect.HandlerOption) (s
 			cIServiceGetFailureDiagnosisHandler.ServeHTTP(w, r)
 		case CIServiceGetJobAttemptMetricsProcedure:
 			cIServiceGetJobAttemptMetricsHandler.ServeHTTP(w, r)
+		case CIServiceGetJobAttemptStepsProcedure:
+			cIServiceGetJobAttemptStepsHandler.ServeHTTP(w, r)
 		case CIServiceGetJobMetricsProcedure:
 			cIServiceGetJobMetricsHandler.ServeHTTP(w, r)
 		case CIServiceGetRunMetricsProcedure:
@@ -731,6 +756,10 @@ func (UnimplementedCIServiceHandler) GetFailureDiagnosis(context.Context, *conne
 
 func (UnimplementedCIServiceHandler) GetJobAttemptMetrics(context.Context, *connect.Request[v1.GetJobAttemptMetricsRequest]) (*connect.Response[v1.GetJobAttemptMetricsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.ci.v1.CIService.GetJobAttemptMetrics is not implemented"))
+}
+
+func (UnimplementedCIServiceHandler) GetJobAttemptSteps(context.Context, *connect.Request[v1.GetJobAttemptStepsRequest]) (*connect.Response[v1.GetJobAttemptStepsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.ci.v1.CIService.GetJobAttemptSteps is not implemented"))
 }
 
 func (UnimplementedCIServiceHandler) GetJobMetrics(context.Context, *connect.Request[v1.GetJobMetricsRequest]) (*connect.Response[v1.GetJobMetricsResponse], error) {
