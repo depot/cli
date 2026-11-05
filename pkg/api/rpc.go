@@ -45,6 +45,10 @@ func NewCreditClient() corev1connect.CreditServiceClient {
 	return corev1connect.NewCreditServiceClient(getHTTPClient(getBaseURL()), getBaseURL(), WithUserAgent())
 }
 
+func NewBillingClient() corev1connect.BillingServiceClient {
+	return corev1connect.NewBillingServiceClient(getHTTPClient(getBaseURL()), getBaseURL(), WithUserAgent())
+}
+
 func NewSDKProjectsClient() corev1connect.ProjectServiceClient {
 	return corev1connect.NewProjectServiceClient(getHTTPClient(getBaseURL()), getBaseURL(), WithUserAgent())
 }
