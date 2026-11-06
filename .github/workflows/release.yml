@@ -134,3 +134,56 @@ jobs:
         working-directory: npm
         env:
           NPM_DIST_TAG: ${{ steps.tag-name.outputs.npm-dist-tag }}
+
+  linear-release:
+    name: Linear Release
+    needs: [release]
+    if: startsWith(github.ref, 'refs/tags/v') && !contains(github.ref, 'dev-') && !contains(github.event.release.tag_name, '-') && !github.event.release.prerelease
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    env:
+      LINEAR_ACCESS_KEY: ${{ secrets.LINEAR_RELEASES_ACCESS_KEY }}
+    steps:
+      - name: Skip until the Linear key is configured
+        if: env.LINEAR_ACCESS_KEY == ''
+        run: |
+          echo "::notice::LINEAR_RELEASES_ACCESS_KEY is not configured; skipping Linear release reporting."
+          echo "### Linear release reporting skipped" >> "$GITHUB_STEP_SUMMARY"
+          echo "LINEAR_RELEASES_ACCESS_KEY is not configured, so this release was not reported to Linear." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Checkout released revision
+        if: env.LINEAR_ACCESS_KEY != ''
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      # Tags are not branches: only report a release whose tagged commit is merged into main.
+      - name: Require the tagged commit on main
+        id: main
+        if: env.LINEAR_ACCESS_KEY != ''
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          if git merge-base --is-ancestor HEAD origin/main; then
+            echo "merged=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::$TAG is not on main; skipping Linear release reporting."
+          fi
+
+      - name: Report Linear release
+        if: env.LINEAR_ACCESS_KEY != '' && steps.main.outputs.merged == 'true'
+        uses: linear/linear-release-action@53ad0f863963e7f8e270fba18426bbb55ef55384 # v0.17.2
+        with:
+          access_key: ${{ env.LINEAR_ACCESS_KEY }}
+          version: ${{ github.event.release.tag_name }}
+
+      - name: Surface reporting failure
+        if: failure()
+        run: |
+          echo "::warning::Release succeeded, but Linear release reporting failed. Linked issues may remain Deploying."
+          echo "### Linear release reporting failed" >> "$GITHUB_STEP_SUMMARY"
+          echo "Release succeeded. Check this job's errors and LINEAR_RELEASES_ACCESS_KEY; linked issues may remain Deploying." >> "$GITHUB_STEP_SUMMARY"
