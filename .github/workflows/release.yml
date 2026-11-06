@@ -161,8 +161,21 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 0
 
-      - name: Report Linear release
+      # Tags are not branches: only report a release whose tagged commit is merged into main.
+      - name: Require the tagged commit on main
+        id: main
         if: env.LINEAR_ACCESS_KEY != ''
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          if git merge-base --is-ancestor HEAD origin/main; then
+            echo "merged=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::$TAG is not on main; skipping Linear release reporting."
+          fi
+
+      - name: Report Linear release
+        if: env.LINEAR_ACCESS_KEY != '' && steps.main.outputs.merged == 'true'
         uses: linear/linear-release-action@53ad0f863963e7f8e270fba18426bbb55ef55384 # v0.17.2
         with:
           access_key: ${{ env.LINEAR_ACCESS_KEY }}
