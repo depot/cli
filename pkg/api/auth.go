@@ -154,8 +154,9 @@ func waitForEnterOrResult(results <-chan finishLoginResult) (finishLoginResult, 
 	case <-interrupted:
 		return finishLoginResult{err: errLoginCanceled}, true
 	case result := <-results:
-		reader.Cancel()
-		<-readDone
+		if reader.Cancel() {
+			<-readDone
+		}
 		return result, true
 	}
 }
