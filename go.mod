@@ -185,7 +185,7 @@ require (
 	github.com/moby/sys/sequential v0.7.0 // indirect
 	github.com/moby/sys/signal v0.7.1 // indirect
 	github.com/moby/term v0.5.2 // indirect
-	github.com/muesli/cancelreader v0.2.2 // indirect
+	github.com/muesli/cancelreader v0.2.2
 	github.com/oklog/ulid/v2 v2.1.1 // indirect
 	github.com/open-policy-agent/opa v1.19.0 // indirect
 	github.com/package-url/packageurl-go v0.1.7 // indirect
