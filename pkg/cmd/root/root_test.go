@@ -28,6 +28,25 @@ func TestRootRegistersGitHubActionsJobs(t *testing.T) {
 	}
 }
 
+func TestMergeRequestsAreHiddenButDirectlyAvailable(t *testing.T) {
+	cmd := NewCmdRoot("test-version", "test-date")
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"--help"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out.String(), "Manage merge requests") {
+		t.Fatal("merge requests appeared in public help")
+	}
+	for _, name := range []string{"create", "view", "merge", "approve", "comment"} {
+		found, remaining, err := cmd.Find([]string{"mr", name})
+		if err != nil || len(remaining) != 0 || found.Name() != name {
+			t.Fatalf("mr %s is unavailable: %v", name, err)
+		}
+	}
+}
+
 func TestBuildkitRegistryProxyIsHiddenAndRunsInternalCommand(t *testing.T) {
 	t.Setenv("CA_CERT", "invalid-base64!")
 	cmd := NewCmdRoot("test-version", "test-date")

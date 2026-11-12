@@ -1,0 +1,284 @@
+syntax = "proto3";
+
+package depot.code.v1beta2;
+
+import "google/protobuf/timestamp.proto";
+
+// Merge requests on Depot Code repositories: a source branch proposed for merging into a base branch.
+// Every method requires a user credential. Organization tokens, CI job tokens and service credentials return
+// PermissionDenied.
+service MergeRequestService {
+  // Reads whether passing review agents can approve merge requests in this repository.
+  rpc GetRepositoryReviewSettings(GetRepositoryReviewSettingsRequest) returns (GetRepositoryReviewSettingsResponse) {}
+  // Changes whether passing review agents can approve. Requires organization owner access.
+  rpc UpdateRepositoryReviewSettings(UpdateRepositoryReviewSettingsRequest) returns (UpdateRepositoryReviewSettingsResponse) {}
+  // Opens a merge request against the required `baseRef`. Older servers return Unimplemented without creating a merge request.
+  rpc CreateMergeRequestWithBase(CreateMergeRequestWithBaseRequest) returns (CreateMergeRequestWithBaseResponse) {}
+  // Opens a merge request for a branch. Returns the existing open merge request when the branch already has one.
+  rpc CreateMergeRequest(CreateMergeRequestRequest) returns (CreateMergeRequestResponse) {}
+  // Reads a merge request by id or by its source branch, after catching its head up with the live branch.
+  rpc GetMergeRequest(GetMergeRequestRequest) returns (GetMergeRequestResponse) {}
+  // Merges an open merge request. CI results and approvals do not block merging.
+  // Returns Aborted if an expected branch tip differs. Merge conflicts and other merge refusals are returned as errors.
+  rpc MergeMergeRequest(MergeMergeRequestRequest) returns (MergeMergeRequestResponse) {}
+  // Edits the title or body, or closes or reopens a merge request.
+  rpc UpdateMergeRequest(UpdateMergeRequestRequest) returns (UpdateMergeRequestResponse) {}
+  // Posts a conversation comment on a merge request. Comments are allowed on closed and merged merge requests.
+  rpc CreateMergeRequestComment(CreateMergeRequestCommentRequest) returns (CreateMergeRequestCommentResponse) {}
+  // Replaces the body of the caller's own comment. Returns PermissionDenied for another author's comment and
+  // FailedPrecondition for a deleted one.
+  rpc UpdateMergeRequestComment(UpdateMergeRequestCommentRequest) returns (UpdateMergeRequestCommentResponse) {}
+  // Deletes the caller's own comment. The comment stays in `GetMergeRequest` with `deletedAt` set and an empty body.
+  // Deleting a deleted comment succeeds without changing it.
+  rpc DeleteMergeRequestComment(DeleteMergeRequestCommentRequest) returns (DeleteMergeRequestCommentResponse) {}
+  // Records the caller's approval of the merge request at its current head. Each person holds one approval per merge
+  // request: approving again moves it to the current head and clears a withdrawal. Returns FailedPrecondition for a
+  // closed or merged merge request.
+  rpc ApproveMergeRequest(ApproveMergeRequestRequest) returns (ApproveMergeRequestResponse) {}
+  // Withdraws the caller's approval. Returns NotFound when the caller never approved; withdrawing an approval that is
+  // already withdrawn leaves it unchanged.
+  rpc RemoveMergeRequestApproval(RemoveMergeRequestApprovalRequest) returns (RemoveMergeRequestApprovalResponse) {}
+}
+
+// Who performed an action on a merge request.
+message MergeRequestActor {
+  enum Kind {
+    KIND_UNSPECIFIED = 0;
+    KIND_USER = 1;
+    KIND_AGENT = 2;
+    KIND_SYSTEM = 3;
+  }
+  Kind kind = 1;
+  string id = 2;
+}
+
+message MergeRequest {
+  enum State {
+    STATE_UNSPECIFIED = 0;
+    STATE_OPEN = 1;
+    STATE_CLOSED = 2;
+    STATE_MERGED = 3;
+  }
+  string id = 1;
+  string repository_id = 2;
+  string title = 3;
+  string body = 4;
+  State state = 5;
+  MergeRequestActor author = 6;
+  // Without the "refs/heads/" prefix. Kept after the branch is deleted.
+  string head_ref = 7;
+  string head_oid = 8;
+  // Destination branch without the "refs/heads/" prefix.
+  string base_ref = 9;
+  google.protobuf.Timestamp merged_at = 10;
+  MergeRequestActor merged_by = 11;
+  string merge_commit_oid = 12;
+  google.protobuf.Timestamp closed_at = 13;
+  google.protobuf.Timestamp created_at = 14;
+  google.protobuf.Timestamp updated_at = 15;
+  // True when `headRef` no longer exists in the repository. `headOid` keeps the last tip that was seen.
+  bool head_branch_deleted = 16;
+  // Tip of `baseRef` when `headOid` was last recorded. Empty for merge requests opened before this was tracked.
+  string base_oid = 17;
+}
+
+// One move of a merge request's head, oldest first in `GetMergeRequest`.
+message MergeRequestHeadChange {
+  // Hex object id the head pointed at before the move. Empty on the change recorded when the merge request opened.
+  string before_oid = 1;
+  string after_oid = 2;
+  MergeRequestActor actor = 3;
+  google.protobuf.Timestamp created_at = 4;
+  // Tip of `baseRef` at the time of this move. Empty for moves recorded before this was tracked.
+  string base_oid = 5;
+}
+
+// A conversation comment on a merge request.
+message MergeRequestComment {
+  // Unique identifier for the comment.
+  string id = 1;
+  // Unique identifier for the merge request.
+  string merge_request_id = 2;
+  MergeRequestActor author = 3;
+  // Markdown. Empty once the comment is deleted.
+  string body = 4;
+  google.protobuf.Timestamp created_at = 5;
+  // Time of the last `UpdateMergeRequestComment`. Unset until the comment is edited.
+  google.protobuf.Timestamp edited_at = 6;
+  // Unset until the comment is deleted.
+  google.protobuf.Timestamp deleted_at = 7;
+}
+
+// One approval per person or review agent on a merge request.
+message MergeRequestApproval {
+  // Unique identifier for the merge request.
+  string merge_request_id = 1;
+  MergeRequestActor approver = 2;
+  // Head the approver saw. Human approvals on older heads still count; agent approvals require the current head and enabled repository settings.
+  string head_oid = 3;
+  // Time the approval was last recorded. Reset when approving again moves it to a new head or reinstates it after a withdrawal; unchanged when it is already live on the current head.
+  google.protobuf.Timestamp created_at = 4;
+  // Unset while the approval is live. Cleared when the approver approves again.
+  google.protobuf.Timestamp withdrawn_at = 5;
+  // Reviewer's name at review time. Empty for a human approval.
+  string reviewer_name = 6;
+  // Passing review attempt. Empty for a human approval or unavailable review history.
+  string review_attempt_id = 7;
+}
+
+message CreateMergeRequestWithBaseRequest {
+  string repository_id = 1;
+  // Source branch name without the "refs/heads/" prefix. Must exist and differ from the base branch.
+  string head_ref = 2;
+  // Required. Maximum: 1024 characters.
+  string title = 3;
+  string body = 4;
+  // Required existing destination branch without the "refs/heads/" prefix.
+  optional string base_ref = 5;
+}
+
+message CreateMergeRequestWithBaseResponse {
+  MergeRequest merge_request = 1;
+}
+
+message CreateMergeRequestRequest {
+  string repository_id = 1;
+  // Source branch name without the "refs/heads/" prefix. Must exist and differ from the base branch.
+  string head_ref = 2;
+  // Required. Maximum: 1024 characters.
+  string title = 3;
+  string body = 4;
+  // Existing destination branch without the "refs/heads/" prefix. Default: repository default branch.
+  optional string base_ref = 5;
+}
+
+message CreateMergeRequestResponse {
+  MergeRequest merge_request = 1;
+}
+
+message GetMergeRequestRequest {
+  message HeadRef {
+    string repository_id = 1;
+    string head_ref = 2;
+  }
+  oneof lookup {
+    string merge_request_id = 1;
+    // The open merge request for a branch. Closed and merged merge requests are found only by id.
+    HeadRef head = 2;
+  }
+}
+
+message GetMergeRequestResponse {
+  MergeRequest merge_request = 1;
+  repeated MergeRequestHeadChange head_changes = 2;
+  // Every comment, oldest first. Deleted comments are included with `deletedAt` set and an empty body.
+  repeated MergeRequestComment comments = 3;
+  // Every approval, including withdrawn ones, oldest first.
+  repeated MergeRequestApproval approvals = 4;
+  // Whether agent approvals on the current head count. Default: false.
+  bool agents_can_approve = 5;
+}
+
+message MergeMergeRequestRequest {
+  oneof lookup {
+    // Unique identifier for the merge request. Returned by `CreateMergeRequest` and `GetMergeRequest`.
+    string merge_request_id = 1;
+    // The open merge request for a source branch.
+    GetMergeRequestRequest.HeadRef head = 2;
+  }
+  // Expected source commit, as a lowercase hexadecimal SHA-1 or SHA-256 object ID.
+  // A mismatch returns Aborted. Leave unset to use the source tip observed by the server.
+  optional string expected_head_oid = 3;
+  // Expected destination commit, as a lowercase hexadecimal SHA-1 or SHA-256 object ID.
+  // A mismatch returns Aborted. Leave unset to use the destination tip observed by the server.
+  optional string expected_base_oid = 4;
+}
+
+message MergeMergeRequestResponse {
+  // The merged request, including its merge commit and merging user.
+  MergeRequest merge_request = 1;
+}
+
+message UpdateMergeRequestRequest {
+  string merge_request_id = 1;
+  // Maximum: 1024 characters. Unset keeps the current title.
+  optional string title = 2;
+  optional string body = 3;
+  // STATE_CLOSED closes an open merge request. STATE_OPEN reopens a closed one while its head branch exists.
+  // Default: unchanged. STATE_MERGED returns InvalidArgument; merged merge requests return FailedPrecondition.
+  MergeRequest.State state = 4;
+  // Existing destination branch, different from the head. Only open merge requests can change base.
+  // Leave unset to keep the current base.
+  optional string base_ref = 5;
+}
+
+message UpdateMergeRequestResponse {
+  MergeRequest merge_request = 1;
+}
+
+message CreateMergeRequestCommentRequest {
+  // Unique identifier for the merge request. Returned by `CreateMergeRequest` and `GetMergeRequest`.
+  string merge_request_id = 1;
+  // Markdown. Required. Maximum: 65535 characters.
+  string body = 2;
+}
+
+message CreateMergeRequestCommentResponse {
+  MergeRequestComment comment = 1;
+}
+
+message UpdateMergeRequestCommentRequest {
+  // Unique identifier for the comment. Returned by `CreateMergeRequestComment` and `GetMergeRequest`.
+  string comment_id = 1;
+  // Replacement body in Markdown. Required. Maximum: 65535 characters.
+  string body = 2;
+}
+
+message UpdateMergeRequestCommentResponse {
+  MergeRequestComment comment = 1;
+}
+
+message DeleteMergeRequestCommentRequest {
+  // Unique identifier for the comment. Returned by `CreateMergeRequestComment` and `GetMergeRequest`.
+  string comment_id = 1;
+}
+
+message DeleteMergeRequestCommentResponse {}
+
+message ApproveMergeRequestRequest {
+  // Unique identifier for the merge request. Returned by `CreateMergeRequest` and `GetMergeRequest`.
+  string merge_request_id = 1;
+}
+
+message ApproveMergeRequestResponse {
+  MergeRequestApproval approval = 1;
+}
+
+message RemoveMergeRequestApprovalRequest {
+  // Unique identifier for the merge request. Returned by `CreateMergeRequest` and `GetMergeRequest`.
+  string merge_request_id = 1;
+}
+
+message RemoveMergeRequestApprovalResponse {}
+
+message GetRepositoryReviewSettingsRequest {
+  // Repository whose review settings to read.
+  string repository_id = 1;
+}
+
+message UpdateRepositoryReviewSettingsRequest {
+  // Repository whose review settings to change.
+  string repository_id = 1;
+  // Whether passing reviews can approve merge requests on their reviewed commit.
+  bool agents_can_approve = 2;
+}
+
+message GetRepositoryReviewSettingsResponse {
+  // Whether passing reviews can approve merge requests on their reviewed commit. Default: false.
+  bool agents_can_approve = 1;
+}
+
+message UpdateRepositoryReviewSettingsResponse {
+  // Whether passing reviews can approve merge requests on their reviewed commit. Default: false.
+  bool agents_can_approve = 1;
+}
