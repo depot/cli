@@ -9,8 +9,8 @@ require (
 )
 
 require (
-	buf.build/gen/go/depot/api/connectrpc/go v1.15.0-20261007095729-ac37ea7f444a.1 // indirect
-	buf.build/gen/go/depot/api/protocolbuffers/go v1.32.0-20261007095729-ac37ea7f444a.1 // indirect
+	buf.build/gen/go/depot/api/connectrpc/go v1.15.0-20261103164121-2ae2cc965839.1 // indirect
+	buf.build/gen/go/depot/api/protocolbuffers/go v1.32.0-20261103164121-2ae2cc965839.1 // indirect
 	charm.land/bubbles/v2 v2.0.0 // indirect
 	charm.land/bubbletea/v2 v2.0.2 // indirect
 	charm.land/huh/v2 v2.0.0 // indirect
@@ -208,13 +208,13 @@ require (
 	go.opentelemetry.io/proto/otlp v1.11.0 // indirect
 	go.yaml.in/yaml/v2 v2.4.4 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
-	golang.org/x/crypto v0.57.0 // indirect
+	golang.org/x/crypto v0.58.0 // indirect
 	golang.org/x/mod v0.41.0 // indirect
-	golang.org/x/net v0.59.0 // indirect
-	golang.org/x/sync v0.23.0 // indirect
-	golang.org/x/sys v0.48.0 // indirect
-	golang.org/x/term v0.46.0 // indirect
-	golang.org/x/text v0.42.0 // indirect
+	golang.org/x/net v0.62.0 // indirect
+	golang.org/x/sync v0.24.0 // indirect
+	golang.org/x/sys v0.49.0 // indirect
+	golang.org/x/term v0.47.0 // indirect
+	golang.org/x/text v0.43.0 // indirect
 	golang.org/x/time v0.16.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260825221802-da73d73af1c5 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260825221802-da73d73af1c5 // indirect

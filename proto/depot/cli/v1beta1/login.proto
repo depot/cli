@@ -14,10 +14,18 @@ message StartLoginRequest {}
 message StartLoginResponse {
   string id = 1;
   string approve_url = 2;
+  // Code that the approval page also shows. Show it to the user so they can confirm that they approve this login and not another one. For example, "K7QH-M3XR".
+  string verification_code = 3;
+  // Time after which `FinishLogin` rejects this login.
+  google.protobuf.Timestamp expires_at = 4;
+  // Secret to send as `pollSecret` in every `FinishLogin` call for this login. Do not show it or put it in the approval URL.
+  string poll_secret = 5;
 }
 
 message FinishLoginRequest {
   string id = 1;
+  // Secret returned as `pollSecret` by `StartLogin`.
+  string poll_secret = 2;
 }
 
 message FinishLoginResponse {

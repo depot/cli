@@ -41,6 +41,7 @@ Official CLI for [Depot](https://depot.dev) - you can use the CLI to build Docke
     - [`depot logout`](#depot-logout)
     - [`depot org`](#depot-org)
       - [`depot org credits`](#depot-org-credits)
+      - [`depot org invoices`](#depot-org-invoices)
       - [`depot org list`](#depot-org-list)
       - [`depot org show`](#depot-org-show)
       - [`depot org switch`](#depot-org-switch)
@@ -837,6 +838,39 @@ per minute across all tokens and ten per ten seconds across the API fleet.
 Excess polls exit with an error containing the server's retry delay. The command
 does not retry automatically or cache balances. Poll hourly for most credit
 alerts, and handle failed commands separately from a successful zero balance.
+
+#### `depot org invoices`
+
+Read finalized invoices for the organization's linked Stripe customer, including
+previous/canceled subscriptions and standalone invoices:
+
+```sh
+depot org invoices list --page-size 100
+depot org invoices list --page-token '<nextPageToken>'
+depot org invoices get in_example
+depot org invoices line-items in_example --page-size 100
+depot org invoices line-items in_example --page-token '<nextPageToken>'
+```
+
+All commands return the full API response as JSON (`--output json` is the default).
+Signed integer amounts are decimal strings in currency minor units, preserving
+precision. Optional fields are omitted when unavailable; standalone invoices have
+an empty subscription ID, omitted by default protobuf JSON serialization.
+
+Supply an organization API token via `--token`, `DEPOT_TOKEN`, or CLI configuration.
+For an organization owner's user token, also pass `--org <organization-id>`.
+The organization selected with `org switch` is not used, and these commands do not
+prompt for login. The API enforces access to the linked Stripe customer; organizations
+sharing a Stripe customer share its invoice history.
+
+Lists fetch one page, with `--page-size` between 1 and 100 (default 50). Pass
+`nextPageToken` back using `--page-token` until it is absent. An empty invoice page
+can still have a continuation token because drafts are filtered out. Tokens are
+opaque and scoped to the organization/customer and, for line items, the invoice.
+
+Hosted/PDF links in invoice responses are confidential. The CLI returns the links
+without opening or downloading them. Drafts, upcoming estimates, other billing
+providers, and invoices belonging to a different Stripe customer are excluded.
 
 #### `depot org list`
 

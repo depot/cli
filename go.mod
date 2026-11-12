@@ -3,8 +3,8 @@ module github.com/depot/cli
 go 1.26.8
 
 require (
-	buf.build/gen/go/depot/api/connectrpc/go v1.15.0-20261027120211-654d30620337.1
-	buf.build/gen/go/depot/api/protocolbuffers/go v1.32.0-20261027120211-654d30620337.1
+	buf.build/gen/go/depot/api/connectrpc/go v1.15.0-20261103164121-2ae2cc965839.1
+	buf.build/gen/go/depot/api/protocolbuffers/go v1.32.0-20261103164121-2ae2cc965839.1
 	charm.land/bubbles/v2 v2.0.0
 	charm.land/bubbletea/v2 v2.0.2
 	charm.land/huh/v2 v2.0.0
@@ -42,9 +42,9 @@ require (
 	github.com/stretchr/testify v1.12.1
 	github.com/zclconf/go-cty v1.17.0
 	go.opentelemetry.io/proto/otlp v1.11.0
-	golang.org/x/net v0.59.0
-	golang.org/x/sync v0.23.0
-	golang.org/x/term v0.46.0
+	golang.org/x/net v0.62.0
+	golang.org/x/sync v0.24.0
+	golang.org/x/term v0.47.0
 	google.golang.org/genproto/googleapis/api v0.0.0-20260825221802-da73d73af1c5
 	google.golang.org/grpc v1.84.0
 	google.golang.org/protobuf v1.36.12
@@ -185,7 +185,7 @@ require (
 	github.com/moby/sys/sequential v0.7.0 // indirect
 	github.com/moby/sys/signal v0.7.1 // indirect
 	github.com/moby/term v0.5.2 // indirect
-	github.com/muesli/cancelreader v0.2.2 // indirect
+	github.com/muesli/cancelreader v0.2.2
 	github.com/oklog/ulid/v2 v2.1.1 // indirect
 	github.com/open-policy-agent/opa v1.19.0 // indirect
 	github.com/package-url/packageurl-go v0.1.7 // indirect
@@ -239,12 +239,12 @@ require (
 	go.yaml.in/yaml/v2 v2.4.4 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
 	go.yaml.in/yaml/v4 v4.0.0-rc.4 // indirect
-	golang.org/x/crypto v0.57.0
+	golang.org/x/crypto v0.58.0
 	golang.org/x/mod v0.41.0 // indirect
-	golang.org/x/sys v0.48.0 // indirect
-	golang.org/x/text v0.42.0
+	golang.org/x/sys v0.49.0
+	golang.org/x/text v0.43.0
 	golang.org/x/time v0.16.0 // indirect
-	golang.org/x/tools v0.49.0 // indirect
+	golang.org/x/tools v0.51.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260825221802-da73d73af1c5 // indirect
 	k8s.io/klog/v2 v2.140.0 // indirect
 	sigs.k8s.io/yaml v1.6.0 // indirect
