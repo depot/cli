@@ -96,9 +96,7 @@ func NewCmdRoot(version, buildDate string) *cobra.Command {
 	cmd.AddCommand(exec.NewCmdExec())
 	cmd.AddCommand(ciCmd.NewCmdCI())
 	cmd.AddCommand(checks.NewCmdChecks())
-	if config.GetCurrentOrganization() == "cl0wyyk6k39487ebgraxasinja" {
-		cmd.AddCommand(mr.NewCmdMR())
-	}
+	cmd.AddCommand(mr.NewCmdMR())
 	cmd.AddCommand(sandboxCmd.NewCmdSandbox())
 	cmd.AddCommand(testsCmd.NewCmdTests())
 
