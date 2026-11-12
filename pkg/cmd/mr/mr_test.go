@@ -91,6 +91,7 @@ func getRPC(t *testing.T, mux *http.ServeMux, mr *code.MergeRequest, expectedBra
 
 func TestCreateAndViewCurrentBranchInTextAndJSON(t *testing.T) {
 	head := checkout(t)
+	runGit(t, "tag", "feature")
 	mux := apiServer(t)
 	mr := fixture(head)
 	calls := 0
@@ -182,12 +183,16 @@ func TestMergeUsesSelectedLocalBranchAndRefusesStaleHead(t *testing.T) {
 }
 
 func TestMergeRefusalsAreNotRetriedOrReplacedWithSuccess(t *testing.T) {
-	checkout(t)
+	head := checkout(t)
+	runGit(t, "tag", "feature")
 	for _, code := range []connect.Code{connect.CodeFailedPrecondition, connect.CodeUnimplemented, connect.CodePermissionDenied} {
 		t.Run(code.String(), func(t *testing.T) {
 			mux := apiServer(t)
 			calls := 0
-			rpc(t, mux, codev1beta2connect.MergeRequestServiceMergeMergeRequestProcedure, func(*codeMergeRequest) (*codeMergeResponse, error) {
+			rpc(t, mux, codev1beta2connect.MergeRequestServiceMergeMergeRequestProcedure, func(req *codeMergeRequest) (*codeMergeResponse, error) {
+				if req.GetHead().GetHeadRef() != "feature" || req.GetExpectedHeadOid() != head {
+					t.Errorf("wrong current branch with matching tag: %v", req)
+				}
 				calls++
 				return nil, connect.NewError(code, errors.New("merge refused"))
 			})
@@ -216,6 +221,7 @@ func TestLocalMergeValidationMakesNoAPICall(t *testing.T) {
 
 func TestApproveAndCommentUseResolvedMRAndSupportJSON(t *testing.T) {
 	head := checkout(t)
+	runGit(t, "tag", "feature")
 	mux := apiServer(t)
 	getRPC(t, mux, fixture(head), "feature")
 	rpc(t, mux, codev1beta2connect.MergeRequestServiceApproveMergeRequestProcedure, func(req *code.ApproveMergeRequestRequest) (*code.ApproveMergeRequestResponse, error) {

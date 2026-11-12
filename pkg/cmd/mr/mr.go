@@ -79,11 +79,12 @@ func branch(cmd *cobra.Command, args []string) (string, error) {
 	if len(args) > 0 {
 		name = args[0]
 	} else {
-		var err error
-		name, err = git(cmd, "symbolic-ref", "--quiet", "--short", "HEAD")
-		if err != nil {
+		ref, err := git(cmd, "symbolic-ref", "--quiet", "HEAD")
+		if err != nil || !strings.HasPrefix(ref, "refs/heads/") {
 			return "", fmt.Errorf("cannot determine the current branch; check out a branch or specify one explicitly")
 		}
+		// Abbreviated refs can include "heads/" when a tag shares the branch name.
+		name = strings.TrimPrefix(ref, "refs/heads/")
 	}
 	// Check the full ref without interpreting revision expressions or @{-1}.
 	if name == "" || strings.HasPrefix(name, "-") {
