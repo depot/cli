@@ -23,7 +23,7 @@ type options struct {
 func NewCmdMR() *cobra.Command {
 	o := &options{}
 	cmd := &cobra.Command{
-		Use: "mr", Short: "Manage merge requests", Hidden: true,
+		Use: "mr", Short: "Manage merge requests",
 		Long: "Manage merge requests using a user token from depot login.\nPass --repo with the Depot repository ID and --org if it is not the current organization.",
 		RunE: func(cmd *cobra.Command, _ []string) error { return cmd.Help() },
 	}
