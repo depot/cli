@@ -148,11 +148,11 @@ func newCreate(o *options) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := o.authenticateUser(cmd); err != nil {
-				return err
-			}
 			if cmd.Flags().Changed("repo") && strings.TrimSpace(o.repo) == "" {
 				return fmt.Errorf("--repo must not be blank; provide the Depot repository ID")
+			}
+			if err := o.authenticateUser(cmd); err != nil {
+				return err
 			}
 			if o.repo == "" {
 				o.repo, err = o.inferRepository(cmd)

@@ -78,9 +78,9 @@ func (o *options) inferRepository(cmd *cobra.Command) (string, error) {
 	var remotes []repositoryRemote
 	seen := make(map[repositoryRemote]bool)
 	for _, name := range strings.Fields(names) {
-		urls, err := git(cmd, "remote", "get-url", "--all", name)
+		urls, err := git(cmd, "remote", "get-url", "--all", "--", name)
 		if err != nil {
-			return "", repositoryInferenceError("cannot read Git remote URLs")
+			continue
 		}
 		for _, raw := range strings.Split(urls, "\n") {
 			remote, ok := parseRepositoryRemote(raw)
@@ -128,6 +128,7 @@ func (o *options) inferRepository(cmd *cobra.Command) (string, error) {
 		}
 	}
 
+	depotTarget := target
 	// A Depot remote that resolves to this upstream already identifies the
 	// mirror, including when its canonical name differs from its GitHub name.
 	var unmatched []string
@@ -145,6 +146,11 @@ func (o *options) inferRepository(cmd *cobra.Command) (string, error) {
 				PageSize: proto.Int32(500), PageToken: proto.String(pageToken),
 			}))
 			if err != nil {
+				// Listing requires owner access. A directly resolved Depot remote
+				// remains usable by members without permission to discover mirrors.
+				if depotTarget != nil && connect.CodeOf(err) == connect.CodePermissionDenied {
+					return depotTarget.Id, nil
+				}
 				return "", repositoryLookupError("existing mirror lookup", err)
 			}
 			for _, repo := range resp.Msg.Repositories {
@@ -166,7 +172,9 @@ func (o *options) inferRepository(cmd *cobra.Command) (string, error) {
 			}
 			seenPages[pageToken] = true
 		}
-		if len(matched) != len(unmatched) {
+		// Extra GitHub remotes may be personal forks without a Depot mirror.
+		// They do not invalidate a target resolved from a Depot remote.
+		if depotTarget == nil && len(matched) != len(unmatched) {
 			return "", repositoryInferenceError("no existing Depot mirror matches a GitHub remote in the selected organization")
 		}
 	}

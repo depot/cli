@@ -99,6 +99,73 @@ func TestCreatePairsRemotesAndDeduplicatesDepotAliases(t *testing.T) {
 	}
 }
 
+func TestCreateUsesDepotRemoteWithUnmirroredGitHubFork(t *testing.T) {
+	for _, mirrored := range []bool{false, true} {
+		for _, canList := range []bool{false, true} {
+			t.Run(fmt.Sprintf("mirrored=%v/canList=%v", mirrored, canList), func(t *testing.T) {
+				checkout(t)
+				runGit(t, "remote", "add", "depot", "https://test-org.code.depot.dev/widgets")
+				runGit(t, "remote", "add", "origin", "git@github.com:alice/widgets.git")
+				mux := apiServer(t)
+				rpc(t, mux, gitv1connect.RepositoryServiceResolveProcedure, func(*gitv1.ResolveRequest) (*gitv1.ResolveResponse, error) {
+					repo := &gitv1.Repository{Id: "opaque-id", OrgId: "test-org"}
+					if mirrored {
+						repo = mirror("opaque-id", "acme/widgets")
+					}
+					return &gitv1.ResolveResponse{Repository: repo}, nil
+				})
+				rpc(t, mux, gitv1connect.RepositoryServiceListProcedure, func(*gitv1.ListRequest) (*gitv1.ListResponse, error) {
+					if !canList {
+						return nil, connect.NewError(connect.CodePermissionDenied, errors.New("owner access required"))
+					}
+					return &gitv1.ListResponse{Repositories: []*gitv1.Repository{mirror("unrelated", "other/widgets")}}, nil
+				})
+				calls := expectCreate(t, mux, "opaque-id")
+				if out, err := executeInferred(t); err != nil || *calls != 1 || !strings.Contains(out, "mr_1") {
+					t.Fatalf("create with fork: %q %v, calls %d", out, err, *calls)
+				}
+			})
+		}
+	}
+}
+
+func TestCreateReadsOptionLikeRemotesAndSkipsUnreadableNames(t *testing.T) {
+	for _, name := range []string{"-mirror", "origin"} {
+		t.Run(name, func(t *testing.T) {
+			checkout(t)
+			runGit(t, "remote", "add", "--", name, "https://test-org.code.depot.dev/widgets")
+			// Malformed config names are listed by Git but their individual words
+			// cannot be looked up as remotes.
+			runGit(t, "config", "remote.bad name.url", "https://example.test/widgets")
+			mux := apiServer(t)
+			rpc(t, mux, gitv1connect.RepositoryServiceResolveProcedure, func(*gitv1.ResolveRequest) (*gitv1.ResolveResponse, error) {
+				return &gitv1.ResolveResponse{Repository: &gitv1.Repository{Id: "opaque-id", OrgId: "test-org"}}, nil
+			})
+			calls := expectCreate(t, mux, "opaque-id")
+			if out, err := executeInferred(t); err != nil || *calls != 1 || !strings.Contains(out, "mr_1") {
+				t.Fatalf("create with irregular remotes: %q %v, calls %d", out, err, *calls)
+			}
+		})
+	}
+}
+
+func TestCreateRejectsBlankRepositoryBeforeAuthentication(t *testing.T) {
+	checkout(t)
+	for _, name := range []string{"DEPOT_TOKEN", "DEPOT_API_TOKEN", "DEPOT_JIT_TOKEN", "DEPOT_CACHE_TOKEN", "DEPOT_RUN_TOKEN_URL"} {
+		t.Setenv(name, "")
+	}
+	viper.Set("api_token", "")
+	t.Cleanup(viper.Reset)
+	mux := apiServer(t)
+	mux.HandleFunc("/", func(http.ResponseWriter, *http.Request) { t.Error("unexpected authentication or repository request") })
+	for _, repo := range []string{"", " "} {
+		out, err := executeInferred(t, "--repo", repo, "--token", "")
+		if err == nil || !strings.Contains(err.Error(), "--repo must not be blank") || out != "" {
+			t.Fatalf("expected input validation before authentication: %q %v", out, err)
+		}
+	}
+}
+
 func TestCreateFindsExistingMirrorAcrossAllPages(t *testing.T) {
 	checkout(t)
 	runGit(t, "remote", "add", "origin", "ssh://git@github.com/Acme/Widgets.git")
@@ -216,6 +283,17 @@ func TestCreateInferenceRefusesUnsafeTargets(t *testing.T) {
 			repo.OrgId = "other"
 			return &gitv1.ListResponse{Repositories: []*gitv1.Repository{repo}}, nil
 		}, want: "does not belong"},
+		{name: "listing failure with native target", remotes: []string{"https://code.depot.dev/widgets", "git@github.com:alice/widgets.git"}, resolve: func(*gitv1.ResolveRequest) (*gitv1.ResolveResponse, error) {
+			return &gitv1.ResolveResponse{Repository: mirror("one", "acme/widgets")}, nil
+		}, list: func(*gitv1.ListRequest) (*gitv1.ListResponse, error) {
+			return nil, connect.NewError(connect.CodeUnavailable, errors.New("listing failed"))
+		}, want: "unavailable"},
+		{name: "permission denied after partial mirror listing", remotes: []string{"git@github.com:acme/widgets.git"}, list: func(req *gitv1.ListRequest) (*gitv1.ListResponse, error) {
+			if req.GetPageToken() == "" {
+				return &gitv1.ListResponse{Repositories: []*gitv1.Repository{mirror("one", "acme/widgets")}, NextPageToken: proto.String("two")}, nil
+			}
+			return nil, connect.NewError(connect.CodePermissionDenied, errors.New("listing denied"))
+		}, want: "permission_denied"},
 		{name: "repeated pagination", remotes: []string{"git@github.com:acme/widgets.git"}, list: func(*gitv1.ListRequest) (*gitv1.ListResponse, error) {
 			return &gitv1.ListResponse{NextPageToken: proto.String("same")}, nil
 		}, want: "repeated page token"},
