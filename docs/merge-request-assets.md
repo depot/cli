@@ -1,0 +1,27 @@
+# Assets in merge request descriptions
+
+Repeat `--attach` to upload images and videos when creating a merge request:
+
+```shell
+depot mr create --title "Update settings" --body "New settings page" \
+  --attach screenshot.png --attach walkthrough.mp4
+```
+
+The CLI appends Markdown media references in flag order. Use static PNG, JPEG,
+or WebP images, or MP4, MOV, or WebM videos. Each attachment is limited to 10 MiB
+and 40 megapixels per frame, with at most ten attachments per description.
+`--image` remains an alias for `--attach`; both flags can be mixed. Progress goes
+to stderr, so `--json` output remains machine-readable.
+
+Uploads are private to their author until the merge request is saved, then
+readable by repository readers signed into Depot. They remain available after
+merging, closing, or deleting the source branch. Unattached uploads expire after
+24 hours. Videos render with playback controls in Depot; codec support depends
+on the browser, and a download link is available.
+
+Transient upload failures retry with the same upload identity. If an upload
+fails, the command exits without creating the merge request. Run the command
+again to retry. If the branch already has an open MR, the CLI returns it without
+uploading additional attachments.
+
+The server must support asset uploads before this flag can be used.

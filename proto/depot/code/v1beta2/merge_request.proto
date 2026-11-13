@@ -8,13 +8,13 @@ import "google/protobuf/timestamp.proto";
 // Every method requires a user credential. Organization tokens, CI job tokens and service credentials return
 // PermissionDenied.
 service MergeRequestService {
-  // Uploads a private draft image. Reuse uploadKey with identical bytes to retry.
+  // Uploads a private draft asset. Reuse uploadKey with identical bytes to retry.
   // Drafts expire after 24 hours. Saving the returned Markdown URL in a description attaches it to that MR.
-  rpc UploadMergeRequestImage(UploadMergeRequestImageRequest) returns (UploadMergeRequestImageResponse) {
+  rpc UploadMergeRequestAsset(UploadMergeRequestAssetRequest) returns (UploadMergeRequestAssetResponse) {
     option idempotency_level = IDEMPOTENT;
   }
-  // Reads an image as its draft author or as an authorized viewer of its repository and attached MR.
-  rpc GetMergeRequestImage(GetMergeRequestImageRequest) returns (GetMergeRequestImageResponse) {
+  // Reads an asset as its draft author or as an authorized viewer of its repository and attached MR.
+  rpc GetMergeRequestAsset(GetMergeRequestAssetRequest) returns (GetMergeRequestAssetResponse) {
     option idempotency_level = NO_SIDE_EFFECTS;
   }
   // Reads whether passing review agents can approve merge requests in this repository.
@@ -292,29 +292,29 @@ message UpdateRepositoryReviewSettingsResponse {
   bool agents_can_approve = 1;
 }
 
-message UploadMergeRequestImageRequest {
+message UploadMergeRequestAssetRequest {
   // Unique identifier for the repository. Returned by GetRepository.
   string repository_id = 1;
   // SHA-256 of a client-generated upload identity. Reusing it with different bytes returns AlreadyExists.
   string upload_key = 2;
-  // PNG, JPEG, or WebP bytes. Maximum: 10485760 bytes and 40000000 decoded pixels.
+  // Static PNG/JPEG/WebP image or MP4/MOV/WebM video bytes. Maximum: 10485760 bytes and 40000000 pixels per frame.
   bytes content = 3;
 }
 
-message UploadMergeRequestImageResponse {
-  string image_id = 1;
-  // Permanent authenticated image URL. Insert it into the merge request description to attach the image.
+message UploadMergeRequestAssetResponse {
+  string asset_id = 1;
+  // Permanent authenticated asset URL with a media extension. Insert it into the description to attach the asset.
   string url = 2;
 }
 
-message GetMergeRequestImageRequest {
+message GetMergeRequestAssetRequest {
   // Unique identifier for the repository. Returned by GetRepository.
   string repository_id = 1;
-  // Unique identifier for the image. Returned by UploadMergeRequestImage.
-  string image_id = 2;
+  // Unique identifier for the asset. Returned by UploadMergeRequestAsset.
+  string asset_id = 2;
 }
 
-message GetMergeRequestImageResponse {
+message GetMergeRequestAssetResponse {
   bytes content = 1;
   string content_type = 2;
 }

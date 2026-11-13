@@ -11,6 +11,7 @@ import (
 	"github.com/depot/cli/pkg/helpers"
 	code "github.com/depot/cli/pkg/proto/depot/code/v1beta2"
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 )
@@ -131,7 +132,7 @@ func writeMR(cmd *cobra.Command, mr *code.MergeRequest) error {
 
 func newCreate(o *options) *cobra.Command {
 	var title, body, head string
-	var imagePaths []string
+	var attachmentPaths []string
 	cmd := &cobra.Command{Use: "create", Short: "Open a merge request for the current branch", Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if strings.TrimSpace(title) == "" {
@@ -148,12 +149,12 @@ func newCreate(o *options) *cobra.Command {
 			if err := o.authenticate(cmd); err != nil {
 				return err
 			}
-			images, err := readImages(imagePaths)
+			assets, err := readAssets(attachmentPaths)
 			if err != nil {
 				return err
 			}
 			requestBody := body
-			if len(images) > 0 {
+			if len(assets) > 0 {
 				// A retry after a lost create response must return the existing MR without uploading again.
 				if existing, err := o.get(cmd, name); err == nil {
 					if o.json {
@@ -163,7 +164,7 @@ func newCreate(o *options) *cobra.Command {
 				} else if connect.CodeOf(err) != connect.CodeNotFound {
 					return err
 				}
-				requestBody, err = o.uploadImages(cmd, name, title, body, images)
+				requestBody, err = o.uploadAssets(cmd, name, title, body, assets)
 				if err != nil {
 					return err
 				}
@@ -186,7 +187,13 @@ func newCreate(o *options) *cobra.Command {
 	cmd.Flags().StringVar(&title, "title", "", "Merge request title (required)")
 	cmd.Flags().StringVar(&body, "body", "", "Merge request description")
 	cmd.Flags().StringVar(&head, "head", "", "Source branch (defaults to the current branch)")
-	cmd.Flags().StringArrayVar(&imagePaths, "image", nil, "Upload an image and append it to the description (repeatable; PNG/JPEG/WebP, 10 MiB each, at most 10)")
+	cmd.Flags().SetNormalizeFunc(func(_ *pflag.FlagSet, name string) pflag.NormalizedName {
+		if name == "image" {
+			name = "attach"
+		}
+		return pflag.NormalizedName(name)
+	})
+	cmd.Flags().StringArrayVar(&attachmentPaths, "attach", nil, "Attach an image or video (repeatable; PNG/JPEG/WebP/MP4/MOV/WebM, 10 MiB each, at most 10; --image is an alias)")
 	return cmd
 }
 

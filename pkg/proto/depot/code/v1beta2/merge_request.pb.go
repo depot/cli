@@ -2025,7 +2025,7 @@ func (x *UpdateRepositoryReviewSettingsResponse) GetAgentsCanApprove() bool {
 	return false
 }
 
-type UploadMergeRequestImageRequest struct {
+type UploadMergeRequestAssetRequest struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
@@ -2034,12 +2034,12 @@ type UploadMergeRequestImageRequest struct {
 	RepositoryId string `protobuf:"bytes,1,opt,name=repository_id,json=repositoryId,proto3" json:"repository_id,omitempty"`
 	// SHA-256 of a client-generated upload identity. Reusing it with different bytes returns AlreadyExists.
 	UploadKey string `protobuf:"bytes,2,opt,name=upload_key,json=uploadKey,proto3" json:"upload_key,omitempty"`
-	// PNG, JPEG, or WebP bytes. Maximum: 10485760 bytes and 40000000 decoded pixels.
+	// Static PNG/JPEG/WebP image or MP4/MOV/WebM video bytes. Maximum: 10485760 bytes and 40000000 pixels per frame.
 	Content []byte `protobuf:"bytes,3,opt,name=content,proto3" json:"content,omitempty"`
 }
 
-func (x *UploadMergeRequestImageRequest) Reset() {
-	*x = UploadMergeRequestImageRequest{}
+func (x *UploadMergeRequestAssetRequest) Reset() {
+	*x = UploadMergeRequestAssetRequest{}
 	if protoimpl.UnsafeEnabled {
 		mi := &file_depot_code_v1beta2_merge_request_proto_msgTypes[29]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -2047,13 +2047,13 @@ func (x *UploadMergeRequestImageRequest) Reset() {
 	}
 }
 
-func (x *UploadMergeRequestImageRequest) String() string {
+func (x *UploadMergeRequestAssetRequest) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*UploadMergeRequestImageRequest) ProtoMessage() {}
+func (*UploadMergeRequestAssetRequest) ProtoMessage() {}
 
-func (x *UploadMergeRequestImageRequest) ProtoReflect() protoreflect.Message {
+func (x *UploadMergeRequestAssetRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_depot_code_v1beta2_merge_request_proto_msgTypes[29]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -2065,44 +2065,44 @@ func (x *UploadMergeRequestImageRequest) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use UploadMergeRequestImageRequest.ProtoReflect.Descriptor instead.
-func (*UploadMergeRequestImageRequest) Descriptor() ([]byte, []int) {
+// Deprecated: Use UploadMergeRequestAssetRequest.ProtoReflect.Descriptor instead.
+func (*UploadMergeRequestAssetRequest) Descriptor() ([]byte, []int) {
 	return file_depot_code_v1beta2_merge_request_proto_rawDescGZIP(), []int{29}
 }
 
-func (x *UploadMergeRequestImageRequest) GetRepositoryId() string {
+func (x *UploadMergeRequestAssetRequest) GetRepositoryId() string {
 	if x != nil {
 		return x.RepositoryId
 	}
 	return ""
 }
 
-func (x *UploadMergeRequestImageRequest) GetUploadKey() string {
+func (x *UploadMergeRequestAssetRequest) GetUploadKey() string {
 	if x != nil {
 		return x.UploadKey
 	}
 	return ""
 }
 
-func (x *UploadMergeRequestImageRequest) GetContent() []byte {
+func (x *UploadMergeRequestAssetRequest) GetContent() []byte {
 	if x != nil {
 		return x.Content
 	}
 	return nil
 }
 
-type UploadMergeRequestImageResponse struct {
+type UploadMergeRequestAssetResponse struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	ImageId string `protobuf:"bytes,1,opt,name=image_id,json=imageId,proto3" json:"image_id,omitempty"`
-	// Permanent authenticated image URL. Insert it into the merge request description to attach the image.
+	AssetId string `protobuf:"bytes,1,opt,name=asset_id,json=assetId,proto3" json:"asset_id,omitempty"`
+	// Permanent authenticated asset URL with a media extension. Insert it into the description to attach the asset.
 	Url string `protobuf:"bytes,2,opt,name=url,proto3" json:"url,omitempty"`
 }
 
-func (x *UploadMergeRequestImageResponse) Reset() {
-	*x = UploadMergeRequestImageResponse{}
+func (x *UploadMergeRequestAssetResponse) Reset() {
+	*x = UploadMergeRequestAssetResponse{}
 	if protoimpl.UnsafeEnabled {
 		mi := &file_depot_code_v1beta2_merge_request_proto_msgTypes[30]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -2110,13 +2110,13 @@ func (x *UploadMergeRequestImageResponse) Reset() {
 	}
 }
 
-func (x *UploadMergeRequestImageResponse) String() string {
+func (x *UploadMergeRequestAssetResponse) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*UploadMergeRequestImageResponse) ProtoMessage() {}
+func (*UploadMergeRequestAssetResponse) ProtoMessage() {}
 
-func (x *UploadMergeRequestImageResponse) ProtoReflect() protoreflect.Message {
+func (x *UploadMergeRequestAssetResponse) ProtoReflect() protoreflect.Message {
 	mi := &file_depot_code_v1beta2_merge_request_proto_msgTypes[30]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -2128,38 +2128,38 @@ func (x *UploadMergeRequestImageResponse) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use UploadMergeRequestImageResponse.ProtoReflect.Descriptor instead.
-func (*UploadMergeRequestImageResponse) Descriptor() ([]byte, []int) {
+// Deprecated: Use UploadMergeRequestAssetResponse.ProtoReflect.Descriptor instead.
+func (*UploadMergeRequestAssetResponse) Descriptor() ([]byte, []int) {
 	return file_depot_code_v1beta2_merge_request_proto_rawDescGZIP(), []int{30}
 }
 
-func (x *UploadMergeRequestImageResponse) GetImageId() string {
+func (x *UploadMergeRequestAssetResponse) GetAssetId() string {
 	if x != nil {
-		return x.ImageId
+		return x.AssetId
 	}
 	return ""
 }
 
-func (x *UploadMergeRequestImageResponse) GetUrl() string {
+func (x *UploadMergeRequestAssetResponse) GetUrl() string {
 	if x != nil {
 		return x.Url
 	}
 	return ""
 }
 
-type GetMergeRequestImageRequest struct {
+type GetMergeRequestAssetRequest struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
 	// Unique identifier for the repository. Returned by GetRepository.
 	RepositoryId string `protobuf:"bytes,1,opt,name=repository_id,json=repositoryId,proto3" json:"repository_id,omitempty"`
-	// Unique identifier for the image. Returned by UploadMergeRequestImage.
-	ImageId string `protobuf:"bytes,2,opt,name=image_id,json=imageId,proto3" json:"image_id,omitempty"`
+	// Unique identifier for the asset. Returned by UploadMergeRequestAsset.
+	AssetId string `protobuf:"bytes,2,opt,name=asset_id,json=assetId,proto3" json:"asset_id,omitempty"`
 }
 
-func (x *GetMergeRequestImageRequest) Reset() {
-	*x = GetMergeRequestImageRequest{}
+func (x *GetMergeRequestAssetRequest) Reset() {
+	*x = GetMergeRequestAssetRequest{}
 	if protoimpl.UnsafeEnabled {
 		mi := &file_depot_code_v1beta2_merge_request_proto_msgTypes[31]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -2167,13 +2167,13 @@ func (x *GetMergeRequestImageRequest) Reset() {
 	}
 }
 
-func (x *GetMergeRequestImageRequest) String() string {
+func (x *GetMergeRequestAssetRequest) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*GetMergeRequestImageRequest) ProtoMessage() {}
+func (*GetMergeRequestAssetRequest) ProtoMessage() {}
 
-func (x *GetMergeRequestImageRequest) ProtoReflect() protoreflect.Message {
+func (x *GetMergeRequestAssetRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_depot_code_v1beta2_merge_request_proto_msgTypes[31]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -2185,26 +2185,26 @@ func (x *GetMergeRequestImageRequest) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use GetMergeRequestImageRequest.ProtoReflect.Descriptor instead.
-func (*GetMergeRequestImageRequest) Descriptor() ([]byte, []int) {
+// Deprecated: Use GetMergeRequestAssetRequest.ProtoReflect.Descriptor instead.
+func (*GetMergeRequestAssetRequest) Descriptor() ([]byte, []int) {
 	return file_depot_code_v1beta2_merge_request_proto_rawDescGZIP(), []int{31}
 }
 
-func (x *GetMergeRequestImageRequest) GetRepositoryId() string {
+func (x *GetMergeRequestAssetRequest) GetRepositoryId() string {
 	if x != nil {
 		return x.RepositoryId
 	}
 	return ""
 }
 
-func (x *GetMergeRequestImageRequest) GetImageId() string {
+func (x *GetMergeRequestAssetRequest) GetAssetId() string {
 	if x != nil {
-		return x.ImageId
+		return x.AssetId
 	}
 	return ""
 }
 
-type GetMergeRequestImageResponse struct {
+type GetMergeRequestAssetResponse struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
@@ -2213,8 +2213,8 @@ type GetMergeRequestImageResponse struct {
 	ContentType string `protobuf:"bytes,2,opt,name=content_type,json=contentType,proto3" json:"content_type,omitempty"`
 }
 
-func (x *GetMergeRequestImageResponse) Reset() {
-	*x = GetMergeRequestImageResponse{}
+func (x *GetMergeRequestAssetResponse) Reset() {
+	*x = GetMergeRequestAssetResponse{}
 	if protoimpl.UnsafeEnabled {
 		mi := &file_depot_code_v1beta2_merge_request_proto_msgTypes[32]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -2222,13 +2222,13 @@ func (x *GetMergeRequestImageResponse) Reset() {
 	}
 }
 
-func (x *GetMergeRequestImageResponse) String() string {
+func (x *GetMergeRequestAssetResponse) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*GetMergeRequestImageResponse) ProtoMessage() {}
+func (*GetMergeRequestAssetResponse) ProtoMessage() {}
 
-func (x *GetMergeRequestImageResponse) ProtoReflect() protoreflect.Message {
+func (x *GetMergeRequestAssetResponse) ProtoReflect() protoreflect.Message {
 	mi := &file_depot_code_v1beta2_merge_request_proto_msgTypes[32]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -2240,19 +2240,19 @@ func (x *GetMergeRequestImageResponse) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use GetMergeRequestImageResponse.ProtoReflect.Descriptor instead.
-func (*GetMergeRequestImageResponse) Descriptor() ([]byte, []int) {
+// Deprecated: Use GetMergeRequestAssetResponse.ProtoReflect.Descriptor instead.
+func (*GetMergeRequestAssetResponse) Descriptor() ([]byte, []int) {
 	return file_depot_code_v1beta2_merge_request_proto_rawDescGZIP(), []int{32}
 }
 
-func (x *GetMergeRequestImageResponse) GetContent() []byte {
+func (x *GetMergeRequestAssetResponse) GetContent() []byte {
 	if x != nil {
 		return x.Content
 	}
 	return nil
 }
 
-func (x *GetMergeRequestImageResponse) GetContentType() string {
+func (x *GetMergeRequestAssetResponse) GetContentType() string {
 	if x != nil {
 		return x.ContentType
 	}
@@ -2638,7 +2638,7 @@ var file_depot_code_v1beta2_merge_request_proto_rawDesc = []byte{
 	0x76, 0x65, 0x18, 0x01, 0x20, 0x01, 0x28, 0x08, 0x52, 0x10, 0x61, 0x67, 0x65, 0x6e, 0x74, 0x73,
 	0x43, 0x61, 0x6e, 0x41, 0x70, 0x70, 0x72, 0x6f, 0x76, 0x65, 0x22, 0x7e, 0x0a, 0x1e, 0x55, 0x70,
 	0x6c, 0x6f, 0x61, 0x64, 0x4d, 0x65, 0x72, 0x67, 0x65, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74,
-	0x49, 0x6d, 0x61, 0x67, 0x65, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x12, 0x23, 0x0a, 0x0d,
+	0x41, 0x73, 0x73, 0x65, 0x74, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x12, 0x23, 0x0a, 0x0d,
 	0x72, 0x65, 0x70, 0x6f, 0x73, 0x69, 0x74, 0x6f, 0x72, 0x79, 0x5f, 0x69, 0x64, 0x18, 0x01, 0x20,
 	0x01, 0x28, 0x09, 0x52, 0x0c, 0x72, 0x65, 0x70, 0x6f, 0x73, 0x69, 0x74, 0x6f, 0x72, 0x79, 0x49,
 	0x64, 0x12, 0x1d, 0x0a, 0x0a, 0x75, 0x70, 0x6c, 0x6f, 0x61, 0x64, 0x5f, 0x6b, 0x65, 0x79, 0x18,
@@ -2646,39 +2646,39 @@ var file_depot_code_v1beta2_merge_request_proto_rawDesc = []byte{
 	0x12, 0x18, 0x0a, 0x07, 0x63, 0x6f, 0x6e, 0x74, 0x65, 0x6e, 0x74, 0x18, 0x03, 0x20, 0x01, 0x28,
 	0x0c, 0x52, 0x07, 0x63, 0x6f, 0x6e, 0x74, 0x65, 0x6e, 0x74, 0x22, 0x4e, 0x0a, 0x1f, 0x55, 0x70,
 	0x6c, 0x6f, 0x61, 0x64, 0x4d, 0x65, 0x72, 0x67, 0x65, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74,
-	0x49, 0x6d, 0x61, 0x67, 0x65, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x19, 0x0a,
-	0x08, 0x69, 0x6d, 0x61, 0x67, 0x65, 0x5f, 0x69, 0x64, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52,
-	0x07, 0x69, 0x6d, 0x61, 0x67, 0x65, 0x49, 0x64, 0x12, 0x10, 0x0a, 0x03, 0x75, 0x72, 0x6c, 0x18,
+	0x41, 0x73, 0x73, 0x65, 0x74, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x19, 0x0a,
+	0x08, 0x61, 0x73, 0x73, 0x65, 0x74, 0x5f, 0x69, 0x64, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52,
+	0x07, 0x61, 0x73, 0x73, 0x65, 0x74, 0x49, 0x64, 0x12, 0x10, 0x0a, 0x03, 0x75, 0x72, 0x6c, 0x18,
 	0x02, 0x20, 0x01, 0x28, 0x09, 0x52, 0x03, 0x75, 0x72, 0x6c, 0x22, 0x5d, 0x0a, 0x1b, 0x47, 0x65,
-	0x74, 0x4d, 0x65, 0x72, 0x67, 0x65, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x49, 0x6d, 0x61,
-	0x67, 0x65, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x12, 0x23, 0x0a, 0x0d, 0x72, 0x65, 0x70,
+	0x74, 0x4d, 0x65, 0x72, 0x67, 0x65, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x41, 0x73, 0x73,
+	0x65, 0x74, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x12, 0x23, 0x0a, 0x0d, 0x72, 0x65, 0x70,
 	0x6f, 0x73, 0x69, 0x74, 0x6f, 0x72, 0x79, 0x5f, 0x69, 0x64, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09,
 	0x52, 0x0c, 0x72, 0x65, 0x70, 0x6f, 0x73, 0x69, 0x74, 0x6f, 0x72, 0x79, 0x49, 0x64, 0x12, 0x19,
-	0x0a, 0x08, 0x69, 0x6d, 0x61, 0x67, 0x65, 0x5f, 0x69, 0x64, 0x18, 0x02, 0x20, 0x01, 0x28, 0x09,
-	0x52, 0x07, 0x69, 0x6d, 0x61, 0x67, 0x65, 0x49, 0x64, 0x22, 0x5b, 0x0a, 0x1c, 0x47, 0x65, 0x74,
-	0x4d, 0x65, 0x72, 0x67, 0x65, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x49, 0x6d, 0x61, 0x67,
-	0x65, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x18, 0x0a, 0x07, 0x63, 0x6f, 0x6e,
+	0x0a, 0x08, 0x61, 0x73, 0x73, 0x65, 0x74, 0x5f, 0x69, 0x64, 0x18, 0x02, 0x20, 0x01, 0x28, 0x09,
+	0x52, 0x07, 0x61, 0x73, 0x73, 0x65, 0x74, 0x49, 0x64, 0x22, 0x5b, 0x0a, 0x1c, 0x47, 0x65, 0x74,
+	0x4d, 0x65, 0x72, 0x67, 0x65, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x41, 0x73, 0x73, 0x65,
+	0x74, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x18, 0x0a, 0x07, 0x63, 0x6f, 0x6e,
 	0x74, 0x65, 0x6e, 0x74, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0c, 0x52, 0x07, 0x63, 0x6f, 0x6e, 0x74,
 	0x65, 0x6e, 0x74, 0x12, 0x21, 0x0a, 0x0c, 0x63, 0x6f, 0x6e, 0x74, 0x65, 0x6e, 0x74, 0x5f, 0x74,
 	0x79, 0x70, 0x65, 0x18, 0x02, 0x20, 0x01, 0x28, 0x09, 0x52, 0x0b, 0x63, 0x6f, 0x6e, 0x74, 0x65,
 	0x6e, 0x74, 0x54, 0x79, 0x70, 0x65, 0x32, 0xdf, 0x0e, 0x0a, 0x13, 0x4d, 0x65, 0x72, 0x67, 0x65,
 	0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x53, 0x65, 0x72, 0x76, 0x69, 0x63, 0x65, 0x12, 0x87,
 	0x01, 0x0a, 0x17, 0x55, 0x70, 0x6c, 0x6f, 0x61, 0x64, 0x4d, 0x65, 0x72, 0x67, 0x65, 0x52, 0x65,
-	0x71, 0x75, 0x65, 0x73, 0x74, 0x49, 0x6d, 0x61, 0x67, 0x65, 0x12, 0x32, 0x2e, 0x64, 0x65, 0x70,
+	0x71, 0x75, 0x65, 0x73, 0x74, 0x41, 0x73, 0x73, 0x65, 0x74, 0x12, 0x32, 0x2e, 0x64, 0x65, 0x70,
 	0x6f, 0x74, 0x2e, 0x63, 0x6f, 0x64, 0x65, 0x2e, 0x76, 0x31, 0x62, 0x65, 0x74, 0x61, 0x32, 0x2e,
 	0x55, 0x70, 0x6c, 0x6f, 0x61, 0x64, 0x4d, 0x65, 0x72, 0x67, 0x65, 0x52, 0x65, 0x71, 0x75, 0x65,
-	0x73, 0x74, 0x49, 0x6d, 0x61, 0x67, 0x65, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x33,
+	0x73, 0x74, 0x41, 0x73, 0x73, 0x65, 0x74, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x33,
 	0x2e, 0x64, 0x65, 0x70, 0x6f, 0x74, 0x2e, 0x63, 0x6f, 0x64, 0x65, 0x2e, 0x76, 0x31, 0x62, 0x65,
 	0x74, 0x61, 0x32, 0x2e, 0x55, 0x70, 0x6c, 0x6f, 0x61, 0x64, 0x4d, 0x65, 0x72, 0x67, 0x65, 0x52,
-	0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x49, 0x6d, 0x61, 0x67, 0x65, 0x52, 0x65, 0x73, 0x70, 0x6f,
+	0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x41, 0x73, 0x73, 0x65, 0x74, 0x52, 0x65, 0x73, 0x70, 0x6f,
 	0x6e, 0x73, 0x65, 0x22, 0x03, 0x90, 0x02, 0x02, 0x12, 0x7e, 0x0a, 0x14, 0x47, 0x65, 0x74, 0x4d,
-	0x65, 0x72, 0x67, 0x65, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x49, 0x6d, 0x61, 0x67, 0x65,
+	0x65, 0x72, 0x67, 0x65, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x41, 0x73, 0x73, 0x65, 0x74,
 	0x12, 0x2f, 0x2e, 0x64, 0x65, 0x70, 0x6f, 0x74, 0x2e, 0x63, 0x6f, 0x64, 0x65, 0x2e, 0x76, 0x31,
 	0x62, 0x65, 0x74, 0x61, 0x32, 0x2e, 0x47, 0x65, 0x74, 0x4d, 0x65, 0x72, 0x67, 0x65, 0x52, 0x65,
-	0x71, 0x75, 0x65, 0x73, 0x74, 0x49, 0x6d, 0x61, 0x67, 0x65, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73,
+	0x71, 0x75, 0x65, 0x73, 0x74, 0x41, 0x73, 0x73, 0x65, 0x74, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73,
 	0x74, 0x1a, 0x30, 0x2e, 0x64, 0x65, 0x70, 0x6f, 0x74, 0x2e, 0x63, 0x6f, 0x64, 0x65, 0x2e, 0x76,
 	0x31, 0x62, 0x65, 0x74, 0x61, 0x32, 0x2e, 0x47, 0x65, 0x74, 0x4d, 0x65, 0x72, 0x67, 0x65, 0x52,
-	0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x49, 0x6d, 0x61, 0x67, 0x65, 0x52, 0x65, 0x73, 0x70, 0x6f,
+	0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x41, 0x73, 0x73, 0x65, 0x74, 0x52, 0x65, 0x73, 0x70, 0x6f,
 	0x6e, 0x73, 0x65, 0x22, 0x03, 0x90, 0x02, 0x01, 0x12, 0x90, 0x01, 0x0a, 0x1b, 0x47, 0x65, 0x74,
 	0x52, 0x65, 0x70, 0x6f, 0x73, 0x69, 0x74, 0x6f, 0x72, 0x79, 0x52, 0x65, 0x76, 0x69, 0x65, 0x77,
 	0x53, 0x65, 0x74, 0x74, 0x69, 0x6e, 0x67, 0x73, 0x12, 0x36, 0x2e, 0x64, 0x65, 0x70, 0x6f, 0x74,
@@ -2842,10 +2842,10 @@ var file_depot_code_v1beta2_merge_request_proto_goTypes = []interface{}{
 	(*UpdateRepositoryReviewSettingsRequest)(nil),  // 28: depot.code.v1beta2.UpdateRepositoryReviewSettingsRequest
 	(*GetRepositoryReviewSettingsResponse)(nil),    // 29: depot.code.v1beta2.GetRepositoryReviewSettingsResponse
 	(*UpdateRepositoryReviewSettingsResponse)(nil), // 30: depot.code.v1beta2.UpdateRepositoryReviewSettingsResponse
-	(*UploadMergeRequestImageRequest)(nil),         // 31: depot.code.v1beta2.UploadMergeRequestImageRequest
-	(*UploadMergeRequestImageResponse)(nil),        // 32: depot.code.v1beta2.UploadMergeRequestImageResponse
-	(*GetMergeRequestImageRequest)(nil),            // 33: depot.code.v1beta2.GetMergeRequestImageRequest
-	(*GetMergeRequestImageResponse)(nil),           // 34: depot.code.v1beta2.GetMergeRequestImageResponse
+	(*UploadMergeRequestAssetRequest)(nil),         // 31: depot.code.v1beta2.UploadMergeRequestAssetRequest
+	(*UploadMergeRequestAssetResponse)(nil),        // 32: depot.code.v1beta2.UploadMergeRequestAssetResponse
+	(*GetMergeRequestAssetRequest)(nil),            // 33: depot.code.v1beta2.GetMergeRequestAssetRequest
+	(*GetMergeRequestAssetResponse)(nil),           // 34: depot.code.v1beta2.GetMergeRequestAssetResponse
 	(*GetMergeRequestRequest_HeadRef)(nil),         // 35: depot.code.v1beta2.GetMergeRequestRequest.HeadRef
 	(*timestamppb.Timestamp)(nil),                  // 36: google.protobuf.Timestamp
 }
@@ -2881,8 +2881,8 @@ var file_depot_code_v1beta2_merge_request_proto_depIdxs = []int32{
 	5,  // 28: depot.code.v1beta2.CreateMergeRequestCommentResponse.comment:type_name -> depot.code.v1beta2.MergeRequestComment
 	5,  // 29: depot.code.v1beta2.UpdateMergeRequestCommentResponse.comment:type_name -> depot.code.v1beta2.MergeRequestComment
 	6,  // 30: depot.code.v1beta2.ApproveMergeRequestResponse.approval:type_name -> depot.code.v1beta2.MergeRequestApproval
-	31, // 31: depot.code.v1beta2.MergeRequestService.UploadMergeRequestImage:input_type -> depot.code.v1beta2.UploadMergeRequestImageRequest
-	33, // 32: depot.code.v1beta2.MergeRequestService.GetMergeRequestImage:input_type -> depot.code.v1beta2.GetMergeRequestImageRequest
+	31, // 31: depot.code.v1beta2.MergeRequestService.UploadMergeRequestAsset:input_type -> depot.code.v1beta2.UploadMergeRequestAssetRequest
+	33, // 32: depot.code.v1beta2.MergeRequestService.GetMergeRequestAsset:input_type -> depot.code.v1beta2.GetMergeRequestAssetRequest
 	27, // 33: depot.code.v1beta2.MergeRequestService.GetRepositoryReviewSettings:input_type -> depot.code.v1beta2.GetRepositoryReviewSettingsRequest
 	28, // 34: depot.code.v1beta2.MergeRequestService.UpdateRepositoryReviewSettings:input_type -> depot.code.v1beta2.UpdateRepositoryReviewSettingsRequest
 	7,  // 35: depot.code.v1beta2.MergeRequestService.CreateMergeRequestWithBase:input_type -> depot.code.v1beta2.CreateMergeRequestWithBaseRequest
@@ -2895,8 +2895,8 @@ var file_depot_code_v1beta2_merge_request_proto_depIdxs = []int32{
 	21, // 42: depot.code.v1beta2.MergeRequestService.DeleteMergeRequestComment:input_type -> depot.code.v1beta2.DeleteMergeRequestCommentRequest
 	23, // 43: depot.code.v1beta2.MergeRequestService.ApproveMergeRequest:input_type -> depot.code.v1beta2.ApproveMergeRequestRequest
 	25, // 44: depot.code.v1beta2.MergeRequestService.RemoveMergeRequestApproval:input_type -> depot.code.v1beta2.RemoveMergeRequestApprovalRequest
-	32, // 45: depot.code.v1beta2.MergeRequestService.UploadMergeRequestImage:output_type -> depot.code.v1beta2.UploadMergeRequestImageResponse
-	34, // 46: depot.code.v1beta2.MergeRequestService.GetMergeRequestImage:output_type -> depot.code.v1beta2.GetMergeRequestImageResponse
+	32, // 45: depot.code.v1beta2.MergeRequestService.UploadMergeRequestAsset:output_type -> depot.code.v1beta2.UploadMergeRequestAssetResponse
+	34, // 46: depot.code.v1beta2.MergeRequestService.GetMergeRequestAsset:output_type -> depot.code.v1beta2.GetMergeRequestAssetResponse
 	29, // 47: depot.code.v1beta2.MergeRequestService.GetRepositoryReviewSettings:output_type -> depot.code.v1beta2.GetRepositoryReviewSettingsResponse
 	30, // 48: depot.code.v1beta2.MergeRequestService.UpdateRepositoryReviewSettings:output_type -> depot.code.v1beta2.UpdateRepositoryReviewSettingsResponse
 	8,  // 49: depot.code.v1beta2.MergeRequestService.CreateMergeRequestWithBase:output_type -> depot.code.v1beta2.CreateMergeRequestWithBaseResponse
@@ -3271,7 +3271,7 @@ func file_depot_code_v1beta2_merge_request_proto_init() {
 			}
 		}
 		file_depot_code_v1beta2_merge_request_proto_msgTypes[29].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*UploadMergeRequestImageRequest); i {
+			switch v := v.(*UploadMergeRequestAssetRequest); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -3283,7 +3283,7 @@ func file_depot_code_v1beta2_merge_request_proto_init() {
 			}
 		}
 		file_depot_code_v1beta2_merge_request_proto_msgTypes[30].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*UploadMergeRequestImageResponse); i {
+			switch v := v.(*UploadMergeRequestAssetResponse); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -3295,7 +3295,7 @@ func file_depot_code_v1beta2_merge_request_proto_init() {
 			}
 		}
 		file_depot_code_v1beta2_merge_request_proto_msgTypes[31].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*GetMergeRequestImageRequest); i {
+			switch v := v.(*GetMergeRequestAssetRequest); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -3307,7 +3307,7 @@ func file_depot_code_v1beta2_merge_request_proto_init() {
 			}
 		}
 		file_depot_code_v1beta2_merge_request_proto_msgTypes[32].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*GetMergeRequestImageResponse); i {
+			switch v := v.(*GetMergeRequestAssetResponse); i {
 			case 0:
 				return &v.state
 			case 1:
