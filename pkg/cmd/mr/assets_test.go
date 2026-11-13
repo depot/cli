@@ -377,8 +377,25 @@ func TestOtherFilesAreAttachedAsLinks(t *testing.T) {
 }
 
 func TestSameBytesUnderAnotherExtensionAreASeparateUpload(t *testing.T) {
-	if uploadKey("head", []byte("digest"), "txt") == uploadKey("head", []byte("digest"), "md") {
-		t.Fatal("upload key ignores the extension")
+	checkout(t)
+	writeAsset(t, "notes.txt", "same bytes")
+	writeAsset(t, "notes.md", "same bytes")
+	mux := apiServer(t)
+	noMR(t, mux)
+	fake := newAssetAPI(t, mux)
+	var body string
+	rpc(t, mux, codev1beta2connect.MergeRequestServiceCreateMergeRequestProcedure, func(req *code.CreateMergeRequestRequest) (*code.CreateMergeRequestResponse, error) {
+		body = req.GetBody()
+		mr := fixture("abc")
+		mr.Body = body
+		return &code.CreateMergeRequestResponse{MergeRequest: mr}, nil
+	})
+	if _, err := execute(t, "create", "--title", "Notes", "--attach", "notes.txt", "--attach", "notes.md"); err != nil {
+		t.Fatal(err)
+	}
+	want := "\n\n[notes.txt](https://depot.dev/api/code/mr-assets/test-org/repo/mra_1.txt)\n\n[notes.md](https://depot.dev/api/code/mr-assets/test-org/repo/mra_2.md)"
+	if body != want || len(fake.assets) != 2 || fake.puts != 2 || !fake.assets[1].ready {
+		t.Fatalf("body=%q assets=%d puts=%d", body, len(fake.assets), fake.puts)
 	}
 }
 
