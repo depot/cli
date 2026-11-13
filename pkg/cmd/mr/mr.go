@@ -131,6 +131,7 @@ func writeMR(cmd *cobra.Command, mr *code.MergeRequest) error {
 
 func newCreate(o *options) *cobra.Command {
 	var title, body, head string
+	var imagePaths []string
 	cmd := &cobra.Command{Use: "create", Short: "Open a merge request for the current branch", Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if strings.TrimSpace(title) == "" {
@@ -147,8 +148,28 @@ func newCreate(o *options) *cobra.Command {
 			if err := o.authenticate(cmd); err != nil {
 				return err
 			}
+			images, err := readImages(imagePaths)
+			if err != nil {
+				return err
+			}
+			requestBody := body
+			if len(images) > 0 {
+				// A retry after a lost create response must return the existing MR without uploading again.
+				if existing, err := o.get(cmd, name); err == nil {
+					if o.json {
+						return o.writeJSON(cmd, &code.CreateMergeRequestResponse{MergeRequest: existing.MergeRequest})
+					}
+					return writeMR(cmd, existing.MergeRequest)
+				} else if connect.CodeOf(err) != connect.CodeNotFound {
+					return err
+				}
+				requestBody, err = o.uploadImages(cmd, name, title, body, images)
+				if err != nil {
+					return err
+				}
+			}
 			resp, err := api.NewMergeRequestClient().CreateMergeRequest(cmd.Context(), request(o, &code.CreateMergeRequestRequest{
-				RepositoryId: o.repo, HeadRef: name, Title: title, Body: body,
+				RepositoryId: o.repo, HeadRef: name, Title: title, Body: requestBody,
 			}))
 			if err != nil {
 				return err
@@ -165,6 +186,7 @@ func newCreate(o *options) *cobra.Command {
 	cmd.Flags().StringVar(&title, "title", "", "Merge request title (required)")
 	cmd.Flags().StringVar(&body, "body", "", "Merge request description")
 	cmd.Flags().StringVar(&head, "head", "", "Source branch (defaults to the current branch)")
+	cmd.Flags().StringArrayVar(&imagePaths, "image", nil, "Upload an image and append it to the description (repeatable; PNG/JPEG/WebP, 10 MiB each, at most 10)")
 	return cmd
 }
 
