@@ -136,7 +136,10 @@ func (f *assetAPI) put(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusPreconditionFailed)
 		return
 	}
-	asset.stored, _ = io.ReadAll(r.Body)
+	// Storage keeps nothing when the body ends early.
+	if body, err := io.ReadAll(r.Body); err == nil && int64(len(body)) == asset.size {
+		asset.stored = body
+	}
 }
 
 func (f *assetAPI) complete(req *code.CompleteMergeRequestAssetUploadRequest) (*code.CompleteMergeRequestAssetUploadResponse, error) {
@@ -583,8 +586,8 @@ func TestFileChangedAfterInspectionIsNotCompleted(t *testing.T) {
 	}
 	created := createRPC(t, mux)
 	_, err := execute(t, "create", "--title", "Images", "--attach", "asset.png")
-	if err == nil || *created != 0 || fake.completes != 0 || !strings.Contains(err.Error(), "changed while it was uploading") {
-		t.Fatalf("created=%d completes=%d err=%v", *created, fake.completes, err)
+	if err == nil || *created != 0 || fake.completes != 0 || fake.puts != 1 || fake.assets[0].stored != nil || !strings.Contains(err.Error(), "changed while it was uploading") || strings.Contains(err.Error(), "signature") {
+		t.Fatalf("created=%d completes=%d puts=%d err=%v", *created, fake.completes, fake.puts, err)
 	}
 }
 

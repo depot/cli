@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"hash"
 	"io"
 	"net/http"
 	"net/url"
@@ -307,6 +308,31 @@ func (o *options) store(cmd *cobra.Command, asset localAsset, key string, starte
 
 var errAssetChanged = errors.New("the file changed while it was uploading; run the command again")
 
+// checkedBody reads the file for a PUT and holds back its final chunk until the
+// bytes match the inspected digest, so storage never keeps a file that changed.
+type checkedBody struct {
+	file      io.Reader
+	hash      hash.Hash
+	remaining int64
+	digest    []byte
+}
+
+func (b *checkedBody) Read(p []byte) (int, error) {
+	if b.remaining == 0 {
+		return 0, io.EOF
+	}
+	n, err := b.file.Read(p[:min(int64(len(p)), b.remaining)])
+	b.hash.Write(p[:n])
+	b.remaining -= int64(n)
+	if err != nil && b.remaining > 0 {
+		return 0, errAssetChanged
+	}
+	if b.remaining == 0 && !bytes.Equal(b.hash.Sum(nil), b.digest) {
+		return 0, errAssetChanged
+	}
+	return n, nil
+}
+
 // put streams the file to the signed URL and returns the HTTP status. It uses a
 // plain client so that no Depot credential reaches storage.
 func put(ctx context.Context, asset localAsset, started *code.BeginMergeRequestAssetUploadResponse) (int, error) {
@@ -315,8 +341,8 @@ func put(ctx context.Context, asset localAsset, started *code.BeginMergeRequestA
 		return 0, fmt.Errorf("%w: %v", errAssetChanged, err)
 	}
 	defer func() { _ = file.Close() }()
-	hash := sha256.New()
-	req, err := http.NewRequestWithContext(ctx, http.MethodPut, started.UploadUrl, io.TeeReader(file, hash))
+	body := &checkedBody{file: file, hash: sha256.New(), remaining: asset.size, digest: asset.digest}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, started.UploadUrl, body)
 	if err != nil {
 		return 0, err
 	}
@@ -327,14 +353,16 @@ func put(ctx context.Context, asset localAsset, started *code.BeginMergeRequestA
 		req.Header.Set(name, value)
 	}
 	response, err := http.DefaultClient.Do(req)
+	var failed *url.Error
+	if errors.As(err, &failed) {
+		// The wrapped error would print the signed URL.
+		return 0, failed.Err
+	}
 	if err != nil {
 		return 0, err
 	}
 	defer func() { _ = response.Body.Close() }()
 	_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 1<<20))
-	if response.StatusCode/100 == 2 && !bytes.Equal(hash.Sum(nil), asset.digest) {
-		return response.StatusCode, errAssetChanged
-	}
 	return response.StatusCode, nil
 }
 

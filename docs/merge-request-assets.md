@@ -38,6 +38,6 @@ name, cannot be reused. The CLI then uploads a new copy once and continues.
 
 Files are checked before any upload starts: each must be one of the supported
 formats and within the size limit. A file that changes while it is uploading
-is not attached; run the command again.
+is not stored or attached; run the command again.
 
 The server must support asset uploads before this flag can be used.
