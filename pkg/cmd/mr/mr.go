@@ -169,7 +169,7 @@ func newCreate(o *options) *cobra.Command {
 			if _, err := rand.Read(salt[:]); err != nil {
 				return err
 			}
-			return o.saveWithAssets(cmd, name, hex.EncodeToString(salt[:]), "merge request was not created", assets, func(uploaded []attachment) error {
+			return o.saveWithAssets(cmd, name, hex.EncodeToString(salt[:]), "merge request was not created", assets, func(uploaded, _ []attachment) error {
 				return o.create(cmd, name, title, body, uploaded)
 			})
 		},
@@ -217,12 +217,14 @@ func (o *options) create(cmd *cobra.Command, head, title, body string, uploaded 
 func (o *options) attachToExisting(cmd *cobra.Command, mr *code.MergeRequest, assets []localAsset) error {
 	_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Branch %s already has merge request %s; adding attachments to its description (title and body text are unchanged)\n", mr.HeadRef, mr.Id)
 	unchanged := fmt.Sprintf("merge request %s was not changed", mr.Id)
-	return o.saveWithAssets(cmd, mr.HeadRef, mr.Id, unchanged, assets, func(uploaded []attachment) error {
-		return o.appendAttachments(cmd, mr, uploaded)
+	return o.saveWithAssets(cmd, mr.HeadRef, mr.Id, unchanged, assets, func(uploaded, earlier []attachment) error {
+		return o.appendAttachments(cmd, mr, uploaded, earlier)
 	})
 }
 
-func (o *options) appendAttachments(cmd *cobra.Command, mr *code.MergeRequest, uploaded []attachment) error {
+// appendAttachments adds uploaded to the description. earlier holds the first
+// upload of the same files, when uploaded are new copies of them.
+func (o *options) appendAttachments(cmd *cobra.Command, mr *code.MergeRequest, uploaded, earlier []attachment) error {
 	// Uploads take a while; append to the description as it is now, not as it was before them.
 	current, err := o.get(cmd, mr.HeadRef)
 	if err != nil {
@@ -233,8 +235,9 @@ func (o *options) appendAttachments(cmd *cobra.Command, mr *code.MergeRequest, u
 	}
 	// A repeated upload returns the same URL, so a re-run adds only what is missing.
 	body := current.MergeRequest.Body
-	for _, attachment := range uploaded {
-		if !strings.Contains(body, attachment.url) {
+	for index, attachment := range uploaded {
+		attached := strings.Contains(body, attachment.url) || (index < len(earlier) && strings.Contains(body, earlier[index].url))
+		if !attached {
 			body += attachment.markdown()
 		}
 	}

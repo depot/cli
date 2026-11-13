@@ -46,22 +46,41 @@ func uploadKey(scope string, content []byte) string {
 }
 
 // saveWithAssets uploads under the stable key and passes the result to save. The API
-// refuses an expired upload or one bound to an earlier merge request, so that
-// rejection gets one more attempt under a key that also covers salt.
-func (o *options) saveWithAssets(cmd *cobra.Command, head, salt, unchanged string, assets []localAsset, save func([]attachment) error) error {
-	scope := head
+// refuses to save an asset bound to an earlier merge request, so that rejection gets
+// one more attempt with new copies; save then also receives the first uploads.
+func (o *options) saveWithAssets(cmd *cobra.Command, head, salt, unchanged string, assets []localAsset, save func(uploaded, earlier []attachment) error) error {
+	salted := head + "\x00" + salt
+	first, err := o.uploadAssets(cmd, head, salted, assets)
+	if err != nil {
+		return fmt.Errorf("%w (%s)", err, unchanged)
+	}
+	err = save(first, nil)
+	if connect.CodeOf(err) != connect.CodeFailedPrecondition {
+		return err
+	}
+	_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "An earlier upload of these attachments cannot be reused; uploading new copies")
+	second, err := o.uploadAssets(cmd, salted, salted, assets)
+	if err != nil {
+		return fmt.Errorf("%w (%s)", err, unchanged)
+	}
+	return save(second, first)
+}
+
+// upload sends one asset, retrying transient failures with the same identity.
+func (o *options) upload(cmd *cobra.Command, message *code.UploadMergeRequestAssetRequest) (*connect.Response[code.UploadMergeRequestAssetResponse], error) {
+	client := api.NewMergeRequestClient()
 	for attempt := 0; ; attempt++ {
-		uploaded, err := o.uploadAssets(cmd, scope, assets)
-		if err != nil {
-			err = fmt.Errorf("%w (%s)", err, unchanged)
-		} else {
-			err = save(uploaded)
+		response, err := client.UploadMergeRequestAsset(cmd.Context(), request(o, message))
+		if attempt == 2 || err == nil || (connect.CodeOf(err) != connect.CodeUnavailable && connect.CodeOf(err) != connect.CodeDeadlineExceeded) {
+			return response, err
 		}
-		if attempt == 1 || connect.CodeOf(err) != connect.CodeFailedPrecondition {
-			return err
+		timer := time.NewTimer(time.Duration(attempt+1) * time.Second)
+		select {
+		case <-cmd.Context().Done():
+			timer.Stop()
+			return nil, cmd.Context().Err()
+		case <-timer.C:
 		}
-		_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "An earlier upload of these attachments cannot be reused; uploading new copies")
-		scope = head + "\x00" + salt
 	}
 }
 
@@ -125,30 +144,19 @@ func supportedAsset(content []byte) bool {
 	return false
 }
 
-func (o *options) uploadAssets(cmd *cobra.Command, scope string, assets []localAsset) ([]attachment, error) {
+// uploadAssets uploads each asset under scope. An upload that expired before it
+// was saved is refused, so that asset is uploaded again under fallback.
+func (o *options) uploadAssets(cmd *cobra.Command, scope, fallback string, assets []localAsset) ([]attachment, error) {
 	result := make([]attachment, 0, len(assets))
-	client := api.NewMergeRequestClient()
 	for index, asset := range assets {
 		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Uploading asset %d/%d: %s\n", index+1, len(assets), asset.name)
 		message := &code.UploadMergeRequestAssetRequest{
 			RepositoryId: o.repo, UploadKey: uploadKey(scope, asset.content), Content: asset.content,
 		}
-		var response *connect.Response[code.UploadMergeRequestAssetResponse]
-		var err error
-		for attempt := 0; attempt < 3; attempt++ {
-			response, err = client.UploadMergeRequestAsset(cmd.Context(), request(o, message))
-			if err == nil || (connect.CodeOf(err) != connect.CodeUnavailable && connect.CodeOf(err) != connect.CodeDeadlineExceeded) {
-				break
-			}
-			if attempt < 2 {
-				timer := time.NewTimer(time.Duration(attempt+1) * time.Second)
-				select {
-				case <-cmd.Context().Done():
-					timer.Stop()
-					return nil, cmd.Context().Err()
-				case <-timer.C:
-				}
-			}
+		response, err := o.upload(cmd, message)
+		if connect.CodeOf(err) == connect.CodeFailedPrecondition && fallback != scope {
+			message.UploadKey = uploadKey(fallback, asset.content)
+			response, err = o.upload(cmd, message)
 		}
 		if connect.CodeOf(err) == connect.CodeUnimplemented {
 			return nil, fmt.Errorf("upload asset %q: this Depot API does not support merge request attachments yet; retry without --attach", asset.name)

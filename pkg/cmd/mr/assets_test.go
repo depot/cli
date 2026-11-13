@@ -239,7 +239,7 @@ func TestUploadAcceptsServerResolvedOrganizationAndAppOrigin(t *testing.T) {
 	cmd := &cobra.Command{}
 	cmd.SetContext(context.Background())
 	cmd.SetErr(io.Discard)
-	uploaded, err := o.uploadAssets(cmd, "head", []localAsset{{name: "demo.mp4", content: []byte("video")}})
+	uploaded, err := o.uploadAssets(cmd, "head", "head", []localAsset{{name: "demo.mp4", content: []byte("video")}})
 	if err != nil || len(uploaded) != 1 || uploaded[0].markdown() != "\n\n![demo.mp4]("+assetURL+")" {
 		t.Fatalf("uploaded=%v err=%v", uploaded, err)
 	}
@@ -338,8 +338,10 @@ func TestCreateUploadsNewCopyWhenEarlierUploadIsUnusable(t *testing.T) {
 
 func TestAttachToExistingMRStaysIdempotentAfterNewCopy(t *testing.T) {
 	head := checkout(t)
-	if err := os.WriteFile("asset.png", []byte(pngMagic+"asset"), 0600); err != nil {
-		t.Fatal(err)
+	for _, path := range []string{"old.png", "new.png"} {
+		if err := os.WriteFile(path, []byte(pngMagic+path), 0600); err != nil {
+			t.Fatal(err)
+		}
 	}
 	mux := apiServer(t)
 	existing := fixture(head)
@@ -347,24 +349,28 @@ func TestAttachToExistingMRStaysIdempotentAfterNewCopy(t *testing.T) {
 	var stale string
 	rpc(t, mux, codev1beta2connect.MergeRequestServiceUploadMergeRequestAssetProcedure, func(req *code.UploadMergeRequestAssetRequest) (*code.UploadMergeRequestAssetResponse, error) {
 		id := "mra_" + req.UploadKey[:8]
-		if stale == "" {
+		// The branch-keyed asset for new.png belongs to an earlier MR from this branch name.
+		if stale == "" && string(req.Content) == pngMagic+"new.png" {
 			stale = id
 		}
 		return &code.UploadMergeRequestAssetResponse{AssetId: id, Url: "https://depot.dev/api/code/mr-assets/test-org/repo/" + id + ".png"}, nil
 	})
 	updates := 0
 	rpc(t, mux, codev1beta2connect.MergeRequestServiceUpdateMergeRequestProcedure, func(req *code.UpdateMergeRequestRequest) (*code.UpdateMergeRequestResponse, error) {
-		// The branch-keyed asset belongs to an earlier MR from this branch name.
-		if strings.Contains(req.GetBody(), stale) {
+		if stale != "" && strings.Contains(req.GetBody(), stale) {
 			return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("Asset is unavailable; upload it again before saving"))
 		}
 		updates++
 		existing.Body = req.GetBody()
 		return &code.UpdateMergeRequestResponse{MergeRequest: existing}, nil
 	})
+	if _, err := execute(t, "create", "--title", "Images", "--attach", "old.png"); err != nil || updates != 1 {
+		t.Fatalf("updates=%d err=%v", updates, err)
+	}
+	// old.png is attached already; only new.png gets a new copy, and only once.
 	for run := 1; run <= 2; run++ {
-		out, err := execute(t, "create", "--title", "Images", "--attach", "asset.png")
-		if err != nil || updates != 1 || strings.Count(existing.Body, "![") != 1 || !strings.Contains(out, "mr_1") {
+		out, err := execute(t, "create", "--title", "Images", "--attach", "old.png", "--attach", "new.png")
+		if err != nil || updates != 2 || strings.Count(existing.Body, "![old.png]") != 1 || strings.Count(existing.Body, "![new.png]") != 1 || !strings.Contains(out, "mr_1") {
 			t.Fatalf("run %d: updates=%d body=%q out=%s err=%v", run, updates, existing.Body, out, err)
 		}
 	}
