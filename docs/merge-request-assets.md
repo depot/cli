@@ -8,8 +8,9 @@ depot mr create --title "Update settings" --body "New settings page" \
 ```
 
 The CLI appends Markdown media references in flag order. Use static PNG, JPEG,
-or WebP images, or MP4, MOV, or WebM videos. Each attachment is limited to 10 MiB
-and 40 megapixels per frame, with at most ten attachments per description.
+or WebP images, or MP4, MOV, or WebM videos. Each attachment is limited to 10 MiB,
+with at most ten attachments per description. Images are limited to 40
+megapixels, and video frames to 4K (3840x2160).
 `--image` remains an alias for `--attach`; both flags can be mixed. Progress goes
 to stderr, so `--json` output remains machine-readable.
 

@@ -2035,6 +2035,7 @@ type UploadMergeRequestAssetRequest struct {
 	// SHA-256 of a client-generated upload identity. Reusing it with different bytes returns AlreadyExists.
 	UploadKey string `protobuf:"bytes,2,opt,name=upload_key,json=uploadKey,proto3" json:"upload_key,omitempty"`
 	// Static PNG/JPEG/WebP image or MP4/MOV/WebM video bytes. Maximum: 10485760 bytes and 40000000 pixels per frame.
+	// Video frames larger than 3840x2160 are refused.
 	Content []byte `protobuf:"bytes,3,opt,name=content,proto3" json:"content,omitempty"`
 }
 
