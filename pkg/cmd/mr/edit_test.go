@@ -63,7 +63,8 @@ func TestCreateWithBaseUsesTheBaseRPC(t *testing.T) {
 		t.Fatalf("create with base: %q %v", out, err)
 	}
 	out, err = execute(t, append(args, "--json")...)
-	if err != nil || !json.Valid([]byte(out)) || !strings.Contains(out, `"baseRef": "parent"`) {
+	// protojson varies its whitespace between runs, so compare without it.
+	if err != nil || !json.Valid([]byte(out)) || !strings.Contains(strings.ReplaceAll(out, " ", ""), `"baseRef":"parent"`) {
 		t.Fatalf("create with base JSON: %q %v", out, err)
 	}
 	// The API returns an existing open merge request unchanged, whatever base was asked for.
