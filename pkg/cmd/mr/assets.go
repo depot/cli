@@ -36,13 +36,33 @@ func (a attachment) markdown() string {
 	return fmt.Sprintf("\n\n![%s](%s)", a.alt, a.url)
 }
 
-// uploadKey depends only on the branch and the bytes, so the API returns the
-// same asset and URL when the same file is uploaded again for that branch.
-func uploadKey(head string, content []byte) string {
+// uploadKey depends only on the scope (normally the branch) and the bytes, so the
+// API returns the same asset and URL when the same file is uploaded again.
+func uploadKey(scope string, content []byte) string {
 	hash := sha256.New()
-	_, _ = io.WriteString(hash, head+"\x00")
+	_, _ = io.WriteString(hash, scope+"\x00")
 	_, _ = hash.Write(content)
 	return hex.EncodeToString(hash.Sum(nil))
+}
+
+// saveWithAssets uploads under the stable key and passes the result to save. The API
+// refuses an expired upload or one bound to an earlier merge request, so that
+// rejection gets one more attempt under a key that also covers salt.
+func (o *options) saveWithAssets(cmd *cobra.Command, head, salt, unchanged string, assets []localAsset, save func([]attachment) error) error {
+	scope := head
+	for attempt := 0; ; attempt++ {
+		uploaded, err := o.uploadAssets(cmd, scope, assets)
+		if err != nil {
+			err = fmt.Errorf("%w (%s)", err, unchanged)
+		} else {
+			err = save(uploaded)
+		}
+		if attempt == 1 || connect.CodeOf(err) != connect.CodeFailedPrecondition {
+			return err
+		}
+		_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "An earlier upload of these attachments cannot be reused; uploading new copies")
+		scope = head + "\x00" + salt
+	}
 }
 
 // Read every file before uploading so a missing later file cannot partially publish the request.
@@ -105,13 +125,13 @@ func supportedAsset(content []byte) bool {
 	return false
 }
 
-func (o *options) uploadAssets(cmd *cobra.Command, head string, assets []localAsset) ([]attachment, error) {
+func (o *options) uploadAssets(cmd *cobra.Command, scope string, assets []localAsset) ([]attachment, error) {
 	result := make([]attachment, 0, len(assets))
 	client := api.NewMergeRequestClient()
 	for index, asset := range assets {
 		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Uploading asset %d/%d: %s\n", index+1, len(assets), asset.name)
 		message := &code.UploadMergeRequestAssetRequest{
-			RepositoryId: o.repo, UploadKey: uploadKey(head, asset.content), Content: asset.content,
+			RepositoryId: o.repo, UploadKey: uploadKey(scope, asset.content), Content: asset.content,
 		}
 		var response *connect.Response[code.UploadMergeRequestAssetResponse]
 		var err error

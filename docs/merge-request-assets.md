@@ -31,6 +31,9 @@ Running the command again is safe. Uploading the same file for the same branch
 returns the same asset, and an attachment already in the description is not
 added again. If every file is already attached, the description is not updated.
 
+An upload that expired, or that belongs to an earlier MR from the same branch
+name, cannot be reused. The CLI then uploads a new copy once and continues.
+
 Files are checked before any upload starts: each must be one of the supported
 formats and within the size limit.
 

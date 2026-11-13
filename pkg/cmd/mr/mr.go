@@ -1,6 +1,8 @@
 package mr
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -153,41 +155,23 @@ func newCreate(o *options) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			requestBody := body
-			if len(assets) > 0 {
-				existing, err := o.get(cmd, name)
-				if err == nil {
-					return o.attachToExisting(cmd, existing.MergeRequest, assets)
-				}
-				if connect.CodeOf(err) != connect.CodeNotFound {
-					return err
-				}
-				uploaded, err := o.uploadAssets(cmd, name, assets)
-				if err != nil {
-					return fmt.Errorf("%w (merge request was not created)", err)
-				}
-				for _, attachment := range uploaded {
-					requestBody += attachment.markdown()
-				}
+			if len(assets) == 0 {
+				return o.create(cmd, name, title, body, nil)
 			}
-			resp, err := api.NewMergeRequestClient().CreateMergeRequest(cmd.Context(), request(o, &code.CreateMergeRequestRequest{
-				RepositoryId: o.repo, HeadRef: name, Title: title, Body: requestBody,
-			}))
-			if err != nil {
+			existing, err := o.get(cmd, name)
+			if err == nil {
+				return o.attachToExisting(cmd, existing.MergeRequest, assets)
+			}
+			if connect.CodeOf(err) != connect.CodeNotFound {
 				return err
 			}
-			if resp.Msg.MergeRequest == nil || resp.Msg.MergeRequest.Id == "" {
-				return fmt.Errorf("API returned no merge request")
+			var salt [16]byte
+			if _, err := rand.Read(salt[:]); err != nil {
+				return err
 			}
-			// Create returns an MR opened during the uploads unchanged, without the new references.
-			refs := strings.TrimSpace(strings.TrimPrefix(requestBody, body))
-			if !strings.Contains(resp.Msg.MergeRequest.Body, refs) {
-				return fmt.Errorf("merge request %s was opened for this branch during the upload and the attachments were not added; run the command again", resp.Msg.MergeRequest.Id)
-			}
-			if o.json {
-				return o.writeJSON(cmd, resp.Msg)
-			}
-			return writeMR(cmd, resp.Msg.MergeRequest)
+			return o.saveWithAssets(cmd, name, hex.EncodeToString(salt[:]), "merge request was not created", assets, func(uploaded []attachment) error {
+				return o.create(cmd, name, title, body, uploaded)
+			})
 		},
 	}
 	cmd.Flags().StringVar(&title, "title", "", "Merge request title (required)")
@@ -203,14 +187,42 @@ func newCreate(o *options) *cobra.Command {
 	return cmd
 }
 
+func (o *options) create(cmd *cobra.Command, head, title, body string, uploaded []attachment) error {
+	requestBody := body
+	for _, attachment := range uploaded {
+		requestBody += attachment.markdown()
+	}
+	resp, err := api.NewMergeRequestClient().CreateMergeRequest(cmd.Context(), request(o, &code.CreateMergeRequestRequest{
+		RepositoryId: o.repo, HeadRef: head, Title: title, Body: requestBody,
+	}))
+	if err != nil {
+		return err
+	}
+	if resp.Msg.MergeRequest == nil || resp.Msg.MergeRequest.Id == "" {
+		return fmt.Errorf("API returned no merge request")
+	}
+	// Create returns an MR opened during the uploads unchanged, without the new references.
+	refs := strings.TrimSpace(strings.TrimPrefix(requestBody, body))
+	if !strings.Contains(resp.Msg.MergeRequest.Body, refs) {
+		return fmt.Errorf("merge request %s was opened for this branch during the upload and the attachments were not added; run the command again", resp.Msg.MergeRequest.Id)
+	}
+	if o.json {
+		return o.writeJSON(cmd, resp.Msg)
+	}
+	return writeMR(cmd, resp.Msg.MergeRequest)
+}
+
 // attachToExisting appends attachments to the description of the branch's open
 // merge request. CreateMergeRequest returns that MR unchanged, so it cannot attach them.
 func (o *options) attachToExisting(cmd *cobra.Command, mr *code.MergeRequest, assets []localAsset) error {
 	_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Branch %s already has merge request %s; adding attachments to its description (title and body text are unchanged)\n", mr.HeadRef, mr.Id)
-	uploaded, err := o.uploadAssets(cmd, mr.HeadRef, assets)
-	if err != nil {
-		return fmt.Errorf("%w (merge request %s was not changed)", err, mr.Id)
-	}
+	unchanged := fmt.Sprintf("merge request %s was not changed", mr.Id)
+	return o.saveWithAssets(cmd, mr.HeadRef, mr.Id, unchanged, assets, func(uploaded []attachment) error {
+		return o.appendAttachments(cmd, mr, uploaded)
+	})
+}
+
+func (o *options) appendAttachments(cmd *cobra.Command, mr *code.MergeRequest, uploaded []attachment) error {
 	// Uploads take a while; append to the description as it is now, not as it was before them.
 	current, err := o.get(cmd, mr.HeadRef)
 	if err != nil {

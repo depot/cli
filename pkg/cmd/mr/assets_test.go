@@ -306,12 +306,66 @@ func TestAttachToExistingMRAddsOnlyNewFiles(t *testing.T) {
 	}
 }
 
-func TestUploadKeyIsStablePerBranchAndContent(t *testing.T) {
-	key := uploadKey("feature", []byte("bytes"))
-	if len(key) != 64 || key != uploadKey("feature", []byte("bytes")) {
-		t.Fatalf("unstable key %q", key)
+// The API refuses an asset that expired or is bound to an earlier MR; the CLI
+// then uploads a new copy instead of failing on every run.
+func TestCreateUploadsNewCopyWhenEarlierUploadIsUnusable(t *testing.T) {
+	checkout(t)
+	if err := os.WriteFile("asset.png", []byte(pngMagic+"asset"), 0600); err != nil {
+		t.Fatal(err)
 	}
-	if key == uploadKey("other", []byte("bytes")) || key == uploadKey("feature", []byte("other")) {
-		t.Fatal("key ignores the branch or the content")
+	mux := apiServer(t)
+	rpc(t, mux, codev1beta2connect.MergeRequestServiceGetMergeRequestProcedure, func(*code.GetMergeRequestRequest) (*code.GetMergeRequestResponse, error) {
+		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("no MR"))
+	})
+	var keys []string
+	rpc(t, mux, codev1beta2connect.MergeRequestServiceUploadMergeRequestAssetProcedure, func(req *code.UploadMergeRequestAssetRequest) (*code.UploadMergeRequestAssetResponse, error) {
+		keys = append(keys, req.UploadKey)
+		if len(keys) == 1 {
+			return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("Draft asset expired; start a new upload"))
+		}
+		return &code.UploadMergeRequestAssetResponse{AssetId: "mra_2", Url: "https://depot.dev/api/code/mr-assets/test-org/repo/mra_2.png"}, nil
+	})
+	rpc(t, mux, codev1beta2connect.MergeRequestServiceCreateMergeRequestProcedure, func(req *code.CreateMergeRequestRequest) (*code.CreateMergeRequestResponse, error) {
+		mr := fixture("abc")
+		mr.Body = req.Body
+		return &code.CreateMergeRequestResponse{MergeRequest: mr}, nil
+	})
+	out, err := execute(t, "create", "--title", "Images", "--attach", "asset.png")
+	if err != nil || len(keys) != 2 || keys[0] == keys[1] || !strings.Contains(out, "mra_2") {
+		t.Fatalf("keys=%v out=%s err=%v", keys, out, err)
+	}
+}
+
+func TestAttachToExistingMRStaysIdempotentAfterNewCopy(t *testing.T) {
+	head := checkout(t)
+	if err := os.WriteFile("asset.png", []byte(pngMagic+"asset"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	mux := apiServer(t)
+	existing := fixture(head)
+	getRPC(t, mux, existing, "feature")
+	var stale string
+	rpc(t, mux, codev1beta2connect.MergeRequestServiceUploadMergeRequestAssetProcedure, func(req *code.UploadMergeRequestAssetRequest) (*code.UploadMergeRequestAssetResponse, error) {
+		id := "mra_" + req.UploadKey[:8]
+		if stale == "" {
+			stale = id
+		}
+		return &code.UploadMergeRequestAssetResponse{AssetId: id, Url: "https://depot.dev/api/code/mr-assets/test-org/repo/" + id + ".png"}, nil
+	})
+	updates := 0
+	rpc(t, mux, codev1beta2connect.MergeRequestServiceUpdateMergeRequestProcedure, func(req *code.UpdateMergeRequestRequest) (*code.UpdateMergeRequestResponse, error) {
+		// The branch-keyed asset belongs to an earlier MR from this branch name.
+		if strings.Contains(req.GetBody(), stale) {
+			return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("Asset is unavailable; upload it again before saving"))
+		}
+		updates++
+		existing.Body = req.GetBody()
+		return &code.UpdateMergeRequestResponse{MergeRequest: existing}, nil
+	})
+	for run := 1; run <= 2; run++ {
+		out, err := execute(t, "create", "--title", "Images", "--attach", "asset.png")
+		if err != nil || updates != 1 || strings.Count(existing.Body, "![") != 1 || !strings.Contains(out, "mr_1") {
+			t.Fatalf("run %d: updates=%d body=%q out=%s err=%v", run, updates, existing.Body, out, err)
+		}
 	}
 }
