@@ -297,8 +297,7 @@ message UploadMergeRequestAssetRequest {
   string repository_id = 1;
   // SHA-256 of a client-generated upload identity. Reusing it with different bytes returns AlreadyExists.
   string upload_key = 2;
-  // Static PNG/JPEG/WebP image or MP4/MOV/WebM video bytes. Maximum: 10485760 bytes and 40000000 pixels per frame.
-  // Video frames larger than 3840x2160 are refused.
+  // PNG/JPEG/WebP image or MP4/MOV/WebM video bytes. Maximum: 26214400 bytes.
   bytes content = 3;
 }
 

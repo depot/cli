@@ -21,7 +21,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const maxAssetBytes = 10 * 1024 * 1024
+const maxAssetBytes = 25 * 1024 * 1024
 
 type localAsset struct {
 	name    string
@@ -115,7 +115,7 @@ func readAssets(paths []string) ([]localAsset, error) {
 			return nil, fmt.Errorf("asset %q: %w", path, err)
 		}
 		if !info.Mode().IsRegular() || info.Size() == 0 || info.Size() > maxAssetBytes {
-			return nil, fmt.Errorf("asset %q must be a regular file containing 1 byte to 10 MiB", path)
+			return nil, fmt.Errorf("asset %q must be a regular file containing 1 byte to 25 MiB", path)
 		}
 		file, err := os.Open(path)
 		if err != nil {

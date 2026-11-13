@@ -408,3 +408,20 @@ func TestAttachToExistingMRSurvivesExpiredNewCopy(t *testing.T) {
 		t.Fatalf("keys=%d body=%q", len(keys), existing.Body)
 	}
 }
+
+func TestUploadSendsLargestAllowedAsset(t *testing.T) {
+	mux := apiServer(t)
+	received := 0
+	rpc(t, mux, codev1beta2connect.MergeRequestServiceUploadMergeRequestAssetProcedure, func(req *code.UploadMergeRequestAssetRequest) (*code.UploadMergeRequestAssetResponse, error) {
+		received = len(req.Content)
+		return &code.UploadMergeRequestAssetResponse{AssetId: "mra_1", Url: "https://depot.dev/api/code/mr-assets/test-org/repo/mra_1.png"}, nil
+	})
+	o := &options{token: "local-test-token", org: "test-org", repo: "repo"}
+	cmd := &cobra.Command{}
+	cmd.SetContext(context.Background())
+	cmd.SetErr(io.Discard)
+	content := append([]byte(pngMagic), make([]byte, maxAssetBytes-len(pngMagic))...)
+	if _, err := o.uploadAssets(cmd, []localAsset{{name: "big.png", content: content}}, "head"); err != nil || received != maxAssetBytes {
+		t.Fatalf("received=%d err=%v", received, err)
+	}
+}
