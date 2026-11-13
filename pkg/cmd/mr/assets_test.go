@@ -587,3 +587,22 @@ func TestFileChangedAfterInspectionIsNotCompleted(t *testing.T) {
 		t.Fatalf("created=%d completes=%d err=%v", *created, fake.completes, err)
 	}
 }
+
+func TestStorageRateLimitIsRetried(t *testing.T) {
+	checkout(t)
+	writeAsset(t, "asset.png", pngMagic+"asset")
+	mux := apiServer(t)
+	noMR(t, mux)
+	fake := newAssetAPI(t, mux)
+	fake.onPut = func(call int) int {
+		if call == 1 {
+			return http.StatusTooManyRequests
+		}
+		return 0
+	}
+	created := createRPC(t, mux)
+	_, err := execute(t, "create", "--title", "Images", "--attach", "asset.png")
+	if err != nil || *created != 1 || fake.puts != 2 || len(fake.begins) != 1 {
+		t.Fatalf("created=%d puts=%d begins=%v err=%v", *created, fake.puts, fake.begins, err)
+	}
+}

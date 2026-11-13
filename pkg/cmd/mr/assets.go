@@ -286,7 +286,7 @@ func (o *options) store(cmd *cobra.Command, asset localAsset, key string, starte
 		if err == nil {
 			err = fmt.Errorf("storage returned HTTP %d", status)
 		}
-		transient := status == 0 || status == http.StatusForbidden || status >= 500
+		transient := status == 0 || status == http.StatusForbidden || status == http.StatusRequestTimeout || status == http.StatusTooManyRequests || status >= 500
 		if attempt == 2 || !transient || errors.Is(err, errAssetChanged) || ctx.Err() != nil {
 			return err
 		}
