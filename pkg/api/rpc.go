@@ -18,6 +18,7 @@ import (
 	"github.com/depot/cli/pkg/proto/depot/cli/v1/cliv1connect"
 	"github.com/depot/cli/pkg/proto/depot/cli/v1beta1/cliv1beta1connect"
 	"github.com/depot/cli/pkg/proto/depot/code/v1beta2/codev1beta2connect"
+	"github.com/depot/cli/pkg/proto/depot/git/v1/gitv1connect"
 	"github.com/depot/cli/pkg/runtoken"
 	"golang.org/x/net/http2"
 )
@@ -102,6 +103,10 @@ func NewCheckClient() checksv1connect.CheckServiceClient {
 
 func NewReviewAgentClient() checksv1connect.ReviewAgentServiceClient {
 	return checksv1connect.NewReviewAgentServiceClient(getHTTPClient(getBaseURL()), getBaseURL(), WithUserAgent())
+}
+
+func NewGitRepositoryClient() gitv1connect.RepositoryServiceClient {
+	return gitv1connect.NewRepositoryServiceClient(getHTTPClient(getBaseURL()), getBaseURL(), WithUserAgent())
 }
 
 func NewMergeRequestClient() codev1beta2connect.MergeRequestServiceClient {

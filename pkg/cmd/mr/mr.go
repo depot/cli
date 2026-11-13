@@ -24,10 +24,10 @@ func NewCmdMR() *cobra.Command {
 	o := &options{}
 	cmd := &cobra.Command{
 		Use: "mr", Short: "Manage merge requests", Hidden: true,
-		Long: "Manage merge requests using a user token from depot login.\nPass --repo with the Depot repository ID and --org if it is not the current organization.",
+		Long: "Manage merge requests using a user token from depot login.\nCreate infers the Depot repository from local Git remotes.\nPass --repo to select a Depot repository ID and --org if it is not the current organization.",
 		RunE: func(cmd *cobra.Command, _ []string) error { return cmd.Help() },
 	}
-	cmd.PersistentFlags().StringVar(&o.repo, "repo", "", "Depot repository ID (required)")
+	cmd.PersistentFlags().StringVar(&o.repo, "repo", "", "Depot repository ID (inferred from Git remotes for create)")
 	cmd.PersistentFlags().StringVar(&o.org, "org", "", "Organization ID (defaults to the current organization)")
 	cmd.PersistentFlags().StringVar(&o.token, "token", "", "Depot user token (or DEPOT_TOKEN)")
 	cmd.PersistentFlags().BoolVar(&o.json, "json", false, "Print the API response as JSON")
@@ -39,6 +39,10 @@ func (o *options) authenticate(cmd *cobra.Command) error {
 	if strings.TrimSpace(o.repo) == "" {
 		return fmt.Errorf("--repo is required; provide the Depot repository ID")
 	}
+	return o.authenticateUser(cmd)
+}
+
+func (o *options) authenticateUser(cmd *cobra.Command) error {
 	if o.org == "" {
 		o.org = config.GetCurrentOrganization()
 	}
@@ -144,8 +148,17 @@ func newCreate(o *options) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := o.authenticate(cmd); err != nil {
+			if err := o.authenticateUser(cmd); err != nil {
 				return err
+			}
+			if cmd.Flags().Changed("repo") && strings.TrimSpace(o.repo) == "" {
+				return fmt.Errorf("--repo must not be blank; provide the Depot repository ID")
+			}
+			if o.repo == "" {
+				o.repo, err = o.inferRepository(cmd)
+				if err != nil {
+					return err
+				}
 			}
 			resp, err := api.NewMergeRequestClient().CreateMergeRequest(cmd.Context(), request(o, &code.CreateMergeRequestRequest{
 				RepositoryId: o.repo, HeadRef: name, Title: title, Body: body,
