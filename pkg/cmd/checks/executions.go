@@ -53,7 +53,7 @@ func newList(o *options) *cobra.Command {
 			if req.Branch != "" && req.Repo == nil {
 				return fmt.Errorf("--branch requires --repo")
 			}
-			if req.Outcome != "" && !slices.Contains([]string{"running", "done", "passed", "findings", "rejected", "resolved", "failed"}, req.Outcome) {
+			if req.Outcome != "" && !slices.Contains([]string{"running", "done", "passed", "findings", "rejected", "resolved", "failed", "cancelled", "superseded"}, req.Outcome) {
 				return fmt.Errorf("invalid --outcome %q", req.Outcome)
 			}
 			if err := o.authenticate(cmd); err != nil {
@@ -99,7 +99,7 @@ func newList(o *options) *cobra.Command {
 	cmd.Flags().StringVar(&forge, "forge", "", "Repository forge: github, origin (cursor-origin), or depot (code)")
 	cmd.Flags().StringVar(&req.Branch, "branch", "", "Exact branch name (requires --repo)")
 	cmd.Flags().StringVar(&req.Sha, "sha", "", "Head or base commit SHA prefix")
-	cmd.Flags().StringVar(&req.Outcome, "outcome", "", "Filter: running, done, passed, findings, rejected, resolved, failed")
+	cmd.Flags().StringVar(&req.Outcome, "outcome", "", "Filter: running, done, passed, findings, rejected, resolved, failed, cancelled, superseded")
 	cmd.Flags().StringVar(&req.Query, "query", "", "Search agent names, repositories, branches, and SHA prefixes")
 	return cmd
 }
