@@ -46,20 +46,29 @@ func uploadKey(scope string, content []byte) string {
 	return hex.EncodeToString(hash.Sum(nil))
 }
 
+// copyScopes names the new copies. A merge request's copies get a fixed series so
+// a re-run finds the one it attached; with no merge request yet the name is random.
+func copyScopes(head, salt string) ([]string, error) {
+	if salt != "" {
+		salted := head + "\x00" + salt
+		return []string{salted, salted + "\x001", salted + "\x002"}, nil
+	}
+	var random [16]byte
+	if _, err := rand.Read(random[:]); err != nil {
+		return nil, err
+	}
+	return []string{head + "\x00" + hex.EncodeToString(random[:])}, nil
+}
+
 // saveWithAssets uploads under the stable key and passes the result to save. The API
 // refuses to save an asset bound to an earlier merge request, so that rejection gets
 // one more attempt with new copies; save then also receives the first uploads.
 func (o *options) saveWithAssets(cmd *cobra.Command, head, salt, unchanged string, assets []localAsset, save func(uploaded, earlier []attachment) error) error {
-	var random [16]byte
-	if _, err := rand.Read(random[:]); err != nil {
+	copies, err := copyScopes(head, salt)
+	if err != nil {
 		return err
 	}
-	// Without a salt there is no merge request yet to name the new copies after.
-	salted, fresh := head+"\x00"+salt, head+"\x00"+hex.EncodeToString(random[:])
-	if salt == "" {
-		salted = fresh
-	}
-	first, err := o.uploadAssets(cmd, assets, head, salted, fresh)
+	first, err := o.uploadAssets(cmd, assets, append([]string{head}, copies...)...)
 	if err != nil {
 		return fmt.Errorf("%w (%s)", err, unchanged)
 	}
@@ -68,7 +77,7 @@ func (o *options) saveWithAssets(cmd *cobra.Command, head, salt, unchanged strin
 		return err
 	}
 	_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "An earlier upload of these attachments cannot be reused; uploading new copies")
-	second, err := o.uploadAssets(cmd, assets, salted, fresh)
+	second, err := o.uploadAssets(cmd, assets, copies...)
 	if err != nil {
 		return fmt.Errorf("%w (%s)", err, unchanged)
 	}

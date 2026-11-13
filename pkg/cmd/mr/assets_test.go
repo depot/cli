@@ -386,9 +386,11 @@ func TestAttachToExistingMRSurvivesExpiredNewCopy(t *testing.T) {
 	getRPC(t, mux, existing, "feature")
 	keys := map[string]bool{}
 	rpc(t, mux, codev1beta2connect.MergeRequestServiceUploadMergeRequestAssetProcedure, func(req *code.UploadMergeRequestAssetRequest) (*code.UploadMergeRequestAssetResponse, error) {
-		keys[req.UploadKey] = true
-		// Both the branch key and the MR's own key name uploads that expired unsaved.
-		if len(keys) < 3 {
+		if _, seen := keys[req.UploadKey]; !seen {
+			// The branch key and the MR's first key name uploads that expired unsaved.
+			keys[req.UploadKey] = len(keys) < 2
+		}
+		if keys[req.UploadKey] {
 			return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("Draft asset expired; start a new upload"))
 		}
 		return &code.UploadMergeRequestAssetResponse{AssetId: "mra_3", Url: "https://depot.dev/api/code/mr-assets/test-org/repo/mra_3.png"}, nil
@@ -397,8 +399,12 @@ func TestAttachToExistingMRSurvivesExpiredNewCopy(t *testing.T) {
 		existing.Body = req.GetBody()
 		return &code.UpdateMergeRequestResponse{MergeRequest: existing}, nil
 	})
-	out, err := execute(t, "create", "--title", "Images", "--attach", "asset.png")
-	if err != nil || len(keys) != 3 || !strings.Contains(out, "mra_3") {
-		t.Fatalf("keys=%d out=%s err=%v", len(keys), out, err)
+	for run := 0; run < 2; run++ {
+		if _, err := execute(t, "create", "--title", "Images", "--attach", "asset.png"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(keys) != 3 || strings.Count(existing.Body, "mra_3") != 1 {
+		t.Fatalf("keys=%d body=%q", len(keys), existing.Body)
 	}
 }
