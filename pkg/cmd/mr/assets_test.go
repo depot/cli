@@ -239,7 +239,7 @@ func TestUploadAcceptsServerResolvedOrganizationAndAppOrigin(t *testing.T) {
 	cmd := &cobra.Command{}
 	cmd.SetContext(context.Background())
 	cmd.SetErr(io.Discard)
-	uploaded, err := o.uploadAssets(cmd, "head", "head", []localAsset{{name: "demo.mp4", content: []byte("video")}})
+	uploaded, err := o.uploadAssets(cmd, []localAsset{{name: "demo.mp4", content: []byte("video")}}, "head")
 	if err != nil || len(uploaded) != 1 || uploaded[0].markdown() != "\n\n![demo.mp4]("+assetURL+")" {
 		t.Fatalf("uploaded=%v err=%v", uploaded, err)
 	}
@@ -373,5 +373,32 @@ func TestAttachToExistingMRStaysIdempotentAfterNewCopy(t *testing.T) {
 		if err != nil || updates != 2 || strings.Count(existing.Body, "![old.png]") != 1 || strings.Count(existing.Body, "![new.png]") != 1 || !strings.Contains(out, "mr_1") {
 			t.Fatalf("run %d: updates=%d body=%q out=%s err=%v", run, updates, existing.Body, out, err)
 		}
+	}
+}
+
+func TestAttachToExistingMRSurvivesExpiredNewCopy(t *testing.T) {
+	head := checkout(t)
+	if err := os.WriteFile("asset.png", []byte(pngMagic+"asset"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	mux := apiServer(t)
+	existing := fixture(head)
+	getRPC(t, mux, existing, "feature")
+	keys := map[string]bool{}
+	rpc(t, mux, codev1beta2connect.MergeRequestServiceUploadMergeRequestAssetProcedure, func(req *code.UploadMergeRequestAssetRequest) (*code.UploadMergeRequestAssetResponse, error) {
+		keys[req.UploadKey] = true
+		// Both the branch key and the MR's own key name uploads that expired unsaved.
+		if len(keys) < 3 {
+			return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("Draft asset expired; start a new upload"))
+		}
+		return &code.UploadMergeRequestAssetResponse{AssetId: "mra_3", Url: "https://depot.dev/api/code/mr-assets/test-org/repo/mra_3.png"}, nil
+	})
+	rpc(t, mux, codev1beta2connect.MergeRequestServiceUpdateMergeRequestProcedure, func(req *code.UpdateMergeRequestRequest) (*code.UpdateMergeRequestResponse, error) {
+		existing.Body = req.GetBody()
+		return &code.UpdateMergeRequestResponse{MergeRequest: existing}, nil
+	})
+	out, err := execute(t, "create", "--title", "Images", "--attach", "asset.png")
+	if err != nil || len(keys) != 3 || !strings.Contains(out, "mra_3") {
+		t.Fatalf("keys=%d out=%s err=%v", len(keys), out, err)
 	}
 }

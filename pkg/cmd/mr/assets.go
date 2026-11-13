@@ -2,6 +2,7 @@ package mr
 
 import (
 	"bytes"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -49,8 +50,16 @@ func uploadKey(scope string, content []byte) string {
 // refuses to save an asset bound to an earlier merge request, so that rejection gets
 // one more attempt with new copies; save then also receives the first uploads.
 func (o *options) saveWithAssets(cmd *cobra.Command, head, salt, unchanged string, assets []localAsset, save func(uploaded, earlier []attachment) error) error {
-	salted := head + "\x00" + salt
-	first, err := o.uploadAssets(cmd, head, salted, assets)
+	var random [16]byte
+	if _, err := rand.Read(random[:]); err != nil {
+		return err
+	}
+	// Without a salt there is no merge request yet to name the new copies after.
+	salted, fresh := head+"\x00"+salt, head+"\x00"+hex.EncodeToString(random[:])
+	if salt == "" {
+		salted = fresh
+	}
+	first, err := o.uploadAssets(cmd, assets, head, salted, fresh)
 	if err != nil {
 		return fmt.Errorf("%w (%s)", err, unchanged)
 	}
@@ -59,7 +68,7 @@ func (o *options) saveWithAssets(cmd *cobra.Command, head, salt, unchanged strin
 		return err
 	}
 	_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "An earlier upload of these attachments cannot be reused; uploading new copies")
-	second, err := o.uploadAssets(cmd, salted, salted, assets)
+	second, err := o.uploadAssets(cmd, assets, salted, fresh)
 	if err != nil {
 		return fmt.Errorf("%w (%s)", err, unchanged)
 	}
@@ -144,18 +153,21 @@ func supportedAsset(content []byte) bool {
 	return false
 }
 
-// uploadAssets uploads each asset under scope. An upload that expired before it
-// was saved is refused, so that asset is uploaded again under fallback.
-func (o *options) uploadAssets(cmd *cobra.Command, scope, fallback string, assets []localAsset) ([]attachment, error) {
+// uploadAssets uploads each asset under the first scope. An upload that expired
+// before it was saved is refused, so that asset is uploaded under the next scope.
+func (o *options) uploadAssets(cmd *cobra.Command, assets []localAsset, scopes ...string) ([]attachment, error) {
 	result := make([]attachment, 0, len(assets))
 	for index, asset := range assets {
 		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Uploading asset %d/%d: %s\n", index+1, len(assets), asset.name)
 		message := &code.UploadMergeRequestAssetRequest{
-			RepositoryId: o.repo, UploadKey: uploadKey(scope, asset.content), Content: asset.content,
+			RepositoryId: o.repo, UploadKey: uploadKey(scopes[0], asset.content), Content: asset.content,
 		}
 		response, err := o.upload(cmd, message)
-		if connect.CodeOf(err) == connect.CodeFailedPrecondition && fallback != scope {
-			message.UploadKey = uploadKey(fallback, asset.content)
+		for _, scope := range scopes[1:] {
+			if connect.CodeOf(err) != connect.CodeFailedPrecondition {
+				break
+			}
+			message.UploadKey = uploadKey(scope, asset.content)
 			response, err = o.upload(cmd, message)
 		}
 		if connect.CodeOf(err) == connect.CodeUnimplemented {

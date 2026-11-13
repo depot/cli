@@ -1,8 +1,6 @@
 package mr
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -165,11 +163,7 @@ func newCreate(o *options) *cobra.Command {
 			if connect.CodeOf(err) != connect.CodeNotFound {
 				return err
 			}
-			var salt [16]byte
-			if _, err := rand.Read(salt[:]); err != nil {
-				return err
-			}
-			return o.saveWithAssets(cmd, name, hex.EncodeToString(salt[:]), "merge request was not created", assets, func(uploaded, _ []attachment) error {
+			return o.saveWithAssets(cmd, name, "", "merge request was not created", assets, func(uploaded, _ []attachment) error {
 				return o.create(cmd, name, title, body, uploaded)
 			})
 		},
