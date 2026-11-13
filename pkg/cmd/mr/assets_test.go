@@ -609,3 +609,20 @@ func TestStorageRateLimitIsRetried(t *testing.T) {
 		t.Fatalf("created=%d puts=%d begins=%v err=%v", *created, fake.puts, fake.begins, err)
 	}
 }
+
+func TestFileThatGrewAfterInspectionIsNotSent(t *testing.T) {
+	checkout(t)
+	writeAsset(t, "asset.png", pngMagic+"asset")
+	mux := apiServer(t)
+	noMR(t, mux)
+	fake := newAssetAPI(t, mux)
+	fake.onBegin = func(int, *code.BeginMergeRequestAssetUploadRequest) error {
+		writeAsset(t, "asset.png", pngMagic+"asset and more")
+		return nil
+	}
+	created := createRPC(t, mux)
+	_, err := execute(t, "create", "--title", "Images", "--attach", "asset.png")
+	if err == nil || *created != 0 || fake.puts != 0 || !strings.Contains(err.Error(), "changed while it was uploading") {
+		t.Fatalf("created=%d puts=%d err=%v", *created, fake.puts, err)
+	}
+}

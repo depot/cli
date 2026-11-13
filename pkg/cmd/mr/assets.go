@@ -341,6 +341,9 @@ func put(ctx context.Context, asset localAsset, started *code.BeginMergeRequestA
 		return 0, fmt.Errorf("%w: %v", errAssetChanged, err)
 	}
 	defer func() { _ = file.Close() }()
+	if info, err := file.Stat(); err != nil || info.Size() != asset.size {
+		return 0, errAssetChanged
+	}
 	body := &checkedBody{file: file, hash: sha256.New(), remaining: asset.size, digest: asset.digest}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPut, started.UploadUrl, body)
 	if err != nil {
