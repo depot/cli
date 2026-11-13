@@ -48,6 +48,8 @@ var (
 		zip gz tgz debug msg eml bmp tif tiff mp3 wav`)
 )
 
+const acceptedTypes = "attach images, video and common document, text, code and archive files"
+
 type attachment struct {
 	alt    string
 	url    string
@@ -154,9 +156,9 @@ func inspectAsset(path string) (localAsset, error) {
 	extension := strings.ToLower(strings.TrimPrefix(filepath.Ext(path), "."))
 	if !slices.Contains(inlineExtensions, extension) && !slices.Contains(linkedExtensions, extension) {
 		if extension == "" {
-			return localAsset{}, fmt.Errorf("asset %q has no file extension, so its type is not known; run depot mr create --help for the accepted types", path)
+			return localAsset{}, fmt.Errorf("asset %q has no file extension, so its type is not known; %s", path, acceptedTypes)
 		}
-		return localAsset{}, fmt.Errorf("asset %q cannot be attached: .%s files are not an accepted type; run depot mr create --help for the accepted types", path, extension)
+		return localAsset{}, fmt.Errorf("asset %q cannot be attached: .%s files are not an accepted type; %s", path, extension, acceptedTypes)
 	}
 	info, err := os.Stat(path)
 	if err != nil {
