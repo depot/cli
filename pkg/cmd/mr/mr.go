@@ -177,7 +177,7 @@ func newCreate(o *options) *cobra.Command {
 		}
 		return pflag.NormalizedName(name)
 	})
-	cmd.Flags().StringArrayVar(&attachmentPaths, "attach", nil, "Attach an image or video (repeatable; PNG/JPEG/WebP/MP4/MOV/WebM, 25 MiB each, at most 10; --image is an alias)")
+	cmd.Flags().StringArrayVar(&attachmentPaths, "attach", nil, "Attach an image or video (repeatable; PNG, JPEG, WebP, MP4, MOV, or WebM, each at most 100 MiB, at most ten per description; --image is an alias)")
 	return cmd
 }
 

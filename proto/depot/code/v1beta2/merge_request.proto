@@ -8,13 +8,17 @@ import "google/protobuf/timestamp.proto";
 // Every method requires a user credential. Organization tokens, CI job tokens and service credentials return
 // PermissionDenied.
 service MergeRequestService {
-  // Uploads a private draft asset. Reuse uploadKey with identical bytes to retry.
-  // Drafts expire after 24 hours. Saving the returned Markdown URL in a description attaches it to that MR.
-  rpc UploadMergeRequestAsset(UploadMergeRequestAssetRequest) returns (UploadMergeRequestAssetResponse) {
+  // Starts or resumes a private draft upload and returns a signed storage URL to PUT the file to.
+  // Reuse `uploadKey` to retry: an unfinished upload gets a fresh URL, a finished one returns `uploaded`.
+  rpc BeginMergeRequestAssetUpload(BeginMergeRequestAssetUploadRequest) returns (BeginMergeRequestAssetUploadResponse) {
     option idempotency_level = IDEMPOTENT;
   }
-  // Reads an asset as its draft author or as an authorized viewer of its repository and attached MR.
-  rpc GetMergeRequestAsset(GetMergeRequestAssetRequest) returns (GetMergeRequestAssetResponse) {
+  // Verifies the stored file and makes the asset usable in a description. Safe to retry.
+  rpc CompleteMergeRequestAssetUpload(CompleteMergeRequestAssetUploadRequest) returns (CompleteMergeRequestAssetUploadResponse) {
+    option idempotency_level = IDEMPOTENT;
+  }
+  // Returns a short-lived signed URL for an asset, as its draft author or an authorized viewer of its repository.
+  rpc GetMergeRequestAssetURL(GetMergeRequestAssetURLRequest) returns (GetMergeRequestAssetURLResponse) {
     option idempotency_level = NO_SIDE_EFFECTS;
   }
   // Reads whether passing review agents can approve merge requests in this repository.
@@ -292,31 +296,65 @@ message UpdateRepositoryReviewSettingsResponse {
   bool agents_can_approve = 1;
 }
 
-message UploadMergeRequestAssetRequest {
-  // Unique identifier for the repository. Returned by GetRepository.
+message BeginMergeRequestAssetUploadRequest {
+  // Unique identifier for the repository. Returned by `GetRepository`.
   string repository_id = 1;
-  // SHA-256 of a client-generated upload identity. Reusing it with different bytes returns AlreadyExists.
+  // Client-chosen identity for this upload, 1 to 128 characters. The same key always addresses the same asset
+  // for the same repository and author. Reusing it with a different `size` or `contentType` returns AlreadyExists.
   string upload_key = 2;
-  // PNG/JPEG/WebP image or MP4/MOV/WebM video bytes. Maximum: 26214400 bytes.
-  bytes content = 3;
+  // Exact file size in bytes. Maximum: 104857600 (100 MiB).
+  int64 size = 3;
+  // MIME type of the file. Can be "image/png", "image/jpeg", "image/webp", "video/mp4", "video/quicktime",
+  // or "video/webm". `CompleteMergeRequestAssetUpload` rejects a file whose leading bytes are a different type.
+  string content_type = 4;
 }
 
-message UploadMergeRequestAssetResponse {
+message BeginMergeRequestAssetUploadResponse {
+  // Unique identifier for the asset.
   string asset_id = 1;
-  // Permanent authenticated asset URL with a media extension. Insert it into the description to attach the asset.
+  // Stable asset URL with a media extension, for use in a description. It stops resolving after the 24-hour
+  // draft expiry unless a saved description contains it; once attached it is permanent.
   string url = 2;
+  // True when this upload key already completed. Skip the PUT and `CompleteMergeRequestAssetUpload`.
+  bool uploaded = 3;
+  // Signed URL to PUT the file bytes to, with no Depot credentials. Empty when `uploaded` is true.
+  string upload_url = 4;
+  // Headers the PUT must send exactly as given. The body length must equal `size`.
+  map<string, string> upload_headers = 5;
+  // Time `uploadUrl` stops working, in RFC 3339 format. Call `BeginMergeRequestAssetUpload` again for a new one.
+  string upload_expires_at = 6;
 }
 
-message GetMergeRequestAssetRequest {
-  // Unique identifier for the repository. Returned by GetRepository.
+message CompleteMergeRequestAssetUploadRequest {
+  // Unique identifier for the repository. Returned by `GetRepository`.
   string repository_id = 1;
-  // Unique identifier for the asset. Returned by UploadMergeRequestAsset.
+  // Unique identifier for the asset. Returned by `BeginMergeRequestAssetUpload`.
   string asset_id = 2;
 }
 
-message GetMergeRequestAssetResponse {
-  bytes content = 1;
+message CompleteMergeRequestAssetUploadResponse {
+  // Unique identifier for the asset.
+  string asset_id = 1;
+  // Stable asset URL, identical to the one `BeginMergeRequestAssetUpload` returned.
+  string url = 2;
+}
+
+message GetMergeRequestAssetURLRequest {
+  // Unique identifier for the repository. Returned by `GetRepository`.
+  string repository_id = 1;
+  // Unique identifier for the asset. Returned by `BeginMergeRequestAssetUpload`.
+  string asset_id = 2;
+}
+
+message GetMergeRequestAssetURLResponse {
+  // Signed URL that serves the file with its stored MIME type and supports byte ranges. Do not store it.
+  string url = 1;
+  // Stored MIME type of the asset.
   string content_type = 2;
+  // File size in bytes.
+  int64 size = 3;
+  // Time `url` stops working, in RFC 3339 format. At least one hour after the call.
+  string expires_at = 4;
 }
 
 // Who performed an action on a merge request.
