@@ -15,6 +15,9 @@ type runRepository struct {
 	repo  string
 }
 
+// forgeGitCafe is FORGE_GITCAFE, until the generated package is synced with a proto that names it.
+const forgeGitCafe = civ1.Forge(5)
+
 func parseRunForge(value string) (civ1.Forge, error) {
 	switch value {
 	case "github":
@@ -25,8 +28,10 @@ func parseRunForge(value string) (civ1.Forge, error) {
 		return civ1.Forge_FORGE_DEPOT_CODE, nil
 	case "entire":
 		return civ1.Forge_FORGE_ENTIRE, nil
+	case "gitcafe":
+		return forgeGitCafe, nil
 	default:
-		return civ1.Forge_FORGE_UNSPECIFIED, fmt.Errorf("unsupported forge %q; expected github, origin, depot, or entire", value)
+		return civ1.Forge_FORGE_UNSPECIFIED, fmt.Errorf("unsupported forge %q; expected github, origin, depot, entire, or gitcafe", value)
 	}
 }
 
@@ -72,6 +77,8 @@ func parseRunRepository(remoteURL string) (runRepository, bool) {
 		forge = civ1.Forge_FORGE_GITHUB
 	case host == "origin.cursor.com":
 		forge = civ1.Forge_FORGE_ORIGIN
+	case host == "git.cafe" || host == "staging.git.cafe":
+		forge = forgeGitCafe
 	case isEntireHost(host):
 		// Entire names are namespace/owner/name, such as et/acme/api, over both
 		// https:// and git-remote-entire's entire:// scheme.
@@ -199,7 +206,7 @@ func resolveRunRepository(dir, explicitRepo, forgeFlag string) (runRepository, e
 			forges[repository.forge] = struct{}{}
 		}
 		if len(forges) > 1 {
-			return runRepository{}, fmt.Errorf("multiple supported forges found in git remotes; use --forge github|origin|entire")
+			return runRepository{}, fmt.Errorf("multiple supported forges found in git remotes; use --forge github|origin|entire|gitcafe")
 		}
 		for forge := range forges {
 			return runRepository{forge: forge, repo: explicitRepo}, nil
@@ -223,7 +230,7 @@ func resolveRunRepository(dir, explicitRepo, forgeFlag string) (runRepository, e
 		if hasDepotCodeRemote {
 			return runRepository{}, fmt.Errorf("found a Depot Code remote; use --forge depot to run this repository")
 		}
-		return runRepository{}, fmt.Errorf("no supported repository found in git remotes; use --repo and optionally --forge (github, origin, depot, or entire)")
+		return runRepository{}, fmt.Errorf("no supported repository found in git remotes; use --repo and optionally --forge (github, origin, depot, entire, or gitcafe)")
 	}
 	if len(detected) > 1 {
 		forges := make(map[civ1.Forge]struct{})
@@ -231,7 +238,7 @@ func resolveRunRepository(dir, explicitRepo, forgeFlag string) (runRepository, e
 			forges[repository.forge] = struct{}{}
 		}
 		if len(forges) > 1 {
-			return runRepository{}, fmt.Errorf("multiple supported forges found in git remotes; use --forge github|origin|entire")
+			return runRepository{}, fmt.Errorf("multiple supported forges found in git remotes; use --forge github|origin|entire|gitcafe")
 		}
 		if origin != nil {
 			return *origin, nil

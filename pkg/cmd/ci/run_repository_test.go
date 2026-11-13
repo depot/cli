@@ -29,6 +29,9 @@ func TestParseRunRepository(t *testing.T) {
 		{remoteURL: "entire://aws-us-east-2.entire.com/et/acme/api", forge: civ1.Forge_FORGE_ENTIRE, repo: "et/acme/api", ok: true},
 		{remoteURL: "https://aws-us-east-2.entire.io/et/acme/api.git/", forge: civ1.Forge_FORGE_ENTIRE, repo: "et/acme/api", ok: true},
 		{remoteURL: "https://aws-us-east-2.entire.io/et/acme/api.GIT", forge: civ1.Forge_FORGE_ENTIRE, repo: "et/acme/api", ok: true},
+		{remoteURL: "https://git.cafe/acme/api", forge: forgeGitCafe, repo: "acme/api", ok: true},
+		{remoteURL: "https://staging.git.cafe/acme/api.git", forge: forgeGitCafe, repo: "acme/api", ok: true},
+		{remoteURL: "https://git.cafe.evil.com/acme/api", ok: false},
 		{remoteURL: "entire://github.com/acme/api", ok: false},
 		{remoteURL: "entire://aws-us-east-2.entire.com.evil.com/et/acme/api", ok: false},
 		{remoteURL: "https://aws-us-east-2.entire.io/acme/api.git", ok: false},
@@ -64,9 +67,9 @@ var testRemotes = map[string]struct {
 }
 
 const (
-	errNoRepo        = "no supported repository found in git remotes; use --repo and optionally --forge (github, origin, depot, or entire)"
+	errNoRepo        = "no supported repository found in git remotes; use --repo and optionally --forge (github, origin, depot, entire, or gitcafe)"
 	errDepotRemote   = "found a Depot Code remote; use --forge depot to run this repository"
-	errMultipleForge = "multiple supported forges found in git remotes; use --forge github|origin|entire"
+	errMultipleForge = "multiple supported forges found in git remotes; use --forge github|origin|entire|gitcafe"
 )
 
 // TestResolveRunRepositoryMatrix covers each combination of Depot Code, GitHub,
