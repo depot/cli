@@ -141,6 +141,27 @@ func TestCreateAttachesToExistingMRDescription(t *testing.T) {
 	}
 }
 
+func TestCreateFailsWhenMROpenedDuringUploadLacksAttachments(t *testing.T) {
+	head := checkout(t)
+	if err := os.WriteFile("asset.png", []byte(pngMagic+"asset"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	mux := apiServer(t)
+	rpc(t, mux, codev1beta2connect.MergeRequestServiceGetMergeRequestProcedure, func(*code.GetMergeRequestRequest) (*code.GetMergeRequestResponse, error) {
+		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("no MR"))
+	})
+	rpc(t, mux, codev1beta2connect.MergeRequestServiceUploadMergeRequestAssetProcedure, func(*code.UploadMergeRequestAssetRequest) (*code.UploadMergeRequestAssetResponse, error) {
+		return &code.UploadMergeRequestAssetResponse{AssetId: "mra_1", Url: "https://depot.dev/api/code/mr-assets/test-org/repo/mra_1.png"}, nil
+	})
+	rpc(t, mux, codev1beta2connect.MergeRequestServiceCreateMergeRequestProcedure, func(*code.CreateMergeRequestRequest) (*code.CreateMergeRequestResponse, error) {
+		return &code.CreateMergeRequestResponse{MergeRequest: fixture(head)}, nil
+	})
+	out, err := execute(t, "create", "--title", "Images", "--attach", "asset.png")
+	if err == nil || out != "" || !strings.Contains(err.Error(), "mr_1 was opened for this branch during the upload") {
+		t.Fatalf("out=%q err=%v", out, err)
+	}
+}
+
 func TestFailedUploadLeavesExistingMRUnchanged(t *testing.T) {
 	head := checkout(t)
 	if err := os.WriteFile("asset.png", []byte(pngMagic+"asset"), 0600); err != nil {

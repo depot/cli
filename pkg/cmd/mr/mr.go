@@ -176,6 +176,11 @@ func newCreate(o *options) *cobra.Command {
 			if resp.Msg.MergeRequest == nil || resp.Msg.MergeRequest.Id == "" {
 				return fmt.Errorf("API returned no merge request")
 			}
+			// Create returns an MR opened during the uploads unchanged, without the new references.
+			refs := strings.TrimSpace(strings.TrimPrefix(requestBody, body))
+			if !strings.Contains(resp.Msg.MergeRequest.Body, refs) {
+				return fmt.Errorf("merge request %s was opened for this branch during the upload and the attachments were not added; run the command again", resp.Msg.MergeRequest.Id)
+			}
 			if o.json {
 				return o.writeJSON(cmd, resp.Msg)
 			}
