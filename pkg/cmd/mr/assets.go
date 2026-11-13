@@ -2,7 +2,6 @@ package mr
 
 import (
 	"bytes"
-	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -26,6 +25,24 @@ const maxAssetBytes = 10 * 1024 * 1024
 type localAsset struct {
 	name    string
 	content []byte
+}
+
+type attachment struct {
+	alt string
+	url string
+}
+
+func (a attachment) markdown() string {
+	return fmt.Sprintf("\n\n![%s](%s)", a.alt, a.url)
+}
+
+// uploadKey depends only on the branch and the bytes, so the API returns the
+// same asset and URL when the same file is uploaded again for that branch.
+func uploadKey(head string, content []byte) string {
+	hash := sha256.New()
+	_, _ = io.WriteString(hash, head+"\x00")
+	_, _ = hash.Write(content)
+	return hex.EncodeToString(hash.Sum(nil))
 }
 
 // Read every file before uploading so a missing later file cannot partially publish the request.
@@ -88,24 +105,13 @@ func supportedAsset(content []byte) bool {
 	return false
 }
 
-func (o *options) uploadAssets(cmd *cobra.Command, head, title, body string, assets []localAsset) (string, error) {
-	result := body
+func (o *options) uploadAssets(cmd *cobra.Command, head string, assets []localAsset) ([]attachment, error) {
+	result := make([]attachment, 0, len(assets))
 	client := api.NewMergeRequestClient()
 	for index, asset := range assets {
-		// Each explicit upload is new; transport retries below retain this identity.
-		var nonce [32]byte
-		if _, err := rand.Read(nonce[:]); err != nil {
-			return "", err
-		}
-		hash := sha256.New()
-		_, _ = hash.Write(nonce[:])
-		for _, value := range []string{head, title, body, fmt.Sprint(index), asset.name} {
-			_, _ = io.WriteString(hash, value+"\x00")
-		}
-		_, _ = hash.Write(asset.content)
 		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Uploading asset %d/%d: %s\n", index+1, len(assets), asset.name)
 		message := &code.UploadMergeRequestAssetRequest{
-			RepositoryId: o.repo, UploadKey: hex.EncodeToString(hash.Sum(nil)), Content: asset.content,
+			RepositoryId: o.repo, UploadKey: uploadKey(head, asset.content), Content: asset.content,
 		}
 		var response *connect.Response[code.UploadMergeRequestAssetResponse]
 		var err error
@@ -119,20 +125,20 @@ func (o *options) uploadAssets(cmd *cobra.Command, head, title, body string, ass
 				select {
 				case <-cmd.Context().Done():
 					timer.Stop()
-					return "", cmd.Context().Err()
+					return nil, cmd.Context().Err()
 				case <-timer.C:
 				}
 			}
 		}
 		if connect.CodeOf(err) == connect.CodeUnimplemented {
-			return "", fmt.Errorf("upload asset %q: this Depot API does not support merge request attachments yet; retry without --attach", asset.name)
+			return nil, fmt.Errorf("upload asset %q: this Depot API does not support merge request attachments yet; retry without --attach", asset.name)
 		}
 		if err != nil {
-			return "", fmt.Errorf("upload asset %q: %w", asset.name, err)
+			return nil, fmt.Errorf("upload asset %q: %w", asset.name, err)
 		}
 		parsed, err := url.Parse(response.Msg.Url)
 		if err != nil {
-			return "", fmt.Errorf("upload asset %q returned an invalid asset URL", asset.name)
+			return nil, fmt.Errorf("upload asset %q returned an invalid asset URL", asset.name)
 		}
 		extension := path.Ext(parsed.Path)
 		validExtension := extension == ".png" || extension == ".jpg" || extension == ".webp" || extension == ".mp4" || extension == ".mov" || extension == ".webm"
@@ -141,10 +147,10 @@ func (o *options) uploadAssets(cmd *cobra.Command, head, title, body string, ass
 		validPath := strings.HasPrefix(parsed.Path, prefix) && len(parts) == 3 && parts[0] != "" && (o.org == "" || parts[0] == o.org) && parts[1] == o.repo && parts[2] == response.Msg.AssetId+extension
 		validScheme := parsed.Scheme == "https" || (parsed.Scheme == "http" && strings.HasPrefix(os.Getenv("DEPOT_API_URL"), "http://"))
 		if !validExtension || !validScheme || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || response.Msg.AssetId == "" || !validPath {
-			return "", fmt.Errorf("upload asset %q returned an invalid asset URL", asset.name)
+			return nil, fmt.Errorf("upload asset %q returned an invalid asset URL", asset.name)
 		}
 		alt := strings.NewReplacer("\\", " ", "[", " ", "]", " ", "\r", " ", "\n", " ").Replace(asset.name)
-		result += fmt.Sprintf("\n\n![%s](%s)", alt, response.Msg.Url)
+		result = append(result, attachment{alt: alt, url: response.Msg.Url})
 	}
 	return result, nil
 }

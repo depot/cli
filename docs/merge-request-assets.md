@@ -25,8 +25,11 @@ again to retry.
 
 If the branch already has an open MR, the CLI uploads the attachments and appends
 them to that MR's description. Its title and existing description text are left
-unchanged, and `--title` and `--body` are not applied. Running the same command
-twice therefore attaches the files twice.
+unchanged, and `--title` and `--body` are not applied.
+
+Running the command again is safe. Uploading the same file for the same branch
+returns the same asset, and an attachment already in the description is not
+added again. If every file is already attached, the description is not updated.
 
 Files are checked before any upload starts: each must be one of the supported
 formats and within the size limit.

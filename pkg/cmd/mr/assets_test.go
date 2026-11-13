@@ -239,8 +239,79 @@ func TestUploadAcceptsServerResolvedOrganizationAndAppOrigin(t *testing.T) {
 	cmd := &cobra.Command{}
 	cmd.SetContext(context.Background())
 	cmd.SetErr(io.Discard)
-	body, err := o.uploadAssets(cmd, "head", "title", "Description", []localAsset{{name: "demo.mp4", content: []byte("video")}})
-	if err != nil || body != "Description\n\n![demo.mp4]("+assetURL+")" {
-		t.Fatalf("body=%q err=%v", body, err)
+	uploaded, err := o.uploadAssets(cmd, "head", []localAsset{{name: "demo.mp4", content: []byte("video")}})
+	if err != nil || len(uploaded) != 1 || uploaded[0].markdown() != "\n\n![demo.mp4]("+assetURL+")" {
+		t.Fatalf("uploaded=%v err=%v", uploaded, err)
+	}
+}
+
+// existingMRServer serves an open MR whose description is saved by updates, and
+// like the API returns the same asset for a repeated upload key. It reports the update count.
+func existingMRServer(t *testing.T, head string) (*code.MergeRequest, *int) {
+	t.Helper()
+	mux := apiServer(t)
+	existing := fixture(head)
+	getRPC(t, mux, existing, "feature")
+	rpc(t, mux, codev1beta2connect.MergeRequestServiceUploadMergeRequestAssetProcedure, func(req *code.UploadMergeRequestAssetRequest) (*code.UploadMergeRequestAssetResponse, error) {
+		id := "mra_" + req.UploadKey[:8]
+		return &code.UploadMergeRequestAssetResponse{AssetId: id, Url: "https://depot.dev/api/code/mr-assets/test-org/repo/" + id + ".png"}, nil
+	})
+	updates := 0
+	rpc(t, mux, codev1beta2connect.MergeRequestServiceUpdateMergeRequestProcedure, func(req *code.UpdateMergeRequestRequest) (*code.UpdateMergeRequestResponse, error) {
+		updates++
+		existing.Body = req.GetBody()
+		return &code.UpdateMergeRequestResponse{MergeRequest: existing}, nil
+	})
+	return existing, &updates
+}
+
+func TestRepeatedAttachToExistingMRAddsNothing(t *testing.T) {
+	existing, updates := existingMRServer(t, checkout(t))
+	if err := os.WriteFile("asset.png", []byte(pngMagic+"asset"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	args := []string{"create", "--title", "Images", "--attach", "asset.png"}
+	if _, err := execute(t, args...); err != nil || *updates != 1 {
+		t.Fatalf("first run: updates=%d err=%v", *updates, err)
+	}
+	attached := existing.Body
+	// A renamed copy has the same bytes, so it is already attached too.
+	if err := os.WriteFile("renamed.png", []byte(pngMagic+"asset"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"asset.png", "renamed.png"} {
+		args[len(args)-1] = path
+		out, err := execute(t, args...)
+		if err != nil || *updates != 1 || existing.Body != attached || !strings.Contains(out, "mr_1: Test change") {
+			t.Fatalf("%s: updates=%d body=%q out=%s err=%v", path, *updates, existing.Body, out, err)
+		}
+	}
+}
+
+func TestAttachToExistingMRAddsOnlyNewFiles(t *testing.T) {
+	existing, updates := existingMRServer(t, checkout(t))
+	for _, path := range []string{"old.png", "new.png"} {
+		if err := os.WriteFile(path, []byte(pngMagic+path), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := execute(t, "create", "--title", "Images", "--attach", "old.png"); err != nil {
+		t.Fatal(err)
+	}
+	attached := existing.Body
+	out, err := execute(t, "create", "--title", "Images", "--attach", "old.png", "--attach", "new.png")
+	added := strings.TrimPrefix(existing.Body, attached)
+	if err != nil || *updates != 2 || !strings.HasPrefix(added, "\n\n![new.png](") || strings.Count(existing.Body, "![") != 2 || !strings.Contains(out, "mr_1") {
+		t.Fatalf("updates=%d body=%q out=%s err=%v", *updates, existing.Body, out, err)
+	}
+}
+
+func TestUploadKeyIsStablePerBranchAndContent(t *testing.T) {
+	key := uploadKey("feature", []byte("bytes"))
+	if len(key) != 64 || key != uploadKey("feature", []byte("bytes")) {
+		t.Fatalf("unstable key %q", key)
+	}
+	if key == uploadKey("other", []byte("bytes")) || key == uploadKey("feature", []byte("other")) {
+		t.Fatal("key ignores the branch or the content")
 	}
 }

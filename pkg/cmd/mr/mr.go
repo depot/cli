@@ -162,9 +162,12 @@ func newCreate(o *options) *cobra.Command {
 				if connect.CodeOf(err) != connect.CodeNotFound {
 					return err
 				}
-				requestBody, err = o.uploadAssets(cmd, name, title, body, assets)
+				uploaded, err := o.uploadAssets(cmd, name, assets)
 				if err != nil {
 					return fmt.Errorf("%w (merge request was not created)", err)
+				}
+				for _, attachment := range uploaded {
+					requestBody += attachment.markdown()
 				}
 			}
 			resp, err := api.NewMergeRequestClient().CreateMergeRequest(cmd.Context(), request(o, &code.CreateMergeRequestRequest{
@@ -204,7 +207,7 @@ func newCreate(o *options) *cobra.Command {
 // merge request. CreateMergeRequest returns that MR unchanged, so it cannot attach them.
 func (o *options) attachToExisting(cmd *cobra.Command, mr *code.MergeRequest, assets []localAsset) error {
 	_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Branch %s already has merge request %s; adding attachments to its description (title and body text are unchanged)\n", mr.HeadRef, mr.Id)
-	refs, err := o.uploadAssets(cmd, mr.HeadRef, mr.Title, "", assets)
+	uploaded, err := o.uploadAssets(cmd, mr.HeadRef, assets)
 	if err != nil {
 		return fmt.Errorf("%w (merge request %s was not changed)", err, mr.Id)
 	}
@@ -216,17 +219,31 @@ func (o *options) attachToExisting(cmd *cobra.Command, mr *code.MergeRequest, as
 	if current.MergeRequest.Id != mr.Id {
 		return fmt.Errorf("merge request %s is no longer the open merge request for %s; run the command again", mr.Id, mr.HeadRef)
 	}
-	body := current.MergeRequest.Body + refs
+	// A repeated upload returns the same URL, so a re-run adds only what is missing.
+	body := current.MergeRequest.Body
+	for _, attachment := range uploaded {
+		if !strings.Contains(body, attachment.url) {
+			body += attachment.markdown()
+		}
+	}
+	if body == current.MergeRequest.Body {
+		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Merge request %s already has these attachments; nothing to add\n", mr.Id)
+		return o.writeCreated(cmd, current.MergeRequest)
+	}
 	resp, err := api.NewMergeRequestClient().UpdateMergeRequest(cmd.Context(), request(o, &code.UpdateMergeRequestRequest{
 		MergeRequestId: mr.Id, Body: &body,
 	}))
 	if err != nil {
 		return fmt.Errorf("attach to merge request %s: %w", mr.Id, err)
 	}
+	return o.writeCreated(cmd, resp.Msg.MergeRequest)
+}
+
+func (o *options) writeCreated(cmd *cobra.Command, mr *code.MergeRequest) error {
 	if o.json {
-		return o.writeJSON(cmd, &code.CreateMergeRequestResponse{MergeRequest: resp.Msg.MergeRequest})
+		return o.writeJSON(cmd, &code.CreateMergeRequestResponse{MergeRequest: mr})
 	}
-	return writeMR(cmd, resp.Msg.MergeRequest)
+	return writeMR(cmd, mr)
 }
 
 func newView(o *options) *cobra.Command {
