@@ -1,15 +1,34 @@
 # Assets in merge request descriptions
 
-Repeat `--attach` to upload images and videos when creating a merge request:
+Repeat `--attach` to upload files when creating a merge request:
 
 ```shell
 depot mr create --title "Update settings" --body "New settings page" \
-  --attach screenshot.png --attach walkthrough.mp4
+  --attach screenshot.png --attach walkthrough.mp4 --attach report.pdf
 ```
 
-The CLI appends Markdown media references in flag order. Use PNG, JPEG,
-or WebP images, or MP4, MOV, or WebM videos. Each attachment is limited to 100 MiB,
-with at most ten attachments per description.
+You can attach images, video and common document, text, code and archive
+files. Each attachment can be up to 100 MiB, with at most ten attachments per
+description. The CLI appends them to the description in flag order. Images
+(`png`, `gif`, `jpg`, `jpeg`, `svg`, `webp`) and videos (`mp4`, `mov`, `webm`)
+are shown inline, as `![screenshot.png](url)`. Every other file is added as a
+link named after the file, as `[report.pdf](url)`.
+
+The type of a file is taken from its extension, in any letter case. The
+accepted extensions are:
+
+- Images and video: `png`, `gif`, `jpg`, `jpeg`, `svg`, `webp`, `bmp`, `tif`,
+  `tiff`, `mp4`, `mov`, `webm`
+- Audio: `mp3`, `wav`
+- Documents: `pdf`, `docx`, `pptx`, `xlsx`, `xls`, `xlsm`, `odt`, `fodt`,
+  `ods`, `fods`, `odp`, `fodp`, `odg`, `fodg`, `odf`, `rtf`, `doc`
+- Text and data: `txt`, `md`, `copilotmd`, `csv`, `tsv`, `log`, `json`,
+  `jsonc`
+- Code and development files: `c`, `cs`, `cpp`, `css`, `drawio`, `dmp`,
+  `html`, `htm`, `java`, `js`, `ipynb`, `patch`, `php`, `cpuprofile`, `pdb`,
+  `py`, `sh`, `sql`, `ts`, `tsx`, `xml`, `yaml`, `yml`
+- Archives and other: `zip`, `gz`, `tgz`, `debug`, `msg`, `eml`
+
 `--image` remains an alias for `--attach`; both flags can be mixed. Progress goes
 to stderr, so `--json` output remains machine-readable.
 
@@ -36,8 +55,9 @@ added again. If every file is already attached, the description is not updated.
 An upload that expired, or that belongs to an earlier MR from the same branch
 name, cannot be reused. The CLI then uploads a new copy once and continues.
 
-Files are checked before any upload starts: each must be one of the supported
-formats and within the size limit. A file that changes while it is uploading
+Files are checked before any upload starts: each must have an accepted
+extension and be within the size limit. The contents are not inspected. A file
+that changes while it is uploading
 is not stored or attached; run the command again.
 
 The server must support asset uploads before this flag can be used.

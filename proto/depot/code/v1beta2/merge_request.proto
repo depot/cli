@@ -300,19 +300,19 @@ message BeginMergeRequestAssetUploadRequest {
   // Unique identifier for the repository. Returned by `GetRepository`.
   string repository_id = 1;
   // Client-chosen identity for this upload, 1 to 128 characters. The same key always addresses the same asset
-  // for the same repository and author. Reusing it with a different `size` or `contentType` returns AlreadyExists.
+  // for the same repository and author. Reusing it with a different `size` or `extension` returns AlreadyExists.
   string upload_key = 2;
   // Exact file size in bytes. Maximum: 104857600 (100 MiB).
   int64 size = 3;
-  // MIME type of the file. Can be "image/png", "image/jpeg", "image/webp", "video/mp4", "video/quicktime",
-  // or "video/webm". `CompleteMergeRequestAssetUpload` rejects a file whose leading bytes are a different type.
-  string content_type = 4;
+  // File extension without the dot, any case. Must be one of the supported attachment extensions. The server
+  // derives the content type; `upload_headers` carries the one to send on the PUT.
+  string extension = 4;
 }
 
 message BeginMergeRequestAssetUploadResponse {
   // Unique identifier for the asset.
   string asset_id = 1;
-  // Stable asset URL with a media extension, for use in a description. It stops resolving after the 24-hour
+  // Stable asset URL ending in the file extension, for use in a description. It stops resolving after the 24-hour
   // draft expiry unless a saved description contains it; once attached it is permanent.
   string url = 2;
   // True when this upload key already completed. Skip the PUT and `CompleteMergeRequestAssetUpload`.

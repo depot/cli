@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 
@@ -17,17 +18,17 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// Asset fixtures only need a supported signature; nothing decodes them.
+// Asset fixtures are arbitrary bytes; only the file extension is checked.
 const (
 	pngMagic = "\x89PNG\r\n\x1a\n"
 	mp4Magic = "\x00\x00\x00\x18ftypmp42"
 )
 
 type fakeAsset struct {
-	id, key, contentType string
-	size                 int64
-	stored               []byte
-	ready                bool
+	id, key, extension string
+	size               int64
+	stored             []byte
+	ready              bool
 }
 
 // assetAPI fakes the upload RPCs and the storage they sign URLs for, following the
@@ -46,8 +47,6 @@ type assetAPI struct {
 	onComplete func(call int) error
 	completes  int
 }
-
-var extensions = map[string]string{"image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp", "video/mp4": ".mp4", "video/quicktime": ".mov", "video/webm": ".webm"}
 
 func newAssetAPI(t *testing.T, mux *http.ServeMux) *assetAPI {
 	t.Helper()
@@ -77,7 +76,7 @@ func (f *assetAPI) url(asset *fakeAsset) string {
 	if org == "" {
 		org = "resolved-org"
 	}
-	return f.origin + "/api/code/mr-assets/" + org + "/repo/" + asset.id + extensions[asset.contentType]
+	return f.origin + "/api/code/mr-assets/" + org + "/repo/" + asset.id + "." + asset.extension
 }
 
 func (f *assetAPI) begin(req *code.BeginMergeRequestAssetUploadRequest) (*code.BeginMergeRequestAssetUploadResponse, error) {
@@ -87,7 +86,7 @@ func (f *assetAPI) begin(req *code.BeginMergeRequestAssetUploadRequest) (*code.B
 			return nil, err
 		}
 	}
-	if req.RepositoryId != "repo" || len(req.UploadKey) != 64 || req.Size < 1 || extensions[req.ContentType] == "" {
+	if req.RepositoryId != "repo" || len(req.UploadKey) != 64 || req.Size < 1 || req.Extension == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("invalid upload"))
 	}
 	var asset *fakeAsset
@@ -97,16 +96,16 @@ func (f *assetAPI) begin(req *code.BeginMergeRequestAssetUploadRequest) (*code.B
 		}
 	}
 	if asset == nil {
-		asset = &fakeAsset{id: fmt.Sprintf("mra_%d", len(f.assets)+1), key: req.UploadKey, contentType: req.ContentType, size: req.Size}
+		asset = &fakeAsset{id: fmt.Sprintf("mra_%d", len(f.assets)+1), key: req.UploadKey, extension: req.Extension, size: req.Size}
 		f.assets = append(f.assets, asset)
 	}
-	if asset.size != req.Size || asset.contentType != req.ContentType {
+	if asset.size != req.Size || asset.extension != req.Extension {
 		return nil, connect.NewError(connect.CodeAlreadyExists, fmt.Errorf("upload key reused for a different file"))
 	}
 	response := &code.BeginMergeRequestAssetUploadResponse{AssetId: asset.id, Url: f.url(asset), Uploaded: asset.ready}
 	if !asset.ready {
 		response.UploadUrl = fmt.Sprintf("%s/%s?signature=%d", f.storage.URL, asset.id, len(f.begins))
-		response.UploadHeaders = map[string]string{"content-type": asset.contentType, "if-none-match": "*"}
+		response.UploadHeaders = map[string]string{"content-type": "test/" + asset.extension, "if-none-match": "*"}
 	}
 	return response, nil
 }
@@ -128,7 +127,7 @@ func (f *assetAPI) put(w http.ResponseWriter, r *http.Request) {
 			asset = known
 		}
 	}
-	if asset == nil || r.Method != http.MethodPut || r.ContentLength != asset.size || r.Header.Get("Content-Type") != asset.contentType || r.Header.Get("If-None-Match") != "*" {
+	if asset == nil || r.Method != http.MethodPut || r.ContentLength != asset.size || r.Header.Get("Content-Type") != "test/"+asset.extension || r.Header.Get("If-None-Match") != "*" {
 		w.WriteHeader(http.StatusForbidden)
 		return
 	}
@@ -260,7 +259,7 @@ func TestReadAssetsHashesLargestAllowedFileFromDisk(t *testing.T) {
 		t.Fatal(err)
 	}
 	assets, err := readAssets([]string{"big.png"})
-	if err != nil || assets[0].size != maxAssetBytes || assets[0].contentType != "image/png" || len(assets[0].digest) != 32 {
+	if err != nil || assets[0].size != maxAssetBytes || assets[0].extension != "png" || len(assets[0].digest) != 32 {
 		t.Fatalf("assets=%+v err=%v", assets, err)
 	}
 }
@@ -332,30 +331,54 @@ func TestFailedUploadLeavesExistingMRUnchanged(t *testing.T) {
 	}
 }
 
-func TestReadAssetsNamesTheTypeAndRejectsUnsupportedContent(t *testing.T) {
+func TestReadAssetsChecksOnlyTheExtension(t *testing.T) {
 	t.Chdir(t.TempDir())
-	accepted := map[string]string{
-		pngMagic:                               "image/png",
-		"\xff\xd8\xff\xe0":                     "image/jpeg",
-		"RIFF\x00\x00\x00\x00WEBPVP8 ":         "image/webp",
-		mp4Magic:                               "video/mp4",
-		"\x00\x00\x00\x14ftypqt  ":             "video/quicktime",
-		"\x00\x00\x00\x08wide\x00\x00..":       "video/quicktime",
-		"\x1a\x45\xdf\xa3\x9f\x42\x82\x84webm": "video/webm",
-	}
-	for content, contentType := range accepted {
-		writeAsset(t, "asset", content+"rest of file")
-		assets, err := readAssets([]string{"asset"})
-		if err != nil || assets[0].contentType != contentType {
-			t.Errorf("%q: assets=%+v err=%v", content, assets, err)
+	for _, extension := range append(slices.Clone(inlineExtensions), linkedExtensions...) {
+		name := "File." + strings.ToUpper(extension)
+		writeAsset(t, name, "any bytes at all")
+		assets, err := readAssets([]string{name})
+		if err != nil || assets[0].extension != extension {
+			t.Errorf("%s: assets=%+v err=%v", name, assets, err)
 		}
 	}
-	rejected := []string{"plain text notes", "GIF89a", "%PDF-1.7", "RIFF\x00\x00\x00\x00WAVEfmt ", "x", "\x00\x00\x00\x18ftypheic", "\x1a\x45\xdf\xa3\x9f\x42\x82\x88matroska"}
-	for _, content := range rejected {
-		writeAsset(t, "notes.png", content)
-		if _, err := readAssets([]string{"notes.png"}); err == nil || !strings.Contains(err.Error(), "is not a PNG, JPEG, WebP, MP4, MOV, or WebM file") {
-			t.Errorf("accepted %q: %v", content, err)
+	if total := len(inlineExtensions) + len(linkedExtensions); total != 68 {
+		t.Errorf("%d extensions", total)
+	}
+	rejected := map[string]string{"tool.exe": ".exe files are not an accepted type", "disk.tar.xz": ".xz files", "Makefile": "has no file extension"}
+	for name, want := range rejected {
+		writeAsset(t, name, pngMagic)
+		if _, err := readAssets([]string{name}); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%s: %v", name, err)
 		}
+	}
+}
+
+func TestOtherFilesAreAttachedAsLinks(t *testing.T) {
+	checkout(t)
+	writeAsset(t, "shot.GIF", "GIF89a")
+	writeAsset(t, "build [1].log", "plain text")
+	mux := apiServer(t)
+	noMR(t, mux)
+	fake := newAssetAPI(t, mux)
+	var body string
+	rpc(t, mux, codev1beta2connect.MergeRequestServiceCreateMergeRequestProcedure, func(req *code.CreateMergeRequestRequest) (*code.CreateMergeRequestResponse, error) {
+		body = req.GetBody()
+		mr := fixture("abc")
+		mr.Body = body
+		return &code.CreateMergeRequestResponse{MergeRequest: mr}, nil
+	})
+	if _, err := execute(t, "create", "--title", "Logs", "--attach", "shot.GIF", "--attach", "build [1].log"); err != nil {
+		t.Fatal(err)
+	}
+	want := "\n\n![shot.GIF](https://depot.dev/api/code/mr-assets/test-org/repo/mra_1.gif)\n\n[build  1 .log](https://depot.dev/api/code/mr-assets/test-org/repo/mra_2.log)"
+	if body != want || fake.assets[1].extension != "log" || string(fake.assets[1].stored) != "plain text" {
+		t.Fatalf("body=%q assets=%+v", body, fake.assets[1])
+	}
+}
+
+func TestSameBytesUnderAnotherExtensionAreASeparateUpload(t *testing.T) {
+	if uploadKey("head", []byte("digest"), "txt") == uploadKey("head", []byte("digest"), "md") {
+		t.Fatal("upload key ignores the extension")
 	}
 }
 

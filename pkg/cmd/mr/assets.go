@@ -30,28 +30,44 @@ const maxAssetBytes = 100 * 1024 * 1024
 
 // localAsset describes a file to upload. The bytes stay on disk and are streamed.
 type localAsset struct {
-	name        string
-	path        string
-	contentType string
-	size        int64
-	digest      []byte
+	name      string
+	path      string
+	extension string
+	size      int64
+	digest    []byte
 }
 
+// The file types a description accepts, by lowercase extension. Only the first
+// group is shown inline; every other file is attached as a link.
+var (
+	inlineExtensions = strings.Fields("png gif jpg jpeg svg webp mp4 mov webm")
+	linkedExtensions = strings.Fields(`
+		pdf docx pptx xlsx xls xlsm odt fodt ods fods odp fodp odg fodg odf rtf doc
+		txt md copilotmd csv tsv log json jsonc
+		c cs cpp css drawio dmp html htm java js ipynb patch php cpuprofile pdb py sh sql ts tsx xml yaml yml
+		zip gz tgz debug msg eml bmp tif tiff mp3 wav`)
+)
+
 type attachment struct {
-	alt string
-	url string
+	alt    string
+	url    string
+	inline bool
 }
 
 func (a attachment) markdown() string {
-	return fmt.Sprintf("\n\n![%s](%s)", a.alt, a.url)
+	if a.inline {
+		return fmt.Sprintf("\n\n![%s](%s)", a.alt, a.url)
+	}
+	return fmt.Sprintf("\n\n[%s](%s)", a.alt, a.url)
 }
 
-// uploadKey depends only on the scope (normally the branch) and the file's SHA-256,
-// so the API returns the same asset and URL when the same file is uploaded again.
-func uploadKey(scope string, digest []byte) string {
+// uploadKey depends only on the scope (normally the branch), the file's SHA-256 and
+// its extension, so the API returns the same asset when the same file is uploaded again.
+func uploadKey(scope string, digest []byte, extension string) string {
 	hash := sha256.New()
 	_, _ = io.WriteString(hash, scope+"\x00")
 	_, _ = hash.Write(digest)
+	_, _ = io.WriteString(hash, extension)
 	return hex.EncodeToString(hash.Sum(nil))
 }
 
@@ -133,8 +149,15 @@ func readAssets(paths []string) ([]localAsset, error) {
 	return assets, nil
 }
 
-// inspectAsset checks the size and format of a file and hashes it in one streamed pass.
+// inspectAsset checks the extension and size of a file and hashes it in one streamed pass.
 func inspectAsset(path string) (localAsset, error) {
+	extension := strings.ToLower(strings.TrimPrefix(filepath.Ext(path), "."))
+	if !slices.Contains(inlineExtensions, extension) && !slices.Contains(linkedExtensions, extension) {
+		if extension == "" {
+			return localAsset{}, fmt.Errorf("asset %q has no file extension, so its type is not known; run depot mr create --help for the accepted types", path)
+		}
+		return localAsset{}, fmt.Errorf("asset %q cannot be attached: .%s files are not an accepted type; run depot mr create --help for the accepted types", path, extension)
+	}
 	info, err := os.Stat(path)
 	if err != nil {
 		return localAsset{}, fmt.Errorf("asset %q: %w", path, err)
@@ -148,59 +171,14 @@ func inspectAsset(path string) (localAsset, error) {
 	}
 	defer func() { _ = file.Close() }()
 	hash := sha256.New()
-	head := make([]byte, 1024)
-	read, err := io.ReadFull(io.TeeReader(file, hash), head)
-	if err != nil && !errors.Is(err, io.ErrUnexpectedEOF) && !errors.Is(err, io.EOF) {
-		return localAsset{}, fmt.Errorf("asset %q: %w", path, err)
-	}
-	contentType := assetType(head[:read])
-	if contentType == "" {
-		return localAsset{}, fmt.Errorf("asset %q is not a PNG, JPEG, WebP, MP4, MOV, or WebM file", path)
-	}
-	rest, err := io.Copy(hash, file)
+	read, err := io.Copy(hash, file)
 	if err != nil {
 		return localAsset{}, fmt.Errorf("asset %q: %w", path, err)
 	}
-	if int64(read)+rest != info.Size() {
+	if read != info.Size() {
 		return localAsset{}, fmt.Errorf("asset %q changed size while reading", path)
 	}
-	return localAsset{name: filepath.Base(path), path: path, contentType: contentType, size: info.Size(), digest: hash.Sum(nil)}, nil
-}
-
-// assetType names the MIME type the leading bytes of a file identify, or "" for an
-// unsupported file. The API repeats this check on the stored file.
-func assetType(head []byte) string {
-	switch {
-	case bytes.HasPrefix(head, []byte("\x89PNG\r\n\x1a\n")):
-		return "image/png"
-	case bytes.HasPrefix(head, []byte("\xff\xd8\xff")):
-		return "image/jpeg"
-	case bytes.HasPrefix(head, []byte("\x1a\x45\xdf\xa3")):
-		// Matroska shares this signature; only the WebM document type is accepted.
-		if bytes.Contains(head, []byte("\x42\x82\x84webm")) {
-			return "video/webm"
-		}
-		return ""
-	case len(head) < 12:
-		return ""
-	case string(head[:4]) == "RIFF" && string(head[8:12]) == "WEBP":
-		return "image/webp"
-	}
-	// MP4 and MOV open with an atom; QuickTime may omit ftyp.
-	switch string(head[4:8]) {
-	case "ftyp":
-		brand := string(head[8:12])
-		if slices.Contains([]string{"heic", "heix", "mif1", "msf1", "avif", "avis", "M4A ", "M4B ", "M4P "}, brand) {
-			return ""
-		}
-		if brand == "qt  " {
-			return "video/quicktime"
-		}
-		return "video/mp4"
-	case "wide", "mdat", "moov", "free", "skip":
-		return "video/quicktime"
-	}
-	return ""
+	return localAsset{name: filepath.Base(path), path: path, extension: extension, size: info.Size(), digest: hash.Sum(nil)}, nil
 }
 
 // uploadAssets uploads each asset and returns its reference for the description.
@@ -219,7 +197,7 @@ func (o *options) uploadAssets(cmd *cobra.Command, assets []localAsset, scopes .
 			return nil, fmt.Errorf("upload asset %q returned an invalid asset URL", asset.name)
 		}
 		alt := strings.NewReplacer("\\", " ", "[", " ", "]", " ", "\r", " ", "\n", " ").Replace(asset.name)
-		result = append(result, attachment{alt: alt, url: assetURL})
+		result = append(result, attachment{alt: alt, url: assetURL, inline: slices.Contains(inlineExtensions, asset.extension)})
 	}
 	return result, nil
 }
@@ -230,7 +208,7 @@ func (o *options) uploadAsset(cmd *cobra.Command, asset localAsset, scopes []str
 	var key string
 	var started *code.BeginMergeRequestAssetUploadResponse
 	for _, scope := range scopes {
-		key = uploadKey(scope, asset.digest)
+		key = uploadKey(scope, asset.digest, asset.extension)
 		started, err = o.begin(cmd, asset, key)
 		if connect.CodeOf(err) != connect.CodeFailedPrecondition {
 			break
@@ -261,7 +239,7 @@ func (o *options) begin(cmd *cobra.Command, asset localAsset, key string) (*code
 	client := api.NewMergeRequestClient()
 	response, err := retry(cmd.Context(), func() (*connect.Response[code.BeginMergeRequestAssetUploadResponse], error) {
 		return client.BeginMergeRequestAssetUpload(cmd.Context(), request(o, &code.BeginMergeRequestAssetUploadRequest{
-			RepositoryId: o.repo, UploadKey: key, Size: asset.size, ContentType: asset.contentType,
+			RepositoryId: o.repo, UploadKey: key, Size: asset.size, Extension: asset.extension,
 		}))
 	})
 	if err != nil {
@@ -380,7 +358,7 @@ func (o *options) validAssetURL(id, assetURL string) bool {
 		return false
 	}
 	extension := path.Ext(parsed.Path)
-	if !slices.Contains([]string{".png", ".jpg", ".webp", ".mp4", ".mov", ".webm"}, extension) {
+	if kind := strings.TrimPrefix(extension, "."); !slices.Contains(inlineExtensions, kind) && !slices.Contains(linkedExtensions, kind) {
 		return false
 	}
 	prefix := "/api/code/mr-assets/"
