@@ -21,7 +21,14 @@ on the browser, and a download link is available.
 
 Transient upload failures retry with the same upload identity. If an upload
 fails, the command exits without creating the merge request. Run the command
-again to retry. If the branch already has an open MR, the CLI returns it without
-uploading additional attachments.
+again to retry.
+
+If the branch already has an open MR, the CLI uploads the attachments and appends
+them to that MR's description. Its title and existing description text are left
+unchanged, and `--title` and `--body` are not applied. Running the same command
+twice therefore attaches the files twice.
+
+Files are checked before any upload starts: each must be one of the supported
+formats and within the size limit.
 
 The server must support asset uploads before this flag can be used.

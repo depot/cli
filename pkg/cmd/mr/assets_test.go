@@ -15,10 +15,13 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// Asset fixtures only need a supported signature; the API does the real decoding.
+const pngMagic = "\x89PNG\r\n\x1a\n"
+
 func TestCreateUploadsOrderedImagesAndVideosWithBothFlagNames(t *testing.T) {
 	checkout(t)
 	for _, path := range []string{"before.png", "demo.mp4"} {
-		if err := os.WriteFile(path, []byte(path), 0600); err != nil {
+		if err := os.WriteFile(path, []byte(pngMagic+path), 0600); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -37,7 +40,7 @@ func TestCreateUploadsOrderedImagesAndVideosWithBothFlagNames(t *testing.T) {
 	})
 	rpc(t, mux, codev1beta2connect.MergeRequestServiceCreateMergeRequestProcedure, func(req *code.CreateMergeRequestRequest) (*code.CreateMergeRequestResponse, error) {
 		want := "Description\n\n![before.png](https://depot.dev/api/code/mr-assets/test-org/repo/mra_1.png)\n\n![demo.mp4](https://depot.dev/api/code/mr-assets/test-org/repo/mra_2.mp4)"
-		if req.Body != want || strings.Join(uploaded, ",") != "before.png,demo.mp4" {
+		if req.Body != want || strings.Join(uploaded, ",") != pngMagic+"before.png,"+pngMagic+"demo.mp4" {
 			t.Fatalf("unexpected body/order: %s %v", req.Body, uploaded)
 		}
 		mr := fixture("abc")
@@ -52,7 +55,7 @@ func TestCreateUploadsOrderedImagesAndVideosWithBothFlagNames(t *testing.T) {
 
 func TestFailedImageNeverCreatesMRAndRetryKeepsUploadIdentity(t *testing.T) {
 	checkout(t)
-	if err := os.WriteFile("asset.png", []byte("asset"), 0600); err != nil {
+	if err := os.WriteFile("asset.png", []byte(pngMagic+"asset"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	mux := apiServer(t)
@@ -92,7 +95,7 @@ func TestReadImagesBoundsFilesAndRejectsMissingLaterFile(t *testing.T) {
 			t.Fatalf("accepted size %d", size)
 		}
 	}
-	if err := os.WriteFile("asset.png", []byte("valid"), 0600); err != nil {
+	if err := os.WriteFile("asset.png", []byte(pngMagic+"valid"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := readAssets([]string{"asset.png", "missing.png"}); err == nil {
@@ -103,22 +106,85 @@ func TestReadImagesBoundsFilesAndRejectsMissingLaterFile(t *testing.T) {
 	}
 }
 
-func TestRetryOfCreatedMRDoesNotUploadImagesAgain(t *testing.T) {
+func TestCreateAttachesToExistingMRDescription(t *testing.T) {
 	head := checkout(t)
-	if err := os.WriteFile("asset.png", []byte("asset"), 0600); err != nil {
+	if err := os.WriteFile("asset.png", []byte(pngMagic+"asset"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	mux := apiServer(t)
+	existing := fixture(head)
+	getRPC(t, mux, existing, "feature")
+	assetURL := "https://depot.dev/api/code/mr-assets/test-org/repo/mra_1.png"
+	rpc(t, mux, codev1beta2connect.MergeRequestServiceUploadMergeRequestAssetProcedure, func(*code.UploadMergeRequestAssetRequest) (*code.UploadMergeRequestAssetResponse, error) {
+		// Someone edits the description while the upload is in flight.
+		existing.Body = "Edited meanwhile"
+		return &code.UploadMergeRequestAssetResponse{AssetId: "mra_1", Url: assetURL}, nil
+	})
+	rpc(t, mux, codev1beta2connect.MergeRequestServiceCreateMergeRequestProcedure, func(*code.CreateMergeRequestRequest) (*code.CreateMergeRequestResponse, error) {
+		t.Error("created a second MR")
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("unexpected create"))
+	})
+	updates := 0
+	rpc(t, mux, codev1beta2connect.MergeRequestServiceUpdateMergeRequestProcedure, func(req *code.UpdateMergeRequestRequest) (*code.UpdateMergeRequestResponse, error) {
+		updates++
+		want := "Edited meanwhile\n\n![asset.png](" + assetURL + ")"
+		if req.MergeRequestId != "mr_1" || req.GetBody() != want || req.Title != nil || req.BaseRef != nil || req.State != code.MergeRequest_STATE_UNSPECIFIED {
+			t.Errorf("unexpected update: %v", req)
+		}
+		mr := fixture(head)
+		mr.Body = req.GetBody()
+		return &code.UpdateMergeRequestResponse{MergeRequest: mr}, nil
+	})
+	out, err := execute(t, "create", "--title", "Ignored", "--body", "Ignored", "--attach", "asset.png")
+	if err != nil || updates != 1 || !strings.Contains(out, "mr_1: Test change") || !strings.Contains(out, assetURL) {
+		t.Fatalf("updates=%d out=%s err=%v", updates, out, err)
+	}
+}
+
+func TestFailedUploadLeavesExistingMRUnchanged(t *testing.T) {
+	head := checkout(t)
+	if err := os.WriteFile("asset.png", []byte(pngMagic+"asset"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	mux := apiServer(t)
 	getRPC(t, mux, fixture(head), "feature")
-	out, err := execute(t, "create", "--title", "Images", "--attach", "asset.png")
-	if err != nil || !strings.Contains(out, "mr_1") {
-		t.Fatalf("%s: %v", out, err)
+	rpc(t, mux, codev1beta2connect.MergeRequestServiceUploadMergeRequestAssetProcedure, func(*code.UploadMergeRequestAssetRequest) (*code.UploadMergeRequestAssetResponse, error) {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("invalid asset"))
+	})
+	rpc(t, mux, codev1beta2connect.MergeRequestServiceUpdateMergeRequestProcedure, func(*code.UpdateMergeRequestRequest) (*code.UpdateMergeRequestResponse, error) {
+		t.Error("updated MR after a failed upload")
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("unexpected update"))
+	})
+	_, err := execute(t, "create", "--title", "Images", "--attach", "asset.png")
+	if err == nil || !strings.Contains(err.Error(), "invalid asset") || !strings.Contains(err.Error(), "mr_1 was not changed") {
+		t.Fatalf("err=%v", err)
+	}
+}
+
+func TestReadAssetsRejectsUnsupportedContent(t *testing.T) {
+	t.Chdir(t.TempDir())
+	accepted := []string{pngMagic, "\xff\xd8\xff\xe0", "RIFF\x00\x00\x00\x00WEBPVP8 ", "\x00\x00\x00\x18ftypmp42", "\x00\x00\x00\x14ftypqt  ", "\x00\x00\x00\x08wide", "\x1a\x45\xdf\xa3"}
+	for _, content := range accepted {
+		if err := os.WriteFile("asset", []byte(content+"rest of file"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := readAssets([]string{"asset"}); err != nil {
+			t.Errorf("rejected %q: %v", content, err)
+		}
+	}
+	for _, content := range []string{"plain text notes", "GIF89a", "%PDF-1.7", "RIFF\x00\x00\x00\x00WAVEfmt ", "x"} {
+		if err := os.WriteFile("notes.png", []byte(content), 0600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := readAssets([]string{"notes.png"}); err == nil || !strings.Contains(err.Error(), "is not a PNG, JPEG, WebP, MP4, MOV, or WebM file") {
+			t.Errorf("accepted %q: %v", content, err)
+		}
 	}
 }
 
 func TestUnsupportedImageUploadDoesNotCreateMR(t *testing.T) {
 	checkout(t)
-	if err := os.WriteFile("asset.png", []byte("asset"), 0600); err != nil {
+	if err := os.WriteFile("asset.png", []byte(pngMagic+"asset"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	mux := apiServer(t)
@@ -133,8 +199,8 @@ func TestUnsupportedImageUploadDoesNotCreateMR(t *testing.T) {
 		return nil, nil
 	})
 	_, err := execute(t, "create", "--title", "Images", "--attach", "asset.png")
-	if connect.CodeOf(err) != connect.CodeUnimplemented {
-		t.Fatalf("expected unsupported upload, got %v", err)
+	if err == nil || !strings.Contains(err.Error(), "does not support merge request attachments yet") || strings.Contains(err.Error(), "upgrade the server") {
+		t.Fatalf("expected a readable unsupported-upload error, got %v", err)
 	}
 }
 

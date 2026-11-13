@@ -1,6 +1,7 @@
 package mr
 
 import (
+	"bytes"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
@@ -28,7 +29,7 @@ type localAsset struct {
 }
 
 // Read every file before uploading so a missing later file cannot partially publish the request.
-// The API validates the asset decoder, format, and pixel limits from these exact bytes.
+// The API validates the asset decoder and pixel limits from these exact bytes.
 func readAssets(paths []string) ([]localAsset, error) {
 	if len(paths) > 10 {
 		return nil, fmt.Errorf("at most 10 --attach files are allowed")
@@ -57,9 +58,34 @@ func readAssets(paths []string) ([]localAsset, error) {
 		if len(content) == 0 || len(content) > maxAssetBytes {
 			return nil, fmt.Errorf("asset %q changed size while reading", path)
 		}
+		if !supportedAsset(content) {
+			return nil, fmt.Errorf("asset %q is not a PNG, JPEG, WebP, MP4, MOV, or WebM file", path)
+		}
 		assets = append(assets, localAsset{name: filepath.Base(path), content: content})
 	}
 	return assets, nil
+}
+
+// supportedAsset reports whether content starts like a format the API accepts.
+// It only catches obvious mistakes early; the API still decodes every upload.
+func supportedAsset(content []byte) bool {
+	for _, magic := range []string{"\x89PNG\r\n\x1a\n", "\xff\xd8\xff", "\x1a\x45\xdf\xa3"} {
+		if bytes.HasPrefix(content, []byte(magic)) {
+			return true
+		}
+	}
+	if len(content) < 12 {
+		return false
+	}
+	if string(content[:4]) == "RIFF" && string(content[8:12]) == "WEBP" {
+		return true
+	}
+	// MP4 and MOV open with an atom; QuickTime may omit ftyp.
+	switch string(content[4:8]) {
+	case "ftyp", "wide", "mdat", "moov", "free", "skip":
+		return true
+	}
+	return false
 }
 
 func (o *options) uploadAssets(cmd *cobra.Command, head, title, body string, assets []localAsset) (string, error) {
@@ -67,7 +93,6 @@ func (o *options) uploadAssets(cmd *cobra.Command, head, title, body string, ass
 	client := api.NewMergeRequestClient()
 	for index, asset := range assets {
 		// Each explicit upload is new; transport retries below retain this identity.
-		// Looking up an existing MR before uploading also handles a lost create response.
 		var nonce [32]byte
 		if _, err := rand.Read(nonce[:]); err != nil {
 			return "", err
@@ -99,8 +124,11 @@ func (o *options) uploadAssets(cmd *cobra.Command, head, title, body string, ass
 				}
 			}
 		}
+		if connect.CodeOf(err) == connect.CodeUnimplemented {
+			return "", fmt.Errorf("upload asset %q: this Depot API does not support merge request attachments yet; retry without --attach", asset.name)
+		}
 		if err != nil {
-			return "", fmt.Errorf("upload asset %q: %w (merge request was not created)", asset.name, err)
+			return "", fmt.Errorf("upload asset %q: %w", asset.name, err)
 		}
 		parsed, err := url.Parse(response.Msg.Url)
 		if err != nil {
