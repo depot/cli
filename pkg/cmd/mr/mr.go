@@ -338,11 +338,7 @@ func newMerge(o *options) *cobra.Command {
 			if o.json {
 				return o.writeJSON(cmd, out)
 			}
-			verb := "Merged"
-			if squash {
-				verb = "Squashed and merged"
-			}
-			_, err = fmt.Fprintf(cmd.OutOrStdout(), "%s %s: %s\n", verb, mr.Id, mr.MergeCommitOid)
+			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Merged %s: %s\n", mr.Id, mr.MergeCommitOid)
 			return err
 		},
 	}

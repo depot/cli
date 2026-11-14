@@ -235,7 +235,7 @@ func TestMergeSquashAsksForOneCommit(t *testing.T) {
 	}
 	refuse = 0
 	out, err = execute(t, "merge", "feature", "--squash")
-	if err != nil || out != "Squashed and merged mr_1: "+strings.Repeat("b", 40)+"\n" {
+	if err != nil || out != "Merged mr_1: "+strings.Repeat("b", 40)+"\n" {
 		t.Fatalf("squash result: %q %v", out, err)
 	}
 	out, err = execute(t, "merge", "feature", "--squash", "--json")
