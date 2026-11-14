@@ -129,11 +129,12 @@ func branch(cmd *cobra.Command, args []string) (string, error) {
 }
 
 // get finds the merge request of a branch: the open one, or else the most recently created closed or merged one.
+// A server that predates include_closed ignores it and finds only an open one.
 func (o *options) get(cmd *cobra.Command, name string) (*code.GetMergeRequestResponse, error) {
 	return o.find(cmd, name, false)
 }
 
-// getOpen is the API's own branch lookup, which finds only an open merge request and is not_found otherwise.
+// getOpen finds only the open merge request of a branch and is not_found otherwise.
 func (o *options) getOpen(cmd *cobra.Command, name string) (*code.GetMergeRequestResponse, error) {
 	return o.fetch(cmd, &code.GetMergeRequestRequest{Lookup: o.head(name)})
 }
@@ -143,45 +144,11 @@ func (o *options) head(name string) *code.GetMergeRequestRequest_Head {
 }
 
 func (o *options) find(cmd *cobra.Command, name string, readiness bool) (*code.GetMergeRequestResponse, error) {
-	req := &code.GetMergeRequestRequest{Lookup: o.head(name), IncludeReadiness: readiness}
-	resp, err := o.fetch(cmd, req)
-	if connect.CodeOf(err) != connect.CodeNotFound {
-		return resp, err
+	resp, err := o.fetch(cmd, &code.GetMergeRequestRequest{Lookup: o.head(name), IncludeReadiness: readiness, IncludeClosed: true})
+	if connect.CodeOf(err) == connect.CodeNotFound {
+		return nil, fmt.Errorf("no merge request found for branch %q in repository %s: %w", name, o.repo, err)
 	}
-	newest, listErr := o.newest(cmd, name)
-	if listErr != nil {
-		return nil, listErr
-	}
-	if newest == nil {
-		return nil, fmt.Errorf("no merge request for branch %q in repository %s: %w", name, o.repo, err)
-	}
-	// Read it by ID: a listed row is not caught up with its branches.
-	req.Lookup = &code.GetMergeRequestRequest_MergeRequestId{MergeRequestId: newest.Id}
-	return o.fetch(cmd, req)
-}
-
-// newest lists every merge request of a branch and returns an open one, or else the most recently created; nil if none.
-func (o *options) newest(cmd *cobra.Command, name string) (*code.MergeRequest, error) {
-	req := &code.ListMergeRequestsRequest{RepositoryId: o.repo, HeadRef: name, State: code.ListMergeRequestsRequest_STATE_FILTER_ALL, PageSize: 100}
-	var newest *code.MergeRequest
-	for {
-		resp, err := api.NewMergeRequestClient().ListMergeRequests(cmd.Context(), request(o, req))
-		if err != nil {
-			return nil, err
-		}
-		for _, mr := range resp.Msg.MergeRequests {
-			if mr.State == code.MergeRequest_STATE_OPEN {
-				return mr, nil
-			}
-			if newest == nil || mr.CreatedAt.AsTime().After(newest.CreatedAt.AsTime()) {
-				newest = mr
-			}
-		}
-		if resp.Msg.NextPageToken == "" || resp.Msg.NextPageToken == req.PageToken {
-			return newest, nil
-		}
-		req.PageToken = resp.Msg.NextPageToken
-	}
+	return resp, err
 }
 
 // requireState refuses a merge request that a branch lookup found in another state than want.

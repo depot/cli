@@ -22,48 +22,40 @@ func finished(id string, state code.MergeRequest_State, createdMinute int) *code
 	return mr
 }
 
-// branchAPI serves lookups the way the API does: a branch finds only an open merge request, an ID finds any,
-// and the list returns one merge request per page. Any other call fails the test.
-func branchAPI(t *testing.T, mrs ...*code.MergeRequest) *[]*code.GetMergeRequestRequest {
+// branchAPI serves lookups the way the API does: an ID finds any merge request, a branch finds the open one, and with
+// include_closed the newest closed or merged one after that. An old server ignores include_closed. Any other call fails the test.
+func branchAPI(t *testing.T, old bool, mrs ...*code.MergeRequest) *[]*code.GetMergeRequestRequest {
 	t.Helper()
 	mux := apiServer(t)
 	var gets []*code.GetMergeRequestRequest
 	rpc(t, mux, codev1beta2connect.MergeRequestServiceGetMergeRequestProcedure, func(req *code.GetMergeRequestRequest) (*code.GetMergeRequestResponse, error) {
 		gets = append(gets, req)
+		var found *code.MergeRequest
 		for _, mr := range mrs {
-			byHead := req.GetHead().GetHeadRef() == mr.HeadRef && mr.State == code.MergeRequest_STATE_OPEN
-			if byHead || req.GetMergeRequestId() == mr.Id {
+			if req.GetMergeRequestId() == mr.Id || (req.GetHead().GetHeadRef() == mr.HeadRef && mr.State == code.MergeRequest_STATE_OPEN) {
 				return &code.GetMergeRequestResponse{MergeRequest: mr}, nil
 			}
+			if req.GetHead().GetHeadRef() == mr.HeadRef && (found == nil || mr.CreatedAt.AsTime().After(found.CreatedAt.AsTime())) {
+				found = mr
+			}
 		}
-		return nil, errNoMR
+		if found == nil || old || !req.IncludeClosed {
+			return nil, errNoMR
+		}
+		return &code.GetMergeRequestResponse{MergeRequest: found}, nil
 	})
-	rpc(t, mux, codev1beta2connect.MergeRequestServiceListMergeRequestsProcedure, func(req *code.ListMergeRequestsRequest) (*code.ListMergeRequestsResponse, error) {
-		if req.RepositoryId != "repo" || req.HeadRef != "feature" || req.State != code.ListMergeRequestsRequest_STATE_FILTER_ALL {
-			t.Errorf("wrong list: %v", req)
-		}
-		page := len(req.PageToken)
-		if page >= len(mrs) {
-			return &code.ListMergeRequestsResponse{}, nil
-		}
-		resp := &code.ListMergeRequestsResponse{MergeRequests: mrs[page : page+1]}
-		if page+1 < len(mrs) {
-			resp.NextPageToken = strings.Repeat("x", page+1)
-		}
-		return resp, nil
-	})
-	mux.HandleFunc("/", func(http.ResponseWriter, *http.Request) { t.Error("changed a merge request") })
+	mux.HandleFunc("/", func(http.ResponseWriter, *http.Request) { t.Error("made a call other than a lookup") })
 	return &gets
 }
 
-func TestBranchLookupFallsBackToTheNewestClosedOrMergedMergeRequest(t *testing.T) {
+func TestBranchLookupFindsTheNewestClosedOrMergedMergeRequest(t *testing.T) {
 	checkout(t)
-	gets := branchAPI(t, finished("mr_old", code.MergeRequest_STATE_CLOSED, 1), finished("mr_new", code.MergeRequest_STATE_MERGED, 3), finished("mr_mid", code.MergeRequest_STATE_CLOSED, 2))
+	gets := branchAPI(t, false, finished("mr_old", code.MergeRequest_STATE_CLOSED, 1), finished("mr_new", code.MergeRequest_STATE_MERGED, 3), finished("mr_mid", code.MergeRequest_STATE_CLOSED, 2))
 	out, err := execute(t, "view")
 	if want := "mr_new: Test change\nState: merged\nHead: feature (abc)\nBase: main\n\nDescription\n"; err != nil || out != want {
 		t.Fatalf("view: %q %v", out, err)
 	}
-	if last := (*gets)[len(*gets)-1]; len(*gets) != 2 || last.GetMergeRequestId() != "mr_new" || !last.IncludeReadiness {
+	if got := (*gets)[0]; len(*gets) != 1 || got.GetHead().GetRepositoryId() != "repo" || !got.IncludeClosed || !got.IncludeReadiness {
 		t.Errorf("wrong lookups: %v", *gets)
 	}
 	if out, err := execute(t, "threads", "feature"); err != nil {
@@ -87,7 +79,7 @@ func TestBranchLookupFallsBackToTheNewestClosedOrMergedMergeRequest(t *testing.T
 
 func TestBranchLookupPrefersTheOpenMergeRequest(t *testing.T) {
 	checkout(t)
-	gets := branchAPI(t, finished("mr_new", code.MergeRequest_STATE_CLOSED, 9), fixture("abc"))
+	gets := branchAPI(t, false, finished("mr_new", code.MergeRequest_STATE_CLOSED, 9), fixture("abc"))
 	if out, err := execute(t, "view"); err != nil || !strings.HasPrefix(out, "mr_1: ") || len(*gets) != 1 {
 		t.Errorf("view: %q %v after %d lookups", out, err, len(*gets))
 	}
@@ -100,14 +92,10 @@ func TestReopenByBranchReopensTheNewestClosedMergeRequest(t *testing.T) {
 	checkout(t)
 	mux := apiServer(t)
 	rpc(t, mux, codev1beta2connect.MergeRequestServiceGetMergeRequestProcedure, func(req *code.GetMergeRequestRequest) (*code.GetMergeRequestResponse, error) {
-		if req.GetHead() != nil {
-			return nil, errNoMR
+		if req.GetHead().GetHeadRef() != "feature" || !req.IncludeClosed {
+			t.Errorf("wrong lookup: %v", req)
 		}
-		return &code.GetMergeRequestResponse{MergeRequest: finished(req.GetMergeRequestId(), code.MergeRequest_STATE_CLOSED, 1)}, nil
-	})
-	listRPC := &code.ListMergeRequestsResponse{MergeRequests: []*code.MergeRequest{finished("mr_7", code.MergeRequest_STATE_CLOSED, 1)}}
-	rpc(t, mux, codev1beta2connect.MergeRequestServiceListMergeRequestsProcedure, func(*code.ListMergeRequestsRequest) (*code.ListMergeRequestsResponse, error) {
-		return listRPC, nil
+		return &code.GetMergeRequestResponse{MergeRequest: finished("mr_7", code.MergeRequest_STATE_CLOSED, 1)}, nil
 	})
 	updateRPC(t, mux, func(req *code.UpdateMergeRequestRequest) *code.MergeRequest {
 		if req.MergeRequestId != "mr_7" || req.State != code.MergeRequest_STATE_OPEN {
@@ -122,43 +110,43 @@ func TestReopenByBranchReopensTheNewestClosedMergeRequest(t *testing.T) {
 
 func TestBranchLookupSaysWhenTheBranchHasNoMergeRequest(t *testing.T) {
 	checkout(t)
-	branchAPI(t)
-	for _, args := range [][]string{
-		{"view"}, {"view", "feature", "--json"}, {"threads"}, {"edit", "--title", "New"}, {"close"}, {"reopen", "feature"},
-		{"approve"}, {"comment", "--body", "Body"},
-	} {
-		out, err := execute(t, args...)
-		want := `no merge request for branch "feature" in repository repo: not_found: Merge request not found`
-		if connect.CodeOf(err) != connect.CodeNotFound || out != "" || err.Error() != want {
-			t.Errorf("%v: %q %v", args, out, err)
+	// The second server predates include_closed: it has a closed merge request but a branch does not find it.
+	for _, old := range []bool{false, true} {
+		mrs := []*code.MergeRequest{}
+		if old {
+			mrs = append(mrs, finished("mr_9", code.MergeRequest_STATE_CLOSED, 1))
 		}
-	}
-	if _, err := execute(t, "view", "--id", "mr_9"); err == nil || err.Error() != "not_found: Merge request not found" {
-		t.Errorf("view by ID: %v", err)
+		branchAPI(t, old, mrs...)
+		for _, args := range [][]string{
+			{"view"}, {"view", "feature", "--json"}, {"threads"}, {"edit", "--title", "New"}, {"close"}, {"reopen", "feature"},
+			{"approve"}, {"comment", "--body", "Body"},
+		} {
+			out, err := execute(t, args...)
+			want := `no merge request found for branch "feature" in repository repo: not_found: Merge request not found`
+			if connect.CodeOf(err) != connect.CodeNotFound || out != "" || err.Error() != want {
+				t.Errorf("old server %v, %v: %q %v", old, args, out, err)
+			}
+		}
+		if out, err := execute(t, "view", "--id", "mr_9"); old != (err == nil) || old != strings.HasPrefix(out, "mr_9: ") {
+			t.Errorf("old server %v, view by ID: %q %v", old, out, err)
+		}
 	}
 }
 
 func TestBranchLookupKeepsOtherAPIErrors(t *testing.T) {
 	checkout(t)
-	mux := apiServer(t)
-	failure, listFailure := connect.NewError(connect.CodePermissionDenied, errors.New("denied")), error(nil)
-	rpc(t, mux, codev1beta2connect.MergeRequestServiceGetMergeRequestProcedure, func(*code.GetMergeRequestRequest) (*code.GetMergeRequestResponse, error) {
+	failure := connect.NewError(connect.CodePermissionDenied, errors.New("denied"))
+	rpc(t, apiServer(t), codev1beta2connect.MergeRequestServiceGetMergeRequestProcedure, func(*code.GetMergeRequestRequest) (*code.GetMergeRequestResponse, error) {
 		return nil, failure
-	})
-	rpc(t, mux, codev1beta2connect.MergeRequestServiceListMergeRequestsProcedure, func(*code.ListMergeRequestsRequest) (*code.ListMergeRequestsResponse, error) {
-		if listFailure == nil {
-			t.Error("listed after a lookup that did not say not_found")
-		}
-		return nil, listFailure
 	})
 	for _, args := range [][]string{{"view"}, {"close"}, {"approve"}} {
 		if _, err := execute(t, args...); err == nil || err.Error() != failure.Error() {
 			t.Errorf("%v: got %v, want %v", args, err, failure)
 		}
 	}
-	// A wrong repository is a not_found on the lookup too; the list then says what is missing.
-	failure, listFailure = errNoMR, connect.NewError(connect.CodeNotFound, errors.New("Repository not found"))
-	if _, err := execute(t, "view"); err == nil || err.Error() != "not_found: Repository not found" {
-		t.Errorf("list failure: %v", err)
+	// The server names a wrong repository; the message keeps that.
+	failure = connect.NewError(connect.CodeNotFound, errors.New("Repository not found"))
+	if _, err := execute(t, "view"); err == nil || !strings.HasSuffix(err.Error(), "in repository repo: not_found: Repository not found") {
+		t.Errorf("wrong repository: %v", err)
 	}
 }
