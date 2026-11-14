@@ -138,7 +138,7 @@ func (r *Renderer) renderView(viewJSON string) (*agentView, error) {
 	if view.Truncated && r.once("truncated") {
 		r.line("(older messages omitted)")
 	}
-	r.skipOlder(view.Messages)
+	r.skipOlder(&view)
 	for _, msg := range view.Messages {
 		if msg.ID != "" && r.once("message:"+msg.ID) {
 			r.renderMessage(msg)
@@ -169,16 +169,21 @@ func (r *Renderer) From(inputID string) *Renderer {
 	return r
 }
 
-func (r *Renderer) skipOlder(messages []viewMessage) {
+func (r *Renderer) skipOlder(view *agentView) {
 	if r.from == "" {
 		return
 	}
-	older := messages
-	for i, msg := range messages {
+	older := view.Messages
+	for i, msg := range view.Messages {
 		if msg.InputID == r.from {
-			older, r.from = messages[:i], ""
+			older, r.from = view.Messages[:i], ""
 			break
 		}
+	}
+	// A running turn in a cut view may have pushed the input out for good, so show what is left of it.
+	if r.from != "" && view.Truncated && r.lastStatus == "running" {
+		r.from = ""
+		return
 	}
 	for _, msg := range older {
 		r.seen["message:"+msg.ID] = true

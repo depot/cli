@@ -236,6 +236,11 @@ func (t *turn) settled(status string, view *agentView) (done bool, reply, failur
 		return true, "", "the session failed"
 	case "archived":
 		return true, "", "the session was archived"
+	}
+	if msg := t.answered(view); msg != nil {
+		return replied(*msg)
+	}
+	switch status {
 	case "running":
 		t.ran = true
 		return false, "", ""
@@ -243,8 +248,9 @@ func (t *turn) settled(status string, view *agentView) (done bool, reply, failur
 	default:
 		return false, "", ""
 	}
+	// A session with no view yet has not started on its first input.
 	if view == nil {
-		return t.afterInput == "", "", ""
+		return false, "", ""
 	}
 	if view.QueuedCount > 0 || view.Partial != "" || view.Retry != nil {
 		return false, "", ""
@@ -270,7 +276,32 @@ func (t *turn) settled(status string, view *agentView) (done bool, reply, failur
 		t.unanswered = t.afterInput != ""
 		return t.afterInput == "", "", ""
 	}
-	msg := view.Messages[last]
+	return replied(view.Messages[last])
+}
+
+// answered returns the reply to the awaited input once a later input follows it,
+// so a session that has moved on to another turn does not hold the wait open or answer with that turn's reply.
+func (t *turn) answered(view *agentView) *viewMessage {
+	if t.afterInput == "" || view == nil {
+		return nil
+	}
+	sent := -1
+	for i, msg := range view.Messages {
+		switch {
+		case msg.InputID == t.afterInput:
+			sent = i
+		case sent >= 0 && msg.Role == "user":
+			// A message that steered the turn follows a tool call or nothing, not a reply.
+			if prev := view.Messages[i-1]; i-1 > sent && prev.Role == "assistant" && len(prev.ToolCalls) == 0 {
+				return &prev
+			}
+			return nil
+		}
+	}
+	return nil
+}
+
+func replied(msg viewMessage) (done bool, reply, failure string) {
 	switch {
 	case msg.IsError:
 		return true, "", "the agent's reply was an error: " + truncate(oneLine(msg.Text))
