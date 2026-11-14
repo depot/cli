@@ -34,6 +34,9 @@ service MergeRequestService {
   // Merges an open merge request. CI results and approvals do not block merging.
   // Returns Aborted if an expected branch tip differs. Merge conflicts and other merge refusals are returned as errors.
   rpc MergeMergeRequest(MergeMergeRequestRequest) returns (MergeMergeRequestResponse) {}
+  // Merges an open merge request with the required `method`, otherwise as `MergeMergeRequest` does.
+  // Older servers return Unimplemented without merging.
+  rpc MergeMergeRequestWithMethod(MergeMergeRequestWithMethodRequest) returns (MergeMergeRequestWithMethodResponse) {}
   // Edits the title or body, or closes or reopens a merge request.
   rpc UpdateMergeRequest(UpdateMergeRequestRequest) returns (UpdateMergeRequestResponse) {}
   // Posts a conversation comment on a merge request. Comments are allowed on closed and merged merge requests.
@@ -378,6 +381,39 @@ message MergeMergeRequestRequest {
 }
 
 message MergeMergeRequestResponse {
+  // The merged request, including its merge commit and merging user.
+  MergeRequest merge_request = 1;
+}
+
+message MergeMergeRequestWithMethodRequest {
+  enum Method {
+    METHOD_UNSPECIFIED = 0;
+    // Creates a two-parent merge commit, keeping the source branch's commits in the destination's history.
+    METHOD_MERGE_COMMIT = 1;
+    // Creates one commit on the destination tip holding every change of the source branch. Its message is the
+    // merge request's title, then its description. The source branch is not changed. Returns FailedPrecondition
+    // without merging when another open merge request targets the source branch.
+    METHOD_SQUASH = 2;
+  }
+
+  oneof lookup {
+    // Unique identifier for the merge request. Returned by `CreateMergeRequest` and `GetMergeRequest`.
+    string merge_request_id = 1;
+    // The open merge request for a source branch.
+    GetMergeRequestRequest.HeadRef head = 2;
+  }
+  // Expected source commit, as a lowercase hexadecimal SHA-1 or SHA-256 object ID.
+  // A mismatch returns Aborted. Leave unset to use the source tip observed by the server.
+  optional string expected_head_oid = 3;
+  // Expected destination commit, as a lowercase hexadecimal SHA-1 or SHA-256 object ID.
+  // A mismatch returns Aborted. Leave unset to use the destination tip observed by the server.
+  optional string expected_base_oid = 4;
+  // Required. How the source branch is merged into the destination branch.
+  // An unset or unknown value returns InvalidArgument without merging.
+  Method method = 5;
+}
+
+message MergeMergeRequestWithMethodResponse {
   // The merged request, including its merge commit and merging user.
   MergeRequest merge_request = 1;
 }

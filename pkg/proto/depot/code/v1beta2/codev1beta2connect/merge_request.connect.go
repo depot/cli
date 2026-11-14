@@ -60,6 +60,9 @@ const (
 	// MergeRequestServiceMergeMergeRequestProcedure is the fully-qualified name of the
 	// MergeRequestService's MergeMergeRequest RPC.
 	MergeRequestServiceMergeMergeRequestProcedure = "/depot.code.v1beta2.MergeRequestService/MergeMergeRequest"
+	// MergeRequestServiceMergeMergeRequestWithMethodProcedure is the fully-qualified name of the
+	// MergeRequestService's MergeMergeRequestWithMethod RPC.
+	MergeRequestServiceMergeMergeRequestWithMethodProcedure = "/depot.code.v1beta2.MergeRequestService/MergeMergeRequestWithMethod"
 	// MergeRequestServiceUpdateMergeRequestProcedure is the fully-qualified name of the
 	// MergeRequestService's UpdateMergeRequest RPC.
 	MergeRequestServiceUpdateMergeRequestProcedure = "/depot.code.v1beta2.MergeRequestService/UpdateMergeRequest"
@@ -111,6 +114,9 @@ type MergeRequestServiceClient interface {
 	// Merges an open merge request. CI results and approvals do not block merging.
 	// Returns Aborted if an expected branch tip differs. Merge conflicts and other merge refusals are returned as errors.
 	MergeMergeRequest(context.Context, *connect.Request[v1beta2.MergeMergeRequestRequest]) (*connect.Response[v1beta2.MergeMergeRequestResponse], error)
+	// Merges an open merge request with the required `method`, otherwise as `MergeMergeRequest` does.
+	// Older servers return Unimplemented without merging.
+	MergeMergeRequestWithMethod(context.Context, *connect.Request[v1beta2.MergeMergeRequestWithMethodRequest]) (*connect.Response[v1beta2.MergeMergeRequestWithMethodResponse], error)
 	// Edits the title or body, or closes or reopens a merge request.
 	UpdateMergeRequest(context.Context, *connect.Request[v1beta2.UpdateMergeRequestRequest]) (*connect.Response[v1beta2.UpdateMergeRequestResponse], error)
 	// Posts a conversation comment on a merge request. Comments are allowed on closed and merged merge requests.
@@ -196,6 +202,11 @@ func NewMergeRequestServiceClient(httpClient connect.HTTPClient, baseURL string,
 			baseURL+MergeRequestServiceMergeMergeRequestProcedure,
 			opts...,
 		),
+		mergeMergeRequestWithMethod: connect.NewClient[v1beta2.MergeMergeRequestWithMethodRequest, v1beta2.MergeMergeRequestWithMethodResponse](
+			httpClient,
+			baseURL+MergeRequestServiceMergeMergeRequestWithMethodProcedure,
+			opts...,
+		),
 		updateMergeRequest: connect.NewClient[v1beta2.UpdateMergeRequestRequest, v1beta2.UpdateMergeRequestResponse](
 			httpClient,
 			baseURL+MergeRequestServiceUpdateMergeRequestProcedure,
@@ -255,6 +266,7 @@ type mergeRequestServiceClient struct {
 	createMergeRequest              *connect.Client[v1beta2.CreateMergeRequestRequest, v1beta2.CreateMergeRequestResponse]
 	getMergeRequest                 *connect.Client[v1beta2.GetMergeRequestRequest, v1beta2.GetMergeRequestResponse]
 	mergeMergeRequest               *connect.Client[v1beta2.MergeMergeRequestRequest, v1beta2.MergeMergeRequestResponse]
+	mergeMergeRequestWithMethod     *connect.Client[v1beta2.MergeMergeRequestWithMethodRequest, v1beta2.MergeMergeRequestWithMethodResponse]
 	updateMergeRequest              *connect.Client[v1beta2.UpdateMergeRequestRequest, v1beta2.UpdateMergeRequestResponse]
 	createMergeRequestComment       *connect.Client[v1beta2.CreateMergeRequestCommentRequest, v1beta2.CreateMergeRequestCommentResponse]
 	updateMergeRequestComment       *connect.Client[v1beta2.UpdateMergeRequestCommentRequest, v1beta2.UpdateMergeRequestCommentResponse]
@@ -314,6 +326,12 @@ func (c *mergeRequestServiceClient) GetMergeRequest(ctx context.Context, req *co
 // MergeMergeRequest calls depot.code.v1beta2.MergeRequestService.MergeMergeRequest.
 func (c *mergeRequestServiceClient) MergeMergeRequest(ctx context.Context, req *connect.Request[v1beta2.MergeMergeRequestRequest]) (*connect.Response[v1beta2.MergeMergeRequestResponse], error) {
 	return c.mergeMergeRequest.CallUnary(ctx, req)
+}
+
+// MergeMergeRequestWithMethod calls
+// depot.code.v1beta2.MergeRequestService.MergeMergeRequestWithMethod.
+func (c *mergeRequestServiceClient) MergeMergeRequestWithMethod(ctx context.Context, req *connect.Request[v1beta2.MergeMergeRequestWithMethodRequest]) (*connect.Response[v1beta2.MergeMergeRequestWithMethodResponse], error) {
+	return c.mergeMergeRequestWithMethod.CallUnary(ctx, req)
 }
 
 // UpdateMergeRequest calls depot.code.v1beta2.MergeRequestService.UpdateMergeRequest.
@@ -386,6 +404,9 @@ type MergeRequestServiceHandler interface {
 	// Merges an open merge request. CI results and approvals do not block merging.
 	// Returns Aborted if an expected branch tip differs. Merge conflicts and other merge refusals are returned as errors.
 	MergeMergeRequest(context.Context, *connect.Request[v1beta2.MergeMergeRequestRequest]) (*connect.Response[v1beta2.MergeMergeRequestResponse], error)
+	// Merges an open merge request with the required `method`, otherwise as `MergeMergeRequest` does.
+	// Older servers return Unimplemented without merging.
+	MergeMergeRequestWithMethod(context.Context, *connect.Request[v1beta2.MergeMergeRequestWithMethodRequest]) (*connect.Response[v1beta2.MergeMergeRequestWithMethodResponse], error)
 	// Edits the title or body, or closes or reopens a merge request.
 	UpdateMergeRequest(context.Context, *connect.Request[v1beta2.UpdateMergeRequestRequest]) (*connect.Response[v1beta2.UpdateMergeRequestResponse], error)
 	// Posts a conversation comment on a merge request. Comments are allowed on closed and merged merge requests.
@@ -467,6 +488,11 @@ func NewMergeRequestServiceHandler(svc MergeRequestServiceHandler, opts ...conne
 		svc.MergeMergeRequest,
 		opts...,
 	)
+	mergeRequestServiceMergeMergeRequestWithMethodHandler := connect.NewUnaryHandler(
+		MergeRequestServiceMergeMergeRequestWithMethodProcedure,
+		svc.MergeMergeRequestWithMethod,
+		opts...,
+	)
 	mergeRequestServiceUpdateMergeRequestHandler := connect.NewUnaryHandler(
 		MergeRequestServiceUpdateMergeRequestProcedure,
 		svc.UpdateMergeRequest,
@@ -532,6 +558,8 @@ func NewMergeRequestServiceHandler(svc MergeRequestServiceHandler, opts ...conne
 			mergeRequestServiceGetMergeRequestHandler.ServeHTTP(w, r)
 		case MergeRequestServiceMergeMergeRequestProcedure:
 			mergeRequestServiceMergeMergeRequestHandler.ServeHTTP(w, r)
+		case MergeRequestServiceMergeMergeRequestWithMethodProcedure:
+			mergeRequestServiceMergeMergeRequestWithMethodHandler.ServeHTTP(w, r)
 		case MergeRequestServiceUpdateMergeRequestProcedure:
 			mergeRequestServiceUpdateMergeRequestHandler.ServeHTTP(w, r)
 		case MergeRequestServiceCreateMergeRequestCommentProcedure:
@@ -593,6 +621,10 @@ func (UnimplementedMergeRequestServiceHandler) GetMergeRequest(context.Context, 
 
 func (UnimplementedMergeRequestServiceHandler) MergeMergeRequest(context.Context, *connect.Request[v1beta2.MergeMergeRequestRequest]) (*connect.Response[v1beta2.MergeMergeRequestResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.code.v1beta2.MergeRequestService.MergeMergeRequest is not implemented"))
+}
+
+func (UnimplementedMergeRequestServiceHandler) MergeMergeRequestWithMethod(context.Context, *connect.Request[v1beta2.MergeMergeRequestWithMethodRequest]) (*connect.Response[v1beta2.MergeMergeRequestWithMethodResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.code.v1beta2.MergeRequestService.MergeMergeRequestWithMethod is not implemented"))
 }
 
 func (UnimplementedMergeRequestServiceHandler) UpdateMergeRequest(context.Context, *connect.Request[v1beta2.UpdateMergeRequestRequest]) (*connect.Response[v1beta2.UpdateMergeRequestResponse], error) {
