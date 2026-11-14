@@ -296,3 +296,12 @@ func TestStopInterruptsOrArchives(t *testing.T) {
 		t.Fatalf("stopped %v, output %q %q", f.stopped, first, second)
 	}
 }
+
+func TestSendWatchRejectsASubagent(t *testing.T) {
+	f := &fakeAgent{}
+	serveAgent(t, f)
+	_, _, err := runAgent(t, "send", "das_1", "hello", "--subagent", "conv-1", "--watch")
+	if err == nil || !strings.Contains(err.Error(), "--subagent") || len(f.watches) != 0 {
+		t.Fatalf("err = %v, watches = %d", err, len(f.watches))
+	}
+}

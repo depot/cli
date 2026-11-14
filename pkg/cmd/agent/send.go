@@ -92,6 +92,9 @@ func runSend(cmd *cobra.Command, o *sendOptions, args []string) error {
 	if o.steer {
 		mode = "steer"
 	}
+	if o.subagent != "" && o.watch {
+		return fmt.Errorf("--watch follows the main agent's reply and cannot be combined with --subagent")
+	}
 	req := &agentv1.SendInputRequest{SessionId: sessionID, Content: message}
 	if o.subagent != "" {
 		target, err := proto.Marshal(&agentv1.DepotAgentSubagentsInput{ConversationId: o.subagent, FollowUp: !o.steer})
