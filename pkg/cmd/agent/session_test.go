@@ -249,14 +249,15 @@ func TestTurnSettled(t *testing.T) {
 		"replied":                        {"dai_1", "idle", viewReplied, true, "hi there"},
 		"replied, waiting for input":     {"dai_1", "waiting_input", viewReplied, true, "hi there"},
 		"still running":                  {"dai_1", "running", viewReplied, false, ""},
-		"another input queued":           {"dai_1", "idle", strings.Replace(viewReplied, `"queuedCount": 0`, `"queuedCount": 1`, 1), false, ""},
+		"replied, another input queued":  {"dai_1", "idle", strings.Replace(viewReplied, `"queuedCount": 0`, `"queuedCount": 1`, 1), true, "hi there"},
+		"no input: an input queued":      {"", "idle", strings.Replace(viewReplied, `"queuedCount": 0`, `"queuedCount": 1`, 1), false, ""},
 		"reply still streaming":          {"dai_1", "idle", strings.Replace(viewReplied, `"tools": []`, `"partial": "and", "tools": []`, 1), false, ""},
 		"tool still running":             {"dai_1", "idle", strings.Replace(viewReplied, `"tools": []`, `"tools": [{"callId": "t", "status": "running"}]`, 1), false, ""},
 		"no input: idle is enough":       {"", "idle", viewBefore, true, "earlier reply"},
 		"a later turn is running":        {"dai_1", "running", viewLater, true, "hi there"},
 		"a later turn has replied":       {"dai_1", "idle", strings.Replace(viewLater, `]}`, `, {"id": "6", "role": "assistant", "text": "later reply"}]}`, 1), true, "hi there"},
 		"steered before any reply":       {"dai_1", "running", `{"messages": [{"id": "3", "role": "user", "inputId": "dai_1", "text": "hello"}, {"id": "4", "role": "assistant", "text": "Looking.", "toolCalls": [{"callId": "t"}]}, {"id": "5", "role": "user", "inputId": "dai_2", "text": "faster"}]}`, false, ""},
-		"no input: idle without a reply": {"", "idle", viewAsked, true, ""},
+		"no input: idle without a reply": {"", "idle", viewAsked, false, ""},
 	} {
 		t.Run(name, func(t *testing.T) {
 			var view agentView

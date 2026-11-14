@@ -33,6 +33,8 @@ type watchOptions struct {
 	afterInput string
 	untilIdle  bool
 	timeout    time.Duration
+	// url is the session's URL when the API gave one; otherwise it is built from the organization.
+	url string
 }
 
 type watchResult struct {
@@ -54,7 +56,7 @@ func newWatch() *cobra.Command {
 		Long: `Print a session's messages and tool calls as they happen.
 
 Runs until interrupted, or with --until-idle until the session has finished its work. With --until-idle the exit code
-is 0 when the session ended on a reply, 1 when it failed, was archived or ended on an error, and 2 on --timeout.
+is 0 when the session ended on a reply, 1 when it failed, was archived, or ended on an error or without a reply, and 2 on --timeout.
 --after-input waits for the reply to one input, so a session that is still idle from its last turn does not count.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -95,7 +97,9 @@ func watchAndReport(cmd *cobra.Command, c *caller, output, sessionID string, o w
 	if !o.untilIdle {
 		return nil
 	}
-	result.URL = sessionURL(c.org, sessionID)
+	if result.URL = o.url; result.URL == "" {
+		result.URL = sessionURL(c.org, sessionID)
+	}
 	if output == "json" {
 		out, err := json.MarshalIndent(result, "", "  ")
 		if err != nil {
@@ -252,7 +256,7 @@ func (t *turn) settled(status string, view *agentView) (done bool, reply, failur
 	if view == nil {
 		return false, "", ""
 	}
-	if view.QueuedCount > 0 || view.Partial != "" || view.Retry != nil {
+	if view.Partial != "" || view.Retry != nil {
 		return false, "", ""
 	}
 	for _, tool := range view.Tools {
@@ -271,10 +275,14 @@ func (t *turn) settled(status string, view *agentView) (done bool, reply, failur
 			return false, "", ""
 		}
 	}
+	// Queued inputs are work still to come, unless the awaited input already has its reply above them.
+	if view.QueuedCount > 0 && sent < 0 {
+		return false, "", ""
+	}
 	last := len(view.Messages) - 1
 	if last < 0 || last <= sent || view.Messages[last].Role != "assistant" {
-		t.unanswered = t.afterInput != ""
-		return t.afterInput == "", "", ""
+		t.unanswered = view.QueuedCount == 0
+		return false, "", ""
 	}
 	return replied(view.Messages[last])
 }

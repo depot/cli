@@ -123,10 +123,7 @@ Use ` + "`depot agent launch`" + ` to start a published agent on a repository.`,
 				return err
 			}
 			sessionID := resp.Msg.GetSession().GetSessionId()
-			if watch {
-				if f.output == "text" {
-					fmt.Fprintf(cmd.OutOrStdout(), "Created session %s\n", sessionID)
-				}
+			if watch && f.output == "json" {
 				return watchAndReport(cmd, c, f.output, sessionID, watchOptions{afterInput: resp.Msg.GetInput().GetInputId(), untilIdle: true, timeout: timeout})
 			}
 			if f.output == "json" {
@@ -136,7 +133,10 @@ Use ` + "`depot agent launch`" + ` to start a published agent on a repository.`,
 			if u := sessionURL(c.org, sessionID); err == nil && u != "" {
 				_, err = fmt.Fprintln(cmd.OutOrStdout(), u)
 			}
-			return err
+			if err != nil || !watch {
+				return err
+			}
+			return watchAndReport(cmd, c, f.output, sessionID, watchOptions{afterInput: resp.Msg.GetInput().GetInputId(), untilIdle: true, timeout: timeout})
 		},
 	}
 	f.add(cmd)
