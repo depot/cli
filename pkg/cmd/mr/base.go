@@ -46,9 +46,17 @@ func (o *options) create(cmd *cobra.Command, req *code.CreateMergeRequestRequest
 		return nil, fmt.Errorf("API returned no merge request")
 	}
 	// Creating for a branch that already has an open merge request returns that one unchanged.
-	if req.BaseRef != nil && mr.BaseRef != *req.BaseRef {
-		return nil, fmt.Errorf("branch %q already has open merge request %s into %q; change its base with `depot mr edit %s --base %s`",
-			mr.HeadRef, mr.Id, mr.BaseRef, mr.HeadRef, *req.BaseRef)
+	if err := baseMatches(mr, req.BaseRef); err != nil {
+		return nil, err
 	}
 	return out, nil
+}
+
+// baseMatches refuses an explicit base that differs from the open merge request's.
+func baseMatches(mr *code.MergeRequest, base *string) error {
+	if base != nil && mr.BaseRef != *base {
+		return fmt.Errorf("branch %q already has open merge request %s into %q; change its base with `depot mr edit %s --base %s`",
+			mr.HeadRef, mr.Id, mr.BaseRef, mr.HeadRef, *base)
+	}
+	return nil
 }
