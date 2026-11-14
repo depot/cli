@@ -28,11 +28,16 @@ const (
 // How long an idle session whose turn has no reply is given to show one before the turn counts as failed.
 var replyGrace = 10 * time.Second
 
-// A watch that fails this many times in a row without a new frame gives up with the last error.
-// Each retry waits one retryDelay longer than the one before.
+// A watch that fails this many times in a row gives up with the last error. A stream that brought a frame
+// or stayed open for streamHeld is not such a failure: a quiet session's stream is cut from time to time.
+// Each retry waits one retryDelay longer than the one before. streamHeld is longer than replyGrace,
+// so a session read that keeps failing after the grace wait still counts.
 const maxWatchFailures = 10
 
-var retryDelay = time.Second
+var (
+	retryDelay = time.Second
+	streamHeld = 30 * time.Second
+)
 
 type watchOptions struct {
 	// afterInput waits for the reply to this input instead of for the session to be idle at all.
@@ -138,7 +143,7 @@ func watchSession(ctx context.Context, c *caller, sessionID string, r *Renderer,
 	t := &turn{afterInput: o.afterInput}
 	cursor, failures := "", 0
 	for {
-		before := cursor
+		before, opened := cursor, time.Now()
 		done, err := watchOnce(deadline, c, sessionID, r, o, t, &cursor, &result)
 		if done {
 			return result, nil
@@ -150,7 +155,7 @@ func watchSession(ctx context.Context, c *caller, sessionID string, r *Renderer,
 			result.Outcome = outcomeTimeout
 			return result, nil
 		}
-		if err == nil || cursor != before {
+		if err == nil || cursor != before || time.Since(opened) >= streamHeld {
 			failures = 0
 		}
 		if err != nil {

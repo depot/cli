@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -31,6 +32,14 @@ type fakeAgent struct {
 	got       *agentv1.GetSessionResponse
 	holdWatch bool
 	watchErr  error
+	holdFor   time.Duration
+	mu        sync.Mutex
+}
+
+func (f *fakeAgent) watchCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.watches)
 }
 
 func (f *fakeAgent) CreateSession(_ context.Context, req *connect.Request[agentv1.CreateSessionRequest]) (*connect.Response[agentv1.CreateSessionResponse], error) {
@@ -70,8 +79,10 @@ func (f *fakeAgent) ArchiveSession(_ context.Context, req *connect.Request[agent
 
 // Each watch call plays the next batch of frames and then ends, as the API does when its time is up.
 func (f *fakeAgent) WatchSession(ctx context.Context, req *connect.Request[agentv1.WatchSessionRequest], stream *connect.ServerStream[agentv1.WatchSessionResponse]) error {
+	f.mu.Lock()
 	call := len(f.watches)
 	f.watches = append(f.watches, req.Msg)
+	f.mu.Unlock()
 	if call < len(f.frames) {
 		for _, frame := range f.frames[call] {
 			if err := stream.Send(frame); err != nil {
@@ -82,6 +93,7 @@ func (f *fakeAgent) WatchSession(ctx context.Context, req *connect.Request[agent
 	if f.holdWatch {
 		<-ctx.Done()
 	}
+	time.Sleep(f.holdFor)
 	return f.watchErr
 }
 
@@ -247,6 +259,18 @@ func TestWatchGivesUpOnAnErrorThatKeepsHappening(t *testing.T) {
 	_, _, err := runAgent(t, "watch", "das_1", "--until-idle")
 	if err == nil || !strings.Contains(err.Error(), "projection broke") || len(f.watches) != maxWatchFailures {
 		t.Fatalf("err = %v after %d watches, want the server's error after %d", err, len(f.watches), maxWatchFailures)
+	}
+}
+
+func TestWatchKeepsReconnectingAStreamThatWasHeldOpen(t *testing.T) {
+	retryDelay, streamHeld = time.Millisecond, 5*time.Millisecond
+	t.Cleanup(func() { retryDelay, streamHeld = time.Second, 30*time.Second })
+	f := &fakeAgent{holdFor: 20 * time.Millisecond, watchErr: connect.NewError(connect.CodeUnavailable, errors.New("stream cut"))}
+	serveAgent(t, f)
+	_, _, err := runAgent(t, "watch", "das_1", "--until-idle", "--timeout", "500ms")
+	var status cli.StatusError
+	if !errors.As(err, &status) || status.StatusCode != timeoutExitCode || f.watchCount() <= maxWatchFailures {
+		t.Fatalf("err = %v after %d watches, want a timeout after more than %d", err, f.watchCount(), maxWatchFailures)
 	}
 }
 
