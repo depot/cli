@@ -69,6 +69,9 @@ const (
 	// MergeRequestServiceRemoveMergeRequestApprovalProcedure is the fully-qualified name of the
 	// MergeRequestService's RemoveMergeRequestApproval RPC.
 	MergeRequestServiceRemoveMergeRequestApprovalProcedure = "/depot.code.v1beta2.MergeRequestService/RemoveMergeRequestApproval"
+	// MergeRequestServiceListMergeRequestsProcedure is the fully-qualified name of the
+	// MergeRequestService's ListMergeRequests RPC.
+	MergeRequestServiceListMergeRequestsProcedure = "/depot.code.v1beta2.MergeRequestService/ListMergeRequests"
 )
 
 // MergeRequestServiceClient is a client for the depot.code.v1beta2.MergeRequestService service.
@@ -103,6 +106,11 @@ type MergeRequestServiceClient interface {
 	// Withdraws the caller's approval. Returns NotFound when the caller never approved; withdrawing an approval that is
 	// already withdrawn leaves it unchanged.
 	RemoveMergeRequestApproval(context.Context, *connect.Request[v1beta2.RemoveMergeRequestApprovalRequest]) (*connect.Response[v1beta2.RemoveMergeRequestApprovalResponse], error)
+	// Returns a page of a repository's merge requests, most recently updated first; ties use descending id.
+	// Reads stored state without catching heads up with live branches, unlike `GetMergeRequest`.
+	// Pages do not share a snapshot: a merge request updated between pages can be skipped or repeated.
+	// Returns InvalidArgument for invalid page tokens, branch names or filters.
+	ListMergeRequests(context.Context, *connect.Request[v1beta2.ListMergeRequestsRequest]) (*connect.Response[v1beta2.ListMergeRequestsResponse], error)
 }
 
 // NewMergeRequestServiceClient constructs a client for the depot.code.v1beta2.MergeRequestService
@@ -175,6 +183,11 @@ func NewMergeRequestServiceClient(httpClient connect.HTTPClient, baseURL string,
 			baseURL+MergeRequestServiceRemoveMergeRequestApprovalProcedure,
 			opts...,
 		),
+		listMergeRequests: connect.NewClient[v1beta2.ListMergeRequestsRequest, v1beta2.ListMergeRequestsResponse](
+			httpClient,
+			baseURL+MergeRequestServiceListMergeRequestsProcedure,
+			opts...,
+		),
 	}
 }
 
@@ -192,6 +205,7 @@ type mergeRequestServiceClient struct {
 	deleteMergeRequestComment      *connect.Client[v1beta2.DeleteMergeRequestCommentRequest, v1beta2.DeleteMergeRequestCommentResponse]
 	approveMergeRequest            *connect.Client[v1beta2.ApproveMergeRequestRequest, v1beta2.ApproveMergeRequestResponse]
 	removeMergeRequestApproval     *connect.Client[v1beta2.RemoveMergeRequestApprovalRequest, v1beta2.RemoveMergeRequestApprovalResponse]
+	listMergeRequests              *connect.Client[v1beta2.ListMergeRequestsRequest, v1beta2.ListMergeRequestsResponse]
 }
 
 // GetRepositoryReviewSettings calls
@@ -258,6 +272,11 @@ func (c *mergeRequestServiceClient) RemoveMergeRequestApproval(ctx context.Conte
 	return c.removeMergeRequestApproval.CallUnary(ctx, req)
 }
 
+// ListMergeRequests calls depot.code.v1beta2.MergeRequestService.ListMergeRequests.
+func (c *mergeRequestServiceClient) ListMergeRequests(ctx context.Context, req *connect.Request[v1beta2.ListMergeRequestsRequest]) (*connect.Response[v1beta2.ListMergeRequestsResponse], error) {
+	return c.listMergeRequests.CallUnary(ctx, req)
+}
+
 // MergeRequestServiceHandler is an implementation of the depot.code.v1beta2.MergeRequestService
 // service.
 type MergeRequestServiceHandler interface {
@@ -291,6 +310,11 @@ type MergeRequestServiceHandler interface {
 	// Withdraws the caller's approval. Returns NotFound when the caller never approved; withdrawing an approval that is
 	// already withdrawn leaves it unchanged.
 	RemoveMergeRequestApproval(context.Context, *connect.Request[v1beta2.RemoveMergeRequestApprovalRequest]) (*connect.Response[v1beta2.RemoveMergeRequestApprovalResponse], error)
+	// Returns a page of a repository's merge requests, most recently updated first; ties use descending id.
+	// Reads stored state without catching heads up with live branches, unlike `GetMergeRequest`.
+	// Pages do not share a snapshot: a merge request updated between pages can be skipped or repeated.
+	// Returns InvalidArgument for invalid page tokens, branch names or filters.
+	ListMergeRequests(context.Context, *connect.Request[v1beta2.ListMergeRequestsRequest]) (*connect.Response[v1beta2.ListMergeRequestsResponse], error)
 }
 
 // NewMergeRequestServiceHandler builds an HTTP handler from the service implementation. It returns
@@ -359,6 +383,11 @@ func NewMergeRequestServiceHandler(svc MergeRequestServiceHandler, opts ...conne
 		svc.RemoveMergeRequestApproval,
 		opts...,
 	)
+	mergeRequestServiceListMergeRequestsHandler := connect.NewUnaryHandler(
+		MergeRequestServiceListMergeRequestsProcedure,
+		svc.ListMergeRequests,
+		opts...,
+	)
 	return "/depot.code.v1beta2.MergeRequestService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case MergeRequestServiceGetRepositoryReviewSettingsProcedure:
@@ -385,6 +414,8 @@ func NewMergeRequestServiceHandler(svc MergeRequestServiceHandler, opts ...conne
 			mergeRequestServiceApproveMergeRequestHandler.ServeHTTP(w, r)
 		case MergeRequestServiceRemoveMergeRequestApprovalProcedure:
 			mergeRequestServiceRemoveMergeRequestApprovalHandler.ServeHTTP(w, r)
+		case MergeRequestServiceListMergeRequestsProcedure:
+			mergeRequestServiceListMergeRequestsHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -440,4 +471,8 @@ func (UnimplementedMergeRequestServiceHandler) ApproveMergeRequest(context.Conte
 
 func (UnimplementedMergeRequestServiceHandler) RemoveMergeRequestApproval(context.Context, *connect.Request[v1beta2.RemoveMergeRequestApprovalRequest]) (*connect.Response[v1beta2.RemoveMergeRequestApprovalResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.code.v1beta2.MergeRequestService.RemoveMergeRequestApproval is not implemented"))
+}
+
+func (UnimplementedMergeRequestServiceHandler) ListMergeRequests(context.Context, *connect.Request[v1beta2.ListMergeRequestsRequest]) (*connect.Response[v1beta2.ListMergeRequestsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.code.v1beta2.MergeRequestService.ListMergeRequests is not implemented"))
 }

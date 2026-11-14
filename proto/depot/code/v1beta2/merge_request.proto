@@ -38,6 +38,11 @@ service MergeRequestService {
   // Withdraws the caller's approval. Returns NotFound when the caller never approved; withdrawing an approval that is
   // already withdrawn leaves it unchanged.
   rpc RemoveMergeRequestApproval(RemoveMergeRequestApprovalRequest) returns (RemoveMergeRequestApprovalResponse) {}
+  // Returns a page of a repository's merge requests, most recently updated first; ties use descending id.
+  // Reads stored state without catching heads up with live branches, unlike `GetMergeRequest`.
+  // Pages do not share a snapshot: a merge request updated between pages can be skipped or repeated.
+  // Returns InvalidArgument for invalid page tokens, branch names or filters.
+  rpc ListMergeRequests(ListMergeRequestsRequest) returns (ListMergeRequestsResponse) {}
 }
 
 // Who performed an action on a merge request.
@@ -281,4 +286,39 @@ message GetRepositoryReviewSettingsResponse {
 message UpdateRepositoryReviewSettingsResponse {
   // Whether passing reviews can approve merge requests on their reviewed commit. Default: false.
   bool agents_can_approve = 1;
+}
+
+message ListMergeRequestsRequest {
+  enum StateFilter {
+    // Same as STATE_FILTER_OPEN.
+    STATE_FILTER_UNSPECIFIED = 0;
+    STATE_FILTER_OPEN = 1;
+    STATE_FILTER_CLOSED = 2;
+    STATE_FILTER_MERGED = 3;
+    // Merge requests in every state.
+    STATE_FILTER_ALL = 4;
+  }
+
+  // Repository whose merge requests to list.
+  string repository_id = 1;
+  // Which states to return. Default: open.
+  StateFilter state = 2;
+  // Only merge requests whose head branch has this name, without `refs/heads/`. Empty matches any.
+  string head_ref = 3;
+  // Only merge requests whose base branch has this name, without `refs/heads/`. Empty matches any.
+  string base_ref = 4;
+  // Only merge requests opened by this actor; kind and id are both required. Unset matches any.
+  MergeRequestActor author = 5;
+  // Only merge requests opened by the caller. Cannot be combined with `author`.
+  bool authored_by_me = 6;
+  // Maximum merge requests to return. Default: 30. Values above 100 are clamped to 100.
+  uint32 page_size = 7;
+  // `next_page_token` from the previous page, sent with the same filters. Empty returns the first page.
+  string page_token = 8;
+}
+
+message ListMergeRequestsResponse {
+  repeated MergeRequest merge_requests = 1;
+  // Token for the next page. Empty on the last page.
+  string next_page_token = 2;
 }
