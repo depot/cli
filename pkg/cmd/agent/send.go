@@ -119,6 +119,11 @@ func runSend(cmd *cobra.Command, o *sendOptions, args []string) error {
 	if token == "" {
 		return fmt.Errorf("missing API token; pass --token or DEPOT_TOKEN, or run `depot login`")
 	}
+	c := newCaller(token, o.org)
+	var base *int64
+	if o.watch {
+		base = newestSeq(cmd.Context(), c, sessionID)
+	}
 	resp, err := api.NewDepotAgentClient().SendInput(cmd.Context(), api.WithAuthenticationAndOrg(connect.NewRequest(req), token, o.org))
 	if err != nil {
 		if o.key != "" && connect.CodeOf(err) == connect.CodeNotFound {
@@ -142,7 +147,7 @@ func runSend(cmd *cobra.Command, o *sendOptions, args []string) error {
 	if !o.watch {
 		return nil
 	}
-	return watchAndReport(cmd, newCaller(token, o.org), o.output, sessionID, watchOptions{afterInput: resp.Msg.GetInput().GetInputId(), untilIdle: true, timeout: o.timeout})
+	return watchAndReport(cmd, c, o.output, sessionID, watchOptions{afterInput: resp.Msg.GetInput().GetInputId(), untilIdle: true, timeout: o.timeout, base: base})
 }
 
 func readMessage(cmd *cobra.Command, args []string, file string) (string, error) {

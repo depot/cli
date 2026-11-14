@@ -46,6 +46,35 @@ type watchOptions struct {
 	timeout    time.Duration
 	// url is the session's URL when the API gave one; otherwise it is built from the organization.
 	url string
+	// base is the seq of the session's newest message before afterInput was sent, when the caller knows it.
+	base *int64
+}
+
+// beforeFirst is the base of a session's first input: no message precedes it.
+func beforeFirst() *int64 {
+	base := int64(-1)
+	return &base
+}
+
+// newestSeq reads the seq of the session's newest message, for an input about to be sent. It is nil when the
+// read fails or the view is cut to nothing, and the watch then takes its base from the first frame.
+func newestSeq(ctx context.Context, c *caller, sessionID string) *int64 {
+	resp, err := c.client.GetSession(ctx, authed(c, &agentv1.GetSessionRequest{SessionId: sessionID}))
+	if err != nil {
+		return nil
+	}
+	// A session has no view until its agent first reports one, and no messages until then either.
+	raw := resp.Msg.GetViewJson()
+	if raw == "" {
+		return beforeFirst()
+	}
+	var view agentView
+	if json.Unmarshal([]byte(raw), &view) != nil {
+		return nil
+	}
+	t := &turn{}
+	t.mark(&view)
+	return t.base
 }
 
 type watchResult struct {
@@ -143,7 +172,7 @@ func watchSession(ctx context.Context, c *caller, sessionID string, r *Renderer,
 		deadline, cancel = context.WithTimeout(ctx, o.timeout)
 		defer cancel()
 	}
-	t := &turn{afterInput: o.afterInput}
+	t := &turn{afterInput: o.afterInput, base: o.base}
 	cursor, failures := "", 0
 	for {
 		before, opened := cursor, time.Now()
@@ -212,7 +241,7 @@ func watchOnce(ctx context.Context, c *caller, sessionID string, r *Renderer, o 
 			continue
 		}
 		done, reply, failure := t.settled(status, view)
-		if !done && t.unanswered {
+		if !done && t.doubt != "" {
 			// The status and the view are written apart, so the reply may only be late. Look once more.
 			select {
 			case <-ctx.Done():
@@ -227,8 +256,8 @@ func watchOnce(ctx context.Context, c *caller, sessionID string, r *Renderer, o 
 				return false, err
 			}
 			result.Status = again.Msg.GetSession().GetStatus()
-			if done, reply, failure = t.settled(result.Status, view); !done && t.unanswered {
-				done, failure = true, "the turn ended without a reply"
+			if done, reply, failure = t.settled(result.Status, view); !done && t.doubt != "" {
+				done, failure = true, t.doubt
 			}
 		}
 		advance()
@@ -252,15 +281,43 @@ type turn struct {
 	// last is the newest message seen in the awaited input's turn. It places the turn in a view
 	// that the turn has grown too long to keep the input's own message in.
 	last string
-	// unanswered means the last frame showed the turn over with something other than a reply at its end,
-	// as an interrupted turn leaves it.
-	unanswered bool
+	// base is the seq of the newest message from before the input was a message: the caller's, or else the
+	// first frame's. A cut view holding only newer messages, without the input, has dropped the input's turn.
+	base *int64
+	// doubt is why the turn counts as failed if a second look still shows what the last frame did:
+	// the turn over without a reply at its end, as an interrupt leaves it, or gone from the view.
+	doubt string
+}
+
+const (
+	failedNoReply = "the turn ended without a reply"
+	failedLost    = "the session moved past the input before its reply was seen"
+)
+
+// mark takes the base from the first view that can give one. A frame without a view says nothing of its messages.
+func (t *turn) mark(view *agentView) {
+	switch {
+	case t.base != nil || view == nil:
+	case len(view.Messages) > 0:
+		seq := view.Messages[len(view.Messages)-1].Seq
+		t.base = &seq
+	case !view.Truncated:
+		t.base = beforeFirst()
+	}
+}
+
+// passed reports whether the view shows only messages newer than the base, so the input's own was cut away.
+func (t *turn) passed(view *agentView) bool {
+	return t.base != nil && view.Truncated && len(view.Messages) > 0 && view.Messages[0].Seq > *t.base
 }
 
 // settled reports whether the wait is over, with the agent's reply, or with why the turn counts as failed.
 func (t *turn) settled(status string, view *agentView) (done bool, reply, failure string) {
-	t.unanswered = false
+	t.doubt = ""
 	at, input := t.place(view)
+	if t.afterInput != "" && !input {
+		defer t.mark(view)
+	}
 	// A reply the input already has stands, whatever happened to the session afterwards.
 	if msg, failure := t.answered(view, at, input, status == "archived" || status == "failed"); msg != nil {
 		return replied(*msg)
@@ -288,8 +345,12 @@ func (t *turn) settled(status string, view *agentView) (done bool, reply, failur
 			return false, "", ""
 		}
 	}
-	// The awaited input has not shown yet, so the session is idle from an earlier turn.
+	// The awaited input has not shown yet, so the session is idle from an earlier turn,
+	// unless the view has already dropped the input's whole turn.
 	if t.afterInput != "" && at < 0 {
+		if t.passed(view) && view.QueuedCount == 0 {
+			t.doubt = failedLost
+		}
 		return false, "", ""
 	}
 	sent := -1
@@ -302,12 +363,16 @@ func (t *turn) settled(status string, view *agentView) (done bool, reply, failur
 	}
 	last := len(view.Messages) - 1
 	if last < 0 || last <= sent || view.Messages[last].Role != "assistant" {
-		t.unanswered = view.QueuedCount == 0
+		if view.QueuedCount == 0 {
+			t.doubt = failedNoReply
+		}
 		return false, "", ""
 	}
 	// A message that calls a tool is a step of the turn, not its reply, unless it is the error that ended it.
 	if msg := view.Messages[last]; len(msg.ToolCalls) > 0 && !msg.IsError {
-		t.unanswered = view.QueuedCount == 0
+		if view.QueuedCount == 0 {
+			t.doubt = failedNoReply
+		}
 		return false, "", ""
 	}
 	return replied(view.Messages[last])
@@ -341,7 +406,7 @@ func (t *turn) answered(view *agentView, at int, input, closed bool) (reply *vie
 	}
 	if at < 0 {
 		if t.last != "" {
-			return nil, "the session moved past the input before its reply was seen"
+			return nil, failedLost
 		}
 		return nil, ""
 	}

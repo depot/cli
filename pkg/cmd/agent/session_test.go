@@ -24,13 +24,15 @@ import (
 // fakeAgent is a session API that records what it was asked and plays back scripted watch frames.
 type fakeAgent struct {
 	agentv1connect.UnimplementedDepotAgentServiceHandler
-	header    http.Header
-	created   *agentv1.CreateSessionRequest
-	listed    *agentv1.ListDepotAgentSessionsRequest
-	stopped   []string
-	watches   []*agentv1.WatchSessionRequest
-	frames    [][]*agentv1.WatchSessionResponse
-	got       *agentv1.GetSessionResponse
+	header  http.Header
+	created *agentv1.CreateSessionRequest
+	listed  *agentv1.ListDepotAgentSessionsRequest
+	stopped []string
+	watches []*agentv1.WatchSessionRequest
+	frames  [][]*agentv1.WatchSessionResponse
+	got     *agentv1.GetSessionResponse
+	// gots are served first, one per read, before got.
+	gots      []*agentv1.GetSessionResponse
 	holdWatch bool
 	watchErr  error
 	holdFor   time.Duration
@@ -68,6 +70,13 @@ func (f *fakeAgent) ListDepotAgentSessions(_ context.Context, req *connect.Reque
 func (f *fakeAgent) GetSession(context.Context, *connect.Request[agentv1.GetSessionRequest]) (*connect.Response[agentv1.GetSessionResponse], error) {
 	if f.getErr != nil {
 		return nil, f.getErr
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.gots) > 0 {
+		first := f.gots[0]
+		f.gots = f.gots[1:]
+		return connect.NewResponse(first), nil
 	}
 	return connect.NewResponse(f.got), nil
 }
@@ -471,5 +480,62 @@ func TestSendWatchRejectsASubagent(t *testing.T) {
 	_, _, err := runAgent(t, "send", "das_1", "hello", "--subagent", "conv-1", "--watch")
 	if err == nil || !strings.Contains(err.Error(), "--subagent") || len(f.watches) != 0 {
 		t.Fatalf("err = %v, watches = %d", err, len(f.watches))
+	}
+}
+
+// A turn can outgrow the bounded view before the first frame arrives, and nothing later brings its input back.
+func TestTurnFailsAnInputTheCutViewDroppedUnseen(t *testing.T) {
+	const gone = `{"messages": [{"id": "40", "seq": 40, "role": "tool", "text": "ok"}, {"id": "41", "seq": 41, "role": "assistant", "text": "done"}], "truncated": true}`
+	settle := func(tn *turn, status, raw string) string {
+		t.Helper()
+		var view agentView
+		if err := json.Unmarshal([]byte(raw), &view); err != nil {
+			t.Fatal(err)
+		}
+		if done, reply, failure := tn.settled(status, &view); done {
+			t.Fatalf("settled = %q, %q on a view that does not show the input", reply, failure)
+		}
+		return tn.doubt
+	}
+	if doubt := settle(&turn{afterInput: "dai_1", base: beforeFirst()}, "idle", gone); doubt != failedLost {
+		t.Fatalf("doubt = %q for a first input the view dropped, want %q", doubt, failedLost)
+	}
+	// Without a base from the caller the first frame gives one, and only newer messages count.
+	later := &turn{afterInput: "dai_1"}
+	for range 2 {
+		if doubt := settle(later, "idle", gone); doubt != "" {
+			t.Fatalf("doubt = %q on the view the session already had", doubt)
+		}
+	}
+	newer := `{"messages": [{"id": "90", "seq": 90, "role": "assistant", "text": "done"}], "truncated": true`
+	if doubt := settle(later, "idle", newer+`, "queuedCount": 1}`); doubt != "" {
+		t.Fatalf("doubt = %q while an input is still queued", doubt)
+	}
+	if doubt := settle(later, "idle", newer+`}`); doubt != failedLost {
+		t.Fatalf("doubt = %q once the view holds only newer messages, want %q", doubt, failedLost)
+	}
+}
+
+func TestWatchFailsAnInputTheCutViewDroppedUnseen(t *testing.T) {
+	replyGrace = time.Millisecond
+	t.Cleanup(func() { replyGrace = 10 * time.Second })
+	const gone = `{"messages": [{"id": "41", "seq": 41, "role": "assistant", "text": "done"}], "truncated": true}`
+	for name, args := range map[string][]string{
+		"create": {"create", "hello", "--watch", "--timeout", "2s"},
+		"send":   {"send", "das_1", "hello", "--watch", "--timeout", "2s"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// GetSession serves both the read before the send and the second look.
+			f := &fakeAgent{holdWatch: true, frames: [][]*agentv1.WatchSessionResponse{{frame("idle", "c1", gone)}}}
+			if f.got = (&agentv1.GetSessionResponse{Session: &agentv1.DepotAgentSession{Status: "idle"}, ViewJson: gone}); name == "send" {
+				f.gots = []*agentv1.GetSessionResponse{{Session: &agentv1.DepotAgentSession{Status: "idle"}, ViewJson: viewBefore}}
+			}
+			serveAgent(t, f)
+			_, _, err := runAgent(t, args...)
+			var status cli.StatusError
+			if !errors.As(err, &status) || status.StatusCode != 1 || !strings.Contains(status.Status, failedLost) {
+				t.Fatalf("err = %#v, want exit 1 with %q", err, failedLost)
+			}
+		})
 	}
 }

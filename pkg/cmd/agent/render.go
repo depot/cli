@@ -26,7 +26,9 @@ type agentView struct {
 }
 
 type viewMessage struct {
-	ID        string         `json:"id"`
+	ID string `json:"id"`
+	// Seq orders messages across the whole session; a later message has a higher one.
+	Seq       int64          `json:"seq"`
 	InputID   string         `json:"inputId"`
 	Role      string         `json:"role"`
 	Text      string         `json:"text"`
@@ -65,7 +67,7 @@ type viewQueued struct {
 // Messages, tool calls, queued inputs, and retries print once by id;
 // the partial response streams as it grows.
 type Renderer struct {
-	w          io.Writer
+	w          *safeWriter
 	seen       map[string]bool
 	lastStatus string
 	// streamed is the prefix of the partial response already printed,
@@ -79,18 +81,22 @@ type Renderer struct {
 }
 
 func NewRenderer(w io.Writer) *Renderer {
-	return &Renderer{w: safeWriter{w}, seen: map[string]bool{}}
+	return &Renderer{w: &safeWriter{w: w}, seen: map[string]bool{}}
 }
 
 // safeWriter replaces control and format characters other than newline and tab, so text from a session
 // cannot send escape sequences to the terminal or reorder what it shows with bidi overrides.
-type safeWriter struct{ w io.Writer }
+// It keeps the first write error and writes nothing after it, so Render can report a closed pipe.
+type safeWriter struct {
+	w   io.Writer
+	err error
+}
 
-func (s safeWriter) Write(b []byte) (int, error) {
-	if _, err := io.WriteString(s.w, safeText(string(b))); err != nil {
-		return 0, err
+func (s *safeWriter) Write(b []byte) (int, error) {
+	if s.err == nil {
+		_, s.err = io.WriteString(s.w, safeText(string(b)))
 	}
-	return len(b), nil
+	return len(b), s.err
 }
 
 func safeText(s string) string {
@@ -116,6 +122,9 @@ func (r *Renderer) Render(session *agentv1.DepotAgentSession, viewJSON string) (
 	}
 	if session != nil {
 		r.status(status)
+	}
+	if r.w.err != nil {
+		return nil, fmt.Errorf("write transcript: %w", r.w.err)
 	}
 	return view, nil
 }

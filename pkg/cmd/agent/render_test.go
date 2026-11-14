@@ -2,6 +2,7 @@ package agent
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -152,5 +153,25 @@ func TestRendererNeutralizesTerminalEscapes(t *testing.T) {
 	}
 	if _, err := r.Render(nil, "{"); err == nil {
 		t.Fatal("an invalid view rendered without an error")
+	}
+}
+
+type closedPipe struct{ writes int }
+
+func (c *closedPipe) Write([]byte) (int, error) {
+	c.writes++
+	return 0, errors.New("pipe closed")
+}
+
+func TestRendererReportsAWriteError(t *testing.T) {
+	pipe := &closedPipe{}
+	r := NewRenderer(pipe)
+	for range 2 {
+		if _, err := r.Render(&agentv1.DepotAgentSession{Status: "idle"}, viewTwo); err == nil || !strings.Contains(err.Error(), "pipe closed") {
+			t.Fatalf("Render = %v, want the writer's error", err)
+		}
+	}
+	if pipe.writes != 1 {
+		t.Fatalf("%d writes reached a writer that had already failed", pipe.writes)
 	}
 }

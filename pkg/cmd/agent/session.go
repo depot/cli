@@ -124,7 +124,7 @@ Use ` + "`depot agent launch`" + ` to start a published agent on a repository.`,
 			}
 			sessionID := resp.Msg.GetSession().GetSessionId()
 			if watch && f.output == "json" {
-				return watchAndReport(cmd, c, f.output, sessionID, watchOptions{afterInput: resp.Msg.GetInput().GetInputId(), untilIdle: true, timeout: timeout})
+				return watchAndReport(cmd, c, f.output, sessionID, watchOptions{afterInput: resp.Msg.GetInput().GetInputId(), untilIdle: true, timeout: timeout, base: beforeFirst()})
 			}
 			if f.output == "json" {
 				return printJSON(cmd.OutOrStdout(), resp.Msg)
@@ -136,7 +136,7 @@ Use ` + "`depot agent launch`" + ` to start a published agent on a repository.`,
 			if err != nil || !watch {
 				return err
 			}
-			return watchAndReport(cmd, c, f.output, sessionID, watchOptions{afterInput: resp.Msg.GetInput().GetInputId(), untilIdle: true, timeout: timeout})
+			return watchAndReport(cmd, c, f.output, sessionID, watchOptions{afterInput: resp.Msg.GetInput().GetInputId(), untilIdle: true, timeout: timeout, base: beforeFirst()})
 		},
 	}
 	f.add(cmd)
@@ -203,7 +203,7 @@ func writeSessionTable(w io.Writer, sessions []*agentv1.DepotAgentSession) error
 		_, err := fmt.Fprintln(w, "No agent sessions found")
 		return err
 	}
-	tw := tabwriter.NewWriter(safeWriter{w}, 0, 0, 2, ' ', 0)
+	tw := tabwriter.NewWriter(&safeWriter{w: w}, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(tw, "ID\tSTATUS\tUPDATED\tTITLE")
 	for _, s := range sessions {
 		updated := ""

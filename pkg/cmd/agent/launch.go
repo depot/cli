@@ -108,7 +108,7 @@ func runLaunch(cmd *cobra.Command, o *launchOptions, agent string) error {
 	if err != nil || !o.watch {
 		return err
 	}
-	return watchAndReport(cmd, newCaller(token, o.org), o.output, sessionID, watchOptions{afterInput: resp.Msg.GetInput().GetInputId(), untilIdle: true, timeout: o.timeout, url: resp.Msg.GetUrl()})
+	return watchAndReport(cmd, newCaller(token, o.org), o.output, sessionID, watchOptions{afterInput: resp.Msg.GetInput().GetInputId(), untilIdle: true, timeout: o.timeout, url: resp.Msg.GetUrl(), base: beforeFirst()})
 }
 
 func parseSource(value string) (*agentv1.DepotAgentLaunchSource, error) {
