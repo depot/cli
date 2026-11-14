@@ -1,6 +1,7 @@
 package mr
 
 import (
+	"errors"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -128,17 +129,41 @@ func branch(cmd *cobra.Command, args []string) (string, error) {
 	return name, nil
 }
 
+// get finds the open merge request of a branch.
 func (o *options) get(cmd *cobra.Command, name string) (*code.GetMergeRequestResponse, error) {
-	resp, err := api.NewMergeRequestClient().GetMergeRequest(cmd.Context(), request(o, &code.GetMergeRequestRequest{
-		Lookup: &code.GetMergeRequestRequest_Head{Head: &code.GetMergeRequestRequest_HeadRef{RepositoryId: o.repo, HeadRef: name}},
-	}))
+	return o.fetch(cmd, &code.GetMergeRequestRequest{Lookup: o.head(name)})
+}
+
+func (o *options) head(name string) *code.GetMergeRequestRequest_Head {
+	return &code.GetMergeRequestRequest_Head{Head: &code.GetMergeRequestRequest_HeadRef{RepositoryId: o.repo, HeadRef: name}}
+}
+
+func (o *options) fetch(cmd *cobra.Command, req *code.GetMergeRequestRequest) (*code.GetMergeRequestResponse, error) {
+	resp, err := api.NewMergeRequestClient().GetMergeRequest(cmd.Context(), request(o, req))
 	if err != nil {
+		if head := req.GetHead(); head != nil {
+			return nil, noOpenMR(cmd, head, err)
+		}
 		return nil, err
 	}
 	if resp.Msg.MergeRequest == nil || resp.Msg.MergeRequest.Id == "" {
 		return nil, fmt.Errorf("API returned no merge request")
 	}
 	return resp.Msg, nil
+}
+
+// noOpenMR explains a branch lookup that found nothing: the API finds only the open merge request of a branch.
+// Every other error, and a not_found that names the repository, is returned unchanged.
+func noOpenMR(cmd *cobra.Command, head *code.GetMergeRequestRequest_HeadRef, err error) error {
+	var apiErr *connect.Error
+	if !errors.As(err, &apiErr) || apiErr.Code() != connect.CodeNotFound || strings.Contains(strings.ToLower(apiErr.Message()), "repository") {
+		return err
+	}
+	hint := "this command needs an open merge request; `depot mr view --id <mr_id>` shows a closed or merged one"
+	if cmd.Flags().Lookup("id") != nil {
+		hint = "a closed or merged merge request is found only by its ID, pass --id <mr_id>"
+	}
+	return fmt.Errorf("no open merge request for branch %q in repository %s; %s: %w", head.HeadRef, head.RepositoryId, hint, err)
 }
 
 func writeMR(cmd *cobra.Command, mr *code.MergeRequest) error {
@@ -297,16 +322,18 @@ func (o *options) writeCreated(cmd *cobra.Command, mr *code.MergeRequest) error 
 }
 
 func newView(o *options) *cobra.Command {
-	return &cobra.Command{Use: "view [branch]", Short: "Show a merge request (defaults to the current branch)", Args: cobra.MaximumNArgs(1),
+	var t target
+	cmd := &cobra.Command{Use: "view [branch]", Short: "Show a merge request (defaults to the current branch)", Args: cobra.MaximumNArgs(1),
+		Long: "Show a merge request.\nA branch, by default the current one, names its open merge request.\nPass --id to show a merge request in any state; `depot mr list --state all` prints the IDs.",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			name, err := branch(cmd, args)
+			name, err := t.check(cmd, args)
 			if err != nil {
 				return err
 			}
-			if err := o.authenticate(cmd); err != nil {
+			if err := o.authenticateFor(cmd, name); err != nil {
 				return err
 			}
-			response, err := o.getWithReadiness(cmd, name)
+			response, err := o.getWithReadiness(cmd, name, t.id)
 			if err != nil {
 				return err
 			}
@@ -316,6 +343,8 @@ func newView(o *options) *cobra.Command {
 			return writeView(cmd, response)
 		},
 	}
+	t.register(cmd)
+	return cmd
 }
 
 func newMerge(o *options) *cobra.Command {

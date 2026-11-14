@@ -2,8 +2,12 @@ package mr
 
 import (
 	"encoding/json"
+	"errors"
+	"net/http"
+	"strings"
 	"testing"
 
+	"connectrpc.com/connect"
 	code "github.com/depot/cli/pkg/proto/depot/code/v1beta2"
 	"github.com/depot/cli/pkg/proto/depot/code/v1beta2/codev1beta2connect"
 )
@@ -110,5 +114,81 @@ func TestViewJSONIncludesReadiness(t *testing.T) {
 	}
 	if got.Readiness.Verdict != "VERDICT_NOT_READY" || got.Readiness.HeadOid != head {
 		t.Errorf("unexpected readiness in JSON: %s", out)
+	}
+}
+
+func TestViewByIDReadsAMergeRequestInAnyState(t *testing.T) {
+	t.Chdir(t.TempDir())
+	mux := apiServer(t)
+	rpc(t, mux, codev1beta2connect.MergeRequestServiceGetMergeRequestProcedure, func(req *code.GetMergeRequestRequest) (*code.GetMergeRequestResponse, error) {
+		if req.GetMergeRequestId() != "mr_1" || req.GetHead() != nil || !req.IncludeReadiness {
+			t.Errorf("wrong lookup: %v", req)
+		}
+		mr := fixture("abc")
+		mr.State = code.MergeRequest_STATE_CLOSED
+		return &code.GetMergeRequestResponse{MergeRequest: mr}, nil
+	})
+	out, err := execute(t, "view", "--id", "mr_1")
+	if want := "mr_1: Test change\nState: closed\nHead: feature (abc)\nBase: main\n\nDescription\n"; err != nil || out != want {
+		t.Fatalf("got %q %v, want %q", out, err, want)
+	}
+	out, err = execute(t, "view", "--id", "mr_1", "--json")
+	if err != nil || !json.Valid([]byte(out)) || !strings.Contains(out, "STATE_CLOSED") {
+		t.Fatalf("JSON: %q %v", out, err)
+	}
+}
+
+func TestViewRefusesABranchWithIDOrABlankID(t *testing.T) {
+	checkout(t)
+	apiServer(t).HandleFunc("/", func(http.ResponseWriter, *http.Request) { t.Error("called the API") })
+	for _, args := range [][]string{{"view", "feature", "--id", "mr_1"}, {"view", "--id", " "}} {
+		if out, err := execute(t, args...); err == nil || out != "" {
+			t.Errorf("%v: %q %v", args, out, err)
+		}
+	}
+}
+
+func TestBranchLookupSaysWhenNoMergeRequestIsOpen(t *testing.T) {
+	checkout(t)
+	mux := apiServer(t)
+	failure := connect.NewError(connect.CodeNotFound, errors.New("Merge request not found"))
+	rpc(t, mux, codev1beta2connect.MergeRequestServiceGetMergeRequestProcedure, func(*code.GetMergeRequestRequest) (*code.GetMergeRequestResponse, error) {
+		return nil, failure
+	})
+	mux.HandleFunc("/", func(http.ResponseWriter, *http.Request) { t.Error("called the API after a failed lookup") })
+	byID, openOnly := "pass --id <mr_id>", "`depot mr view --id <mr_id>` shows a closed or merged one"
+	for _, test := range []struct {
+		args []string
+		hint string
+	}{
+		{[]string{"view"}, byID}, {[]string{"view", "feature", "--json"}, byID}, {[]string{"threads"}, byID},
+		{[]string{"edit", "--title", "New"}, byID}, {[]string{"close"}, byID}, {[]string{"reopen", "feature"}, byID},
+		{[]string{"approve"}, openOnly}, {[]string{"comment", "--body", "Body"}, openOnly},
+	} {
+		out, err := execute(t, test.args...)
+		if connect.CodeOf(err) != connect.CodeNotFound || out != "" {
+			t.Fatalf("%v: %q %v", test.args, out, err)
+		}
+		want := `no open merge request for branch "feature" in repository repo; `
+		if got := err.Error(); !strings.HasPrefix(got, want) || !strings.Contains(got, test.hint) || !strings.HasSuffix(got, ": not_found: Merge request not found") {
+			t.Errorf("%v: %s", test.args, got)
+		}
+	}
+
+	// Lookups by ID, and failures that are not a missing merge request, keep the API's error.
+	if _, err := execute(t, "view", "--id", "mr_9"); err == nil || err.Error() != "not_found: Merge request not found" {
+		t.Errorf("view by ID: %v", err)
+	}
+	for _, other := range []*connect.Error{
+		connect.NewError(connect.CodeNotFound, errors.New("Repository not found")),
+		connect.NewError(connect.CodePermissionDenied, errors.New("denied")),
+		connect.NewError(connect.CodeUnavailable, errors.New("try again")),
+	} {
+		failure = other
+		for _, args := range [][]string{{"view"}, {"close"}, {"approve"}} {
+			if _, err := execute(t, args...); err == nil || err.Error() != other.Error() {
+				t.Errorf("%v: got %v, want %v", args, err, other)
+			}
+		}
 	}
 }

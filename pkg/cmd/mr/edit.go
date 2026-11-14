@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"strings"
 
-	"connectrpc.com/connect"
 	"github.com/depot/cli/pkg/api"
 	code "github.com/depot/cli/pkg/proto/depot/code/v1beta2"
 	"github.com/spf13/cobra"
@@ -38,9 +37,6 @@ func (t *target) resolve(cmd *cobra.Command, o *options, name string) (string, e
 		return t.id, nil
 	}
 	found, err := o.get(cmd, name)
-	if connect.CodeOf(err) == connect.CodeNotFound {
-		return "", fmt.Errorf("no open merge request for branch %q; closed merge requests are found only by ID, pass --id: %w", name, err)
-	}
 	if err != nil {
 		return "", err
 	}
