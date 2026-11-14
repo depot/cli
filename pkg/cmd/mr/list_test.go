@@ -24,6 +24,7 @@ func listRPC(t *testing.T, resp *code.ListMergeRequestsResponse) *[]*code.ListMe
 func TestListSendsFiltersAndPrintsOneLinePerMR(t *testing.T) {
 	merged := fixture("abc")
 	merged.State = code.MergeRequest_STATE_MERGED
+	merged.Title = "Test\nchange"
 	requests := listRPC(t, &code.ListMergeRequestsResponse{MergeRequests: []*code.MergeRequest{merged}})
 
 	out, err := execute(t, "list", "--state", "merged", "--head", "feature", "--base", "main", "--author", "@me", "--limit", "5", "--page-token", "tok")
@@ -84,18 +85,23 @@ func TestListJSONKeepsNextPageToken(t *testing.T) {
 }
 
 func TestListPrintsNextPageHintToStderr(t *testing.T) {
-	listRPC(t, &code.ListMergeRequestsResponse{MergeRequests: []*code.MergeRequest{fixture("abc")}, NextPageToken: "next"})
-	cmd := NewCmdMR()
-	cmd.SilenceErrors, cmd.SilenceUsage = true, true
-	var out, errOut bytes.Buffer
-	cmd.SetOut(&out)
-	cmd.SetErr(&errOut)
-	cmd.SetArgs([]string{"list", "--repo", "repo", "--org", "test-org", "--token", "local-test-token"})
-	if err := cmd.Execute(); err != nil {
-		t.Fatal(err)
-	}
-	if strings.Count(out.String(), "\n") != 1 || errOut.String() != "More merge requests: rerun with --page-token next\n" {
-		t.Errorf("unexpected stdout %q, stderr %q", out.String(), errOut.String())
+	resp := &code.ListMergeRequestsResponse{MergeRequests: []*code.MergeRequest{fixture("abc")}, NextPageToken: "next"}
+	listRPC(t, resp)
+	for _, wantStdout := range []string{"mr_1\topen\tfeature -> main\tTest change\n", "No merge requests found\n"} {
+		cmd := NewCmdMR()
+		cmd.SilenceErrors, cmd.SilenceUsage = true, true
+		var out, errOut bytes.Buffer
+		cmd.SetOut(&out)
+		cmd.SetErr(&errOut)
+		cmd.SetArgs([]string{"list", "--repo", "repo", "--org", "test-org", "--token", "local-test-token"})
+		if err := cmd.Execute(); err != nil {
+			t.Fatal(err)
+		}
+		if out.String() != wantStdout || errOut.String() != "More merge requests: rerun with --page-token next\n" {
+			t.Errorf("unexpected stdout %q, stderr %q", out.String(), errOut.String())
+		}
+		// The second pass checks an empty page still carries the token.
+		resp.MergeRequests = nil
 	}
 }
 

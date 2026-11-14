@@ -3,6 +3,7 @@ package mr
 import (
 	"fmt"
 	"strings"
+	"unicode"
 
 	"github.com/depot/cli/pkg/api"
 	code "github.com/depot/cli/pkg/proto/depot/code/v1beta2"
@@ -64,12 +65,19 @@ func newList(o *options) *cobra.Command {
 func writeMRList(cmd *cobra.Command, resp *code.ListMergeRequestsResponse) error {
 	out := cmd.OutOrStdout()
 	if len(resp.MergeRequests) == 0 {
-		_, err := fmt.Fprintln(out, "No merge requests found")
-		return err
+		if _, err := fmt.Fprintln(out, "No merge requests found"); err != nil {
+			return err
+		}
 	}
 	for _, mr := range resp.MergeRequests {
 		state := strings.ToLower(strings.TrimPrefix(mr.State.String(), "STATE_"))
-		if _, err := fmt.Fprintf(out, "%s\t%s\t%s -> %s\t%s\n", mr.Id, state, mr.HeadRef, mr.BaseRef, mr.Title); err != nil {
+		title := strings.Map(func(r rune) rune {
+			if unicode.IsControl(r) {
+				return ' '
+			}
+			return r
+		}, mr.Title)
+		if _, err := fmt.Fprintf(out, "%s\t%s\t%s -> %s\t%s\n", mr.Id, state, mr.HeadRef, mr.BaseRef, title); err != nil {
 			return err
 		}
 	}
