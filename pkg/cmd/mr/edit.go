@@ -90,7 +90,7 @@ func newEdit(o *options) *cobra.Command {
 			if req.Title == nil && req.Body == nil && req.BaseRef == nil {
 				return fmt.Errorf("nothing to change; pass --title, --body, --body-file or --base")
 			}
-			if err := o.authenticate(cmd); err != nil {
+			if err := o.authenticateFor(cmd, name); err != nil {
 				return err
 			}
 			if req.MergeRequestId, err = t.resolve(cmd, o, name); err != nil {
