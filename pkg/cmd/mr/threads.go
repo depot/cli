@@ -34,6 +34,12 @@ type threadList struct {
 	conversation   []*code.MergeRequestComment
 }
 
+// outdated reports whether the merge request moved past the commits a thread's lines were read at. A merge
+// request opened before its base commit was recorded has none to compare.
+func outdated(a *code.MergeRequestCommentAnchor, mr *code.MergeRequest) bool {
+	return a.HeadOid != mr.HeadOid || (mr.BaseOid != "" && a.BaseOid != mr.BaseOid)
+}
+
 // groupThreads splits comments into review threads and the conversation. A thread is outdated once the merge
 // request's head or base moved past the commits its lines were read at.
 func groupThreads(resp *code.GetMergeRequestResponse) *threadList {
@@ -43,7 +49,7 @@ func groupThreads(resp *code.GetMergeRequestResponse) *threadList {
 		if a := c.Anchor; a != nil {
 			t := &thread{ID: c.Id, Path: a.Path, Side: label(a.Side, "SIDE_"), StartLine: a.StartLine, EndLine: a.EndLine,
 				Resolved: c.ResolvedAt != nil,
-				Outdated: a.HeadOid != resp.MergeRequest.HeadOid || a.BaseOid != resp.MergeRequest.BaseOid}
+				Outdated: outdated(a, resp.MergeRequest)}
 			byID[c.Id] = t
 			list.Threads = append(list.Threads, t)
 		}
