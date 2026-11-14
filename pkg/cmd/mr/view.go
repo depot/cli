@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"unicode"
 
 	"github.com/depot/cli/pkg/api"
 	code "github.com/depot/cli/pkg/proto/depot/code/v1beta2"
@@ -78,7 +79,7 @@ func writeReadiness(out io.Writer, r *code.MergeRequestReadiness) error {
 	return err
 }
 
-// clean drops control and bidirectional-override characters, so text from the API cannot redraw the lines around it.
+// clean drops control, format and line-separator characters, so text from the API cannot redraw the lines around it.
 // A one-line field also loses its line breaks.
 func clean(value string, multiline bool) string {
 	return strings.Map(func(r rune) rune {
@@ -88,7 +89,7 @@ func clean(value string, multiline bool) string {
 				return r
 			}
 			return ' '
-		case r < 0x20, r >= 0x7f && r <= 0x9f, r >= 0x202a && r <= 0x202e, r >= 0x2066 && r <= 0x2069:
+		case unicode.IsControl(r), unicode.In(r, unicode.Cf, unicode.Zl, unicode.Zp):
 			return -1
 		}
 		return r

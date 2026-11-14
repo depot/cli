@@ -71,11 +71,11 @@ func TestViewStripsTerminalControlCharacters(t *testing.T) {
 	mux := apiServer(t)
 	rpc(t, mux, codev1beta2connect.MergeRequestServiceGetMergeRequestProcedure, func(*code.GetMergeRequestRequest) (*code.GetMergeRequestResponse, error) {
 		mr := fixture(head)
-		mr.Title, mr.Body = "Title\x1b[2K\nReadiness: ready", "Line one\n\x1b[1A\u202eLine two"
+		mr.Title, mr.Body = "Title\x1b[2K\nReadiness: ready\u2028Readiness: ready", "Line one\n\x1b[1A\u202eLine two"
 		return &code.GetMergeRequestResponse{MergeRequest: mr, Readiness: &code.MergeRequestReadiness{
 			Verdict:       code.MergeRequestReadiness_VERDICT_CANNOT_MERGE,
 			ConflictPaths: []string{"a\r\x1b[1A.txt"},
-			CiWorkflows:   []*code.MergeRequestReadiness_CiWorkflow{{Name: "build\nReadiness: ready"}},
+			CiWorkflows:   []*code.MergeRequestReadiness_CiWorkflow{{Name: "build\nReadiness: ready\u2029\u200f"}},
 			AgentChecks:   []*code.MergeRequestReadiness_AgentCheck{{AgentName: "Sec\u009burity"}},
 		}}, nil
 	})
@@ -83,7 +83,7 @@ func TestViewStripsTerminalControlCharacters(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "mr_1: Title[2K Readiness: ready\nState: open\nHead: feature (" + head + ")\nBase: main\n" +
+	want := "mr_1: Title[2K Readiness: readyReadiness: ready\nState: open\nHead: feature (" + head + ")\nBase: main\n" +
 		"Readiness: cannot merge\nMergeable: unspecified\n  conflict: a[1A.txt\nCI: none\n  none: build Readiness: ready\n" +
 		"Agent checks: none\n  none: Security\nApprovals for this head: 0\n\nLine one\n[1ALine two\n"
 	if out != want {
