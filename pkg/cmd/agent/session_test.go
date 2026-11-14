@@ -33,6 +33,7 @@ type fakeAgent struct {
 	holdWatch bool
 	watchErr  error
 	holdFor   time.Duration
+	getErr    error
 	mu        sync.Mutex
 }
 
@@ -64,6 +65,9 @@ func (f *fakeAgent) ListDepotAgentSessions(_ context.Context, req *connect.Reque
 }
 
 func (f *fakeAgent) GetSession(context.Context, *connect.Request[agentv1.GetSessionRequest]) (*connect.Response[agentv1.GetSessionResponse], error) {
+	if f.getErr != nil {
+		return nil, f.getErr
+	}
 	return connect.NewResponse(f.got), nil
 }
 
@@ -259,6 +263,26 @@ func TestWatchGivesUpOnAnErrorThatKeepsHappening(t *testing.T) {
 	_, _, err := runAgent(t, "watch", "das_1", "--until-idle")
 	if err == nil || !strings.Contains(err.Error(), "projection broke") || len(f.watches) != maxWatchFailures {
 		t.Fatalf("err = %v after %d watches, want the server's error after %d", err, len(f.watches), maxWatchFailures)
+	}
+}
+
+func TestWatchReplaysAFrameWhoseSessionReadFailed(t *testing.T) {
+	retryDelay, replyGrace = time.Millisecond, time.Millisecond
+	t.Cleanup(func() { retryDelay, replyGrace = time.Second, 10*time.Second })
+	unanswered := []*agentv1.WatchSessionResponse{frame("idle", "c1", viewAsked)}
+	f := &fakeAgent{getErr: connect.NewError(connect.CodeUnavailable, errors.New("read broke"))}
+	for range maxWatchFailures {
+		f.frames = append(f.frames, unanswered)
+	}
+	serveAgent(t, f)
+	_, _, err := runAgent(t, "watch", "das_1", "--after-input", "dai_1")
+	if err == nil || !strings.Contains(err.Error(), "read broke") || f.watchCount() != maxWatchFailures {
+		t.Fatalf("err = %v after %d watches, want the read's error after %d", err, f.watchCount(), maxWatchFailures)
+	}
+	for _, req := range f.watches {
+		if req.GetAfterCursor() != "" {
+			t.Fatalf("the watch moved past a frame it had not finished: %v", req)
+		}
 	}
 }
 

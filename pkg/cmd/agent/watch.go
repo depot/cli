@@ -193,12 +193,16 @@ func watchOnce(ctx context.Context, c *caller, sessionID string, r *Renderer, o 
 		if err != nil {
 			return false, err
 		}
-		if msg.GetCursor() != "" {
-			*cursor = msg.GetCursor()
+		// The cursor moves only once the frame is fully handled, so a failed read below replays the frame.
+		advance := func() {
+			if msg.GetCursor() != "" {
+				*cursor = msg.GetCursor()
+			}
 		}
 		status := msg.GetSession().GetStatus()
 		result.Status = status
 		if !o.untilIdle {
+			advance()
 			if status == "archived" {
 				return true, nil
 			}
@@ -224,6 +228,7 @@ func watchOnce(ctx context.Context, c *caller, sessionID string, r *Renderer, o 
 				done, failure = true, "the turn ended without a reply"
 			}
 		}
+		advance()
 		if done {
 			result.Outcome, result.Reply, result.Error = outcomeSettled, reply, failure
 			if failure != "" {
