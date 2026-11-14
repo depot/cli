@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"io"
 	"strings"
-	"unicode"
 
 	"github.com/depot/cli/pkg/api"
 	code "github.com/depot/cli/pkg/proto/depot/code/v1beta2"
@@ -30,7 +29,7 @@ func (o *options) getWithReadiness(cmd *cobra.Command, name string) (*code.GetMe
 func writeView(cmd *cobra.Command, response *code.GetMergeRequestResponse) error {
 	summary := proto.Clone(response.MergeRequest).(*code.MergeRequest)
 	summary.Body = ""
-	summary.Title, summary.HeadRef, summary.BaseRef = clean(summary.Title, false), clean(summary.HeadRef, false), clean(summary.BaseRef, false)
+	summary.Title, summary.HeadRef, summary.BaseRef = printable(summary.Title), printable(summary.HeadRef), printable(summary.BaseRef)
 	if err := writeMR(cmd, summary); err != nil {
 		return err
 	}
@@ -38,7 +37,7 @@ func writeView(cmd *cobra.Command, response *code.GetMergeRequestResponse) error
 	if err := writeReadiness(out, response.Readiness); err != nil {
 		return err
 	}
-	if body := clean(response.MergeRequest.Body, true); body != "" {
+	if body := printableText(response.MergeRequest.Body); body != "" {
 		_, err := fmt.Fprintf(out, "\n%s\n", body)
 		return err
 	}
@@ -57,15 +56,15 @@ func writeReadiness(out io.Writer, r *code.MergeRequestReadiness) error {
 	}
 	fmt.Fprintf(&b, "\nMergeable: %s\n", label(r.Mergeability, "MERGEABILITY_"))
 	for _, path := range r.ConflictPaths {
-		fmt.Fprintf(&b, "  conflict: %s\n", clean(path, false))
+		fmt.Fprintf(&b, "  conflict: %s\n", printable(path))
 	}
 	fmt.Fprintf(&b, "CI: %s\n", checkState(r.CiState))
 	for _, w := range r.CiWorkflows {
-		fmt.Fprintf(&b, "  %s: %s\n", checkState(w.State), clean(w.Name, false))
+		fmt.Fprintf(&b, "  %s: %s\n", checkState(w.State), printable(w.Name))
 	}
 	fmt.Fprintf(&b, "Agent checks: %s\n", checkState(r.AgentChecksState))
 	for _, c := range r.AgentChecks {
-		fmt.Fprintf(&b, "  %s: %s", checkState(c.State), clean(c.AgentName, false))
+		fmt.Fprintf(&b, "  %s: %s", checkState(c.State), printable(c.AgentName))
 		if c.OpenFindings > 0 {
 			fmt.Fprintf(&b, " (%d open findings)", c.OpenFindings)
 		}
@@ -79,21 +78,13 @@ func writeReadiness(out io.Writer, r *code.MergeRequestReadiness) error {
 	return err
 }
 
-// clean drops control, format and line-separator characters, so text from the API cannot redraw the lines around it.
-// A one-line field also loses its line breaks.
-func clean(value string, multiline bool) string {
-	return strings.Map(func(r rune) rune {
-		switch {
-		case r == '\n' || r == '\t':
-			if multiline {
-				return r
-			}
-			return ' '
-		case unicode.IsControl(r), unicode.In(r, unicode.Cf, unicode.Zl, unicode.Zp):
-			return -1
-		}
-		return r
-	}, value)
+// printableText is printable for text that keeps its line breaks.
+func printableText(s string) string {
+	lines := strings.Split(s, "\n")
+	for i, line := range lines {
+		lines[i] = printable(line)
+	}
+	return strings.Join(lines, "\n")
 }
 
 func reasonList(reasons []*code.MergeRequestReadiness_Reason) string {

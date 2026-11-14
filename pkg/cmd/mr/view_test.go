@@ -83,9 +83,9 @@ func TestViewStripsTerminalControlCharacters(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "mr_1: Title[2K Readiness: readyReadiness: ready\nState: open\nHead: feature (" + head + ")\nBase: main\n" +
-		"Readiness: cannot merge\nMergeable: unspecified\n  conflict: a[1A.txt\nCI: none\n  none: build Readiness: ready\n" +
-		"Agent checks: none\n  none: Security\nApprovals for this head: 0\n\nLine one\n[1ALine two\n"
+	want := "mr_1: Title [2K Readiness: ready Readiness: ready\nState: open\nHead: feature (" + head + ")\nBase: main\n" +
+		"Readiness: cannot merge\nMergeable: unspecified\n  conflict: a  [1A.txt\nCI: none\n  none: build Readiness: ready  \n" +
+		"Agent checks: none\n  none: Sec urity\nApprovals for this head: 0\n\nLine one\n [1A Line two\n"
 	if out != want {
 		t.Errorf("got:\n%q\nwant:\n%q", out, want)
 	}
