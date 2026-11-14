@@ -356,6 +356,8 @@ message MergeMergeRequestRequest {
 message MergeMergeRequestResponse {
   // The merged request, including its merge commit and merging user.
   MergeRequest merge_request = 1;
+  // The method the merge used. Unset by a server that only creates merge commits.
+  MergeMergeRequestRequest.Method method = 40;
 }
 
 message UpdateMergeRequestRequest {

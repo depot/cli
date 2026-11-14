@@ -230,6 +230,9 @@ func newMerge(o *options) *cobra.Command {
 			if mr == nil || mr.Id == "" || mr.State != code.MergeRequest_STATE_MERGED || mr.MergeCommitOid == "" {
 				return fmt.Errorf("API returned no completed merge result")
 			}
+			if squash && resp.Msg.Method != code.MergeMergeRequestRequest_METHOD_SQUASH {
+				return fmt.Errorf("%s was merged with a merge commit (%s): this server does not support --squash", mr.Id, mr.MergeCommitOid)
+			}
 			if o.json {
 				return o.writeJSON(cmd, resp.Msg)
 			}

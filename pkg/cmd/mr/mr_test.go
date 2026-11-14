@@ -210,7 +210,7 @@ func TestMergeRefusalsAreNotRetriedOrReplacedWithSuccess(t *testing.T) {
 func TestMergeSquashAsksForOneCommit(t *testing.T) {
 	head := checkout(t)
 	mux := apiServer(t)
-	refuse := true
+	refuse, applied := true, code.MergeMergeRequestRequest_METHOD_SQUASH
 	rpc(t, mux, codev1beta2connect.MergeRequestServiceMergeMergeRequestProcedure, func(req *codeMergeRequest) (*codeMergeResponse, error) {
 		if req.Method != code.MergeMergeRequestRequest_METHOD_SQUASH || req.GetExpectedHeadOid() != head {
 			t.Errorf("wrong squash request: %v", req)
@@ -220,7 +220,7 @@ func TestMergeSquashAsksForOneCommit(t *testing.T) {
 		}
 		mr := fixture(head)
 		mr.State, mr.MergeCommitOid = code.MergeRequest_STATE_MERGED, strings.Repeat("b", 40)
-		return &codeMergeResponse{MergeRequest: mr}, nil
+		return &codeMergeResponse{MergeRequest: mr, Method: applied}, nil
 	})
 	out, err := execute(t, "merge", "feature", "--squash")
 	if connect.CodeOf(err) != connect.CodeFailedPrecondition || !strings.Contains(err.Error(), "Cannot squash") || out != "" {
@@ -230,6 +230,12 @@ func TestMergeSquashAsksForOneCommit(t *testing.T) {
 	out, err = execute(t, "merge", "feature", "--squash")
 	if err != nil || out != "Squashed and merged mr_1: "+strings.Repeat("b", 40)+"\n" {
 		t.Fatalf("squash result: %q %v", out, err)
+	}
+	// A server that predates the method ignores it and makes a merge commit.
+	applied = code.MergeMergeRequestRequest_METHOD_UNSPECIFIED
+	out, err = execute(t, "merge", "feature", "--squash")
+	if err == nil || !strings.Contains(err.Error(), "merged with a merge commit") || out != "" {
+		t.Fatalf("an ignored squash was reported as one: %q %v", out, err)
 	}
 }
 
