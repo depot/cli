@@ -139,6 +139,10 @@ func (r *Renderer) renderView(viewJSON string) (*agentView, error) {
 		r.line("(older messages omitted)")
 	}
 	r.skipOlder(&view)
+	if r.from != "" {
+		// Everything in this view belongs to turns before the awaited input.
+		return &view, nil
+	}
 	for _, msg := range view.Messages {
 		if msg.ID != "" && r.once("message:"+msg.ID) {
 			r.renderMessage(msg)

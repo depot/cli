@@ -126,6 +126,26 @@ const (
 const viewLater = `{"messages": [{"id": "3", "role": "user", "inputId": "dai_1", "text": "hello"}, {"id": "4", "role": "assistant", "text": "hi there"},
 	{"id": "5", "role": "user", "inputId": "dai_2", "text": "next"}]}`
 
+func TestTurnOutOfACutViewNeedsToHaveRun(t *testing.T) {
+	var cut agentView
+	if err := json.Unmarshal([]byte(`{"messages": [{"id": "9", "role": "assistant", "text": "done"}], "truncated": true}`), &cut); err != nil {
+		t.Fatal(err)
+	}
+	var asked agentView
+	if err := json.Unmarshal([]byte(viewAsked), &asked); err != nil {
+		t.Fatal(err)
+	}
+	waiting := &turn{afterInput: "dai_1"}
+	waiting.settled("running", &cut)
+	if done, _, _ := waiting.settled("idle", &cut); done {
+		t.Fatal("another turn's reply settled an input that was never seen running")
+	}
+	waiting.settled("running", &asked)
+	if done, reply, _ := waiting.settled("idle", &cut); !done || reply != "done" {
+		t.Fatalf("settled = %v, %q after the input ran out of view", done, reply)
+	}
+}
+
 func TestTurnWaitsForAView(t *testing.T) {
 	if done, _, _ := (&turn{}).settled("idle", nil); done {
 		t.Fatal("an idle session with no view counted as finished")

@@ -220,8 +220,8 @@ func watchOnce(ctx context.Context, c *caller, sessionID string, r *Renderer, o 
 // turn decides, frame by frame, whether the session has finished the work being waited for.
 type turn struct {
 	afterInput string
-	// ran means the session was seen running, which stands in for the input once a long turn has
-	// pushed its message out of the bounded view.
+	// ran means the session was seen running with the input in view, which stands in for the input
+	// once a long turn has pushed its message out of the bounded view.
 	ran bool
 	// unanswered means the last frame showed the turn over with something other than a reply at its end,
 	// as an interrupted turn leaves it.
@@ -242,7 +242,7 @@ func (t *turn) settled(status string, view *agentView) (done bool, reply, failur
 	}
 	switch status {
 	case "running":
-		t.ran = true
+		t.ran = t.ran || t.afterInput == "" || t.shows(view)
 		return false, "", ""
 	case "idle", "waiting_input":
 	default:
@@ -299,6 +299,18 @@ func (t *turn) answered(view *agentView) *viewMessage {
 		}
 	}
 	return nil
+}
+
+func (t *turn) shows(view *agentView) bool {
+	if view == nil {
+		return false
+	}
+	for _, msg := range view.Messages {
+		if msg.InputID == t.afterInput {
+			return true
+		}
+	}
+	return false
 }
 
 func replied(msg viewMessage) (done bool, reply, failure string) {

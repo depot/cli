@@ -81,7 +81,7 @@ func TestRendererStartsAtAnInput(t *testing.T) {
 	var out bytes.Buffer
 	r := NewRenderer(&out).From("dai_2")
 	render(t, r, "", viewOne, viewTwo)
-	want := "(queued steer: use go 1.25)\n(2 more queued)\n> use go 1.25\n→ edit pkg/foo/foo_test.go\n  ← edit ok: applied\n(error: interrupted by user)\n"
+	want := "> use go 1.25\n→ edit pkg/foo/foo_test.go\n  ← edit ok: applied\n(error: interrupted by user)\n"
 	if got := out.String(); got != want {
 		t.Fatalf("rendered output mismatch\n got:\n%s\nwant:\n%s", got, want)
 	}
