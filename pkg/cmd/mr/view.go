@@ -58,6 +58,9 @@ func writeReadiness(out io.Writer, r *code.MergeRequestReadiness) error {
 	for _, path := range r.ConflictPaths {
 		fmt.Fprintf(&b, "  conflict: %s\n", printable(path))
 	}
+	if r.ConflictPathsTruncated {
+		b.WriteString("  more conflicting paths not shown\n")
+	}
 	fmt.Fprintf(&b, "CI: %s\n", checkState(r.CiState))
 	for _, w := range r.CiWorkflows {
 		fmt.Fprintf(&b, "  %s: %s\n", checkState(w.State), printable(w.Name))

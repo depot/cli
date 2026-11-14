@@ -48,6 +48,10 @@ func TestViewPrintsReadiness(t *testing.T) {
 			Verdict: code.MergeRequestReadiness_VERDICT_CANNOT_MERGE, Mergeability: code.MergeRequestReadiness_MERGEABILITY_CONFLICTING,
 			ConflictPaths: []string{"a.txt"},
 		}, want: "Readiness: cannot merge\nMergeable: conflicting\n  conflict: a.txt\nCI: none\nAgent checks: none\nApprovals for this head: 0\n"},
+		{name: "cannot merge, conflict list cut short", readiness: &code.MergeRequestReadiness{
+			Verdict: code.MergeRequestReadiness_VERDICT_CANNOT_MERGE, Mergeability: code.MergeRequestReadiness_MERGEABILITY_CONFLICTING,
+			ConflictPaths: []string{"a.txt"}, ConflictPathsTruncated: true,
+		}, want: "Readiness: cannot merge\nMergeable: conflicting\n  conflict: a.txt\n  more conflicting paths not shown\nCI: none\nAgent checks: none\nApprovals for this head: 0\n"},
 		// An API without readiness, or a merge request that is not open, prints the merge request alone.
 		{name: "absent", want: ""},
 	} {
