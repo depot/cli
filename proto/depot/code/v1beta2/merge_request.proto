@@ -31,6 +31,9 @@ service MergeRequestService {
   // Deletes the caller's own comment. The comment stays in `GetMergeRequest` with `deletedAt` set and an empty body.
   // Deleting a deleted comment succeeds without changing it.
   rpc DeleteMergeRequestComment(DeleteMergeRequestCommentRequest) returns (DeleteMergeRequestCommentResponse) {}
+  // Marks a review thread resolved, for any member of the organization. FailedPrecondition for a conversation comment.
+  rpc ResolveMergeRequestThread(ResolveMergeRequestThreadRequest) returns (ResolveMergeRequestThreadResponse) {}
+  rpc UnresolveMergeRequestThread(UnresolveMergeRequestThreadRequest) returns (UnresolveMergeRequestThreadResponse) {}
   // Records the caller's approval of the merge request at its current head. Each person holds one approval per merge
   // request: approving again moves it to the current head and clears a withdrawal. Returns FailedPrecondition for a
   // closed or merged merge request.
@@ -112,6 +115,27 @@ message MergeRequestComment {
   google.protobuf.Timestamp edited_at = 6;
   // Unset until the comment is deleted.
   google.protobuf.Timestamp deleted_at = 7;
+  MergeRequestCommentAnchor anchor = 8;
+  // Set on a reply: the id of the comment that started its review thread, which is also the thread's id.
+  string in_reply_to_id = 60;
+  // When and by whom the thread was resolved. Set only on the comment that started a thread, while it is resolved.
+  google.protobuf.Timestamp resolved_at = 61;
+  MergeRequestActor resolved_by = 62;
+}
+
+// Lines of one file in the diff. Outdated once a commit differs from the merge request's `headOid` or `baseOid`.
+message MergeRequestCommentAnchor {
+  enum Side {
+    SIDE_UNSPECIFIED = 0;
+    SIDE_OLD = 1;
+    SIDE_NEW = 2;
+  }
+  string base_oid = 1;
+  string head_oid = 2;
+  string path = 3;
+  Side side = 4;
+  uint32 start_line = 5;
+  uint32 end_line = 6;
 }
 
 // One approval per person or review agent on a merge request.
@@ -364,9 +388,13 @@ message UpdateMergeRequestResponse {
 
 message CreateMergeRequestCommentRequest {
   // Unique identifier for the merge request. Returned by `CreateMergeRequest` and `GetMergeRequest`.
+  // Optional on a reply, which goes to the merge request of its thread.
   string merge_request_id = 1;
   // Markdown. Required. Maximum: 65535 characters.
   string body = 2;
+  MergeRequestCommentAnchor anchor = 3;
+  // Replies in the review thread that this comment, any comment of it, belongs to. Cannot be combined with `anchor`.
+  string in_reply_to_id = 60;
 }
 
 message CreateMergeRequestCommentResponse {
@@ -390,6 +418,23 @@ message DeleteMergeRequestCommentRequest {
 }
 
 message DeleteMergeRequestCommentResponse {}
+
+message ResolveMergeRequestThreadRequest {
+  // Any comment of the review thread. The response carries the comment that started it.
+  string comment_id = 1;
+}
+
+message ResolveMergeRequestThreadResponse {
+  MergeRequestComment comment = 1;
+}
+
+message UnresolveMergeRequestThreadRequest {
+  string comment_id = 1;
+}
+
+message UnresolveMergeRequestThreadResponse {
+  MergeRequestComment comment = 1;
+}
 
 message ApproveMergeRequestRequest {
   // Unique identifier for the merge request. Returned by `CreateMergeRequest` and `GetMergeRequest`.

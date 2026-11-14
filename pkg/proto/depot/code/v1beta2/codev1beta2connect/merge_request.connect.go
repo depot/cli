@@ -63,6 +63,12 @@ const (
 	// MergeRequestServiceDeleteMergeRequestCommentProcedure is the fully-qualified name of the
 	// MergeRequestService's DeleteMergeRequestComment RPC.
 	MergeRequestServiceDeleteMergeRequestCommentProcedure = "/depot.code.v1beta2.MergeRequestService/DeleteMergeRequestComment"
+	// MergeRequestServiceResolveMergeRequestThreadProcedure is the fully-qualified name of the
+	// MergeRequestService's ResolveMergeRequestThread RPC.
+	MergeRequestServiceResolveMergeRequestThreadProcedure = "/depot.code.v1beta2.MergeRequestService/ResolveMergeRequestThread"
+	// MergeRequestServiceUnresolveMergeRequestThreadProcedure is the fully-qualified name of the
+	// MergeRequestService's UnresolveMergeRequestThread RPC.
+	MergeRequestServiceUnresolveMergeRequestThreadProcedure = "/depot.code.v1beta2.MergeRequestService/UnresolveMergeRequestThread"
 	// MergeRequestServiceApproveMergeRequestProcedure is the fully-qualified name of the
 	// MergeRequestService's ApproveMergeRequest RPC.
 	MergeRequestServiceApproveMergeRequestProcedure = "/depot.code.v1beta2.MergeRequestService/ApproveMergeRequest"
@@ -99,6 +105,9 @@ type MergeRequestServiceClient interface {
 	// Deletes the caller's own comment. The comment stays in `GetMergeRequest` with `deletedAt` set and an empty body.
 	// Deleting a deleted comment succeeds without changing it.
 	DeleteMergeRequestComment(context.Context, *connect.Request[v1beta2.DeleteMergeRequestCommentRequest]) (*connect.Response[v1beta2.DeleteMergeRequestCommentResponse], error)
+	// Marks a review thread resolved, for any member of the organization. FailedPrecondition for a conversation comment.
+	ResolveMergeRequestThread(context.Context, *connect.Request[v1beta2.ResolveMergeRequestThreadRequest]) (*connect.Response[v1beta2.ResolveMergeRequestThreadResponse], error)
+	UnresolveMergeRequestThread(context.Context, *connect.Request[v1beta2.UnresolveMergeRequestThreadRequest]) (*connect.Response[v1beta2.UnresolveMergeRequestThreadResponse], error)
 	// Records the caller's approval of the merge request at its current head. Each person holds one approval per merge
 	// request: approving again moves it to the current head and clears a withdrawal. Returns FailedPrecondition for a
 	// closed or merged merge request.
@@ -173,6 +182,16 @@ func NewMergeRequestServiceClient(httpClient connect.HTTPClient, baseURL string,
 			baseURL+MergeRequestServiceDeleteMergeRequestCommentProcedure,
 			opts...,
 		),
+		resolveMergeRequestThread: connect.NewClient[v1beta2.ResolveMergeRequestThreadRequest, v1beta2.ResolveMergeRequestThreadResponse](
+			httpClient,
+			baseURL+MergeRequestServiceResolveMergeRequestThreadProcedure,
+			opts...,
+		),
+		unresolveMergeRequestThread: connect.NewClient[v1beta2.UnresolveMergeRequestThreadRequest, v1beta2.UnresolveMergeRequestThreadResponse](
+			httpClient,
+			baseURL+MergeRequestServiceUnresolveMergeRequestThreadProcedure,
+			opts...,
+		),
 		approveMergeRequest: connect.NewClient[v1beta2.ApproveMergeRequestRequest, v1beta2.ApproveMergeRequestResponse](
 			httpClient,
 			baseURL+MergeRequestServiceApproveMergeRequestProcedure,
@@ -203,6 +222,8 @@ type mergeRequestServiceClient struct {
 	createMergeRequestComment      *connect.Client[v1beta2.CreateMergeRequestCommentRequest, v1beta2.CreateMergeRequestCommentResponse]
 	updateMergeRequestComment      *connect.Client[v1beta2.UpdateMergeRequestCommentRequest, v1beta2.UpdateMergeRequestCommentResponse]
 	deleteMergeRequestComment      *connect.Client[v1beta2.DeleteMergeRequestCommentRequest, v1beta2.DeleteMergeRequestCommentResponse]
+	resolveMergeRequestThread      *connect.Client[v1beta2.ResolveMergeRequestThreadRequest, v1beta2.ResolveMergeRequestThreadResponse]
+	unresolveMergeRequestThread    *connect.Client[v1beta2.UnresolveMergeRequestThreadRequest, v1beta2.UnresolveMergeRequestThreadResponse]
 	approveMergeRequest            *connect.Client[v1beta2.ApproveMergeRequestRequest, v1beta2.ApproveMergeRequestResponse]
 	removeMergeRequestApproval     *connect.Client[v1beta2.RemoveMergeRequestApprovalRequest, v1beta2.RemoveMergeRequestApprovalResponse]
 	listMergeRequests              *connect.Client[v1beta2.ListMergeRequestsRequest, v1beta2.ListMergeRequestsResponse]
@@ -261,6 +282,17 @@ func (c *mergeRequestServiceClient) DeleteMergeRequestComment(ctx context.Contex
 	return c.deleteMergeRequestComment.CallUnary(ctx, req)
 }
 
+// ResolveMergeRequestThread calls depot.code.v1beta2.MergeRequestService.ResolveMergeRequestThread.
+func (c *mergeRequestServiceClient) ResolveMergeRequestThread(ctx context.Context, req *connect.Request[v1beta2.ResolveMergeRequestThreadRequest]) (*connect.Response[v1beta2.ResolveMergeRequestThreadResponse], error) {
+	return c.resolveMergeRequestThread.CallUnary(ctx, req)
+}
+
+// UnresolveMergeRequestThread calls
+// depot.code.v1beta2.MergeRequestService.UnresolveMergeRequestThread.
+func (c *mergeRequestServiceClient) UnresolveMergeRequestThread(ctx context.Context, req *connect.Request[v1beta2.UnresolveMergeRequestThreadRequest]) (*connect.Response[v1beta2.UnresolveMergeRequestThreadResponse], error) {
+	return c.unresolveMergeRequestThread.CallUnary(ctx, req)
+}
+
 // ApproveMergeRequest calls depot.code.v1beta2.MergeRequestService.ApproveMergeRequest.
 func (c *mergeRequestServiceClient) ApproveMergeRequest(ctx context.Context, req *connect.Request[v1beta2.ApproveMergeRequestRequest]) (*connect.Response[v1beta2.ApproveMergeRequestResponse], error) {
 	return c.approveMergeRequest.CallUnary(ctx, req)
@@ -303,6 +335,9 @@ type MergeRequestServiceHandler interface {
 	// Deletes the caller's own comment. The comment stays in `GetMergeRequest` with `deletedAt` set and an empty body.
 	// Deleting a deleted comment succeeds without changing it.
 	DeleteMergeRequestComment(context.Context, *connect.Request[v1beta2.DeleteMergeRequestCommentRequest]) (*connect.Response[v1beta2.DeleteMergeRequestCommentResponse], error)
+	// Marks a review thread resolved, for any member of the organization. FailedPrecondition for a conversation comment.
+	ResolveMergeRequestThread(context.Context, *connect.Request[v1beta2.ResolveMergeRequestThreadRequest]) (*connect.Response[v1beta2.ResolveMergeRequestThreadResponse], error)
+	UnresolveMergeRequestThread(context.Context, *connect.Request[v1beta2.UnresolveMergeRequestThreadRequest]) (*connect.Response[v1beta2.UnresolveMergeRequestThreadResponse], error)
 	// Records the caller's approval of the merge request at its current head. Each person holds one approval per merge
 	// request: approving again moves it to the current head and clears a withdrawal. Returns FailedPrecondition for a
 	// closed or merged merge request.
@@ -373,6 +408,16 @@ func NewMergeRequestServiceHandler(svc MergeRequestServiceHandler, opts ...conne
 		svc.DeleteMergeRequestComment,
 		opts...,
 	)
+	mergeRequestServiceResolveMergeRequestThreadHandler := connect.NewUnaryHandler(
+		MergeRequestServiceResolveMergeRequestThreadProcedure,
+		svc.ResolveMergeRequestThread,
+		opts...,
+	)
+	mergeRequestServiceUnresolveMergeRequestThreadHandler := connect.NewUnaryHandler(
+		MergeRequestServiceUnresolveMergeRequestThreadProcedure,
+		svc.UnresolveMergeRequestThread,
+		opts...,
+	)
 	mergeRequestServiceApproveMergeRequestHandler := connect.NewUnaryHandler(
 		MergeRequestServiceApproveMergeRequestProcedure,
 		svc.ApproveMergeRequest,
@@ -410,6 +455,10 @@ func NewMergeRequestServiceHandler(svc MergeRequestServiceHandler, opts ...conne
 			mergeRequestServiceUpdateMergeRequestCommentHandler.ServeHTTP(w, r)
 		case MergeRequestServiceDeleteMergeRequestCommentProcedure:
 			mergeRequestServiceDeleteMergeRequestCommentHandler.ServeHTTP(w, r)
+		case MergeRequestServiceResolveMergeRequestThreadProcedure:
+			mergeRequestServiceResolveMergeRequestThreadHandler.ServeHTTP(w, r)
+		case MergeRequestServiceUnresolveMergeRequestThreadProcedure:
+			mergeRequestServiceUnresolveMergeRequestThreadHandler.ServeHTTP(w, r)
 		case MergeRequestServiceApproveMergeRequestProcedure:
 			mergeRequestServiceApproveMergeRequestHandler.ServeHTTP(w, r)
 		case MergeRequestServiceRemoveMergeRequestApprovalProcedure:
@@ -463,6 +512,14 @@ func (UnimplementedMergeRequestServiceHandler) UpdateMergeRequestComment(context
 
 func (UnimplementedMergeRequestServiceHandler) DeleteMergeRequestComment(context.Context, *connect.Request[v1beta2.DeleteMergeRequestCommentRequest]) (*connect.Response[v1beta2.DeleteMergeRequestCommentResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.code.v1beta2.MergeRequestService.DeleteMergeRequestComment is not implemented"))
+}
+
+func (UnimplementedMergeRequestServiceHandler) ResolveMergeRequestThread(context.Context, *connect.Request[v1beta2.ResolveMergeRequestThreadRequest]) (*connect.Response[v1beta2.ResolveMergeRequestThreadResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.code.v1beta2.MergeRequestService.ResolveMergeRequestThread is not implemented"))
+}
+
+func (UnimplementedMergeRequestServiceHandler) UnresolveMergeRequestThread(context.Context, *connect.Request[v1beta2.UnresolveMergeRequestThreadRequest]) (*connect.Response[v1beta2.UnresolveMergeRequestThreadResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.code.v1beta2.MergeRequestService.UnresolveMergeRequestThread is not implemented"))
 }
 
 func (UnimplementedMergeRequestServiceHandler) ApproveMergeRequest(context.Context, *connect.Request[v1beta2.ApproveMergeRequestRequest]) (*connect.Response[v1beta2.ApproveMergeRequestResponse], error) {
