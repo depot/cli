@@ -144,23 +144,36 @@ const (
 const viewLater = `{"messages": [{"id": "3", "role": "user", "inputId": "dai_1", "text": "hello"}, {"id": "4", "role": "assistant", "text": "hi there"},
 	{"id": "5", "role": "user", "inputId": "dai_2", "text": "next"}]}`
 
-func TestTurnOutOfACutViewNeedsToHaveRun(t *testing.T) {
-	var cut agentView
-	if err := json.Unmarshal([]byte(`{"messages": [{"id": "9", "role": "assistant", "text": "done"}], "truncated": true}`), &cut); err != nil {
-		t.Fatal(err)
+// A long turn pushes its input out of the bounded view. The turn is then followed by the messages already seen in it.
+func TestTurnOutOfACutView(t *testing.T) {
+	settle := func(waiting *turn, status, messages string) (bool, string, string) {
+		t.Helper()
+		var view agentView
+		if err := json.Unmarshal([]byte(`{"messages": [`+messages+`], "truncated": true}`), &view); err != nil {
+			t.Fatal(err)
+		}
+		return waiting.settled(status, &view)
 	}
-	var asked agentView
-	if err := json.Unmarshal([]byte(viewAsked), &asked); err != nil {
-		t.Fatal(err)
-	}
+	const (
+		asked = `{"id": "3", "role": "user", "inputId": "dai_1", "text": "hello"}`
+		step  = `{"id": "4", "role": "assistant", "text": "Looking.", "toolCalls": [{"callId": "t"}]}, {"id": "5", "role": "tool", "callId": "t", "text": "ok"}`
+		reply = `{"id": "9", "role": "assistant", "text": "done"}`
+	)
 	waiting := &turn{afterInput: "dai_1"}
-	waiting.settled("running", &cut)
-	if done, _, _ := waiting.settled("idle", &cut); done {
-		t.Fatal("another turn's reply settled an input that was never seen running")
+	settle(waiting, "running", reply)
+	if done, _, _ := settle(waiting, "idle", reply); done {
+		t.Fatal("another turn's reply settled an input that was never seen")
 	}
-	waiting.settled("running", &asked)
-	if done, reply, _ := waiting.settled("idle", &cut); !done || reply != "done" {
-		t.Fatalf("settled = %v, %q after the input ran out of view", done, reply)
+	settle(waiting, "running", asked+","+step)
+	if done, got, failure := settle(waiting, "idle", step+","+reply); !done || got != "done" || failure != "" {
+		t.Fatalf("settled = %v, %q, %q after the input left the view", done, got, failure)
+	}
+
+	// A view that shares nothing with what was seen may have dropped a later input along with this one.
+	lost := &turn{afterInput: "dai_1"}
+	settle(lost, "running", asked+","+step)
+	if done, got, failure := settle(lost, "idle", reply); !done || got != "" || failure != "the session moved past the input before its reply was seen" {
+		t.Fatalf("settled = %v, %q, %q on a view that no longer connects to the turn", done, got, failure)
 	}
 }
 
@@ -174,22 +187,20 @@ func TestTurnDoesNotTakeALaterInputsReply(t *testing.T) {
 		want    = "another input followed before the agent replied"
 	)
 	for name, tc := range map[string]struct {
-		status, view string
-		ran          bool
+		status, view, last string
 	}{
-		"the later input has its reply":      {"idle", asked + "," + working + "," + later + "," + reply, false},
-		"the later input is running":         {"running", asked + "," + working + "," + later, false},
-		"the later input directly follows":   {"idle", asked + "," + later + "," + reply, false},
-		"the session failed on the later":    {"failed", asked + "," + working + "," + later + "," + reply, false},
-		"the input has left the cut view":    {"idle", `{"id": "5", "role": "tool", "callId": "t", "text": "interrupted"},` + later + "," + reply, true},
-		"the cut view starts at later input": {"idle", later + "," + reply, true},
+		"the later input has its reply":    {"idle", asked + "," + working + "," + later + "," + reply, ""},
+		"the later input is running":       {"running", asked + "," + working + "," + later, ""},
+		"the later input directly follows": {"idle", asked + "," + later + "," + reply, ""},
+		"the session failed on the later":  {"failed", asked + "," + working + "," + later + "," + reply, ""},
+		"the input has left the cut view":  {"idle", `{"id": "5", "role": "tool", "callId": "t", "text": "interrupted"},` + later + "," + reply, "5"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			var view agentView
-			if err := json.Unmarshal([]byte(`{"messages": [`+tc.view+`], "truncated": `+strconv.FormatBool(tc.ran)+`}`), &view); err != nil {
+			if err := json.Unmarshal([]byte(`{"messages": [`+tc.view+`], "truncated": `+strconv.FormatBool(tc.last != "")+`}`), &view); err != nil {
 				t.Fatal(err)
 			}
-			done, reply, failure := (&turn{afterInput: "dai_1", ran: tc.ran}).settled(tc.status, &view)
+			done, reply, failure := (&turn{afterInput: "dai_1", last: tc.last}).settled(tc.status, &view)
 			if !done || reply != "" || failure != want {
 				t.Fatalf("settled = %v, %q, %q; want a failure saying %q", done, reply, failure, want)
 			}
@@ -199,8 +210,17 @@ func TestTurnDoesNotTakeALaterInputsReply(t *testing.T) {
 	if err := json.Unmarshal([]byte(`{"messages": [{"id": "4", "role": "assistant", "text": "hi there"},`+later+","+reply+`], "truncated": true}`), &cut); err != nil {
 		t.Fatal(err)
 	}
-	if done, got, failure := (&turn{afterInput: "dai_1", ran: true}).settled("idle", &cut); !done || got != "hi there" || failure != "" {
+	if done, got, failure := (&turn{afterInput: "dai_1", last: "4"}).settled("idle", &cut); !done || got != "hi there" || failure != "" {
 		t.Fatalf("settled = %v, %q, %q; want the reply left above the later input", done, got, failure)
+	}
+}
+
+func TestWatchJSONNeedsAWaitToReport(t *testing.T) {
+	f := &fakeAgent{}
+	serveAgent(t, f)
+	out, _, err := runAgent(t, "watch", "das_1", "-o", "json")
+	if err == nil || !strings.Contains(err.Error(), "--until-idle or --after-input") || out != "" || f.watchCount() != 0 {
+		t.Fatalf("out = %q, err = %v after %d watches; want a refusal before any watch", out, err, f.watchCount())
 	}
 }
 

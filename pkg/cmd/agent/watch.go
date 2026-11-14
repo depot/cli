@@ -78,6 +78,9 @@ is 0 when the session ended on a reply, 1 when it failed, was archived, or ended
 			if o.afterInput != "" {
 				o.untilIdle = true
 			}
+			if f.output == "json" && !o.untilIdle {
+				return errors.New("-o json prints the result of a wait: add --until-idle or --after-input")
+			}
 			return watchAndReport(cmd, c, f.output, args[0], o)
 		},
 	}
@@ -246,9 +249,9 @@ func watchOnce(ctx context.Context, c *caller, sessionID string, r *Renderer, o 
 // turn decides, frame by frame, whether the session has finished the work being waited for.
 type turn struct {
 	afterInput string
-	// ran means the session was seen running with the input in view, which stands in for the input
-	// once a long turn has pushed its message out of the bounded view.
-	ran bool
+	// last is the newest message seen in the awaited input's turn. It places the turn in a view
+	// that the turn has grown too long to keep the input's own message in.
+	last string
 	// unanswered means the last frame showed the turn over with something other than a reply at its end,
 	// as an interrupted turn leaves it.
 	unanswered bool
@@ -257,22 +260,18 @@ type turn struct {
 // settled reports whether the wait is over, with the agent's reply, or with why the turn counts as failed.
 func (t *turn) settled(status string, view *agentView) (done bool, reply, failure string) {
 	t.unanswered = false
+	at, input := t.place(view)
 	// A reply the input already has stands, whatever happened to the session afterwards.
-	msg, superseded := t.answered(view, status == "archived" || status == "failed")
-	if msg != nil {
+	if msg, failure := t.answered(view, at, input, status == "archived" || status == "failed"); msg != nil {
 		return replied(*msg)
-	}
-	if superseded {
-		return true, "", "another input followed before the agent replied"
+	} else if failure != "" {
+		return true, "", failure
 	}
 	switch status {
 	case "failed":
 		return true, "", "the session failed"
 	case "archived":
 		return true, "", "the session was archived"
-	case "running":
-		t.ran = t.ran || t.afterInput == "" || t.shows(view)
-		return false, "", ""
 	case "idle", "waiting_input":
 	default:
 		return false, "", ""
@@ -289,16 +288,13 @@ func (t *turn) settled(status string, view *agentView) (done bool, reply, failur
 			return false, "", ""
 		}
 	}
+	// The awaited input has not shown yet, so the session is idle from an earlier turn.
+	if t.afterInput != "" && at < 0 {
+		return false, "", ""
+	}
 	sent := -1
-	if t.afterInput != "" {
-		for i, msg := range view.Messages {
-			if msg.InputID == t.afterInput {
-				sent = i
-			}
-		}
-		if sent < 0 && !(t.ran && view.Truncated) {
-			return false, "", ""
-		}
+	if input {
+		sent = at
 	}
 	// Queued inputs are work still to come, unless the awaited input already has its reply above them.
 	if view.QueuedCount > 0 && sent < 0 {
@@ -317,43 +313,58 @@ func (t *turn) settled(status string, view *agentView) (done bool, reply, failur
 	return replied(view.Messages[last])
 }
 
-// answered returns the reply to the awaited input once a later input follows it, or once the session is closed,
-// so a session that has moved on to another turn does not hold the wait open or answer with that turn's reply.
-// superseded means a later input followed with no reply before it: whatever is said after that answers the
-// later input, whether it steered the turn or started the next one, so it is never credited to this one.
-func (t *turn) answered(view *agentView, closed bool) (reply *viewMessage, superseded bool) {
+// place finds the awaited turn in the view: the index of the input's own message, or once that has left
+// a cut view, of the newest message already seen in its turn. It is -1 when the view shows neither.
+func (t *turn) place(view *agentView) (at int, input bool) {
+	at = -1
 	if t.afterInput == "" || view == nil {
-		return nil, false
+		return at, false
 	}
-	// An input that ran and has left a cut view sits above everything still in it.
-	sent, gone := -1, t.ran && view.Truncated && !t.shows(view)
 	for i, msg := range view.Messages {
-		switch {
-		case msg.InputID == t.afterInput:
-			sent = i
-		case msg.Role == "user" && (sent >= 0 || gone):
-			if i-1 > sent && view.Messages[i-1].Role == "assistant" && len(view.Messages[i-1].ToolCalls) == 0 {
-				return &view.Messages[i-1], false
-			}
-			return nil, true
+		if msg.InputID == t.afterInput {
+			return i, true
+		}
+		if t.last != "" && msg.ID == t.last {
+			at = i
 		}
 	}
-	if last := len(view.Messages) - 1; closed && sent >= 0 && last > sent && view.Messages[last].Role == "assistant" && len(view.Messages[last].ToolCalls) == 0 {
-		return &view.Messages[last], false
-	}
-	return nil, false
+	return at, false
 }
 
-func (t *turn) shows(view *agentView) bool {
-	if view == nil {
-		return false
+// answered returns the reply to the awaited input once a later input follows it, or once the session is closed,
+// so a session that has moved on to another turn does not hold the wait open or answer with that turn's reply.
+// What the agent says after a later input answers that input, whether it steered the turn or started the next
+// one, so it is never credited to this one; nor is anything in a view that no longer connects to the turn.
+func (t *turn) answered(view *agentView, at int, input, closed bool) (reply *viewMessage, failure string) {
+	if t.afterInput == "" || view == nil {
+		return nil, ""
 	}
-	for _, msg := range view.Messages {
-		if msg.InputID == t.afterInput {
-			return true
+	if at < 0 {
+		if t.last != "" {
+			return nil, "the session moved past the input before its reply was seen"
 		}
+		return nil, ""
 	}
-	return false
+	// The input's own message cannot be its reply; the newest message seen after it can.
+	isReply := func(i int) bool {
+		msg := view.Messages[i]
+		return (i > at || !input) && msg.Role == "assistant" && len(msg.ToolCalls) == 0
+	}
+	for i := at + 1; i < len(view.Messages); i++ {
+		if view.Messages[i].Role != "user" {
+			continue
+		}
+		if isReply(i - 1) {
+			return &view.Messages[i-1], ""
+		}
+		return nil, "another input followed before the agent replied"
+	}
+	last := len(view.Messages) - 1
+	t.last = view.Messages[last].ID
+	if closed && isReply(last) {
+		return &view.Messages[last], ""
+	}
+	return nil, ""
 }
 
 func replied(msg viewMessage) (done bool, reply, failure string) {
