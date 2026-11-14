@@ -32,6 +32,7 @@ func NewCmdMR() *cobra.Command {
 	cmd.PersistentFlags().StringVar(&o.token, "token", "", "Depot user token (or DEPOT_TOKEN)")
 	cmd.PersistentFlags().BoolVar(&o.json, "json", false, "Print the API response as JSON")
 	cmd.AddCommand(newCreate(o), newView(o), newMerge(o), newApprove(o), newComment(o))
+	cmd.AddCommand(newEdit(o), newClose(o), newReopen(o))
 	return cmd
 }
 
@@ -130,7 +131,8 @@ func writeMR(cmd *cobra.Command, mr *code.MergeRequest) error {
 }
 
 func newCreate(o *options) *cobra.Command {
-	var title, body, head string
+	var title, head, base string
+	var body bodyFlags
 	cmd := &cobra.Command{Use: "create", Short: "Open a merge request for the current branch", Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if strings.TrimSpace(title) == "" {
@@ -144,27 +146,33 @@ func newCreate(o *options) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := o.authenticate(cmd); err != nil {
-				return err
-			}
-			resp, err := api.NewMergeRequestClient().CreateMergeRequest(cmd.Context(), request(o, &code.CreateMergeRequestRequest{
-				RepositoryId: o.repo, HeadRef: name, Title: title, Body: body,
-			}))
+			baseRef, err := baseFlag(cmd, base)
 			if err != nil {
 				return err
 			}
-			if resp.Msg.MergeRequest == nil || resp.Msg.MergeRequest.Id == "" {
-				return fmt.Errorf("API returned no merge request")
+			text, _, err := body.read(cmd)
+			if err != nil {
+				return err
+			}
+			if err := o.authenticate(cmd); err != nil {
+				return err
+			}
+			resp, err := o.create(cmd, &code.CreateMergeRequestRequest{
+				RepositoryId: o.repo, HeadRef: name, Title: title, Body: text, BaseRef: baseRef,
+			})
+			if err != nil {
+				return err
 			}
 			if o.json {
-				return o.writeJSON(cmd, resp.Msg)
+				return o.writeJSON(cmd, resp)
 			}
-			return writeMR(cmd, resp.Msg.MergeRequest)
+			return writeMR(cmd, resp.MergeRequest)
 		},
 	}
 	cmd.Flags().StringVar(&title, "title", "", "Merge request title (required)")
-	cmd.Flags().StringVar(&body, "body", "", "Merge request description")
+	body.register(cmd, "Merge request description")
 	cmd.Flags().StringVar(&head, "head", "", "Source branch (defaults to the current branch)")
+	cmd.Flags().StringVar(&base, "base", "", "Destination branch (defaults to the repository default branch)")
 	return cmd
 }
 
@@ -257,11 +265,15 @@ func newApprove(o *options) *cobra.Command {
 }
 
 func newComment(o *options) *cobra.Command {
-	var body string
+	var flags bodyFlags
 	cmd := &cobra.Command{Use: "comment [branch] --body <text>", Short: "Post a conversation comment", Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			body, _, err := flags.read(cmd)
+			if err != nil {
+				return err
+			}
 			if strings.TrimSpace(body) == "" {
-				return fmt.Errorf("--body is required and must not be blank")
+				return fmt.Errorf("--body or --body-file is required and must not be blank")
 			}
 			name, err := branch(cmd, args)
 			if err != nil {
@@ -289,6 +301,6 @@ func newComment(o *options) *cobra.Command {
 			return err
 		},
 	}
-	cmd.Flags().StringVar(&body, "body", "", "Comment text (required)")
+	flags.register(cmd, "Comment text (required unless --body-file is set)")
 	return cmd
 }
