@@ -248,12 +248,16 @@ func watchOnce(ctx context.Context, c *caller, sessionID string, r *Renderer, o 
 			continue
 		}
 		done, reply, failure := t.settled(status, view)
-		for doubted := time.Now(); !done && t.doubt != ""; {
+		for !done && t.doubt != "" {
 			// The status and the view are written apart, so the reply may only be late. Look once more,
 			// or for an input the view does not show, until the session has had time to pick it up.
 			wait, final := replyGrace, true
 			if t.doubt == failedUnseen {
-				wait, final = pickupPoll, time.Since(doubted)+pickupPoll >= pickupGrace
+				// The window opens once for the whole watch, so a reconnect does not start it over.
+				if t.unseen.IsZero() {
+					t.unseen = time.Now()
+				}
+				wait, final = pickupPoll, time.Since(t.unseen)+pickupPoll >= pickupGrace
 			}
 			select {
 			case <-ctx.Done():
@@ -292,15 +296,18 @@ type turn struct {
 	afterInput string
 	// last is the newest message seen in the awaited input's turn. It places the turn in a view
 	// that the turn has grown too long to keep the input's own message in.
-	last string
+	last    string
+	lastSeq int64
 	// base is the seq of the newest message from before the input was a message: the caller's, or else the
 	// first frame's. A cut view holding only newer messages, without the input, has dropped the input's turn.
 	base *int64
-	// doubt is why the turn counts as failed if a second look still shows what the last frame did:
-	// the turn over without a reply at its end, as an interrupt leaves it, or gone from the view.
 	// framed is set when base came from a frame, so the input may already have been out of the view by then.
 	framed bool
-	doubt  string
+	// doubt is why the turn counts as failed if a second look still shows what the last frame did:
+	// the turn over without a reply at its end, as an interrupt leaves it, or gone from the view.
+	doubt string
+	// unseen is when the wait first found the input missing from an idle session's cut view.
+	unseen time.Time
 }
 
 const (
@@ -329,6 +336,10 @@ func (t *turn) passed(view *agentView) bool {
 // settled reports whether the wait is over, with the agent's reply, or with why the turn counts as failed.
 func (t *turn) settled(status string, view *agentView) (done bool, reply, failure string) {
 	t.doubt = ""
+	// A read made beside the stream can be ahead of frames the stream has yet to deliver; those say nothing new.
+	if n := len(viewMessages(view)); t.last != "" && n > 0 && view.Messages[n-1].Seq < t.lastSeq {
+		return false, "", ""
+	}
 	at, input := t.place(view)
 	if t.afterInput != "" && !input {
 		defer t.mark(view)
@@ -444,7 +455,7 @@ func (t *turn) answered(view *agentView, at int, input, closed bool) (reply *vie
 		return nil, "another input followed before the agent replied"
 	}
 	last := len(view.Messages) - 1
-	t.last = view.Messages[last].ID
+	t.last, t.lastSeq = view.Messages[last].ID, view.Messages[last].Seq
 	if closed && isReply(last) {
 		return &view.Messages[last], ""
 	}
@@ -470,4 +481,11 @@ func retryable(err error) bool {
 		return errors.As(err, &connectErr)
 	}
 	return false
+}
+
+func viewMessages(view *agentView) []viewMessage {
+	if view == nil {
+		return nil
+	}
+	return view.Messages
 }

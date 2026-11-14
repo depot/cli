@@ -32,12 +32,14 @@ type fakeAgent struct {
 	frames  [][]*agentv1.WatchSessionResponse
 	got     *agentv1.GetSessionResponse
 	// gots are served first, one per read, before got.
-	gots      []*agentv1.GetSessionResponse
-	holdWatch bool
-	watchErr  error
-	holdFor   time.Duration
-	getErr    error
-	mu        sync.Mutex
+	gots []*agentv1.GetSessionResponse
+	// getErrEvery makes only every nth read fail with getErr; zero fails them all.
+	getErrEvery, gets int
+	holdWatch         bool
+	watchErr          error
+	holdFor           time.Duration
+	getErr            error
+	mu                sync.Mutex
 }
 
 func (f *fakeAgent) watchCount() int {
@@ -68,11 +70,11 @@ func (f *fakeAgent) ListDepotAgentSessions(_ context.Context, req *connect.Reque
 }
 
 func (f *fakeAgent) GetSession(context.Context, *connect.Request[agentv1.GetSessionRequest]) (*connect.Response[agentv1.GetSessionResponse], error) {
-	if f.getErr != nil {
-		return nil, f.getErr
-	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.gets++; f.getErr != nil && (f.getErrEvery == 0 || f.gets%f.getErrEvery == 0) {
+		return nil, f.getErr
+	}
 	if len(f.gots) > 0 {
 		first := f.gots[0]
 		f.gots = f.gots[1:]
@@ -564,6 +566,33 @@ func TestWatchGivesAnInputOutOfTheCutViewTimeToBePickedUp(t *testing.T) {
 		var status cli.StatusError
 		if !errors.As(err, &status) || status.StatusCode != 1 || !strings.Contains(status.Status, failedUnseen) {
 			t.Fatalf("err = %#v, want exit 1 with %q", err, failedUnseen)
+		}
+	})
+	t.Run("frames older than the read", func(t *testing.T) {
+		const turn = `{"id": "42", "seq": 42, "role": "user", "text": "hi", "inputId": "dai_1"}, {"id": "43", "seq": 43, "role": "tool", "text": "ok"}`
+		const working = `{"messages": [` + turn + `], "truncated": true}`
+		const replied = `{"messages": [` + turn + `, {"id": "44", "seq": 44, "role": "assistant", "text": "hello"}], "truncated": true}`
+		f := &fakeAgent{holdWatch: true, got: &agentv1.GetSessionResponse{Session: &agentv1.DepotAgentSession{Status: "running"}, ViewJson: working}}
+		// The stream still holds the frame from before the input showed when the read has already seen its turn.
+		f.frames = [][]*agentv1.WatchSessionResponse{{frame("idle", "c1", gone), frame("running", "c2", gone), frame("idle", "c3", replied)}}
+		serveAgent(t, f)
+		stdout, _, err := runAgent(t, "watch", "das_1", "--after-input", "dai_1", "--timeout", "2s")
+		if err != nil || !strings.Contains(stdout, "hello") {
+			t.Fatalf("err = %v, stdout = %q, want the reply after the stale frame", err, stdout)
+		}
+	})
+	t.Run("reads that fail now and then", func(t *testing.T) {
+		retryDelay, streamHeld, pickupGrace = time.Millisecond, 10*time.Millisecond, 200*time.Millisecond
+		t.Cleanup(func() { retryDelay, streamHeld = time.Second, 30*time.Second })
+		f := &fakeAgent{holdWatch: true, got: idle(gone), getErrEvery: 4, getErr: connect.NewError(connect.CodeUnavailable, errors.New("read broke"))}
+		for range 200 {
+			f.frames = append(f.frames, []*agentv1.WatchSessionResponse{frame("idle", "c1", gone)})
+		}
+		serveAgent(t, f)
+		_, _, err := runAgent(t, "watch", "das_1", "--after-input", "dai_1", "--timeout", "3s")
+		var status cli.StatusError
+		if !errors.As(err, &status) || status.StatusCode != 1 || !strings.Contains(status.Status, failedUnseen) {
+			t.Fatalf("err = %#v, want exit 1 with %q: a reconnect must not start the window over", err, failedUnseen)
 		}
 	})
 	t.Run("picked up", func(t *testing.T) {
