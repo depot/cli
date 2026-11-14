@@ -254,8 +254,8 @@ func (o *options) begin(cmd *cobra.Command, asset localAsset, key string) (*code
 	return response.Msg, nil
 }
 
-// store sends the file to storage, up to three times. A refused URL has expired,
-// so the upload is begun again under the same key for a new one.
+// store sends the file to storage, up to three times. A refused URL, or one past its
+// stated expiry, is replaced by beginning the upload again under the same key.
 func (o *options) store(cmd *cobra.Command, asset localAsset, key string, started *code.BeginMergeRequestAssetUploadResponse) error {
 	ctx := cmd.Context()
 	for attempt := 0; ; attempt++ {
@@ -275,7 +275,9 @@ func (o *options) store(cmd *cobra.Command, asset localAsset, key string, starte
 			if err := pause(ctx, attempt); err != nil {
 				return err
 			}
-			continue
+			if !expired(started) {
+				continue
+			}
 		}
 		if started, err = o.begin(cmd, asset, key); err != nil {
 			return err
@@ -284,6 +286,12 @@ func (o *options) store(cmd *cobra.Command, asset localAsset, key string, starte
 			return nil
 		}
 	}
+}
+
+// expired reports whether the signed URL is at or within seconds of its stated expiry.
+func expired(started *code.BeginMergeRequestAssetUploadResponse) bool {
+	at, err := time.Parse(time.RFC3339, started.UploadExpiresAt)
+	return err == nil && time.Until(at) < 5*time.Second
 }
 
 var errAssetChanged = errors.New("the file changed while it was uploading; run the command again")

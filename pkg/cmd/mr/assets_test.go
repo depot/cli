@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"connectrpc.com/connect"
 	code "github.com/depot/cli/pkg/proto/depot/code/v1beta2"
@@ -46,6 +47,8 @@ type assetAPI struct {
 	onPut      func(call int) int
 	onComplete func(call int) error
 	completes  int
+	// expiresIn is how long each signed URL is said to last; zero leaves the expiry unset.
+	expiresIn time.Duration
 }
 
 func newAssetAPI(t *testing.T, mux *http.ServeMux) *assetAPI {
@@ -106,6 +109,9 @@ func (f *assetAPI) begin(req *code.BeginMergeRequestAssetUploadRequest) (*code.B
 	if !asset.ready {
 		response.UploadUrl = fmt.Sprintf("%s/%s?signature=%d", f.storage.URL, asset.id, len(f.begins))
 		response.UploadHeaders = map[string]string{"content-type": "test/" + asset.extension, "if-none-match": "*"}
+		if f.expiresIn != 0 {
+			response.UploadExpiresAt = time.Now().Add(f.expiresIn).UTC().Format(time.RFC3339)
+		}
 	}
 	return response, nil
 }
@@ -647,6 +653,62 @@ func TestStorageRateLimitIsRetried(t *testing.T) {
 	_, err := execute(t, "create", "--title", "Images", "--attach", "asset.png")
 	if err != nil || *created != 1 || fake.puts != 2 || len(fake.begins) != 1 {
 		t.Fatalf("created=%d puts=%d begins=%v err=%v", *created, fake.puts, fake.begins, err)
+	}
+}
+
+// The flags added beside --attach keep working with it: the body file and the base
+// reach the create call, and a base that differs from the open MR's stops before any upload.
+func TestAttachWorksWithBodyFileAndBase(t *testing.T) {
+	checkout(t)
+	writeAsset(t, "asset.png", pngMagic+"asset")
+	writeAsset(t, "body.md", "From a file\n")
+	mux := apiServer(t)
+	noMR(t, mux)
+	fake := newAssetAPI(t, mux)
+	rpc(t, mux, codev1beta2connect.MergeRequestServiceCreateMergeRequestWithBaseProcedure, func(req *code.CreateMergeRequestWithBaseRequest) (*code.CreateMergeRequestWithBaseResponse, error) {
+		mr := fixture("abc")
+		mr.Body, mr.BaseRef = req.Body, req.GetBaseRef()
+		return &code.CreateMergeRequestWithBaseResponse{MergeRequest: mr}, nil
+	})
+	out, err := execute(t, "create", "--title", "Images", "--body-file", "body.md", "--base", "release", "--attach", "asset.png")
+	if err != nil || fake.puts != 1 || !strings.Contains(out, "From a file\n\n\n![asset.png](") || !strings.Contains(out, "Base: release") {
+		t.Fatalf("puts=%d out=%s err=%v", fake.puts, out, err)
+	}
+}
+
+func TestAttachRefusesAnotherBaseThanTheOpenMR(t *testing.T) {
+	existing, fake, updates := existingMRServer(t, checkout(t))
+	writeAsset(t, "asset.png", pngMagic+"asset")
+	_, err := execute(t, "create", "--title", "Images", "--base", "release", "--attach", "asset.png")
+	if err == nil || len(fake.begins) != 0 || *updates != 0 || !strings.Contains(err.Error(), "depot mr edit "+existing.HeadRef+" --base release") {
+		t.Fatalf("begins=%v updates=%d err=%v", fake.begins, *updates, err)
+	}
+}
+
+func TestRetryAfterTheStatedExpiryBeginsAgainFirst(t *testing.T) {
+	for name, test := range map[string]struct {
+		expiresIn time.Duration
+		begins    int
+	}{"expired": {time.Second, 2}, "five minutes left": {5 * time.Minute, 1}} {
+		t.Run(name, func(t *testing.T) {
+			checkout(t)
+			writeAsset(t, "asset.png", pngMagic+"asset")
+			mux := apiServer(t)
+			noMR(t, mux)
+			fake := newAssetAPI(t, mux)
+			fake.expiresIn = test.expiresIn
+			fake.onPut = func(call int) int {
+				if call == 1 {
+					return http.StatusServiceUnavailable
+				}
+				return 0
+			}
+			created := createRPC(t, mux)
+			_, err := execute(t, "create", "--title", "Images", "--attach", "asset.png")
+			if err != nil || *created != 1 || fake.puts != 2 || len(fake.begins) != test.begins {
+				t.Fatalf("created=%d puts=%d begins=%v err=%v", *created, fake.puts, fake.begins, err)
+			}
+		})
 	}
 }
 
