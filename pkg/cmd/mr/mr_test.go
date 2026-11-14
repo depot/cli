@@ -159,9 +159,6 @@ func TestMergeUsesSelectedLocalBranchAndRefusesStaleHead(t *testing.T) {
 		if req.GetHead().GetHeadRef() != "feature" || req.GetHead().GetRepositoryId() != "repo" || req.GetExpectedHeadOid() != head || req.ExpectedBaseOid != nil {
 			t.Errorf("wrong merge preconditions: %v", req)
 		}
-		if req.Method != code.MergeMergeRequestRequest_METHOD_UNSPECIFIED {
-			t.Errorf("merge without --squash chose a method: %v", req.Method)
-		}
 		if stale {
 			return nil, connect.NewError(connect.CodeAborted, errors.New("head branch moved; refresh before merging"))
 		}
@@ -210,32 +207,40 @@ func TestMergeRefusalsAreNotRetriedOrReplacedWithSuccess(t *testing.T) {
 func TestMergeSquashAsksForOneCommit(t *testing.T) {
 	head := checkout(t)
 	mux := apiServer(t)
-	refuse, applied := true, code.MergeMergeRequestRequest_METHOD_SQUASH
+	refuse := connect.CodeFailedPrecondition
 	rpc(t, mux, codev1beta2connect.MergeRequestServiceMergeMergeRequestProcedure, func(req *codeMergeRequest) (*codeMergeResponse, error) {
-		if req.Method != code.MergeMergeRequestRequest_METHOD_SQUASH || req.GetExpectedHeadOid() != head {
+		t.Error("--squash fell back to the merge-commit method")
+		return nil, connect.NewError(connect.CodeInternal, errors.New("unexpected"))
+	})
+	rpc(t, mux, codev1beta2connect.MergeRequestServiceMergeMergeRequestWithMethodProcedure, func(req *code.MergeMergeRequestWithMethodRequest) (*code.MergeMergeRequestWithMethodResponse, error) {
+		if req.Method != code.MergeMergeRequestWithMethodRequest_METHOD_SQUASH || req.GetHead().GetHeadRef() != "feature" || req.GetExpectedHeadOid() != head {
 			t.Errorf("wrong squash request: %v", req)
 		}
-		if refuse {
-			return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("Cannot squash: another open merge request targets feature"))
+		if refuse != 0 {
+			return nil, connect.NewError(refuse, errors.New("Cannot squash: another open merge request targets feature"))
 		}
 		mr := fixture(head)
 		mr.State, mr.MergeCommitOid = code.MergeRequest_STATE_MERGED, strings.Repeat("b", 40)
-		return &codeMergeResponse{MergeRequest: mr, Method: applied}, nil
+		return &code.MergeMergeRequestWithMethodResponse{MergeRequest: mr}, nil
 	})
 	out, err := execute(t, "merge", "feature", "--squash")
 	if connect.CodeOf(err) != connect.CodeFailedPrecondition || !strings.Contains(err.Error(), "Cannot squash") || out != "" {
 		t.Fatalf("refused squash should fail with no success output: %q %v", out, err)
 	}
-	refuse = false
+	// A server that predates the method refuses it; the CLI must not retry as a merge commit.
+	refuse = connect.CodeUnimplemented
+	out, err = execute(t, "merge", "feature", "--squash")
+	if connect.CodeOf(err) != connect.CodeUnimplemented || !strings.Contains(err.Error(), "does not support --squash") || out != "" {
+		t.Fatalf("an unsupported squash should fail with no success output: %q %v", out, err)
+	}
+	refuse = 0
 	out, err = execute(t, "merge", "feature", "--squash")
 	if err != nil || out != "Squashed and merged mr_1: "+strings.Repeat("b", 40)+"\n" {
 		t.Fatalf("squash result: %q %v", out, err)
 	}
-	// A server that predates the method ignores it and makes a merge commit.
-	applied = code.MergeMergeRequestRequest_METHOD_UNSPECIFIED
-	out, err = execute(t, "merge", "feature", "--squash")
-	if err == nil || !strings.Contains(err.Error(), "merged with a merge commit") || out != "" {
-		t.Fatalf("an ignored squash was reported as one: %q %v", out, err)
+	out, err = execute(t, "merge", "feature", "--squash", "--json")
+	if err != nil || !json.Valid([]byte(out)) || !strings.Contains(out, "mergeCommitOid") {
+		t.Fatalf("squash JSON: %q %v", out, err)
 	}
 }
 
