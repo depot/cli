@@ -30,6 +30,7 @@ type fakeAgent struct {
 	frames    [][]*agentv1.WatchSessionResponse
 	got       *agentv1.GetSessionResponse
 	holdWatch bool
+	watchErr  error
 }
 
 func (f *fakeAgent) CreateSession(_ context.Context, req *connect.Request[agentv1.CreateSessionRequest]) (*connect.Response[agentv1.CreateSessionResponse], error) {
@@ -81,7 +82,7 @@ func (f *fakeAgent) WatchSession(ctx context.Context, req *connect.Request[agent
 	if f.holdWatch {
 		<-ctx.Done()
 	}
-	return nil
+	return f.watchErr
 }
 
 func serveAgent(t *testing.T, f *fakeAgent) {
@@ -238,6 +239,17 @@ func TestWatchExitCodes(t *testing.T) {
 	}
 }
 
+func TestWatchGivesUpOnAnErrorThatKeepsHappening(t *testing.T) {
+	retryDelay = time.Millisecond
+	t.Cleanup(func() { retryDelay = time.Second })
+	f := &fakeAgent{watchErr: connect.NewError(connect.CodeInternal, errors.New("projection broke"))}
+	serveAgent(t, f)
+	_, _, err := runAgent(t, "watch", "das_1", "--until-idle")
+	if err == nil || !strings.Contains(err.Error(), "projection broke") || len(f.watches) != maxWatchFailures {
+		t.Fatalf("err = %v after %d watches, want the server's error after %d", err, len(f.watches), maxWatchFailures)
+	}
+}
+
 func TestTurnSettled(t *testing.T) {
 	for name, tc := range map[string]struct {
 		input, status, view string
@@ -255,6 +267,7 @@ func TestTurnSettled(t *testing.T) {
 		"tool still running":             {"dai_1", "idle", strings.Replace(viewReplied, `"tools": []`, `"tools": [{"callId": "t", "status": "running"}]`, 1), false, ""},
 		"no input: idle is enough":       {"", "idle", viewBefore, true, "earlier reply"},
 		"replied, then archived":         {"dai_1", "archived", viewReplied, true, "hi there"},
+		"replied, then failed":           {"dai_1", "failed", viewReplied, true, "hi there"},
 		"replied, a later turn failed":   {"dai_1", "failed", viewLater, true, "hi there"},
 		"a later turn is running":        {"dai_1", "running", viewLater, true, "hi there"},
 		"a later turn has replied":       {"dai_1", "idle", strings.Replace(viewLater, `]}`, `, {"id": "6", "role": "assistant", "text": "later reply"}]}`, 1), true, "hi there"},

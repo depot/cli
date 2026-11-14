@@ -185,7 +185,8 @@ func (r *Renderer) skipOlder(view *agentView) {
 		}
 	}
 	// A running turn in a cut view may have pushed the input out for good, so show what is left of it.
-	if r.from != "" && view.Truncated && r.lastStatus == "running" {
+	// While anything is queued, the input may still be waiting behind the turn that is running.
+	if r.from != "" && view.Truncated && view.QueuedCount == 0 && r.lastStatus == "running" {
 		r.from = ""
 		return
 	}

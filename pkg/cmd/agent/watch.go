@@ -28,6 +28,12 @@ const (
 // How long an idle session whose turn has no reply is given to show one before the turn counts as failed.
 var replyGrace = 10 * time.Second
 
+// A watch that fails this many times in a row without a new frame gives up with the last error.
+// Each retry waits one retryDelay longer than the one before.
+const maxWatchFailures = 10
+
+var retryDelay = time.Second
+
 type watchOptions struct {
 	// afterInput waits for the reply to this input instead of for the session to be idle at all.
 	afterInput string
@@ -130,8 +136,9 @@ func watchSession(ctx context.Context, c *caller, sessionID string, r *Renderer,
 		defer cancel()
 	}
 	t := &turn{afterInput: o.afterInput}
-	cursor := ""
+	cursor, failures := "", 0
 	for {
+		before := cursor
 		done, err := watchOnce(deadline, c, sessionID, r, o, t, &cursor, &result)
 		if done {
 			return result, nil
@@ -143,12 +150,17 @@ func watchSession(ctx context.Context, c *caller, sessionID string, r *Renderer,
 			result.Outcome = outcomeTimeout
 			return result, nil
 		}
-		if err != nil && !retryable(err) {
-			return result, err
+		if err == nil || cursor != before {
+			failures = 0
+		}
+		if err != nil {
+			if failures++; !retryable(err) || failures >= maxWatchFailures {
+				return result, err
+			}
 		}
 		select {
 		case <-deadline.Done():
-		case <-time.After(time.Second):
+		case <-time.After(retryDelay * time.Duration(max(failures, 1))):
 		}
 	}
 }
@@ -236,7 +248,7 @@ type turn struct {
 func (t *turn) settled(status string, view *agentView) (done bool, reply, failure string) {
 	t.unanswered = false
 	// A reply the input already has stands, whatever happened to the session afterwards.
-	if msg := t.answered(view, status == "archived"); msg != nil {
+	if msg := t.answered(view, status == "archived" || status == "failed"); msg != nil {
 		return replied(*msg)
 	}
 	switch status {

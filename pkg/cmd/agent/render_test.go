@@ -97,6 +97,15 @@ func TestRendererShowsACutViewWhoseInputIsGone(t *testing.T) {
 	}
 }
 
+func TestRendererKeepsACutViewHiddenWhileTheInputMayBeQueued(t *testing.T) {
+	var out bytes.Buffer
+	r := NewRenderer(&out).From("dai_queued")
+	render(t, r, "running", `{"messages": [{"id": "1", "role": "assistant", "text": "the turn before"}], "truncated": true, "queuedCount": 1}`)
+	if got, want := out.String(), "[running]\n(older messages omitted)\n"; got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
 func TestRendererStreamsPartial(t *testing.T) {
 	var out bytes.Buffer
 	r := NewRenderer(&out)
