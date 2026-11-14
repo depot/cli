@@ -55,10 +55,6 @@ func newSandboxExecPipe() *cobra.Command {
 			sessionID, err := cmd.Flags().GetString("session-id")
 			cobra.CheckErr(err)
 
-			if sessionID == "" {
-				return fmt.Errorf("session-id is required")
-			}
-
 			timeout, err := cmd.Flags().GetInt("timeout")
 			cobra.CheckErr(err)
 
@@ -138,7 +134,7 @@ func newSandboxExecPipe() *cobra.Command {
 	}
 
 	cmd.Flags().String("sandbox-id", "", "ID of the compute to execute the command against")
-	cmd.Flags().String("session-id", "", "The session the compute belongs to")
+	cmd.Flags().String("session-id", "", "The session the compute belongs to; leave unset for an agent sandbox")
 	cmd.Flags().Int("timeout", 0, "The execution timeout in milliseconds")
 
 	return cmd

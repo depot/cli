@@ -33,6 +33,7 @@ func NewCmdMR() *cobra.Command {
 	cmd.PersistentFlags().StringVar(&o.token, "token", "", "Depot user token (or DEPOT_TOKEN)")
 	cmd.PersistentFlags().BoolVar(&o.json, "json", false, "Print the API response as JSON")
 	cmd.AddCommand(newCreate(o), newView(o), newMerge(o), newApprove(o), newComment(o))
+	cmd.AddCommand(newEdit(o), newClose(o), newReopen(o))
 	return cmd
 }
 
@@ -131,7 +132,8 @@ func writeMR(cmd *cobra.Command, mr *code.MergeRequest) error {
 }
 
 func newCreate(o *options) *cobra.Command {
-	var title, body, head string
+	var title, head, base string
+	var body bodyFlags
 	var attachmentPaths []string
 	cmd := &cobra.Command{Use: "create", Short: "Open a merge request for the current branch", Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -146,6 +148,14 @@ func newCreate(o *options) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			baseRef, err := baseFlag(cmd, base)
+			if err != nil {
+				return err
+			}
+			text, _, err := body.read(cmd)
+			if err != nil {
+				return err
+			}
 			if err := o.authenticate(cmd); err != nil {
 				return err
 			}
@@ -153,24 +163,29 @@ func newCreate(o *options) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			req := &code.CreateMergeRequestRequest{RepositoryId: o.repo, HeadRef: name, Title: title, Body: text, BaseRef: baseRef}
 			if len(assets) == 0 {
-				return o.create(cmd, name, title, body, nil)
+				return o.createWith(cmd, req, nil)
 			}
 			existing, err := o.get(cmd, name)
 			if err == nil {
+				if err := baseMatches(existing.MergeRequest, baseRef); err != nil {
+					return err
+				}
 				return o.attachToExisting(cmd, existing.MergeRequest, assets)
 			}
 			if connect.CodeOf(err) != connect.CodeNotFound {
 				return err
 			}
 			return o.saveWithAssets(cmd, name, "", "merge request was not created", assets, func(uploaded, _ []attachment) error {
-				return o.create(cmd, name, title, body, uploaded)
+				return o.createWith(cmd, req, uploaded)
 			})
 		},
 	}
 	cmd.Flags().StringVar(&title, "title", "", "Merge request title (required)")
-	cmd.Flags().StringVar(&body, "body", "", "Merge request description")
+	body.register(cmd, "Merge request description")
 	cmd.Flags().StringVar(&head, "head", "", "Source branch (defaults to the current branch)")
+	cmd.Flags().StringVar(&base, "base", "", "Destination branch (defaults to the repository default branch)")
 	cmd.Flags().SetNormalizeFunc(func(_ *pflag.FlagSet, name string) pflag.NormalizedName {
 		if name == "image" {
 			name = "attach"
@@ -181,29 +196,25 @@ func newCreate(o *options) *cobra.Command {
 	return cmd
 }
 
-func (o *options) create(cmd *cobra.Command, head, title, body string, uploaded []attachment) error {
-	requestBody := body
+// createWith opens the merge request with the uploaded attachments appended to its description.
+func (o *options) createWith(cmd *cobra.Command, req *code.CreateMergeRequestRequest, uploaded []attachment) error {
+	withRefs := proto.Clone(req).(*code.CreateMergeRequestRequest)
 	for _, attachment := range uploaded {
-		requestBody += attachment.markdown()
+		withRefs.Body += attachment.markdown()
 	}
-	resp, err := api.NewMergeRequestClient().CreateMergeRequest(cmd.Context(), request(o, &code.CreateMergeRequestRequest{
-		RepositoryId: o.repo, HeadRef: head, Title: title, Body: requestBody,
-	}))
+	resp, err := o.create(cmd, withRefs)
 	if err != nil {
 		return err
 	}
-	if resp.Msg.MergeRequest == nil || resp.Msg.MergeRequest.Id == "" {
-		return fmt.Errorf("API returned no merge request")
-	}
 	// Create returns an MR opened during the uploads unchanged, without the new references.
-	refs := strings.TrimSpace(strings.TrimPrefix(requestBody, body))
-	if !strings.Contains(resp.Msg.MergeRequest.Body, refs) {
-		return fmt.Errorf("merge request %s was opened for this branch during the upload and the attachments were not added; run the command again", resp.Msg.MergeRequest.Id)
+	refs := strings.TrimSpace(strings.TrimPrefix(withRefs.Body, req.Body))
+	if !strings.Contains(resp.MergeRequest.Body, refs) {
+		return fmt.Errorf("merge request %s was opened for this branch during the upload and the attachments were not added; run the command again", resp.MergeRequest.Id)
 	}
 	if o.json {
-		return o.writeJSON(cmd, resp.Msg)
+		return o.writeJSON(cmd, resp)
 	}
-	return writeMR(cmd, resp.Msg.MergeRequest)
+	return writeMR(cmd, resp.MergeRequest)
 }
 
 // attachToExisting appends attachments to the description of the branch's open
@@ -344,11 +355,15 @@ func newApprove(o *options) *cobra.Command {
 }
 
 func newComment(o *options) *cobra.Command {
-	var body string
+	var flags bodyFlags
 	cmd := &cobra.Command{Use: "comment [branch] --body <text>", Short: "Post a conversation comment", Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			body, _, err := flags.read(cmd)
+			if err != nil {
+				return err
+			}
 			if strings.TrimSpace(body) == "" {
-				return fmt.Errorf("--body is required and must not be blank")
+				return fmt.Errorf("--body or --body-file is required and must not be blank")
 			}
 			name, err := branch(cmd, args)
 			if err != nil {
@@ -376,6 +391,6 @@ func newComment(o *options) *cobra.Command {
 			return err
 		},
 	}
-	cmd.Flags().StringVar(&body, "body", "", "Comment text (required)")
+	flags.register(cmd, "Comment text (required unless --body-file is set)")
 	return cmd
 }
