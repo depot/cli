@@ -71,13 +71,8 @@ func writeMRList(cmd *cobra.Command, resp *code.ListMergeRequestsResponse) error
 	}
 	for _, mr := range resp.MergeRequests {
 		state := strings.ToLower(strings.TrimPrefix(mr.State.String(), "STATE_"))
-		title := strings.Map(func(r rune) rune {
-			if unicode.IsControl(r) {
-				return ' '
-			}
-			return r
-		}, mr.Title)
-		if _, err := fmt.Fprintf(out, "%s\t%s\t%s -> %s\t%s\n", mr.Id, state, mr.HeadRef, mr.BaseRef, title); err != nil {
+		_, err := fmt.Fprintf(out, "%s\t%s\t%s -> %s\t%s\n", mr.Id, state, printable(mr.HeadRef), printable(mr.BaseRef), printable(mr.Title))
+		if err != nil {
 			return err
 		}
 	}
@@ -87,4 +82,15 @@ func writeMRList(cmd *cobra.Command, resp *code.ListMergeRequestsResponse) error
 	// The hint goes to stderr so stdout stays one merge request per line.
 	_, err := fmt.Fprintf(cmd.ErrOrStderr(), "More merge requests: rerun with --page-token %s\n", resp.NextPageToken)
 	return err
+}
+
+// printable replaces control and format characters, such as newlines and bidirectional overrides,
+// so a title or branch name cannot break or visually reorder a row.
+func printable(s string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) {
+			return ' '
+		}
+		return r
+	}, s)
 }

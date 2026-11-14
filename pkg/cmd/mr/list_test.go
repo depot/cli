@@ -24,14 +24,14 @@ func listRPC(t *testing.T, resp *code.ListMergeRequestsResponse) *[]*code.ListMe
 func TestListSendsFiltersAndPrintsOneLinePerMR(t *testing.T) {
 	merged := fixture("abc")
 	merged.State = code.MergeRequest_STATE_MERGED
-	merged.Title = "Test\nchange"
+	merged.Title = "Test\nchange‮"
 	requests := listRPC(t, &code.ListMergeRequestsResponse{MergeRequests: []*code.MergeRequest{merged}})
 
 	out, err := execute(t, "list", "--state", "merged", "--head", "feature", "--base", "main", "--author", "@me", "--limit", "5", "--page-token", "tok")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if out != "mr_1\tmerged\tfeature -> main\tTest change\n" {
+	if out != "mr_1\tmerged\tfeature -> main\tTest change \n" {
 		t.Errorf("unexpected output %q", out)
 	}
 	want := &code.ListMergeRequestsRequest{
