@@ -5,25 +5,18 @@ import (
 	"io"
 	"strings"
 
-	"github.com/depot/cli/pkg/api"
 	code "github.com/depot/cli/pkg/proto/depot/code/v1beta2"
 	"github.com/spf13/cobra"
 	"google.golang.org/protobuf/proto"
 )
 
 // getWithReadiness is get plus the merge readiness of the head, which costs the API a merge analysis.
-func (o *options) getWithReadiness(cmd *cobra.Command, name string) (*code.GetMergeRequestResponse, error) {
-	resp, err := api.NewMergeRequestClient().GetMergeRequest(cmd.Context(), request(o, &code.GetMergeRequestRequest{
-		Lookup:           &code.GetMergeRequestRequest_Head{Head: &code.GetMergeRequestRequest_HeadRef{RepositoryId: o.repo, HeadRef: name}},
-		IncludeReadiness: true,
-	}))
-	if err != nil {
-		return nil, err
+// The merge request is the one get finds for branch name, or the one with id when name is empty.
+func (o *options) getWithReadiness(cmd *cobra.Command, name, id string) (*code.GetMergeRequestResponse, error) {
+	if name != "" {
+		return o.find(cmd, name, true)
 	}
-	if resp.Msg.MergeRequest == nil || resp.Msg.MergeRequest.Id == "" {
-		return nil, fmt.Errorf("API returned no merge request")
-	}
-	return resp.Msg, nil
+	return o.fetch(cmd, &code.GetMergeRequestRequest{Lookup: &code.GetMergeRequestRequest_MergeRequestId{MergeRequestId: id}, IncludeReadiness: true})
 }
 
 func writeView(cmd *cobra.Command, response *code.GetMergeRequestResponse) error {

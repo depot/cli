@@ -196,16 +196,7 @@ func newThreads(o *options) *cobra.Command {
 }
 
 func (o *options) getByID(cmd *cobra.Command, id string) (*code.GetMergeRequestResponse, error) {
-	resp, err := api.NewMergeRequestClient().GetMergeRequest(cmd.Context(), request(o, &code.GetMergeRequestRequest{
-		Lookup: &code.GetMergeRequestRequest_MergeRequestId{MergeRequestId: id},
-	}))
-	if err != nil {
-		return nil, err
-	}
-	if resp.Msg.MergeRequest == nil || resp.Msg.MergeRequest.Id == "" {
-		return nil, fmt.Errorf("API returned no merge request")
-	}
-	return resp.Msg, nil
+	return o.fetch(cmd, &code.GetMergeRequestRequest{Lookup: &code.GetMergeRequestRequest_MergeRequestId{MergeRequestId: id}})
 }
 
 // commentID validates the one argument of reply, resolve and unresolve without calling the API.

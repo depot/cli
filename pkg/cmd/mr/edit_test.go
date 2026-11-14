@@ -175,10 +175,6 @@ func TestCloseAndReopenSetState(t *testing.T) {
 	if err != nil || out != "Closed mr_1: Test change\n" || open {
 		t.Fatalf("close: %q %v", out, err)
 	}
-	out, err = execute(t, "reopen", "feature")
-	if connect.CodeOf(err) != connect.CodeNotFound || out != "" || !strings.Contains(err.Error(), "--id") {
-		t.Fatalf("reopen by branch should point at --id: %q %v", out, err)
-	}
 	out, err = execute(t, "reopen", "--id", "mr_1")
 	if err != nil || out != "Reopened mr_1: Test change\n" || !open {
 		t.Fatalf("reopen: %q %v", out, err)

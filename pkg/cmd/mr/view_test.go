@@ -2,6 +2,8 @@ package mr
 
 import (
 	"encoding/json"
+	"net/http"
+	"strings"
 	"testing"
 
 	code "github.com/depot/cli/pkg/proto/depot/code/v1beta2"
@@ -110,5 +112,36 @@ func TestViewJSONIncludesReadiness(t *testing.T) {
 	}
 	if got.Readiness.Verdict != "VERDICT_NOT_READY" || got.Readiness.HeadOid != head {
 		t.Errorf("unexpected readiness in JSON: %s", out)
+	}
+}
+
+func TestViewByIDReadsAMergeRequestInAnyState(t *testing.T) {
+	t.Chdir(t.TempDir())
+	mux := apiServer(t)
+	rpc(t, mux, codev1beta2connect.MergeRequestServiceGetMergeRequestProcedure, func(req *code.GetMergeRequestRequest) (*code.GetMergeRequestResponse, error) {
+		if req.GetMergeRequestId() != "mr_1" || req.GetHead() != nil || !req.IncludeReadiness {
+			t.Errorf("wrong lookup: %v", req)
+		}
+		mr := fixture("abc")
+		mr.State = code.MergeRequest_STATE_CLOSED
+		return &code.GetMergeRequestResponse{MergeRequest: mr}, nil
+	})
+	out, err := execute(t, "view", "--id", "mr_1")
+	if want := "mr_1: Test change\nState: closed\nHead: feature (abc)\nBase: main\n\nDescription\n"; err != nil || out != want {
+		t.Fatalf("got %q %v, want %q", out, err, want)
+	}
+	out, err = execute(t, "view", "--id", "mr_1", "--json")
+	if err != nil || !json.Valid([]byte(out)) || !strings.Contains(out, "STATE_CLOSED") {
+		t.Fatalf("JSON: %q %v", out, err)
+	}
+}
+
+func TestViewRefusesABranchWithIDOrABlankID(t *testing.T) {
+	checkout(t)
+	apiServer(t).HandleFunc("/", func(http.ResponseWriter, *http.Request) { t.Error("called the API") })
+	for _, args := range [][]string{{"view", "feature", "--id", "mr_1"}, {"view", "--id", " "}} {
+		if out, err := execute(t, args...); err == nil || out != "" {
+			t.Errorf("%v: %q %v", args, out, err)
+		}
 	}
 }

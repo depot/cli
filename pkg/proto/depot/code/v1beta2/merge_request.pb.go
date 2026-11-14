@@ -1599,7 +1599,7 @@ type GetMergeRequestRequest_MergeRequestId struct {
 }
 
 type GetMergeRequestRequest_Head struct {
-	// The open merge request for a branch. Closed and merged merge requests are found only by id.
+	// The open merge request for a branch, else its most recently created closed or merged one: check `state`.
 	Head *GetMergeRequestRequest_HeadRef `protobuf:"bytes,2,opt,name=head,proto3,oneof"`
 }
 
