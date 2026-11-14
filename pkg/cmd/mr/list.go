@@ -63,15 +63,15 @@ func newList(o *options) *cobra.Command {
 }
 
 func writeMRList(cmd *cobra.Command, resp *code.ListMergeRequestsResponse) error {
-	out := cmd.OutOrStdout()
+	// Notes go to stderr so stdout holds only merge request rows, one per line.
 	if len(resp.MergeRequests) == 0 {
-		if _, err := fmt.Fprintln(out, "No merge requests found"); err != nil {
+		if _, err := fmt.Fprintln(cmd.ErrOrStderr(), "No merge requests found"); err != nil {
 			return err
 		}
 	}
 	for _, mr := range resp.MergeRequests {
 		state := strings.ToLower(strings.TrimPrefix(mr.State.String(), "STATE_"))
-		_, err := fmt.Fprintf(out, "%s\t%s\t%s -> %s\t%s\n", mr.Id, state, printable(mr.HeadRef), printable(mr.BaseRef), printable(mr.Title))
+		_, err := fmt.Fprintf(cmd.OutOrStdout(), "%s\t%s\t%s -> %s\t%s\n", mr.Id, state, printable(mr.HeadRef), printable(mr.BaseRef), printable(mr.Title))
 		if err != nil {
 			return err
 		}
@@ -79,16 +79,16 @@ func writeMRList(cmd *cobra.Command, resp *code.ListMergeRequestsResponse) error
 	if resp.NextPageToken == "" {
 		return nil
 	}
-	// The hint goes to stderr so stdout stays one merge request per line.
 	_, err := fmt.Fprintf(cmd.ErrOrStderr(), "More merge requests: rerun with --page-token %s\n", resp.NextPageToken)
 	return err
 }
 
-// printable replaces control and format characters, such as newlines and bidirectional overrides,
+// printable replaces control, format and line or paragraph separator characters,
+// such as newlines and bidirectional overrides,
 // so a title or branch name cannot break or visually reorder a row.
 func printable(s string) string {
 	return strings.Map(func(r rune) rune {
-		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) {
+		if unicode.In(r, unicode.Cc, unicode.Cf, unicode.Zl, unicode.Zp) {
 			return ' '
 		}
 		return r
