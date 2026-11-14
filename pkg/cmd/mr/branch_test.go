@@ -22,9 +22,9 @@ func finished(id string, state code.MergeRequest_State, createdMinute int) *code
 	return mr
 }
 
-// branchAPI serves lookups the way the API does: an ID finds any merge request, a branch finds the open one, and with
-// include_closed the newest closed or merged one after that. An old server ignores include_closed. Any other call fails the test.
-func branchAPI(t *testing.T, old bool, mrs ...*code.MergeRequest) *[]*code.GetMergeRequestRequest {
+// branchAPI serves lookups the way the API does: an ID finds any merge request, a branch finds the open one, or else
+// the newest closed or merged one. Any other call fails the test.
+func branchAPI(t *testing.T, mrs ...*code.MergeRequest) *[]*code.GetMergeRequestRequest {
 	t.Helper()
 	mux := apiServer(t)
 	var gets []*code.GetMergeRequestRequest
@@ -39,7 +39,7 @@ func branchAPI(t *testing.T, old bool, mrs ...*code.MergeRequest) *[]*code.GetMe
 				found = mr
 			}
 		}
-		if found == nil || old || !req.IncludeClosed {
+		if found == nil {
 			return nil, errNoMR
 		}
 		return &code.GetMergeRequestResponse{MergeRequest: found}, nil
@@ -50,12 +50,12 @@ func branchAPI(t *testing.T, old bool, mrs ...*code.MergeRequest) *[]*code.GetMe
 
 func TestBranchLookupFindsTheNewestClosedOrMergedMergeRequest(t *testing.T) {
 	checkout(t)
-	gets := branchAPI(t, false, finished("mr_old", code.MergeRequest_STATE_CLOSED, 1), finished("mr_new", code.MergeRequest_STATE_MERGED, 3), finished("mr_mid", code.MergeRequest_STATE_CLOSED, 2))
+	gets := branchAPI(t, finished("mr_old", code.MergeRequest_STATE_CLOSED, 1), finished("mr_new", code.MergeRequest_STATE_MERGED, 3), finished("mr_mid", code.MergeRequest_STATE_CLOSED, 2))
 	out, err := execute(t, "view")
 	if want := "mr_new: Test change\nState: merged\nHead: feature (abc)\nBase: main\n\nDescription\n"; err != nil || out != want {
 		t.Fatalf("view: %q %v", out, err)
 	}
-	if got := (*gets)[0]; len(*gets) != 1 || got.GetHead().GetRepositoryId() != "repo" || !got.IncludeClosed || !got.IncludeReadiness {
+	if got := (*gets)[0]; len(*gets) != 1 || got.GetHead().GetRepositoryId() != "repo" || !got.IncludeReadiness {
 		t.Errorf("wrong lookups: %v", *gets)
 	}
 	if out, err := execute(t, "threads", "feature"); err != nil {
@@ -79,7 +79,7 @@ func TestBranchLookupFindsTheNewestClosedOrMergedMergeRequest(t *testing.T) {
 
 func TestBranchLookupPrefersTheOpenMergeRequest(t *testing.T) {
 	checkout(t)
-	gets := branchAPI(t, false, finished("mr_new", code.MergeRequest_STATE_CLOSED, 9), fixture("abc"))
+	gets := branchAPI(t, finished("mr_new", code.MergeRequest_STATE_CLOSED, 9), fixture("abc"))
 	if out, err := execute(t, "view"); err != nil || !strings.HasPrefix(out, "mr_1: ") || len(*gets) != 1 {
 		t.Errorf("view: %q %v after %d lookups", out, err, len(*gets))
 	}
@@ -92,7 +92,7 @@ func TestReopenByBranchReopensTheNewestClosedMergeRequest(t *testing.T) {
 	checkout(t)
 	mux := apiServer(t)
 	rpc(t, mux, codev1beta2connect.MergeRequestServiceGetMergeRequestProcedure, func(req *code.GetMergeRequestRequest) (*code.GetMergeRequestResponse, error) {
-		if req.GetHead().GetHeadRef() != "feature" || !req.IncludeClosed {
+		if req.GetHead().GetHeadRef() != "feature" {
 			t.Errorf("wrong lookup: %v", req)
 		}
 		return &code.GetMergeRequestResponse{MergeRequest: finished("mr_7", code.MergeRequest_STATE_CLOSED, 1)}, nil
@@ -110,25 +110,41 @@ func TestReopenByBranchReopensTheNewestClosedMergeRequest(t *testing.T) {
 
 func TestBranchLookupSaysWhenTheBranchHasNoMergeRequest(t *testing.T) {
 	checkout(t)
-	// The second server predates include_closed: it has a closed merge request but a branch does not find it.
-	for _, old := range []bool{false, true} {
-		mrs := []*code.MergeRequest{}
-		if old {
-			mrs = append(mrs, finished("mr_9", code.MergeRequest_STATE_CLOSED, 1))
+	branchAPI(t)
+	for _, args := range [][]string{
+		{"view"}, {"view", "feature", "--json"}, {"threads"}, {"edit", "--title", "New"}, {"close"}, {"reopen", "feature"},
+		{"approve"}, {"comment", "--body", "Body"},
+	} {
+		out, err := execute(t, args...)
+		want := `no merge request found for branch "feature" in repository repo: not_found: Merge request not found`
+		if connect.CodeOf(err) != connect.CodeNotFound || out != "" || err.Error() != want {
+			t.Errorf("%v: %q %v", args, out, err)
 		}
-		branchAPI(t, old, mrs...)
-		for _, args := range [][]string{
-			{"view"}, {"view", "feature", "--json"}, {"threads"}, {"edit", "--title", "New"}, {"close"}, {"reopen", "feature"},
-			{"approve"}, {"comment", "--body", "Body"},
-		} {
-			out, err := execute(t, args...)
-			want := `no merge request found for branch "feature" in repository repo: not_found: Merge request not found`
-			if connect.CodeOf(err) != connect.CodeNotFound || out != "" || err.Error() != want {
-				t.Errorf("old server %v, %v: %q %v", old, args, out, err)
+	}
+}
+
+// A branch whose merge requests are all closed or merged gets a new one: create never reuses or edits those.
+func TestCreateOpensANewMergeRequestWhenTheBranchHasOnlyFinishedOnes(t *testing.T) {
+	for _, state := range []code.MergeRequest_State{code.MergeRequest_STATE_CLOSED, code.MergeRequest_STATE_MERGED} {
+		for _, attach := range []bool{false, true} {
+			checkout(t)
+			writeAsset(t, "asset.png", pngMagic+"asset")
+			mux := apiServer(t)
+			getRPC(t, mux, finished("mr_old", state, 1), "feature")
+			newAssetAPI(t, mux)
+			created := createRPC(t, mux)
+			rpc(t, mux, codev1beta2connect.MergeRequestServiceUpdateMergeRequestProcedure, func(*code.UpdateMergeRequestRequest) (*code.UpdateMergeRequestResponse, error) {
+				t.Error("edited the finished merge request")
+				return nil, errNoMR
+			})
+			args := []string{"create", "--title", "Again", "--body", "Body"}
+			if attach {
+				args = append(args, "--attach", "asset.png")
 			}
-		}
-		if out, err := execute(t, "view", "--id", "mr_9"); old != (err == nil) || old != strings.HasPrefix(out, "mr_9: ") {
-			t.Errorf("old server %v, view by ID: %q %v", old, out, err)
+			out, err := execute(t, args...)
+			if err != nil || *created != 1 || strings.Contains(out, "mr_old") {
+				t.Errorf("%v attach=%v: created=%d out=%q err=%v", state, attach, *created, out, err)
+			}
 		}
 	}
 }

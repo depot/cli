@@ -129,14 +129,17 @@ func branch(cmd *cobra.Command, args []string) (string, error) {
 }
 
 // get finds the merge request of a branch: the open one, or else the most recently created closed or merged one.
-// A server that predates include_closed ignores it and finds only an open one.
 func (o *options) get(cmd *cobra.Command, name string) (*code.GetMergeRequestResponse, error) {
 	return o.find(cmd, name, false)
 }
 
-// getOpen finds only the open merge request of a branch and is not_found otherwise.
+// getOpen finds only the open merge request of a branch: a closed or merged one is not_found.
 func (o *options) getOpen(cmd *cobra.Command, name string) (*code.GetMergeRequestResponse, error) {
-	return o.fetch(cmd, &code.GetMergeRequestRequest{Lookup: o.head(name)})
+	resp, err := o.fetch(cmd, &code.GetMergeRequestRequest{Lookup: o.head(name)})
+	if err == nil && resp.MergeRequest.State != code.MergeRequest_STATE_OPEN {
+		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("no open merge request for branch %q", name))
+	}
+	return resp, err
 }
 
 func (o *options) head(name string) *code.GetMergeRequestRequest_Head {
@@ -144,7 +147,7 @@ func (o *options) head(name string) *code.GetMergeRequestRequest_Head {
 }
 
 func (o *options) find(cmd *cobra.Command, name string, readiness bool) (*code.GetMergeRequestResponse, error) {
-	resp, err := o.fetch(cmd, &code.GetMergeRequestRequest{Lookup: o.head(name), IncludeReadiness: readiness, IncludeClosed: true})
+	resp, err := o.fetch(cmd, &code.GetMergeRequestRequest{Lookup: o.head(name), IncludeReadiness: readiness})
 	if connect.CodeOf(err) == connect.CodeNotFound {
 		return nil, fmt.Errorf("no merge request found for branch %q in repository %s: %w", name, o.repo, err)
 	}

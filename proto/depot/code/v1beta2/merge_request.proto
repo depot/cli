@@ -208,13 +208,11 @@ message GetMergeRequestRequest {
   }
   oneof lookup {
     string merge_request_id = 1;
-    // The open merge request for a branch.
+    // The open merge request for a branch, else its most recently created closed or merged one: check `state`.
     HeadRef head = 2;
   }
   // Whether to return `readiness`. It costs a merge analysis and a read of the head commit's checks. Default: false.
   bool include_readiness = 3;
-  // With `head`: when none is open, return the branch's most recently created closed or merged one. Default: false.
-  bool include_closed = 4;
 }
 
 message GetMergeRequestResponse {
