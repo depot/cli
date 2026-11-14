@@ -23,7 +23,7 @@ func newList(o *options) *cobra.Command {
 	cmd := &cobra.Command{Use: "list", Short: "List merge requests, most recently updated first", Args: cobra.NoArgs,
 		Long: "List a repository's merge requests, most recently updated first.\n--author takes a user ID, agent:<agent ID>, or @me for merge requests you opened.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			req := &code.ListMergeRequestsRequest{RepositoryId: o.repo, HeadRef: head, BaseRef: base, PageSize: limit, PageToken: pageToken}
+			req := &code.ListMergeRequestsRequest{HeadRef: head, BaseRef: base, PageSize: limit, PageToken: pageToken}
 			var ok bool
 			if req.State, ok = listStates[strings.ToLower(state)]; !ok {
 				return fmt.Errorf("invalid --state %q; use open, closed, merged or all", state)
@@ -43,6 +43,7 @@ func newList(o *options) *cobra.Command {
 			if err := o.authenticate(cmd); err != nil {
 				return err
 			}
+			req.RepositoryId = o.repo
 			resp, err := api.NewMergeRequestClient().ListMergeRequests(cmd.Context(), request(o, req))
 			if err != nil {
 				return err

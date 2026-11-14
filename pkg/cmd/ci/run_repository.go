@@ -2,11 +2,11 @@ package ci
 
 import (
 	"fmt"
-	"net/url"
 	"os/exec"
 	"slices"
 	"strings"
 
+	"github.com/depot/cli/pkg/gitremote"
 	civ1 "github.com/depot/cli/pkg/proto/depot/ci/v1"
 )
 
@@ -41,7 +41,7 @@ func isEntireHost(host string) bool {
 }
 
 func parseRunRepository(remoteURL string) (runRepository, bool) {
-	host, path, ok := splitGitRemoteURL(strings.TrimSpace(remoteURL))
+	host, path, ok := gitremote.SplitURL(strings.TrimSpace(remoteURL))
 	if !ok {
 		return runRepository{}, false
 	}
@@ -89,29 +89,6 @@ func parseRunRepository(remoteURL string) (runRepository, bool) {
 		return runRepository{}, false
 	}
 	return runRepository{forge: forge, repo: path}, true
-}
-
-func splitGitRemoteURL(remoteURL string) (host, path string, ok bool) {
-	if !strings.Contains(remoteURL, "://") {
-		colon := strings.IndexByte(remoteURL, ':')
-		if colon <= 0 || colon == len(remoteURL)-1 {
-			return "", "", false
-		}
-		hostPart := remoteURL[:colon]
-		if at := strings.LastIndexByte(hostPart, '@'); at >= 0 {
-			hostPart = hostPart[at+1:]
-		}
-		return hostPart, remoteURL[colon+1:], hostPart != ""
-	}
-
-	parsed, err := url.Parse(remoteURL)
-	if err != nil || parsed.Hostname() == "" || (parsed.Scheme != "https" && parsed.Scheme != "ssh" && parsed.Scheme != "entire") {
-		return "", "", false
-	}
-	if parsed.Scheme == "entire" && !isEntireHost(strings.ToLower(parsed.Hostname())) {
-		return "", "", false
-	}
-	return parsed.Hostname(), parsed.Path, true
 }
 
 func detectRunRepositories(dir string) (*runRepository, []runRepository) {
