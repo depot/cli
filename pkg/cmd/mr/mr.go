@@ -38,9 +38,6 @@ func NewCmdMR() *cobra.Command {
 
 // authenticate resolves the user token and the repository: --repo, or else the checkout's Git remotes.
 func (o *options) authenticate(cmd *cobra.Command) error {
-	if cmd.Flags().Changed("repo") && strings.TrimSpace(o.repo) == "" {
-		return fmt.Errorf("--repo must not be blank; provide the Depot repository ID")
-	}
 	if err := o.authenticateUser(cmd); err != nil {
 		return err
 	}
@@ -64,6 +61,9 @@ func (o *options) authenticateFor(cmd *cobra.Command, branch string) error {
 }
 
 func (o *options) authenticateUser(cmd *cobra.Command) error {
+	if cmd.Flags().Changed("repo") && strings.TrimSpace(o.repo) == "" {
+		return fmt.Errorf("--repo must not be blank; provide the Depot repository ID")
+	}
 	if o.org == "" {
 		o.org = config.GetCurrentOrganization()
 	}

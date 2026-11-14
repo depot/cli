@@ -173,8 +173,8 @@ func (o *options) inferRepository(cmd *cobra.Command) (string, error) {
 			seenPages[pageToken] = true
 		}
 		// Extra GitHub remotes may be personal forks without a Depot mirror.
-		// They do not invalidate a target resolved from a Depot remote.
-		if depotTarget == nil && len(matched) != len(unmatched) {
+		// They do not invalidate a target another remote resolved.
+		if depotTarget == nil && len(matched) == 0 {
 			return "", repositoryInferenceError("no existing Depot mirror matches a GitHub remote in the selected organization")
 		}
 	}

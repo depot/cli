@@ -355,3 +355,17 @@ func TestParseRepositoryRemoteRejectsLookalikesAndLocalPaths(t *testing.T) {
 		})
 	}
 }
+
+func TestCreateUsesMirroredUpstreamBesideUnmirroredFork(t *testing.T) {
+	checkout(t)
+	runGit(t, "remote", "add", "origin", "git@github.com:alice/widgets.git")
+	runGit(t, "remote", "add", "upstream", "git@github.com:acme/widgets.git")
+	mux := apiServer(t)
+	rpc(t, mux, gitv1connect.RepositoryServiceListProcedure, func(*gitv1.ListRequest) (*gitv1.ListResponse, error) {
+		return &gitv1.ListResponse{Repositories: []*gitv1.Repository{mirror("opaque-id", "acme/widgets"), mirror("unrelated", "other/widgets")}}, nil
+	})
+	calls := expectCreate(t, mux, "opaque-id")
+	if out, err := executeInferred(t); err != nil || *calls != 1 || !strings.Contains(out, "mr_1") {
+		t.Fatalf("create from a fork checkout: %q %v, calls %d", out, err, *calls)
+	}
+}

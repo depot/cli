@@ -97,7 +97,7 @@ func TestCommandsRefuseToGuessTheRepository(t *testing.T) {
 	checkout(t)
 	mux := apiServer(t)
 	mux.HandleFunc("/", func(http.ResponseWriter, *http.Request) { t.Error("unexpected API request") })
-	for _, args := range append([][]string{{"view", "--repo", " "}}, branchCommands...) {
+	for _, args := range append([][]string{{"view", "--repo", " "}, {"reopen", "--id", "mr_9", "--repo", ""}}, branchCommands...) {
 		out, err := executeWithoutRepo(t, args...)
 		if err == nil || !strings.Contains(err.Error(), "--repo") || out != "" {
 			t.Fatalf("%v should ask for --repo: %q %v", args, out, err)
