@@ -186,14 +186,14 @@ func newView(o *options) *cobra.Command {
 			if err := o.authenticate(cmd); err != nil {
 				return err
 			}
-			response, err := o.get(cmd, name)
+			response, err := o.getWithReadiness(cmd, name)
 			if err != nil {
 				return err
 			}
 			if o.json {
 				return o.writeJSON(cmd, response)
 			}
-			return writeMR(cmd, response.MergeRequest)
+			return writeView(cmd, response)
 		},
 	}
 }
