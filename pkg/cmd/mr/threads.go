@@ -162,7 +162,7 @@ func newThreads(o *options) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := o.authenticate(cmd); err != nil {
+			if err := o.authenticateFor(cmd, name); err != nil {
 				return err
 			}
 			var resp *code.GetMergeRequestResponse
