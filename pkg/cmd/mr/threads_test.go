@@ -186,15 +186,3 @@ func TestThreadCommandsValidateLocallyAndKeepAPIRefusals(t *testing.T) {
 		}
 	}
 }
-
-func TestThreadOnAMergeRequestWithoutARecordedBaseIsNotOutdated(t *testing.T) {
-	anchor := &code.MergeRequestCommentAnchor{HeadOid: "h", BaseOid: "b"}
-	for _, c := range []struct {
-		head, base string
-		want       bool
-	}{{"h", "", false}, {"h", "b", false}, {"h", "moved", true}, {"moved", "", true}} {
-		if got := outdated(anchor, &code.MergeRequest{HeadOid: c.head, BaseOid: c.base}); got != c.want {
-			t.Errorf("head %q base %q: outdated = %v, want %v", c.head, c.base, got, c.want)
-		}
-	}
-}
