@@ -321,6 +321,8 @@ message MergeRequestReadiness {
   repeated MergeRequestApproval counting_approvals = 11;
   // True when the CI runs or agent checks could not all be read, so some may be missing.
   bool checks_incomplete = 12;
+  // True when `conflictPaths` was cut short, so more files conflict than it lists.
+  bool conflict_paths_truncated = 13;
 }
 
 message MergeMergeRequestRequest {
