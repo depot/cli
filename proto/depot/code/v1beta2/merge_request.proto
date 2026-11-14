@@ -326,6 +326,17 @@ message MergeRequestReadiness {
 }
 
 message MergeMergeRequestRequest {
+  enum Method {
+    // Creates a merge commit, as METHOD_MERGE_COMMIT does.
+    METHOD_UNSPECIFIED = 0;
+    // Creates a two-parent merge commit, keeping the source branch's commits in the destination's history.
+    METHOD_MERGE_COMMIT = 1;
+    // Creates one commit on the destination tip holding every change of the source branch. Its message is the
+    // merge request's title, then its description. The source branch is not changed. Returns FailedPrecondition
+    // without merging when another open merge request targets the source branch.
+    METHOD_SQUASH = 2;
+  }
+
   oneof lookup {
     // Unique identifier for the merge request. Returned by `CreateMergeRequest` and `GetMergeRequest`.
     string merge_request_id = 1;
@@ -338,6 +349,8 @@ message MergeMergeRequestRequest {
   // Expected destination commit, as a lowercase hexadecimal SHA-1 or SHA-256 object ID.
   // A mismatch returns Aborted. Leave unset to use the destination tip observed by the server.
   optional string expected_base_oid = 4;
+  // How the source branch lands on the destination branch. Leave unset to create a merge commit.
+  Method method = 40;
 }
 
 message MergeMergeRequestResponse {

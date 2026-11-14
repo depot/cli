@@ -199,8 +199,9 @@ func newView(o *options) *cobra.Command {
 }
 
 func newMerge(o *options) *cobra.Command {
-	return &cobra.Command{Use: "merge [branch]", Short: "Merge the locally observed head of a branch",
-		Long: "Merge an open merge request using the local branch commit as the expected head.\nA newer remote head is refused. Update your local branch and review it before retrying.\nCI results and approvals do not block merging.", Args: cobra.MaximumNArgs(1),
+	var squash bool
+	cmd := &cobra.Command{Use: "merge [branch]", Short: "Merge the locally observed head of a branch",
+		Long: "Merge an open merge request using the local branch commit as the expected head.\nA newer remote head is refused. Update your local branch and review it before retrying.\nCI results and approvals do not block merging.\nBy default the branch lands as a merge commit. Pass --squash to land it as one commit, with the merge request title and description as its message; your branch is not changed.", Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			name, err := branch(cmd, args)
 			if err != nil {
@@ -213,9 +214,14 @@ func newMerge(o *options) *cobra.Command {
 			if err := o.authenticate(cmd); err != nil {
 				return err
 			}
+			method := code.MergeMergeRequestRequest_METHOD_UNSPECIFIED
+			if squash {
+				method = code.MergeMergeRequestRequest_METHOD_SQUASH
+			}
 			resp, err := api.NewMergeRequestClient().MergeMergeRequest(cmd.Context(), request(o, &code.MergeMergeRequestRequest{
 				Lookup:          &code.MergeMergeRequestRequest_Head{Head: &code.GetMergeRequestRequest_HeadRef{RepositoryId: o.repo, HeadRef: name}},
 				ExpectedHeadOid: &head,
+				Method:          method,
 			}))
 			if err != nil {
 				return err
@@ -227,10 +233,16 @@ func newMerge(o *options) *cobra.Command {
 			if o.json {
 				return o.writeJSON(cmd, resp.Msg)
 			}
-			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Merged %s: %s\n", mr.Id, mr.MergeCommitOid)
+			verb := "Merged"
+			if squash {
+				verb = "Squashed and merged"
+			}
+			_, err = fmt.Fprintf(cmd.OutOrStdout(), "%s %s: %s\n", verb, mr.Id, mr.MergeCommitOid)
 			return err
 		},
 	}
+	cmd.Flags().BoolVar(&squash, "squash", false, "Land the branch as one commit instead of a merge commit")
+	return cmd
 }
 
 func newApprove(o *options) *cobra.Command {
