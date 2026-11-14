@@ -166,6 +166,8 @@ message GetMergeRequestRequest {
     // The open merge request for a branch. Closed and merged merge requests are found only by id.
     HeadRef head = 2;
   }
+  // Whether to return `readiness`. It costs a merge analysis and a read of the head commit's checks. Default: false.
+  bool include_readiness = 3;
 }
 
 message GetMergeRequestResponse {
@@ -177,6 +179,143 @@ message GetMergeRequestResponse {
   repeated MergeRequestApproval approvals = 4;
   // Whether agent approvals on the current head count. Default: false.
   bool agents_can_approve = 5;
+  // Merge readiness of the current head. Unset unless `includeReadiness` is set and the merge request is open.
+  MergeRequestReadiness readiness = 6;
+}
+
+// Current state of a Depot CI workflow or an agent check on a commit.
+enum MergeRequestCheckState {
+  MERGE_REQUEST_CHECK_STATE_UNSPECIFIED = 0;
+  MERGE_REQUEST_CHECK_STATE_PASSED = 1;
+  MERGE_REQUEST_CHECK_STATE_FAILED = 2;
+  // An agent check that passed and left findings. Counts as passed.
+  MERGE_REQUEST_CHECK_STATE_FINDINGS = 3;
+  MERGE_REQUEST_CHECK_STATE_RUNNING = 4;
+  MERGE_REQUEST_CHECK_STATE_QUEUED = 5;
+  // Cancelled, or replaced by a check of a newer commit before it finished.
+  MERGE_REQUEST_CHECK_STATE_CANCELLED = 6;
+}
+
+// Whether a merge request's current head is ready to merge. Matches the merge button on the merge request's page in
+// Depot Code. Nothing here blocks `MergeMergeRequest`.
+message MergeRequestReadiness {
+  enum Verdict {
+    VERDICT_UNSPECIFIED = 0;
+    // The head merges cleanly, at least one check ran, every check that ran passed and an approval counts.
+    VERDICT_READY = 1;
+    // The head merges cleanly, but `reasons` lists what is in the way.
+    VERDICT_NOT_READY = 2;
+    // The head does not merge cleanly into the base branch. `mergeability` says why.
+    VERDICT_CANNOT_MERGE = 3;
+  }
+  enum Mergeability {
+    MERGEABILITY_UNSPECIFIED = 0;
+    // The head merges into the base branch without conflicts.
+    MERGEABILITY_CLEAN = 1;
+    // The head and the base branch change the same lines. `conflictPaths` lists the files.
+    MERGEABILITY_CONFLICTING = 2;
+    // The base branch already contains the head, so there is nothing to merge.
+    MERGEABILITY_ALREADY_UP_TO_DATE = 3;
+    // The head and the base branch share no commit.
+    MERGEABILITY_UNRELATED_HISTORIES = 4;
+    // The merge needs something Depot Code cannot merge.
+    MERGEABILITY_UNSUPPORTED = 5;
+    // The merge analysis could not be completed. Retry later.
+    MERGEABILITY_UNAVAILABLE = 6;
+  }
+  enum Standing {
+    STANDING_UNSPECIFIED = 0;
+    // At least one check ran, every check that ran passed and an approval counts.
+    STANDING_READY = 1;
+    // A check failed.
+    STANDING_ATTENTION = 2;
+    // A check is still running or queued.
+    STANDING_RUNNING = 3;
+    // Nothing failed, but the checks or approvals do not show the head is ready.
+    STANDING_UNCHECKED = 4;
+    // The head has not moved for 30 days or more.
+    STANDING_STALE = 5;
+  }
+  // One fact about the head's checks or approvals that explains `standing`.
+  message Reason {
+    enum Kind {
+      KIND_UNSPECIFIED = 0;
+      // `count` checks failed.
+      KIND_FAILING = 1;
+      // Passing agent checks left `count` findings.
+      KIND_FINDINGS = 2;
+      // `count` checks are running or queued.
+      KIND_RUNNING = 3;
+      // `count` checks passed.
+      KIND_PASSED = 4;
+      // `count` checks were cancelled.
+      KIND_CANCELLED = 5;
+      // The checks of the head could not be read.
+      KIND_STATUSES_UNAVAILABLE = 6;
+      // No check ran on the head.
+      KIND_NO_CHECKS = 7;
+      // An approval counts for the head.
+      KIND_APPROVED = 8;
+      // No approval counts for the head.
+      KIND_NOT_APPROVED = 9;
+      // The head has not moved for `count` days.
+      KIND_IDLE = 10;
+    }
+    // What the reason says about the head.
+    Kind kind = 1;
+    // Number of checks, findings or days the reason counts. Zero for reasons that count nothing.
+    uint32 count = 2;
+  }
+  // One Depot CI workflow that ran on the head. A rerun replaces the earlier run of the same workflow.
+  message CiWorkflow {
+    // Unique identifier for the workflow.
+    string workflow_id = 1;
+    // Unique identifier for the run the workflow belongs to.
+    string run_id = 2;
+    // Workflow name. The workflow's file name when it has no name.
+    string name = 3;
+    // Current state of the workflow.
+    MergeRequestCheckState state = 4;
+  }
+  // The newest check by one agent on the head.
+  message AgentCheck {
+    // Unique identifier for this run of the check.
+    string attempt_id = 1;
+    // Unique identifier for the agent that ran the check.
+    string agent_id = 2;
+    // Agent name at the time the check ran.
+    string agent_name = 3;
+    // Current state of the check. A failing check whose findings were all resolved is passed.
+    MergeRequestCheckState state = 4;
+    // Number of findings the check left that are not resolved.
+    uint32 open_findings = 5;
+  }
+
+  // Overall answer: whether the merge button would be green, orange or absent.
+  Verdict verdict = 1;
+  // Commit the readiness describes. The merge request's `headOid` at the time of the call.
+  string head_oid = 2;
+  // Whether the head merges into the base branch, from a merge analysis that changes nothing.
+  Mergeability mergeability = 3;
+  // An array of paths of the files that conflict. Empty unless `mergeability` is conflicting.
+  repeated string conflict_paths = 4;
+  // What the head's checks and approvals show, leaving `mergeability` aside.
+  Standing standing = 5;
+  // Facts behind `standing`, most important first.
+  repeated Reason reasons = 6;
+  // Overall state of the Depot CI workflows on the head: failed if any failed, else running, else queued, else passed.
+  // Unspecified when none ran.
+  MergeRequestCheckState ci_state = 7;
+  // Depot CI workflows that ran on the head.
+  repeated CiWorkflow ci_workflows = 8;
+  // Overall state of the agent checks on the head, combined like `ciState`. Unspecified when none ran.
+  MergeRequestCheckState agent_checks_state = 9;
+  // Each agent's newest check on the head.
+  repeated AgentCheck agent_checks = 10;
+  // Approvals that count for the head: a person's, or an agent's of the head itself when `agentsCanApprove` is set.
+  repeated MergeRequestApproval counting_approvals = 11;
+  // True when the CI runs or agent checks could not all be read, so some may be missing.
+  bool checks_incomplete = 12;
 }
 
 message MergeMergeRequestRequest {
