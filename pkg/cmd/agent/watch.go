@@ -235,16 +235,15 @@ type turn struct {
 // settled reports whether the wait is over, with the agent's reply, or with why the turn counts as failed.
 func (t *turn) settled(status string, view *agentView) (done bool, reply, failure string) {
 	t.unanswered = false
+	// A reply the input already has stands, whatever happened to the session afterwards.
+	if msg := t.answered(view, status == "archived"); msg != nil {
+		return replied(*msg)
+	}
 	switch status {
 	case "failed":
 		return true, "", "the session failed"
 	case "archived":
 		return true, "", "the session was archived"
-	}
-	if msg := t.answered(view); msg != nil {
-		return replied(*msg)
-	}
-	switch status {
 	case "running":
 		t.ran = t.ran || t.afterInput == "" || t.shows(view)
 		return false, "", ""
@@ -287,9 +286,9 @@ func (t *turn) settled(status string, view *agentView) (done bool, reply, failur
 	return replied(view.Messages[last])
 }
 
-// answered returns the reply to the awaited input once a later input follows it,
+// answered returns the reply to the awaited input once a later input follows it, or once the session is closed,
 // so a session that has moved on to another turn does not hold the wait open or answer with that turn's reply.
-func (t *turn) answered(view *agentView) *viewMessage {
+func (t *turn) answered(view *agentView, closed bool) *viewMessage {
 	if t.afterInput == "" || view == nil {
 		return nil
 	}
@@ -305,6 +304,9 @@ func (t *turn) answered(view *agentView) *viewMessage {
 			}
 			return nil
 		}
+	}
+	if last := len(view.Messages) - 1; closed && sent >= 0 && last > sent && view.Messages[last].Role == "assistant" && len(view.Messages[last].ToolCalls) == 0 {
+		return &view.Messages[last]
 	}
 	return nil
 }

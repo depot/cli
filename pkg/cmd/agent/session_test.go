@@ -254,6 +254,8 @@ func TestTurnSettled(t *testing.T) {
 		"reply still streaming":          {"dai_1", "idle", strings.Replace(viewReplied, `"tools": []`, `"partial": "and", "tools": []`, 1), false, ""},
 		"tool still running":             {"dai_1", "idle", strings.Replace(viewReplied, `"tools": []`, `"tools": [{"callId": "t", "status": "running"}]`, 1), false, ""},
 		"no input: idle is enough":       {"", "idle", viewBefore, true, "earlier reply"},
+		"replied, then archived":         {"dai_1", "archived", viewReplied, true, "hi there"},
+		"replied, a later turn failed":   {"dai_1", "failed", viewLater, true, "hi there"},
 		"a later turn is running":        {"dai_1", "running", viewLater, true, "hi there"},
 		"a later turn has replied":       {"dai_1", "idle", strings.Replace(viewLater, `]}`, `, {"id": "6", "role": "assistant", "text": "later reply"}]}`, 1), true, "hi there"},
 		"steered before any reply":       {"dai_1", "running", `{"messages": [{"id": "3", "role": "user", "inputId": "dai_1", "text": "hello"}, {"id": "4", "role": "assistant", "text": "Looking.", "toolCalls": [{"callId": "t"}]}, {"id": "5", "role": "user", "inputId": "dai_2", "text": "faster"}]}`, false, ""},
