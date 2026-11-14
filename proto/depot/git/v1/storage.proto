@@ -1,0 +1,332 @@
+syntax = "proto3";
+
+package depot.git.v1;
+
+service RefService {
+  // Returns refs in name order. Results are not a stable snapshot: concurrent
+  // writes may be reflected in the returned rows or in later pages.
+  rpc ListRefs(ListRefsRequest) returns (ListRefsResponse);
+  // Returns the named refs that currently exist.
+  rpc GetRefs(GetRefsRequest) returns (GetRefsResponse);
+  // Returns refs whose names would conflict with the requested names.
+  rpc GetRefNameConflicts(GetRefNameConflictsRequest) returns (GetRefNameConflictsResponse);
+  // Applies all requested ref updates atomically, or applies none of them.
+  rpc UpdateRefs(UpdateRefsRequest) returns (UpdateRefsResponse);
+}
+
+service RepositoryService {
+  // Resolves a repository by id or name.
+  rpc Resolve(ResolveRequest) returns (ResolveResponse);
+  // Lists repositories in id order for an organization.
+  rpc List(ListRequest) returns (ListResponse);
+  // Creates a repository and records its initial canonical name.
+  rpc Create(CreateRequest) returns (CreateResponse);
+  // Soft-deletes a repository and deactivates its names.
+  rpc Delete(DeleteRequest) returns (DeleteResponse);
+  // Changes a repository's canonical name and keeps the previous name as an alias.
+  rpc Rename(RenameRequest) returns (RenameResponse);
+  // Adds an alternate name that resolves to an existing repository.
+  rpc AddAlias(AddAliasRequest) returns (AddAliasResponse);
+  // Deactivates an alternate repository name.
+  rpc RemoveAlias(RemoveAliasRequest) returns (RemoveAliasResponse);
+  // Starts a pull of a repository's configured upstream into the repository.
+  rpc PullUpstream(PullUpstreamRequest) returns (PullUpstreamResponse);
+  // Records that a repository's initial upstream pull has completed, allowing
+  // the repository to serve git requests.
+  rpc PullUpstreamComplete(PullUpstreamCompleteRequest) returns (PullUpstreamCompleteResponse);
+}
+
+enum ObjectFormat {
+  OBJECT_FORMAT_UNSPECIFIED = 0;
+  OBJECT_FORMAT_SHA1 = 1;
+  OBJECT_FORMAT_SHA256 = 2;
+}
+
+message ObjectId {
+  oneof value {
+    bytes sha1 = 1;
+    bytes sha256 = 2;
+  }
+}
+
+message Ref {
+  string name = 1;
+  ObjectId oid = 2;
+}
+
+message RepositorySelector {
+  oneof value {
+    string id = 1;
+    string name = 2;
+  }
+}
+
+message ListRefsRequest {
+  RepositorySelector repository = 1;
+  // Optional ref name prefixes to scan, such as "refs/heads/" or "refs/tags/".
+  // When empty, all refs are listed.
+  repeated string prefixes = 2;
+  optional int32 page_size = 3;
+  optional string page_token = 4;
+}
+
+message ListRefsResponse {
+  repeated Ref refs = 1;
+  uint64 refs_version = 2;
+  optional string next_page_token = 3;
+}
+
+message GetRefsRequest {
+  RepositorySelector repository = 1;
+  repeated string names = 2;
+}
+
+message GetRefsResponse {
+  repeated Ref refs = 1;
+  uint64 refs_version = 2;
+}
+
+message GetRefNameConflictsRequest {
+  RepositorySelector repository = 1;
+  repeated string names = 2;
+  optional int32 page_size = 3;
+  optional string page_token = 4;
+}
+
+message GetRefNameConflictsResponse {
+  repeated Ref refs = 1;
+  uint64 refs_version = 2;
+  optional string next_page_token = 3;
+}
+
+message UpdateRefsRequest {
+  message Update {
+    message Create {
+      ObjectId new = 1;
+    }
+
+    message Delete {
+      ObjectId old = 1;
+    }
+
+    message Replace {
+      ObjectId old = 1;
+      ObjectId new = 2;
+    }
+
+    string name = 1;
+    oneof change {
+      Create create = 2;
+      Delete delete = 3;
+      Replace replace = 4;
+    }
+  }
+  RepositorySelector repository = 1;
+  repeated Update updates = 2;
+  // Operation shared by ref updates from one push or upstream import. Leave
+  // empty to record a separate direct ref update without a catalog checkpoint.
+  optional RefOperation operation = 3;
+}
+
+message RefOperation {
+  enum Source {
+    SOURCE_UNSPECIFIED = 0;
+    SOURCE_PUSH = 1;
+    SOURCE_UPSTREAM_IMPORT = 2;
+    SOURCE_DIRECT_REF_UPDATE = 3;
+  }
+
+  // Unique identifier for the operation. Required. Maximum: 191 characters.
+  string id = 1;
+  // Kind of operation. Must not be `SOURCE_UNSPECIFIED`.
+  Source source = 2;
+  // Catalog generation after object commit and before ref update. Requires
+  // `objectPositionHighWatermark`.
+  optional uint64 catalog_generation = 3;
+  // Highest catalog position after object commit and before ref update.
+  // Requires `catalogGeneration`.
+  optional uint64 object_position_high_watermark = 4;
+}
+
+message UpdateRefsResponse {
+  message Outcome {
+    message ExpectedMismatch {
+      ObjectId current = 1;
+    }
+
+    string name = 1;
+    Status status = 2;
+    ExpectedMismatch expected_mismatch = 3;
+
+    enum Status {
+      STATUS_UNSPECIFIED = 0;
+      STATUS_APPLIED = 1;
+      STATUS_EXPECTED_MISMATCH = 2;
+      STATUS_ABORTED = 3;
+    }
+  }
+
+  repeated Outcome outcomes = 1;
+  uint64 refs_version = 2;
+}
+
+message RepositoryAlias {
+  // Alternate repository name.
+  string name = 1;
+}
+
+enum UpstreamProvider {
+  UPSTREAM_PROVIDER_UNSPECIFIED = 0;
+  UPSTREAM_PROVIDER_GITHUB = 1;
+}
+
+message RepositoryUpstream {
+  // Source forge hosting the upstream repository.
+  UpstreamProvider provider = 1;
+  // Owner of the upstream repository on the forge. For example, "depot".
+  string owner = 2;
+  // Name of the upstream repository on the forge. For example, "api".
+  string name = 3;
+  // Default branch of the upstream repository, without the "refs/heads/" prefix.
+  string default_branch = 4;
+  // Whether the initial full pull from the upstream has completed. Until true,
+  // the repository rejects git requests while the initial pull runs.
+  bool initialized = 5;
+}
+
+message UpstreamConfig {
+  // Source forge hosting the upstream repository. Default: "github".
+  UpstreamProvider provider = 1;
+  // Owner of the upstream repository on the forge. For example, "depot".
+  string owner = 2;
+  // Name of the upstream repository on the forge. For example, "api".
+  string name = 3;
+  // Default branch of the upstream repository, without the "refs/heads/" prefix. Required.
+  string default_branch = 4;
+}
+
+message Repository {
+  // Stable repository id.
+  string id = 1;
+  // Organization that owns this repository.
+  string org_id = 8;
+  // Primary repository name.
+  string canonical_name = 2;
+  // Active alternate names that also resolve to this repository.
+  repeated RepositoryAlias aliases = 3;
+  // Object id format used by refs in this repository.
+  ObjectFormat object_format = 4;
+  // Monotonic version incremented by successful ref updates.
+  uint64 refs_version = 5;
+  // Default branch name, without the "refs/heads/" prefix.
+  optional string default_branch = 6;
+  // Upstream forge URL this repository can fetch from on demand, when set.
+  // Forge-neutral; absent for repositories that are not proxy-enabled.
+  optional string upstream_url = 7;
+  // Upstream repository this repository mirrors. Absent when no upstream is configured.
+  optional RepositoryUpstream upstream = 9;
+}
+
+message ResolveRequest {
+  // Repository id or name to resolve.
+  RepositorySelector repository = 1;
+}
+
+message ResolveResponse {
+  // Resolved repository, absent when the selector does not match an active repository.
+  optional Repository repository = 1;
+  // Short-lived credential for fetching from the repository's upstream, minted
+  // for this resolve. Present only for proxy-enabled repositories. Unlike the
+  // repository fields, this is not cacheable: it expires and is carried only on
+  // the request that produced it.
+  optional string upstream_token = 2;
+}
+
+message ListRequest {
+  // Maximum number of repositories to return.
+  optional int32 page_size = 1;
+  // Repository id after which listing should continue.
+  optional string page_token = 2;
+}
+
+message ListResponse {
+  // Repositories in ascending id order.
+  repeated Repository repositories = 1;
+  // Token for the next page, absent when all repositories have been returned.
+  optional string next_page_token = 2;
+}
+
+message CreateRequest {
+  // Initial canonical repository name.
+  string canonical_name = 1;
+  // Object id format for refs stored in the repository.
+  ObjectFormat object_format = 2;
+  // Default branch name, without the "refs/heads/" prefix. Required.
+  string default_branch = 3;
+  // Upstream repository to mirror. When set, the repository starts
+  // uninitialized and rejects git requests until the initial pull from the
+  // upstream completes; use `PullUpstream` to start that pull.
+  optional UpstreamConfig upstream = 4;
+}
+
+message CreateResponse {
+  // Created repository id.
+  string id = 1;
+}
+
+message DeleteRequest {
+  // Repository id to delete.
+  string id = 1;
+}
+
+message DeleteResponse {}
+
+message RenameRequest {
+  // Repository id to rename.
+  string id = 1;
+  // New canonical repository name.
+  string new_canonical_name = 2;
+}
+
+message RenameResponse {
+  // Repository after the rename is applied.
+  Repository repository = 1;
+}
+
+message AddAliasRequest {
+  // Repository id that the alias should resolve to.
+  string id = 1;
+  // Alternate repository name to add.
+  string alias = 2;
+}
+
+message AddAliasResponse {
+  // Repository after the alias is added.
+  Repository repository = 1;
+}
+
+message RemoveAliasRequest {
+  // Repository id that currently owns the alias.
+  string id = 1;
+  // Alternate repository name to deactivate.
+  string alias = 2;
+}
+
+message RemoveAliasResponse {
+  // Repository after the alias is removed.
+  Repository repository = 1;
+}
+
+message PullUpstreamRequest {
+  // Repository id whose upstream should be pulled. Returned by `Create` and `List`.
+  string id = 1;
+}
+
+message PullUpstreamResponse {}
+
+message PullUpstreamCompleteRequest {
+  // Repository id whose initial upstream pull finished. Returned by `Create` and `List`.
+  string id = 1;
+}
+
+message PullUpstreamCompleteResponse {}
