@@ -25,22 +25,52 @@ func NewCmdMR() *cobra.Command {
 	o := &options{}
 	cmd := &cobra.Command{
 		Use: "mr", Short: "Manage merge requests", Hidden: true,
-		Long: "Manage merge requests using a user token from depot login.\nPass --repo with the Depot repository ID and --org if it is not the current organization.",
+		Long: "Manage merge requests using a user token from depot login.\nEvery command infers the Depot repository from local Git remotes.\nPass --repo to select a Depot repository ID instead, and --org if it is not the current organization.",
 		RunE: func(cmd *cobra.Command, _ []string) error { return cmd.Help() },
 	}
-	cmd.PersistentFlags().StringVar(&o.repo, "repo", "", "Depot repository ID (required)")
+	cmd.PersistentFlags().StringVar(&o.repo, "repo", "", "Depot repository ID (inferred from Git remotes when omitted)")
 	cmd.PersistentFlags().StringVar(&o.org, "org", "", "Organization ID (defaults to the current organization)")
 	cmd.PersistentFlags().StringVar(&o.token, "token", "", "Depot user token (or DEPOT_TOKEN)")
 	cmd.PersistentFlags().BoolVar(&o.json, "json", false, "Print the API response as JSON")
 	cmd.AddCommand(newCreate(o), newView(o), newMerge(o), newApprove(o), newComment(o), newList(o))
 	cmd.AddCommand(newEdit(o), newClose(o), newReopen(o))
+	cmd.AddCommand(newThreads(o), newReply(o), newResolve(o, true), newResolve(o, false))
 	return cmd
 }
 
+// authenticate resolves the user token and the repository: --repo, or else the checkout's Git remotes.
 func (o *options) authenticate(cmd *cobra.Command) error {
-	if strings.TrimSpace(o.repo) == "" {
-		return fmt.Errorf("--repo is required; provide the Depot repository ID")
+	if err := o.authenticateUser(cmd); err != nil {
+		return err
 	}
+	if o.repo != "" {
+		return nil
+	}
+	repo, err := o.inferRepository(cmd)
+	if err != nil {
+		return err
+	}
+	o.repo = repo
+	return nil
+}
+
+// authenticateFor skips the repository when the merge request is named by ID: no branch lookup needs it.
+func (o *options) authenticateFor(cmd *cobra.Command, branch string) error {
+	if branch == "" {
+		return o.authenticateUser(cmd)
+	}
+	return o.authenticate(cmd)
+}
+
+func (o *options) authenticateUser(cmd *cobra.Command) error {
+	if cmd.Flags().Changed("repo") && strings.TrimSpace(o.repo) == "" {
+		return fmt.Errorf("--repo must not be blank; provide the Depot repository ID")
+	}
+	return o.login(cmd)
+}
+
+// login is authenticate for the commands that name a comment, which the API finds without a repository.
+func (o *options) login(cmd *cobra.Command) error {
 	if o.org == "" {
 		o.org = config.GetCurrentOrganization()
 	}

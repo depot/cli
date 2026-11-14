@@ -31,7 +31,7 @@ func newSetState(o *options, state code.MergeRequest_State, verb string, cmd *co
 		if err != nil {
 			return err
 		}
-		if err := o.authenticate(cmd); err != nil {
+		if err := o.authenticateFor(cmd, name); err != nil {
 			return err
 		}
 		id, err := t.resolve(cmd, o, name)
