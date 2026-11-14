@@ -29,6 +29,7 @@ func (o *options) getWithReadiness(cmd *cobra.Command, name string) (*code.GetMe
 func writeView(cmd *cobra.Command, response *code.GetMergeRequestResponse) error {
 	summary := proto.Clone(response.MergeRequest).(*code.MergeRequest)
 	summary.Body = ""
+	summary.Title, summary.HeadRef, summary.BaseRef = clean(summary.Title, false), clean(summary.HeadRef, false), clean(summary.BaseRef, false)
 	if err := writeMR(cmd, summary); err != nil {
 		return err
 	}
@@ -36,7 +37,7 @@ func writeView(cmd *cobra.Command, response *code.GetMergeRequestResponse) error
 	if err := writeReadiness(out, response.Readiness); err != nil {
 		return err
 	}
-	if body := response.MergeRequest.Body; body != "" {
+	if body := clean(response.MergeRequest.Body, true); body != "" {
 		_, err := fmt.Fprintf(out, "\n%s\n", body)
 		return err
 	}
@@ -55,15 +56,15 @@ func writeReadiness(out io.Writer, r *code.MergeRequestReadiness) error {
 	}
 	fmt.Fprintf(&b, "\nMergeable: %s\n", label(r.Mergeability, "MERGEABILITY_"))
 	for _, path := range r.ConflictPaths {
-		fmt.Fprintf(&b, "  conflict: %s\n", path)
+		fmt.Fprintf(&b, "  conflict: %s\n", clean(path, false))
 	}
 	fmt.Fprintf(&b, "CI: %s\n", checkState(r.CiState))
 	for _, w := range r.CiWorkflows {
-		fmt.Fprintf(&b, "  %s: %s\n", checkState(w.State), w.Name)
+		fmt.Fprintf(&b, "  %s: %s\n", checkState(w.State), clean(w.Name, false))
 	}
 	fmt.Fprintf(&b, "Agent checks: %s\n", checkState(r.AgentChecksState))
 	for _, c := range r.AgentChecks {
-		fmt.Fprintf(&b, "  %s: %s", checkState(c.State), c.AgentName)
+		fmt.Fprintf(&b, "  %s: %s", checkState(c.State), clean(c.AgentName, false))
 		if c.OpenFindings > 0 {
 			fmt.Fprintf(&b, " (%d open findings)", c.OpenFindings)
 		}
@@ -75,6 +76,23 @@ func writeReadiness(out io.Writer, r *code.MergeRequestReadiness) error {
 	}
 	_, err := io.WriteString(out, b.String())
 	return err
+}
+
+// clean drops control and bidirectional-override characters, so text from the API cannot redraw the lines around it.
+// A one-line field also loses its line breaks.
+func clean(value string, multiline bool) string {
+	return strings.Map(func(r rune) rune {
+		switch {
+		case r == '\n' || r == '\t':
+			if multiline {
+				return r
+			}
+			return ' '
+		case r < 0x20, r >= 0x7f && r <= 0x9f, r >= 0x202a && r <= 0x202e, r >= 0x2066 && r <= 0x2069:
+			return -1
+		}
+		return r
+	}, value)
 }
 
 func reasonList(reasons []*code.MergeRequestReadiness_Reason) string {
