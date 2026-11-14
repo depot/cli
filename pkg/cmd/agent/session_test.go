@@ -258,6 +258,7 @@ func TestWatchExitCodes(t *testing.T) {
 	replyGrace = 10 * time.Millisecond
 	t.Cleanup(func() { replyGrace = 10 * time.Second })
 	interrupted := `{"messages": [{"id": "3", "role": "user", "inputId": "dai_1", "text": "hello"}, {"id": "4", "role": "tool", "toolName": "bash", "text": "killed"}], "tools": []}`
+	stopped := `{"messages": [{"id": "3", "role": "user", "inputId": "dai_1", "text": "hello"}, {"id": "4", "role": "assistant", "text": "Let me look.", "toolCalls": [{"callId": "t", "name": "bash"}]}], "tools": []}`
 	for name, tc := range map[string]struct {
 		fake *fakeAgent
 		args []string
@@ -276,6 +277,13 @@ func TestWatchExitCodes(t *testing.T) {
 			fake: &fakeAgent{
 				frames: [][]*agentv1.WatchSessionResponse{{frame("idle", "c1", interrupted)}},
 				got:    &agentv1.GetSessionResponse{Session: &agentv1.DepotAgentSession{Status: "idle"}, ViewJson: interrupted},
+			},
+			code: 1, want: "the turn ended without a reply",
+		},
+		"turn that stopped at a tool call": {
+			fake: &fakeAgent{
+				frames: [][]*agentv1.WatchSessionResponse{{frame("idle", "c1", stopped)}},
+				got:    &agentv1.GetSessionResponse{Session: &agentv1.DepotAgentSession{Status: "idle"}, ViewJson: stopped},
 			},
 			code: 1, want: "the turn ended without a reply",
 		},

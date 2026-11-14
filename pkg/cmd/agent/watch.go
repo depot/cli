@@ -309,6 +309,11 @@ func (t *turn) settled(status string, view *agentView) (done bool, reply, failur
 		t.unanswered = view.QueuedCount == 0
 		return false, "", ""
 	}
+	// A message that calls a tool is a step of the turn, not its reply, unless it is the error that ended it.
+	if msg := view.Messages[last]; len(msg.ToolCalls) > 0 && !msg.IsError {
+		t.unanswered = view.QueuedCount == 0
+		return false, "", ""
+	}
 	return replied(view.Messages[last])
 }
 
