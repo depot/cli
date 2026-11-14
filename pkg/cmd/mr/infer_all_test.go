@@ -114,4 +114,7 @@ func TestIDCommandsNeedNoRepositoryOrCheckout(t *testing.T) {
 			t.Fatalf("%v: %q %v", args, out, err)
 		}
 	}
+	if out, err := executeWithoutRepo(t, "threads", "--id", "mr_9", "--json"); err != nil || !strings.Contains(out, `"threads": []`) {
+		t.Fatalf("threads: %q %v", out, err)
+	}
 }

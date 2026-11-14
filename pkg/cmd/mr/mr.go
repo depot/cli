@@ -34,6 +34,7 @@ func NewCmdMR() *cobra.Command {
 	cmd.PersistentFlags().BoolVar(&o.json, "json", false, "Print the API response as JSON")
 	cmd.AddCommand(newCreate(o), newView(o), newMerge(o), newApprove(o), newComment(o), newList(o))
 	cmd.AddCommand(newEdit(o), newClose(o), newReopen(o))
+	cmd.AddCommand(newThreads(o), newReply(o), newResolve(o, true), newResolve(o, false))
 	return cmd
 }
 
@@ -65,6 +66,11 @@ func (o *options) authenticateUser(cmd *cobra.Command) error {
 	if cmd.Flags().Changed("repo") && strings.TrimSpace(o.repo) == "" {
 		return fmt.Errorf("--repo must not be blank; provide the Depot repository ID")
 	}
+	return o.login(cmd)
+}
+
+// login is authenticate for the commands that name a comment, which the API finds without a repository.
+func (o *options) login(cmd *cobra.Command) error {
 	if o.org == "" {
 		o.org = config.GetCurrentOrganization()
 	}
