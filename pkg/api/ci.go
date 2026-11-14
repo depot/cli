@@ -81,6 +81,16 @@ func CIGetRun(ctx context.Context, token, orgID, runID string) (*civ1.GetRunResp
 	return resp.Msg, nil
 }
 
+// CIGetJobAttemptSteps returns recorded step timings for one job attempt.
+func CIGetJobAttemptSteps(ctx context.Context, token, orgID, attemptID string) (*civ1.GetJobAttemptStepsResponse, error) {
+	client := newCIServiceClient()
+	resp, err := client.GetJobAttemptSteps(ctx, WithAuthenticationAndOrg(connect.NewRequest(&civ1.GetJobAttemptStepsRequest{AttemptId: attemptID}), token, orgID))
+	if err != nil {
+		return nil, err
+	}
+	return resp.Msg, nil
+}
+
 // CIGetJobAttemptMetrics returns CPU and memory samples for a CI job attempt.
 func CIGetJobAttemptMetrics(ctx context.Context, token, orgID, attemptID string) (*civ1.GetJobAttemptMetricsResponse, error) {
 	client := newCIServiceClient()

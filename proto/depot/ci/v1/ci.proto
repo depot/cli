@@ -44,6 +44,9 @@ service CIService {
   // GetJobAttemptMetrics returns CPU and memory metrics for one concrete job attempt
   rpc GetJobAttemptMetrics(GetJobAttemptMetricsRequest) returns (GetJobAttemptMetricsResponse) {}
 
+  // Returns recorded execution steps and timings for one job attempt. Requires CI read access. Historical attempts may have no recorded steps; log timestamps are never substituted for step timings.
+  rpc GetJobAttemptSteps(GetJobAttemptStepsRequest) returns (GetJobAttemptStepsResponse) {}
+
   // GetJobMetrics returns per-attempt CPU and memory metric summaries for one job
   rpc GetJobMetrics(GetJobMetricsRequest) returns (GetJobMetricsResponse) {}
 
@@ -1068,4 +1071,50 @@ enum Forge {
   FORGE_ORIGIN = 2;
   FORGE_DEPOT_CODE = 3;
   FORGE_ENTIRE = 4;
+}
+
+// Selects a single attempt without switching to a newer retry.
+message GetJobAttemptStepsRequest {
+  // Unique identifier for the job attempt. Returned by `GetJob`, `GetAttempt`, and `GetRun`.
+  string attempt_id = 1;
+}
+
+message GetJobAttemptStepsResponse {
+  // Unique identifier for the job attempt.
+  string attempt_id = 1;
+  // Unique identifier for the job.
+  string job_id = 2;
+  // Current state of the attempt. Can be "queued", "waiting", "running", "finished", "failed", or "cancelled".
+  string attempt_status = 3;
+  // True when a worker timeline or completion report has been recorded. False for historical attempts and attempts without reports; this does not mean zero-duration execution.
+  bool available = 4;
+  // True when the accepted final worker report has been stored. False when only progress updates exist, including attempts interrupted before reporting completion.
+  bool complete = 5;
+  // True when the record exceeds the limit of 1,000 steps or 4 MiB of timing metadata. Returned steps form a partial result.
+  bool truncated = 6;
+  // Recorded execution steps in worker order. Includes setup and cleanup steps when reported. Composite parent steps without execution timings are not synthesized.
+  repeated JobAttemptStep steps = 7;
+}
+
+message JobAttemptStep {
+  // Depot-assigned execution key, matching `stepKey` on log lines. Empty when an older worker reports completion without a key and no timeline is available.
+  string step_key = 1;
+  // Worker-reported step identifier, which may be generated when the workflow has no explicit ID. Empty until reported on completion.
+  string step_id = 2;
+  // Execution order reported by the worker.
+  int32 number = 3;
+  // Display name reported by the worker.
+  string name = 4;
+  // Current state of the step. Can be "queued", "in_progress", "completed", or "unknown".
+  string status = 5;
+  // Result reported by the worker. Can be "success", "failure", "cancelled", "skipped", or "unknown". Empty while no result has been reported.
+  string conclusion = 6;
+  // Start time, in RFC 3339 format. Absent when no valid start time was reported.
+  optional string started_at = 7;
+  // Completion time, in RFC 3339 format. Absent when no valid completion time was reported.
+  optional string completed_at = 8;
+  // Elapsed milliseconds between the reported start and completion. Absent for running, skipped, missing, or inconsistent timestamps. Includes retry delays when a worker reports an overall step interval.
+  optional int64 duration_ms = 9;
+  // Number of step execution attempts reported on completion. Zero when unknown; individual retry intervals are not exposed.
+  uint32 attempt = 10;
 }
