@@ -28,6 +28,13 @@ const (
 // How long an idle session whose turn has no reply is given to show one before the turn counts as failed.
 var replyGrace = 10 * time.Second
 
+// How long an idle session is given to pick up an input that its cut view does not show, and how often it is
+// read meanwhile. Nothing tells an input sent a moment ago from one whose turn the view has long dropped.
+var (
+	pickupGrace = 2 * time.Minute
+	pickupPoll  = 5 * time.Second
+)
+
 // A watch that fails this many times in a row gives up with the last error. A stream that brought a frame
 // or stayed open for streamHeld is not such a failure: a quiet session's stream is cut from time to time.
 // Each retry waits one retryDelay longer than the one before. streamHeld is longer than replyGrace,
@@ -241,12 +248,17 @@ func watchOnce(ctx context.Context, c *caller, sessionID string, r *Renderer, o 
 			continue
 		}
 		done, reply, failure := t.settled(status, view)
-		if !done && t.doubt != "" {
-			// The status and the view are written apart, so the reply may only be late. Look once more.
+		for doubted := time.Now(); !done && t.doubt != ""; {
+			// The status and the view are written apart, so the reply may only be late. Look once more,
+			// or for an input the view does not show, until the session has had time to pick it up.
+			wait, final := replyGrace, true
+			if t.doubt == failedUnseen {
+				wait, final = pickupPoll, time.Since(doubted)+pickupPoll >= pickupGrace
+			}
 			select {
 			case <-ctx.Done():
 				return false, nil
-			case <-time.After(replyGrace):
+			case <-time.After(wait):
 			}
 			again, err := c.client.GetSession(ctx, authed(c, &agentv1.GetSessionRequest{SessionId: sessionID}))
 			if err != nil {
@@ -256,7 +268,7 @@ func watchOnce(ctx context.Context, c *caller, sessionID string, r *Renderer, o 
 				return false, err
 			}
 			result.Status = again.Msg.GetSession().GetStatus()
-			if done, reply, failure = t.settled(result.Status, view); !done && t.doubt != "" {
+			if done, reply, failure = t.settled(result.Status, view); !done && t.doubt != "" && final {
 				done, failure = true, t.doubt
 			}
 		}
@@ -286,12 +298,15 @@ type turn struct {
 	base *int64
 	// doubt is why the turn counts as failed if a second look still shows what the last frame did:
 	// the turn over without a reply at its end, as an interrupt leaves it, or gone from the view.
-	doubt string
+	// framed is set when base came from a frame, so the input may already have been out of the view by then.
+	framed bool
+	doubt  string
 }
 
 const (
 	failedNoReply = "the turn ended without a reply"
 	failedLost    = "the session moved past the input before its reply was seen"
+	failedUnseen  = "the input is not in the session's view: its turn is too old to show, or the session never picked it up"
 )
 
 // mark takes the base from the first view that can give one. A frame without a view says nothing of its messages.
@@ -300,7 +315,7 @@ func (t *turn) mark(view *agentView) {
 	case t.base != nil || view == nil:
 	case len(view.Messages) > 0:
 		seq := view.Messages[len(view.Messages)-1].Seq
-		t.base = &seq
+		t.base, t.framed = &seq, true
 	case !view.Truncated:
 		t.base = beforeFirst()
 	}
@@ -348,8 +363,12 @@ func (t *turn) settled(status string, view *agentView) (done bool, reply, failur
 	// The awaited input has not shown yet, so the session is idle from an earlier turn,
 	// unless the view has already dropped the input's whole turn.
 	if t.afterInput != "" && at < 0 {
-		if t.passed(view) && view.QueuedCount == 0 {
+		switch {
+		case view.QueuedCount > 0:
+		case t.passed(view):
 			t.doubt = failedLost
+		case view.Truncated && (t.base == nil || t.framed):
+			t.doubt = failedUnseen
 		}
 		return false, "", ""
 	}

@@ -503,9 +503,12 @@ func TestTurnFailsAnInputTheCutViewDroppedUnseen(t *testing.T) {
 	// Without a base from the caller the first frame gives one, and only newer messages count.
 	later := &turn{afterInput: "dai_1"}
 	for range 2 {
-		if doubt := settle(later, "idle", gone); doubt != "" {
-			t.Fatalf("doubt = %q on the view the session already had", doubt)
+		if doubt := settle(later, "idle", gone); doubt != failedUnseen {
+			t.Fatalf("doubt = %q on the cut view the session already had, want %q", doubt, failedUnseen)
 		}
+	}
+	if doubt := settle(later, "running", gone); doubt != "" {
+		t.Fatalf("doubt = %q while the session is running", doubt)
 	}
 	newer := `{"messages": [{"id": "90", "seq": 90, "role": "assistant", "text": "done"}], "truncated": true`
 	if doubt := settle(later, "idle", newer+`, "queuedCount": 1}`); doubt != "" {
@@ -538,4 +541,35 @@ func TestWatchFailsAnInputTheCutViewDroppedUnseen(t *testing.T) {
 			}
 		})
 	}
+}
+
+// A watch started on its own cannot tell an input sent a moment ago from one whose turn the view has dropped,
+// so an idle session gets a while to pick the input up before the wait fails.
+func TestWatchGivesAnInputOutOfTheCutViewTimeToBePickedUp(t *testing.T) {
+	replyGrace, pickupGrace, pickupPoll = time.Millisecond, 20*time.Millisecond, 5*time.Millisecond
+	t.Cleanup(func() { replyGrace, pickupGrace, pickupPoll = 10*time.Second, 2*time.Minute, 5*time.Second })
+	const gone = `{"messages": [{"id": "41", "seq": 41, "role": "assistant", "text": "done"}], "truncated": true}`
+	const shown = `{"messages": [{"id": "42", "seq": 42, "role": "user", "text": "hi", "inputId": "dai_1"}, {"id": "43", "seq": 43, "role": "assistant", "text": "hello"}], "truncated": true}`
+	idle := func(view string) *agentv1.GetSessionResponse {
+		return &agentv1.GetSessionResponse{Session: &agentv1.DepotAgentSession{Status: "idle"}, ViewJson: view}
+	}
+	watch := func(f *fakeAgent) (string, error) {
+		f.holdWatch, f.frames = true, [][]*agentv1.WatchSessionResponse{{frame("idle", "c1", gone)}}
+		serveAgent(t, f)
+		stdout, _, err := runAgent(t, "watch", "das_1", "--after-input", "dai_1", "--timeout", "2s")
+		return stdout, err
+	}
+	t.Run("never shows", func(t *testing.T) {
+		_, err := watch(&fakeAgent{got: idle(gone)})
+		var status cli.StatusError
+		if !errors.As(err, &status) || status.StatusCode != 1 || !strings.Contains(status.Status, failedUnseen) {
+			t.Fatalf("err = %#v, want exit 1 with %q", err, failedUnseen)
+		}
+	})
+	t.Run("picked up", func(t *testing.T) {
+		stdout, err := watch(&fakeAgent{gots: []*agentv1.GetSessionResponse{idle(gone)}, got: idle(shown)})
+		if err != nil || !strings.Contains(stdout, "hello") {
+			t.Fatalf("err = %v, stdout = %q, want the reply once the session picked the input up", err, stdout)
+		}
+	})
 }
