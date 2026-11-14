@@ -11,19 +11,23 @@ import (
 func newClose(o *options) *cobra.Command {
 	return newSetState(o, code.MergeRequest_STATE_CLOSED, "Closed", &cobra.Command{
 		Use: "close [branch]", Short: "Close a merge request without merging it",
-		Long: "Close an open merge request without merging it.\nThe branch defaults to the current branch. The output includes the merge request ID, which `depot mr reopen --id` needs.",
+		Long: "Close an open merge request without merging it.\nThe branch defaults to the current branch.",
 	})
 }
 
 func newReopen(o *options) *cobra.Command {
 	return newSetState(o, code.MergeRequest_STATE_OPEN, "Reopened", &cobra.Command{
-		Use: "reopen --id <merge request ID>", Short: "Reopen a closed merge request",
-		Long: "Reopen a closed merge request while its source branch still exists.\nA closed merge request is found only by its ID, which `depot mr close` prints.",
+		Use: "reopen [branch]", Short: "Reopen a closed merge request",
+		Long: "Reopen a closed merge request while its source branch still exists.\nThe branch defaults to the current branch and names its most recently created merge request, which must be closed.\nPass --id to reopen an earlier one.",
 	})
 }
 
 // newSetState finishes a command that moves a merge request to state and reports it with verb.
 func newSetState(o *options, state code.MergeRequest_State, verb string, cmd *cobra.Command) *cobra.Command {
+	from := code.MergeRequest_STATE_OPEN
+	if state == from {
+		from = code.MergeRequest_STATE_CLOSED
+	}
 	var t target
 	cmd.Args = cobra.MaximumNArgs(1)
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
@@ -34,7 +38,7 @@ func newSetState(o *options, state code.MergeRequest_State, verb string, cmd *co
 		if err := o.authenticateFor(cmd, name); err != nil {
 			return err
 		}
-		id, err := t.resolve(cmd, o, name)
+		id, err := t.resolve(cmd, o, name, from)
 		if err != nil {
 			return err
 		}

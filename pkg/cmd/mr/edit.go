@@ -10,11 +10,11 @@ import (
 )
 
 // target selects the merge request a command changes:
-// the open merge request of a branch, or any merge request by ID.
+// the one a branch lookup finds, or any merge request by ID.
 type target struct{ id string }
 
 func (t *target) register(cmd *cobra.Command) {
-	cmd.Flags().StringVar(&t.id, "id", "", "Merge request ID, instead of a branch (required for closed merge requests)")
+	cmd.Flags().StringVar(&t.id, "id", "", "Merge request ID, instead of a branch")
 }
 
 // check validates the selection without calling the API and returns the branch to look up, if any.
@@ -32,7 +32,8 @@ func (t *target) check(cmd *cobra.Command, args []string) (string, error) {
 }
 
 // resolve returns the merge request ID. Call it after check and authenticate.
-func (t *target) resolve(cmd *cobra.Command, o *options, name string) (string, error) {
+// A branch must find a merge request in state want; --id takes any state.
+func (t *target) resolve(cmd *cobra.Command, o *options, name string, want code.MergeRequest_State) (string, error) {
 	if name == "" {
 		return t.id, nil
 	}
@@ -40,7 +41,7 @@ func (t *target) resolve(cmd *cobra.Command, o *options, name string) (string, e
 	if err != nil {
 		return "", err
 	}
-	return found.MergeRequest.Id, nil
+	return found.MergeRequest.Id, requireState(found.MergeRequest, name, want)
 }
 
 // update sends one UpdateMergeRequest call and returns the changed merge request.
@@ -60,7 +61,7 @@ func newEdit(o *options) *cobra.Command {
 	var body bodyFlags
 	var t target
 	cmd := &cobra.Command{Use: "edit [branch]", Short: "Change the title, description or base of a merge request",
-		Long: "Change the title, description or base branch of a merge request.\nThe branch defaults to the current branch. Flags that are not passed leave their field unchanged.", Args: cobra.MaximumNArgs(1),
+		Long: "Change the title, description or base branch of a merge request.\nThe branch defaults to the current branch and must have an open merge request; pass --id to edit a closed or merged one. Flags that are not passed leave their field unchanged.", Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			req := &code.UpdateMergeRequestRequest{}
 			if cmd.Flags().Changed("title") {
@@ -89,7 +90,10 @@ func newEdit(o *options) *cobra.Command {
 			if err := o.authenticateFor(cmd, name); err != nil {
 				return err
 			}
-			if req.MergeRequestId, err = t.resolve(cmd, o, name); err != nil {
+			if req.MergeRequestId, err = t.resolve(cmd, o, name, code.MergeRequest_STATE_OPEN); err != nil {
+				if name != "" && req.MergeRequestId != "" {
+					return fmt.Errorf("%w; pass --id %s to edit it anyway", err, req.MergeRequestId)
+				}
 				return err
 			}
 			resp, err := o.update(cmd, req)

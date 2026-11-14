@@ -11,13 +11,12 @@ import (
 )
 
 // getWithReadiness is get plus the merge readiness of the head, which costs the API a merge analysis.
-// The merge request is the open one of branch name, or the one with id when name is empty.
+// The merge request is the one get finds for branch name, or the one with id when name is empty.
 func (o *options) getWithReadiness(cmd *cobra.Command, name, id string) (*code.GetMergeRequestResponse, error) {
-	req := &code.GetMergeRequestRequest{Lookup: &code.GetMergeRequestRequest_MergeRequestId{MergeRequestId: id}, IncludeReadiness: true}
 	if name != "" {
-		req.Lookup = o.head(name)
+		return o.find(cmd, name, true)
 	}
-	return o.fetch(cmd, req)
+	return o.fetch(cmd, &code.GetMergeRequestRequest{Lookup: &code.GetMergeRequestRequest_MergeRequestId{MergeRequestId: id}, IncludeReadiness: true})
 }
 
 func writeView(cmd *cobra.Command, response *code.GetMergeRequestResponse) error {

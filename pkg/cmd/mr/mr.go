@@ -1,7 +1,6 @@
 package mr
 
 import (
-	"errors"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -129,8 +128,13 @@ func branch(cmd *cobra.Command, args []string) (string, error) {
 	return name, nil
 }
 
-// get finds the open merge request of a branch.
+// get finds the merge request of a branch: the open one, or else the most recently created closed or merged one.
 func (o *options) get(cmd *cobra.Command, name string) (*code.GetMergeRequestResponse, error) {
+	return o.find(cmd, name, false)
+}
+
+// getOpen is the API's own branch lookup, which finds only an open merge request and is not_found otherwise.
+func (o *options) getOpen(cmd *cobra.Command, name string) (*code.GetMergeRequestResponse, error) {
 	return o.fetch(cmd, &code.GetMergeRequestRequest{Lookup: o.head(name)})
 }
 
@@ -138,32 +142,74 @@ func (o *options) head(name string) *code.GetMergeRequestRequest_Head {
 	return &code.GetMergeRequestRequest_Head{Head: &code.GetMergeRequestRequest_HeadRef{RepositoryId: o.repo, HeadRef: name}}
 }
 
+func (o *options) find(cmd *cobra.Command, name string, readiness bool) (*code.GetMergeRequestResponse, error) {
+	req := &code.GetMergeRequestRequest{Lookup: o.head(name), IncludeReadiness: readiness}
+	resp, err := o.fetch(cmd, req)
+	if connect.CodeOf(err) != connect.CodeNotFound {
+		return resp, err
+	}
+	newest, listErr := o.newest(cmd, name)
+	if listErr != nil {
+		return nil, listErr
+	}
+	if newest == nil {
+		return nil, fmt.Errorf("no merge request for branch %q in repository %s: %w", name, o.repo, err)
+	}
+	// Read it by ID: a listed row is not caught up with its branches.
+	req.Lookup = &code.GetMergeRequestRequest_MergeRequestId{MergeRequestId: newest.Id}
+	return o.fetch(cmd, req)
+}
+
+// newest lists every merge request of a branch and returns an open one, or else the most recently created; nil if none.
+func (o *options) newest(cmd *cobra.Command, name string) (*code.MergeRequest, error) {
+	req := &code.ListMergeRequestsRequest{RepositoryId: o.repo, HeadRef: name, State: code.ListMergeRequestsRequest_STATE_FILTER_ALL, PageSize: 100}
+	var newest *code.MergeRequest
+	for {
+		resp, err := api.NewMergeRequestClient().ListMergeRequests(cmd.Context(), request(o, req))
+		if err != nil {
+			return nil, err
+		}
+		for _, mr := range resp.Msg.MergeRequests {
+			if mr.State == code.MergeRequest_STATE_OPEN {
+				return mr, nil
+			}
+			if newest == nil || mr.CreatedAt.AsTime().After(newest.CreatedAt.AsTime()) {
+				newest = mr
+			}
+		}
+		if resp.Msg.NextPageToken == "" || resp.Msg.NextPageToken == req.PageToken {
+			return newest, nil
+		}
+		req.PageToken = resp.Msg.NextPageToken
+	}
+}
+
+// requireState refuses a merge request that a branch lookup found in another state than want.
+func requireState(mr *code.MergeRequest, name string, want code.MergeRequest_State) error {
+	if mr.State == want {
+		return nil
+	}
+	return fmt.Errorf("merge request %s for branch %q is %s, not %s", mr.Id, name, stateName(mr.State), stateName(want))
+}
+
+// getOpenOrRefuse is get for commands that change an open merge request: it names a closed or merged one and stops.
+func (o *options) getOpenOrRefuse(cmd *cobra.Command, name string) (*code.GetMergeRequestResponse, error) {
+	found, err := o.get(cmd, name)
+	if err != nil {
+		return nil, err
+	}
+	return found, requireState(found.MergeRequest, name, code.MergeRequest_STATE_OPEN)
+}
+
 func (o *options) fetch(cmd *cobra.Command, req *code.GetMergeRequestRequest) (*code.GetMergeRequestResponse, error) {
 	resp, err := api.NewMergeRequestClient().GetMergeRequest(cmd.Context(), request(o, req))
 	if err != nil {
-		if head := req.GetHead(); head != nil {
-			return nil, noOpenMR(cmd, head, err)
-		}
 		return nil, err
 	}
 	if resp.Msg.MergeRequest == nil || resp.Msg.MergeRequest.Id == "" {
 		return nil, fmt.Errorf("API returned no merge request")
 	}
 	return resp.Msg, nil
-}
-
-// noOpenMR explains a branch lookup that found nothing: the API finds only the open merge request of a branch.
-// Every other error, and a not_found that names the repository, is returned unchanged.
-func noOpenMR(cmd *cobra.Command, head *code.GetMergeRequestRequest_HeadRef, err error) error {
-	var apiErr *connect.Error
-	if !errors.As(err, &apiErr) || apiErr.Code() != connect.CodeNotFound || strings.Contains(strings.ToLower(apiErr.Message()), "repository") {
-		return err
-	}
-	hint := "this command needs an open merge request; `depot mr view --id <mr_id>` shows a closed or merged one"
-	if cmd.Flags().Lookup("id") != nil {
-		hint = "a closed or merged merge request is found only by its ID, pass --id <mr_id>"
-	}
-	return fmt.Errorf("no open merge request for branch %q in repository %s; %s: %w", head.HeadRef, head.RepositoryId, hint, err)
 }
 
 func writeMR(cmd *cobra.Command, mr *code.MergeRequest) error {
@@ -222,7 +268,8 @@ func newCreate(o *options) *cobra.Command {
 			if len(assets) == 0 {
 				return o.createWith(cmd, req, nil)
 			}
-			existing, err := o.get(cmd, name)
+			// Only an open merge request is reused; a closed or merged one leaves the branch free for a new one.
+			existing, err := o.getOpen(cmd, name)
 			if err == nil {
 				if err := baseMatches(existing.MergeRequest, baseRef); err != nil {
 					return err
@@ -286,11 +333,11 @@ func (o *options) attachToExisting(cmd *cobra.Command, mr *code.MergeRequest, as
 // upload of the same files, when uploaded are new copies of them.
 func (o *options) appendAttachments(cmd *cobra.Command, mr *code.MergeRequest, uploaded, earlier []attachment) error {
 	// Uploads take a while; append to the description as it is now, not as it was before them.
-	current, err := o.get(cmd, mr.HeadRef)
-	if err != nil {
+	current, err := o.getOpen(cmd, mr.HeadRef)
+	if err != nil && connect.CodeOf(err) != connect.CodeNotFound {
 		return fmt.Errorf("attach to merge request %s: %w", mr.Id, err)
 	}
-	if current.MergeRequest.Id != mr.Id {
+	if err != nil || current.MergeRequest.Id != mr.Id {
 		return fmt.Errorf("merge request %s is no longer the open merge request for %s; run the command again", mr.Id, mr.HeadRef)
 	}
 	// A repeated upload returns the same URL, so a re-run adds only what is missing.
@@ -324,7 +371,7 @@ func (o *options) writeCreated(cmd *cobra.Command, mr *code.MergeRequest) error 
 func newView(o *options) *cobra.Command {
 	var t target
 	cmd := &cobra.Command{Use: "view [branch]", Short: "Show a merge request (defaults to the current branch)", Args: cobra.MaximumNArgs(1),
-		Long: "Show a merge request.\nA branch, by default the current one, names its open merge request.\nPass --id to show a merge request in any state; `depot mr list --state all` prints the IDs.",
+		Long: "Show a merge request.\nA branch, by default the current one, names its open merge request, or else its most recently created closed or merged one.\nPass --id to show any other; `depot mr list --state all --head <branch>` prints the IDs.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			name, err := t.check(cmd, args)
 			if err != nil {
@@ -415,7 +462,7 @@ func newApprove(o *options) *cobra.Command {
 			if err := o.authenticate(cmd); err != nil {
 				return err
 			}
-			mr, err := o.get(cmd, name)
+			mr, err := o.getOpenOrRefuse(cmd, name)
 			if err != nil {
 				return err
 			}
@@ -454,7 +501,7 @@ func newComment(o *options) *cobra.Command {
 			if err := o.authenticate(cmd); err != nil {
 				return err
 			}
-			mr, err := o.get(cmd, name)
+			mr, err := o.getOpenOrRefuse(cmd, name)
 			if err != nil {
 				return err
 			}
