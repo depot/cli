@@ -8,6 +8,19 @@ import "google/protobuf/timestamp.proto";
 // Every method requires a user credential. Organization tokens, CI job tokens and service credentials return
 // PermissionDenied.
 service MergeRequestService {
+  // Starts or resumes a private draft upload and returns a signed storage URL to PUT the file to.
+  // Reuse `uploadKey` to retry: an unfinished upload gets a fresh URL, a finished one returns `uploaded`.
+  rpc BeginMergeRequestAssetUpload(BeginMergeRequestAssetUploadRequest) returns (BeginMergeRequestAssetUploadResponse) {
+    option idempotency_level = IDEMPOTENT;
+  }
+  // Verifies the stored file and makes the asset usable in a description. Safe to retry.
+  rpc CompleteMergeRequestAssetUpload(CompleteMergeRequestAssetUploadRequest) returns (CompleteMergeRequestAssetUploadResponse) {
+    option idempotency_level = IDEMPOTENT;
+  }
+  // Returns a short-lived signed URL for an asset, as its draft author or an authorized viewer of its repository.
+  rpc GetMergeRequestAssetURL(GetMergeRequestAssetURLRequest) returns (GetMergeRequestAssetURLResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
   // Reads whether passing review agents can approve merge requests in this repository.
   rpc GetRepositoryReviewSettings(GetRepositoryReviewSettingsRequest) returns (GetRepositoryReviewSettingsResponse) {}
   // Changes whether passing review agents can approve. Requires organization owner access.
@@ -472,6 +485,67 @@ message GetRepositoryReviewSettingsResponse {
 message UpdateRepositoryReviewSettingsResponse {
   // Whether passing reviews can approve merge requests on their reviewed commit. Default: false.
   bool agents_can_approve = 1;
+}
+
+message BeginMergeRequestAssetUploadRequest {
+  // Unique identifier for the repository. Returned by `GetRepository`.
+  string repository_id = 1;
+  // Client-chosen identity for this upload, 1 to 128 characters. The same key always addresses the same asset
+  // for the same repository and author. Reusing it with a different `size` or `extension` returns AlreadyExists.
+  string upload_key = 2;
+  // Exact file size in bytes. Maximum: 104857600 (100 MiB).
+  int64 size = 3;
+  // File extension without the dot, any case. Must be one of the supported attachment extensions. The server
+  // derives the content type; `upload_headers` carries the one to send on the PUT.
+  string extension = 4;
+}
+
+message BeginMergeRequestAssetUploadResponse {
+  // Unique identifier for the asset.
+  string asset_id = 1;
+  // Stable asset URL ending in the file extension, for use in a description. It stops resolving after the 24-hour
+  // draft expiry unless a saved description contains it; once attached it is permanent.
+  string url = 2;
+  // True when this upload key already completed. Skip the PUT and `CompleteMergeRequestAssetUpload`.
+  bool uploaded = 3;
+  // Signed URL to PUT the file bytes to, with no Depot credentials. Empty when `uploaded` is true.
+  string upload_url = 4;
+  // Headers the PUT must send exactly as given. The body length must equal `size`.
+  map<string, string> upload_headers = 5;
+  // Time `uploadUrl` stops working, in RFC 3339 format. Call `BeginMergeRequestAssetUpload` again for a new one.
+  string upload_expires_at = 6;
+}
+
+message CompleteMergeRequestAssetUploadRequest {
+  // Unique identifier for the repository. Returned by `GetRepository`.
+  string repository_id = 1;
+  // Unique identifier for the asset. Returned by `BeginMergeRequestAssetUpload`.
+  string asset_id = 2;
+}
+
+message CompleteMergeRequestAssetUploadResponse {
+  // Unique identifier for the asset.
+  string asset_id = 1;
+  // Stable asset URL, identical to the one `BeginMergeRequestAssetUpload` returned.
+  string url = 2;
+}
+
+message GetMergeRequestAssetURLRequest {
+  // Unique identifier for the repository. Returned by `GetRepository`.
+  string repository_id = 1;
+  // Unique identifier for the asset. Returned by `BeginMergeRequestAssetUpload`.
+  string asset_id = 2;
+}
+
+message GetMergeRequestAssetURLResponse {
+  // Signed URL that serves the file with its stored MIME type and supports byte ranges. Do not store it.
+  string url = 1;
+  // Stored MIME type of the asset.
+  string content_type = 2;
+  // File size in bytes.
+  int64 size = 3;
+  // Time `url` stops working, in RFC 3339 format. At least one hour after the call.
+  string expires_at = 4;
 }
 
 message ListMergeRequestsRequest {

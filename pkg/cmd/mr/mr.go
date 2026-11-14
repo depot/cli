@@ -11,6 +11,7 @@ import (
 	"github.com/depot/cli/pkg/helpers"
 	code "github.com/depot/cli/pkg/proto/depot/code/v1beta2"
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 )
@@ -139,6 +140,7 @@ func writeMR(cmd *cobra.Command, mr *code.MergeRequest) error {
 func newCreate(o *options) *cobra.Command {
 	var title, head, base string
 	var body bodyFlags
+	var attachmentPaths []string
 	cmd := &cobra.Command{Use: "create", Short: "Open a merge request for the current branch", Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if strings.TrimSpace(title) == "" {
@@ -163,23 +165,111 @@ func newCreate(o *options) *cobra.Command {
 			if err := o.authenticate(cmd); err != nil {
 				return err
 			}
-			resp, err := o.create(cmd, &code.CreateMergeRequestRequest{
-				RepositoryId: o.repo, HeadRef: name, Title: title, Body: text, BaseRef: baseRef,
-			})
+			assets, err := readAssets(attachmentPaths)
 			if err != nil {
 				return err
 			}
-			if o.json {
-				return o.writeJSON(cmd, resp)
+			req := &code.CreateMergeRequestRequest{RepositoryId: o.repo, HeadRef: name, Title: title, Body: text, BaseRef: baseRef}
+			if len(assets) == 0 {
+				return o.createWith(cmd, req, nil)
 			}
-			return writeMR(cmd, resp.MergeRequest)
+			existing, err := o.get(cmd, name)
+			if err == nil {
+				if err := baseMatches(existing.MergeRequest, baseRef); err != nil {
+					return err
+				}
+				return o.attachToExisting(cmd, existing.MergeRequest, assets)
+			}
+			if connect.CodeOf(err) != connect.CodeNotFound {
+				return err
+			}
+			return o.saveWithAssets(cmd, name, "", "merge request was not created", assets, func(uploaded, _ []attachment) error {
+				return o.createWith(cmd, req, uploaded)
+			})
 		},
 	}
 	cmd.Flags().StringVar(&title, "title", "", "Merge request title (required)")
 	body.register(cmd, "Merge request description")
 	cmd.Flags().StringVar(&head, "head", "", "Source branch (defaults to the current branch)")
 	cmd.Flags().StringVar(&base, "base", "", "Destination branch (defaults to the repository default branch)")
+	cmd.Flags().SetNormalizeFunc(func(_ *pflag.FlagSet, name string) pflag.NormalizedName {
+		if name == "image" {
+			name = "attach"
+		}
+		return pflag.NormalizedName(name)
+	})
+	cmd.Flags().StringArrayVar(&attachmentPaths, "attach", nil, "Attach a file (repeatable; images, video and common document, text, code and archive files, each up to 100 MiB, at most ten per description; --image is an alias)")
 	return cmd
+}
+
+// createWith opens the merge request with the uploaded attachments appended to its description.
+func (o *options) createWith(cmd *cobra.Command, req *code.CreateMergeRequestRequest, uploaded []attachment) error {
+	withRefs := proto.Clone(req).(*code.CreateMergeRequestRequest)
+	for _, attachment := range uploaded {
+		withRefs.Body += attachment.markdown()
+	}
+	resp, err := o.create(cmd, withRefs)
+	if err != nil {
+		return err
+	}
+	// Create returns an MR opened during the uploads unchanged, without the new references.
+	refs := strings.TrimSpace(strings.TrimPrefix(withRefs.Body, req.Body))
+	if !strings.Contains(resp.MergeRequest.Body, refs) {
+		return fmt.Errorf("merge request %s was opened for this branch during the upload and the attachments were not added; run the command again", resp.MergeRequest.Id)
+	}
+	if o.json {
+		return o.writeJSON(cmd, resp)
+	}
+	return writeMR(cmd, resp.MergeRequest)
+}
+
+// attachToExisting appends attachments to the description of the branch's open
+// merge request. CreateMergeRequest returns that MR unchanged, so it cannot attach them.
+func (o *options) attachToExisting(cmd *cobra.Command, mr *code.MergeRequest, assets []localAsset) error {
+	_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Branch %s already has merge request %s; adding attachments to its description (title and body text are unchanged)\n", mr.HeadRef, mr.Id)
+	unchanged := fmt.Sprintf("merge request %s was not changed", mr.Id)
+	return o.saveWithAssets(cmd, mr.HeadRef, mr.Id, unchanged, assets, func(uploaded, earlier []attachment) error {
+		return o.appendAttachments(cmd, mr, uploaded, earlier)
+	})
+}
+
+// appendAttachments adds uploaded to the description. earlier holds the first
+// upload of the same files, when uploaded are new copies of them.
+func (o *options) appendAttachments(cmd *cobra.Command, mr *code.MergeRequest, uploaded, earlier []attachment) error {
+	// Uploads take a while; append to the description as it is now, not as it was before them.
+	current, err := o.get(cmd, mr.HeadRef)
+	if err != nil {
+		return fmt.Errorf("attach to merge request %s: %w", mr.Id, err)
+	}
+	if current.MergeRequest.Id != mr.Id {
+		return fmt.Errorf("merge request %s is no longer the open merge request for %s; run the command again", mr.Id, mr.HeadRef)
+	}
+	// A repeated upload returns the same URL, so a re-run adds only what is missing.
+	body := current.MergeRequest.Body
+	for index, attachment := range uploaded {
+		attached := strings.Contains(body, attachment.url) || (index < len(earlier) && strings.Contains(body, earlier[index].url))
+		if !attached {
+			body += attachment.markdown()
+		}
+	}
+	if body == current.MergeRequest.Body {
+		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Merge request %s already has these attachments; nothing to add\n", mr.Id)
+		return o.writeCreated(cmd, current.MergeRequest)
+	}
+	resp, err := api.NewMergeRequestClient().UpdateMergeRequest(cmd.Context(), request(o, &code.UpdateMergeRequestRequest{
+		MergeRequestId: mr.Id, Body: &body,
+	}))
+	if err != nil {
+		return fmt.Errorf("attach to merge request %s: %w", mr.Id, err)
+	}
+	return o.writeCreated(cmd, resp.Msg.MergeRequest)
+}
+
+func (o *options) writeCreated(cmd *cobra.Command, mr *code.MergeRequest) error {
+	if o.json {
+		return o.writeJSON(cmd, &code.CreateMergeRequestResponse{MergeRequest: mr})
+	}
+	return writeMR(cmd, mr)
 }
 
 func newView(o *options) *cobra.Command {
