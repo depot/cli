@@ -4,9 +4,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"net/url"
 	"os"
 	"strings"
+	"time"
 
 	"connectrpc.com/connect"
 	"github.com/depot/cli/pkg/api"
@@ -14,12 +14,13 @@ import (
 	"github.com/depot/cli/pkg/helpers"
 	agentv1 "github.com/depot/cli/pkg/proto/depot/agent/v1"
 	"github.com/spf13/cobra"
-	"google.golang.org/protobuf/encoding/protojson"
 )
 
 type launchOptions struct {
 	org, token, output, message, clientRequestID string
 	sources                                      []string
+	watch                                        bool
+	timeout                                      time.Duration
 }
 
 func newLaunch() *cobra.Command {
@@ -43,6 +44,7 @@ organization, and the run ID is the default --client-request-id, so a rerun retu
 	cmd.Flags().StringVar(&o.org, "org", "", "Organization ID (defaults to DEPOT_ORG_ID or the current organization)")
 	cmd.Flags().StringVar(&o.token, "token", "", "Depot API token (defaults to DEPOT_TOKEN, which a Depot CI job already has)")
 	cmd.Flags().StringVarP(&o.output, "output", "o", "text", "Output format: text or json")
+	addWatchFlags(cmd, &o.watch, &o.timeout)
 	_ = cmd.MarkFlagRequired("source")
 	_ = cmd.MarkFlagRequired("message")
 	return cmd
@@ -91,25 +93,22 @@ func runLaunch(cmd *cobra.Command, o *launchOptions, agent string) error {
 		return err
 	}
 
-	if o.output == "json" {
-		out, err := protojson.MarshalOptions{Multiline: true}.Marshal(resp.Msg)
-		if err != nil {
-			return err
-		}
-		_, err = fmt.Fprintln(cmd.OutOrStdout(), string(out))
-		return err
-	}
-	if u := resp.Msg.GetUrl(); u != "" {
-		_, err = fmt.Fprintln(cmd.OutOrStdout(), u)
-		return err
-	}
 	sessionID := resp.Msg.GetSession().GetSessionId()
-	if o.org == "" {
+	switch u := resp.Msg.GetUrl(); {
+	case o.output == "json" && !o.watch:
+		return printJSON(cmd.OutOrStdout(), resp.Msg)
+	case o.output == "json":
+	case u != "":
+		_, err = fmt.Fprintln(cmd.OutOrStdout(), u)
+	case o.org == "":
 		_, err = fmt.Fprintf(cmd.OutOrStdout(), "Launched session %s (pass --org to print its URL)\n", sessionID)
+	default:
+		_, err = fmt.Fprintln(cmd.OutOrStdout(), sessionURL(o.org, sessionID))
+	}
+	if err != nil || !o.watch {
 		return err
 	}
-	_, err = fmt.Fprintf(cmd.OutOrStdout(), "https://depot.dev/orgs/%s/agent-runs/sessions/%s\n", url.PathEscape(o.org), url.PathEscape(sessionID))
-	return err
+	return watchAndReport(cmd, newCaller(token, o.org), o.output, sessionID, watchOptions{afterInput: resp.Msg.GetInput().GetInputId(), untilIdle: true, timeout: o.timeout})
 }
 
 func parseSource(value string) (*agentv1.DepotAgentLaunchSource, error) {

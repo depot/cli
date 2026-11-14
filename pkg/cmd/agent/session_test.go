@@ -1,0 +1,298 @@
+package agent
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+	"time"
+
+	"connectrpc.com/connect"
+	agentv1 "github.com/depot/cli/pkg/proto/depot/agent/v1"
+	"github.com/depot/cli/pkg/proto/depot/agent/v1/agentv1connect"
+	"github.com/docker/cli/cli"
+	"golang.org/x/net/http2"
+	"golang.org/x/net/http2/h2c"
+)
+
+// fakeAgent is a session API that records what it was asked and plays back scripted watch frames.
+type fakeAgent struct {
+	agentv1connect.UnimplementedDepotAgentServiceHandler
+	header    http.Header
+	created   *agentv1.CreateSessionRequest
+	listed    *agentv1.ListDepotAgentSessionsRequest
+	stopped   []string
+	watches   []*agentv1.WatchSessionRequest
+	frames    [][]*agentv1.WatchSessionResponse
+	got       *agentv1.GetSessionResponse
+	holdWatch bool
+}
+
+func (f *fakeAgent) CreateSession(_ context.Context, req *connect.Request[agentv1.CreateSessionRequest]) (*connect.Response[agentv1.CreateSessionResponse], error) {
+	f.header, f.created = req.Header(), req.Msg
+	return connect.NewResponse(&agentv1.CreateSessionResponse{
+		Session: &agentv1.DepotAgentSession{SessionId: "das_1", Status: "idle"},
+		Input:   &agentv1.DepotAgentInput{InputId: "dai_1"},
+	}), nil
+}
+
+func (f *fakeAgent) SendInput(_ context.Context, req *connect.Request[agentv1.SendInputRequest]) (*connect.Response[agentv1.SendInputResponse], error) {
+	return connect.NewResponse(&agentv1.SendInputResponse{Input: &agentv1.DepotAgentInput{InputId: "dai_1"}}), nil
+}
+
+func (f *fakeAgent) ListDepotAgentSessions(_ context.Context, req *connect.Request[agentv1.ListDepotAgentSessionsRequest]) (*connect.Response[agentv1.ListDepotAgentSessionsResponse], error) {
+	f.listed = req.Msg
+	next := "next"
+	return connect.NewResponse(&agentv1.ListDepotAgentSessionsResponse{
+		Sessions:      []*agentv1.DepotAgentSession{{SessionId: "das_1", Status: "running", Title: "Fix\x1b[31m the test"}},
+		NextPageToken: &next,
+	}), nil
+}
+
+func (f *fakeAgent) GetSession(context.Context, *connect.Request[agentv1.GetSessionRequest]) (*connect.Response[agentv1.GetSessionResponse], error) {
+	return connect.NewResponse(f.got), nil
+}
+
+func (f *fakeAgent) InterruptSession(_ context.Context, req *connect.Request[agentv1.InterruptSessionRequest]) (*connect.Response[agentv1.InterruptSessionResponse], error) {
+	f.stopped = append(f.stopped, "interrupt:"+req.Msg.GetSessionId())
+	return connect.NewResponse(&agentv1.InterruptSessionResponse{}), nil
+}
+
+func (f *fakeAgent) ArchiveSession(_ context.Context, req *connect.Request[agentv1.ArchiveSessionRequest]) (*connect.Response[agentv1.ArchiveSessionResponse], error) {
+	f.stopped = append(f.stopped, "archive:"+req.Msg.GetSessionId())
+	return connect.NewResponse(&agentv1.ArchiveSessionResponse{}), nil
+}
+
+// Each watch call plays the next batch of frames and then ends, as the API does when its time is up.
+func (f *fakeAgent) WatchSession(ctx context.Context, req *connect.Request[agentv1.WatchSessionRequest], stream *connect.ServerStream[agentv1.WatchSessionResponse]) error {
+	call := len(f.watches)
+	f.watches = append(f.watches, req.Msg)
+	if call < len(f.frames) {
+		for _, frame := range f.frames[call] {
+			if err := stream.Send(frame); err != nil {
+				return err
+			}
+		}
+	}
+	if f.holdWatch {
+		<-ctx.Done()
+	}
+	return nil
+}
+
+func serveAgent(t *testing.T, f *fakeAgent) {
+	t.Helper()
+	mux := http.NewServeMux()
+	mux.Handle(agentv1connect.NewDepotAgentServiceHandler(f))
+	server := httptest.NewServer(h2c.NewHandler(mux, &http2.Server{}))
+	t.Cleanup(server.Close)
+	t.Setenv("DEPOT_API_URL", server.URL)
+	t.Setenv("DEPOT_TOKEN", "tok")
+	t.Setenv("DEPOT_ORG_ID", "org-1")
+	for _, name := range []string{"GITHUB_RUN_ID", "GITHUB_REPOSITORY", "GITHUB_JOB"} {
+		t.Setenv(name, "")
+	}
+}
+
+func runAgent(t *testing.T, args ...string) (stdout, stderr string, err error) {
+	t.Helper()
+	cmd := NewCmdAgent()
+	cmd.SilenceErrors, cmd.SilenceUsage = true, true
+	var out, errOut bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&errOut)
+	cmd.SetIn(strings.NewReader(""))
+	cmd.SetArgs(args)
+	err = cmd.Execute()
+	return out.String(), errOut.String(), err
+}
+
+func frame(status, cursor, view string) *agentv1.WatchSessionResponse {
+	return &agentv1.WatchSessionResponse{Session: &agentv1.DepotAgentSession{SessionId: "das_1", Status: status}, ViewJson: view, Cursor: cursor}
+}
+
+const (
+	viewBefore = `{"messages": [{"id": "1", "role": "user", "text": "earlier"}, {"id": "2", "role": "assistant", "text": "earlier reply"}], "tools": [], "queuedCount": 0}`
+	viewAsked  = `{"messages": [{"id": "1", "role": "user", "text": "earlier"}, {"id": "2", "role": "assistant", "text": "earlier reply"},
+		{"id": "3", "role": "user", "inputId": "dai_1", "text": "hello"}], "tools": [], "queuedCount": 0}`
+	viewReplied = `{"messages": [{"id": "1", "role": "user", "text": "earlier"}, {"id": "2", "role": "assistant", "text": "earlier reply"},
+		{"id": "3", "role": "user", "inputId": "dai_1", "text": "hello"}, {"id": "4", "role": "assistant", "text": "hi there"}], "tools": [], "queuedCount": 0}`
+)
+
+func TestCreateSendsTheMessageAndPrintsTheSession(t *testing.T) {
+	f := &fakeAgent{}
+	serveAgent(t, f)
+	out, _, err := runAgent(t, "create", "hello", "--title", "Greeting", "--model", "anthropic/model-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := f.created
+	if req.GetMessage() != "hello" || req.GetTitle() != "Greeting" || req.GetModel().GetProvider() != "anthropic" || req.GetModel().GetModelId() != "model-1" || !strings.HasPrefix(req.GetClientRequestId(), "cli:") {
+		t.Fatalf("unexpected request %v", req)
+	}
+	if f.header.Get("Authorization") != "Bearer tok" || f.header.Get("x-depot-org") != "org-1" {
+		t.Fatalf("unexpected headers %v", f.header)
+	}
+	if want := "Created session das_1\nhttps://depot.dev/orgs/org-1/agent-runs/sessions/das_1\n"; out != want {
+		t.Fatalf("output = %q, want %q", out, want)
+	}
+}
+
+func TestCreateWatchWaitsForTheReplyAcrossReconnects(t *testing.T) {
+	f := &fakeAgent{frames: [][]*agentv1.WatchSessionResponse{
+		{frame("idle", "c1", viewBefore), frame("running", "c2", viewAsked)},
+		{frame("idle", "c3", viewReplied)},
+	}}
+	serveAgent(t, f)
+	out, errOut, err := runAgent(t, "create", "hello", "--watch", "-o", "json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var result watchResult
+	if err := json.Unmarshal([]byte(out), &result); err != nil {
+		t.Fatalf("stdout is not one JSON object: %v\n%s", err, out)
+	}
+	if result.Outcome != outcomeSettled || result.Reply != "hi there" || result.InputID != "dai_1" || result.Status != "idle" {
+		t.Fatalf("unexpected result %+v", result)
+	}
+	if want := "[idle]\n[running]\n> hello\nhi there\n[idle]\n"; errOut != want {
+		t.Fatalf("transcript = %q, want %q", errOut, want)
+	}
+	if len(f.watches) != 2 || f.watches[0].AfterCursor != nil || f.watches[1].GetAfterCursor() != "c2" {
+		t.Fatalf("watch did not resume from the last cursor: %v", f.watches)
+	}
+}
+
+func TestWatchExitCodes(t *testing.T) {
+	replyGrace = 10 * time.Millisecond
+	t.Cleanup(func() { replyGrace = 10 * time.Second })
+	interrupted := `{"messages": [{"id": "3", "role": "user", "inputId": "dai_1", "text": "hello"}, {"id": "4", "role": "tool", "toolName": "bash", "text": "killed"}], "tools": []}`
+	for name, tc := range map[string]struct {
+		fake *fakeAgent
+		args []string
+		code int
+		want string
+	}{
+		"failed session": {
+			fake: &fakeAgent{frames: [][]*agentv1.WatchSessionResponse{{frame("failed", "c1", viewAsked)}}},
+			code: 1, want: "the session failed",
+		},
+		"error reply": {
+			fake: &fakeAgent{frames: [][]*agentv1.WatchSessionResponse{{frame("idle", "c1", `{"messages": [{"id": "3", "role": "user", "inputId": "dai_1", "text": "hello"}, {"id": "4", "role": "assistant", "isError": true, "text": "overloaded"}]}`)}}},
+			code: 1, want: "the agent's reply was an error: overloaded",
+		},
+		"turn without a reply": {
+			fake: &fakeAgent{
+				frames: [][]*agentv1.WatchSessionResponse{{frame("idle", "c1", interrupted)}},
+				got:    &agentv1.GetSessionResponse{Session: &agentv1.DepotAgentSession{Status: "idle"}, ViewJson: interrupted},
+			},
+			code: 1, want: "the turn ended without a reply",
+		},
+		"timeout": {
+			fake: &fakeAgent{holdWatch: true, frames: [][]*agentv1.WatchSessionResponse{{frame("running", "c1", viewAsked)}}},
+			args: []string{"--timeout", "200ms"},
+			code: 2, want: "Timed out after 200ms",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			serveAgent(t, tc.fake)
+			_, _, err := runAgent(t, append([]string{"watch", "das_1", "--after-input", "dai_1"}, tc.args...)...)
+			var status cli.StatusError
+			if !errors.As(err, &status) || status.StatusCode != tc.code || !strings.Contains(status.Status, tc.want) {
+				t.Fatalf("err = %#v, want exit %d with %q", err, tc.code, tc.want)
+			}
+		})
+	}
+}
+
+func TestTurnSettled(t *testing.T) {
+	for name, tc := range map[string]struct {
+		input, status, view string
+		done                bool
+		reply               string
+	}{
+		"idle before the input shows":    {"dai_1", "idle", viewBefore, false, ""},
+		"input shown, no reply yet":      {"dai_1", "idle", viewAsked, false, ""},
+		"replied":                        {"dai_1", "idle", viewReplied, true, "hi there"},
+		"replied, waiting for input":     {"dai_1", "waiting_input", viewReplied, true, "hi there"},
+		"still running":                  {"dai_1", "running", viewReplied, false, ""},
+		"another input queued":           {"dai_1", "idle", strings.Replace(viewReplied, `"queuedCount": 0`, `"queuedCount": 1`, 1), false, ""},
+		"reply still streaming":          {"dai_1", "idle", strings.Replace(viewReplied, `"tools": []`, `"partial": "and", "tools": []`, 1), false, ""},
+		"tool still running":             {"dai_1", "idle", strings.Replace(viewReplied, `"tools": []`, `"tools": [{"callId": "t", "status": "running"}]`, 1), false, ""},
+		"no input: idle is enough":       {"", "idle", viewBefore, true, "earlier reply"},
+		"no input: idle without a reply": {"", "idle", viewAsked, true, ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			var view agentView
+			if err := json.Unmarshal([]byte(tc.view), &view); err != nil {
+				t.Fatal(err)
+			}
+			done, reply, failure := (&turn{afterInput: tc.input}).settled(tc.status, &view)
+			if done != tc.done || reply != tc.reply || failure != "" {
+				t.Fatalf("settled = %v, %q, %q; want %v, %q", done, reply, failure, tc.done, tc.reply)
+			}
+		})
+	}
+}
+
+func TestListPrintsATableAndTheNextPage(t *testing.T) {
+	f := &fakeAgent{}
+	serveAgent(t, f)
+	out, errOut, err := runAgent(t, "list", "--limit", "5", "--page-token", "prev")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f.listed.GetPageSize() != 5 || f.listed.GetPageToken() != "prev" {
+		t.Fatalf("unexpected request %v", f.listed)
+	}
+	if !strings.Contains(out, "das_1") || !strings.Contains(out, "running") || strings.Contains(out, "\x1b") {
+		t.Fatalf("unexpected table %q", out)
+	}
+	if !strings.Contains(errOut, "--page-token next") {
+		t.Fatalf("next page not offered: %q", errOut)
+	}
+}
+
+func TestLogsPrintsTheTranscriptOrTheView(t *testing.T) {
+	f := &fakeAgent{got: &agentv1.GetSessionResponse{Session: &agentv1.DepotAgentSession{SessionId: "das_1", Status: "idle"}, ViewJson: viewReplied, ViewSeq: 7}}
+	serveAgent(t, f)
+	out, _, err := runAgent(t, "logs", "das_1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "> earlier\nearlier reply\n> hello\nhi there\n[idle]\n"; out != want {
+		t.Fatalf("transcript = %q, want %q", out, want)
+	}
+	out, _, err = runAgent(t, "logs", "das_1", "-o", "json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got struct {
+		Session struct{ SessionID string }
+		ViewSeq int
+		View    agentView
+	}
+	if err := json.Unmarshal([]byte(out), &got); err != nil || got.Session.SessionID != "das_1" || got.ViewSeq != 7 || len(got.View.Messages) != 4 {
+		t.Fatalf("unexpected JSON (%v): %s", err, out)
+	}
+}
+
+func TestStopInterruptsOrArchives(t *testing.T) {
+	f := &fakeAgent{}
+	serveAgent(t, f)
+	first, _, err := runAgent(t, "stop", "das_1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, _, err := runAgent(t, "stop", "das_1", "--archive")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(f.stopped, ",") != "interrupt:das_1,archive:das_1" || first != "Interrupted session das_1\n" || second != "Archived session das_1\n" {
+		t.Fatalf("stopped %v, output %q %q", f.stopped, first, second)
+	}
+}

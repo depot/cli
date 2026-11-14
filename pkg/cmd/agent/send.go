@@ -1,14 +1,13 @@
 package agent
 
 import (
-	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"io"
-	"net/url"
 	"os"
 	"strings"
+	"time"
 	"unicode"
 	"unicode/utf8"
 
@@ -18,13 +17,13 @@ import (
 	"github.com/depot/cli/pkg/helpers"
 	agentv1 "github.com/depot/cli/pkg/proto/depot/agent/v1"
 	"github.com/spf13/cobra"
-	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 )
 
 type sendOptions struct {
 	org, token, output, file, key, subagent, clientRequestID string
-	steer                                                    bool
+	steer, watch                                             bool
+	timeout                                                  time.Duration
 }
 
 func newSend() *cobra.Command {
@@ -52,6 +51,7 @@ job, target and message, so a rerun does not deliver the message twice.`,
 	cmd.Flags().StringVar(&o.org, "org", "", "Organization ID (defaults to DEPOT_ORG_ID or the current organization)")
 	cmd.Flags().StringVar(&o.token, "token", "", "Depot API token (defaults to DEPOT_TOKEN, which a Depot CI job already has)")
 	cmd.Flags().StringVarP(&o.output, "output", "o", "text", "Output format: text or json")
+	addWatchFlags(cmd, &o.watch, &o.timeout)
 	return cmd
 }
 
@@ -124,19 +124,22 @@ func runSend(cmd *cobra.Command, o *sendOptions, args []string) error {
 		return err
 	}
 
-	if o.output == "json" {
-		out, err := protojson.MarshalOptions{Multiline: true}.Marshal(resp.Msg)
+	if o.output == "json" && !o.watch {
+		return printJSON(cmd.OutOrStdout(), resp.Msg)
+	}
+	if o.output == "text" {
+		_, err = fmt.Fprintf(cmd.OutOrStdout(), "Sent %s to session %s\n", resp.Msg.GetInput().GetInputId(), sessionID)
+		if u := sessionURL(o.org, sessionID); err == nil && u != "" {
+			_, err = fmt.Fprintln(cmd.OutOrStdout(), u)
+		}
 		if err != nil {
 			return err
 		}
-		_, err = fmt.Fprintln(cmd.OutOrStdout(), string(out))
-		return err
 	}
-	_, err = fmt.Fprintf(cmd.OutOrStdout(), "Sent %s to session %s\n", resp.Msg.GetInput().GetInputId(), sessionID)
-	if err == nil && o.org != "" {
-		_, err = fmt.Fprintf(cmd.OutOrStdout(), "https://depot.dev/orgs/%s/agent-runs/sessions/%s\n", url.PathEscape(o.org), url.PathEscape(sessionID))
+	if !o.watch {
+		return nil
 	}
-	return err
+	return watchAndReport(cmd, newCaller(token, o.org), o.output, sessionID, watchOptions{afterInput: resp.Msg.GetInput().GetInputId(), untilIdle: true, timeout: o.timeout})
 }
 
 func readMessage(cmd *cobra.Command, args []string, file string) (string, error) {
@@ -169,9 +172,7 @@ func defaultSendRequestID(sessionID, subagent, mode, message string) string {
 		sum := sha256.Sum256([]byte(strings.Join(parts, "\x00")))
 		return "ci:" + hex.EncodeToString(sum[:])
 	}
-	random := make([]byte, 16)
-	_, _ = rand.Read(random)
-	return "cli:" + hex.EncodeToString(random)
+	return randomRequestID()
 }
 
 // The ID the API gives a session created with this client request ID: "das_" and the first 32 hex digits of the
