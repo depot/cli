@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -163,6 +164,46 @@ func TestTurnOutOfACutViewNeedsToHaveRun(t *testing.T) {
 	}
 }
 
+// Whatever the agent says after a later input answers that input, even when the awaited one never got a reply.
+func TestTurnDoesNotTakeALaterInputsReply(t *testing.T) {
+	const (
+		asked   = `{"id": "3", "role": "user", "inputId": "dai_1", "text": "hello"}`
+		working = `{"id": "4", "role": "assistant", "text": "Looking.", "toolCalls": [{"callId": "t"}]}, {"id": "5", "role": "tool", "callId": "t", "isError": true, "text": "interrupted"}`
+		later   = `{"id": "6", "role": "user", "inputId": "dai_2", "text": "next"}`
+		reply   = `{"id": "7", "role": "assistant", "text": "later reply"}`
+		want    = "another input followed before the agent replied"
+	)
+	for name, tc := range map[string]struct {
+		status, view string
+		ran          bool
+	}{
+		"the later input has its reply":      {"idle", asked + "," + working + "," + later + "," + reply, false},
+		"the later input is running":         {"running", asked + "," + working + "," + later, false},
+		"the later input directly follows":   {"idle", asked + "," + later + "," + reply, false},
+		"the session failed on the later":    {"failed", asked + "," + working + "," + later + "," + reply, false},
+		"the input has left the cut view":    {"idle", `{"id": "5", "role": "tool", "callId": "t", "text": "interrupted"},` + later + "," + reply, true},
+		"the cut view starts at later input": {"idle", later + "," + reply, true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			var view agentView
+			if err := json.Unmarshal([]byte(`{"messages": [`+tc.view+`], "truncated": `+strconv.FormatBool(tc.ran)+`}`), &view); err != nil {
+				t.Fatal(err)
+			}
+			done, reply, failure := (&turn{afterInput: "dai_1", ran: tc.ran}).settled(tc.status, &view)
+			if !done || reply != "" || failure != want {
+				t.Fatalf("settled = %v, %q, %q; want a failure saying %q", done, reply, failure, want)
+			}
+		})
+	}
+	var cut agentView
+	if err := json.Unmarshal([]byte(`{"messages": [{"id": "4", "role": "assistant", "text": "hi there"},`+later+","+reply+`], "truncated": true}`), &cut); err != nil {
+		t.Fatal(err)
+	}
+	if done, got, failure := (&turn{afterInput: "dai_1", ran: true}).settled("idle", &cut); !done || got != "hi there" || failure != "" {
+		t.Fatalf("settled = %v, %q, %q; want the reply left above the later input", done, got, failure)
+	}
+}
+
 func TestTurnWaitsForAView(t *testing.T) {
 	if done, _, _ := (&turn{}).settled("idle", nil); done {
 		t.Fatal("an idle session with no view counted as finished")
@@ -237,6 +278,10 @@ func TestWatchExitCodes(t *testing.T) {
 				got:    &agentv1.GetSessionResponse{Session: &agentv1.DepotAgentSession{Status: "idle"}, ViewJson: interrupted},
 			},
 			code: 1, want: "the turn ended without a reply",
+		},
+		"a later input got the reply": {
+			fake: &fakeAgent{frames: [][]*agentv1.WatchSessionResponse{{frame("idle", "c1", strings.Replace(interrupted, `], "tools"`, `, {"id": "5", "role": "user", "inputId": "dai_2", "text": "next"}, {"id": "6", "role": "assistant", "text": "later reply"}], "tools"`, 1))}}},
+			code: 1, want: "another input followed before the agent replied",
 		},
 		"timeout": {
 			fake: &fakeAgent{holdWatch: true, frames: [][]*agentv1.WatchSessionResponse{{frame("running", "c1", viewAsked)}}},
@@ -319,7 +364,6 @@ func TestTurnSettled(t *testing.T) {
 		"replied, a later turn failed":   {"dai_1", "failed", viewLater, true, "hi there"},
 		"a later turn is running":        {"dai_1", "running", viewLater, true, "hi there"},
 		"a later turn has replied":       {"dai_1", "idle", strings.Replace(viewLater, `]}`, `, {"id": "6", "role": "assistant", "text": "later reply"}]}`, 1), true, "hi there"},
-		"steered before any reply":       {"dai_1", "running", `{"messages": [{"id": "3", "role": "user", "inputId": "dai_1", "text": "hello"}, {"id": "4", "role": "assistant", "text": "Looking.", "toolCalls": [{"callId": "t"}]}, {"id": "5", "role": "user", "inputId": "dai_2", "text": "faster"}]}`, false, ""},
 		"no input: idle without a reply": {"", "idle", viewAsked, false, ""},
 	} {
 		t.Run(name, func(t *testing.T) {

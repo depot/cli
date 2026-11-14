@@ -184,12 +184,8 @@ func (r *Renderer) skipOlder(view *agentView) {
 			break
 		}
 	}
-	// A running turn in a cut view may have pushed the input out for good, so show what is left of it.
-	// While anything is queued, the input may still be waiting behind the turn that is running.
-	if r.from != "" && view.Truncated && view.QueuedCount == 0 && r.lastStatus == "running" {
-		r.from = ""
-		return
-	}
+	// Until the input itself shows up, nothing proves a message belongs to its turn: an input that has left
+	// the queue may not be in the view yet, and what is running may still be the turn before it.
 	for _, msg := range older {
 		r.seen["message:"+msg.ID] = true
 		r.seen["call:"+msg.CallID] = true

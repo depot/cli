@@ -87,13 +87,19 @@ func TestRendererStartsAtAnInput(t *testing.T) {
 	}
 }
 
-func TestRendererShowsACutViewWhoseInputIsGone(t *testing.T) {
+// A steering input leaves the queue before its message shows, so the first frames of a cut view
+// still hold only the turn it steered.
+func TestRendererKeepsACutViewHiddenUntilTheInputShows(t *testing.T) {
 	var out bytes.Buffer
-	r := NewRenderer(&out).From("dai_gone")
-	render(t, r, "idle", `{"messages": [{"id": "1", "role": "assistant", "text": "old"}], "truncated": true}`)
-	render(t, r, "running", `{"messages": [{"id": "1", "role": "assistant", "text": "old"}, {"id": "2", "role": "assistant", "text": "new"}], "truncated": true}`)
-	if got, want := out.String(), "(older messages omitted)\n[idle]\n[running]\nnew\n"; got != want {
-		t.Fatalf("got %q, want %q", got, want)
+	r := NewRenderer(&out).From("dai_2")
+	older := `{"id": "1", "role": "assistant", "text": "the turn before", "toolCalls": [{"callId": "t1", "name": "bash", "summary": "sleep 60"}]}`
+	render(t, r, "running", `{"messages": [`+older+`], "tools": [{"callId": "t1", "name": "bash", "summary": "sleep 60", "status": "running"}], "truncated": true, "queuedCount": 0}`)
+	if got, want := out.String(), "[running]\n(older messages omitted)\n"; got != want {
+		t.Fatalf("before the input shows: got %q, want %q", got, want)
+	}
+	render(t, r, "running", `{"messages": [`+older+`, {"id": "2", "role": "user", "inputId": "dai_2", "text": "faster"}, {"id": "3", "role": "assistant", "text": "on it"}], "truncated": true}`)
+	if got, want := out.String(), "[running]\n(older messages omitted)\n> faster\non it\n"; got != want {
+		t.Fatalf("after the input shows: got %q, want %q", got, want)
 	}
 }
 

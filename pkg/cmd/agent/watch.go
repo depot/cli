@@ -258,8 +258,12 @@ type turn struct {
 func (t *turn) settled(status string, view *agentView) (done bool, reply, failure string) {
 	t.unanswered = false
 	// A reply the input already has stands, whatever happened to the session afterwards.
-	if msg := t.answered(view, status == "archived" || status == "failed"); msg != nil {
+	msg, superseded := t.answered(view, status == "archived" || status == "failed")
+	if msg != nil {
 		return replied(*msg)
+	}
+	if superseded {
+		return true, "", "another input followed before the agent replied"
 	}
 	switch status {
 	case "failed":
@@ -310,27 +314,29 @@ func (t *turn) settled(status string, view *agentView) (done bool, reply, failur
 
 // answered returns the reply to the awaited input once a later input follows it, or once the session is closed,
 // so a session that has moved on to another turn does not hold the wait open or answer with that turn's reply.
-func (t *turn) answered(view *agentView, closed bool) *viewMessage {
+// superseded means a later input followed with no reply before it: whatever is said after that answers the
+// later input, whether it steered the turn or started the next one, so it is never credited to this one.
+func (t *turn) answered(view *agentView, closed bool) (reply *viewMessage, superseded bool) {
 	if t.afterInput == "" || view == nil {
-		return nil
+		return nil, false
 	}
-	sent := -1
+	// An input that ran and has left a cut view sits above everything still in it.
+	sent, gone := -1, t.ran && view.Truncated && !t.shows(view)
 	for i, msg := range view.Messages {
 		switch {
 		case msg.InputID == t.afterInput:
 			sent = i
-		case sent >= 0 && msg.Role == "user":
-			// A message that steered the turn follows a tool call or nothing, not a reply.
-			if prev := view.Messages[i-1]; i-1 > sent && prev.Role == "assistant" && len(prev.ToolCalls) == 0 {
-				return &prev
+		case msg.Role == "user" && (sent >= 0 || gone):
+			if i-1 > sent && view.Messages[i-1].Role == "assistant" && len(view.Messages[i-1].ToolCalls) == 0 {
+				return &view.Messages[i-1], false
 			}
-			return nil
+			return nil, true
 		}
 	}
 	if last := len(view.Messages) - 1; closed && sent >= 0 && last > sent && view.Messages[last].Role == "assistant" && len(view.Messages[last].ToolCalls) == 0 {
-		return &view.Messages[last]
+		return &view.Messages[last], false
 	}
-	return nil
+	return nil, false
 }
 
 func (t *turn) shows(view *agentView) bool {
