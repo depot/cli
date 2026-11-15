@@ -153,10 +153,16 @@ func runSend(cmd *cobra.Command, o *sendOptions, args []string) error {
 	}
 	// A repeated client request ID returns the input of the first send. Once the session has taken that one,
 	// what was read just now is not from before it, so the watch finds its own base.
-	if status := resp.Msg.GetInput().GetStatus(); status != "" && status != "pending" {
+	status := resp.Msg.GetInput().GetStatus()
+	if status != "" && status != "pending" {
 		base = nil
 	}
-	return watchAndReport(cmd, c, o.output, sessionID, watchOptions{afterInput: resp.Msg.GetInput().GetInputId(), untilIdle: true, timeout: o.timeout, base: base})
+	wait := watchOptions{afterInput: resp.Msg.GetInput().GetInputId(), untilIdle: true, timeout: o.timeout, base: base}
+	// Only a replayed send returns a cancelled input: its session was archived before the agent took it.
+	if status == "cancelled" {
+		return report(cmd, c, o.output, sessionID, wait, watchResult{SessionID: sessionID, InputID: wait.afterInput, Status: "archived", Outcome: outcomeFailed, Error: "the input was cancelled before the agent took it"})
+	}
+	return watchAndReport(cmd, c, o.output, sessionID, wait)
 }
 
 func readMessage(cmd *cobra.Command, args []string, file string) (string, error) {

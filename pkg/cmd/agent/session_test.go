@@ -558,6 +558,19 @@ func TestStopInterruptsOrArchives(t *testing.T) {
 	}
 }
 
+func TestSendWatchFailsAtOnceOnAReplayedInputThatWasCancelled(t *testing.T) {
+	f := &fakeAgent{sentStatus: "cancelled"}
+	serveAgent(t, f)
+	stdout, _, err := runAgent(t, "send", "das_1", "hello", "--client-request-id", "again", "--watch", "-o", "json")
+	var status cli.StatusError
+	if !errors.As(err, &status) || status.StatusCode != 1 || !strings.Contains(err.Error(), "cancelled") || len(f.watches) != 0 {
+		t.Fatalf("err = %v, watches = %d; want exit 1 without a watch", err, len(f.watches))
+	}
+	if !strings.Contains(stdout, `"outcome": "failed"`) || !strings.Contains(stdout, `"inputId": "dai_1"`) {
+		t.Fatalf("result = %s", stdout)
+	}
+}
+
 func TestSendWatchRejectsASubagent(t *testing.T) {
 	f := &fakeAgent{}
 	serveAgent(t, f)
