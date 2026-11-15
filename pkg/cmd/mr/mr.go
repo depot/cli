@@ -146,8 +146,9 @@ func (o *options) head(name string) *code.GetMergeRequestRequest_Head {
 	return &code.GetMergeRequestRequest_Head{Head: &code.GetMergeRequestRequest_HeadRef{RepositoryId: o.repo, HeadRef: name}}
 }
 
-func (o *options) find(cmd *cobra.Command, name string, readiness bool) (*code.GetMergeRequestResponse, error) {
-	resp, err := o.fetch(cmd, &code.GetMergeRequestRequest{Lookup: o.head(name), IncludeReadiness: readiness})
+// find is get, plus readiness and overlaps when detail is set.
+func (o *options) find(cmd *cobra.Command, name string, detail bool) (*code.GetMergeRequestResponse, error) {
+	resp, err := o.fetch(cmd, &code.GetMergeRequestRequest{Lookup: o.head(name), IncludeReadiness: detail, IncludeOverlaps: detail})
 	if connect.CodeOf(err) == connect.CodeNotFound {
 		return nil, fmt.Errorf("no merge request found for branch %q in repository %s: %w", name, o.repo, err)
 	}
@@ -286,7 +287,13 @@ func (o *options) createWith(cmd *cobra.Command, req *code.CreateMergeRequestReq
 	if o.json {
 		return o.writeJSON(cmd, resp)
 	}
-	return writeMR(cmd, resp.MergeRequest)
+	if err := writeMR(cmd, resp.MergeRequest); err != nil {
+		return err
+	}
+	if text := overlapText(resp.Overlaps); text != "" {
+		_, err = fmt.Fprintf(cmd.OutOrStdout(), "\n%s", text)
+	}
+	return err
 }
 
 // attachToExisting appends attachments to the description of the branch's open

@@ -10,13 +10,14 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-// getWithReadiness is get plus the merge readiness of the head, which costs the API a merge analysis.
+// getWithReadiness is get plus the merge readiness of the head and the overlapping merge requests,
+// which cost the API a merge analysis and a comparison with every other open merge request.
 // The merge request is the one get finds for branch name, or the one with id when name is empty.
 func (o *options) getWithReadiness(cmd *cobra.Command, name, id string) (*code.GetMergeRequestResponse, error) {
 	if name != "" {
 		return o.find(cmd, name, true)
 	}
-	return o.fetch(cmd, &code.GetMergeRequestRequest{Lookup: &code.GetMergeRequestRequest_MergeRequestId{MergeRequestId: id}, IncludeReadiness: true})
+	return o.fetch(cmd, &code.GetMergeRequestRequest{Lookup: &code.GetMergeRequestRequest_MergeRequestId{MergeRequestId: id}, IncludeReadiness: true, IncludeOverlaps: true})
 }
 
 func writeView(cmd *cobra.Command, response *code.GetMergeRequestResponse) error {
@@ -28,6 +29,9 @@ func writeView(cmd *cobra.Command, response *code.GetMergeRequestResponse) error
 	}
 	out := cmd.OutOrStdout()
 	if err := writeReadiness(out, response.Readiness); err != nil {
+		return err
+	}
+	if _, err := io.WriteString(out, overlapText(response.Overlaps)); err != nil {
 		return err
 	}
 	if body := printableText(response.MergeRequest.Body); body != "" {
