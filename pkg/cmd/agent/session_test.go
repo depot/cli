@@ -715,6 +715,35 @@ func TestWatchExitCodes(t *testing.T) {
 	}
 }
 
+func TestWatchWithoutAWaitEndsOnlyOnATimeoutThatWasAskedFor(t *testing.T) {
+	idle := [][]*agentv1.WatchSessionResponse{{frame("idle", "c1", viewAsked)}}
+	serveAgent(t, &fakeAgent{holdWatch: true, frames: idle})
+	started := time.Now()
+	out, _, err := runAgent(t, "watch", "das_1", "--timeout", "200ms")
+	var status cli.StatusError
+	if !errors.As(err, &status) || status.StatusCode != timeoutExitCode || status.Status != "Timed out after 200ms watching session das_1 (idle)" {
+		t.Fatalf("err = %#v, want exit %d naming the timeout", err, timeoutExitCode)
+	}
+	if time.Since(started) > 5*time.Second || !strings.Contains(out, "hello") {
+		t.Fatalf("the watch took %s and printed %q, want the transcript and a prompt exit", time.Since(started), out)
+	}
+
+	// With no --timeout the 30m default of a wait does not apply: the watch is still running when it is interrupted.
+	defaultWatchTimeout = 20 * time.Millisecond
+	t.Cleanup(func() { defaultWatchTimeout = 30 * time.Minute })
+	serveAgent(t, &fakeAgent{holdWatch: true, frames: idle})
+	ctx, cancel := context.WithCancel(context.Background())
+	time.AfterFunc(200*time.Millisecond, cancel)
+	cmd := NewCmdAgent()
+	cmd.SilenceErrors, cmd.SilenceUsage = true, true
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+	cmd.SetArgs([]string{"watch", "das_1"})
+	if err := cmd.ExecuteContext(ctx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want the cancellation, not a timeout", err)
+	}
+}
+
 func TestWatchGivesUpOnAnErrorThatKeepsHappening(t *testing.T) {
 	retryDelay = time.Millisecond
 	t.Cleanup(func() { retryDelay = time.Second })

@@ -20,10 +20,12 @@ const (
 	outcomeFailed  = "failed"
 	outcomeTimeout = "timeout"
 
-	defaultWatchTimeout = 30 * time.Minute
 	// The command's exit code when the wait ran out of time; a failed turn exits 1.
 	timeoutExitCode = 2
 )
+
+// How long a wait for a reply or for an idle session lasts when --timeout is not given.
+var defaultWatchTimeout = 30 * time.Minute
 
 // How long an idle session whose turn has no reply is given to show one before the turn counts as failed.
 var replyGrace = 10 * time.Second
@@ -108,7 +110,9 @@ func newWatch() *cobra.Command {
 		Short: "Follow an agent session as it works",
 		Long: `Print a session's messages and tool calls as they happen.
 
-Runs until interrupted, or with --until-idle until the session has finished its work. With --until-idle the exit code
+Without --until-idle or --after-input the watch does not end when the session goes idle: it runs until interrupted,
+until the session is archived, or until --timeout if one is given, which exits 2.
+With --until-idle it runs until the session has finished its work, for at most --timeout (30m unless set). The exit code
 is 0 when the session ended on a reply, 1 when it failed, was archived, or ended on an error or without a reply, and 2 on --timeout.
 --after-input waits for the reply to one input, so a session that is still idle from its last turn does not count.`,
 		Args: cobra.ExactArgs(1),
@@ -123,13 +127,17 @@ is 0 when the session ended on a reply, 1 when it failed, was archived, or ended
 			if f.output == "json" && !o.untilIdle {
 				return errors.New("-o json prints the result of a wait: add --until-idle or --after-input")
 			}
+			// The default bounds a wait; a watch that only follows the session ends on a timeout the caller asked for.
+			if !o.untilIdle && !cmd.Flags().Changed("timeout") {
+				o.timeout = 0
+			}
 			return watchAndReport(cmd, c, f.output, args[0], o)
 		},
 	}
 	f.add(cmd)
 	cmd.Flags().BoolVar(&o.untilIdle, "until-idle", false, "Exit once the session has finished its work")
 	cmd.Flags().StringVar(&o.afterInput, "after-input", "", "Exit once this input (dai_...) has its reply; implies --until-idle")
-	cmd.Flags().DurationVar(&o.timeout, "timeout", defaultWatchTimeout, "How long --until-idle waits")
+	cmd.Flags().DurationVar(&o.timeout, "timeout", defaultWatchTimeout, "Exit with code 2 after this long; without --until-idle or --after-input, only when this flag is given")
 	return cmd
 }
 
@@ -155,6 +163,9 @@ func watchAndReport(cmd *cobra.Command, c *caller, output, sessionID string, o w
 		return err
 	}
 	if !o.untilIdle {
+		if result.Outcome == outcomeTimeout {
+			return cli.StatusError{Status: fmt.Sprintf("Timed out after %s watching session %s (%s)", o.timeout, sessionID, result.Status), StatusCode: timeoutExitCode}
+		}
 		return nil
 	}
 	return report(cmd, c, output, sessionID, o, result)
@@ -189,7 +200,7 @@ func report(cmd *cobra.Command, c *caller, output, sessionID string, o watchOpti
 func watchSession(ctx context.Context, c *caller, sessionID string, r *Renderer, o watchOptions) (watchResult, error) {
 	result := watchResult{SessionID: sessionID, InputID: o.afterInput}
 	deadline := ctx
-	if o.untilIdle && o.timeout > 0 {
+	if o.timeout > 0 {
 		var cancel context.CancelFunc
 		deadline, cancel = context.WithTimeout(ctx, o.timeout)
 		defer cancel()
