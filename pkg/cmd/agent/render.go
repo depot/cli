@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -253,6 +254,19 @@ func (r *Renderer) keep(view *agentView) {
 	for id, left := range r.unread {
 		if !held[id] || left <= 0 {
 			delete(r.unread, id)
+		}
+	}
+}
+
+// Reread spends the tries a cut reply in the view has left, a retryDelay apart, instead of waiting for later frames.
+func (r *Renderer) Reread(ctx context.Context, view *agentView) {
+	for _, msg := range viewMessages(view) {
+		for r.unread[msg.ID] > 0 && ctx.Err() == nil {
+			select {
+			case <-ctx.Done():
+			case <-time.After(retryDelay):
+				r.keep(view)
+			}
 		}
 	}
 }

@@ -47,15 +47,21 @@ type fakeAgent struct {
 	whole      map[string]*agentv1.GetSessionMessageResponse
 	wholeErrs  []error
 	wholeAsked []string
-	// wholeHangs holds every whole-message read open until its caller gives up.
-	wholeHangs bool
+	// wholeHangs holds that many whole-message reads open until their caller gives up.
+	wholeHangs int
 	// afterFrames runs once a watch call has sent its frames.
 	afterFrames func(call int)
 	mu          sync.Mutex
 }
 
 func (f *fakeAgent) GetSessionMessage(ctx context.Context, req *connect.Request[agentv1.GetSessionMessageRequest]) (*connect.Response[agentv1.GetSessionMessageResponse], error) {
-	if f.wholeHangs {
+	f.mu.Lock()
+	hang := f.wholeHangs > 0
+	if hang {
+		f.wholeHangs--
+	}
+	f.mu.Unlock()
+	if hang {
 		<-ctx.Done()
 		return nil, ctx.Err()
 	}
@@ -610,12 +616,39 @@ func TestRendererReadsAReplyAgainWithoutRestartingTheNextTurnsStream(t *testing.
 func TestWatchTimesOutWhenTheWholeReplyReadOutlastsTheWait(t *testing.T) {
 	const cut = `{"messages": [{"id": "3", "seq": 3, "role": "user", "inputId": "dai_1", "text": "hello"},
 		{"id": "6", "seq": 6, "role": "assistant", "text": "all\n[6 bytes truncated]", "truncatedBytes": 6}], "tools": []}`
-	f := &fakeAgent{wholeHangs: true, frames: [][]*agentv1.WatchSessionResponse{{frame("idle", "c1", cut)}}}
+	f := &fakeAgent{wholeHangs: 100, frames: [][]*agentv1.WatchSessionResponse{{frame("idle", "c1", cut)}}}
 	serveAgent(t, f)
 	out, _, err := runAgent(t, "watch", "das_1", "--after-input", "dai_1", "--timeout", "200ms", "-o", "json")
 	var status cli.StatusError
 	if !errors.As(err, &status) || status.StatusCode != timeoutExitCode || !strings.Contains(out, `"outcome": "timeout"`) || strings.Contains(out, `"reply"`) {
 		t.Fatalf("err = %#v, want a timeout with no reply:\n%s", err, out)
+	}
+}
+
+func TestWatchReadsTheWholeReplyBeforeAWaitThatEndsOnItsFrame(t *testing.T) {
+	retryDelay, wholeMessageTimeout = time.Millisecond, 50*time.Millisecond
+	t.Cleanup(func() { retryDelay, wholeMessageTimeout = time.Second, 30*time.Second })
+	const cut = `{"messages": [{"id": "3", "seq": 3, "role": "user", "inputId": "dai_1", "text": "hello"},
+		{"id": "6", "seq": 6, "role": "assistant", "text": "all\n[6 bytes truncated]", "truncatedBytes": 6}], "tools": []}`
+	down := connect.NewError(connect.CodeUnavailable, errors.New("try again"))
+	for name, f := range map[string]*fakeAgent{
+		"every try of the first read failed": {wholeErrs: []error{down, down, down}},
+		"the first try hung":                 {wholeHangs: 1},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f.whole = map[string]*agentv1.GetSessionMessageResponse{"6": {Role: "assistant", Text: "all of it"}}
+			// One idle frame: the wait ends on it, so no later frame can read the reply again.
+			f.frames = [][]*agentv1.WatchSessionResponse{{frame("idle", "c1", cut)}}
+			serveAgent(t, f)
+			out, errOut, err := runAgent(t, "watch", "das_1", "--after-input", "dai_1", "--until-idle", "-o", "json")
+			if err != nil || !strings.Contains(out, `"reply": "all of it"`) {
+				t.Fatalf("err = %v, want the whole reply:\n%s\n%s", err, out, errOut)
+			}
+			// A hung try leaves the first read its other tries; only a read that used them all is read again.
+			if later := strings.Contains(errOut, "read on a later try"); later != (f.wholeHangs == 0 && len(f.wholeAsked) == 4) {
+				t.Fatalf("read again = %v after reads %v:\n%s", later, f.wholeAsked, errOut)
+			}
+		})
 	}
 }
 

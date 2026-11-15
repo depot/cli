@@ -41,15 +41,13 @@ var (
 // so a session read that keeps failing after the grace wait still counts.
 const maxWatchFailures = 10
 
-// wholeMessageTries and wholeMessageTimeout bound the read of one reply the view cut short.
-const (
-	wholeMessageTries   = 3
-	wholeMessageTimeout = 30 * time.Second
-)
+// wholeMessageTries and wholeMessageTimeout bound the read of one reply the view cut short, and each try of it.
+const wholeMessageTries = 3
 
 var (
-	retryDelay = time.Second
-	streamHeld = 30 * time.Second
+	retryDelay          = time.Second
+	streamHeld          = 30 * time.Second
+	wholeMessageTimeout = 30 * time.Second
 )
 
 type watchOptions struct {
@@ -244,6 +242,10 @@ func watchOnce(ctx context.Context, c *caller, sessionID string, r *Renderer, o 
 		if err != nil {
 			return false, err
 		}
+		if o.untilIdle && msg.GetSession().GetStatus() != "running" {
+			// The wait may end on this frame, and no later one would read a reply this one could not.
+			r.Reread(ctx, view)
+		}
 		// Reading a whole reply can outlast the wait; a frame handled after it ended settles nothing.
 		if ctx.Err() != nil {
 			return false, nil
@@ -287,6 +289,7 @@ func watchOnce(ctx context.Context, c *caller, sessionID string, r *Renderer, o 
 			if view, err = r.Render(again.Msg.GetSession(), again.Msg.GetViewJson()); err != nil {
 				return false, err
 			}
+			r.Reread(ctx, view)
 			if ctx.Err() != nil {
 				return false, nil
 			}
@@ -527,10 +530,11 @@ func replied(msg viewMessage) (done bool, reply, failure string) {
 // wholeMessage reads the full text of a message the view cut short. Past the API's own limit the text is still cut,
 // and ends in the same note the view puts there.
 func wholeMessage(ctx context.Context, c *caller, sessionID, messageID string) (string, error) {
-	ctx, cancel := context.WithTimeout(ctx, wholeMessageTimeout)
-	defer cancel()
 	for failures := 1; ; failures++ {
-		resp, err := c.client.GetSessionMessage(ctx, authed(c, &agentv1.GetSessionMessageRequest{SessionId: sessionID, MessageId: messageID}))
+		// Each try has its own time, so one that hangs leaves the others theirs.
+		try, cancel := context.WithTimeout(ctx, wholeMessageTimeout)
+		resp, err := c.client.GetSessionMessage(try, authed(c, &agentv1.GetSessionMessageRequest{SessionId: sessionID, MessageId: messageID}))
+		cancel()
 		if err == nil {
 			text := resp.Msg.GetText()
 			if cut := resp.Msg.GetTruncatedBytes(); cut > 0 {
