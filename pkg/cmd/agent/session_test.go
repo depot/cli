@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -185,8 +186,58 @@ func TestTurnOutOfACutView(t *testing.T) {
 	// A view that shares nothing with what was seen may have dropped a later input along with this one.
 	lost := &turn{afterInput: "dai_1"}
 	settle(lost, "running", asked+","+step)
-	if done, got, failure := settle(lost, "idle", reply); !done || got != "" || failure != "the session moved past the input before its reply was seen" {
-		t.Fatalf("settled = %v, %q, %q on a view that no longer connects to the turn", done, got, failure)
+	if done, got, failure := settle(lost, "idle", reply); done || lost.doubt != failedLost {
+		t.Fatalf("settled = %v, %q, %q with doubt %q on a view that no longer connects to the turn", done, got, failure, lost.doubt)
+	}
+}
+
+// Every reading of a view that shows nothing of the awaited turn, by what the wait knew and what the session is doing.
+func TestTurnWithNothingOfItInTheView(t *testing.T) {
+	seq := func(n int64) *int64 { return &n }
+	const (
+		work  = `{"id": "40", "seq": 40, "role": "tool", "text": "ok"}, {"id": "41", "seq": 41, "role": "assistant", "text": "done"}`
+		input = `{"id": "39", "seq": 39, "role": "user", "text": "next"}, ` + work
+	)
+	followed := func() *turn { return &turn{afterInput: "dai_1", last: "9", lastSeq: 9} }
+	passed := func() *turn { return &turn{afterInput: "dai_1", base: seq(9)} }
+	framed := func() *turn { return &turn{afterInput: "dai_1", base: seq(41), framed: true} }
+	shown := func() *turn { return &turn{afterInput: "dai_1", base: seq(41)} }
+	for _, tc := range []struct {
+		name             string
+		turn             func() *turn
+		status, messages string
+		queued           int
+		failure, doubt   string
+	}{
+		{"followed, still running", followed, "running", work, 0, "", ""},
+		{"followed, starting", followed, "starting", work, 0, "", ""},
+		{"followed, idle", followed, "idle", work, 0, "", failedLost},
+		{"followed, waiting for input", followed, "waiting_input", work, 0, "", failedLost},
+		{"followed, idle with an input queued", followed, "idle", work, 1, "", ""},
+		{"followed, a later input running", followed, "running", input, 0, failedLost, ""},
+		{"followed, a later input answered", followed, "idle", input, 0, failedLost, ""},
+		{"followed, session failed", followed, "failed", work, 0, "the session failed", ""},
+		{"followed, session archived", followed, "archived", work, 0, "the session was archived", ""},
+		{"never seen and passed, running", passed, "running", work, 0, "", ""},
+		{"never seen and passed, idle", passed, "idle", work, 0, "", failedLost},
+		{"never seen and passed, another input shows", passed, "running", input, 0, "", ""},
+		{"never seen and passed, idle with an input queued", passed, "idle", work, 1, "", ""},
+		{"never seen, base from a frame, idle", framed, "idle", work, 0, "", failedUnseen},
+		{"never seen, base from a frame, running", framed, "running", work, 0, "", ""},
+		{"never seen, base from the caller, idle", shown, "idle", work, 0, "", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var view agentView
+			raw := fmt.Sprintf(`{"messages": [%s], "truncated": true, "queuedCount": %d}`, tc.messages, tc.queued)
+			if err := json.Unmarshal([]byte(raw), &view); err != nil {
+				t.Fatal(err)
+			}
+			waiting := tc.turn()
+			done, reply, failure := waiting.settled(tc.status, &view)
+			if done != (tc.failure != "") || reply != "" || failure != tc.failure || waiting.doubt != tc.doubt {
+				t.Fatalf("settled = %v, %q, %q with doubt %q; want failure %q, doubt %q", done, reply, failure, waiting.doubt, tc.failure, tc.doubt)
+			}
+		})
 	}
 }
 

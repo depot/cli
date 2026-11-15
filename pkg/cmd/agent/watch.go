@@ -344,6 +344,13 @@ func (t *turn) settled(status string, view *agentView) (done bool, reply, failur
 	if t.afterInput != "" && !input {
 		defer t.mark(view)
 	}
+	var doubt string
+	if t.afterInput != "" && view != nil && at < 0 {
+		var gone bool
+		if gone, doubt = t.lost(status, view); gone {
+			return true, "", failedLost
+		}
+	}
 	// A reply the input already has stands, whatever happened to the session afterwards.
 	if msg, failure := t.answered(view, at, input, status == "archived" || status == "failed"); msg != nil {
 		return replied(*msg)
@@ -371,16 +378,9 @@ func (t *turn) settled(status string, view *agentView) (done bool, reply, failur
 			return false, "", ""
 		}
 	}
-	// The awaited input has not shown yet, so the session is idle from an earlier turn,
-	// unless the view has already dropped the input's whole turn.
+	// The view shows nothing of the awaited turn, so the session is idle from another one.
 	if t.afterInput != "" && at < 0 {
-		switch {
-		case view.QueuedCount > 0:
-		case t.passed(view):
-			t.doubt = failedLost
-		case view.Truncated && (t.base == nil || t.framed):
-			t.doubt = failedUnseen
-		}
+		t.doubt = doubt
 		return false, "", ""
 	}
 	sent := -1
@@ -406,6 +406,28 @@ func (t *turn) settled(status string, view *agentView) (done bool, reply, failur
 		return false, "", ""
 	}
 	return replied(view.Messages[last])
+}
+
+// lost is the one place that reads a view showing nothing of the awaited turn. gone: the turn was being followed
+// and an input shows, so it is over with its reply cut away. Otherwise doubt is why the turn counts as failed if
+// a second look at an idle session shows the same: a session still working may yet show the turn, or its end.
+func (t *turn) lost(status string, view *agentView) (gone bool, doubt string) {
+	followed := t.last != ""
+	if followed {
+		for _, msg := range view.Messages {
+			if msg.Role == "user" {
+				return true, ""
+			}
+		}
+	}
+	switch {
+	case status != "idle" && status != "waiting_input", view.QueuedCount > 0:
+	case followed, t.passed(view):
+		doubt = failedLost
+	case view.Truncated && (t.base == nil || t.framed):
+		doubt = failedUnseen
+	}
+	return false, doubt
 }
 
 // place finds the awaited turn in the view: the index of the input's own message, or once that has left
@@ -435,9 +457,6 @@ func (t *turn) answered(view *agentView, at int, input, closed bool) (reply *vie
 		return nil, ""
 	}
 	if at < 0 {
-		if t.last != "" {
-			return nil, failedLost
-		}
 		return nil, ""
 	}
 	// The input's own message cannot be its reply; the newest message seen after it can.
