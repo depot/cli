@@ -40,6 +40,11 @@ type viewMessage struct {
 	ToolCalls []viewToolCall `json:"toolCalls"`
 }
 
+// outside reports whether a person or another system sent the message, rather than the session's own subagent.
+func (m viewMessage) outside() bool {
+	return m.Role == "user" && m.Sender.Kind != "subagent"
+}
+
 // viewSender says who wrote a user message; the kind "subagent" is the session's own subagent reporting back.
 type viewSender struct {
 	Kind string `json:"kind"`

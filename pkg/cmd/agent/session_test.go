@@ -292,6 +292,8 @@ func TestTurnKeepsWaitingPastASubagentReport(t *testing.T) {
 	}{
 		"still working after the report": {"running", asked + "," + work + "," + report, "", false},
 		"replied after the report":       {"idle", asked + "," + work + "," + report + "," + reply, "All done.", true},
+		"report after the reply":         {"idle", asked + "," + reply + "," + report, "All done.", true},
+		"report, then another input":     {"running", asked + "," + reply + "," + report + `, {"id": "8", "role": "user", "inputId": "dai_2", "text": "next"}`, "All done.", true},
 	} {
 		t.Run(name, func(t *testing.T) {
 			var view agentView
