@@ -39,6 +39,8 @@ func TestOverlapText(t *testing.T) {
 			"  mr_4: Six (six into main)\n    a\n    b\n    c\n    d\n    e\n    and 1 more file\n" +
 			"  and 1 more merge request\n" +
 			"Some open merge requests could not be compared, so others may also touch these files.\n"},
+		{name: "omitted requests are counted when none is listed", overlaps: &code.MergeRequestOverlaps{OmittedMergeRequestCount: 3},
+			want: "Also touching these files: 3 other open merge requests\n  not listed here\n"},
 		{name: "incomplete with nothing found", overlaps: &code.MergeRequestOverlaps{Incomplete: true},
 			want: "Some open merge requests could not be compared, so others may also touch these files.\n"},
 		{name: "terminal control characters are stripped", overlaps: &code.MergeRequestOverlaps{MergeRequests: []*code.MergeRequestOverlap{
@@ -143,5 +145,37 @@ func TestOnlyViewAsksForOverlaps(t *testing.T) {
 	})
 	if _, err := execute(t, "edit", "--title", "Renamed"); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestCreateAttachingToExistingMRPrintsOverlaps(t *testing.T) {
+	head := checkout(t)
+	writeAsset(t, "asset.png", pngMagic+"asset")
+	mux := apiServer(t)
+	existing := fixture(head)
+	asked := 0
+	rpc(t, mux, codev1beta2connect.MergeRequestServiceGetMergeRequestProcedure, func(req *code.GetMergeRequestRequest) (*code.GetMergeRequestResponse, error) {
+		if !req.IncludeOverlaps {
+			return &code.GetMergeRequestResponse{MergeRequest: existing}, nil
+		}
+		asked++
+		return &code.GetMergeRequestResponse{MergeRequest: existing, Overlaps: oneOverlap()}, nil
+	})
+	newAssetAPI(t, mux)
+	rpc(t, mux, codev1beta2connect.MergeRequestServiceUpdateMergeRequestProcedure, func(req *code.UpdateMergeRequestRequest) (*code.UpdateMergeRequestResponse, error) {
+		existing.Body = req.GetBody()
+		return &code.UpdateMergeRequestResponse{MergeRequest: existing}, nil
+	})
+	args := []string{"create", "--title", "Ignored", "--attach", "asset.png"}
+	// The first run adds the attachment; the second finds it already there. Both print the overlaps.
+	for run := 1; run <= 2; run++ {
+		out, err := execute(t, args...)
+		if err != nil || asked != 2*run-1 || !strings.HasSuffix(out, "\n\n"+oneOverlapText) {
+			t.Errorf("run %d: asked=%d out=%q err=%v", run, asked, out, err)
+		}
+		out, err = execute(t, append(args, "--json")...)
+		if err != nil || asked != 2*run || jsonOverlapID(t, out[strings.Index(out, "{"):]) != "mr_2" {
+			t.Errorf("run %d --json: asked=%d out=%q err=%v", run, asked, out, err)
+		}
 	}
 }

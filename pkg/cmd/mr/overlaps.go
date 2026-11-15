@@ -28,8 +28,10 @@ func overlapText(overlaps *code.MergeRequestOverlaps) string {
 			fmt.Fprintf(&b, "    and %s\n", count(rest, "more file"))
 		}
 	}
-	if rest := overlaps.GetOmittedMergeRequestCount(); rest > 0 && len(found) > 0 {
-		fmt.Fprintf(&b, "  and %s\n", count(int(rest), "more merge request"))
+	if rest := int(overlaps.GetOmittedMergeRequestCount()); rest > 0 && len(found) > 0 {
+		fmt.Fprintf(&b, "  and %s\n", count(rest, "more merge request"))
+	} else if rest > 0 {
+		b.WriteString("  not listed here\n")
 	}
 	if overlaps.GetIncomplete() {
 		b.WriteString("Some open merge requests could not be compared, so others may also touch these files.\n")

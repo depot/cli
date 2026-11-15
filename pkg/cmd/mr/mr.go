@@ -135,7 +135,12 @@ func (o *options) get(cmd *cobra.Command, name string) (*code.GetMergeRequestRes
 
 // getOpen finds only the open merge request of a branch: a closed or merged one is not_found.
 func (o *options) getOpen(cmd *cobra.Command, name string) (*code.GetMergeRequestResponse, error) {
-	resp, err := o.fetch(cmd, &code.GetMergeRequestRequest{Lookup: o.head(name)})
+	return o.findOpen(cmd, name, false)
+}
+
+// findOpen is getOpen, plus overlaps when asked.
+func (o *options) findOpen(cmd *cobra.Command, name string, overlaps bool) (*code.GetMergeRequestResponse, error) {
+	resp, err := o.fetch(cmd, &code.GetMergeRequestRequest{Lookup: o.head(name), IncludeOverlaps: overlaps})
 	if err == nil && resp.MergeRequest.State != code.MergeRequest_STATE_OPEN {
 		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("no open merge request for branch %q", name))
 	}
@@ -284,16 +289,7 @@ func (o *options) createWith(cmd *cobra.Command, req *code.CreateMergeRequestReq
 	if !strings.Contains(resp.MergeRequest.Body, refs) {
 		return fmt.Errorf("merge request %s was opened for this branch during the upload and the attachments were not added; run the command again", resp.MergeRequest.Id)
 	}
-	if o.json {
-		return o.writeJSON(cmd, resp)
-	}
-	if err := writeMR(cmd, resp.MergeRequest); err != nil {
-		return err
-	}
-	if text := overlapText(resp.Overlaps); text != "" {
-		_, err = fmt.Fprintf(cmd.OutOrStdout(), "\n%s", text)
-	}
-	return err
+	return o.writeCreated(cmd, resp)
 }
 
 // attachToExisting appends attachments to the description of the branch's open
@@ -310,7 +306,7 @@ func (o *options) attachToExisting(cmd *cobra.Command, mr *code.MergeRequest, as
 // upload of the same files, when uploaded are new copies of them.
 func (o *options) appendAttachments(cmd *cobra.Command, mr *code.MergeRequest, uploaded, earlier []attachment) error {
 	// Uploads take a while; append to the description as it is now, not as it was before them.
-	current, err := o.getOpen(cmd, mr.HeadRef)
+	current, err := o.findOpen(cmd, mr.HeadRef, true)
 	if err != nil && connect.CodeOf(err) != connect.CodeNotFound {
 		return fmt.Errorf("attach to merge request %s: %w", mr.Id, err)
 	}
@@ -327,7 +323,7 @@ func (o *options) appendAttachments(cmd *cobra.Command, mr *code.MergeRequest, u
 	}
 	if body == current.MergeRequest.Body {
 		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Merge request %s already has these attachments; nothing to add\n", mr.Id)
-		return o.writeCreated(cmd, current.MergeRequest)
+		return o.writeCreated(cmd, &code.CreateMergeRequestResponse{MergeRequest: current.MergeRequest, Overlaps: current.Overlaps})
 	}
 	resp, err := api.NewMergeRequestClient().UpdateMergeRequest(cmd.Context(), request(o, &code.UpdateMergeRequestRequest{
 		MergeRequestId: mr.Id, Body: &body,
@@ -335,14 +331,22 @@ func (o *options) appendAttachments(cmd *cobra.Command, mr *code.MergeRequest, u
 	if err != nil {
 		return fmt.Errorf("attach to merge request %s: %w", mr.Id, err)
 	}
-	return o.writeCreated(cmd, resp.Msg.MergeRequest)
+	return o.writeCreated(cmd, &code.CreateMergeRequestResponse{MergeRequest: resp.Msg.MergeRequest, Overlaps: current.Overlaps})
 }
 
-func (o *options) writeCreated(cmd *cobra.Command, mr *code.MergeRequest) error {
+// writeCreated prints what create produced: the merge request, then any others touching the same files.
+func (o *options) writeCreated(cmd *cobra.Command, created *code.CreateMergeRequestResponse) error {
 	if o.json {
-		return o.writeJSON(cmd, &code.CreateMergeRequestResponse{MergeRequest: mr})
+		return o.writeJSON(cmd, created)
 	}
-	return writeMR(cmd, mr)
+	if err := writeMR(cmd, created.MergeRequest); err != nil {
+		return err
+	}
+	if text := overlapText(created.Overlaps); text != "" {
+		_, err := fmt.Fprintf(cmd.OutOrStdout(), "\n%s", text)
+		return err
+	}
+	return nil
 }
 
 func newView(o *options) *cobra.Command {
