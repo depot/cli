@@ -70,6 +70,7 @@ type Renderer struct {
 	w          *safeWriter
 	seen       map[string]bool
 	lastStatus string
+	newest     int64
 	// streamed is the prefix of the partial response already printed,
 	// and open means the cursor is still on its line.
 	// broken means another line cut into it, so it cannot be continued.
@@ -112,13 +113,23 @@ func safeText(s string) string {
 // A running status prints before the view, so it cannot cut into the streamed partial,
 // and any other status after it, so a settled status reads after the turn that produced it.
 func (r *Renderer) Render(session *agentv1.DepotAgentSession, viewJSON string) (*agentView, error) {
+	view, err := decodeView(viewJSON)
+	if err != nil {
+		return nil, err
+	}
+	// A snapshot older than one already printed, as a stream frame behind a direct read is, has nothing to add.
+	if n := len(viewMessages(view)); n > 0 {
+		if view.Messages[n-1].Seq < r.newest {
+			return view, nil
+		}
+		r.newest = view.Messages[n-1].Seq
+	}
 	status := session.GetStatus()
 	if status == "running" {
 		r.status(status)
 	}
-	view, err := r.renderView(viewJSON)
-	if err != nil {
-		return nil, err
+	if view != nil {
+		r.renderView(view)
 	}
 	if session != nil {
 		r.status(status)
@@ -136,7 +147,7 @@ func (r *Renderer) status(status string) {
 	}
 }
 
-func (r *Renderer) renderView(viewJSON string) (*agentView, error) {
+func decodeView(viewJSON string) (*agentView, error) {
 	if viewJSON == "" {
 		return nil, nil
 	}
@@ -144,13 +155,17 @@ func (r *Renderer) renderView(viewJSON string) (*agentView, error) {
 	if err := json.Unmarshal([]byte(viewJSON), &view); err != nil {
 		return nil, fmt.Errorf("decode session view: %w", err)
 	}
+	return &view, nil
+}
+
+func (r *Renderer) renderView(view *agentView) {
 	if view.Truncated && r.once("truncated") {
 		r.line("(older messages omitted)")
 	}
-	r.skipOlder(&view)
+	r.skipOlder(view)
 	if r.from != "" {
 		// Everything in this view belongs to turns before the awaited input.
-		return &view, nil
+		return
 	}
 	for _, msg := range view.Messages {
 		if msg.ID != "" && r.once("message:"+msg.ID) {
@@ -173,7 +188,6 @@ func (r *Renderer) renderView(viewJSON string) (*agentView, error) {
 		at := time.UnixMilli(view.Retry.At).Format(time.TimeOnly)
 		r.line("(retrying at %s: %s)", at, truncate(oneLine(view.Retry.Error)))
 	}
-	return &view, nil
 }
 
 // From starts the transcript at the message of this input, leaving out the session's earlier turns.

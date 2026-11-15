@@ -573,13 +573,17 @@ func TestWatchGivesAnInputOutOfTheCutViewTimeToBePickedUp(t *testing.T) {
 		const turn = `{"id": "42", "seq": 42, "role": "user", "text": "hi", "inputId": "dai_1"}, {"id": "43", "seq": 43, "role": "tool", "text": "ok"}`
 		const working = `{"messages": [` + turn + `], "truncated": true}`
 		const replied = `{"messages": [` + turn + `, {"id": "44", "seq": 44, "role": "assistant", "text": "hello"}], "truncated": true}`
+		const stale = `{"messages": [{"id": "40", "seq": 40, "role": "assistant", "text": "earlier"}, {"id": "41", "seq": 41, "role": "assistant", "text": "done"}], "truncated": true}`
 		f := &fakeAgent{holdWatch: true, got: &agentv1.GetSessionResponse{Session: &agentv1.DepotAgentSession{Status: "running"}, ViewJson: working}}
 		// The stream still holds the frame from before the input showed when the read has already seen its turn.
-		f.frames = [][]*agentv1.WatchSessionResponse{{frame("idle", "c1", gone), frame("running", "c2", gone), frame("idle", "c3", replied)}}
+		f.frames = [][]*agentv1.WatchSessionResponse{{frame("idle", "c1", gone), frame("idle", "c2", stale), frame("idle", "c3", replied)}}
 		serveAgent(t, f)
 		stdout, _, err := runAgent(t, "watch", "das_1", "--after-input", "dai_1", "--timeout", "2s")
 		if err != nil || !strings.Contains(stdout, "hello") {
 			t.Fatalf("err = %v, stdout = %q, want the reply after the stale frame", err, stdout)
+		}
+		if strings.Contains(stdout, "earlier") || strings.Count(stdout, "[idle]") != 2 {
+			t.Fatalf("stdout = %q, want nothing printed from the stale frame", stdout)
 		}
 	})
 	t.Run("reads that fail now and then", func(t *testing.T) {
