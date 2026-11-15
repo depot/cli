@@ -222,7 +222,8 @@ func newLogs() *cobra.Command {
 		Short: "Print an agent session's transcript",
 		Long: `Print the session's recent messages and tool calls, then its status.
 
-The transcript is the API's bounded view of the session: long messages and old history are cut.`,
+The transcript is the API's bounded view of the session: old history is cut, and so are long tool results. A long
+reply of the agent is read whole; -o json prints the view as the API returns it.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c, err := f.caller(cmd)
@@ -234,7 +235,10 @@ The transcript is the API's bounded view of the session: long messages and old h
 				return err
 			}
 			if f.output == "text" {
-				_, err := NewRenderer(cmd.OutOrStdout()).Render(resp.Msg.GetSession(), resp.Msg.GetViewJson())
+				r := NewRenderer(cmd.OutOrStdout()).Whole(func(messageID string) (string, error) {
+					return wholeMessage(cmd.Context(), c, args[0], messageID)
+				})
+				_, err := r.Render(resp.Msg.GetSession(), resp.Msg.GetViewJson())
 				return err
 			}
 			session, err := protojson.Marshal(resp.Msg.GetSession())

@@ -41,9 +41,13 @@ var (
 // so a session read that keeps failing after the grace wait still counts.
 const maxWatchFailures = 10
 
+// wholeMessageTries and wholeMessageTimeout bound the read of one reply the view cut short, and each try of it.
+const wholeMessageTries = 3
+
 var (
-	retryDelay = time.Second
-	streamHeld = 30 * time.Second
+	retryDelay          = time.Second
+	streamHeld          = 30 * time.Second
+	wholeMessageTimeout = 30 * time.Second
 )
 
 type watchOptions struct {
@@ -184,6 +188,7 @@ func watchSession(ctx context.Context, c *caller, sessionID string, r *Renderer,
 		deadline, cancel = context.WithTimeout(ctx, o.timeout)
 		defer cancel()
 	}
+	r.Whole(func(messageID string) (string, error) { return wholeMessage(deadline, c, sessionID, messageID) })
 	t := &turn{afterInput: o.afterInput, base: o.base}
 	cursor, failures := "", 0
 	for {
@@ -237,6 +242,10 @@ func watchOnce(ctx context.Context, c *caller, sessionID string, r *Renderer, o 
 		if err != nil {
 			return false, err
 		}
+		// Reading a whole reply can outlast the wait; a frame handled after it ended settles nothing.
+		if ctx.Err() != nil {
+			return false, nil
+		}
 		// The cursor moves only once the frame is fully handled, so a failed read below replays the frame.
 		advance := func() {
 			if msg.GetCursor() != "" {
@@ -276,9 +285,18 @@ func watchOnce(ctx context.Context, c *caller, sessionID string, r *Renderer, o 
 			if view, err = r.Render(again.Msg.GetSession(), again.Msg.GetViewJson()); err != nil {
 				return false, err
 			}
+			if ctx.Err() != nil {
+				return false, nil
+			}
 			result.Status = again.Msg.GetSession().GetStatus()
 			if done, reply, failure = t.settled(result.Status, view); !done && t.doubt != "" && final {
 				done, failure = true, t.doubt
+			}
+		}
+		if done && failure == "" {
+			// The wait ends here, so no later frame would read a reply this one could not.
+			if reply = r.Recover(ctx, view, t.said, reply); ctx.Err() != nil {
+				return false, nil
 			}
 		}
 		advance()
@@ -311,6 +329,8 @@ type turn struct {
 	// doubt is why the turn counts as failed if a second look still shows what the last frame did:
 	// the turn over without a reply at its end, as an interrupt leaves it, or gone from the view.
 	doubt string
+	// said is the id of the message the last settled gave as the reply.
+	said string
 	// unseen is when the wait first found the input missing from an idle session's cut view.
 	unseen time.Time
 }
@@ -340,7 +360,7 @@ func (t *turn) passed(view *agentView) bool {
 
 // settled reports whether the wait is over, with the agent's reply, or with why the turn counts as failed.
 func (t *turn) settled(status string, view *agentView) (done bool, reply, failure string) {
-	t.doubt = ""
+	t.doubt, t.said = "", ""
 	// A read made beside the stream can be ahead of frames the stream has yet to deliver; those say nothing new.
 	if n := len(viewMessages(view)); t.last != "" && n > 0 && view.Messages[n-1].Seq < t.lastSeq {
 		return false, "", ""
@@ -358,6 +378,7 @@ func (t *turn) settled(status string, view *agentView) (done bool, reply, failur
 	}
 	// A reply the input already has stands, whatever happened to the session afterwards.
 	if msg, failure := t.answered(view, at, input, status == "archived" || status == "failed"); msg != nil {
+		t.said = msg.ID
 		return replied(*msg)
 	} else if failure != "" {
 		return true, "", failure
@@ -410,6 +431,7 @@ func (t *turn) settled(status string, view *agentView) (done bool, reply, failur
 		}
 		return false, "", ""
 	}
+	t.said = view.Messages[last].ID
 	return replied(view.Messages[last])
 }
 
@@ -510,13 +532,45 @@ func replied(msg viewMessage) (done bool, reply, failure string) {
 	return true, msg.Text, ""
 }
 
+// wholeMessage reads the full text of a message the view cut short. Past the API's own limit the text is still cut,
+// and ends in the same note the view puts there.
+func wholeMessage(ctx context.Context, c *caller, sessionID, messageID string) (string, error) {
+	for failures := 1; ; failures++ {
+		// Each try has its own time, so one that hangs leaves the others theirs.
+		try, cancel := context.WithTimeout(ctx, wholeMessageTimeout)
+		resp, err := c.client.GetSessionMessage(try, authed(c, &agentv1.GetSessionMessageRequest{SessionId: sessionID, MessageId: messageID}))
+		cancel()
+		if err == nil {
+			text := resp.Msg.GetText()
+			if cut := resp.Msg.GetTruncatedBytes(); cut > 0 {
+				text += fmt.Sprintf("\n[%d bytes truncated]", cut)
+			}
+			return text, nil
+		}
+		if !retryable(err) || failures >= wholeMessageTries {
+			return "", err
+		}
+		select {
+		case <-ctx.Done():
+			return "", err
+		case <-time.After(retryDelay):
+		}
+	}
+}
+
 // retryable reports whether err is a transient RPC failure.
 // Any other error, such as a view that fails to decode, would fail the same way again.
 func retryable(err error) bool {
-	switch connect.CodeOf(err) {
+	var connectErr *connect.Error
+	if !errors.As(err, &connectErr) {
+		return false
+	}
+	switch connectErr.Code() {
 	case connect.CodeUnavailable, connect.CodeDeadlineExceeded, connect.CodeUnknown, connect.CodeInternal:
-		var connectErr *connect.Error
-		return errors.As(err, &connectErr)
+		return true
+	case connect.CodeInvalidArgument:
+		// A connection that ends under an open stream, as with a GOAWAY, is reported by the client as a message cut short.
+		return !connect.IsWireError(err) && strings.Contains(connectErr.Message(), "incomplete envelope")
 	}
 	return false
 }

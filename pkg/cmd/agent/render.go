@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -38,6 +39,8 @@ type viewMessage struct {
 	Summary   string         `json:"summary"`
 	IsError   bool           `json:"isError"`
 	ToolCalls []viewToolCall `json:"toolCalls"`
+	// TruncatedBytes is how much of the message the view left out of Text, which then ends in a note saying so.
+	TruncatedBytes int64 `json:"truncatedBytes"`
 }
 
 // outside reports whether a person or another system sent the message, rather than the session's own subagent.
@@ -90,6 +93,11 @@ type Renderer struct {
 	broken   bool
 	// from is the input the transcript starts at; everything older is skipped until it shows up.
 	from string
+	// whole reads a message's full text by id, and full keeps each one read while the view still holds it.
+	// unread counts the frames left to read again a message whose read failed in a way that may pass.
+	whole  func(messageID string) (string, error)
+	full   map[string]string
+	unread map[string]int
 }
 
 func NewRenderer(w io.Writer) *Renderer {
@@ -128,12 +136,18 @@ func (r *Renderer) Render(session *agentv1.DepotAgentSession, viewJSON string) (
 	if err != nil {
 		return nil, err
 	}
+	for i := range viewMessages(view) {
+		if text, ok := r.full[view.Messages[i].ID]; ok {
+			view.Messages[i].Text = text
+		}
+	}
 	// A snapshot older than one already printed, as a stream frame behind a direct read is, has nothing to add.
 	if n := len(viewMessages(view)); n > 0 {
 		if view.Messages[n-1].Seq < r.newest {
 			return view, nil
 		}
 		r.newest = view.Messages[n-1].Seq
+		r.keep(view)
 	}
 	status := session.GetStatus()
 	if status == "running" {
@@ -178,9 +192,16 @@ func (r *Renderer) renderView(view *agentView) {
 		// Everything in this view belongs to turns before the awaited input.
 		return
 	}
-	for _, msg := range view.Messages {
-		if msg.ID != "" && r.once("message:"+msg.ID) {
-			r.renderMessage(msg)
+	for i := range view.Messages {
+		if msg := &view.Messages[i]; msg.ID != "" && r.once("message:"+msg.ID) {
+			err := r.fill(msg)
+			r.renderMessage(*msg)
+			if err != nil {
+				r.line("(the rest of this reply could not be read: %s)", truncate(oneLine(err.Error())))
+				if retryable(err) {
+					r.unread[msg.ID] = wholeMessageTries
+				}
+			}
 		}
 	}
 	for _, tool := range view.Tools {
@@ -199,6 +220,73 @@ func (r *Renderer) renderView(view *agentView) {
 		at := time.UnixMilli(view.Retry.At).Format(time.TimeOnly)
 		r.line("(retrying at %s: %s)", at, truncate(oneLine(view.Retry.Error)))
 	}
+}
+
+// Whole makes the renderer read the full text of a reply the view cut short, for the transcript and for the
+// view Render returns. A reply is an assistant message that calls no tool; nothing else is read.
+func (r *Renderer) Whole(read func(messageID string) (string, error)) *Renderer {
+	r.whole, r.full, r.unread = read, map[string]string{}, map[string]int{}
+	return r
+}
+
+// keep forgets the messages the view no longer holds, so a long watch does not keep every reply it read,
+// and reads again a reply that an earlier frame could not.
+func (r *Renderer) keep(view *agentView) {
+	held := make(map[string]bool, len(view.Messages))
+	for i := range view.Messages {
+		msg := &view.Messages[i]
+		held[msg.ID] = true
+		if r.unread[msg.ID] == 0 {
+			continue
+		}
+		if r.unread[msg.ID]--; r.fill(msg) == nil {
+			delete(r.unread, msg.ID)
+			// Printed as plain lines: a response streaming now is another turn's, and keeps its place.
+			r.line("(the whole reply, read on a later try)")
+			r.line("%s", strings.TrimSpace(msg.Text))
+		}
+	}
+	for id := range r.full {
+		if !held[id] {
+			delete(r.full, id)
+		}
+	}
+	for id, left := range r.unread {
+		if !held[id] || left <= 0 {
+			delete(r.unread, id)
+		}
+	}
+}
+
+// Recover reads again the reply with this id if a failed read left it cut, with the tries it has left, and returns its text.
+func (r *Renderer) Recover(ctx context.Context, view *agentView, id, reply string) string {
+	for i := range viewMessages(view) {
+		msg := &view.Messages[i]
+		if msg.ID != id {
+			continue
+		}
+		for r.unread[id] > 0 && ctx.Err() == nil {
+			select {
+			case <-ctx.Done():
+			case <-time.After(retryDelay):
+				r.keep(view)
+			}
+		}
+		return msg.Text
+	}
+	return reply
+}
+
+func (r *Renderer) fill(msg *viewMessage) error {
+	if r.whole == nil || msg.TruncatedBytes <= 0 || msg.Role != "assistant" || msg.IsError || len(msg.ToolCalls) > 0 {
+		return nil
+	}
+	text, err := r.whole(msg.ID)
+	if err != nil {
+		return err
+	}
+	r.full[msg.ID], msg.Text = text, text
+	return nil
 }
 
 // From starts the transcript at the message of this input, leaving out the session's earlier turns.
