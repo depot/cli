@@ -83,10 +83,10 @@ func TestResolveCacheAuthKeepsCacheToken(t *testing.T) {
 	}
 }
 
-// A Dispatch sandbox sets only DEPOT_API_TOKEN_URL: an explicit token still wins, and a failed fetch names the variable.
+// In a Dispatch sandbox only session commands use the turn token: every other command keeps what it resolved before.
 func TestAPITokenURL(t *testing.T) {
 	t.Setenv("DEPOT_JIT_TOKEN", "")
-	t.Setenv("DEPOT_CACHE_TOKEN", "")
+	t.Setenv("DEPOT_CACHE_TOKEN", "cache-token")
 	viper.Set("api_token", "")
 	fail := false
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -97,31 +97,45 @@ func TestAPITokenURL(t *testing.T) {
 		fmt.Fprint(w, `{"value":"turn-svid"}`)
 	}))
 	t.Cleanup(server.Close)
-	previous := runTokenSource
-	runTokenSource = func() *runtoken.Source { return runtoken.New(runtoken.EnvAPIURL, server.URL) }
-	t.Cleanup(func() { runTokenSource = previous })
+	previousRun, previousTurn := runTokenSource, turnTokenSource
+	runTokenSource = func() *runtoken.Source { return nil }
+	turnTokenSource = func() *runtoken.Source { return runtoken.New(runtoken.EnvAPIURL, server.URL) }
+	t.Cleanup(func() { runTokenSource, turnTokenSource = previousRun, previousTurn })
+	ctx := context.Background()
 
 	t.Setenv("DEPOT_TOKEN", "")
-	if got, _ := ResolveOrgAuth(context.Background(), ""); got != "turn-svid" {
-		t.Fatalf("ResolveOrgAuth = %q, want the turn token", got)
+	if got, _ := ResolveAgentAuth(ctx, ""); got != "turn-svid" {
+		t.Fatalf("ResolveAgentAuth = %q, want the turn token ahead of the cache token", got)
 	}
-	if got, _ := ResolveOrgAuth(context.Background(), "flag-token"); got != "flag-token" {
-		t.Fatalf("ResolveOrgAuth with a flag = %q", got)
+	if got, _ := ResolveOrgAuth(ctx, ""); got != "cache-token" {
+		t.Fatalf("ResolveOrgAuth = %q, want the cache token as before", got)
+	}
+	if got, _ := ResolveProjectAuth(ctx, ""); got != "cache-token" {
+		t.Fatalf("ResolveProjectAuth = %q, want the cache token as before", got)
+	}
+	if got, _ := ResolveAgentAuth(ctx, "flag-token"); got != "flag-token" {
+		t.Fatalf("ResolveAgentAuth with a flag = %q", got)
 	}
 	t.Setenv("DEPOT_TOKEN", "env-token")
-	if got, _ := ResolveOrgAuth(context.Background(), ""); got != "env-token" {
-		t.Fatalf("ResolveOrgAuth with DEPOT_TOKEN = %q", got)
+	if got, _ := ResolveAgentAuth(ctx, ""); got != "env-token" {
+		t.Fatalf("ResolveAgentAuth with DEPOT_TOKEN = %q", got)
 	}
-
 	t.Setenv("DEPOT_TOKEN", "")
+	withRunTokenServer(t)
+	if got, _ := ResolveAgentAuth(ctx, ""); got != "run-svid" {
+		t.Fatalf("ResolveAgentAuth with both URLs = %q, want the run token", got)
+	}
+	runTokenSource = func() *runtoken.Source { return nil }
+
 	fail = true
+	t.Setenv("DEPOT_CACHE_TOKEN", "")
 	stderr := os.Stderr
 	read, write, err := os.Pipe()
 	if err != nil {
 		t.Fatal(err)
 	}
 	os.Stderr = write
-	got, _ := ResolveOrgAuth(context.Background(), "")
+	got, _ := ResolveAgentAuth(ctx, "")
 	os.Stderr = stderr
 	write.Close()
 	printed, _ := io.ReadAll(read)

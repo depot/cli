@@ -36,7 +36,7 @@ func (f *sessionFlags) caller(cmd *cobra.Command) (*caller, error) {
 	if f.output != "text" && f.output != "json" {
 		return nil, fmt.Errorf("unsupported output format %q", f.output)
 	}
-	token, err := helpers.ResolveOrgAuth(cmd.Context(), f.token)
+	token, err := helpers.ResolveAgentAuth(cmd.Context(), f.token)
 	if err != nil {
 		return nil, err
 	}

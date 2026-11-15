@@ -162,7 +162,7 @@ func TestProjectAutoscalingValidationBeforeAuth(t *testing.T) {
 	previous := viper.GetString("api_token")
 	viper.Set("api_token", "")
 	t.Cleanup(func() { viper.Set("api_token", previous) })
-	for _, key := range []string{"DEPOT_API_TOKEN", "DEPOT_TOKEN", "DEPOT_JIT_TOKEN", "DEPOT_CACHE_TOKEN", "DEPOT_RUN_TOKEN_URL", "DEPOT_API_TOKEN_URL", "ACTIONS_ID_TOKEN_REQUEST_TOKEN", "BUILDKITE_AGENT_ACCESS_TOKEN", "CIRCLE_OIDC_TOKEN_V2", "GITLAB_CI"} {
+	for _, key := range []string{"DEPOT_API_TOKEN", "DEPOT_TOKEN", "DEPOT_JIT_TOKEN", "DEPOT_CACHE_TOKEN", "ACTIONS_ID_TOKEN_REQUEST_TOKEN", "BUILDKITE_AGENT_ACCESS_TOKEN", "CIRCLE_OIDC_TOKEN_V2", "GITLAB_CI"} {
 		t.Setenv(key, "")
 	}
 

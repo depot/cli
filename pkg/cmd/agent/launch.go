@@ -76,7 +76,7 @@ func runLaunch(cmd *cobra.Command, o *launchOptions, agent string) error {
 	if o.org == "" {
 		o.org = config.GetCurrentOrganization()
 	}
-	token, err := helpers.ResolveOrgAuth(cmd.Context(), o.token)
+	token, err := helpers.ResolveAgentAuth(cmd.Context(), o.token)
 	if err != nil {
 		return err
 	}

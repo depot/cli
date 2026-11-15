@@ -34,6 +34,26 @@ func ResolveCacheAuth(ctx context.Context, tok string) (string, error) {
 	return token, err
 }
 
+// ResolveAgentAuth is ResolveOrgAuth for session commands, which a Dispatch turn's own token may call (DEP-8526).
+func ResolveAgentAuth(ctx context.Context, tok string) (string, error) {
+	if token := resolveStaticProjectAuth(tok); token != "" {
+		return token, nil
+	}
+	// The run token is set for this CLI on purpose; the turn token is ambient, so it comes second.
+	for _, source := range []func() *runtoken.Source{runTokenSource, turnTokenSource} {
+		if token := mintToken(ctx, source()); token != "" {
+			return token, nil
+		}
+	}
+	if token := resolveJITToken(); token != "" {
+		return token, nil
+	}
+	if IsTerminal() {
+		return authorizeDevice(ctx)
+	}
+	return "", nil
+}
+
 func ResolveStaticOrgAuth(tok string) string {
 	if tok != "" {
 		return tok
@@ -146,11 +166,17 @@ func resolveOIDCToken(ctx context.Context) string {
 	return ""
 }
 
-var runTokenSource = runtoken.Default
+var (
+	runTokenSource  = runtoken.Default
+	turnTokenSource = runtoken.Turn
+)
 
 // resolveRunToken mints a managed run's own token; the API client refreshes it per request.
 func resolveRunToken(ctx context.Context) string {
-	source := runTokenSource()
+	return mintToken(ctx, runTokenSource())
+}
+
+func mintToken(ctx context.Context, source *runtoken.Source) string {
 	if source == nil {
 		return ""
 	}

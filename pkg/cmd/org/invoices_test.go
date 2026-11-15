@@ -223,7 +223,7 @@ func TestInvoicesInvalidInputMakesNoRequests(t *testing.T) {
 			t.Fatalf("args=%v output=%q error=%v", args, out, err)
 		}
 	}
-	for _, key := range []string{"DEPOT_TOKEN", "DEPOT_API_TOKEN", "DEPOT_JIT_TOKEN", "DEPOT_CACHE_TOKEN", "DEPOT_RUN_TOKEN_URL", "DEPOT_API_TOKEN_URL"} {
+	for _, key := range []string{"DEPOT_TOKEN", "DEPOT_API_TOKEN", "DEPOT_JIT_TOKEN", "DEPOT_CACHE_TOKEN"} {
 		t.Setenv(key, "")
 	}
 	viper.Set("api_token", "")

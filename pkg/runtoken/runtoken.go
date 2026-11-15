@@ -52,21 +52,34 @@ func New(env, url string) *Source {
 	}
 }
 
-var defaultSource = sync.OnceValue(fromEnv)
+var (
+	sourcesMu sync.Mutex
+	sources   = map[string]*Source{}
+)
 
-func fromEnv() *Source {
-	// The run token is set for this CLI on purpose and reaches every org API; the turn token is ambient and narrower.
-	for _, env := range []string{EnvURL, EnvAPIURL} {
-		if url := os.Getenv(env); url != "" {
-			return New(env, url)
-		}
+// fromEnv keeps one Source per variable for as long as its value stays the same, so Minted sees every token it issued.
+func fromEnv(env string) *Source {
+	url := os.Getenv(env)
+	if url == "" {
+		return nil
 	}
-	return nil
+	sourcesMu.Lock()
+	defer sourcesMu.Unlock()
+	if source := sources[env]; source != nil && source.url == url {
+		return source
+	}
+	sources[env] = New(env, url)
+	return sources[env]
 }
 
-// Default is the Source named by DEPOT_RUN_TOKEN_URL or else DEPOT_API_TOKEN_URL, or nil outside a sandbox.
+// Default is the Source named by DEPOT_RUN_TOKEN_URL, or nil outside a managed run.
 func Default() *Source {
-	return defaultSource()
+	return fromEnv(EnvURL)
+}
+
+// Turn is the Source named by DEPOT_API_TOKEN_URL, or nil outside a Dispatch sandbox. Only session RPCs accept its token.
+func Turn() *Source {
+	return fromEnv(EnvAPIURL)
 }
 
 // Token returns the cached token, minting a new one when it is near expiry.
@@ -107,13 +120,13 @@ func (s *Source) fetch(ctx context.Context) (string, error) {
 	}
 	resp, err := s.client.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("could not fetch a token from %s: %s", s.env, reason(err))
+		return "", s.failed(err)
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
 	if err != nil {
-		return "", fmt.Errorf("could not fetch a token from %s: %s", s.env, reason(err))
+		return "", s.failed(err)
 	}
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("could not fetch a token from %s: the endpoint answered HTTP %d", s.env, resp.StatusCode)
@@ -128,19 +141,33 @@ func (s *Source) fetch(ctx context.Context) (string, error) {
 	return out.Value, nil
 }
 
-// reason describes a transport error without its text, which can quote the URL or the response.
-func reason(err error) string {
+// fetchError says why a fetch failed without the transport error's text, which can quote the URL or the response.
+type fetchError struct {
+	env, reason string
+	cause       error
+	timeout     bool
+}
+
+func (e *fetchError) Error() string {
+	return fmt.Sprintf("could not fetch a token from %s: %s", e.env, e.reason)
+}
+func (e *fetchError) Unwrap() error { return e.cause }
+func (e *fetchError) Timeout() bool { return e.timeout }
+
+func (s *Source) failed(err error) error {
 	var netErr net.Error
 	var opErr *net.OpError
 	switch {
 	case errors.Is(err, context.Canceled):
-		return "canceled"
+		return &fetchError{env: s.env, reason: "canceled", cause: context.Canceled}
+	case errors.Is(err, context.DeadlineExceeded):
+		return &fetchError{env: s.env, reason: "the request timed out", cause: context.DeadlineExceeded, timeout: true}
 	case errors.As(err, &netErr) && netErr.Timeout():
-		return "the request timed out"
+		return &fetchError{env: s.env, reason: "the request timed out", timeout: true}
 	case errors.As(err, &opErr):
-		return "could not connect"
+		return &fetchError{env: s.env, reason: "could not connect"}
 	}
-	return "the request failed"
+	return &fetchError{env: s.env, reason: "the request failed"}
 }
 
 // expiry reads the JWT's exp claim unverified; a token without one is treated as already expiring.
@@ -185,17 +212,19 @@ func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 	return t.Base.RoundTrip(req)
 }
 
-// WrapClient returns client with run token refresh, or client itself outside a managed run.
+// WrapClient returns client with token refresh for each sandbox token URL that is set, or client itself when none is.
 func WrapClient(client *http.Client) *http.Client {
-	source := Default()
-	if source == nil {
-		return client
+	for _, source := range []*Source{Default(), Turn()} {
+		if source == nil {
+			continue
+		}
+		base := client.Transport
+		if base == nil {
+			base = http.DefaultTransport
+		}
+		wrapped := *client
+		wrapped.Transport = &Transport{Source: source, Base: base}
+		client = &wrapped
 	}
-	base := client.Transport
-	if base == nil {
-		base = http.DefaultTransport
-	}
-	wrapped := *client
-	wrapped.Transport = &Transport{Source: source, Base: base}
-	return &wrapped
+	return client
 }

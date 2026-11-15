@@ -116,7 +116,7 @@ func runSend(cmd *cobra.Command, o *sendOptions, args []string) error {
 	}
 	req.Mode, req.ClientRequestId = &mode, &clientRequestID
 
-	token, err := helpers.ResolveOrgAuth(cmd.Context(), o.token)
+	token, err := helpers.ResolveAgentAuth(cmd.Context(), o.token)
 	if err != nil {
 		return err
 	}
