@@ -37,6 +37,7 @@ type fakeAgent struct {
 	// getErrEvery makes only every nth read fail with getErr; zero fails them all.
 	getErrEvery, gets int
 	holdWatch         bool
+	sentStatus        string
 	watchErr          error
 	holdFor           time.Duration
 	getErr            error
@@ -58,7 +59,7 @@ func (f *fakeAgent) CreateSession(_ context.Context, req *connect.Request[agentv
 }
 
 func (f *fakeAgent) SendInput(_ context.Context, req *connect.Request[agentv1.SendInputRequest]) (*connect.Response[agentv1.SendInputResponse], error) {
-	return connect.NewResponse(&agentv1.SendInputResponse{Input: &agentv1.DepotAgentInput{InputId: "dai_1"}}), nil
+	return connect.NewResponse(&agentv1.SendInputResponse{Input: &agentv1.DepotAgentInput{InputId: "dai_1", Status: f.sentStatus}}), nil
 }
 
 func (f *fakeAgent) ListDepotAgentSessions(_ context.Context, req *connect.Request[agentv1.ListDepotAgentSessionsRequest]) (*connect.Response[agentv1.ListDepotAgentSessionsResponse], error) {
@@ -564,6 +565,17 @@ func TestWatchGivesAnInputOutOfTheCutViewTimeToBePickedUp(t *testing.T) {
 	}
 	t.Run("never shows", func(t *testing.T) {
 		_, err := watch(&fakeAgent{got: idle(gone)})
+		var status cli.StatusError
+		if !errors.As(err, &status) || status.StatusCode != 1 || !strings.Contains(status.Status, failedUnseen) {
+			t.Fatalf("err = %#v, want exit 1 with %q", err, failedUnseen)
+		}
+	})
+	t.Run("a send the API had already taken", func(t *testing.T) {
+		// A repeated --client-request-id returns the first send's input, whose turn the view may no longer show.
+		f := &fakeAgent{got: idle(gone), sentStatus: "submitted", holdWatch: true}
+		f.frames = [][]*agentv1.WatchSessionResponse{{frame("idle", "c1", gone)}}
+		serveAgent(t, f)
+		_, _, err := runAgent(t, "send", "das_1", "hi", "--client-request-id", "again", "--watch", "--timeout", "2s")
 		var status cli.StatusError
 		if !errors.As(err, &status) || status.StatusCode != 1 || !strings.Contains(status.Status, failedUnseen) {
 			t.Fatalf("err = %#v, want exit 1 with %q", err, failedUnseen)

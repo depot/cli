@@ -147,6 +147,11 @@ func runSend(cmd *cobra.Command, o *sendOptions, args []string) error {
 	if !o.watch {
 		return nil
 	}
+	// A repeated client request ID returns the input of the first send. Once the session has taken that one,
+	// what was read just now is not from before it, so the watch finds its own base.
+	if status := resp.Msg.GetInput().GetStatus(); status != "" && status != "pending" {
+		base = nil
+	}
 	return watchAndReport(cmd, c, o.output, sessionID, watchOptions{afterInput: resp.Msg.GetInput().GetInputId(), untilIdle: true, timeout: o.timeout, base: base})
 }
 
