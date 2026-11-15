@@ -524,6 +524,17 @@ func TestWatchReadsTheWholeOfALongReply(t *testing.T) {
 			t.Fatalf("read messages %q, want the reply alone, once after one failed try", got)
 		}
 	})
+	t.Run("read on a later frame after the first one could not", func(t *testing.T) {
+		down := connect.NewError(connect.CodeUnavailable, errors.New("try again"))
+		f := &fakeAgent{whole: map[string]*agentv1.GetSessionMessageResponse{"6": {Role: "assistant", Text: long}}, wholeErrs: []error{down, down, down}}
+		result, transcript := run(t, f)
+		if result.Reply != long || !strings.Contains(transcript, "(the whole reply, read on a later try)\n"+strings.TrimSpace(long)) {
+			t.Fatalf("reply is %d bytes, want all %d, and the transcript to carry it:\n%s", len(result.Reply), len(long), truncate(transcript))
+		}
+		if got := strings.Join(f.wholeAsked, ","); got != "6,6,6,6" {
+			t.Fatalf("read messages %q, want three failed tries and one read on the next frame", got)
+		}
+	})
 	t.Run("past the API's own limit", func(t *testing.T) {
 		f := &fakeAgent{whole: map[string]*agentv1.GetSessionMessageResponse{"6": {Role: "assistant", Text: long, TruncatedBytes: 7}}}
 		if result, _ := run(t, f); result.Reply != long+"\n[7 bytes truncated]" {
@@ -539,6 +550,23 @@ func TestWatchReadsTheWholeOfALongReply(t *testing.T) {
 			t.Fatalf("transcript does not say the reply is cut short:\n%s", transcript)
 		}
 	})
+}
+
+func TestRendererForgetsAWholeReplyOnceItLeavesTheView(t *testing.T) {
+	reads := 0
+	r := NewRenderer(io.Discard).Whole(func(string) (string, error) { reads++; return "all of it", nil })
+	const cut = `{"messages": [{"id": "6", "seq": 6, "role": "assistant", "text": "all\n[6 bytes truncated]", "truncatedBytes": 6}]}`
+	for _, viewJSON := range []string{cut, cut} {
+		if view, err := r.Render(nil, viewJSON); err != nil || view.Messages[0].Text != "all of it" {
+			t.Fatalf("view = %+v, err = %v, want the whole reply", view, err)
+		}
+	}
+	if _, err := r.Render(nil, `{"messages": [{"id": "9", "seq": 9, "role": "user", "text": "next"}]}`); err != nil {
+		t.Fatal(err)
+	}
+	if reads != 1 || len(r.full) != 0 {
+		t.Fatalf("%d reads and %d texts kept, want one read and nothing kept past the view", reads, len(r.full))
+	}
 }
 
 func TestWatchExitCodes(t *testing.T) {

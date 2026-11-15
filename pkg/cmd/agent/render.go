@@ -92,9 +92,11 @@ type Renderer struct {
 	broken   bool
 	// from is the input the transcript starts at; everything older is skipped until it shows up.
 	from string
-	// whole reads a message's full text by id, and full keeps each one read.
-	whole func(messageID string) (string, error)
-	full  map[string]string
+	// whole reads a message's full text by id, and full keeps each one read while the view still holds it.
+	// unread counts the frames left to read again a message whose read failed in a way that may pass.
+	whole  func(messageID string) (string, error)
+	full   map[string]string
+	unread map[string]int
 }
 
 func NewRenderer(w io.Writer) *Renderer {
@@ -144,6 +146,7 @@ func (r *Renderer) Render(session *agentv1.DepotAgentSession, viewJSON string) (
 			return view, nil
 		}
 		r.newest = view.Messages[n-1].Seq
+		r.keep(view)
 	}
 	status := session.GetStatus()
 	if status == "running" {
@@ -194,6 +197,9 @@ func (r *Renderer) renderView(view *agentView) {
 			r.renderMessage(*msg)
 			if err != nil {
 				r.line("(the rest of this reply could not be read: %s)", truncate(oneLine(err.Error())))
+				if retryable(err) {
+					r.unread[msg.ID] = wholeMessageTries
+				}
 			}
 		}
 	}
@@ -218,8 +224,36 @@ func (r *Renderer) renderView(view *agentView) {
 // Whole makes the renderer read the full text of a reply the view cut short, for the transcript and for the
 // view Render returns. A reply is an assistant message that calls no tool; nothing else is read.
 func (r *Renderer) Whole(read func(messageID string) (string, error)) *Renderer {
-	r.whole, r.full = read, map[string]string{}
+	r.whole, r.full, r.unread = read, map[string]string{}, map[string]int{}
 	return r
+}
+
+// keep forgets the messages the view no longer holds, so a long watch does not keep every reply it read,
+// and reads again a reply that an earlier frame could not.
+func (r *Renderer) keep(view *agentView) {
+	held := make(map[string]bool, len(view.Messages))
+	for i := range view.Messages {
+		msg := &view.Messages[i]
+		held[msg.ID] = true
+		if r.unread[msg.ID] == 0 {
+			continue
+		}
+		if r.unread[msg.ID]--; r.fill(msg) == nil {
+			delete(r.unread, msg.ID)
+			r.line("(the whole reply, read on a later try)")
+			r.renderMessage(*msg)
+		}
+	}
+	for id := range r.full {
+		if !held[id] {
+			delete(r.full, id)
+		}
+	}
+	for id, left := range r.unread {
+		if !held[id] || left <= 0 {
+			delete(r.unread, id)
+		}
+	}
 }
 
 func (r *Renderer) fill(msg *viewMessage) error {
