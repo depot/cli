@@ -244,6 +244,10 @@ func watchOnce(ctx context.Context, c *caller, sessionID string, r *Renderer, o 
 		if err != nil {
 			return false, err
 		}
+		// Reading a whole reply can outlast the wait; a frame handled after it ended settles nothing.
+		if ctx.Err() != nil {
+			return false, nil
+		}
 		// The cursor moves only once the frame is fully handled, so a failed read below replays the frame.
 		advance := func() {
 			if msg.GetCursor() != "" {
@@ -282,6 +286,9 @@ func watchOnce(ctx context.Context, c *caller, sessionID string, r *Renderer, o 
 			}
 			if view, err = r.Render(again.Msg.GetSession(), again.Msg.GetViewJson()); err != nil {
 				return false, err
+			}
+			if ctx.Err() != nil {
+				return false, nil
 			}
 			result.Status = again.Msg.GetSession().GetStatus()
 			if done, reply, failure = t.settled(result.Status, view); !done && t.doubt != "" && final {

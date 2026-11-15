@@ -47,12 +47,18 @@ type fakeAgent struct {
 	whole      map[string]*agentv1.GetSessionMessageResponse
 	wholeErrs  []error
 	wholeAsked []string
+	// wholeHangs holds every whole-message read open until its caller gives up.
+	wholeHangs bool
 	// afterFrames runs once a watch call has sent its frames.
 	afterFrames func(call int)
 	mu          sync.Mutex
 }
 
-func (f *fakeAgent) GetSessionMessage(_ context.Context, req *connect.Request[agentv1.GetSessionMessageRequest]) (*connect.Response[agentv1.GetSessionMessageResponse], error) {
+func (f *fakeAgent) GetSessionMessage(ctx context.Context, req *connect.Request[agentv1.GetSessionMessageRequest]) (*connect.Response[agentv1.GetSessionMessageResponse], error) {
+	if f.wholeHangs {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.wholeAsked = append(f.wholeAsked, req.Msg.GetMessageId())
@@ -598,6 +604,18 @@ func TestRendererReadsAReplyAgainWithoutRestartingTheNextTurnsStream(t *testing.
 		"(the whole reply, read on a later try)\nall of it\nsecond answer.\n"
 	if out.String() != want {
 		t.Fatalf("transcript = %q, want %q", out.String(), want)
+	}
+}
+
+func TestWatchTimesOutWhenTheWholeReplyReadOutlastsTheWait(t *testing.T) {
+	const cut = `{"messages": [{"id": "3", "seq": 3, "role": "user", "inputId": "dai_1", "text": "hello"},
+		{"id": "6", "seq": 6, "role": "assistant", "text": "all\n[6 bytes truncated]", "truncatedBytes": 6}], "tools": []}`
+	f := &fakeAgent{wholeHangs: true, frames: [][]*agentv1.WatchSessionResponse{{frame("idle", "c1", cut)}}}
+	serveAgent(t, f)
+	out, _, err := runAgent(t, "watch", "das_1", "--after-input", "dai_1", "--timeout", "200ms", "-o", "json")
+	var status cli.StatusError
+	if !errors.As(err, &status) || status.StatusCode != timeoutExitCode || !strings.Contains(out, `"outcome": "timeout"`) || strings.Contains(out, `"reply"`) {
+		t.Fatalf("err = %#v, want a timeout with no reply:\n%s", err, out)
 	}
 }
 
