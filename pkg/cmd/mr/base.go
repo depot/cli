@@ -39,7 +39,7 @@ func (o *options) create(cmd *cobra.Command, req *code.CreateMergeRequestRequest
 		if err != nil {
 			return nil, err
 		}
-		out.MergeRequest = resp.Msg.MergeRequest
+		out.MergeRequest, out.Overlaps = resp.Msg.MergeRequest, resp.Msg.Overlaps
 	}
 	mr := out.MergeRequest
 	if mr == nil || mr.Id == "" {
