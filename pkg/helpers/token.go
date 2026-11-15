@@ -34,7 +34,7 @@ func ResolveCacheAuth(ctx context.Context, tok string) (string, error) {
 	return token, err
 }
 
-// ResolveAgentAuth is ResolveOrgAuth for session commands, which a Dispatch turn's own token may call (DEP-8526).
+// ResolveAgentAuth is ResolveOrgAuth plus a Dispatch turn's own token. Only for commands whose RPCs take it (DEP-8526).
 func ResolveAgentAuth(ctx context.Context, tok string) (string, error) {
 	if token := resolveStaticProjectAuth(tok); token != "" {
 		return token, nil

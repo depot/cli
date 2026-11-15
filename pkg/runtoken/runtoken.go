@@ -77,7 +77,7 @@ func Default() *Source {
 	return fromEnv(EnvURL)
 }
 
-// Turn is the Source named by DEPOT_API_TOKEN_URL, or nil outside a Dispatch sandbox. Only session RPCs accept its token.
+// Turn is the Source named by DEPOT_API_TOKEN_URL, or nil outside a Dispatch sandbox. The API takes its token on a few session RPCs only.
 func Turn() *Source {
 	return fromEnv(EnvAPIURL)
 }

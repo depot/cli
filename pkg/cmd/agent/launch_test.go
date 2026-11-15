@@ -31,7 +31,7 @@ func serveLaunch(t *testing.T, handle func(*connect.Request[agentv1.LaunchReques
 	server := httptest.NewServer(h2c.NewHandler(mux, &http2.Server{}))
 	t.Cleanup(server.Close)
 	t.Setenv("DEPOT_API_URL", server.URL)
-	for _, name := range []string{"DEPOT_TOKEN", "DEPOT_API_TOKEN_URL", "DEPOT_ORG_ID", "GITHUB_RUN_ID", "GITHUB_RUN_ATTEMPT", "GITHUB_REPOSITORY", "GITHUB_JOB"} {
+	for _, name := range []string{"DEPOT_TOKEN", "DEPOT_ORG_ID", "GITHUB_RUN_ID", "GITHUB_RUN_ATTEMPT", "GITHUB_REPOSITORY", "GITHUB_JOB"} {
 		t.Setenv(name, "")
 	}
 }
