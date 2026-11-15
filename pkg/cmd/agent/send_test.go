@@ -33,7 +33,7 @@ func serveSend(t *testing.T, handle func(*connect.Request[agentv1.SendInputReque
 	server := httptest.NewServer(h2c.NewHandler(mux, &http2.Server{}))
 	t.Cleanup(server.Close)
 	t.Setenv("DEPOT_API_URL", server.URL)
-	for _, name := range []string{"DEPOT_TOKEN", "DEPOT_ORG_ID", "GITHUB_RUN_ID", "GITHUB_REPOSITORY", "GITHUB_JOB"} {
+	for _, name := range []string{"DEPOT_TOKEN", "DEPOT_ORG_ID", "GITHUB_RUN_ID", "GITHUB_RUN_ATTEMPT", "GITHUB_REPOSITORY", "GITHUB_JOB"} {
 		t.Setenv(name, "")
 	}
 }
@@ -172,22 +172,27 @@ func TestSendReadsTheMessageFromStdinOrAFile(t *testing.T) {
 	}
 }
 
-func TestSendInCIDefaultsToAKeyARerunReplays(t *testing.T) {
+// Two matrix legs see the same job environment, so a key derived from it would drop the second leg's message.
+func TestSendFromTwoMatrixLegsDeliversBothUnlessTheyShareAKey(t *testing.T) {
 	var got []string
 	serveSend(t, func(req *connect.Request[agentv1.SendInputRequest]) (*agentv1.SendInputResponse, error) {
 		got = append(got, req.Msg.GetClientRequestId())
 		return sent("dai_1"), nil
 	})
 	t.Setenv("GITHUB_RUN_ID", "123")
+	t.Setenv("GITHUB_RUN_ATTEMPT", "1")
 	t.Setenv("GITHUB_REPOSITORY", "acme/app")
 	t.Setenv("GITHUB_JOB", "update")
 
-	for _, args := range [][]string{{"das_1", "pushed abc"}, {"das_1", "pushed abc"}, {"das_1", "pushed def"}, {"das_1", "pushed abc", "--steer"}} {
-		if _, err := executeSend(t, append(args, "--token", "tok")...); err != nil {
+	for _, extra := range [][]string{nil, nil, {"--client-request-id", "tests-123-1"}, {"--client-request-id", "tests-123-1"}} {
+		if _, err := executeSend(t, append([]string{"das_1", "pushed abc", "--token", "tok"}, extra...)...); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if !strings.HasPrefix(got[0], "ci:") || got[0] != got[1] || got[0] == got[2] || got[0] == got[3] {
-		t.Fatalf("client request IDs = %q", got)
+	if got[0] == "" || got[1] == "" || got[0] == got[1] {
+		t.Fatalf("two legs sent with keys %q and %q, want two different keys", got[0], got[1])
+	}
+	if got[2] != "tests-123-1" || got[3] != got[2] {
+		t.Fatalf("explicit keys = %q %q", got[2], got[3])
 	}
 }

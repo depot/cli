@@ -34,10 +34,14 @@ func newSend() *cobra.Command {
 		Long: `Send a message to an agent session, by its ID or by the --client-request-id it was launched with (--key).
 
 The message waits for the agent's current turn to finish; --steer reaches the agent mid-turn. --subagent sends it to
-one of the session's subagents instead of the main agent. In a CI job the default --client-request-id covers the run,
-job, target and message, so a rerun does not deliver the message twice.`,
+one of the session's subagents instead of the main agent.
+
+Every send is delivered, including the same message sent again by a rerun or by another matrix leg. To make a repeat
+replay instead, pass the same --client-request-id both times. Nothing in a job's environment tells one matrix leg from
+another, so build the key from workflow expressions.`,
 		Example: `  depot agent send das_0123 "Also check the migration"
-  git log -1 --format=%B | depot agent send --key pr-12 --steer -`,
+  git log -1 --format=%B | depot agent send --key pr-12 --steer -
+  depot agent send --key pr-12 "tests passed" --client-request-id "tests-${{ github.run_id }}-${{ strategy.job-index }}"`,
 		Args: cobra.MaximumNArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runSend(cmd, o, args)
@@ -47,7 +51,7 @@ job, target and message, so a rerun does not deliver the message twice.`,
 	cmd.Flags().BoolVar(&o.steer, "steer", false, "Reach the agent mid-turn instead of after its current turn")
 	cmd.Flags().StringVar(&o.key, "key", "", "Find the session by the --client-request-id it was launched with, instead of its ID")
 	cmd.Flags().StringVar(&o.subagent, "subagent", "", "Send to this subagent (its conversation ID in the session view) instead of the main agent")
-	cmd.Flags().StringVar(&o.clientRequestID, "client-request-id", "", "Key that makes the send safe to retry; unique per session (defaults to the CI run and message in CI)")
+	cmd.Flags().StringVar(&o.clientRequestID, "client-request-id", "", "Key that makes the send safe to repeat: a second send with it in the same session delivers nothing (default: random)")
 	cmd.Flags().StringVar(&o.org, "org", "", "Organization ID (defaults to DEPOT_ORG_ID or the current organization)")
 	cmd.Flags().StringVar(&o.token, "token", "", "Depot API token (defaults to DEPOT_TOKEN, which a Depot CI job already has)")
 	cmd.Flags().StringVarP(&o.output, "output", "o", "text", "Output format: text or json")
@@ -105,7 +109,7 @@ func runSend(cmd *cobra.Command, o *sendOptions, args []string) error {
 	}
 	clientRequestID := o.clientRequestID
 	if clientRequestID == "" {
-		clientRequestID = defaultSendRequestID(sessionID, o.subagent, mode, message)
+		clientRequestID = randomRequestID()
 	}
 	if o.subagent != "" {
 		mode = "subagent"
@@ -149,10 +153,16 @@ func runSend(cmd *cobra.Command, o *sendOptions, args []string) error {
 	}
 	// A repeated client request ID returns the input of the first send. Once the session has taken that one,
 	// what was read just now is not from before it, so the watch finds its own base.
-	if status := resp.Msg.GetInput().GetStatus(); status != "" && status != "pending" {
+	status := resp.Msg.GetInput().GetStatus()
+	if status != "" && status != "pending" {
 		base = nil
 	}
-	return watchAndReport(cmd, c, o.output, sessionID, watchOptions{afterInput: resp.Msg.GetInput().GetInputId(), untilIdle: true, timeout: o.timeout, base: base})
+	wait := watchOptions{afterInput: resp.Msg.GetInput().GetInputId(), untilIdle: true, timeout: o.timeout, base: base}
+	// Only a replayed send returns a cancelled input: its session was archived before the agent took it.
+	if status == "cancelled" {
+		return report(cmd, c, o.output, sessionID, wait, watchResult{SessionID: sessionID, InputID: wait.afterInput, Status: "archived", Outcome: outcomeFailed, Error: "the input was cancelled before the agent took it"})
+	}
+	return watchAndReport(cmd, c, o.output, sessionID, wait)
 }
 
 func readMessage(cmd *cobra.Command, args []string, file string) (string, error) {
@@ -176,16 +186,6 @@ func readMessage(cmd *cobra.Command, args []string, file string) (string, error)
 		return "", fmt.Errorf("the message must not be empty")
 	}
 	return string(data), nil
-}
-
-// In CI the key covers the run and what is sent, so a rerun replays instead of sending twice; elsewhere it is random.
-func defaultSendRequestID(sessionID, subagent, mode, message string) string {
-	if runID := os.Getenv("GITHUB_RUN_ID"); runID != "" {
-		parts := []string{os.Getenv("GITHUB_REPOSITORY"), runID, os.Getenv("GITHUB_JOB"), sessionID, subagent, mode, message}
-		sum := sha256.Sum256([]byte(strings.Join(parts, "\x00")))
-		return "ci:" + hex.EncodeToString(sum[:])
-	}
-	return randomRequestID()
 }
 
 // The ID the API gives a session created with this client request ID: "das_" and the first 32 hex digits of the

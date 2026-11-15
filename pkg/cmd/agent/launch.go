@@ -1,8 +1,6 @@
 package agent
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"os"
 	"strings"
@@ -31,16 +29,19 @@ func newLaunch() *cobra.Command {
 		Long: `Start a session of a published agent on one or more repositories, and print the session URL.
 
 In a Depot CI job, no flags beyond the agent, sources and message are needed: the job's DEPOT_TOKEN launches as the
-organization, and the run ID is the default --client-request-id, so a rerun returns the session the first attempt started.`,
-		Example: `  depot agent launch public-agent-code-review --source github:acme/app@refs/pull/12/head --message "Review this pull request"`,
-		Args:    cobra.ExactArgs(1),
+organization. Every launch starts a new session unless --client-request-id is passed: a launch that repeats a key returns
+the session the first one started. Nothing in a job's environment tells one matrix leg from another, so build the key
+from workflow expressions, one per leg and per attempt you want a session for.`,
+		Example: `  depot agent launch public-agent-code-review --source github:acme/app@refs/pull/12/head --message "Review this pull request"
+  depot agent launch public-agent-code-review --source github:acme/app --message "Review" --client-request-id "review-${{ github.run_id }}-${{ strategy.job-index }}"`,
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runLaunch(cmd, o, args[0])
 		},
 	}
 	cmd.Flags().StringArrayVar(&o.sources, "source", nil, "Repository the agent works on, as <kind>:<owner/repo>[@ref] (repeatable)")
 	cmd.Flags().StringVar(&o.message, "message", "", "First message of the session")
-	cmd.Flags().StringVar(&o.clientRequestID, "client-request-id", "", "Key that makes the launch safe to retry (defaults to the CI run ID in CI)")
+	cmd.Flags().StringVar(&o.clientRequestID, "client-request-id", "", "Key that makes the launch safe to repeat: a second launch with it returns the first session")
 	cmd.Flags().StringVar(&o.org, "org", "", "Organization ID (defaults to DEPOT_ORG_ID or the current organization)")
 	cmd.Flags().StringVar(&o.token, "token", "", "Depot API token (defaults to DEPOT_TOKEN, which a Depot CI job already has)")
 	cmd.Flags().StringVarP(&o.output, "output", "o", "text", "Output format: text or json")
@@ -66,8 +67,6 @@ func runLaunch(cmd *cobra.Command, o *launchOptions, agent string) error {
 		req.Sources = append(req.Sources, source)
 	}
 	if key := o.clientRequestID; key != "" {
-		req.ClientRequestId = &key
-	} else if key := ciRequestID(agent, o.sources, o.message); key != "" {
 		req.ClientRequestId = &key
 	}
 
@@ -123,15 +122,4 @@ func parseSource(value string) (*agentv1.DepotAgentLaunchSource, error) {
 		source.Ref = &ref
 	}
 	return source, nil
-}
-
-// The key covers what is launched, so two different launches in one job do not replay each other.
-func ciRequestID(agent string, sources []string, message string) string {
-	runID := os.Getenv("GITHUB_RUN_ID")
-	if runID == "" {
-		return ""
-	}
-	parts := append([]string{os.Getenv("GITHUB_REPOSITORY"), runID, os.Getenv("GITHUB_JOB"), agent, message}, sources...)
-	sum := sha256.Sum256([]byte(strings.Join(parts, "\x00")))
-	return "ci:" + hex.EncodeToString(sum[:])
 }

@@ -153,6 +153,11 @@ func watchAndReport(cmd *cobra.Command, c *caller, output, sessionID string, o w
 	if !o.untilIdle {
 		return nil
 	}
+	return report(cmd, c, output, sessionID, o, result)
+}
+
+// report prints the result of a wait as JSON when asked to, and turns its outcome into the exit code.
+func report(cmd *cobra.Command, c *caller, output, sessionID string, o watchOptions, result watchResult) error {
 	if result.URL = o.url; result.URL == "" {
 		result.URL = sessionURL(c.org, sessionID)
 	}

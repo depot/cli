@@ -189,7 +189,7 @@ func serveAgent(t *testing.T, f *fakeAgent) *conns {
 	t.Setenv("DEPOT_API_URL", server.URL)
 	t.Setenv("DEPOT_TOKEN", "tok")
 	t.Setenv("DEPOT_ORG_ID", "org-1")
-	for _, name := range []string{"GITHUB_RUN_ID", "GITHUB_REPOSITORY", "GITHUB_JOB"} {
+	for _, name := range []string{"GITHUB_RUN_ID", "GITHUB_RUN_ATTEMPT", "GITHUB_REPOSITORY", "GITHUB_JOB"} {
 		t.Setenv(name, "")
 	}
 	return accepted
@@ -729,6 +729,19 @@ func TestStopInterruptsOrArchives(t *testing.T) {
 	}
 	if strings.Join(f.stopped, ",") != "interrupt:das_1,archive:das_1" || first != "Interrupted session das_1\n" || second != "Archived session das_1\n" {
 		t.Fatalf("stopped %v, output %q %q", f.stopped, first, second)
+	}
+}
+
+func TestSendWatchFailsAtOnceOnAReplayedInputThatWasCancelled(t *testing.T) {
+	f := &fakeAgent{sentStatus: "cancelled"}
+	serveAgent(t, f)
+	stdout, _, err := runAgent(t, "send", "das_1", "hello", "--client-request-id", "again", "--watch", "-o", "json")
+	var status cli.StatusError
+	if !errors.As(err, &status) || status.StatusCode != 1 || !strings.Contains(err.Error(), "cancelled") || len(f.watches) != 0 {
+		t.Fatalf("err = %v, watches = %d; want exit 1 without a watch", err, len(f.watches))
+	}
+	if !strings.Contains(stdout, `"outcome": "failed"`) || !strings.Contains(stdout, `"inputId": "dai_1"`) {
+		t.Fatalf("result = %s", stdout)
 	}
 }
 
