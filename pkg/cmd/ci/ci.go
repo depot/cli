@@ -6,7 +6,7 @@ func NewCmdCI() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "ci",
 		Short: "Manage Depot CI",
-		Long:  "Manage Depot CI workflows, secrets, and variables.",
+		Long:  "Manage Depot CI workflows, event sources, input requests, run controls, secrets, and variables.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return cmd.Help()
 		},
@@ -18,6 +18,10 @@ func NewCmdCI() *cobra.Command {
 	cmd.AddCommand(NewCmdDispatch())
 	cmd.AddCommand(NewCmdLogs())
 	cmd.AddCommand(NewCmdMetrics())
+	cmd.AddCommand(NewCmdInput())
+	cmd.AddCommand(NewCmdPause())
+	cmd.AddCommand(NewCmdResume())
+	cmd.AddCommand(NewCmdSource())
 	cmd.AddCommand(NewCmdMigrate())
 	cmd.AddCommand(NewCmdRerun())
 	cmd.AddCommand(NewCmdRetry())
