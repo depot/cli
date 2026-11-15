@@ -388,9 +388,6 @@ Execute a command with an injected BuildKit connection. This command launches a 
 ```shell
 # Run a command with access to a remote BuildKit instance
 depot exec --platform linux/amd64 docker build .
-
-# Run a Dagger command using Depot's infrastructure
-depot exec dagger run ...
 ```
 
 #### Flags for `exec`
