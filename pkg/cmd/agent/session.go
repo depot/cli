@@ -94,7 +94,7 @@ func (c *caller) refused(err error, rpc string) error {
 	if code := connect.CodeOf(err); !c.turn || (code != connect.CodePermissionDenied && code != connect.CodeUnauthenticated) {
 		return err
 	}
-	return fmt.Errorf("%w\nThis was called with the agent turn's token. The API takes it on %s only for a session this turn's own session started, and an API that is not new enough refuses it there", err, rpc)
+	return fmt.Errorf("%w\nThis was called with the agent turn's token. The API takes it on %s only for a session this turn's own session started, and an API that is not new enough refuses it there. To call as someone else, pass --token or set DEPOT_TOKEN", err, rpc)
 }
 
 func resolveOrg(org string) string {

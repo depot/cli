@@ -144,7 +144,7 @@ func TestAnAPIThatRefusesTheTurnTokenIsNamedAndLeavesNothingUnsaid(t *testing.T)
 			f := &fakeAgent{got: &agentv1.GetSessionResponse{Session: &agentv1.DepotAgentSession{SessionId: "das_1", Status: "idle"}}}
 			seen := serveSandbox(t, f, "cache-token", "WatchSession", "SendInput", "Launch")
 			out, _, err := runAgent(t, tc.args...)
-			if err == nil || !strings.Contains(err.Error(), notYet) || !strings.Contains(err.Error(), "agent turn's token. The API takes it on "+tc.rpc+" only") {
+			if err == nil || !strings.Contains(err.Error(), notYet) || !strings.Contains(err.Error(), "agent turn's token. The API takes it on "+tc.rpc+" only") || !strings.Contains(err.Error(), "pass --token or set DEPOT_TOKEN") {
 				t.Fatalf("err = %v, want the refusal naming %s", err, tc.rpc)
 			}
 			if strings.Contains(err.Error(), "turn-token") || strings.Contains(out, `"outcome"`) {
