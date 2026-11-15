@@ -3,9 +3,11 @@ package runtoken
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -37,7 +39,7 @@ func newTestSource(t *testing.T) (*Source, *time.Time, *atomic.Int64) {
 	clock := time.Unix(1_800_000_000, 0)
 	now := func() time.Time { return clock }
 	server, calls := identityServer(t, now)
-	source := New(server.URL + "/token?audience=managed-agent-run-api")
+	source := New(EnvURL, server.URL+"/token?audience=managed-agent-run-api")
 	source.now = now
 	return source, &clock, calls
 }
@@ -75,7 +77,7 @@ func TestTokenWithoutExpiryIsRefetched(t *testing.T) {
 		fmt.Fprint(w, `{"value":"opaque"}`)
 	}))
 	defer server.Close()
-	source := New(server.URL)
+	source := New(EnvURL, server.URL)
 	for range 2 {
 		if token, err := source.Token(context.Background()); err != nil || token != "opaque" {
 			t.Fatalf("got %q, %v", token, err)
@@ -97,7 +99,7 @@ func TestFailedRefreshKeepsUnexpiredToken(t *testing.T) {
 		fmt.Fprintf(w, `{"value":%q}`, jwt(clock.Add(5*time.Minute), 1))
 	}))
 	defer server.Close()
-	source := New(server.URL)
+	source := New(EnvURL, server.URL)
 	source.now = func() time.Time { return clock }
 
 	first, err := source.Token(context.Background())
@@ -115,13 +117,103 @@ func TestFailedRefreshKeepsUnexpiredToken(t *testing.T) {
 	}
 }
 
-func TestTokenErrors(t *testing.T) {
+func TestTokenErrorsNameTheVariableAndLeakNothing(t *testing.T) {
+	var status int
+	var body string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		http.Error(w, "no identity", http.StatusServiceUnavailable)
+		if status == http.StatusFound {
+			w.Header().Set("Location", "http://url-secret\x7f/")
+		}
+		w.WriteHeader(status)
+		fmt.Fprint(w, body)
 	}))
 	defer server.Close()
-	if _, err := New(server.URL).Token(context.Background()); err == nil {
-		t.Fatal("expected an error from a failing endpoint")
+	closed := httptest.NewServer(http.NotFoundHandler())
+	closed.Close()
+
+	for _, tc := range []struct {
+		name, url, body string
+		status          int
+	}{
+		{name: "error status", url: server.URL + "/token?k=url-secret", status: http.StatusServiceUnavailable, body: "body-secret"},
+		{name: "wrong shape", url: server.URL + "/token?k=url-secret", status: http.StatusOK, body: `{"token":"body-secret"}`},
+		{name: "not JSON", url: server.URL + "/token?k=url-secret", status: http.StatusOK, body: "body-secret"},
+		{name: "redirect", url: server.URL + "/token?k=url-secret", status: http.StatusFound},
+		{name: "unreachable", url: closed.URL + "/token?k=url-secret"},
+		{name: "invalid URL", url: "http://url-secret\x7f/"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			status, body = tc.status, tc.body
+			token, err := New(EnvAPIURL, tc.url).Token(context.Background())
+			if err == nil || token != "" {
+				t.Fatalf("got %q, %v; want an error", token, err)
+			}
+			if msg := err.Error(); !strings.Contains(msg, EnvAPIURL) || strings.Contains(msg, "secret") {
+				t.Fatalf("error must name %s and carry neither the URL nor the body: %q", EnvAPIURL, msg)
+			}
+		})
+	}
+}
+
+func TestEachVariableHasItsOwnSourceAndFollowsTheEnvironment(t *testing.T) {
+	t.Setenv(EnvURL, "")
+	t.Setenv(EnvAPIURL, "")
+	if Default() != nil || Turn() != nil {
+		t.Fatal("no variable set must mean no source")
+	}
+	t.Setenv(EnvAPIURL, "http://api")
+	turn := Turn()
+	if Default() != nil || turn == nil || turn.env != EnvAPIURL {
+		t.Fatalf("DEPOT_API_TOKEN_URL must feed Turn only, got %+v", turn)
+	}
+	if Turn() != turn {
+		t.Fatal("an unchanged variable must keep its source, or Minted forgets its tokens")
+	}
+	t.Setenv(EnvURL, "http://run")
+	if run := Default(); run == nil || run.env != EnvURL || Turn() != turn {
+		t.Fatalf("DEPOT_RUN_TOKEN_URL must feed Default only, got %+v", run)
+	}
+	t.Setenv(EnvAPIURL, "")
+	if Turn() != nil {
+		t.Fatal("clearing the variable must drop the source")
+	}
+}
+
+func TestFetchErrorKeepsCancellationAndTimeout(t *testing.T) {
+	release := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { <-release }))
+	defer server.Close()
+	defer close(release)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := New(EnvAPIURL, server.URL).Token(ctx)
+	if !errors.Is(err, context.Canceled) || strings.Contains(err.Error(), server.URL) {
+		t.Fatalf("a canceled fetch must stay canceled and hide the URL: %v", err)
+	}
+
+	source := New(EnvAPIURL, server.URL)
+	source.client.Timeout = 20 * time.Millisecond
+	_, err = source.Token(context.Background())
+	var timeout interface{ Timeout() bool }
+	if !errors.As(err, &timeout) || !timeout.Timeout() || strings.Contains(err.Error(), server.URL) {
+		t.Fatalf("a timed out fetch must report Timeout and hide the URL: %v", err)
+	}
+}
+
+// The endpoint answers for the first audience parameter only, so the URL is requested exactly as given.
+func TestFetchSendsTheURLAsGiven(t *testing.T) {
+	var got string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.URL.RequestURI()
+		fmt.Fprint(w, `{"value":"svid"}`)
+	}))
+	defer server.Close()
+	if token, err := New(EnvAPIURL, server.URL+"/token?audience=depot-api").Token(context.Background()); err != nil || token != "svid" {
+		t.Fatalf("got %q, %v", token, err)
+	}
+	if got != "/token?audience=depot-api" {
+		t.Fatalf("requested %q", got)
 	}
 }
 
@@ -166,11 +258,26 @@ func TestTransportRefreshesMintedTokenPerRequest(t *testing.T) {
 }
 
 func TestWrapClientWithoutEnvIsUnchanged(t *testing.T) {
-	if Default() != nil {
-		t.Skip(EnvURL + " is set in this environment")
-	}
+	t.Setenv(EnvURL, "")
+	t.Setenv(EnvAPIURL, "")
 	client := &http.Client{}
 	if WrapClient(client) != client {
-		t.Fatal("outside a managed run the client must be returned as is")
+		t.Fatal("outside a sandbox the client must be returned as is")
+	}
+}
+
+func TestWrapClientRefreshesTheTurnToken(t *testing.T) {
+	tokens := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprint(w, `{"value":"turn-svid"}`)
+	}))
+	defer tokens.Close()
+	t.Setenv(EnvURL, "")
+	t.Setenv(EnvAPIURL, tokens.URL)
+	if _, err := Turn().Token(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	transport, ok := WrapClient(&http.Client{}).Transport.(*Transport)
+	if !ok || transport.Source != Turn() || !transport.Source.Minted("turn-svid") {
+		t.Fatalf("the client must refresh tokens from %s, got %+v", EnvAPIURL, transport)
 	}
 }

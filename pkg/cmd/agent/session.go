@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/url"
@@ -32,28 +33,55 @@ func (f *sessionFlags) add(cmd *cobra.Command) {
 	cmd.Flags().StringVarP(&f.output, "output", "o", "text", "Output format: text or json")
 }
 
-func (f *sessionFlags) caller(cmd *cobra.Command) (*caller, error) {
+const missingToken = "missing API token; pass --token or DEPOT_TOKEN, or run `depot login`"
+
+func (f *sessionFlags) checkOutput() error {
 	if f.output != "text" && f.output != "json" {
-		return nil, fmt.Errorf("unsupported output format %q", f.output)
+		return fmt.Errorf("unsupported output format %q", f.output)
+	}
+	return nil
+}
+
+// caller resolves both credentials. needOrg says the command also makes a call that does not take a turn's token.
+func (f *sessionFlags) caller(cmd *cobra.Command, needOrg bool) (*caller, error) {
+	if err := f.checkOutput(); err != nil {
+		return nil, err
+	}
+	token, turn, err := helpers.ResolveAgentAuth(cmd.Context(), f.token, needOrg)
+	if err != nil {
+		return nil, err
+	}
+	if turn == "" || needOrg && token == "" {
+		return nil, errors.New(missingToken)
+	}
+	c := newCaller(token, f.org)
+	c.turn = turn
+	return c, nil
+}
+
+// orgCaller is for a command none of whose calls takes a turn's token.
+func (f *sessionFlags) orgCaller(cmd *cobra.Command) (*caller, error) {
+	if err := f.checkOutput(); err != nil {
+		return nil, err
 	}
 	token, err := helpers.ResolveOrgAuth(cmd.Context(), f.token)
 	if err != nil {
 		return nil, err
 	}
 	if token == "" {
-		return nil, fmt.Errorf("missing API token; pass --token or DEPOT_TOKEN, or run `depot login`")
+		return nil, errors.New(missingToken)
 	}
 	return newCaller(token, f.org), nil
 }
 
-// caller holds what a session RPC is made with.
+// caller holds what a session RPC is made with: token as every other command resolves it, and turn for asTurn.
 type caller struct {
-	client     agentv1connect.DepotAgentServiceClient
-	token, org string
+	client           agentv1connect.DepotAgentServiceClient
+	token, turn, org string
 }
 
 func newCaller(token, org string) *caller {
-	return &caller{client: api.NewDepotAgentClient(), token: token, org: resolveOrg(org)}
+	return &caller{client: api.NewDepotAgentClient(), token: token, turn: token, org: resolveOrg(org)}
 }
 
 func resolveOrg(org string) string {
@@ -68,6 +96,12 @@ func resolveOrg(org string) string {
 
 func authed[T any](c *caller, msg *T) *connect.Request[T] {
 	return api.WithAuthenticationAndOrg(connect.NewRequest(msg), c.token, c.org)
+}
+
+// asTurn is authed for the RPCs the API lets a Dispatch turn's sender call: CreateSession, GetSession,
+// GetSessionMessage and ListDepotAgentSessions.
+func asTurn[T any](c *caller, msg *T) *connect.Request[T] {
+	return api.WithAuthenticationAndOrg(connect.NewRequest(msg), c.turn, c.org)
 }
 
 func sessionURL(org, sessionID string) string {
@@ -110,7 +144,12 @@ Use ` + "`depot agent launch`" + ` to start a published agent on a repository.`,
 			if err != nil {
 				return err
 			}
-			c, err := f.caller(cmd)
+			// --watch gets one token for both calls: a session created as a turn and then refused a watch is left running.
+			resolve := f.orgCaller
+			if !watch {
+				resolve = func(cmd *cobra.Command) (*caller, error) { return f.caller(cmd, false) }
+			}
+			c, err := resolve(cmd)
 			if err != nil {
 				return err
 			}
@@ -118,7 +157,7 @@ Use ` + "`depot agent launch`" + ` to start a published agent on a repository.`,
 				clientRequestID = randomRequestID()
 			}
 			req := &agentv1.CreateSessionRequest{Title: title, Message: message, ClientRequestId: &clientRequestID, Model: parseModel(model)}
-			resp, err := c.client.CreateSession(cmd.Context(), authed(c, req))
+			resp, err := c.client.CreateSession(cmd.Context(), asTurn(c, req))
 			if err != nil {
 				return err
 			}
@@ -168,7 +207,7 @@ func newList() *cobra.Command {
 		Short:   "List agent sessions, most recently updated first",
 		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			c, err := f.caller(cmd)
+			c, err := f.caller(cmd, false)
 			if err != nil {
 				return err
 			}
@@ -176,7 +215,7 @@ func newList() *cobra.Command {
 			if pageToken != "" {
 				req.PageToken = &pageToken
 			}
-			resp, err := c.client.ListDepotAgentSessions(cmd.Context(), authed(c, req))
+			resp, err := c.client.ListDepotAgentSessions(cmd.Context(), asTurn(c, req))
 			if err != nil {
 				return err
 			}
@@ -226,11 +265,11 @@ The transcript is the API's bounded view of the session: old history is cut, and
 reply of the agent is read whole; -o json prints the view as the API returns it.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			c, err := f.caller(cmd)
+			c, err := f.caller(cmd, false)
 			if err != nil {
 				return err
 			}
-			resp, err := c.client.GetSession(cmd.Context(), authed(c, &agentv1.GetSessionRequest{SessionId: args[0]}))
+			resp, err := c.client.GetSession(cmd.Context(), asTurn(c, &agentv1.GetSessionRequest{SessionId: args[0]}))
 			if err != nil {
 				return err
 			}
@@ -272,7 +311,7 @@ func newStop() *cobra.Command {
 --archive ends the session instead: it stops for good and takes no more messages.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			c, err := f.caller(cmd)
+			c, err := f.orgCaller(cmd)
 			if err != nil {
 				return err
 			}

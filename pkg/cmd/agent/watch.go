@@ -70,7 +70,7 @@ func beforeFirst() *int64 {
 // newestSeq reads the seq of the session's newest message, for an input about to be sent. It is nil when the
 // read fails or the view is cut to nothing, and the watch then takes its base from the first frame.
 func newestSeq(ctx context.Context, c *caller, sessionID string) *int64 {
-	resp, err := c.client.GetSession(ctx, authed(c, &agentv1.GetSessionRequest{SessionId: sessionID}))
+	resp, err := c.client.GetSession(ctx, asTurn(c, &agentv1.GetSessionRequest{SessionId: sessionID}))
 	if err != nil {
 		return nil
 	}
@@ -111,7 +111,7 @@ is 0 when the session ended on a reply, 1 when it failed, was archived, or ended
 --after-input waits for the reply to one input, so a session that is still idle from its last turn does not count.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			c, err := f.caller(cmd)
+			c, err := f.caller(cmd, true)
 			if err != nil {
 				return err
 			}
@@ -278,7 +278,7 @@ func watchOnce(ctx context.Context, c *caller, sessionID string, r *Renderer, o 
 				return false, nil
 			case <-time.After(wait):
 			}
-			again, err := c.client.GetSession(ctx, authed(c, &agentv1.GetSessionRequest{SessionId: sessionID}))
+			again, err := c.client.GetSession(ctx, asTurn(c, &agentv1.GetSessionRequest{SessionId: sessionID}))
 			if err != nil {
 				return false, fmt.Errorf("get session %s: %w", sessionID, err)
 			}
@@ -538,7 +538,7 @@ func wholeMessage(ctx context.Context, c *caller, sessionID, messageID string) (
 	for failures := 1; ; failures++ {
 		// Each try has its own time, so one that hangs leaves the others theirs.
 		try, cancel := context.WithTimeout(ctx, wholeMessageTimeout)
-		resp, err := c.client.GetSessionMessage(try, authed(c, &agentv1.GetSessionMessageRequest{SessionId: sessionID, MessageId: messageID}))
+		resp, err := c.client.GetSessionMessage(try, asTurn(c, &agentv1.GetSessionMessageRequest{SessionId: sessionID, MessageId: messageID}))
 		cancel()
 		if err == nil {
 			text := resp.Msg.GetText()

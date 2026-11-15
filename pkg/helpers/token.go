@@ -34,6 +34,26 @@ func ResolveCacheAuth(ctx context.Context, tok string) (string, error) {
 	return token, err
 }
 
+// ResolveAgentAuth returns org, what ResolveOrgAuth resolves, and turn, a Dispatch turn's own token for the few
+// session RPCs the API takes it on (DEP-8526). turn is org outside a turn. org is "" when only a turn token exists.
+func ResolveAgentAuth(ctx context.Context, tok string, needOrg bool) (org, turn string, err error) {
+	org = resolveStaticProjectAuth(tok)
+	if org == "" {
+		org = resolveRunToken(ctx)
+	}
+	if org != "" {
+		return org, org, nil
+	}
+	org, turn = resolveJITToken(), mintToken(ctx, turnTokenSource())
+	if org == "" && (needOrg || turn == "") && IsTerminal() {
+		org, err = authorizeDevice(ctx)
+	}
+	if turn == "" {
+		turn = org
+	}
+	return org, turn, err
+}
+
 func ResolveStaticOrgAuth(tok string) string {
 	if tok != "" {
 		return tok
@@ -146,17 +166,23 @@ func resolveOIDCToken(ctx context.Context) string {
 	return ""
 }
 
-var runTokenSource = runtoken.Default
+var (
+	runTokenSource  = runtoken.Default
+	turnTokenSource = runtoken.Turn
+)
 
 // resolveRunToken mints a managed run's own token; the API client refreshes it per request.
 func resolveRunToken(ctx context.Context) string {
-	source := runTokenSource()
+	return mintToken(ctx, runTokenSource())
+}
+
+func mintToken(ctx context.Context, source *runtoken.Source) string {
 	if source == nil {
 		return ""
 	}
 	token, err := source.Token(ctx)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "warning: %v\n", err)
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return ""
 	}
 	return token
