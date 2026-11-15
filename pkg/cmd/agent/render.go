@@ -38,6 +38,13 @@ type viewMessage struct {
 	Summary   string         `json:"summary"`
 	IsError   bool           `json:"isError"`
 	ToolCalls []viewToolCall `json:"toolCalls"`
+	// TruncatedBytes is how much of the message the view left out of Text, which then ends in a note saying so.
+	TruncatedBytes int64 `json:"truncatedBytes"`
+}
+
+// outside reports whether a person or another system sent the message, rather than the session's own subagent.
+func (m viewMessage) outside() bool {
+	return m.Role == "user" && m.Sender.Kind != "subagent"
 }
 
 // viewSender says who wrote a user message; the kind "subagent" is the session's own subagent reporting back.
@@ -85,6 +92,9 @@ type Renderer struct {
 	broken   bool
 	// from is the input the transcript starts at; everything older is skipped until it shows up.
 	from string
+	// whole reads a message's full text by id, and full keeps each one read.
+	whole func(messageID string) (string, error)
+	full  map[string]string
 }
 
 func NewRenderer(w io.Writer) *Renderer {
@@ -122,6 +132,11 @@ func (r *Renderer) Render(session *agentv1.DepotAgentSession, viewJSON string) (
 	view, err := decodeView(viewJSON)
 	if err != nil {
 		return nil, err
+	}
+	for i := range viewMessages(view) {
+		if text, ok := r.full[view.Messages[i].ID]; ok {
+			view.Messages[i].Text = text
+		}
 	}
 	// A snapshot older than one already printed, as a stream frame behind a direct read is, has nothing to add.
 	if n := len(viewMessages(view)); n > 0 {
@@ -173,9 +188,13 @@ func (r *Renderer) renderView(view *agentView) {
 		// Everything in this view belongs to turns before the awaited input.
 		return
 	}
-	for _, msg := range view.Messages {
-		if msg.ID != "" && r.once("message:"+msg.ID) {
-			r.renderMessage(msg)
+	for i := range view.Messages {
+		if msg := &view.Messages[i]; msg.ID != "" && r.once("message:"+msg.ID) {
+			err := r.fill(msg)
+			r.renderMessage(*msg)
+			if err != nil {
+				r.line("(the rest of this reply could not be read: %s)", truncate(oneLine(err.Error())))
+			}
 		}
 	}
 	for _, tool := range view.Tools {
@@ -194,6 +213,25 @@ func (r *Renderer) renderView(view *agentView) {
 		at := time.UnixMilli(view.Retry.At).Format(time.TimeOnly)
 		r.line("(retrying at %s: %s)", at, truncate(oneLine(view.Retry.Error)))
 	}
+}
+
+// Whole makes the renderer read the full text of a reply the view cut short, for the transcript and for the
+// view Render returns. A reply is an assistant message that calls no tool; nothing else is read.
+func (r *Renderer) Whole(read func(messageID string) (string, error)) *Renderer {
+	r.whole, r.full = read, map[string]string{}
+	return r
+}
+
+func (r *Renderer) fill(msg *viewMessage) error {
+	if r.whole == nil || msg.TruncatedBytes <= 0 || msg.Role != "assistant" || msg.IsError || len(msg.ToolCalls) > 0 {
+		return nil
+	}
+	text, err := r.whole(msg.ID)
+	if err != nil {
+		return err
+	}
+	r.full[msg.ID], msg.Text = text, text
+	return nil
 }
 
 // From starts the transcript at the message of this input, leaving out the session's earlier turns.

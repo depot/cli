@@ -41,6 +41,12 @@ var (
 // so a session read that keeps failing after the grace wait still counts.
 const maxWatchFailures = 10
 
+// wholeMessageTries and wholeMessageTimeout bound the read of one reply the view cut short.
+const (
+	wholeMessageTries   = 3
+	wholeMessageTimeout = 30 * time.Second
+)
+
 var (
 	retryDelay = time.Second
 	streamHeld = 30 * time.Second
@@ -140,7 +146,10 @@ func watchAndReport(cmd *cobra.Command, c *caller, output, sessionID string, o w
 	if output == "json" {
 		transcript = cmd.ErrOrStderr()
 	}
-	result, err := watchSession(cmd.Context(), c, sessionID, NewRenderer(transcript).From(o.afterInput), o)
+	r := NewRenderer(transcript).From(o.afterInput).Whole(func(messageID string) (string, error) {
+		return wholeMessage(cmd.Context(), c, sessionID, messageID)
+	})
+	result, err := watchSession(cmd.Context(), c, sessionID, r, o)
 	if err != nil {
 		return err
 	}
@@ -415,7 +424,7 @@ func (t *turn) lost(status string, view *agentView) (gone bool, doubt string) {
 	followed := t.last != ""
 	if followed {
 		for _, msg := range view.Messages {
-			if msg.Role == "user" {
+			if msg.outside() {
 				return true, ""
 			}
 		}
@@ -466,7 +475,7 @@ func (t *turn) answered(view *agentView, at int, input, closed bool) (reply *vie
 	}
 	for i := at + 1; i < len(view.Messages); i++ {
 		// A subagent's report joins the turn it was started in; only an input from outside ends that turn.
-		if msg := view.Messages[i]; msg.Role != "user" || msg.Sender.Kind == "subagent" {
+		if !view.Messages[i].outside() {
 			continue
 		}
 		if isReply(i - 1) {
@@ -492,13 +501,44 @@ func replied(msg viewMessage) (done bool, reply, failure string) {
 	return true, msg.Text, ""
 }
 
+// wholeMessage reads the full text of a message the view cut short. Past the API's own limit the text is still cut,
+// and ends in the same note the view puts there.
+func wholeMessage(ctx context.Context, c *caller, sessionID, messageID string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, wholeMessageTimeout)
+	defer cancel()
+	for failures := 1; ; failures++ {
+		resp, err := c.client.GetSessionMessage(ctx, authed(c, &agentv1.GetSessionMessageRequest{SessionId: sessionID, MessageId: messageID}))
+		if err == nil {
+			text := resp.Msg.GetText()
+			if cut := resp.Msg.GetTruncatedBytes(); cut > 0 {
+				text += fmt.Sprintf("\n[%d bytes truncated]", cut)
+			}
+			return text, nil
+		}
+		if !retryable(err) || failures >= wholeMessageTries {
+			return "", err
+		}
+		select {
+		case <-ctx.Done():
+			return "", err
+		case <-time.After(retryDelay):
+		}
+	}
+}
+
 // retryable reports whether err is a transient RPC failure.
 // Any other error, such as a view that fails to decode, would fail the same way again.
 func retryable(err error) bool {
-	switch connect.CodeOf(err) {
+	var connectErr *connect.Error
+	if !errors.As(err, &connectErr) {
+		return false
+	}
+	switch connectErr.Code() {
 	case connect.CodeUnavailable, connect.CodeDeadlineExceeded, connect.CodeUnknown, connect.CodeInternal:
-		var connectErr *connect.Error
-		return errors.As(err, &connectErr)
+		return true
+	case connect.CodeInvalidArgument:
+		// A connection that ends under an open stream, as with a GOAWAY, is reported by the client as a message cut short.
+		return !connect.IsWireError(err) && strings.Contains(connectErr.Message(), "incomplete envelope")
 	}
 	return false
 }

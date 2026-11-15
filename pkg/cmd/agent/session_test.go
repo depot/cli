@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -42,7 +43,28 @@ type fakeAgent struct {
 	watchErr          error
 	holdFor           time.Duration
 	getErr            error
-	mu                sync.Mutex
+	// whole is each message's full text by id; wholeErrs fail that many reads first, and wholeAsked records them.
+	whole      map[string]*agentv1.GetSessionMessageResponse
+	wholeErrs  []error
+	wholeAsked []string
+	// afterFrames runs once a watch call has sent its frames.
+	afterFrames func(call int)
+	mu          sync.Mutex
+}
+
+func (f *fakeAgent) GetSessionMessage(_ context.Context, req *connect.Request[agentv1.GetSessionMessageRequest]) (*connect.Response[agentv1.GetSessionMessageResponse], error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.wholeAsked = append(f.wholeAsked, req.Msg.GetMessageId())
+	if len(f.wholeErrs) > 0 {
+		err := f.wholeErrs[0]
+		f.wholeErrs = f.wholeErrs[1:]
+		return nil, err
+	}
+	if msg := f.whole[req.Msg.GetMessageId()]; msg != nil {
+		return connect.NewResponse(msg), nil
+	}
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("unimplemented"))
 }
 
 func (f *fakeAgent) watchCount() int {
@@ -109,6 +131,9 @@ func (f *fakeAgent) WatchSession(ctx context.Context, req *connect.Request[agent
 			}
 		}
 	}
+	if f.afterFrames != nil {
+		f.afterFrames(call)
+	}
 	if f.holdWatch {
 		<-ctx.Done()
 	}
@@ -116,11 +141,45 @@ func (f *fakeAgent) WatchSession(ctx context.Context, req *connect.Request[agent
 	return f.watchErr
 }
 
-func serveAgent(t *testing.T, f *fakeAgent) {
+// conns keeps the connections a test server accepted, so a test can end them the way a server going away does.
+type conns struct {
+	net.Listener
+	mu       sync.Mutex
+	accepted []net.Conn
+}
+
+func (c *conns) Accept() (net.Conn, error) {
+	conn, err := c.Listener.Accept()
+	if err == nil {
+		c.mu.Lock()
+		c.accepted = append(c.accepted, conn)
+		c.mu.Unlock()
+	}
+	return conn, err
+}
+
+// goAway tells every open connection that its streams were all taken and then closes it under them,
+// which a client reports as "http2: server sent GOAWAY and closed the connection".
+func (c *conns) goAway(t *testing.T) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for _, conn := range c.accepted {
+		if err := http2.NewFramer(conn, nil).WriteGoAway(1<<31-1, http2.ErrCodeNo, nil); err != nil {
+			t.Errorf("write GOAWAY: %v", err)
+		}
+		_ = conn.Close()
+	}
+	c.accepted = nil
+}
+
+func serveAgent(t *testing.T, f *fakeAgent) *conns {
 	t.Helper()
 	mux := http.NewServeMux()
 	mux.Handle(agentv1connect.NewDepotAgentServiceHandler(f))
-	server := httptest.NewServer(h2c.NewHandler(mux, &http2.Server{}))
+	server := httptest.NewUnstartedServer(h2c.NewHandler(mux, &http2.Server{}))
+	accepted := &conns{Listener: server.Listener}
+	server.Listener = accepted
+	server.Start()
 	t.Cleanup(server.Close)
 	t.Setenv("DEPOT_API_URL", server.URL)
 	t.Setenv("DEPOT_TOKEN", "tok")
@@ -128,6 +187,7 @@ func serveAgent(t *testing.T, f *fakeAgent) {
 	for _, name := range []string{"GITHUB_RUN_ID", "GITHUB_REPOSITORY", "GITHUB_JOB"} {
 		t.Setenv(name, "")
 	}
+	return accepted
 }
 
 func runAgent(t *testing.T, args ...string) (stdout, stderr string, err error) {
@@ -363,6 +423,114 @@ func TestCreateWatchWaitsForTheReplyAcrossReconnects(t *testing.T) {
 	if len(f.watches) != 2 || f.watches[0].AfterCursor != nil || f.watches[1].GetAfterCursor() != "c2" {
 		t.Fatalf("watch did not resume from the last cursor: %v", f.watches)
 	}
+}
+
+// The API ends long-lived connections with a GOAWAY, under a stream that is still open.
+func TestWatchReconnectsAfterAGoAway(t *testing.T) {
+	retryDelay = time.Millisecond
+	t.Cleanup(func() { retryDelay = time.Second })
+	frames := [][]*agentv1.WatchSessionResponse{
+		{frame("idle", "c1", viewBefore), frame("running", "c2", viewAsked)},
+		{frame("idle", "c3", viewReplied)},
+	}
+	accepted := serveAgent(t, &fakeAgent{holdWatch: true, frames: frames})
+
+	// What the client makes of it is the error the watch has to count as worth another try.
+	stream, err := newCaller("tok", "org-1").client.WatchSession(context.Background(), connect.NewRequest(&agentv1.WatchSessionRequest{SessionId: "das_1"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for stream.Receive() && stream.Msg().GetCursor() != "c2" {
+	}
+	accepted.goAway(t)
+	for stream.Receive() {
+	}
+	if err := stream.Err(); err == nil || !strings.Contains(err.Error(), "GOAWAY") || !retryable(err) {
+		t.Fatalf("stream ended with %v (retryable %v), want a GOAWAY error the watch retries", err, err != nil && retryable(err))
+	}
+	_ = stream.Close()
+
+	f := &fakeAgent{holdWatch: true, frames: frames}
+	f.afterFrames = func(call int) {
+		if call == 0 {
+			accepted.goAway(t)
+		}
+	}
+	accepted = serveAgent(t, f)
+	out, errOut, err := runAgent(t, "create", "hello", "--watch", "-o", "json")
+	if err != nil {
+		t.Fatalf("err = %v\n%s", err, errOut)
+	}
+	var result watchResult
+	if err := json.Unmarshal([]byte(out), &result); err != nil {
+		t.Fatalf("stdout is not one JSON object: %v\n%s", err, out)
+	}
+	if result.Outcome != outcomeSettled || result.Reply != "hi there" {
+		t.Fatalf("unexpected result %+v", result)
+	}
+	if want := "[idle]\n[running]\n> hello\nhi there\n[idle]\n"; errOut != want {
+		t.Fatalf("transcript = %q, want %q", errOut, want)
+	}
+	if len(f.watches) != 2 || f.watches[1].GetAfterCursor() != "c2" {
+		t.Fatalf("watch did not resume from the last cursor: %v", f.watches)
+	}
+}
+
+// The view keeps the first 4096 bytes of a message. The reply is read in full, for the transcript and the result.
+func TestWatchReadsTheWholeOfALongReply(t *testing.T) {
+	retryDelay = time.Millisecond
+	t.Cleanup(func() { retryDelay = time.Second })
+	long := strings.Repeat("all of it. ", 1000)
+	const cut = `{"messages": [{"id": "3", "seq": 3, "role": "user", "inputId": "dai_1", "text": "hello"},
+		{"id": "4", "seq": 4, "role": "assistant", "text": "Looking.\n[9 bytes truncated]", "truncatedBytes": 9, "toolCalls": [{"callId": "t", "name": "bash"}]},
+		{"id": "5", "seq": 5, "role": "tool", "callId": "t", "toolName": "bash", "text": "[9 bytes truncated]\nok", "truncatedBytes": 9},
+		{"id": "6", "seq": 6, "role": "assistant", "text": "all of it. all\n[10986 bytes truncated]", "truncatedBytes": 10986}], "tools": [], "queuedCount": 0}`
+	run := func(t *testing.T, f *fakeAgent) (watchResult, string) {
+		t.Helper()
+		// The second frame is the same view again: a reply already read is not read twice.
+		f.frames = [][]*agentv1.WatchSessionResponse{{frame("running", "c1", cut), frame("idle", "c2", cut)}}
+		serveAgent(t, f)
+		out, errOut, err := runAgent(t, "create", "hello", "--watch", "-o", "json")
+		if err != nil {
+			t.Fatalf("err = %v\n%s", err, errOut)
+		}
+		var result watchResult
+		if err := json.Unmarshal([]byte(out), &result); err != nil {
+			t.Fatalf("stdout is not one JSON object: %v\n%s", err, out)
+		}
+		return result, errOut
+	}
+	t.Run("whole", func(t *testing.T) {
+		f := &fakeAgent{
+			whole:     map[string]*agentv1.GetSessionMessageResponse{"6": {Role: "assistant", Text: long}},
+			wholeErrs: []error{connect.NewError(connect.CodeUnavailable, errors.New("try again"))},
+		}
+		result, transcript := run(t, f)
+		if result.Reply != long {
+			t.Fatalf("reply is %d bytes ending %q, want all %d", len(result.Reply), result.Reply[max(0, len(result.Reply)-40):], len(long))
+		}
+		if !strings.Contains(transcript, strings.TrimSpace(long)+"\n") || strings.Contains(transcript, "10986 bytes truncated") {
+			t.Fatalf("transcript does not carry the whole reply:\n%s", truncate(transcript))
+		}
+		if got := strings.Join(f.wholeAsked, ","); got != "6,6" {
+			t.Fatalf("read messages %q, want the reply alone, once after one failed try", got)
+		}
+	})
+	t.Run("past the API's own limit", func(t *testing.T) {
+		f := &fakeAgent{whole: map[string]*agentv1.GetSessionMessageResponse{"6": {Role: "assistant", Text: long, TruncatedBytes: 7}}}
+		if result, _ := run(t, f); result.Reply != long+"\n[7 bytes truncated]" {
+			t.Fatalf("reply ends %q, want the note that it is still cut", result.Reply[len(result.Reply)-40:])
+		}
+	})
+	t.Run("an API without the read", func(t *testing.T) {
+		result, transcript := run(t, &fakeAgent{})
+		if result.Outcome != outcomeSettled || result.Reply != "all of it. all\n[10986 bytes truncated]" {
+			t.Fatalf("unexpected result %+v, want the cut reply", result)
+		}
+		if !strings.Contains(transcript, "(the rest of this reply could not be read: ") {
+			t.Fatalf("transcript does not say the reply is cut short:\n%s", transcript)
+		}
+	})
 }
 
 func TestWatchExitCodes(t *testing.T) {
