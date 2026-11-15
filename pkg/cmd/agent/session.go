@@ -144,7 +144,12 @@ Use ` + "`depot agent launch`" + ` to start a published agent on a repository.`,
 			if err != nil {
 				return err
 			}
-			c, err := f.caller(cmd, watch)
+			// --watch gets one token for both calls: a session created as a turn and then refused a watch is left running.
+			resolve := f.orgCaller
+			if !watch {
+				resolve = func(cmd *cobra.Command) (*caller, error) { return f.caller(cmd, false) }
+			}
+			c, err := resolve(cmd)
 			if err != nil {
 				return err
 			}

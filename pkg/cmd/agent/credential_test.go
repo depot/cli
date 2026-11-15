@@ -78,7 +78,7 @@ func TestEachRPCGetsTheCredentialTheAPITakes(t *testing.T) {
 		want map[string]string
 	}{
 		{"create", []string{"create", "hello"}, map[string]string{"CreateSession": "turn-token"}},
-		{"create --watch", []string{"create", "hello", "--watch"}, map[string]string{"CreateSession": "turn-token", "WatchSession": "cache-token", "GetSessionMessage": "turn-token"}},
+		{"create --watch", []string{"create", "hello", "--watch"}, map[string]string{"CreateSession": "cache-token", "WatchSession": "cache-token", "GetSessionMessage": "cache-token"}},
 		{"list", []string{"list"}, map[string]string{"ListDepotAgentSessions": "turn-token"}},
 		{"logs", []string{"logs", "das_1"}, map[string]string{"GetSession": "turn-token", "GetSessionMessage": "turn-token"}},
 		{"watch", []string{"watch", "das_1", "--until-idle"}, map[string]string{"WatchSession": "cache-token", "GetSessionMessage": "turn-token"}},
