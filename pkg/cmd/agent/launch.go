@@ -1,12 +1,10 @@
 package agent
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
-	"net/url"
 	"os"
 	"strings"
+	"time"
 
 	"connectrpc.com/connect"
 	"github.com/depot/cli/pkg/api"
@@ -14,12 +12,13 @@ import (
 	"github.com/depot/cli/pkg/helpers"
 	agentv1 "github.com/depot/cli/pkg/proto/depot/agent/v1"
 	"github.com/spf13/cobra"
-	"google.golang.org/protobuf/encoding/protojson"
 )
 
 type launchOptions struct {
 	org, token, output, message, clientRequestID string
 	sources                                      []string
+	watch                                        bool
+	timeout                                      time.Duration
 }
 
 func newLaunch() *cobra.Command {
@@ -30,19 +29,23 @@ func newLaunch() *cobra.Command {
 		Long: `Start a session of a published agent on one or more repositories, and print the session URL.
 
 In a Depot CI job, no flags beyond the agent, sources and message are needed: the job's DEPOT_TOKEN launches as the
-organization, and the run ID is the default --client-request-id, so a rerun returns the session the first attempt started.`,
-		Example: `  depot agent launch public-agent-code-review --source github:acme/app@refs/pull/12/head --message "Review this pull request"`,
-		Args:    cobra.ExactArgs(1),
+organization. Every launch starts a new session unless --client-request-id is passed: a launch that repeats a key returns
+the session the first one started. Nothing in a job's environment tells one matrix leg from another, so build the key
+from workflow expressions, one per leg and per attempt you want a session for.`,
+		Example: `  depot agent launch public-agent-code-review --source github:acme/app@refs/pull/12/head --message "Review this pull request"
+  depot agent launch public-agent-code-review --source github:acme/app --message "Review" --client-request-id "review-${{ github.run_id }}-${{ strategy.job-index }}"`,
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runLaunch(cmd, o, args[0])
 		},
 	}
 	cmd.Flags().StringArrayVar(&o.sources, "source", nil, "Repository the agent works on, as <kind>:<owner/repo>[@ref] (repeatable)")
 	cmd.Flags().StringVar(&o.message, "message", "", "First message of the session")
-	cmd.Flags().StringVar(&o.clientRequestID, "client-request-id", "", "Key that makes the launch safe to retry (defaults to the CI run ID in CI)")
+	cmd.Flags().StringVar(&o.clientRequestID, "client-request-id", "", "Key that makes the launch safe to repeat: a second launch with it returns the first session")
 	cmd.Flags().StringVar(&o.org, "org", "", "Organization ID (defaults to DEPOT_ORG_ID or the current organization)")
 	cmd.Flags().StringVar(&o.token, "token", "", "Depot API token (defaults to DEPOT_TOKEN, which a Depot CI job already has)")
 	cmd.Flags().StringVarP(&o.output, "output", "o", "text", "Output format: text or json")
+	addWatchFlags(cmd, &o.watch, &o.timeout)
 	_ = cmd.MarkFlagRequired("source")
 	_ = cmd.MarkFlagRequired("message")
 	return cmd
@@ -64,8 +67,6 @@ func runLaunch(cmd *cobra.Command, o *launchOptions, agent string) error {
 		req.Sources = append(req.Sources, source)
 	}
 	if key := o.clientRequestID; key != "" {
-		req.ClientRequestId = &key
-	} else if key := ciRequestID(agent, o.sources, o.message); key != "" {
 		req.ClientRequestId = &key
 	}
 
@@ -91,25 +92,22 @@ func runLaunch(cmd *cobra.Command, o *launchOptions, agent string) error {
 		return err
 	}
 
-	if o.output == "json" {
-		out, err := protojson.MarshalOptions{Multiline: true}.Marshal(resp.Msg)
-		if err != nil {
-			return err
-		}
-		_, err = fmt.Fprintln(cmd.OutOrStdout(), string(out))
-		return err
-	}
-	if u := resp.Msg.GetUrl(); u != "" {
-		_, err = fmt.Fprintln(cmd.OutOrStdout(), u)
-		return err
-	}
 	sessionID := resp.Msg.GetSession().GetSessionId()
-	if o.org == "" {
+	switch u := resp.Msg.GetUrl(); {
+	case o.output == "json" && !o.watch:
+		return printJSON(cmd.OutOrStdout(), resp.Msg)
+	case o.output == "json":
+	case u != "":
+		_, err = fmt.Fprintln(cmd.OutOrStdout(), u)
+	case o.org == "":
 		_, err = fmt.Fprintf(cmd.OutOrStdout(), "Launched session %s (pass --org to print its URL)\n", sessionID)
+	default:
+		_, err = fmt.Fprintln(cmd.OutOrStdout(), sessionURL(o.org, sessionID))
+	}
+	if err != nil || !o.watch {
 		return err
 	}
-	_, err = fmt.Fprintf(cmd.OutOrStdout(), "https://depot.dev/orgs/%s/agent-runs/sessions/%s\n", url.PathEscape(o.org), url.PathEscape(sessionID))
-	return err
+	return watchAndReport(cmd, newCaller(token, o.org), o.output, sessionID, watchOptions{afterInput: resp.Msg.GetInput().GetInputId(), untilIdle: true, timeout: o.timeout, url: resp.Msg.GetUrl(), base: beforeFirst()})
 }
 
 func parseSource(value string) (*agentv1.DepotAgentLaunchSource, error) {
@@ -124,15 +122,4 @@ func parseSource(value string) (*agentv1.DepotAgentLaunchSource, error) {
 		source.Ref = &ref
 	}
 	return source, nil
-}
-
-// The key covers what is launched, so two different launches in one job do not replay each other.
-func ciRequestID(agent string, sources []string, message string) string {
-	runID := os.Getenv("GITHUB_RUN_ID")
-	if runID == "" {
-		return ""
-	}
-	parts := append([]string{os.Getenv("GITHUB_REPOSITORY"), runID, os.Getenv("GITHUB_JOB"), agent, message}, sources...)
-	sum := sha256.Sum256([]byte(strings.Join(parts, "\x00")))
-	return "ci:" + hex.EncodeToString(sum[:])
 }

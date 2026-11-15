@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+package depot.agent.v1;
+
+// The "subagents" contribution of `SendInput` with mode "subagent": a message for one of the session's subagents
+// instead of the main agent. Pulled inputs carry it back unchanged.
+message DepotAgentSubagentsInput {
+  // Unique identifier for the subagent within its session. Returned as `conversationId` in the session view's
+  // `subagents` section.
+  string conversation_id = 1;
+  // Whether a background subagent gets the message after its current answer instead of mid-answer. One that edits
+  // files always waits. A foreground subagent gets it mid-answer either way, as the main agent is waiting on that
+  // answer. When the subagent is no longer running, the message goes to the main agent instead.
+  bool follow_up = 2;
+}
+
+message DepotAgentSubagentsPull {
+  bool accepts_subagent_inputs = 1;
+}
