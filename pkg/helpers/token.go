@@ -34,24 +34,24 @@ func ResolveCacheAuth(ctx context.Context, tok string) (string, error) {
 	return token, err
 }
 
-// ResolveAgentAuth is ResolveOrgAuth plus a Dispatch turn's own token. Only for commands whose RPCs take it (DEP-8526).
-func ResolveAgentAuth(ctx context.Context, tok string) (string, error) {
-	if token := resolveStaticProjectAuth(tok); token != "" {
-		return token, nil
+// ResolveAgentAuth returns org, what ResolveOrgAuth resolves, and turn, a Dispatch turn's own token for the few
+// session RPCs the API takes it on (DEP-8526). turn is org outside a turn. org is "" when only a turn token exists.
+func ResolveAgentAuth(ctx context.Context, tok string, needOrg bool) (org, turn string, err error) {
+	org = resolveStaticProjectAuth(tok)
+	if org == "" {
+		org = resolveRunToken(ctx)
 	}
-	// The run token is set for this CLI on purpose; the turn token is ambient, so it comes second.
-	for _, source := range []func() *runtoken.Source{runTokenSource, turnTokenSource} {
-		if token := mintToken(ctx, source()); token != "" {
-			return token, nil
-		}
+	if org != "" {
+		return org, org, nil
 	}
-	if token := resolveJITToken(); token != "" {
-		return token, nil
+	org, turn = resolveJITToken(), mintToken(ctx, turnTokenSource())
+	if org == "" && (needOrg || turn == "") && IsTerminal() {
+		org, err = authorizeDevice(ctx)
 	}
-	if IsTerminal() {
-		return authorizeDevice(ctx)
+	if turn == "" {
+		turn = org
 	}
-	return "", nil
+	return org, turn, err
 }
 
 func ResolveStaticOrgAuth(tok string) string {
