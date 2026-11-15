@@ -465,7 +465,8 @@ func (t *turn) answered(view *agentView, at int, input, closed bool) (reply *vie
 		return (i > at || !input) && msg.Role == "assistant" && len(msg.ToolCalls) == 0
 	}
 	for i := at + 1; i < len(view.Messages); i++ {
-		if view.Messages[i].Role != "user" {
+		// A subagent's report joins the turn it was started in; only an input from outside ends that turn.
+		if msg := view.Messages[i]; msg.Role != "user" || msg.Sender.Kind == "subagent" {
 			continue
 		}
 		if isReply(i - 1) {

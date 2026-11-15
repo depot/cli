@@ -30,6 +30,7 @@ type viewMessage struct {
 	// Seq orders messages across the whole session; a later message has a higher one.
 	Seq       int64          `json:"seq"`
 	InputID   string         `json:"inputId"`
+	Sender    viewSender     `json:"sender"`
 	Role      string         `json:"role"`
 	Text      string         `json:"text"`
 	CallID    string         `json:"callId"`
@@ -37,6 +38,11 @@ type viewMessage struct {
 	Summary   string         `json:"summary"`
 	IsError   bool           `json:"isError"`
 	ToolCalls []viewToolCall `json:"toolCalls"`
+}
+
+// viewSender says who wrote a user message; the kind "subagent" is the session's own subagent reporting back.
+type viewSender struct {
+	Kind string `json:"kind"`
 }
 
 type viewToolCall struct {

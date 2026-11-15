@@ -279,6 +279,33 @@ func TestTurnDoesNotTakeALaterInputsReply(t *testing.T) {
 	}
 }
 
+func TestTurnKeepsWaitingPastASubagentReport(t *testing.T) {
+	const (
+		asked  = `{"id": "3", "role": "user", "inputId": "dai_1", "text": "hello"}`
+		work   = `{"id": "4", "role": "assistant", "text": "Looking.", "toolCalls": [{"callId": "t"}]}, {"id": "5", "role": "tool", "callId": "t", "text": "started"}`
+		report = `{"id": "6", "role": "user", "sender": {"kind": "subagent", "name": "scout"}, "text": "Installed."}`
+		reply  = `{"id": "7", "role": "assistant", "text": "All done."}`
+	)
+	for name, tc := range map[string]struct {
+		status, view, want string
+		done               bool
+	}{
+		"still working after the report": {"running", asked + "," + work + "," + report, "", false},
+		"replied after the report":       {"idle", asked + "," + work + "," + report + "," + reply, "All done.", true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			var view agentView
+			if err := json.Unmarshal([]byte(`{"messages": [`+tc.view+`]}`), &view); err != nil {
+				t.Fatal(err)
+			}
+			done, got, failure := (&turn{afterInput: "dai_1"}).settled(tc.status, &view)
+			if done != tc.done || got != tc.want || failure != "" {
+				t.Fatalf("settled = %v, %q, %q; want %v, %q and no failure", done, got, failure, tc.done, tc.want)
+			}
+		})
+	}
+}
+
 func TestWatchJSONNeedsAWaitToReport(t *testing.T) {
 	f := &fakeAgent{}
 	serveAgent(t, f)
