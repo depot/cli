@@ -262,6 +262,8 @@ func TestTurnWithNothingOfItInTheView(t *testing.T) {
 	const (
 		work  = `{"id": "40", "seq": 40, "role": "tool", "text": "ok"}, {"id": "41", "seq": 41, "role": "assistant", "text": "done"}`
 		input = `{"id": "39", "seq": 39, "role": "user", "text": "next"}, ` + work
+		// A subagent's report belongs to the turn that started it, so it is not a later input.
+		report = `{"id": "39", "seq": 39, "role": "user", "sender": {"kind": "subagent", "name": "scout"}, "text": "Installed."}, ` + work
 	)
 	followed := func() *turn { return &turn{afterInput: "dai_1", last: "9", lastSeq: 9} }
 	passed := func() *turn { return &turn{afterInput: "dai_1", base: seq(9)} }
@@ -281,6 +283,8 @@ func TestTurnWithNothingOfItInTheView(t *testing.T) {
 		{"followed, idle with an input queued", followed, "idle", work, 1, "", ""},
 		{"followed, a later input running", followed, "running", input, 0, failedLost, ""},
 		{"followed, a later input answered", followed, "idle", input, 0, failedLost, ""},
+		{"followed, a subagent report running", followed, "running", report, 0, "", ""},
+		{"followed, a subagent report idle", followed, "idle", report, 0, "", failedLost},
 		{"followed, session failed", followed, "failed", work, 0, "the session failed", ""},
 		{"followed, session archived", followed, "archived", work, 0, "the session was archived", ""},
 		{"never seen and passed, running", passed, "running", work, 0, "", ""},
