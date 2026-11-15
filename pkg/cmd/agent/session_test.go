@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -601,4 +602,20 @@ func TestWatchGivesAnInputOutOfTheCutViewTimeToBePickedUp(t *testing.T) {
 			t.Fatalf("err = %v, stdout = %q, want the reply once the session picked the input up", err, stdout)
 		}
 	})
+}
+
+func TestWatchReportsACancelledContext(t *testing.T) {
+	for _, args := range [][]string{{"watch", "das_1"}, {"watch", "das_1", "--until-idle"}} {
+		serveAgent(t, &fakeAgent{holdWatch: true, frames: [][]*agentv1.WatchSessionResponse{{frame("running", "c1", viewAsked)}}})
+		ctx, cancel := context.WithCancel(context.Background())
+		time.AfterFunc(50*time.Millisecond, cancel)
+		cmd := NewCmdAgent()
+		cmd.SilenceErrors, cmd.SilenceUsage = true, true
+		cmd.SetOut(io.Discard)
+		cmd.SetErr(io.Discard)
+		cmd.SetArgs(args)
+		if err := cmd.ExecuteContext(ctx); !errors.Is(err, context.Canceled) {
+			t.Fatalf("%v: err = %v, want the cancellation, not a finished watch", args, err)
+		}
+	}
 }

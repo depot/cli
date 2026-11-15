@@ -188,7 +188,7 @@ func watchSession(ctx context.Context, c *caller, sessionID string, r *Renderer,
 			return result, nil
 		}
 		if ctx.Err() != nil {
-			return result, nil
+			return result, fmt.Errorf("watch session %s: %w", sessionID, ctx.Err())
 		}
 		if deadline.Err() != nil {
 			result.Outcome = outcomeTimeout
