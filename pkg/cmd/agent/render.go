@@ -240,8 +240,9 @@ func (r *Renderer) keep(view *agentView) {
 		}
 		if r.unread[msg.ID]--; r.fill(msg) == nil {
 			delete(r.unread, msg.ID)
+			// Printed as plain lines: a response streaming now is another turn's, and keeps its place.
 			r.line("(the whole reply, read on a later try)")
-			r.renderMessage(*msg)
+			r.line("%s", strings.TrimSpace(msg.Text))
 		}
 	}
 	for id := range r.full {

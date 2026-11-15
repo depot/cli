@@ -569,6 +569,34 @@ func TestRendererForgetsAWholeReplyOnceItLeavesTheView(t *testing.T) {
 	}
 }
 
+func TestRendererReadsAReplyAgainWithoutRestartingTheNextTurnsStream(t *testing.T) {
+	var out strings.Builder
+	fails := 2
+	r := NewRenderer(&out).Whole(func(string) (string, error) {
+		if fails--; fails >= 0 {
+			return "", connect.NewError(connect.CodeUnavailable, errors.New("try again"))
+		}
+		return "all of it", nil
+	})
+	const cut = `{"id": "6", "seq": 6, "role": "assistant", "text": "all\n[6 bytes truncated]", "truncatedBytes": 6}`
+	const next = cut + `, {"id": "7", "seq": 7, "role": "user", "text": "next"}`
+	for _, viewJSON := range []string{
+		`{"messages": [` + cut + `]}`,
+		`{"messages": [` + next + `], "partial": "second ans"}`,
+		`{"messages": [` + next + `], "partial": "second answer"}`,
+		`{"messages": [` + next + `, {"id": "8", "seq": 8, "role": "assistant", "text": "second answer."}]}`,
+	} {
+		if _, err := r.Render(nil, viewJSON); err != nil {
+			t.Fatal(err)
+		}
+	}
+	want := "all\n[6 bytes truncated]\n(the rest of this reply could not be read: unavailable: try again)\n> next\nsecond ans\n" +
+		"(the whole reply, read on a later try)\nall of it\nsecond answer.\n"
+	if out.String() != want {
+		t.Fatalf("transcript = %q, want %q", out.String(), want)
+	}
+}
+
 func TestWatchExitCodes(t *testing.T) {
 	replyGrace = 10 * time.Millisecond
 	t.Cleanup(func() { replyGrace = 10 * time.Second })
