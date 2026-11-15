@@ -120,6 +120,9 @@ func TestTokenErrorsNameTheVariableAndLeakNothing(t *testing.T) {
 	var status int
 	var body string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if status == http.StatusFound {
+			w.Header().Set("Location", "http://url-secret\x7f/")
+		}
 		w.WriteHeader(status)
 		fmt.Fprint(w, body)
 	}))
@@ -134,6 +137,7 @@ func TestTokenErrorsNameTheVariableAndLeakNothing(t *testing.T) {
 		{name: "error status", url: server.URL + "/token?k=url-secret", status: http.StatusServiceUnavailable, body: "body-secret"},
 		{name: "wrong shape", url: server.URL + "/token?k=url-secret", status: http.StatusOK, body: `{"token":"body-secret"}`},
 		{name: "not JSON", url: server.URL + "/token?k=url-secret", status: http.StatusOK, body: "body-secret"},
+		{name: "redirect", url: server.URL + "/token?k=url-secret", status: http.StatusFound},
 		{name: "unreachable", url: closed.URL + "/token?k=url-secret"},
 		{name: "invalid URL", url: "http://url-secret\x7f/"},
 	} {

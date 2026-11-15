@@ -8,8 +8,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
-	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -41,8 +41,12 @@ func New(env, url string) *Source {
 	return &Source{
 		env: env,
 		url: url,
-		// The endpoint is link-local: a configured proxy cannot reach it.
-		client: &http.Client{Timeout: 15 * time.Second, Transport: &http.Transport{Proxy: nil}},
+		// The endpoint is link-local: a configured proxy cannot reach it. It never redirects, so none is followed.
+		client: &http.Client{
+			Timeout:       15 * time.Second,
+			Transport:     &http.Transport{Proxy: nil},
+			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+		},
 		now:    time.Now,
 		minted: map[string]struct{}{},
 	}
@@ -103,20 +107,16 @@ func (s *Source) fetch(ctx context.Context) (string, error) {
 	}
 	resp, err := s.client.Do(req)
 	if err != nil {
-		var urlErr *url.Error
-		if errors.As(err, &urlErr) {
-			err = urlErr.Err
-		}
-		return "", fmt.Errorf("could not fetch a token from %s: %w", s.env, err)
+		return "", fmt.Errorf("could not fetch a token from %s: %s", s.env, reason(err))
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
 	if err != nil {
-		return "", fmt.Errorf("could not read the token from %s: %w", s.env, err)
+		return "", fmt.Errorf("could not fetch a token from %s: %s", s.env, reason(err))
 	}
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("could not fetch a token from %s: the endpoint answered %s", s.env, resp.Status)
+		return "", fmt.Errorf("could not fetch a token from %s: the endpoint answered HTTP %d", s.env, resp.StatusCode)
 	}
 
 	var out struct {
@@ -126,6 +126,21 @@ func (s *Source) fetch(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("could not fetch a token from %s: the answer has no token", s.env)
 	}
 	return out.Value, nil
+}
+
+// reason describes a transport error without its text, which can quote the URL or the response.
+func reason(err error) string {
+	var netErr net.Error
+	var opErr *net.OpError
+	switch {
+	case errors.Is(err, context.Canceled):
+		return "canceled"
+	case errors.As(err, &netErr) && netErr.Timeout():
+		return "the request timed out"
+	case errors.As(err, &opErr):
+		return "could not connect"
+	}
+	return "the request failed"
 }
 
 // expiry reads the JWT's exp claim unverified; a token without one is treated as already expiring.
