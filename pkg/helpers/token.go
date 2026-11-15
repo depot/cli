@@ -34,24 +34,23 @@ func ResolveCacheAuth(ctx context.Context, tok string) (string, error) {
 	return token, err
 }
 
-// ResolveAgentAuth returns org, what ResolveOrgAuth resolves, and turn, a Dispatch turn's own token for the few
-// session RPCs the API takes it on (DEP-8526). turn is org outside a turn. org is "" when only a turn token exists.
-func ResolveAgentAuth(ctx context.Context, tok string, needOrg bool) (org, turn string, err error) {
-	org = resolveStaticProjectAuth(tok)
-	if org == "" {
-		org = resolveRunToken(ctx)
+// ResolveAgentAuth is ResolveOrgAuth for the session RPCs the API takes a Dispatch turn's own token on (DEP-8577):
+// inside a turn that token comes before the cache token, and turn reports that it is the one returned.
+func ResolveAgentAuth(ctx context.Context, tok string) (token string, turn bool, err error) {
+	if token = resolveStaticProjectAuth(tok); token != "" {
+		return token, false, nil
 	}
-	if org != "" {
-		return org, org, nil
+	if token = resolveRunToken(ctx); token != "" {
+		return token, false, nil
 	}
-	org, turn = resolveJITToken(), mintToken(ctx, turnTokenSource())
-	if org == "" && (needOrg || turn == "") && IsTerminal() {
-		org, err = authorizeDevice(ctx)
+	if token = mintToken(ctx, turnTokenSource()); token != "" {
+		return token, true, nil
 	}
-	if turn == "" {
-		turn = org
+	if token = resolveJITToken(); token != "" || !IsTerminal() {
+		return token, false, nil
 	}
-	return org, turn, err
+	token, err = authorizeDevice(ctx)
+	return token, false, err
 }
 
 func ResolveStaticOrgAuth(tok string) string {

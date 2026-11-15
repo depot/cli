@@ -2,11 +2,14 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path"
 	"reflect"
+	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -20,8 +23,8 @@ import (
 )
 
 // serveSandbox is the API as a Dispatch sandbox reaches it: a turn token URL and a cache token, no static token.
-// It returns the credential each RPC was called with.
-func serveSandbox(t *testing.T, f *fakeAgent, cacheToken string) func() map[string]string {
+// It returns the credential each RPC was called with. The RPCs in old refuse a turn's token, as an older API does.
+func serveSandbox(t *testing.T, f *fakeAgent, cacheToken string, old ...string) func() map[string]string {
 	t.Helper()
 	var mu sync.Mutex
 	seen := map[string]string{}
@@ -33,8 +36,13 @@ func serveSandbox(t *testing.T, f *fakeAgent, cacheToken string) func() map[stri
 	}))
 	server := httptest.NewServer(h2c.NewHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		mu.Lock()
-		seen[path.Base(r.URL.Path)] = strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+		rpc, token := path.Base(r.URL.Path), strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+		seen[rpc] = token
 		mu.Unlock()
+		if token == "turn-token" && slices.Contains(old, rpc) {
+			_ = connect.NewErrorWriter().Write(w, r, connect.NewError(connect.CodePermissionDenied, errors.New(notYet)))
+			return
+		}
 		mux.ServeHTTP(w, r)
 	}), &http2.Server{}))
 	t.Cleanup(server.Close)
@@ -60,7 +68,9 @@ func serveSandbox(t *testing.T, f *fakeAgent, cacheToken string) func() map[stri
 	}
 }
 
-// The API takes a turn's token on CreateSession, GetSession, GetSessionMessage and ListDepotAgentSessions only.
+const notYet = "This Depot API call can't be made as a Depot agent turn's sender yet"
+
+// In a sandbox every session RPC but the two of stop is made with the turn's token, with or without a cache token.
 func TestEachRPCGetsTheCredentialTheAPITakes(t *testing.T) {
 	long := `{"messages": [{"id": "3", "seq": 3, "role": "user", "inputId": "dai_1", "text": "hello"},
 		{"id": "6", "seq": 6, "role": "assistant", "text": "cut\n[9 bytes truncated]", "truncatedBytes": 9}], "tools": []}`
@@ -72,50 +82,80 @@ func TestEachRPCGetsTheCredentialTheAPITakes(t *testing.T) {
 			whole:  map[string]*agentv1.GetSessionMessageResponse{"6": {Role: "assistant", Text: "whole"}},
 		}
 	}
+	launch := []string{"launch", "an-agent@v1", "--source", "github:acme/lib", "--message", "hello"}
 	for _, tc := range []struct {
 		name string
 		args []string
 		want map[string]string
 	}{
 		{"create", []string{"create", "hello"}, map[string]string{"CreateSession": "turn-token"}},
-		{"create --watch", []string{"create", "hello", "--watch"}, map[string]string{"CreateSession": "cache-token", "WatchSession": "cache-token", "GetSessionMessage": "cache-token"}},
+		{"create --watch", []string{"create", "hello", "--watch"}, map[string]string{"CreateSession": "turn-token", "WatchSession": "turn-token", "GetSessionMessage": "turn-token"}},
 		{"list", []string{"list"}, map[string]string{"ListDepotAgentSessions": "turn-token"}},
 		{"logs", []string{"logs", "das_1"}, map[string]string{"GetSession": "turn-token", "GetSessionMessage": "turn-token"}},
-		{"watch", []string{"watch", "das_1", "--until-idle"}, map[string]string{"WatchSession": "cache-token", "GetSessionMessage": "turn-token"}},
+		{"watch", []string{"watch", "das_1", "--until-idle"}, map[string]string{"WatchSession": "turn-token", "GetSessionMessage": "turn-token"}},
 		{"stop", []string{"stop", "das_1"}, map[string]string{"InterruptSession": "cache-token"}},
 		{"stop --archive", []string{"stop", "das_1", "--archive"}, map[string]string{"ArchiveSession": "cache-token"}},
-		{"send", []string{"send", "das_1", "hello"}, map[string]string{"SendInput": "cache-token"}},
-		{"launch", []string{"launch", "an-agent@v1", "--source", "github:acme/lib", "--message", "hello"}, map[string]string{"Launch": "cache-token"}},
-		{"send --watch", []string{"send", "das_1", "hello", "--watch"}, map[string]string{"GetSession": "cache-token", "SendInput": "cache-token", "WatchSession": "cache-token", "GetSessionMessage": "cache-token"}},
+		{"send", []string{"send", "das_1", "hello"}, map[string]string{"SendInput": "turn-token"}},
+		{"send --watch", []string{"send", "das_1", "hello", "--watch"}, map[string]string{"GetSession": "turn-token", "SendInput": "turn-token", "WatchSession": "turn-token", "GetSessionMessage": "turn-token"}},
+		{"launch", launch, map[string]string{"Launch": "turn-token"}},
+		{"launch --watch", append(launch, "--watch"), map[string]string{"Launch": "turn-token", "WatchSession": "turn-token", "GetSessionMessage": "turn-token"}},
 	} {
-		t.Run(tc.name, func(t *testing.T) {
-			seen := serveSandbox(t, replied(), "cache-token")
-			if _, errOut, err := runAgent(t, tc.args...); err != nil {
-				t.Fatalf("%v\n%s", err, errOut)
-			}
-			if got := seen(); !reflect.DeepEqual(got, tc.want) {
-				t.Fatalf("credentials by RPC = %v, want %v", got, tc.want)
-			}
-		})
+		for _, cacheToken := range []string{"cache-token", ""} {
+			t.Run(tc.name+" with cache token "+strconv.Quote(cacheToken), func(t *testing.T) {
+				seen := serveSandbox(t, replied(), cacheToken)
+				_, errOut, err := runAgent(t, tc.args...)
+				// stop has no call that takes a turn's token, so without a cache token it fails before sending.
+				if cacheToken == "" && tc.args[0] == "stop" {
+					if got := seen(); err == nil || !strings.Contains(err.Error(), "missing API token") || len(got) != 0 {
+						t.Fatalf("err = %v after sending %v, want a missing token and nothing sent", err, got)
+					}
+					return
+				}
+				if err != nil {
+					t.Fatalf("%v\n%s", err, errOut)
+				}
+				if got := seen(); !reflect.DeepEqual(got, tc.want) {
+					t.Fatalf("credentials by RPC = %v, want %v", got, tc.want)
+				}
+			})
+		}
 	}
 }
 
-// With no cache token the calls that take a turn's token still work, and the rest fail before anything is sent.
-func TestATurnTokenAloneMakesOnlyTheCallsThatTakeIt(t *testing.T) {
-	seen := serveSandbox(t, &fakeAgent{}, "")
-	if _, _, err := runAgent(t, "list"); err != nil {
-		t.Fatal(err)
-	}
-	if got := seen(); !reflect.DeepEqual(got, map[string]string{"ListDepotAgentSessions": "turn-token"}) {
-		t.Fatalf("credentials by RPC = %v", got)
-	}
-	for _, args := range [][]string{{"create", "hello", "--watch"}, {"watch", "das_1"}, {"stop", "das_1"}, {"stop", "das_1", "--archive"}, {"send", "das_1", "hello"}, {"launch", "an-agent@v1", "--source", "github:acme/lib", "--message", "hello"}} {
-		_, _, err := runAgent(t, args...)
-		if err == nil || !strings.Contains(err.Error(), "missing API token") {
-			t.Fatalf("%v: err = %v, want a missing token", args, err)
-		}
-		if got := seen(); len(got) != 0 {
-			t.Fatalf("%v sent %v before failing", args, got)
-		}
+// An API from before DEP-8577 refuses the turn's token on these calls. The error names the call, and when a
+// session was already created it says so and how to read it.
+func TestAnAPIThatRefusesTheTurnTokenIsNamedAndLeavesNothingUnsaid(t *testing.T) {
+	launch := []string{"launch", "an-agent@v1", "--source", "github:acme/lib", "--message", "hello"}
+	for _, tc := range []struct {
+		name string
+		args []string
+		rpc  string
+		did  string
+		want map[string]string
+	}{
+		{"watch", []string{"watch", "das_1", "--until-idle"}, "WatchSession", "", map[string]string{"WatchSession": "turn-token"}},
+		{"create --watch", []string{"create", "hello", "--watch", "-o", "json"}, "WatchSession", "Session das_1 was created", map[string]string{"CreateSession": "turn-token", "WatchSession": "turn-token"}},
+		{"send", []string{"send", "das_1", "hello"}, "SendInput", "", map[string]string{"SendInput": "turn-token"}},
+		{"send --watch", []string{"send", "das_1", "hello", "--watch"}, "SendInput", "", map[string]string{"GetSession": "turn-token", "SendInput": "turn-token"}},
+		{"launch", launch, "Launch", "", map[string]string{"Launch": "turn-token"}},
+		{"launch --watch", append(launch, "--watch"), "Launch", "", map[string]string{"Launch": "turn-token"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := &fakeAgent{got: &agentv1.GetSessionResponse{Session: &agentv1.DepotAgentSession{SessionId: "das_1", Status: "idle"}}}
+			seen := serveSandbox(t, f, "cache-token", "WatchSession", "SendInput", "Launch")
+			out, _, err := runAgent(t, tc.args...)
+			if err == nil || !strings.Contains(err.Error(), notYet) || !strings.Contains(err.Error(), "agent turn's token. The API takes it on "+tc.rpc+" only") {
+				t.Fatalf("err = %v, want the refusal naming %s", err, tc.rpc)
+			}
+			if strings.Contains(err.Error(), "turn-token") || strings.Contains(out, `"outcome"`) {
+				t.Fatalf("err = %v, out = %q: want no token and no result", err, out)
+			}
+			if said := strings.Contains(err.Error(), "is not being watched; read its reply with `depot agent logs das_1`"); said != (tc.did != "") || !strings.Contains(err.Error(), tc.did) {
+				t.Fatalf("err = %v, want %q said", err, tc.did)
+			}
+			if got := seen(); !reflect.DeepEqual(got, tc.want) || f.watchCount() != 0 {
+				t.Fatalf("credentials by RPC = %v, want %v and no watch reaching the API", got, tc.want)
+			}
+		})
 	}
 }

@@ -9,7 +9,6 @@ import (
 	"connectrpc.com/connect"
 	"github.com/depot/cli/pkg/api"
 	"github.com/depot/cli/pkg/config"
-	"github.com/depot/cli/pkg/helpers"
 	agentv1 "github.com/depot/cli/pkg/proto/depot/agent/v1"
 	"github.com/spf13/cobra"
 )
@@ -76,20 +75,17 @@ func runLaunch(cmd *cobra.Command, o *launchOptions, agent string) error {
 	if o.org == "" {
 		o.org = config.GetCurrentOrganization()
 	}
-	token, err := helpers.ResolveOrgAuth(cmd.Context(), o.token)
+	c, err := turnCaller(cmd, o.token, o.org)
 	if err != nil {
 		return err
-	}
-	if token == "" {
-		return fmt.Errorf("missing API token; pass --token or DEPOT_TOKEN, or run `depot login`")
 	}
 
-	resp, err := api.NewDepotAgentLaunchClient().Launch(cmd.Context(), api.WithAuthenticationAndOrg(connect.NewRequest(req), token, o.org))
+	resp, err := api.NewDepotAgentLaunchClient().Launch(cmd.Context(), authed(c, req))
 	if err != nil {
-		if code := connect.CodeOf(err); strings.HasPrefix(token, "depot_cijob_") && (code == connect.CodePermissionDenied || code == connect.CodeUnauthenticated) {
+		if code := connect.CodeOf(err); strings.HasPrefix(c.token, "depot_cijob_") && (code == connect.CodePermissionDenied || code == connect.CodeUnauthenticated) {
 			return fmt.Errorf("%w\nThis API does not accept the CI job token for launches; pass an organization or user token from a secret with --token", err)
 		}
-		return err
+		return c.refused(err, "Launch")
 	}
 
 	sessionID := resp.Msg.GetSession().GetSessionId()
@@ -107,7 +103,7 @@ func runLaunch(cmd *cobra.Command, o *launchOptions, agent string) error {
 	if err != nil || !o.watch {
 		return err
 	}
-	return watchAndReport(cmd, newCaller(token, o.org), o.output, sessionID, watchOptions{afterInput: resp.Msg.GetInput().GetInputId(), untilIdle: true, timeout: o.timeout, url: resp.Msg.GetUrl(), base: beforeFirst()})
+	return watchAndReport(cmd, c, o.output, sessionID, watchOptions{afterInput: resp.Msg.GetInput().GetInputId(), untilIdle: true, timeout: o.timeout, url: resp.Msg.GetUrl(), base: beforeFirst(), did: "was launched"})
 }
 
 func parseSource(value string) (*agentv1.DepotAgentLaunchSource, error) {
