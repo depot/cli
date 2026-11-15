@@ -15,6 +15,7 @@ import (
 	"github.com/depot/cli/pkg/proto/depot/agent/v1/agentv1connect"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
+	"google.golang.org/protobuf/proto"
 )
 
 func serveLaunch(t *testing.T, handle func(*connect.Request[agentv1.LaunchRequest]) (*agentv1.LaunchResponse, error)) {
@@ -155,8 +156,26 @@ func TestLaunchWithoutAnOrgPrintsTheSessionID(t *testing.T) {
 	}
 }
 
+func TestParseSourceTakesOnePartDepotCodeNames(t *testing.T) {
+	for value, want := range map[string]*agentv1.DepotAgentLaunchSource{
+		"depot-code:app":           {Kind: "depot-code", Repository: "app"},
+		"depot-code:app@feature/x": {Kind: "depot-code", Repository: "app", Ref: proto.String("feature/x")},
+		"depot-code:acme/app@v1":   {Kind: "depot-code", Repository: "acme/app", Ref: proto.String("v1")},
+	} {
+		got, err := parseSource(value)
+		if err != nil {
+			t.Errorf("parseSource(%q): %v", value, err)
+		} else if !proto.Equal(got, want) {
+			t.Errorf("parseSource(%q) = %v, want %v", value, got, want)
+		}
+	}
+}
+
 func TestParseSourceRejectsMalformedValues(t *testing.T) {
-	for _, value := range []string{"acme/app", "depot-code:acme", "depot-code:/app", ":acme/app", "depot-code:acme/app@"} {
+	for _, value := range []string{
+		"acme/app", "github:acme", "depot-code:", "depot-code:@main", "depot-code:app@", "depot-code:acme/", "depot-code:/app",
+		":acme/app", ":app", "depot-code:acme/app@",
+	} {
 		if _, err := parseSource(value); err == nil {
 			t.Errorf("parseSource(%q) succeeded", value)
 		}

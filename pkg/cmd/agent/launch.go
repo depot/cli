@@ -30,15 +30,18 @@ func newLaunch() *cobra.Command {
 In a Depot CI job, no flags beyond the agent, sources and message are needed: the job's DEPOT_TOKEN launches as the
 organization. Every launch starts a new session unless --client-request-id is passed: a launch that repeats a key returns
 the session the first one started. Nothing in a job's environment tells one matrix leg from another, so build the key
-from workflow expressions, one per leg and per attempt you want a session for.`,
+from workflow expressions, one per leg and per attempt you want a session for.
+
+A Depot Code repository whose name has one part is written without an owner: --source depot-code:app.`,
 		Example: `  depot agent launch public-agent-code-review --source github:acme/app@refs/pull/12/head --message "Review this pull request"
+  depot agent launch public-agent-code-review --source depot-code:app@main --message "Review the main branch"
   depot agent launch public-agent-code-review --source github:acme/app --message "Review" --client-request-id "review-${{ github.run_id }}-${{ strategy.job-index }}"`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runLaunch(cmd, o, args[0])
 		},
 	}
-	cmd.Flags().StringArrayVar(&o.sources, "source", nil, "Repository the agent works on, as <kind>:<owner/repo>[@ref] (repeatable)")
+	cmd.Flags().StringArrayVar(&o.sources, "source", nil, "Repository the agent works on, as <kind>:<owner/repo>[@ref], or depot-code:<name>[@ref] (repeatable)")
 	cmd.Flags().StringVar(&o.message, "message", "", "First message of the session")
 	cmd.Flags().StringVar(&o.clientRequestID, "client-request-id", "", "Key that makes the launch safe to repeat: a second launch with it returns the first session")
 	cmd.Flags().StringVar(&o.org, "org", "", "Organization ID (defaults to DEPOT_ORG_ID or the current organization)")
@@ -109,9 +112,11 @@ func runLaunch(cmd *cobra.Command, o *launchOptions, agent string) error {
 func parseSource(value string) (*agentv1.DepotAgentLaunchSource, error) {
 	kind, rest, ok := strings.Cut(value, ":")
 	repository, ref, hasRef := strings.Cut(rest, "@")
-	owner, name, _ := strings.Cut(repository, "/")
-	if !ok || kind == "" || owner == "" || name == "" || (hasRef && ref == "") {
-		return nil, fmt.Errorf("source %q must be <kind>:<owner/repo>[@ref], for example depot-code:acme/app@main", value)
+	owner, name, hasOwner := strings.Cut(repository, "/")
+	// A Depot Code repository name may have one part; every other kind names an owner.
+	onePart := kind == "depot-code" && !hasOwner
+	if !ok || kind == "" || owner == "" || (name == "" && !onePart) || (hasRef && ref == "") {
+		return nil, fmt.Errorf("source %q must be <kind>:<owner/repo>[@ref] or depot-code:<name>[@ref], for example depot-code:acme/app@main", value)
 	}
 	source := &agentv1.DepotAgentLaunchSource{Kind: kind, Repository: repository}
 	if hasRef {
