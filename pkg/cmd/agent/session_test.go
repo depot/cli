@@ -630,22 +630,27 @@ func TestWatchReadsTheWholeReplyBeforeAWaitThatEndsOnItsFrame(t *testing.T) {
 	t.Cleanup(func() { retryDelay, wholeMessageTimeout = time.Second, 30*time.Second })
 	const cut = `{"messages": [{"id": "3", "seq": 3, "role": "user", "inputId": "dai_1", "text": "hello"},
 		{"id": "6", "seq": 6, "role": "assistant", "text": "all\n[6 bytes truncated]", "truncatedBytes": 6}], "tools": []}`
+	// An earlier turn's cut reply, with the awaited input still queued: idle, yet the wait goes on.
+	const older = `{"messages": [{"id": "1", "seq": 1, "role": "user", "inputId": "dai_0", "text": "before"},
+		{"id": "2", "seq": 2, "role": "assistant", "text": "ear\n[9 bytes truncated]", "truncatedBytes": 9}], "tools": [], "queuedCount": 1}`
+	// The awaited input has its reply, and the session is already on the next input.
+	next := strings.Replace(cut, `], "tools"`, `, {"id": "7", "seq": 7, "role": "user", "inputId": "dai_2", "text": "next"}], "tools"`, 1)
 	down := connect.NewError(connect.CodeUnavailable, errors.New("try again"))
 	for name, f := range map[string]*fakeAgent{
-		"every try of the first read failed": {wholeErrs: []error{down, down, down}},
-		"the first try hung":                 {wholeHangs: 1},
+		"every try of the first read failed":       {wholeErrs: []error{down, down, down}, frames: [][]*agentv1.WatchSessionResponse{{frame("idle", "c1", cut)}}},
+		"the first try hung":                       {wholeHangs: 1, frames: [][]*agentv1.WatchSessionResponse{{frame("idle", "c1", cut)}}},
+		"the session is on to the next input":      {wholeErrs: []error{down, down, down}, frames: [][]*agentv1.WatchSessionResponse{{frame("running", "c1", next)}}},
+		"an idle frame that does not end the wait": {wholeErrs: []error{down, down, down}, frames: [][]*agentv1.WatchSessionResponse{{frame("idle", "c1", older), frame("running", "c2", older), frame("idle", "c3", cut)}}},
 	} {
 		t.Run(name, func(t *testing.T) {
-			f.whole = map[string]*agentv1.GetSessionMessageResponse{"6": {Role: "assistant", Text: "all of it"}}
-			// One idle frame: the wait ends on it, so no later frame can read the reply again.
-			f.frames = [][]*agentv1.WatchSessionResponse{{frame("idle", "c1", cut)}}
+			f.whole = map[string]*agentv1.GetSessionMessageResponse{"6": {Role: "assistant", Text: "all of it"}, "2": {Role: "assistant", Text: "earlier, whole"}}
 			serveAgent(t, f)
 			out, errOut, err := runAgent(t, "watch", "das_1", "--after-input", "dai_1", "--until-idle", "-o", "json")
 			if err != nil || !strings.Contains(out, `"reply": "all of it"`) {
 				t.Fatalf("err = %v, want the whole reply:\n%s\n%s", err, out, errOut)
 			}
 			// A hung try leaves the first read its other tries; only a read that used them all is read again.
-			if later := strings.Contains(errOut, "read on a later try"); later != (f.wholeHangs == 0 && len(f.wholeAsked) == 4) {
+			if later := strings.Contains(errOut, "read on a later try"); later != (len(f.wholeAsked) >= 4) || len(f.wholeAsked) > 5 {
 				t.Fatalf("read again = %v after reads %v:\n%s", later, f.wholeAsked, errOut)
 			}
 		})

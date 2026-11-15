@@ -242,10 +242,6 @@ func watchOnce(ctx context.Context, c *caller, sessionID string, r *Renderer, o 
 		if err != nil {
 			return false, err
 		}
-		if o.untilIdle && msg.GetSession().GetStatus() != "running" {
-			// The wait may end on this frame, and no later one would read a reply this one could not.
-			r.Reread(ctx, view)
-		}
 		// Reading a whole reply can outlast the wait; a frame handled after it ended settles nothing.
 		if ctx.Err() != nil {
 			return false, nil
@@ -289,13 +285,18 @@ func watchOnce(ctx context.Context, c *caller, sessionID string, r *Renderer, o 
 			if view, err = r.Render(again.Msg.GetSession(), again.Msg.GetViewJson()); err != nil {
 				return false, err
 			}
-			r.Reread(ctx, view)
 			if ctx.Err() != nil {
 				return false, nil
 			}
 			result.Status = again.Msg.GetSession().GetStatus()
 			if done, reply, failure = t.settled(result.Status, view); !done && t.doubt != "" && final {
 				done, failure = true, t.doubt
+			}
+		}
+		if done && failure == "" {
+			// The wait ends here, so no later frame would read a reply this one could not.
+			if reply = r.Recover(ctx, view, reply); ctx.Err() != nil {
+				return false, nil
 			}
 		}
 		advance()

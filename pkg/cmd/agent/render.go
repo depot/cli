@@ -258,9 +258,13 @@ func (r *Renderer) keep(view *agentView) {
 	}
 }
 
-// Reread spends the tries a cut reply in the view has left, a retryDelay apart, instead of waiting for later frames.
-func (r *Renderer) Reread(ctx context.Context, view *agentView) {
-	for _, msg := range viewMessages(view) {
+// Recover reads again a reply still cut after a failed read, with the tries it has left, and returns its text.
+func (r *Renderer) Recover(ctx context.Context, view *agentView, reply string) string {
+	for i := len(viewMessages(view)) - 1; i >= 0; i-- {
+		msg := &view.Messages[i]
+		if msg.Text != reply || r.unread[msg.ID] == 0 {
+			continue
+		}
 		for r.unread[msg.ID] > 0 && ctx.Err() == nil {
 			select {
 			case <-ctx.Done():
@@ -268,7 +272,9 @@ func (r *Renderer) Reread(ctx context.Context, view *agentView) {
 				r.keep(view)
 			}
 		}
+		return msg.Text
 	}
+	return reply
 }
 
 func (r *Renderer) fill(msg *viewMessage) error {
