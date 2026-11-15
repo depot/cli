@@ -125,7 +125,7 @@ func serveAgent(t *testing.T, f *fakeAgent) {
 	t.Setenv("DEPOT_API_URL", server.URL)
 	t.Setenv("DEPOT_TOKEN", "tok")
 	t.Setenv("DEPOT_ORG_ID", "org-1")
-	for _, name := range []string{"GITHUB_RUN_ID", "GITHUB_REPOSITORY", "GITHUB_JOB"} {
+	for _, name := range []string{"GITHUB_RUN_ID", "GITHUB_RUN_ATTEMPT", "GITHUB_REPOSITORY", "GITHUB_JOB"} {
 		t.Setenv(name, "")
 	}
 }
