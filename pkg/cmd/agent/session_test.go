@@ -883,6 +883,18 @@ func TestStopInterruptsOrArchives(t *testing.T) {
 	}
 }
 
+func TestSendFailsOnAReplayedInputThatWasCancelled(t *testing.T) {
+	for output, want := range map[string]string{"text": "", "json": `"cancelled"`} {
+		t.Run(output, func(t *testing.T) {
+			serveAgent(t, &fakeAgent{sentStatus: "cancelled"})
+			stdout, _, err := runAgent(t, "send", "das_1", "hello", "--client-request-id", "again", "-o", output)
+			if err == nil || !strings.Contains(err.Error(), "dai_1 was not delivered") || strings.Contains(stdout, "Sent") || !strings.Contains(stdout, want) {
+				t.Fatalf("err = %v, want a failure that says nothing was sent:\n%s", err, stdout)
+			}
+		})
+	}
+}
+
 func TestSendWatchFailsAtOnceOnAReplayedInputThatWasCancelled(t *testing.T) {
 	f := &fakeAgent{sentStatus: "cancelled"}
 	serveAgent(t, f)

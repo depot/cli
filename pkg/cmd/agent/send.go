@@ -136,6 +136,17 @@ func runSend(cmd *cobra.Command, o *sendOptions, args []string) error {
 		return err
 	}
 
+	// Only a replayed send returns a cancelled input: its session was archived before the agent took it.
+	const cancelled = "the input was cancelled before the agent took it"
+	status := resp.Msg.GetInput().GetStatus()
+	if status == "cancelled" && !o.watch {
+		if o.output == "json" {
+			if err := printJSON(cmd.OutOrStdout(), resp.Msg); err != nil {
+				return err
+			}
+		}
+		return fmt.Errorf("%s was not delivered: %s", resp.Msg.GetInput().GetInputId(), cancelled)
+	}
 	if o.output == "json" && !o.watch {
 		return printJSON(cmd.OutOrStdout(), resp.Msg)
 	}
@@ -153,14 +164,12 @@ func runSend(cmd *cobra.Command, o *sendOptions, args []string) error {
 	}
 	// A repeated client request ID returns the input of the first send. Once the session has taken that one,
 	// what was read just now is not from before it, so the watch finds its own base.
-	status := resp.Msg.GetInput().GetStatus()
 	if status != "" && status != "pending" {
 		base = nil
 	}
 	wait := watchOptions{afterInput: resp.Msg.GetInput().GetInputId(), untilIdle: true, timeout: o.timeout, base: base}
-	// Only a replayed send returns a cancelled input: its session was archived before the agent took it.
 	if status == "cancelled" {
-		return report(cmd, c, o.output, sessionID, wait, watchResult{SessionID: sessionID, InputID: wait.afterInput, Status: "archived", Outcome: outcomeFailed, Error: "the input was cancelled before the agent took it"})
+		return report(cmd, c, o.output, sessionID, wait, watchResult{SessionID: sessionID, InputID: wait.afterInput, Status: "archived", Outcome: outcomeFailed, Error: cancelled})
 	}
 	return watchAndReport(cmd, c, o.output, sessionID, wait)
 }
