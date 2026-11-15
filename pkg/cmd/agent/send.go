@@ -12,9 +12,7 @@ import (
 	"unicode/utf8"
 
 	"connectrpc.com/connect"
-	"github.com/depot/cli/pkg/api"
 	"github.com/depot/cli/pkg/config"
-	"github.com/depot/cli/pkg/helpers"
 	agentv1 "github.com/depot/cli/pkg/proto/depot/agent/v1"
 	"github.com/spf13/cobra"
 	"google.golang.org/protobuf/proto"
@@ -116,24 +114,20 @@ func runSend(cmd *cobra.Command, o *sendOptions, args []string) error {
 	}
 	req.Mode, req.ClientRequestId = &mode, &clientRequestID
 
-	token, err := helpers.ResolveOrgAuth(cmd.Context(), o.token)
+	c, err := turnCaller(cmd, o.token, o.org)
 	if err != nil {
 		return err
 	}
-	if token == "" {
-		return fmt.Errorf("missing API token; pass --token or DEPOT_TOKEN, or run `depot login`")
-	}
-	c := newCaller(token, o.org)
 	var base *int64
 	if o.watch {
 		base = newestSeq(cmd.Context(), c, sessionID)
 	}
-	resp, err := api.NewDepotAgentClient().SendInput(cmd.Context(), api.WithAuthenticationAndOrg(connect.NewRequest(req), token, o.org))
+	resp, err := c.client.SendInput(cmd.Context(), authed(c, req))
 	if err != nil {
 		if o.key != "" && connect.CodeOf(err) == connect.CodeNotFound {
 			return fmt.Errorf("%w\nNo session was launched with --client-request-id %q in organization %s", err, o.key, o.org)
 		}
-		return err
+		return c.refused(err, "SendInput")
 	}
 
 	// Only a replayed send returns a cancelled input: its session was archived before the agent took it.
@@ -167,7 +161,7 @@ func runSend(cmd *cobra.Command, o *sendOptions, args []string) error {
 	if status != "" && status != "pending" {
 		base = nil
 	}
-	wait := watchOptions{afterInput: resp.Msg.GetInput().GetInputId(), untilIdle: true, timeout: o.timeout, base: base}
+	wait := watchOptions{afterInput: resp.Msg.GetInput().GetInputId(), untilIdle: true, timeout: o.timeout, base: base, did: "got the message"}
 	if status == "cancelled" {
 		return report(cmd, c, o.output, sessionID, wait, watchResult{SessionID: sessionID, InputID: wait.afterInput, Status: "archived", Outcome: outcomeFailed, Error: cancelled})
 	}

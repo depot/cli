@@ -104,8 +104,12 @@ func TestAPITokenURL(t *testing.T) {
 	ctx := context.Background()
 
 	t.Setenv("DEPOT_TOKEN", "")
-	if org, turn, _ := ResolveAgentAuth(ctx, "", true); org != "cache-token" || turn != "turn-svid" {
-		t.Fatalf("ResolveAgentAuth = %q, %q, want the cache token as before and the turn token beside it", org, turn)
+	agentAuth := func(flag string) string {
+		token, turn, _ := ResolveAgentAuth(ctx, flag)
+		return fmt.Sprintf("%s %v", token, turn)
+	}
+	if got := agentAuth(""); got != "turn-svid true" {
+		t.Fatalf("ResolveAgentAuth = %q, want the turn token ahead of the cache token", got)
 	}
 	if got, _ := ResolveOrgAuth(ctx, ""); got != "cache-token" {
 		t.Fatalf("ResolveOrgAuth = %q, want the cache token as before", got)
@@ -113,25 +117,24 @@ func TestAPITokenURL(t *testing.T) {
 	if got, _ := ResolveProjectAuth(ctx, ""); got != "cache-token" {
 		t.Fatalf("ResolveProjectAuth = %q, want the cache token as before", got)
 	}
-	if org, turn, _ := ResolveAgentAuth(ctx, "flag-token", true); org != "flag-token" || turn != "flag-token" {
-		t.Fatalf("ResolveAgentAuth with a flag = %q, %q", org, turn)
+	if got := agentAuth("flag-token"); got != "flag-token false" {
+		t.Fatalf("ResolveAgentAuth with a flag = %q", got)
 	}
 	t.Setenv("DEPOT_TOKEN", "env-token")
-	if org, turn, _ := ResolveAgentAuth(ctx, "", true); org != "env-token" || turn != "env-token" {
-		t.Fatalf("ResolveAgentAuth with DEPOT_TOKEN = %q, %q", org, turn)
+	if got := agentAuth(""); got != "env-token false" {
+		t.Fatalf("ResolveAgentAuth with DEPOT_TOKEN = %q", got)
 	}
 	t.Setenv("DEPOT_TOKEN", "")
 	withRunTokenServer(t)
-	if org, turn, _ := ResolveAgentAuth(ctx, "", true); org != "run-svid" || turn != "run-svid" {
-		t.Fatalf("ResolveAgentAuth with both URLs = %q, %q, want the run token", org, turn)
+	if got := agentAuth(""); got != "run-svid false" {
+		t.Fatalf("ResolveAgentAuth with both URLs = %q, want the run token", got)
 	}
 	runTokenSource = func() *runtoken.Source { return nil }
 
-	t.Setenv("DEPOT_CACHE_TOKEN", "")
-	if org, turn, _ := ResolveAgentAuth(ctx, "", true); org != "" || turn != "turn-svid" {
-		t.Fatalf("ResolveAgentAuth with the turn URL alone = %q, %q, want no org token", org, turn)
-	}
 	fail = true
+	if got := agentAuth(""); got != "cache-token false" {
+		t.Fatalf("ResolveAgentAuth with no turn token to fetch = %q, want the cache token", got)
+	}
 	t.Setenv("DEPOT_CACHE_TOKEN", "")
 	stderr := os.Stderr
 	read, write, err := os.Pipe()
@@ -139,11 +142,11 @@ func TestAPITokenURL(t *testing.T) {
 		t.Fatal(err)
 	}
 	os.Stderr = write
-	got, turn, _ := ResolveAgentAuth(ctx, "", false)
+	got, turn, _ := ResolveAgentAuth(ctx, "")
 	os.Stderr = stderr
 	write.Close()
 	printed, _ := io.ReadAll(read)
-	if got != "" || turn != "" || !strings.Contains(string(printed), "error: could not fetch a token from DEPOT_API_TOKEN_URL") {
+	if got != "" || turn || !strings.Contains(string(printed), "error: could not fetch a token from DEPOT_API_TOKEN_URL") {
 		t.Fatalf("got token %q and stderr %q", got, printed)
 	}
 }
