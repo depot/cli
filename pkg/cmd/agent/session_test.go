@@ -716,6 +716,37 @@ func TestLogsPrintsTheTranscriptOrTheView(t *testing.T) {
 	}
 }
 
+func TestLogsReadsTheWholeOfALongReply(t *testing.T) {
+	long := strings.Repeat("all of it. ", 1000)
+	const cut = `{"messages": [{"id": "3", "seq": 3, "role": "user", "inputId": "dai_1", "text": "hello"},
+		{"id": "5", "seq": 5, "role": "tool", "callId": "t", "toolName": "bash", "text": "[9 bytes truncated]\nok", "truncatedBytes": 9},
+		{"id": "6", "seq": 6, "role": "assistant", "text": "all of it. all\n[10986 bytes truncated]", "truncatedBytes": 10986}], "tools": []}`
+	got := &agentv1.GetSessionResponse{Session: &agentv1.DepotAgentSession{SessionId: "das_1", Status: "idle"}, ViewJson: cut, ViewSeq: 7}
+	f := &fakeAgent{got: got, whole: map[string]*agentv1.GetSessionMessageResponse{"6": {Role: "assistant", Text: long}}}
+	serveAgent(t, f)
+	out, _, err := runAgent(t, "logs", "das_1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, strings.TrimSpace(long)+"\n") || strings.Contains(out, "10986 bytes truncated") {
+		t.Fatalf("transcript does not carry the whole reply:\n%s", truncate(out))
+	}
+	if asked := strings.Join(f.wholeAsked, ","); asked != "6" {
+		t.Fatalf("read messages %q, want the reply alone", asked)
+	}
+	out, _, err = runAgent(t, "logs", "das_1", "-o", "json")
+	if err != nil || !strings.Contains(out, "10986 bytes truncated") || len(f.wholeAsked) != 1 {
+		t.Fatalf("-o json should print the view as returned (%v), read %v:\n%s", err, f.wholeAsked, truncate(out))
+	}
+	// An API without the read keeps the cut text and says so.
+	old := &fakeAgent{got: got}
+	serveAgent(t, old)
+	out, _, err = runAgent(t, "logs", "das_1")
+	if err != nil || !strings.Contains(out, "[10986 bytes truncated]") || !strings.Contains(out, "(the rest of this reply could not be read: ") {
+		t.Fatalf("unexpected transcript from an API without the read (%v):\n%s", err, truncate(out))
+	}
+}
+
 func TestStopInterruptsOrArchives(t *testing.T) {
 	f := &fakeAgent{}
 	serveAgent(t, f)
