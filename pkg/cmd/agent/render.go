@@ -258,14 +258,14 @@ func (r *Renderer) keep(view *agentView) {
 	}
 }
 
-// Recover reads again a reply still cut after a failed read, with the tries it has left, and returns its text.
-func (r *Renderer) Recover(ctx context.Context, view *agentView, reply string) string {
-	for i := len(viewMessages(view)) - 1; i >= 0; i-- {
+// Recover reads again the reply with this id if a failed read left it cut, with the tries it has left, and returns its text.
+func (r *Renderer) Recover(ctx context.Context, view *agentView, id, reply string) string {
+	for i := range viewMessages(view) {
 		msg := &view.Messages[i]
-		if msg.Text != reply || r.unread[msg.ID] == 0 {
+		if msg.ID != id {
 			continue
 		}
-		for r.unread[msg.ID] > 0 && ctx.Err() == nil {
+		for r.unread[id] > 0 && ctx.Err() == nil {
 			select {
 			case <-ctx.Done():
 			case <-time.After(retryDelay):

@@ -295,7 +295,7 @@ func watchOnce(ctx context.Context, c *caller, sessionID string, r *Renderer, o 
 		}
 		if done && failure == "" {
 			// The wait ends here, so no later frame would read a reply this one could not.
-			if reply = r.Recover(ctx, view, reply); ctx.Err() != nil {
+			if reply = r.Recover(ctx, view, t.said, reply); ctx.Err() != nil {
 				return false, nil
 			}
 		}
@@ -329,6 +329,8 @@ type turn struct {
 	// doubt is why the turn counts as failed if a second look still shows what the last frame did:
 	// the turn over without a reply at its end, as an interrupt leaves it, or gone from the view.
 	doubt string
+	// said is the id of the message the last settled gave as the reply.
+	said string
 	// unseen is when the wait first found the input missing from an idle session's cut view.
 	unseen time.Time
 }
@@ -358,7 +360,7 @@ func (t *turn) passed(view *agentView) bool {
 
 // settled reports whether the wait is over, with the agent's reply, or with why the turn counts as failed.
 func (t *turn) settled(status string, view *agentView) (done bool, reply, failure string) {
-	t.doubt = ""
+	t.doubt, t.said = "", ""
 	// A read made beside the stream can be ahead of frames the stream has yet to deliver; those say nothing new.
 	if n := len(viewMessages(view)); t.last != "" && n > 0 && view.Messages[n-1].Seq < t.lastSeq {
 		return false, "", ""
@@ -376,6 +378,7 @@ func (t *turn) settled(status string, view *agentView) (done bool, reply, failur
 	}
 	// A reply the input already has stands, whatever happened to the session afterwards.
 	if msg, failure := t.answered(view, at, input, status == "archived" || status == "failed"); msg != nil {
+		t.said = msg.ID
 		return replied(*msg)
 	} else if failure != "" {
 		return true, "", failure
@@ -428,6 +431,7 @@ func (t *turn) settled(status string, view *agentView) (done bool, reply, failur
 		}
 		return false, "", ""
 	}
+	t.said = view.Messages[last].ID
 	return replied(view.Messages[last])
 }
 
