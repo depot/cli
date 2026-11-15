@@ -156,7 +156,7 @@ func resolveRunToken(ctx context.Context) string {
 	}
 	token, err := source.Token(ctx)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "warning: %v\n", err)
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return ""
 	}
 	return token

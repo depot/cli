@@ -151,7 +151,7 @@ func TestCreateReadsOptionLikeRemotesAndSkipsUnreadableNames(t *testing.T) {
 
 func TestCreateRejectsBlankRepositoryBeforeAuthentication(t *testing.T) {
 	checkout(t)
-	for _, name := range []string{"DEPOT_TOKEN", "DEPOT_API_TOKEN", "DEPOT_JIT_TOKEN", "DEPOT_CACHE_TOKEN", "DEPOT_RUN_TOKEN_URL"} {
+	for _, name := range []string{"DEPOT_TOKEN", "DEPOT_API_TOKEN", "DEPOT_JIT_TOKEN", "DEPOT_CACHE_TOKEN", "DEPOT_RUN_TOKEN_URL", "DEPOT_API_TOKEN_URL"} {
 		t.Setenv(name, "")
 	}
 	viper.Set("api_token", "")

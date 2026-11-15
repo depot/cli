@@ -1,13 +1,15 @@
-// Package runtoken mints the Depot API token of a Depot managed run from its sandbox identity (DEP-7956).
+// Package runtoken mints a sandbox's Depot API token from its identity: a managed run's (DEP-7956) or a Dispatch turn's (DEP-8526).
 package runtoken
 
 import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -17,10 +19,14 @@ import (
 // EnvURL names the sandbox endpoint that answers with a fresh JWT-SVID as {"value": "<jwt>"}.
 const EnvURL = "DEPOT_RUN_TOKEN_URL"
 
+// EnvAPIURL is the same endpoint in a Dispatch sandbox, where the token acts as the running turn's sender.
+const EnvAPIURL = "DEPOT_API_TOKEN_URL"
+
 // An SVID lives five minutes, so one this close to expiry is replaced before use.
 const refreshBefore = time.Minute
 
 type Source struct {
+	env    string
 	url    string
 	client *http.Client
 	now    func() time.Time
@@ -31,8 +37,9 @@ type Source struct {
 	minted map[string]struct{}
 }
 
-func New(url string) *Source {
+func New(env, url string) *Source {
 	return &Source{
+		env: env,
 		url: url,
 		// The endpoint is link-local: a configured proxy cannot reach it.
 		client: &http.Client{Timeout: 15 * time.Second, Transport: &http.Transport{Proxy: nil}},
@@ -41,14 +48,19 @@ func New(url string) *Source {
 	}
 }
 
-var defaultSource = sync.OnceValue(func() *Source {
-	if url := os.Getenv(EnvURL); url != "" {
-		return New(url)
+var defaultSource = sync.OnceValue(fromEnv)
+
+func fromEnv() *Source {
+	// The run token is set for this CLI on purpose and reaches every org API; the turn token is ambient and narrower.
+	for _, env := range []string{EnvURL, EnvAPIURL} {
+		if url := os.Getenv(env); url != "" {
+			return New(env, url)
+		}
 	}
 	return nil
-})
+}
 
-// Default is the Source named by DEPOT_RUN_TOKEN_URL, or nil outside a managed run.
+// Default is the Source named by DEPOT_RUN_TOKEN_URL or else DEPOT_API_TOKEN_URL, or nil outside a sandbox.
 func Default() *Source {
 	return defaultSource()
 }
@@ -83,33 +95,35 @@ func (s *Source) Minted(token string) bool {
 	return ok
 }
 
+// fetch GETs the URL as given. Its errors name the variable and never carry the URL, the response body or a token.
 func (s *Source) fetch(ctx context.Context) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.url, nil)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("%s is not a valid URL", s.env)
 	}
 	resp, err := s.client.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("fetch run token: %w", err)
+		var urlErr *url.Error
+		if errors.As(err, &urlErr) {
+			err = urlErr.Err
+		}
+		return "", fmt.Errorf("could not fetch a token from %s: %w", s.env, err)
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
 	if err != nil {
-		return "", fmt.Errorf("read run token: %w", err)
+		return "", fmt.Errorf("could not read the token from %s: %w", s.env, err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("fetch run token: %s: %s", resp.Status, strings.TrimSpace(string(body)))
+		return "", fmt.Errorf("could not fetch a token from %s: the endpoint answered %s", s.env, resp.Status)
 	}
 
 	var out struct {
 		Value string `json:"value"`
 	}
-	if err := json.Unmarshal(body, &out); err != nil {
-		return "", fmt.Errorf("decode run token: %w", err)
-	}
-	if out.Value == "" {
-		return "", fmt.Errorf("fetch run token: empty token")
+	if err := json.Unmarshal(body, &out); err != nil || out.Value == "" {
+		return "", fmt.Errorf("could not fetch a token from %s: the answer has no token", s.env)
 	}
 	return out.Value, nil
 }
