@@ -146,10 +146,7 @@ func watchAndReport(cmd *cobra.Command, c *caller, output, sessionID string, o w
 	if output == "json" {
 		transcript = cmd.ErrOrStderr()
 	}
-	r := NewRenderer(transcript).From(o.afterInput).Whole(func(messageID string) (string, error) {
-		return wholeMessage(cmd.Context(), c, sessionID, messageID)
-	})
-	result, err := watchSession(cmd.Context(), c, sessionID, r, o)
+	result, err := watchSession(cmd.Context(), c, sessionID, NewRenderer(transcript).From(o.afterInput), o)
 	if err != nil {
 		return err
 	}
@@ -188,6 +185,7 @@ func watchSession(ctx context.Context, c *caller, sessionID string, r *Renderer,
 		deadline, cancel = context.WithTimeout(ctx, o.timeout)
 		defer cancel()
 	}
+	r.Whole(func(messageID string) (string, error) { return wholeMessage(deadline, c, sessionID, messageID) })
 	t := &turn{afterInput: o.afterInput, base: o.base}
 	cursor, failures := "", 0
 	for {
@@ -400,7 +398,7 @@ func (t *turn) settled(status string, view *agentView) (done bool, reply, failur
 	if view.QueuedCount > 0 && sent < 0 {
 		return false, "", ""
 	}
-	last := len(view.Messages) - 1
+	last := newest(view, len(view.Messages))
 	if last < 0 || last <= sent || view.Messages[last].Role != "assistant" {
 		if view.QueuedCount == 0 {
 			t.doubt = failedNoReply
@@ -470,25 +468,38 @@ func (t *turn) answered(view *agentView, at int, input, closed bool) (reply *vie
 	}
 	// The input's own message cannot be its reply; the newest message seen after it can.
 	isReply := func(i int) bool {
-		msg := view.Messages[i]
-		return (i > at || !input) && msg.Role == "assistant" && len(msg.ToolCalls) == 0
+		if i < 0 || (i <= at && input) {
+			return false
+		}
+		return view.Messages[i].Role == "assistant" && len(view.Messages[i].ToolCalls) == 0
 	}
 	for i := at + 1; i < len(view.Messages); i++ {
 		// A subagent's report joins the turn it was started in; only an input from outside ends that turn.
 		if !view.Messages[i].outside() {
 			continue
 		}
-		if isReply(i - 1) {
-			return &view.Messages[i-1], ""
+		if said := newest(view, i); isReply(said) {
+			return &view.Messages[said], ""
 		}
 		return nil, "another input followed before the agent replied"
 	}
 	last := len(view.Messages) - 1
 	t.last, t.lastSeq = view.Messages[last].ID, view.Messages[last].Seq
-	if closed && isReply(last) {
-		return &view.Messages[last], ""
+	if said := newest(view, len(view.Messages)); closed && isReply(said) {
+		return &view.Messages[said], ""
 	}
 	return nil, ""
+}
+
+// newest is the index of the last message before end that is not a subagent's report, which the agent may leave
+// unanswered when it comes in after the reply. It is -1 when there is none.
+func newest(view *agentView, end int) int {
+	for i := end - 1; i >= 0; i-- {
+		if msg := view.Messages[i]; msg.Role != "user" || msg.outside() {
+			return i
+		}
+	}
+	return -1
 }
 
 func replied(msg viewMessage) (done bool, reply, failure string) {
