@@ -45,19 +45,13 @@ type viewMessage struct {
 	Joined *bool `json:"joined"`
 }
 
+func (m viewMessage) joined() bool {
+	return m.Joined != nil && *m.Joined
+}
+
 // outside reports whether a person or another system sent the message, rather than the session's own subagent.
 func (m viewMessage) outside() bool {
 	return m.Role == "user" && m.Sender.Kind != "subagent"
-}
-
-const stoppedTool = " was aborted"
-
-// ended reports whether the turn stopped here: the model's error, or a tool call a stop cut short (harness wording).
-func (m viewMessage) ended() bool {
-	if m.Role == "tool" {
-		return m.IsError && strings.Contains(m.Text, stoppedTool)
-	}
-	return m.Role == "assistant" && m.IsError
 }
 
 // viewSender says who wrote a user message; the kind "subagent" is the session's own subagent reporting back.

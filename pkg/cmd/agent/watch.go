@@ -357,9 +357,7 @@ type turn struct {
 	doubt string
 	// said is the id of the message the last settled gave as the reply.
 	said string
-	// over is the newest message when the session looked idle with no reply: an input right after it opens a turn.
-	over string
-	// joined are the later inputs that landed in the awaited turn, whose reply so answers them too.
+	// joined are the later inputs that landed in the awaited turn; told is how many of them the watch has said.
 	joined []string
 	told   int
 	// unseen is when the wait first found the input missing from an idle session's cut view.
@@ -450,19 +448,22 @@ func (t *turn) settled(status string, view *agentView) (done bool, reply, failur
 	}
 	last := newest(view, len(view.Messages))
 	if last < 0 || last <= sent || view.Messages[last].Role != "assistant" {
-		t.unanswered(view)
+		if view.QueuedCount == 0 {
+			t.doubt = failedNoReply
+		}
 		return false, "", ""
 	}
 	// A message that calls a tool is a step of the turn, not its reply, unless it is the error that ended it.
 	if msg := view.Messages[last]; len(msg.ToolCalls) > 0 && !msg.IsError {
-		t.unanswered(view)
+		if view.QueuedCount == 0 {
+			t.doubt = failedNoReply
+		}
 		return false, "", ""
 	}
 	t.said = view.Messages[last].ID
 	return replied(view.Messages[last])
 }
 
-// tell says once, for each later input that joined the awaited turn, that the turn's reply answers it too.
 func (t *turn) tell(r *Renderer) error {
 	for ; t.told < len(t.joined); t.told++ {
 		r.line("[a later message joined this turn; the reply will answer it too]")
@@ -473,16 +474,6 @@ func (t *turn) tell(r *Renderer) error {
 	return nil
 }
 
-// unanswered reads an idle session with no reply: over once past the input, failed if a second look agrees.
-func (t *turn) unanswered(view *agentView) {
-	if n := len(view.Messages); n > 0 && view.Messages[n-1].InputID != t.afterInput {
-		t.over = view.Messages[n-1].ID
-	}
-	if view.QueuedCount == 0 {
-		t.doubt = failedNoReply
-	}
-}
-
 // lost is the one place that reads a view showing nothing of the awaited turn. gone: the turn was being followed
 // and an input shows, so it is over with its reply cut away. Otherwise doubt is why the turn counts as failed if
 // a second look at an idle session shows the same: a session still working may yet show the turn, or its end.
@@ -490,7 +481,7 @@ func (t *turn) lost(status string, view *agentView) (gone bool, doubt string) {
 	followed := t.last != ""
 	if followed {
 		for _, msg := range view.Messages {
-			if said := msg.Joined; msg.outside() && (said == nil && t.over != "" || said != nil && !*said) {
+			if msg.outside() && !msg.joined() {
 				return true, ""
 			}
 		}
@@ -541,49 +532,29 @@ func (t *turn) answered(view *agentView, at int, input, closed bool) (reply *vie
 		}
 		return view.Messages[i].Role == "assistant" && len(view.Messages[i].ToolCalls) == 0
 	}
-	over := slices.IndexFunc(view.Messages, func(m viewMessage) bool { return t.over != "" && m.ID == t.over })
 	for i := at + 1; i < len(view.Messages); i++ {
-		// A subagent's report joins the turn it was started in.
+		// A subagent's report joins the turn it was started in; only an input from outside ends that turn.
 		if !view.Messages[i].outside() {
 			continue
 		}
-		said := newest(view, i)
-		if isReply(said) {
-			return &view.Messages[said], ""
-		}
-		// An input joins the turn it lands in, whoever sent it. The view says so where the API is new enough;
-		// else it opens its own turn when the one before it was stopped, or was seen over with no step since.
-		joins := !(said >= 0 && view.Messages[said].ended()) && (over < 0 || stepped(view, over, i))
-		if said := view.Messages[i].Joined; said != nil {
-			joins = *said
-		}
-		if joins {
-			if id := view.Messages[i].ID; !slices.Contains(t.joined, id) {
-				t.joined = append(t.joined, id)
+		// Unless the API says it landed in the running turn, whose reply then answers it too (DEP-8781).
+		if msg := view.Messages[i]; msg.joined() {
+			if !slices.Contains(t.joined, msg.ID) {
+				t.joined = append(t.joined, msg.ID)
 			}
 			continue
+		}
+		if said := newest(view, i); isReply(said) {
+			return &view.Messages[said], ""
 		}
 		return nil, "another input followed before the agent replied"
 	}
 	last := len(view.Messages) - 1
-	// The turn went on past where it looked over, so that look was of a session yet to pick its work up.
-	if over >= 0 && stepped(view, over, len(view.Messages)) {
-		t.over = ""
-	}
 	t.last, t.lastSeq = view.Messages[last].ID, view.Messages[last].Seq
 	if said := newest(view, len(view.Messages)); closed && isReply(said) {
 		return &view.Messages[said], ""
 	}
 	return nil, ""
-}
-
-// stepped reports whether the agent took a step, a message of its own or a tool's result, after from and before to;
-// a to that from had already shown counts as one.
-func stepped(view *agentView, from, to int) bool {
-	if to <= from {
-		return true
-	}
-	return slices.ContainsFunc(view.Messages[from+1:to], func(m viewMessage) bool { return m.Role != "user" })
 }
 
 // newest is the index of the last message before end that is not a subagent's report, which the agent may leave
