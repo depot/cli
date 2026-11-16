@@ -19,6 +19,8 @@ import (
 type options struct {
 	org, token, repo string
 	json             bool
+	// turn is set when the only credential is a Dispatch turn's own.
+	turn bool
 }
 
 func NewCmdMR() *cobra.Command {
@@ -45,6 +47,9 @@ func (o *options) authenticate(cmd *cobra.Command) error {
 	}
 	if o.repo != "" {
 		return nil
+	}
+	if o.turn {
+		return fmt.Errorf("--repo is required in an agent session: pass the Depot repository ID from the repository list this session's Depot Code tools give")
 	}
 	repo, err := o.inferRepository(cmd)
 	if err != nil {
@@ -74,8 +79,16 @@ func (o *options) login(cmd *cobra.Command) error {
 	if o.org == "" {
 		o.org = config.GetCurrentOrganization()
 	}
+	// The API takes a Dispatch turn's token on the calls of these three commands only (DEP-8674).
+	resolve := helpers.ResolveOrgAuth
+	if o.turn = helpers.OnlyATurnToken(o.token); o.turn {
+		if name := cmd.Name(); name != "view" && name != "list" && name != "threads" {
+			return fmt.Errorf("depot mr %s cannot be made as an agent turn. `depot mr view`, `list` and `threads` work here. To comment on or change a merge request, use the session's Depot Code tools or ask the person", name)
+		}
+		resolve = helpers.ResolveTurnReadAuth
+	}
 	var err error
-	o.token, err = helpers.ResolveOrgAuth(cmd.Context(), o.token)
+	o.token, err = resolve(cmd.Context(), o.token)
 	if err != nil {
 		return err
 	}
