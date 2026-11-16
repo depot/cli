@@ -205,6 +205,7 @@ func (r *Renderer) renderView(view *agentView) {
 	}
 	for i := range view.Messages {
 		if msg := &view.Messages[i]; msg.ID != "" && r.once("message:"+msg.ID) {
+			r.seen["shown:"+msg.ID] = true
 			err := r.fill(msg)
 			r.renderMessage(*msg)
 			if err != nil {
@@ -279,7 +280,8 @@ func (r *Renderer) Beside(n int) error {
 
 // Reply prints the reply a wait ends on when the transcript has not shown it, its turn having left the view.
 func (r *Renderer) Reply(id, text string) error {
-	if id != "" && r.once("message:"+id) {
+	if id != "" && r.once("shown:"+id) {
+		r.seen["message:"+id] = true
 		r.finishPartial(text)
 	}
 	return r.written()

@@ -1218,6 +1218,14 @@ func TestWatchFollowsAnInputPastLaterMessagesToTheReplyTheAPINames(t *testing.T)
 			t.Fatalf("the transcript does not show the reply once:\n%s", errOut)
 		}
 	})
+	t.Run("watched only after the input left the view", func(t *testing.T) {
+		late := frame("idle", "c1", view(more+","+reply, `"truncated": true, `+both))
+		serveAgent(t, &fakeAgent{frames: [][]*agentv1.WatchSessionResponse{{late}}})
+		out, _, err := runAgent(t, "watch", "das_1", "--after-input", "dai_1")
+		if err != nil || strings.Count(out, "all done\n") != 1 || strings.Contains(out, "and this") {
+			t.Fatalf("err = %v, want the reply alone in the transcript, once:\n%s", err, out)
+		}
+	})
 	t.Run("stopped", func(t *testing.T) {
 		stopped := frame("idle", "c4", view(asked+","+note, `"live": ["dai_2"], "settled": [{"inputId": "dai_1", "unanswered": "aborted"}]`))
 		serveAgent(t, &fakeAgent{frames: [][]*agentv1.WatchSessionResponse{append(frames[:2:2], stopped)}})
