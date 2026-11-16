@@ -31,8 +31,9 @@ func newSend() *cobra.Command {
 		Short: "Send a message to a running agent session",
 		Long: `Send a message to an agent session, by its ID or by the --client-request-id it was launched with (--key).
 
-The message waits for the agent's current turn to finish; --steer reaches the agent mid-turn. --subagent sends it to
-one of the session's subagents instead of the main agent.
+The message is a follow-up. A follow-up from a person reaches the agent at its next step when that person's own
+message started the current turn; any other follow-up waits for the current turn to finish. --steer reaches the agent
+mid-turn. --subagent sends it to one of the session's subagents instead of the main agent.
 
 Every send is delivered, including the same message sent again by a rerun or by another matrix leg. To make a repeat
 replay instead, pass the same --client-request-id both times. Nothing in a job's environment tells one matrix leg from
@@ -46,7 +47,7 @@ another, so build the key from workflow expressions.`,
 		},
 	}
 	cmd.Flags().StringVarP(&o.file, "file", "f", "", "Read the message from this file (- for stdin)")
-	cmd.Flags().BoolVar(&o.steer, "steer", false, "Reach the agent mid-turn instead of after its current turn")
+	cmd.Flags().BoolVar(&o.steer, "steer", false, "Reach the agent mid-turn instead of as a follow-up")
 	cmd.Flags().StringVar(&o.key, "key", "", "Find the session by the --client-request-id it was launched with, instead of its ID")
 	cmd.Flags().StringVar(&o.subagent, "subagent", "", "Send to this subagent (its conversation ID in the session view) instead of the main agent")
 	cmd.Flags().StringVar(&o.clientRequestID, "client-request-id", "", "Key that makes the send safe to repeat: a second send with it in the same session delivers nothing (default: random)")
