@@ -170,8 +170,8 @@ func (r *Renderer) Render(session *agentv1.DepotAgentSession, viewJSON string) (
 	if session != nil {
 		r.status(status)
 	}
-	if r.w.err != nil {
-		return nil, fmt.Errorf("write transcript: %w", r.w.err)
+	if err := r.written(); err != nil {
+		return nil, err
 	}
 	return view, nil
 }
@@ -270,10 +270,18 @@ func (r *Renderer) keep(view *agentView) {
 }
 
 // Beside says once for each of n later messages that it came in while the awaited input was still unanswered.
-func (r *Renderer) Beside(n int) {
+func (r *Renderer) Beside(n int) error {
 	for ; r.beside < n; r.beside++ {
 		r.line("[a later message came in while this input waits for its reply; still watching]")
 	}
+	return r.written()
+}
+
+func (r *Renderer) written() error {
+	if r.w.err != nil {
+		return fmt.Errorf("write transcript: %w", r.w.err)
+	}
+	return nil
 }
 
 // Recover reads again the reply with this id if a failed read left it cut, with the tries it has left, and returns its text.

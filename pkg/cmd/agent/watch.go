@@ -280,7 +280,9 @@ func watchOnce(ctx context.Context, c *caller, sessionID string, r *Renderer, o 
 			continue
 		}
 		done, reply, failure := t.settled(status, view)
-		r.Beside(len(t.beside))
+		if err := r.Beside(len(t.beside)); err != nil {
+			return false, err
+		}
 		for !done && t.doubt != "" {
 			// The status and the view are written apart, so the reply may only be late. Look once more,
 			// or for an input the view does not show, until the session has had time to pick it up.
@@ -311,7 +313,9 @@ func watchOnce(ctx context.Context, c *caller, sessionID string, r *Renderer, o 
 			if done, reply, failure = t.settled(result.Status, view); !done && t.doubt != "" && final {
 				done, failure = true, t.doubt
 			}
-			r.Beside(len(t.beside))
+			if err := r.Beside(len(t.beside)); err != nil {
+				return false, err
+			}
 		}
 		if done && failure == "" && t.absent {
 			// The API names the reply, and the view no longer holds it.
@@ -485,10 +489,11 @@ func (t *turn) recorded(status string, view *agentView) (known, done bool, reply
 		case input.Answer == "":
 			return true, true, "", failedNoReply + " (" + input.Unanswered + ")"
 		}
+		// An answer is never an error: a turn that ended in one is recorded as unanswered.
 		t.said = input.Answer
 		for _, msg := range view.Messages {
 			if msg.ID == input.Answer {
-				done, reply, failure = replied(msg)
+				done, reply, failure = replied(viewMessage{Text: msg.Text})
 				return true, done, reply, failure
 			}
 		}

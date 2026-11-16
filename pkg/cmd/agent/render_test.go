@@ -174,4 +174,7 @@ func TestRendererReportsAWriteError(t *testing.T) {
 	if pipe.writes != 1 {
 		t.Fatalf("%d writes reached a writer that had already failed", pipe.writes)
 	}
+	if err := NewRenderer(&closedPipe{}).Beside(1); err == nil || !strings.Contains(err.Error(), "pipe closed") {
+		t.Fatalf("Beside = %v, want the writer's error", err)
+	}
 }
