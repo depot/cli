@@ -24,6 +24,16 @@ type agentView struct {
 	// QueuedCount is the true number of queued inputs; Queued holds at most the first few.
 	QueuedCount int  `json:"queuedCount"`
 	Truncated   bool `json:"truncated"`
+	// Live are the inputs the session holds unanswered. Settled are the newest it will not answer further, each
+	// with the id of its answer or else why it has none. An older API sends neither.
+	Live    *[]string     `json:"live"`
+	Settled []viewSettled `json:"settled"`
+}
+
+type viewSettled struct {
+	InputID    string `json:"inputId"`
+	Answer     string `json:"answer"`
+	Unanswered string `json:"unanswered"`
 }
 
 type viewMessage struct {
@@ -41,12 +51,6 @@ type viewMessage struct {
 	ToolCalls []viewToolCall `json:"toolCalls"`
 	// TruncatedBytes is how much of the message the view left out of Text, which then ends in a note saying so.
 	TruncatedBytes int64 `json:"truncatedBytes"`
-	// Joined says, on an input's message, whether it landed in a running turn; an older API leaves it out.
-	Joined *bool `json:"joined"`
-}
-
-func (m viewMessage) joined() bool {
-	return m.Joined != nil && *m.Joined
 }
 
 // outside reports whether a person or another system sent the message, rather than the session's own subagent.
@@ -98,7 +102,8 @@ type Renderer struct {
 	open     bool
 	broken   bool
 	// from is the input the transcript starts at; everything older is skipped until it shows up.
-	from string
+	from   string
+	beside int
 	// whole reads a message's full text by id, and full keeps each one read while the view still holds it.
 	// unread counts the frames left to read again a message whose read failed in a way that may pass.
 	whole  func(messageID string) (string, error)
@@ -264,6 +269,13 @@ func (r *Renderer) keep(view *agentView) {
 	}
 }
 
+// Beside says once for each of n later messages that it came in while the awaited input was still unanswered.
+func (r *Renderer) Beside(n int) {
+	for ; r.beside < n; r.beside++ {
+		r.line("[a later message came in while this input waits for its reply; still watching]")
+	}
+}
+
 // Recover reads again the reply with this id if a failed read left it cut, with the tries it has left, and returns its text.
 func (r *Renderer) Recover(ctx context.Context, view *agentView, id, reply string) string {
 	for i := range viewMessages(view) {
@@ -328,9 +340,6 @@ func (r *Renderer) renderMessage(msg viewMessage) {
 	case "user":
 		for _, line := range strings.Split(strings.TrimSpace(msg.Text), "\n") {
 			r.line("> %s", line)
-		}
-		if msg.joined() {
-			r.line("[this message joined the running turn; that turn's reply answers it too]")
 		}
 	case "assistant":
 		if msg.IsError {

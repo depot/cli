@@ -100,9 +100,7 @@ type watchResult struct {
 	Outcome   string `json:"outcome"`
 	Reply     string `json:"reply,omitempty"`
 	Error     string `json:"error,omitempty"`
-	// Joined counts the later messages that landed in the awaited turn, so its reply answers them too.
-	Joined int    `json:"joined,omitempty"`
-	URL    string `json:"url,omitempty"`
+	URL       string `json:"url,omitempty"`
 }
 
 func newWatch() *cobra.Command {
@@ -282,7 +280,7 @@ func watchOnce(ctx context.Context, c *caller, sessionID string, r *Renderer, o 
 			continue
 		}
 		done, reply, failure := t.settled(status, view)
-		result.Joined = len(t.joined)
+		r.Beside(len(t.beside))
 		for !done && t.doubt != "" {
 			// The status and the view are written apart, so the reply may only be late. Look once more,
 			// or for an input the view does not show, until the session has had time to pick it up.
@@ -313,9 +311,16 @@ func watchOnce(ctx context.Context, c *caller, sessionID string, r *Renderer, o 
 			if done, reply, failure = t.settled(result.Status, view); !done && t.doubt != "" && final {
 				done, failure = true, t.doubt
 			}
-			result.Joined = len(t.joined)
+			r.Beside(len(t.beside))
 		}
-		if done && failure == "" {
+		if done && failure == "" && t.absent {
+			// The API names the reply, and the view no longer holds it.
+			text, err := wholeMessage(ctx, c, sessionID, t.said)
+			if err != nil {
+				return false, fmt.Errorf("read the reply to %s: %w", t.afterInput, err)
+			}
+			_, reply, failure = replied(viewMessage{Text: text})
+		} else if done && failure == "" {
 			// The wait ends here, so no later frame would read a reply this one could not.
 			if reply = r.Recover(ctx, view, t.said, reply); ctx.Err() != nil {
 				return false, nil
@@ -351,15 +356,17 @@ type turn struct {
 	// doubt is why the turn counts as failed if a second look still shows what the last frame did:
 	// the turn over without a reply at its end, as an interrupt leaves it, or gone from the view.
 	doubt string
-	// said is the id of the message the last settled gave as the reply.
-	said string
-	// joined are the later inputs that landed in the awaited turn.
-	joined []string
+	// said is the id of the message the last settled gave as the reply. absent: the view does not hold it.
+	said   string
+	absent bool
+	// beside are the later inputs seen unanswered while the API said the awaited one still was.
+	beside []string
 	// unseen is when the wait first found the input missing from an idle session's cut view.
 	unseen time.Time
 }
 
 const (
+	failedStopped = "the turn was stopped before the agent replied"
 	failedNoReply = "the turn ended without a reply"
 	failedLost    = "the session moved past the input before its reply was seen"
 	failedUnseen  = "the input is not in the session's view: its turn is too old to show, or the session never picked it up"
@@ -384,10 +391,13 @@ func (t *turn) passed(view *agentView) bool {
 
 // settled reports whether the wait is over, with the agent's reply, or with why the turn counts as failed.
 func (t *turn) settled(status string, view *agentView) (done bool, reply, failure string) {
-	t.doubt, t.said = "", ""
+	t.doubt, t.said, t.absent = "", "", false
 	// A read made beside the stream can be ahead of frames the stream has yet to deliver; those say nothing new.
 	if n := len(viewMessages(view)); t.last != "" && n > 0 && view.Messages[n-1].Seq < t.lastSeq {
 		return false, "", ""
+	}
+	if known, done, reply, failure := t.recorded(status, view); known {
+		return done, reply, failure
 	}
 	at, input := t.place(view)
 	if t.afterInput != "" && !input {
@@ -459,6 +469,54 @@ func (t *turn) settled(status string, view *agentView) (done bool, reply, failur
 	return replied(view.Messages[last])
 }
 
+// recorded reads what the API itself records of the awaited input: the message that answered it, why it has
+// none, or that the session still holds it unanswered. Whatever else was sent meanwhile then decides nothing.
+// known is false when the API says nothing of the input, as an older one never does (DEP-8781).
+func (t *turn) recorded(status string, view *agentView) (known, done bool, reply, failure string) {
+	if t.afterInput == "" || view == nil || view.Live == nil {
+		return false, false, "", ""
+	}
+	for _, input := range view.Settled {
+		switch {
+		case input.InputID != t.afterInput:
+			continue
+		case input.Answer == "" && input.Unanswered == "aborted":
+			return true, true, "", failedStopped
+		case input.Answer == "":
+			return true, true, "", failedNoReply + " (" + input.Unanswered + ")"
+		}
+		t.said = input.Answer
+		for _, msg := range view.Messages {
+			if msg.ID == input.Answer {
+				done, reply, failure = replied(msg)
+				return true, done, reply, failure
+			}
+		}
+		t.absent = true
+		return true, true, "", ""
+	}
+	if !slices.Contains(*view.Live, t.afterInput) {
+		return false, false, "", ""
+	}
+	switch status {
+	case "failed":
+		return true, true, "", "the session failed"
+	case "archived":
+		return true, true, "", "the session was archived"
+	}
+	at, _ := t.place(view)
+	for _, msg := range view.Messages[at+1:] {
+		if id := msg.InputID; id != "" && id != t.afterInput && slices.Contains(*view.Live, id) && !slices.Contains(t.beside, id) {
+			t.beside = append(t.beside, id)
+		}
+	}
+	// The turn is still followed, so the older reading can place it should the API stop saying.
+	if n := len(view.Messages); at >= 0 {
+		t.last, t.lastSeq = view.Messages[n-1].ID, view.Messages[n-1].Seq
+	}
+	return true, false, "", ""
+}
+
 // lost is the one place that reads a view showing nothing of the awaited turn. gone: the turn was being followed
 // and an input shows, so it is over with its reply cut away. Otherwise doubt is why the turn counts as failed if
 // a second look at an idle session shows the same: a session still working may yet show the turn, or its end.
@@ -524,13 +582,6 @@ func (t *turn) answered(view *agentView, at int, input, closed bool) (reply *vie
 		}
 		if said := newest(view, i); isReply(said) {
 			return &view.Messages[said], ""
-		}
-		// Unless the API says it landed in the running turn, whose reply then answers it too (DEP-8781).
-		if msg := view.Messages[i]; msg.joined() {
-			if !slices.Contains(t.joined, msg.ID) {
-				t.joined = append(t.joined, msg.ID)
-			}
-			continue
 		}
 		return nil, "another input followed before the agent replied"
 	}
