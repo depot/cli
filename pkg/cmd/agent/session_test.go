@@ -276,9 +276,8 @@ func TestTurnWithNothingOfItInTheView(t *testing.T) {
 		input = `{"id": "39", "seq": 39, "role": "user", "text": "next"}, ` + work
 		// A subagent's report belongs to the turn that started it, so it is not a later input.
 		report = `{"id": "39", "seq": 39, "role": "user", "sender": {"kind": "subagent", "name": "scout"}, "text": "Installed."}, ` + work
-		// Nor is an input the API says landed in the running turn; one it says did not is a later input still.
+		// An input that joined a turn is a later input here: with the awaited turn out of view, which turn is unknown.
 		joined = `{"id": "39", "seq": 39, "role": "user", "inputId": "dai_2", "joined": true, "text": "also"}, ` + work
-		opened = `{"id": "39", "seq": 39, "role": "user", "inputId": "dai_2", "joined": false, "text": "next"}, ` + work
 	)
 	followed := func() *turn { return &turn{afterInput: "dai_1", last: "9", lastSeq: 9} }
 	passed := func() *turn { return &turn{afterInput: "dai_1", base: seq(9)} }
@@ -300,9 +299,7 @@ func TestTurnWithNothingOfItInTheView(t *testing.T) {
 		{"followed, a later input answered", followed, "idle", input, 0, failedLost, ""},
 		{"followed, a subagent report running", followed, "running", report, 0, "", ""},
 		{"followed, a subagent report idle", followed, "idle", report, 0, "", failedLost},
-		{"followed, an input that joined running", followed, "running", joined, 0, "", ""},
-		{"followed, an input that joined idle", followed, "idle", joined, 0, "", failedLost},
-		{"followed, an input that opened a turn", followed, "running", opened, 0, failedLost, ""},
+		{"followed, an input that joined some turn", followed, "running", joined, 0, failedLost, ""},
 		{"followed, session failed", followed, "failed", work, 0, "the session failed", ""},
 		{"followed, session archived", followed, "archived", work, 0, "the session was archived", ""},
 		{"never seen and passed, running", passed, "running", work, 0, "", ""},
