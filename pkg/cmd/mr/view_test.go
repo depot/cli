@@ -36,16 +36,16 @@ func TestViewPrintsReadiness(t *testing.T) {
 			CiState:           passed,
 			CiWorkflows:       []*code.MergeRequestReadiness_CiWorkflow{{Name: "build", State: passed}},
 			AgentChecksState:  passed,
-			AgentChecks:       []*code.MergeRequestReadiness_AgentCheck{{AgentName: "Security", State: passed}},
+			AgentChecks:       []*code.MergeRequestReadiness_AgentCheck{{AttemptId: "att_1", AgentName: "Security", State: passed}},
 			CountingApprovals: []*code.MergeRequestApproval{{MergeRequestId: "mr_1"}},
 		}, want: "Readiness: ready (approved, 2 passed)\nMergeable: clean\nCI: passed\n  passed: build\nAgent checks: passed\n  passed: Security\nApprovals for this head: 1\n"},
 		{name: "not ready", readiness: &code.MergeRequestReadiness{
 			Verdict: code.MergeRequestReadiness_VERDICT_NOT_READY, Mergeability: code.MergeRequestReadiness_MERGEABILITY_CLEAN,
 			Reasons:          []*code.MergeRequestReadiness_Reason{reason(code.MergeRequestReadiness_Reason_KIND_FAILING, 1), reason(code.MergeRequestReadiness_Reason_KIND_NOT_APPROVED, 0), reason(code.MergeRequestReadiness_Reason_KIND_IDLE, 31)},
 			AgentChecksState: failed,
-			AgentChecks:      []*code.MergeRequestReadiness_AgentCheck{{AgentName: "Security", State: failed, OpenFindings: 2}},
+			AgentChecks:      []*code.MergeRequestReadiness_AgentCheck{{AttemptId: "att_1", AgentName: "Security", State: failed, OpenFindings: 2}, {AttemptId: "att_2", AgentName: "Style", State: passed}, {AgentName: "Legacy", State: failed}},
 			ChecksIncomplete: true,
-		}, want: "Readiness: not ready (1 failing, not approved, idle 31 days)\nMergeable: clean\nCI: none\nAgent checks: failed\n  failed: Security (2 open findings)\nApprovals for this head: 0\nSome checks could not be read and may be missing.\n"},
+		}, want: "Readiness: not ready (1 failing, not approved, idle 31 days)\nMergeable: clean\nCI: none\nAgent checks: failed\n  failed: Security (2 open findings)\n    inspect: depot checks get att_1 --org test-org\n  passed: Style\n  failed: Legacy\nApprovals for this head: 0\nSome checks could not be read and may be missing.\n"},
 		{name: "cannot merge", readiness: &code.MergeRequestReadiness{
 			Verdict: code.MergeRequestReadiness_VERDICT_CANNOT_MERGE, Mergeability: code.MergeRequestReadiness_MERGEABILITY_CONFLICTING,
 			ConflictPaths: []string{"a.txt"},
@@ -69,6 +69,16 @@ func TestViewPrintsReadiness(t *testing.T) {
 				t.Errorf("got:\n%s\nwant:\n%s", out, want)
 			}
 		})
+	}
+}
+
+// The inspect command names --org only when the caller did, and never carries control characters.
+func TestViewInspectCommandWithoutOrg(t *testing.T) {
+	findings := code.MergeRequestCheckState_MERGE_REQUEST_CHECK_STATE_FINDINGS
+	var out strings.Builder
+	err := writeReadiness(&out, &code.MergeRequestReadiness{AgentChecks: []*code.MergeRequestReadiness_AgentCheck{{AttemptId: "att\x1b_1", AgentName: "Security", State: findings}}}, "")
+	if want := "  findings: Security\n    inspect: depot checks get att _1\nApprovals"; err != nil || !strings.Contains(out.String(), want) {
+		t.Fatalf("got %q %v, want it to contain %q", out.String(), err, want)
 	}
 }
 
