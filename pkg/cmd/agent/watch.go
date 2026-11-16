@@ -508,11 +508,11 @@ func (t *turn) recorded(status string, view *agentView) (known, done bool, reply
 		return true, true, "", "the session failed"
 	case status == "archived":
 		return true, true, "", "the session was archived"
-	case !slices.Contains(*view.Live, t.afterInput):
-		// Not handed to the session yet, or settled too long ago to be listed: the doubt is the one a view
-		// without the input always raised, and no later reply is taken for its own.
-		_, t.doubt = t.lost(status, view)
-		t.mark(view)
+	case slices.Contains(*view.Live, t.afterInput), view.QueuedCount > 0:
+	case status == "idle", status == "waiting_input":
+		// Not handed to the session yet, or settled too long ago to be listed: an idle session is given the
+		// time it has to pick an input up, and no later reply is taken for this one's.
+		t.doubt = failedUnseen
 	}
 	return true, false, "", ""
 }

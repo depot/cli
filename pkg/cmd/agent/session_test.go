@@ -1168,7 +1168,7 @@ func TestTurnReadsWhatTheAPIRecordsOfTheInput(t *testing.T) {
 	// reply is not taken for it: a working session is waited on, and an idle one given time to say.
 	other := `{"id": "1", "seq": 1, "role": "user", "inputId": "dai_0", "text": "before"},` + after
 	for status, doubt := range map[string]string{"running": "", "idle": failedUnseen} {
-		if tn, done, got, failure := settle(t, status, other, `"truncated": true, "live": [], "settled": [{"inputId": "dai_0", "answer": "9"}]`); done || got != "" || failure != "" || tn.doubt != doubt {
+		if tn, done, got, failure := settle(t, status, other, `"live": [], "settled": [{"inputId": "dai_0", "answer": "9"}]`); done || got != "" || failure != "" || tn.doubt != doubt {
 			t.Fatalf("%s: settled = %v, %q, %q with doubt %q; want the wait to go on with doubt %q", status, done, got, failure, tn.doubt, doubt)
 		}
 	}
