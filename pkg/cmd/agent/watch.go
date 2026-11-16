@@ -537,15 +537,15 @@ func (t *turn) answered(view *agentView, at int, input, closed bool) (reply *vie
 		if !view.Messages[i].outside() {
 			continue
 		}
+		if said := newest(view, i); isReply(said) {
+			return &view.Messages[said], ""
+		}
 		// Unless the API says it landed in the running turn, whose reply then answers it too (DEP-8781).
 		if msg := view.Messages[i]; msg.joined() {
 			if !slices.Contains(t.joined, msg.ID) {
 				t.joined = append(t.joined, msg.ID)
 			}
 			continue
-		}
-		if said := newest(view, i); isReply(said) {
-			return &view.Messages[said], ""
 		}
 		return nil, "another input followed before the agent replied"
 	}

@@ -423,14 +423,14 @@ func TestTurnRunsThroughInputsTheAPISaysJoinedIt(t *testing.T) {
 			status, view string
 			want
 		}{
-			"joined, still working":          {"running", asked + "," + work + "," + in + "," + more, want{joined: 1}},
-			"joined, then the reply":         {"idle", asked + "," + work + "," + in + "," + more + "," + reply, want{true, "All done.", "", 1}},
-			"joined before the first step":   {"idle", asked + "," + in + "," + reply, want{true, "All done.", "", 1}},
-			"joined after a word in passing": {"idle", asked + "," + aside + "," + in + "," + reply, want{true, "All done.", "", 1}},
-			"opened a turn mid-view":         {"running", asked + "," + work + "," + from(kind, "false") + "," + more, want{true, "", taken, 0}},
-			"opened a turn after the reply":  {"running", asked + "," + reply + "," + from(kind, "false"), want{true, "All done.", "", 0}},
-			"an older API says nothing":      {"running", asked + "," + work + "," + from(kind, ""), want{true, "", taken, 0}},
-			"joined, then one that opened":   {"running", asked + "," + work + "," + in + "," + from(kind, "false"), want{true, "", taken, 1}},
+			"joined, still working":         {"running", asked + "," + work + "," + in + "," + more, want{joined: 1}},
+			"joined, then the reply":        {"idle", asked + "," + work + "," + in + "," + more + "," + reply, want{true, "All done.", "", 1}},
+			"joined before the first step":  {"idle", asked + "," + in + "," + reply, want{true, "All done.", "", 1}},
+			"said joined, after a reply":    {"idle", asked + "," + aside + "," + in + "," + reply, want{true, "One moment.", "", 0}},
+			"opened a turn mid-view":        {"running", asked + "," + work + "," + from(kind, "false") + "," + more, want{true, "", taken, 0}},
+			"opened a turn after the reply": {"running", asked + "," + reply + "," + from(kind, "false"), want{true, "All done.", "", 0}},
+			"an older API says nothing":     {"running", asked + "," + work + "," + from(kind, ""), want{true, "", taken, 0}},
+			"joined, then one that opened":  {"running", asked + "," + work + "," + in + "," + from(kind, "false"), want{true, "", taken, 1}},
 		} {
 			t.Run(kind+", "+name, func(t *testing.T) {
 				var view agentView
