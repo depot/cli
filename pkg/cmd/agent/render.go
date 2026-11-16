@@ -102,8 +102,7 @@ type Renderer struct {
 	open     bool
 	broken   bool
 	// from is the input the transcript starts at; everything older is skipped until it shows up.
-	from   string
-	beside int
+	from string
 	// whole reads a message's full text by id, and full keeps each one read while the view still holds it.
 	// unread counts the frames left to read again a message whose read failed in a way that may pass.
 	whole  func(messageID string) (string, error)

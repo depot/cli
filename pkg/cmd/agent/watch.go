@@ -312,10 +312,13 @@ func watchOnce(ctx context.Context, c *caller, sessionID string, r *Renderer, o 
 			}
 		}
 		if done && failure == "" && t.absent {
-			// The API names the reply, and the view no longer holds it.
-			text, err := wholeMessage(ctx, c, sessionID, t.said)
-			if err != nil {
-				return false, fmt.Errorf("read the reply to %s: %w", t.afterInput, err)
+			// The API names the reply, and the view does not hold the whole of it.
+			text, read := r.full[t.said]
+			if !read {
+				var err error
+				if text, err = wholeMessage(ctx, c, sessionID, t.said); err != nil {
+					return false, fmt.Errorf("read the reply to %s: %w", t.afterInput, err)
+				}
 			}
 			_, reply, failure = replied(viewMessage{Text: text})
 		} else if done && failure == "" {
@@ -359,7 +362,7 @@ type turn struct {
 	// doubt is why the turn counts as failed if a second look still shows what the last frame did:
 	// the turn over without a reply at its end, as an interrupt leaves it, or gone from the view.
 	doubt string
-	// said is the id of the message the last settled gave as the reply. absent: the view does not hold it.
+	// said is the id of the message the last settled gave as the reply. absent: the view does not hold it whole.
 	said   string
 	absent bool
 	// held is set once the API has said the session holds the awaited input unanswered.
@@ -491,7 +494,8 @@ func (t *turn) recorded(status string, view *agentView) (known, done bool, reply
 		// An answer is never an error: a turn that ended in one is recorded as unanswered.
 		t.said = input.Answer
 		for _, msg := range view.Messages {
-			if msg.ID == input.Answer {
+			// Cut short in the view, it is read whole by its id, as one the view has dropped is.
+			if msg.ID == input.Answer && msg.TruncatedBytes == 0 {
 				done, reply, failure = replied(viewMessage{Text: msg.Text})
 				return true, done, reply, failure
 			}

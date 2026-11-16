@@ -1226,6 +1226,15 @@ func TestWatchFollowsAnInputPastLaterMessagesToTheReplyTheAPINames(t *testing.T)
 			t.Fatalf("err = %v, want the reply alone in the transcript, once:\n%s", err, out)
 		}
 	})
+	t.Run("a long reply, watched only after the input left the view", func(t *testing.T) {
+		cut := `{"id": "6", "seq": 6, "role": "assistant", "text": "all\n[5 bytes truncated]", "truncatedBytes": 5}`
+		f := &fakeAgent{frames: [][]*agentv1.WatchSessionResponse{{frame("idle", "c1", view(more+","+cut, `"truncated": true, `+both))}}, whole: map[string]*agentv1.GetSessionMessageResponse{"6": {Role: "assistant", Text: "all done"}}}
+		serveAgent(t, f)
+		out, _, err := runAgent(t, "watch", "das_1", "--after-input", "dai_1")
+		if err != nil || strings.Count(out, "all done\n") != 1 || strings.Contains(out, "truncated") || strings.Join(f.wholeAsked, ",") != "6" {
+			t.Fatalf("err = %v after reads %v, want the whole reply, read once:\n%s", err, f.wholeAsked, out)
+		}
+	})
 	t.Run("stopped", func(t *testing.T) {
 		stopped := frame("idle", "c4", view(asked+","+note, `"live": ["dai_2"], "settled": [{"inputId": "dai_1", "unanswered": "aborted"}]`))
 		serveAgent(t, &fakeAgent{frames: [][]*agentv1.WatchSessionResponse{append(frames[:2:2], stopped)}})
