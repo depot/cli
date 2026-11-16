@@ -23,7 +23,7 @@ func newTranscript(o *options) *cobra.Command {
 		Use: "transcript <check-id | attempt-id>", Short: "Display or download an archived check transcript", Args: cobra.ExactArgs(1),
 		Long: "Display the selected attempt's archived transcript. Archives are available after execution, subject to retention.\nUse --output json (or jsonl) for the exact original JSONL archive or --output-file to save the selected format.",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := o.authenticate(cmd); err != nil {
+			if err := o.authenticateRead(cmd); err != nil {
 				return err
 			}
 			attempt, err := selectAttempt(cmd.Context(), o, args[0])
