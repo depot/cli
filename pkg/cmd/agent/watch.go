@@ -348,7 +348,7 @@ type turn struct {
 	doubt string
 	// said is the id of the message the last settled gave as the reply.
 	said string
-	// over is set once the session is seen idle with the turn unanswered and inputs queued: the next one opens a turn.
+	// over is set once the session is seen idle with the turn unanswered: an input after that opens its own turn.
 	over bool
 	// unseen is when the wait first found the input missing from an idle session's cut view.
 	unseen time.Time
@@ -450,13 +450,12 @@ func (t *turn) settled(status string, view *agentView) (done bool, reply, failur
 	return replied(view.Messages[last])
 }
 
-// unanswered reads an idle session whose turn has no reply: failed on a second look, or over with inputs still queued.
+// unanswered reads an idle session whose turn has no reply: the turn is over, and failed if a second look agrees.
 func (t *turn) unanswered(view *agentView) {
+	t.over = true
 	if view.QueuedCount == 0 {
 		t.doubt = failedNoReply
-		return
 	}
-	t.over = true
 }
 
 // lost is the one place that reads a view showing nothing of the awaited turn. gone: the turn was being followed
