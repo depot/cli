@@ -462,6 +462,13 @@ func TestWatchSaysWhenALaterMessageJoinedTheTurn(t *testing.T) {
 	if err != nil || json.Unmarshal([]byte(out), &result) != nil || result.Joined != 1 || result.Reply != "both done" {
 		t.Fatalf("out = %q, err = %v; want the reply with one joined message counted", out, err)
 	}
+	// A watch that times out before the reply still counts the message it said had joined.
+	working := strings.Replace(joined, `, {"id": "6", "role": "assistant", "text": "both done"}`, "", 1)
+	serveAgent(t, &fakeAgent{holdWatch: true, frames: [][]*agentv1.WatchSessionResponse{{frame("running", "c1", working)}}})
+	out, _, _ = runAgent(t, "watch", "das_1", "--after-input", "dai_1", "--timeout", "200ms", "-o", "json")
+	if !strings.Contains(out, `"outcome": "timeout"`) || !strings.Contains(out, `"joined": 1`) {
+		t.Fatalf("out = %q; want a timeout that counts the joined message", out)
+	}
 }
 
 func TestWatchJSONNeedsAWaitToReport(t *testing.T) {

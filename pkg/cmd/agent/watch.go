@@ -282,8 +282,8 @@ func watchOnce(ctx context.Context, c *caller, sessionID string, r *Renderer, o 
 			continue
 		}
 		done, reply, failure := t.settled(status, view)
-		if err := t.tell(r); err != nil {
-			return false, err
+		if result.Joined = len(t.joined); t.tell(r) != nil {
+			return false, t.tell(r)
 		}
 		for !done && t.doubt != "" {
 			// The status and the view are written apart, so the reply may only be late. Look once more,
@@ -315,8 +315,8 @@ func watchOnce(ctx context.Context, c *caller, sessionID string, r *Renderer, o 
 			if done, reply, failure = t.settled(result.Status, view); !done && t.doubt != "" && final {
 				done, failure = true, t.doubt
 			}
-			if err := t.tell(r); err != nil {
-				return false, err
+			if result.Joined = len(t.joined); t.tell(r) != nil {
+				return false, t.tell(r)
 			}
 		}
 		if done && failure == "" {
@@ -327,7 +327,7 @@ func watchOnce(ctx context.Context, c *caller, sessionID string, r *Renderer, o 
 		}
 		advance()
 		if done {
-			result.Outcome, result.Reply, result.Error, result.Joined = outcomeSettled, reply, failure, len(t.joined)
+			result.Outcome, result.Reply, result.Error = outcomeSettled, reply, failure
 			if failure != "" {
 				result.Outcome = outcomeFailed
 			}
