@@ -276,6 +276,8 @@ func TestTurnWithNothingOfItInTheView(t *testing.T) {
 		input = `{"id": "39", "seq": 39, "role": "user", "text": "next"}, ` + work
 		// A subagent's report belongs to the turn that started it, so it is not a later input.
 		report = `{"id": "39", "seq": 39, "role": "user", "sender": {"kind": "subagent", "name": "scout"}, "text": "Installed."}, ` + work
+		// Nor is a note from another session, which joins the turn it lands in.
+		note = `{"id": "39", "seq": 39, "role": "user", "inputId": "dai_2", "sender": {"kind": "agent", "name": "helper"}, "text": "Done."}, ` + work
 	)
 	followed := func() *turn { return &turn{afterInput: "dai_1", last: "9", lastSeq: 9} }
 	passed := func() *turn { return &turn{afterInput: "dai_1", base: seq(9)} }
@@ -297,6 +299,8 @@ func TestTurnWithNothingOfItInTheView(t *testing.T) {
 		{"followed, a later input answered", followed, "idle", input, 0, failedLost, ""},
 		{"followed, a subagent report running", followed, "running", report, 0, "", ""},
 		{"followed, a subagent report idle", followed, "idle", report, 0, "", failedLost},
+		{"followed, another session's note running", followed, "running", note, 0, "", ""},
+		{"followed, another session's note idle", followed, "idle", note, 0, "", failedLost},
 		{"followed, session failed", followed, "failed", work, 0, "the session failed", ""},
 		{"followed, session archived", followed, "archived", work, 0, "the session was archived", ""},
 		{"never seen and passed, running", passed, "running", work, 0, "", ""},
@@ -386,6 +390,60 @@ func TestTurnKeepsWaitingPastASubagentReport(t *testing.T) {
 				t.Fatalf("settled = %v, %q, %q; want %v, %q and no failure", done, got, failure, tc.done, tc.want)
 			}
 		})
+	}
+}
+
+// A watch ends when its turn does or when a person's message takes the turn over, never on a machine's input.
+func TestTurnKeepsWaitingPastAMachinesInput(t *testing.T) {
+	const (
+		asked = `{"id": "3", "role": "user", "inputId": "dai_1", "sender": {"kind": "user", "name": "pat"}, "text": "hello"}`
+		work  = `{"id": "4", "role": "assistant", "text": "Looking.", "toolCalls": [{"callId": "t"}]}, {"id": "5", "role": "tool", "callId": "t", "text": "started"}`
+		more  = `{"id": "7", "role": "assistant", "text": "", "toolCalls": [{"callId": "u"}]}, {"id": "8", "role": "tool", "callId": "u", "text": "ok"}`
+		reply = `{"id": "9", "role": "assistant", "text": "All done."}`
+		taken = "another input followed before the agent replied"
+	)
+	from := func(kind string) string {
+		sender := ""
+		if kind != "" {
+			sender = fmt.Sprintf(`"sender": {"kind": %q, "name": "helper"}, `, kind)
+		}
+		return `{"id": "6", "role": "user", "inputId": "dai_2", ` + sender + `"text": "Report."}`
+	}
+	type want struct {
+		done           bool
+		reply, failure string
+	}
+	for _, kind := range []string{"agent", "trigger", "system", "api"} {
+		for name, tc := range map[string]struct {
+			status, view string
+			want
+		}{
+			"still working after it":     {"running", asked + "," + work + "," + from(kind) + "," + more, want{}},
+			"replied after it":           {"idle", asked + "," + work + "," + from(kind) + "," + more + "," + reply, want{true, "All done.", ""}},
+			"it came after the reply":    {"running", asked + "," + reply + "," + from(kind) + "," + more, want{true, "All done.", ""}},
+			"two of them, then a person": {"running", asked + "," + work + "," + from(kind) + "," + from(kind) + "," + from("user"), want{true, "", taken}},
+		} {
+			t.Run(kind+", "+name, func(t *testing.T) {
+				var view agentView
+				if err := json.Unmarshal([]byte(`{"messages": [`+tc.view+`]}`), &view); err != nil {
+					t.Fatal(err)
+				}
+				done, got, failure := (&turn{afterInput: "dai_1"}).settled(tc.status, &view)
+				if (want{done, got, failure}) != tc.want {
+					t.Fatalf("settled = %v, %q, %q; want %+v", done, got, failure, tc.want)
+				}
+			})
+		}
+	}
+	// A person's message still takes the turn, as does one whose sender an older API left unsaid.
+	for _, kind := range []string{"user", "slack", "linear", ""} {
+		var view agentView
+		if err := json.Unmarshal([]byte(`{"messages": [`+asked+","+work+","+from(kind)+`]}`), &view); err != nil {
+			t.Fatal(err)
+		}
+		if done, got, failure := (&turn{afterInput: "dai_1"}).settled("running", &view); !done || got != "" || failure != taken {
+			t.Fatalf("settled = %v, %q, %q after a message of kind %q; want %q", done, got, failure, kind, taken)
+		}
 	}
 }
 

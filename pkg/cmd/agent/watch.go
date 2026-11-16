@@ -459,7 +459,7 @@ func (t *turn) lost(status string, view *agentView) (gone bool, doubt string) {
 	followed := t.last != ""
 	if followed {
 		for _, msg := range view.Messages {
-			if msg.outside() {
+			if msg.person() {
 				return true, ""
 			}
 		}
@@ -511,12 +511,15 @@ func (t *turn) answered(view *agentView, at int, input, closed bool) (reply *vie
 		return view.Messages[i].Role == "assistant" && len(view.Messages[i].ToolCalls) == 0
 	}
 	for i := at + 1; i < len(view.Messages); i++ {
-		// A subagent's report joins the turn it was started in; only an input from outside ends that turn.
+		// A subagent's report or another session's note joins the turn it lands in; only a person's message ends it.
 		if !view.Messages[i].outside() {
 			continue
 		}
 		if said := newest(view, i); isReply(said) {
 			return &view.Messages[said], ""
+		}
+		if !view.Messages[i].person() {
+			continue
 		}
 		return nil, "another input followed before the agent replied"
 	}
