@@ -70,7 +70,6 @@ func serveSandbox(t *testing.T, f *fakeAgent, cacheToken string, old ...string) 
 
 const notYet = "This Depot API call can't be made as a Depot agent turn's sender yet"
 
-// In a sandbox every session RPC is made with the turn's token, with or without a cache token.
 func TestEachRPCGetsTheCredentialTheAPITakes(t *testing.T) {
 	long := `{"messages": [{"id": "3", "seq": 3, "role": "user", "inputId": "dai_1", "text": "hello"},
 		{"id": "6", "seq": 6, "role": "assistant", "text": "cut\n[9 bytes truncated]", "truncatedBytes": 9}], "tools": []}`
