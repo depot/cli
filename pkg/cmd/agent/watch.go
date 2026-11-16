@@ -328,7 +328,7 @@ func watchOnce(ctx context.Context, c *caller, sessionID string, r *Renderer, o 
 			}
 		}
 		if done && failure == "" {
-			if err := r.Reply(t.said, reply); err != nil {
+			if err := r.Reply(t.said, reply, view != nil && view.Partial != ""); err != nil {
 				return false, err
 			}
 		}

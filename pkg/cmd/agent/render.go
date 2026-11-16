@@ -270,12 +270,17 @@ func (r *Renderer) keep(view *agentView) {
 }
 
 // Reply prints the reply a wait ends on when the transcript has not shown it, its turn having left the view.
-func (r *Renderer) Reply(id, text string) error {
-	if id != "" && r.once("shown:"+id) {
-		r.seen["message:"+id] = true
+func (r *Renderer) Reply(id, text string, streaming bool) error {
+	switch {
+	case id == "" || !r.once("shown:"+id):
+	case streaming:
 		// As plain lines: a response streaming now is a later turn's, and keeps its place.
 		r.line("%s", strings.TrimSpace(text))
+	default:
+		// What was streamed and never became a message in a view is this reply's start.
+		r.finishPartial(text)
 	}
+	r.seen["message:"+id] = true
 	return r.written()
 }
 

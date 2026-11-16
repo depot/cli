@@ -174,7 +174,27 @@ func TestRendererReportsAWriteError(t *testing.T) {
 	if pipe.writes != 1 {
 		t.Fatalf("%d writes reached a writer that had already failed", pipe.writes)
 	}
-	if err := NewRenderer(&closedPipe{}).Reply("9", "the reply"); err == nil || !strings.Contains(err.Error(), "pipe closed") {
+	if err := NewRenderer(&closedPipe{}).Reply("9", "the reply", false); err == nil || !strings.Contains(err.Error(), "pipe closed") {
 		t.Fatalf("Reply = %v, want the writer's error", err)
+	}
+}
+
+func TestRendererPrintsARecoveredReplyOnceAndApartFromALaterTurnsPartial(t *testing.T) {
+	for name, tc := range map[string]struct {
+		partial, want string
+	}{
+		"its own start was streamed and its message never showed": {"", "the re" + "ply\n"},
+		"a later turn is streaming the same words":                {"the re", "the re\nthe reply\n"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			var out bytes.Buffer
+			r := NewRenderer(&out)
+			if _, err := r.Render(nil, `{"messages": [], "partial": "the re"}`); err != nil {
+				t.Fatal(err)
+			}
+			if err := r.Reply("9", "the reply", tc.partial != ""); err != nil || out.String() != tc.want {
+				t.Fatalf("err = %v, transcript = %q, want %q", err, out.String(), tc.want)
+			}
+		})
 	}
 }
