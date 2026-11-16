@@ -44,10 +44,9 @@ func TestRunTokenPrecedence(t *testing.T) {
 			t.Setenv("DEPOT_CACHE_TOKEN", tc.cache)
 			viper.Set("api_token", tc.config)
 			t.Cleanup(func() { viper.Set("api_token", "") })
-			previousRun, previousTurn := runTokenSource, turnTokenSource
+			previous := runTokenSource
 			runTokenSource = func() *runtoken.Source { return nil }
-			turnTokenSource = runTokenSource
-			t.Cleanup(func() { runTokenSource, turnTokenSource = previousRun, previousTurn })
+			t.Cleanup(func() { runTokenSource = previous })
 			if tc.runToken {
 				withRunTokenServer(t)
 			}
@@ -84,8 +83,7 @@ func TestResolveCacheAuthKeepsCacheToken(t *testing.T) {
 	}
 }
 
-// In a Dispatch sandbox the turn token stands where the cache token stood for org and session commands (DEP-8673).
-// Project commands and cache tools keep what they resolved before.
+// In a Dispatch sandbox only session commands use the turn token: every other command keeps what it resolved before.
 func TestAPITokenURL(t *testing.T) {
 	t.Setenv("DEPOT_JIT_TOKEN", "")
 	t.Setenv("DEPOT_CACHE_TOKEN", "cache-token")
@@ -113,52 +111,46 @@ func TestAPITokenURL(t *testing.T) {
 	if got := agentAuth(""); got != "turn-svid true" {
 		t.Fatalf("ResolveAgentAuth = %q, want the turn token ahead of the cache token", got)
 	}
-	if got, _ := ResolveOrgAuth(ctx, ""); got != "turn-svid" {
-		t.Fatalf("ResolveOrgAuth = %q, want the turn token ahead of the cache token", got)
-	}
-	if got := ResolveStaticOrgAuth(""); got != "turn-svid" {
-		t.Fatalf("ResolveStaticOrgAuth = %q, want the turn token ahead of the cache token", got)
-	}
-	if got, _ := ResolveCacheAuth(ctx, ""); got != "cache-token" {
-		t.Fatalf("ResolveCacheAuth = %q, want the cache token as before", got)
+	if got, _ := ResolveOrgAuth(ctx, ""); got != "cache-token" {
+		t.Fatalf("ResolveOrgAuth = %q, want the cache token as before", got)
 	}
 	if got, _ := ResolveProjectAuth(ctx, ""); got != "cache-token" {
 		t.Fatalf("ResolveProjectAuth = %q, want the cache token as before", got)
 	}
+	if got := ResolveStaticOrgAuth(""); got != "cache-token" {
+		t.Fatalf("ResolveStaticOrgAuth = %q, want the cache token as before", got)
+	}
+	if got, _ := ResolveCacheAuth(ctx, ""); got != "cache-token" {
+		t.Fatalf("ResolveCacheAuth = %q, want the cache token as before", got)
+	}
+	if got, _ := ResolveTurnReadAuth(ctx, ""); got != "turn-svid" {
+		t.Fatalf("ResolveTurnReadAuth = %q, want the turn token ahead of the cache token", got)
+	}
+	if got, _ := ResolveTurnReadAuth(ctx, "flag-token"); got != "flag-token" {
+		t.Fatalf("ResolveTurnReadAuth with a flag = %q", got)
+	}
+	turnTokenSource = func() *runtoken.Source { return nil }
+	if got, _ := ResolveTurnReadAuth(ctx, ""); got != "cache-token" {
+		t.Fatalf("ResolveTurnReadAuth with no token URL = %q, want the cache token as before", got)
+	}
+	turnTokenSource = func() *runtoken.Source { return runtoken.New(runtoken.EnvAPIURL, server.URL) }
 	if got := agentAuth("flag-token"); got != "flag-token false" {
 		t.Fatalf("ResolveAgentAuth with a flag = %q", got)
-	}
-	if got, _ := ResolveOrgAuth(ctx, "flag-token"); got != "flag-token" {
-		t.Fatalf("ResolveOrgAuth with a flag = %q", got)
 	}
 	t.Setenv("DEPOT_TOKEN", "env-token")
 	if got := agentAuth(""); got != "env-token false" {
 		t.Fatalf("ResolveAgentAuth with DEPOT_TOKEN = %q", got)
 	}
-	if got, _ := ResolveOrgAuth(ctx, ""); got != "env-token" {
-		t.Fatalf("ResolveOrgAuth with DEPOT_TOKEN = %q", got)
-	}
 	t.Setenv("DEPOT_TOKEN", "")
-	viper.Set("api_token", "config-token")
-	if got, _ := ResolveOrgAuth(ctx, ""); got != "config-token" {
-		t.Fatalf("ResolveOrgAuth with a saved login = %q", got)
-	}
-	viper.Set("api_token", "")
 	withRunTokenServer(t)
 	if got := agentAuth(""); got != "run-svid false" {
 		t.Fatalf("ResolveAgentAuth with both URLs = %q, want the run token", got)
-	}
-	if got, _ := ResolveOrgAuth(ctx, ""); got != "run-svid" {
-		t.Fatalf("ResolveOrgAuth with both URLs = %q, want the run token", got)
 	}
 	runTokenSource = func() *runtoken.Source { return nil }
 
 	fail = true
 	if got := agentAuth(""); got != "cache-token false" {
 		t.Fatalf("ResolveAgentAuth with no turn token to fetch = %q, want the cache token", got)
-	}
-	if got, _ := ResolveOrgAuth(ctx, ""); got != "cache-token" {
-		t.Fatalf("ResolveOrgAuth with no turn token to fetch = %q, want the cache token", got)
 	}
 	t.Setenv("DEPOT_CACHE_TOKEN", "")
 	stderr := os.Stderr

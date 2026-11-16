@@ -70,6 +70,7 @@ func serveSandbox(t *testing.T, f *fakeAgent, cacheToken string, old ...string) 
 
 const notYet = "This Depot API call can't be made as a Depot agent turn's sender yet"
 
+// In a sandbox every session RPC but the two of stop is made with the turn's token, with or without a cache token.
 func TestEachRPCGetsTheCredentialTheAPITakes(t *testing.T) {
 	long := `{"messages": [{"id": "3", "seq": 3, "role": "user", "inputId": "dai_1", "text": "hello"},
 		{"id": "6", "seq": 6, "role": "assistant", "text": "cut\n[9 bytes truncated]", "truncatedBytes": 9}], "tools": []}`
@@ -92,8 +93,8 @@ func TestEachRPCGetsTheCredentialTheAPITakes(t *testing.T) {
 		{"list", []string{"list"}, map[string]string{"ListDepotAgentSessions": "turn-token"}},
 		{"logs", []string{"logs", "das_1"}, map[string]string{"GetSession": "turn-token", "GetSessionMessage": "turn-token"}},
 		{"watch", []string{"watch", "das_1", "--until-idle"}, map[string]string{"WatchSession": "turn-token", "GetSessionMessage": "turn-token"}},
-		{"stop", []string{"stop", "das_1"}, map[string]string{"InterruptSession": "turn-token"}},
-		{"stop --archive", []string{"stop", "das_1", "--archive"}, map[string]string{"ArchiveSession": "turn-token"}},
+		{"stop", []string{"stop", "das_1"}, map[string]string{"InterruptSession": "cache-token"}},
+		{"stop --archive", []string{"stop", "das_1", "--archive"}, map[string]string{"ArchiveSession": "cache-token"}},
 		{"send", []string{"send", "das_1", "hello"}, map[string]string{"SendInput": "turn-token"}},
 		{"send --watch", []string{"send", "das_1", "hello", "--watch"}, map[string]string{"GetSession": "turn-token", "SendInput": "turn-token", "WatchSession": "turn-token", "GetSessionMessage": "turn-token"}},
 		{"launch", launch, map[string]string{"Launch": "turn-token"}},
@@ -103,6 +104,13 @@ func TestEachRPCGetsTheCredentialTheAPITakes(t *testing.T) {
 			t.Run(tc.name+" with cache token "+strconv.Quote(cacheToken), func(t *testing.T) {
 				seen := serveSandbox(t, replied(), cacheToken)
 				_, errOut, err := runAgent(t, tc.args...)
+				// stop has no call that takes a turn's token, so without a cache token it fails before sending.
+				if cacheToken == "" && tc.args[0] == "stop" {
+					if got := seen(); err == nil || !strings.Contains(err.Error(), "missing API token") || len(got) != 0 {
+						t.Fatalf("err = %v after sending %v, want a missing token and nothing sent", err, got)
+					}
+					return
+				}
 				if err != nil {
 					t.Fatalf("%v\n%s", err, errOut)
 				}

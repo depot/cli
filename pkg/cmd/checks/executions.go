@@ -56,7 +56,7 @@ func newList(o *options) *cobra.Command {
 			if req.Outcome != "" && !slices.Contains([]string{"running", "done", "passed", "findings", "rejected", "resolved", "failed", "cancelled", "superseded"}, req.Outcome) {
 				return fmt.Errorf("invalid --outcome %q", req.Outcome)
 			}
-			if err := o.authenticate(cmd); err != nil {
+			if err := o.authenticateRead(cmd); err != nil {
 				return err
 			}
 			client := api.NewCheckClient()
@@ -108,7 +108,7 @@ func newGet(o *options) *cobra.Command {
 	return &cobra.Command{
 		Use: "get <check-id | attempt-id>", Aliases: []string{"show"}, Short: "Show a check's latest attempt or an exact execution", Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := o.authenticate(cmd); err != nil {
+			if err := o.authenticateRead(cmd); err != nil {
 				return err
 			}
 			attempt, err := selectAttempt(cmd.Context(), o, args[0])
@@ -131,7 +131,7 @@ func newAttempts(o *options) *cobra.Command {
 			if err := p.validate(); err != nil {
 				return err
 			}
-			if err := o.authenticate(cmd); err != nil {
+			if err := o.authenticateRead(cmd); err != nil {
 				return err
 			}
 			selected, err := selectAttempt(cmd.Context(), o, args[0])

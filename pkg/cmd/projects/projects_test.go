@@ -331,7 +331,7 @@ func TestProjectManagementCredentials(t *testing.T) {
 	// Isolate configured credentials without reading or writing the user's config.
 	previous := viper.GetString("api_token")
 	t.Cleanup(func() { viper.Set("api_token", previous) })
-	for _, key := range []string{"DEPOT_API_TOKEN", "DEPOT_TOKEN", "DEPOT_JIT_TOKEN", "DEPOT_CACHE_TOKEN", "DEPOT_API_TOKEN_URL"} {
+	for _, key := range []string{"DEPOT_API_TOKEN", "DEPOT_TOKEN", "DEPOT_JIT_TOKEN", "DEPOT_CACHE_TOKEN"} {
 		t.Setenv(key, "")
 	}
 	for _, newCommand := range []func() *cobra.Command{NewCmdGet, NewCmdUpdate} {
