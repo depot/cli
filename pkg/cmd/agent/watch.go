@@ -367,8 +367,6 @@ type turn struct {
 	said   string
 	absent bool
 	cut    bool
-	// held is set once the API has said the session holds the awaited input unanswered.
-	held bool
 	// unseen is when the wait first found the input missing from an idle session's cut view.
 	unseen time.Time
 }
@@ -505,22 +503,17 @@ func (t *turn) recorded(status string, view *agentView) (known, done bool, reply
 		t.absent = true
 		return true, true, "", ""
 	}
-	held := slices.Contains(*view.Live, t.afterInput)
 	switch {
-	case !held && t.held:
-		// Held a moment ago and in neither list now, its record has aged out: nothing is guessed in its place.
-		return true, true, "", failedLost
 	case status == "failed":
 		return true, true, "", "the session failed"
 	case status == "archived":
 		return true, true, "", "the session was archived"
-	case !held:
+	case !slices.Contains(*view.Live, t.afterInput):
 		// Not handed to the session yet, or settled too long ago to be listed: the doubt is the one a view
 		// without the input always raised, and no later reply is taken for its own.
 		_, t.doubt = t.lost(status, view)
 		t.mark(view)
 	}
-	t.held = held
 	return true, false, "", ""
 }
 

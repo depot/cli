@@ -1121,7 +1121,7 @@ func TestTurnReadsWhatTheAPIRecordsOfTheInput(t *testing.T) {
 		t.Run("a later message from "+kind, func(t *testing.T) {
 			for _, status := range []string{"running", "idle"} {
 				tn, done, got, failure := settle(t, status, asked+","+working+","+later(kind), `"live": ["dai_1", "dai_2"]`)
-				if done || got != "" || failure != "" || !tn.held {
+				if tn.doubt != "" || done || got != "" || failure != "" {
 					t.Fatalf("%s: settled = %v, %q, %q; want the wait to go on past the later message", status, done, got, failure)
 				}
 			}
@@ -1163,14 +1163,6 @@ func TestTurnReadsWhatTheAPIRecordsOfTheInput(t *testing.T) {
 				t.Fatalf("settled = %v, %q, %q (absent %v); want %q, %q (absent %v)", done, got, failure, tn.absent, wantReply, tc.want, tc.absent)
 			}
 		})
-	}
-	// Twenty newer inputs settled between two frames: the record is gone, and no later reply is taken for it.
-	var aged agentView
-	if err := json.Unmarshal([]byte(`{"messages": [`+later("user")+","+after+`], "truncated": true, "live": [], "settled": [{"inputId": "dai_2", "answer": "9"}]}`), &aged); err != nil {
-		t.Fatal(err)
-	}
-	if done, got, failure := (&turn{afterInput: "dai_1", held: true}).settled("idle", &aged); !done || got != "" || failure != failedLost {
-		t.Fatalf("settled = %v, %q, %q; want the wait to end without a reply", done, got, failure)
 	}
 	// In neither list, the input is not handed over yet or settled too long ago to be listed. A later input's
 	// reply is not taken for it: a working session is waited on, and an idle one given time to say.
