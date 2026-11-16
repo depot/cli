@@ -16,7 +16,7 @@ func ResolveOrgAuth(ctx context.Context, tok string) (string, error) {
 }
 
 func resolveOrgAuth(ctx context.Context, tok string, turn bool) (string, error) {
-	if token := staticOrgAuth(tok, turn); token != "" {
+	if token := staticOrgAuth(ctx, tok, turn); token != "" {
 		return token, nil
 	}
 
@@ -60,20 +60,20 @@ func ResolveAgentAuth(ctx context.Context, tok string) (token string, turn bool,
 // ResolveStaticOrgAuth sends a Dispatch turn's own token where it would otherwise send the sandbox's cache token,
 // which the API takes on no call (DEP-8673).
 func ResolveStaticOrgAuth(tok string) string {
-	return staticOrgAuth(tok, true)
+	return staticOrgAuth(context.Background(), tok, true)
 }
 
-func staticOrgAuth(tok string, turn bool) string {
+func staticOrgAuth(ctx context.Context, tok string, turn bool) string {
 	if token := resolveStaticProjectAuth(tok); token != "" {
 		return token
 	}
 
-	if token := resolveRunToken(context.Background()); token != "" {
+	if token := resolveRunToken(ctx); token != "" {
 		return token
 	}
 
 	if turn {
-		if token := mintToken(context.Background(), turnTokenSource()); token != "" {
+		if token := mintToken(ctx, turnTokenSource()); token != "" {
 			return token
 		}
 	}
