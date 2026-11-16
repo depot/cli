@@ -469,7 +469,7 @@ func (t *turn) lost(status string, view *agentView) (gone bool, doubt string) {
 	followed := t.last != ""
 	if followed {
 		for _, msg := range view.Messages {
-			if msg.outside() && !msg.note() {
+			if msg.outside() && (!msg.note() || t.over != "") {
 				return true, ""
 			}
 		}

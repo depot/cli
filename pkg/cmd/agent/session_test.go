@@ -280,6 +280,7 @@ func TestTurnWithNothingOfItInTheView(t *testing.T) {
 		note = `{"id": "39", "seq": 39, "role": "user", "inputId": "dai_2", "sender": {"kind": "agent", "name": "helper"}, "text": "Done."}, ` + work
 	)
 	followed := func() *turn { return &turn{afterInput: "dai_1", last: "9", lastSeq: 9} }
+	over := func() *turn { return &turn{afterInput: "dai_1", last: "9", lastSeq: 9, over: "9"} }
 	passed := func() *turn { return &turn{afterInput: "dai_1", base: seq(9)} }
 	framed := func() *turn { return &turn{afterInput: "dai_1", base: seq(41), framed: true} }
 	shown := func() *turn { return &turn{afterInput: "dai_1", base: seq(41)} }
@@ -301,6 +302,7 @@ func TestTurnWithNothingOfItInTheView(t *testing.T) {
 		{"followed, a subagent report idle", followed, "idle", report, 0, "", failedLost},
 		{"followed, another session's note running", followed, "running", note, 0, "", ""},
 		{"followed, another session's note idle", followed, "idle", note, 0, "", failedLost},
+		{"seen over, then another session's note running", over, "running", note, 0, failedLost, ""},
 		{"followed, session failed", followed, "failed", work, 0, "the session failed", ""},
 		{"followed, session archived", followed, "archived", work, 0, "the session was archived", ""},
 		{"never seen and passed, running", passed, "running", work, 0, "", ""},
