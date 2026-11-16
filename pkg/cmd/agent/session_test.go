@@ -332,7 +332,7 @@ func TestTurnWithNothingOfItInTheView(t *testing.T) {
 func TestTurnDoesNotTakeALaterInputsReply(t *testing.T) {
 	const (
 		asked   = `{"id": "3", "role": "user", "inputId": "dai_1", "text": "hello"}`
-		working = `{"id": "4", "role": "assistant", "text": "Looking.", "toolCalls": [{"callId": "t"}]}, {"id": "5", "role": "tool", "callId": "t", "isError": true, "text": "interrupted"}`
+		working = `{"id": "4", "role": "assistant", "text": "Looking.", "toolCalls": [{"callId": "t"}]}, {"id": "5", "role": "tool", "callId": "t", "isError": true, "text": "<harness>\n[error] Tool bash was aborted\n</harness>"}`
 		later   = `{"id": "6", "role": "user", "inputId": "dai_2", "text": "next"}`
 		reply   = `{"id": "7", "role": "assistant", "text": "later reply"}`
 		want    = "another input followed before the agent replied"
@@ -344,7 +344,7 @@ func TestTurnDoesNotTakeALaterInputsReply(t *testing.T) {
 		"the later input is running":       {"running", asked + "," + working + "," + later, ""},
 		"the later input directly follows": {"idle", asked + "," + later + "," + reply, ""},
 		"the session failed on the later":  {"failed", asked + "," + working + "," + later + "," + reply, ""},
-		"the input has left the cut view":  {"idle", `{"id": "5", "role": "tool", "callId": "t", "text": "interrupted"},` + later + "," + reply, "5"},
+		"the input has left the cut view":  {"idle", `{"id": "5", "role": "tool", "callId": "t", "isError": true, "text": "<harness>\n[error] Tool bash was aborted\n</harness>"},` + later + "," + reply, "5"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			var view agentView

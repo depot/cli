@@ -451,8 +451,7 @@ func (t *turn) settled(status string, view *agentView) (done bool, reply, failur
 	return replied(view.Messages[last])
 }
 
-// unanswered reads an idle session whose turn has no reply: over, unless the input is still its newest message,
-// and failed if a second look agrees.
+// unanswered reads an idle session with no reply: over once past the input, failed if a second look agrees.
 func (t *turn) unanswered(view *agentView) {
 	if n := len(view.Messages); n > 0 && view.Messages[n-1].InputID != t.afterInput {
 		t.over = view.Messages[n-1].ID
