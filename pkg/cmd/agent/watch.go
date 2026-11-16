@@ -530,7 +530,7 @@ func (t *turn) answered(view *agentView, at int, input, closed bool) (reply *vie
 			return &view.Messages[said], ""
 		}
 		// A note opens its own turn when the one before it was stopped, or was seen over just before the note.
-		stopped := said >= 0 && view.Messages[said].aborted()
+		stopped := said >= 0 && view.Messages[said].ended()
 		if view.Messages[i].note() && !stopped && (over < 0 || i != over+1) {
 			continue
 		}

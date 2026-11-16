@@ -465,6 +465,10 @@ func TestTurnKeepsWaitingPastAnotherSessionsNote(t *testing.T) {
 	if done, got, failure := settle(t, &turn{afterInput: "dai_1"}, "idle", asked+","+cut+","+note+","+reply, 0); !done || got != "" || failure != taken {
 		t.Fatalf("settled = %v, %q, %q; want %q for a note after a stopped turn", done, got, failure, taken)
 	}
+	failed := `{"id": "4", "role": "assistant", "isError": true, "text": "overloaded", "toolCalls": [{"callId": "t"}]}`
+	if done, got, failure := settle(t, &turn{afterInput: "dai_1"}, "idle", asked+","+failed+","+note+","+reply, 0); !done || got != "" || failure != taken {
+		t.Fatalf("settled = %v, %q, %q; want %q for a note after a turn that ended on an error", done, got, failure, taken)
+	}
 	// A turn seen over without a reply, a note queued or yet to come: the note opens its own turn, whose reply
 	// is not this one's.
 	for _, queued := range []int{0, 1} {

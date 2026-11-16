@@ -52,9 +52,13 @@ func (m viewMessage) note() bool {
 	return m.Role == "user" && m.Sender.Kind == "agent"
 }
 
-// aborted reports whether a stop cut this tool call short, as the harness words it, which ends the turn it ran in.
-func (m viewMessage) aborted() bool {
-	return m.Role == "tool" && m.IsError && strings.Contains(m.Text, " was aborted")
+// ended reports whether the turn stopped at this message: the model's error, or a tool call a stop cut short,
+// as the harness words it.
+func (m viewMessage) ended() bool {
+	if m.Role == "tool" {
+		return m.IsError && strings.Contains(m.Text, " was aborted")
+	}
+	return m.Role == "assistant" && m.IsError
 }
 
 // viewSender says who wrote a user message; the kind "subagent" is the session's own subagent reporting back.
