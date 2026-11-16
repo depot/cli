@@ -273,7 +273,8 @@ func (r *Renderer) keep(view *agentView) {
 func (r *Renderer) Reply(id, text string) error {
 	if id != "" && r.once("shown:"+id) {
 		r.seen["message:"+id] = true
-		r.finishPartial(text)
+		// As plain lines: a response streaming now is a later turn's, and keeps its place.
+		r.line("%s", strings.TrimSpace(text))
 	}
 	return r.written()
 }
