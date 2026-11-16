@@ -270,14 +270,6 @@ func (r *Renderer) keep(view *agentView) {
 	}
 }
 
-// Beside says once for each of n later messages that it came in while the awaited input was still unanswered.
-func (r *Renderer) Beside(n int) error {
-	for ; r.beside < n; r.beside++ {
-		r.line("[a later message came in while this input waits for its reply; still watching]")
-	}
-	return r.written()
-}
-
 // Reply prints the reply a wait ends on when the transcript has not shown it, its turn having left the view.
 func (r *Renderer) Reply(id, text string) error {
 	if id != "" && r.once("shown:"+id) {

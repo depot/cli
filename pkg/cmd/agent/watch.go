@@ -280,9 +280,6 @@ func watchOnce(ctx context.Context, c *caller, sessionID string, r *Renderer, o 
 			continue
 		}
 		done, reply, failure := t.settled(status, view)
-		if err := r.Beside(len(t.beside)); err != nil {
-			return false, err
-		}
 		for !done && t.doubt != "" {
 			// The status and the view are written apart, so the reply may only be late. Look once more,
 			// or for an input the view does not show, until the session has had time to pick it up.
@@ -312,9 +309,6 @@ func watchOnce(ctx context.Context, c *caller, sessionID string, r *Renderer, o 
 			result.Status = again.Msg.GetSession().GetStatus()
 			if done, reply, failure = t.settled(result.Status, view); !done && t.doubt != "" && final {
 				done, failure = true, t.doubt
-			}
-			if err := r.Beside(len(t.beside)); err != nil {
-				return false, err
 			}
 		}
 		if done && failure == "" && t.absent {
@@ -368,10 +362,8 @@ type turn struct {
 	// said is the id of the message the last settled gave as the reply. absent: the view does not hold it.
 	said   string
 	absent bool
-	// held is set once the API has said the session holds the awaited input unanswered, and beside are the
-	// later inputs seen unanswered with it.
-	held   bool
-	beside []string
+	// held is set once the API has said the session holds the awaited input unanswered.
+	held bool
 	// unseen is when the wait first found the input missing from an idle session's cut view.
 	unseen time.Time
 }
@@ -517,12 +509,6 @@ func (t *turn) recorded(status string, view *agentView) (known, done bool, reply
 		return true, true, "", "the session failed"
 	case "archived":
 		return true, true, "", "the session was archived"
-	}
-	at, _ := t.place(view)
-	for _, msg := range view.Messages[at+1:] {
-		if id := msg.InputID; id != "" && id != t.afterInput && slices.Contains(*view.Live, id) && !slices.Contains(t.beside, id) {
-			t.beside = append(t.beside, id)
-		}
 	}
 	return true, false, "", ""
 }

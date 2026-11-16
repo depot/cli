@@ -1121,8 +1121,8 @@ func TestTurnReadsWhatTheAPIRecordsOfTheInput(t *testing.T) {
 		t.Run("a later message from "+kind, func(t *testing.T) {
 			for _, status := range []string{"running", "idle"} {
 				tn, done, got, failure := settle(t, status, asked+","+working+","+later(kind), `"live": ["dai_1", "dai_2"]`)
-				if done || got != "" || failure != "" || len(tn.beside) != 1 {
-					t.Fatalf("%s: settled = %v, %q, %q with %d beside; want the wait to go on past one later message", status, done, got, failure, len(tn.beside))
+				if done || got != "" || failure != "" || !tn.held {
+					t.Fatalf("%s: settled = %v, %q, %q; want the wait to go on past the later message", status, done, got, failure)
 				}
 			}
 			// One reply answered both, or each got its own: either way the awaited input's is the one named.
@@ -1202,8 +1202,8 @@ func TestWatchFollowsAnInputPastLaterMessagesToTheReplyTheAPINames(t *testing.T)
 		if err != nil || !strings.Contains(out, `"reply": "all done"`) || !strings.Contains(out, `"outcome": "settled"`) {
 			t.Fatalf("err = %v, want the reply:\n%s\n%s", err, out, errOut)
 		}
-		if got := strings.Count(errOut, "[a later message came in while this input waits for its reply; still watching]"); got != 2 {
-			t.Fatalf("the transcript says %d times that a later message came in, want once for each of two:\n%s", got, errOut)
+		if !strings.Contains(errOut, "> lane one is done") || !strings.Contains(errOut, "> and this") {
+			t.Fatalf("the transcript does not carry the later messages:\n%s", errOut)
 		}
 	})
 	t.Run("no longer in the view", func(t *testing.T) {
