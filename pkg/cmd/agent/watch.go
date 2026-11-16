@@ -479,7 +479,7 @@ func (t *turn) settled(status string, view *agentView) (done bool, reply, failur
 
 // recorded reads what the API itself records of the awaited input: the message that answered it, why it has
 // none, or that the session still holds it unanswered. Whatever else was sent meanwhile then decides nothing.
-// known is false when the API says nothing of the input, as an older one never does (DEP-8781).
+// known is false only when the API records nothing of its inputs, as an older one does not (DEP-8781).
 func (t *turn) recorded(status string, view *agentView) (known, done bool, reply, failure string) {
 	if t.afterInput == "" || view == nil || view.Live == nil {
 		return false, false, "", ""
@@ -505,17 +505,22 @@ func (t *turn) recorded(status string, view *agentView) (known, done bool, reply
 		t.absent = true
 		return true, true, "", ""
 	}
-	if !slices.Contains(*view.Live, t.afterInput) {
+	held := slices.Contains(*view.Live, t.afterInput)
+	switch {
+	case !held && t.held:
 		// Held a moment ago and in neither list now, its record has aged out: nothing is guessed in its place.
-		return t.held, t.held, "", failedLost
-	}
-	t.held = true
-	switch status {
-	case "failed":
+		return true, true, "", failedLost
+	case status == "failed":
 		return true, true, "", "the session failed"
-	case "archived":
+	case status == "archived":
 		return true, true, "", "the session was archived"
+	case !held:
+		// Not handed to the session yet, or settled too long ago to be listed: the doubt is the one a view
+		// without the input always raised, and no later reply is taken for its own.
+		_, t.doubt = t.lost(status, view)
+		t.mark(view)
 	}
+	t.held = held
 	return true, false, "", ""
 }
 

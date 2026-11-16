@@ -1172,9 +1172,13 @@ func TestTurnReadsWhatTheAPIRecordsOfTheInput(t *testing.T) {
 	if done, got, failure := (&turn{afterInput: "dai_1", held: true}).settled("idle", &aged); !done || got != "" || failure != failedLost {
 		t.Fatalf("settled = %v, %q, %q; want the wait to end without a reply", done, got, failure)
 	}
-	// Not taken in yet, the input is in neither list: the wait goes on as it does against an older API.
-	if _, done, _, failure := settle(t, "running", `{"id": "1", "seq": 1, "role": "user", "inputId": "dai_0", "text": "before"}`, `"live": ["dai_0"], "settled": []`); done || failure != "" {
-		t.Fatalf("settled = %v, %q; want the wait to go on for an input the session has not taken in", done, failure)
+	// In neither list, the input is not handed over yet or settled too long ago to be listed. A later input's
+	// reply is not taken for it: a working session is waited on, and an idle one given time to say.
+	other := `{"id": "1", "seq": 1, "role": "user", "inputId": "dai_0", "text": "before"},` + after
+	for status, doubt := range map[string]string{"running": "", "idle": failedUnseen} {
+		if tn, done, got, failure := settle(t, status, other, `"truncated": true, "live": [], "settled": [{"inputId": "dai_0", "answer": "9"}]`); done || got != "" || failure != "" || tn.doubt != doubt {
+			t.Fatalf("%s: settled = %v, %q, %q with doubt %q; want the wait to go on with doubt %q", status, done, got, failure, tn.doubt, doubt)
+		}
 	}
 }
 
