@@ -48,12 +48,7 @@ func (m viewMessage) outside() bool {
 	return m.Role == "user" && m.Sender.Kind != "subagent"
 }
 
-func (m viewMessage) note() bool {
-	return m.Role == "user" && m.Sender.Kind == "agent"
-}
-
-// ended reports whether the turn stopped at this message: the model's error, or a tool call a stop cut short,
-// as the harness words it.
+// ended reports whether the turn stopped here: the model's error, or a tool call a stop cut short (harness wording).
 func (m viewMessage) ended() bool {
 	if m.Role == "tool" {
 		return m.IsError && strings.Contains(m.Text, " was aborted")

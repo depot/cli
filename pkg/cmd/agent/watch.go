@@ -100,7 +100,9 @@ type watchResult struct {
 	Outcome   string `json:"outcome"`
 	Reply     string `json:"reply,omitempty"`
 	Error     string `json:"error,omitempty"`
-	URL       string `json:"url,omitempty"`
+	// Joined counts the later messages that landed in the awaited turn, so its reply answers them too.
+	Joined int    `json:"joined,omitempty"`
+	URL    string `json:"url,omitempty"`
 }
 
 func newWatch() *cobra.Command {
@@ -280,6 +282,7 @@ func watchOnce(ctx context.Context, c *caller, sessionID string, r *Renderer, o 
 			continue
 		}
 		done, reply, failure := t.settled(status, view)
+		t.tell(r)
 		for !done && t.doubt != "" {
 			// The status and the view are written apart, so the reply may only be late. Look once more,
 			// or for an input the view does not show, until the session has had time to pick it up.
@@ -310,6 +313,7 @@ func watchOnce(ctx context.Context, c *caller, sessionID string, r *Renderer, o 
 			if done, reply, failure = t.settled(result.Status, view); !done && t.doubt != "" && final {
 				done, failure = true, t.doubt
 			}
+			t.tell(r)
 		}
 		if done && failure == "" {
 			// The wait ends here, so no later frame would read a reply this one could not.
@@ -319,7 +323,7 @@ func watchOnce(ctx context.Context, c *caller, sessionID string, r *Renderer, o 
 		}
 		advance()
 		if done {
-			result.Outcome, result.Reply, result.Error = outcomeSettled, reply, failure
+			result.Outcome, result.Reply, result.Error, result.Joined = outcomeSettled, reply, failure, len(t.joined)
 			if failure != "" {
 				result.Outcome = outcomeFailed
 			}
@@ -349,8 +353,11 @@ type turn struct {
 	doubt string
 	// said is the id of the message the last settled gave as the reply.
 	said string
-	// over is the newest message when the session looked idle with no reply: a note right after it opens a turn.
+	// over is the newest message when the session looked idle with no reply: an input right after it opens a turn.
 	over string
+	// joined are the later inputs that landed in the awaited turn, whose reply so answers them too.
+	joined []string
+	told   int
 	// unseen is when the wait first found the input missing from an idle session's cut view.
 	unseen time.Time
 }
@@ -451,6 +458,13 @@ func (t *turn) settled(status string, view *agentView) (done bool, reply, failur
 	return replied(view.Messages[last])
 }
 
+// tell says once, for each later input that joined the awaited turn, that the turn's reply answers it too.
+func (t *turn) tell(r *Renderer) {
+	for ; t.told < len(t.joined); t.told++ {
+		r.line("[a later message joined this turn; the reply will answer it too]")
+	}
+}
+
 // unanswered reads an idle session with no reply: over once past the input, failed if a second look agrees.
 func (t *turn) unanswered(view *agentView) {
 	if n := len(view.Messages); n > 0 && view.Messages[n-1].InputID != t.afterInput {
@@ -468,7 +482,7 @@ func (t *turn) lost(status string, view *agentView) (gone bool, doubt string) {
 	followed := t.last != ""
 	if followed {
 		for _, msg := range view.Messages {
-			if msg.outside() && (!msg.note() || t.over != "") {
+			if msg.outside() && t.over != "" {
 				return true, ""
 			}
 		}
@@ -521,7 +535,7 @@ func (t *turn) answered(view *agentView, at int, input, closed bool) (reply *vie
 	}
 	over := slices.IndexFunc(view.Messages, func(m viewMessage) bool { return t.over != "" && m.ID == t.over })
 	for i := at + 1; i < len(view.Messages); i++ {
-		// A subagent's report joins the turn it was started in, and another session's note the turn it lands in.
+		// A subagent's report joins the turn it was started in.
 		if !view.Messages[i].outside() {
 			continue
 		}
@@ -529,9 +543,13 @@ func (t *turn) answered(view *agentView, at int, input, closed bool) (reply *vie
 		if isReply(said) {
 			return &view.Messages[said], ""
 		}
-		// A note opens its own turn when the one before it was stopped, or was seen over just before the note.
+		// An input joins the turn it lands in, whoever sent it. It opens its own when the turn before it was
+		// stopped, or was seen over just before the input.
 		stopped := said >= 0 && view.Messages[said].ended()
-		if view.Messages[i].note() && !stopped && (over < 0 || i != over+1) {
+		if !stopped && (over < 0 || i != over+1) {
+			if id := view.Messages[i].ID; !slices.Contains(t.joined, id) {
+				t.joined = append(t.joined, id)
+			}
 			continue
 		}
 		return nil, "another input followed before the agent replied"

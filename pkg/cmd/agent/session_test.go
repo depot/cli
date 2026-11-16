@@ -296,8 +296,9 @@ func TestTurnWithNothingOfItInTheView(t *testing.T) {
 		{"followed, idle", followed, "idle", work, 0, "", failedLost},
 		{"followed, waiting for input", followed, "waiting_input", work, 0, "", failedLost},
 		{"followed, idle with an input queued", followed, "idle", work, 1, "", ""},
-		{"followed, a later input running", followed, "running", input, 0, failedLost, ""},
-		{"followed, a later input answered", followed, "idle", input, 0, failedLost, ""},
+		{"followed, a later input running", followed, "running", input, 0, "", ""},
+		{"followed, a later input answered", followed, "idle", input, 0, "", failedLost},
+		{"seen over, then a later input running", over, "running", input, 0, failedLost, ""},
 		{"followed, a subagent report running", followed, "running", report, 0, "", ""},
 		{"followed, a subagent report idle", followed, "idle", report, 0, "", failedLost},
 		{"followed, another session's note running", followed, "running", note, 0, "", ""},
@@ -340,11 +341,10 @@ func TestTurnDoesNotTakeALaterInputsReply(t *testing.T) {
 	for name, tc := range map[string]struct {
 		status, view, last string
 	}{
-		"the later input has its reply":    {"idle", asked + "," + working + "," + later + "," + reply, ""},
-		"the later input is running":       {"running", asked + "," + working + "," + later, ""},
-		"the later input directly follows": {"idle", asked + "," + later + "," + reply, ""},
-		"the session failed on the later":  {"failed", asked + "," + working + "," + later + "," + reply, ""},
-		"the input has left the cut view":  {"idle", `{"id": "5", "role": "tool", "callId": "t", "isError": true, "text": "<harness>\n[error] Tool bash was aborted\n</harness>"},` + later + "," + reply, "5"},
+		"the later input has its reply":   {"idle", asked + "," + working + "," + later + "," + reply, ""},
+		"the later input is running":      {"running", asked + "," + working + "," + later, ""},
+		"the session failed on the later": {"failed", asked + "," + working + "," + later + "," + reply, ""},
+		"the input has left the cut view": {"idle", `{"id": "5", "role": "tool", "callId": "t", "isError": true, "text": "<harness>\n[error] Tool bash was aborted\n</harness>"},` + later + "," + reply, "5"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			var view agentView
@@ -395,8 +395,8 @@ func TestTurnKeepsWaitingPastASubagentReport(t *testing.T) {
 	}
 }
 
-// A note from another session joins the turn it lands in, so the watch runs on to the turn's own reply.
-func TestTurnKeepsWaitingPastAnotherSessionsNote(t *testing.T) {
+// An input that lands in a running turn joins it, whoever sent it, so the watch runs on to the turn's own reply.
+func TestTurnRunsThroughInputsThatJoinIt(t *testing.T) {
 	const (
 		asked = `{"id": "3", "role": "user", "inputId": "dai_1", "sender": {"kind": "user", "name": "pat"}, "text": "hello"}`
 		work  = `{"id": "4", "role": "assistant", "text": "Looking.", "toolCalls": [{"callId": "t"}]}, {"id": "5", "role": "tool", "callId": "t", "text": "started"}`
@@ -422,29 +422,29 @@ func TestTurnKeepsWaitingPastAnotherSessionsNote(t *testing.T) {
 	type want struct {
 		done           bool
 		reply, failure string
+		joined         int
 	}
-	for name, tc := range map[string]struct {
-		status, view string
-		want
-	}{
-		"still working after it":        {"running", asked + "," + work + "," + note + "," + more, want{}},
-		"replied after it":              {"idle", asked + "," + work + "," + note + "," + more + "," + reply, want{true, "All done.", ""}},
-		"it came after the reply":       {"running", asked + "," + reply + "," + note + "," + more, want{true, "All done.", ""}},
-		"two notes, then a person":      {"running", asked + "," + work + "," + note + "," + note + "," + from("user"), want{true, "", taken}},
-		"two notes, then a later reply": {"idle", asked + "," + work + "," + note + "," + note + "," + reply, want{true, "All done.", ""}},
-	} {
-		t.Run(name, func(t *testing.T) {
-			done, got, failure := settle(t, &turn{afterInput: "dai_1"}, tc.status, tc.view, 0)
-			if (want{done, got, failure}) != tc.want {
-				t.Fatalf("settled = %v, %q, %q; want %+v", done, got, failure, tc.want)
-			}
-		})
-	}
-	// A person's message takes the turn, whichever way they wrote it, as does one whose sender an older API left
-	// unsaid. So does an input no running turn takes in: a trigger's, the system's, an API caller's.
-	for _, kind := range []string{"user", "slack", "linear", "", "trigger", "system", "api"} {
-		if done, got, failure := settle(t, &turn{afterInput: "dai_1"}, "running", asked+","+work+","+from(kind), 0); !done || got != "" || failure != taken {
-			t.Fatalf("settled = %v, %q, %q after a message of kind %q; want %q", done, got, failure, kind, taken)
+	// Another session's note, a person's follow-up however they wrote it, one whose sender an older API left
+	// unsaid, and any other sender: the turn's input record decides, not who sent it.
+	for _, kind := range []string{"agent", "user", "slack", "linear", "", "trigger", "system", "api"} {
+		in := from(kind)
+		for name, tc := range map[string]struct {
+			status, view string
+			want
+		}{
+			"still working after it":        {"running", asked + "," + work + "," + in + "," + more, want{joined: 1}},
+			"replied after it":              {"idle", asked + "," + work + "," + in + "," + more + "," + reply, want{true, "All done.", "", 1}},
+			"it came before the first step": {"idle", asked + "," + in + "," + reply, want{true, "All done.", "", 1}},
+			"it came after the reply":       {"running", asked + "," + reply + "," + in + "," + more, want{true, "All done.", "", 0}},
+			"two of them, then the reply":   {"idle", asked + "," + work + "," + in + "," + in + "," + reply, want{true, "All done.", "", 1}},
+		} {
+			t.Run(kind+", "+name, func(t *testing.T) {
+				waiting := &turn{afterInput: "dai_1"}
+				done, got, failure := settle(t, waiting, tc.status, tc.view, 0)
+				if (want{done, got, failure, len(waiting.joined)}) != tc.want {
+					t.Fatalf("settled = %v, %q, %q with %d joined; want %+v", done, got, failure, len(waiting.joined), tc.want)
+				}
+			})
 		}
 	}
 	// A note the idle session already showed is the turn's own, so the reply a second look finds still counts.
@@ -759,7 +759,7 @@ func TestWatchReadsTheWholeReplyBeforeAWaitThatEndsOnItsFrame(t *testing.T) {
 func TestWatchExitCodes(t *testing.T) {
 	replyGrace = 10 * time.Millisecond
 	t.Cleanup(func() { replyGrace = 10 * time.Second })
-	interrupted := `{"messages": [{"id": "3", "role": "user", "inputId": "dai_1", "text": "hello"}, {"id": "4", "role": "tool", "toolName": "bash", "text": "killed"}], "tools": []}`
+	interrupted := `{"messages": [{"id": "3", "role": "user", "inputId": "dai_1", "text": "hello"}, {"id": "4", "role": "tool", "toolName": "bash", "isError": true, "text": "<harness>\n[error] Tool bash was aborted\n</harness>"}], "tools": []}`
 	stopped := `{"messages": [{"id": "3", "role": "user", "inputId": "dai_1", "text": "hello"}, {"id": "4", "role": "assistant", "text": "Let me look.", "toolCalls": [{"callId": "t", "name": "bash"}]}], "tools": []}`
 	for name, tc := range map[string]struct {
 		fake *fakeAgent
@@ -807,6 +807,23 @@ func TestWatchExitCodes(t *testing.T) {
 				t.Fatalf("err = %#v, want exit %d with %q", err, tc.code, tc.want)
 			}
 		})
+	}
+}
+
+func TestWatchSaysWhenALaterMessageJoinedTheTurn(t *testing.T) {
+	joined := `{"messages": [{"id": "3", "role": "user", "inputId": "dai_1", "text": "hello"}, {"id": "4", "role": "tool", "text": "ok"},
+		{"id": "5", "role": "user", "inputId": "dai_2", "text": "one more thing"}, {"id": "6", "role": "assistant", "text": "both done"}], "tools": []}`
+	said := "[a later message joined this turn; the reply will answer it too]"
+	serveAgent(t, &fakeAgent{frames: [][]*agentv1.WatchSessionResponse{{frame("idle", "c1", joined)}}})
+	out, _, err := runAgent(t, "watch", "das_1", "--after-input", "dai_1")
+	if err != nil || strings.Count(out, said) != 1 || !strings.Contains(out, "both done") {
+		t.Fatalf("out = %q, err = %v; want the reply and one line saying a message joined", out, err)
+	}
+	serveAgent(t, &fakeAgent{frames: [][]*agentv1.WatchSessionResponse{{frame("idle", "c1", joined)}}})
+	out, _, err = runAgent(t, "watch", "das_1", "--after-input", "dai_1", "-o", "json")
+	var result watchResult
+	if err != nil || json.Unmarshal([]byte(out), &result) != nil || result.Joined != 1 || result.Reply != "both done" {
+		t.Fatalf("out = %q, err = %v; want the reply with one joined message counted", out, err)
 	}
 }
 
