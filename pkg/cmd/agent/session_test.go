@@ -447,7 +447,7 @@ func TestTurnRunsThroughInputsTheAPISaysJoinedIt(t *testing.T) {
 func TestWatchSaysWhenALaterMessageJoinedTheTurn(t *testing.T) {
 	joined := `{"messages": [{"id": "3", "role": "user", "inputId": "dai_1", "text": "hello"}, {"id": "4", "role": "tool", "text": "ok"},
 		{"id": "5", "role": "user", "inputId": "dai_2", "joined": true, "text": "one more thing"}, {"id": "6", "role": "assistant", "text": "both done"}], "tools": []}`
-	said := "[a later message joined this turn; the reply will answer it too]"
+	said := "[this message joined the running turn; that turn's reply answers it too]"
 	serveAgent(t, &fakeAgent{frames: [][]*agentv1.WatchSessionResponse{{frame("idle", "c1", joined)}}})
 	out, _, err := runAgent(t, "watch", "das_1", "--after-input", "dai_1")
 	if err != nil || strings.Count(out, said) != 1 || !strings.Contains(out, "both done") {

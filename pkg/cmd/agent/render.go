@@ -329,6 +329,9 @@ func (r *Renderer) renderMessage(msg viewMessage) {
 		for _, line := range strings.Split(strings.TrimSpace(msg.Text), "\n") {
 			r.line("> %s", line)
 		}
+		if msg.joined() {
+			r.line("[this message joined the running turn; that turn's reply answers it too]")
+		}
 	case "assistant":
 		if msg.IsError {
 			r.line("(error: %s)", truncate(oneLine(msg.Text)))

@@ -282,9 +282,7 @@ func watchOnce(ctx context.Context, c *caller, sessionID string, r *Renderer, o 
 			continue
 		}
 		done, reply, failure := t.settled(status, view)
-		if result.Joined = len(t.joined); t.tell(r) != nil {
-			return false, t.tell(r)
-		}
+		result.Joined = len(t.joined)
 		for !done && t.doubt != "" {
 			// The status and the view are written apart, so the reply may only be late. Look once more,
 			// or for an input the view does not show, until the session has had time to pick it up.
@@ -315,9 +313,7 @@ func watchOnce(ctx context.Context, c *caller, sessionID string, r *Renderer, o 
 			if done, reply, failure = t.settled(result.Status, view); !done && t.doubt != "" && final {
 				done, failure = true, t.doubt
 			}
-			if result.Joined = len(t.joined); t.tell(r) != nil {
-				return false, t.tell(r)
-			}
+			result.Joined = len(t.joined)
 		}
 		if done && failure == "" {
 			// The wait ends here, so no later frame would read a reply this one could not.
@@ -357,9 +353,8 @@ type turn struct {
 	doubt string
 	// said is the id of the message the last settled gave as the reply.
 	said string
-	// joined are the later inputs that landed in the awaited turn; told is how many of them the watch has said.
+	// joined are the later inputs that landed in the awaited turn.
 	joined []string
-	told   int
 	// unseen is when the wait first found the input missing from an idle session's cut view.
 	unseen time.Time
 }
@@ -462,16 +457,6 @@ func (t *turn) settled(status string, view *agentView) (done bool, reply, failur
 	}
 	t.said = view.Messages[last].ID
 	return replied(view.Messages[last])
-}
-
-func (t *turn) tell(r *Renderer) error {
-	for ; t.told < len(t.joined); t.told++ {
-		r.line("[a later message joined this turn; the reply will answer it too]")
-	}
-	if r.w.err != nil {
-		return fmt.Errorf("write transcript: %w", r.w.err)
-	}
-	return nil
 }
 
 // lost is the one place that reads a view showing nothing of the awaited turn. gone: the turn was being followed
