@@ -1164,6 +1164,10 @@ func TestTurnReadsWhatTheAPIRecordsOfTheInput(t *testing.T) {
 			}
 		})
 	}
+	// Its own message still shows, so it was handed over, and neither list names it: its record aged out.
+	if tn, done, got, _ := settle(t, "running", asked+","+later("user")+","+after, `"live": ["dai_2"], "settled": []`); done || got != "" || tn.doubt != failedLost {
+		t.Fatalf("settled = %v, %q with doubt %q; want a second look, then a failure that takes no later reply", done, got, tn.doubt)
+	}
 	// In neither list, the input is not handed over yet or settled too long ago to be listed. A later input's
 	// reply is not taken for it: a working session is waited on, and an idle one given time to say.
 	other := `{"id": "1", "seq": 1, "role": "user", "inputId": "dai_0", "text": "before"},` + after

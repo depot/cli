@@ -508,13 +508,21 @@ func (t *turn) recorded(status string, view *agentView) (known, done bool, reply
 		return true, true, "", "the session failed"
 	case status == "archived":
 		return true, true, "", "the session was archived"
-	case slices.Contains(*view.Live, t.afterInput), view.QueuedCount > 0:
+	case slices.Contains(*view.Live, t.afterInput):
+	case shown(view, t.afterInput):
+		// Its message shows and neither list names it: it settled too long ago to be listed. A second look
+		// confirms it, and no later reply is taken for this one's.
+		t.doubt = failedLost
+	case view.QueuedCount > 0:
 	case status == "idle", status == "waiting_input":
-		// Not handed to the session yet, or settled too long ago to be listed: an idle session is given the
-		// time it has to pick an input up, and no later reply is taken for this one's.
+		// Not handed to the session yet: an idle one is given the time it has to pick an input up.
 		t.doubt = failedUnseen
 	}
 	return true, false, "", ""
+}
+
+func shown(view *agentView, inputID string) bool {
+	return slices.ContainsFunc(view.Messages, func(msg viewMessage) bool { return msg.InputID == inputID })
 }
 
 // lost is the one place that reads a view showing nothing of the awaited turn. gone: the turn was being followed
