@@ -52,6 +52,11 @@ func (m viewMessage) note() bool {
 	return m.Role == "user" && m.Sender.Kind == "agent"
 }
 
+// aborted reports whether a stop cut this tool call short, as the harness words it, which ends the turn it ran in.
+func (m viewMessage) aborted() bool {
+	return m.Role == "tool" && m.IsError && strings.Contains(m.Text, " was aborted")
+}
+
 // viewSender says who wrote a user message; the kind "subagent" is the session's own subagent reporting back.
 type viewSender struct {
 	Kind string `json:"kind"`

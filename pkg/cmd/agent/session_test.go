@@ -453,6 +453,18 @@ func TestTurnKeepsWaitingPastAnotherSessionsNote(t *testing.T) {
 	if done, got, failure := settle(t, late, "idle", asked+","+work+","+note+","+reply, 0); !done || got != "All done." || failure != "" {
 		t.Fatalf("settled = %v, %q, %q; want the reply that followed a note already seen", done, got, failure)
 	}
+	// A session that looked idle before it picked the input up is not over: the turn runs, and its notes are its own.
+	slow := &turn{afterInput: "dai_1"}
+	settle(t, slow, "idle", asked, 0)
+	settle(t, slow, "running", asked+","+work, 0)
+	if done, got, failure := settle(t, slow, "idle", asked+","+work+","+note+","+reply, 0); !done || got != "All done." || failure != "" {
+		t.Fatalf("settled = %v, %q, %q; want the reply of a turn that began after an idle look", done, got, failure)
+	}
+	// A stop ended the turn, which the view alone shows: the note after it opened another, on a first look too.
+	cut := `{"id": "4", "role": "assistant", "text": "", "toolCalls": [{"callId": "t"}]}, {"id": "5", "role": "tool", "callId": "t", "isError": true, "text": "<harness>\n[error] Tool bash was aborted\n</harness>"}`
+	if done, got, failure := settle(t, &turn{afterInput: "dai_1"}, "idle", asked+","+cut+","+note+","+reply, 0); !done || got != "" || failure != taken {
+		t.Fatalf("settled = %v, %q, %q; want %q for a note after a stopped turn", done, got, failure, taken)
+	}
 	// A turn seen over without a reply, a note queued or yet to come: the note opens its own turn, whose reply
 	// is not this one's.
 	for _, queued := range []int{0, 1} {

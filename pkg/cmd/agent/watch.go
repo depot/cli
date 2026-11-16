@@ -349,8 +349,7 @@ type turn struct {
 	doubt string
 	// said is the id of the message the last settled gave as the reply.
 	said string
-	// over is the newest message when the session was seen idle with the turn unanswered: an input after it
-	// opens its own turn.
+	// over is the newest message when the session looked idle with no reply: a note right after it opens a turn.
 	over string
 	// unseen is when the wait first found the input missing from an idle session's cut view.
 	unseen time.Time
@@ -520,24 +519,28 @@ func (t *turn) answered(view *agentView, at int, input, closed bool) (reply *vie
 		}
 		return view.Messages[i].Role == "assistant" && len(view.Messages[i].ToolCalls) == 0
 	}
-	over := len(view.Messages)
-	if t.over != "" {
-		over = slices.IndexFunc(view.Messages, func(m viewMessage) bool { return m.ID == t.over })
-	}
+	over := slices.IndexFunc(view.Messages, func(m viewMessage) bool { return t.over != "" && m.ID == t.over })
 	for i := at + 1; i < len(view.Messages); i++ {
 		// A subagent's report joins the turn it was started in, and another session's note the turn it lands in.
 		if !view.Messages[i].outside() {
 			continue
 		}
-		if said := newest(view, i); isReply(said) {
+		said := newest(view, i)
+		if isReply(said) {
 			return &view.Messages[said], ""
 		}
-		if view.Messages[i].note() && i <= over {
+		// A note opens its own turn when the one before it was stopped, or was seen over just before the note.
+		stopped := said >= 0 && view.Messages[said].aborted()
+		if view.Messages[i].note() && !stopped && (over < 0 || i != over+1) {
 			continue
 		}
 		return nil, "another input followed before the agent replied"
 	}
 	last := len(view.Messages) - 1
+	// The turn went on past where it looked over, so that look was of a session yet to pick its work up.
+	if over >= 0 && over < last {
+		t.over = ""
+	}
 	t.last, t.lastSeq = view.Messages[last].ID, view.Messages[last].Seq
 	if said := newest(view, len(view.Messages)); closed && isReply(said) {
 		return &view.Messages[said], ""
