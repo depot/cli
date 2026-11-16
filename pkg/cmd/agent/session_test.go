@@ -1235,6 +1235,18 @@ func TestWatchFollowsAnInputPastLaterMessagesToTheReplyTheAPINames(t *testing.T)
 			t.Fatalf("err = %v after reads %v, want the whole reply, read once:\n%s", err, f.wholeAsked, out)
 		}
 	})
+	t.Run("a long reply whose first reads failed", func(t *testing.T) {
+		retryDelay = time.Millisecond
+		t.Cleanup(func() { retryDelay = time.Second })
+		cut := `{"id": "6", "seq": 6, "role": "assistant", "text": "all\n[5 bytes truncated]", "truncatedBytes": 5}`
+		down := connect.NewError(connect.CodeUnavailable, errors.New("try again"))
+		f := &fakeAgent{frames: [][]*agentv1.WatchSessionResponse{{frame("idle", "c1", view(asked+","+cut, both))}}, wholeErrs: []error{down, down, down}, whole: map[string]*agentv1.GetSessionMessageResponse{"6": {Role: "assistant", Text: "all done"}}}
+		serveAgent(t, f)
+		out, _, err := runAgent(t, "watch", "das_1", "--after-input", "dai_1")
+		if err != nil || !strings.Contains(out, "(the whole reply, read on a later try)\nall done\n") {
+			t.Fatalf("err = %v, want the transcript to carry the whole reply once it could be read:\n%s", err, out)
+		}
+	})
 	t.Run("stopped", func(t *testing.T) {
 		stopped := frame("idle", "c4", view(asked+","+note, `"live": ["dai_2"], "settled": [{"inputId": "dai_1", "unanswered": "aborted"}]`))
 		serveAgent(t, &fakeAgent{frames: [][]*agentv1.WatchSessionResponse{append(frames[:2:2], stopped)}})

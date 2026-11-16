@@ -311,8 +311,8 @@ func watchOnce(ctx context.Context, c *caller, sessionID string, r *Renderer, o 
 				done, failure = true, t.doubt
 			}
 		}
-		if done && failure == "" && t.absent {
-			// The API names the reply, and the view does not hold the whole of it.
+		if done && failure == "" && (t.absent || t.cut && !r.seen["shown:"+t.said]) {
+			// The API names a reply the transcript has not shown, and the view does not hold the whole of it.
 			text, read := r.full[t.said]
 			if !read {
 				var err error
@@ -362,9 +362,11 @@ type turn struct {
 	// doubt is why the turn counts as failed if a second look still shows what the last frame did:
 	// the turn over without a reply at its end, as an interrupt leaves it, or gone from the view.
 	doubt string
-	// said is the id of the message the last settled gave as the reply. absent: the view does not hold it whole.
+	// said is the id of the message the last settled gave as the reply. absent: the view does not hold it.
+	// cut: the view holds it cut short.
 	said   string
 	absent bool
+	cut    bool
 	// held is set once the API has said the session holds the awaited input unanswered.
 	held bool
 	// unseen is when the wait first found the input missing from an idle session's cut view.
@@ -397,7 +399,7 @@ func (t *turn) passed(view *agentView) bool {
 
 // settled reports whether the wait is over, with the agent's reply, or with why the turn counts as failed.
 func (t *turn) settled(status string, view *agentView) (done bool, reply, failure string) {
-	t.doubt, t.said, t.absent = "", "", false
+	t.doubt, t.said, t.absent, t.cut = "", "", false, false
 	// A read made beside the stream can be ahead of frames the stream has yet to deliver; those say nothing new.
 	if n := len(viewMessages(view)); t.last != "" && n > 0 && view.Messages[n-1].Seq < t.lastSeq {
 		return false, "", ""
@@ -494,8 +496,8 @@ func (t *turn) recorded(status string, view *agentView) (known, done bool, reply
 		// An answer is never an error: a turn that ended in one is recorded as unanswered.
 		t.said = input.Answer
 		for _, msg := range view.Messages {
-			// Cut short in the view, it is read whole by its id, as one the view has dropped is.
-			if msg.ID == input.Answer && msg.TruncatedBytes == 0 {
+			if msg.ID == input.Answer {
+				t.cut = msg.TruncatedBytes > 0
 				done, reply, failure = replied(viewMessage{Text: msg.Text})
 				return true, done, reply, failure
 			}
