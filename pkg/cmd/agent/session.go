@@ -63,7 +63,7 @@ func turnCaller(cmd *cobra.Command, flag, org string) (*caller, error) {
 	return c, nil
 }
 
-// orgCaller is for stop, whose calls the API refuses a turn's token on.
+// orgCaller is for stop. The API refuses a turn's token on its calls and says so; no refusal is reworded here.
 func (f *sessionFlags) orgCaller(cmd *cobra.Command) (*caller, error) {
 	if err := f.checkOutput(); err != nil {
 		return nil, err

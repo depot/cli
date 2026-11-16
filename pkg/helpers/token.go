@@ -12,7 +12,11 @@ import (
 )
 
 func ResolveOrgAuth(ctx context.Context, tok string) (string, error) {
-	if token := ResolveStaticOrgAuth(tok); token != "" {
+	return resolveOrgAuth(ctx, tok, true)
+}
+
+func resolveOrgAuth(ctx context.Context, tok string, turn bool) (string, error) {
+	if token := staticOrgAuth(tok, turn); token != "" {
 		return token, nil
 	}
 
@@ -23,9 +27,9 @@ func ResolveOrgAuth(ctx context.Context, tok string) (string, error) {
 	return "", nil
 }
 
-// ResolveCacheAuth is ResolveOrgAuth for cache tools, which keep a cache token over a run token that expires mid-build.
+// ResolveCacheAuth is ResolveOrgAuth for cache tools: a cache token over a run token that expires mid-build, never a turn's token.
 func ResolveCacheAuth(ctx context.Context, tok string) (string, error) {
-	token, err := ResolveOrgAuth(ctx, tok)
+	token, err := resolveOrgAuth(ctx, tok, false)
 	if source := runTokenSource(); err == nil && source != nil && source.Minted(token) {
 		if cacheToken := resolveJITToken(); cacheToken != "" {
 			return cacheToken, nil
@@ -53,21 +57,25 @@ func ResolveAgentAuth(ctx context.Context, tok string) (token string, turn bool,
 	return token, false, err
 }
 
+// ResolveStaticOrgAuth sends a Dispatch turn's own token where it would otherwise send the sandbox's cache token,
+// which the API takes on no call (DEP-8673).
 func ResolveStaticOrgAuth(tok string) string {
-	if tok != "" {
-		return tok
-	}
+	return staticOrgAuth(tok, true)
+}
 
-	if token := os.Getenv("DEPOT_TOKEN"); token != "" {
-		return token
-	}
-
-	if token := config.GetApiToken(); token != "" {
+func staticOrgAuth(tok string, turn bool) string {
+	if token := resolveStaticProjectAuth(tok); token != "" {
 		return token
 	}
 
 	if token := resolveRunToken(context.Background()); token != "" {
 		return token
+	}
+
+	if turn {
+		if token := mintToken(context.Background(), turnTokenSource()); token != "" {
+			return token
+		}
 	}
 
 	return resolveJITToken()
