@@ -348,6 +348,8 @@ type turn struct {
 	doubt string
 	// said is the id of the message the last settled gave as the reply.
 	said string
+	// over is set once the session is seen idle with the turn unanswered and inputs queued: the next one opens a turn.
+	over bool
 	// unseen is when the wait first found the input missing from an idle session's cut view.
 	unseen time.Time
 }
@@ -436,20 +438,25 @@ func (t *turn) settled(status string, view *agentView) (done bool, reply, failur
 	}
 	last := newest(view, len(view.Messages))
 	if last < 0 || last <= sent || view.Messages[last].Role != "assistant" {
-		if view.QueuedCount == 0 {
-			t.doubt = failedNoReply
-		}
+		t.unanswered(view)
 		return false, "", ""
 	}
 	// A message that calls a tool is a step of the turn, not its reply, unless it is the error that ended it.
 	if msg := view.Messages[last]; len(msg.ToolCalls) > 0 && !msg.IsError {
-		if view.QueuedCount == 0 {
-			t.doubt = failedNoReply
-		}
+		t.unanswered(view)
 		return false, "", ""
 	}
 	t.said = view.Messages[last].ID
 	return replied(view.Messages[last])
+}
+
+// unanswered reads an idle session whose turn has no reply: failed on a second look, or over with inputs still queued.
+func (t *turn) unanswered(view *agentView) {
+	if view.QueuedCount == 0 {
+		t.doubt = failedNoReply
+		return
+	}
+	t.over = true
 }
 
 // lost is the one place that reads a view showing nothing of the awaited turn. gone: the turn was being followed
@@ -459,7 +466,7 @@ func (t *turn) lost(status string, view *agentView) (gone bool, doubt string) {
 	followed := t.last != ""
 	if followed {
 		for _, msg := range view.Messages {
-			if msg.person() {
+			if msg.outside() && !msg.note() {
 				return true, ""
 			}
 		}
@@ -511,14 +518,14 @@ func (t *turn) answered(view *agentView, at int, input, closed bool) (reply *vie
 		return view.Messages[i].Role == "assistant" && len(view.Messages[i].ToolCalls) == 0
 	}
 	for i := at + 1; i < len(view.Messages); i++ {
-		// A subagent's report or another session's note joins the turn it lands in; only a person's message ends it.
+		// A subagent's report joins the turn it was started in, and another session's note the turn it lands in.
 		if !view.Messages[i].outside() {
 			continue
 		}
 		if said := newest(view, i); isReply(said) {
 			return &view.Messages[said], ""
 		}
-		if !view.Messages[i].person() {
+		if view.Messages[i].note() && !t.over {
 			continue
 		}
 		return nil, "another input followed before the agent replied"

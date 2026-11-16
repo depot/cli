@@ -48,11 +48,8 @@ func (m viewMessage) outside() bool {
 	return m.Role == "user" && m.Sender.Kind != "subagent"
 }
 
-// machineSenders are the kinds no person writes as ("agent" is another session's note); any other, or none, is a person's.
-var machineSenders = map[string]bool{"agent": true, "trigger": true, "system": true, "api": true, "subagent": true}
-
-func (m viewMessage) person() bool {
-	return m.Role == "user" && !machineSenders[m.Sender.Kind]
+func (m viewMessage) note() bool {
+	return m.Role == "user" && m.Sender.Kind == "agent"
 }
 
 // viewSender says who wrote a user message; the kind "subagent" is the session's own subagent reporting back.

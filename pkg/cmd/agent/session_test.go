@@ -393,8 +393,8 @@ func TestTurnKeepsWaitingPastASubagentReport(t *testing.T) {
 	}
 }
 
-// A watch ends when its turn does or when a person's message takes the turn over, never on a machine's input.
-func TestTurnKeepsWaitingPastAMachinesInput(t *testing.T) {
+// A note from another session joins the turn it lands in, so the watch runs on to the turn's own reply.
+func TestTurnKeepsWaitingPastAnotherSessionsNote(t *testing.T) {
 	const (
 		asked = `{"id": "3", "role": "user", "inputId": "dai_1", "sender": {"kind": "user", "name": "pat"}, "text": "hello"}`
 		work  = `{"id": "4", "role": "assistant", "text": "Looking.", "toolCalls": [{"callId": "t"}]}, {"id": "5", "role": "tool", "callId": "t", "text": "started"}`
@@ -409,41 +409,49 @@ func TestTurnKeepsWaitingPastAMachinesInput(t *testing.T) {
 		}
 		return `{"id": "6", "role": "user", "inputId": "dai_2", ` + sender + `"text": "Report."}`
 	}
+	note := from("agent")
+	settle := func(t *testing.T, waiting *turn, status, messages string, queued int) (bool, string, string) {
+		var view agentView
+		if err := json.Unmarshal([]byte(fmt.Sprintf(`{"messages": [%s], "queuedCount": %d}`, messages, queued)), &view); err != nil {
+			t.Fatal(err)
+		}
+		return waiting.settled(status, &view)
+	}
 	type want struct {
 		done           bool
 		reply, failure string
 	}
-	for _, kind := range []string{"agent", "trigger", "system", "api"} {
-		for name, tc := range map[string]struct {
-			status, view string
-			want
-		}{
-			"still working after it":     {"running", asked + "," + work + "," + from(kind) + "," + more, want{}},
-			"replied after it":           {"idle", asked + "," + work + "," + from(kind) + "," + more + "," + reply, want{true, "All done.", ""}},
-			"it came after the reply":    {"running", asked + "," + reply + "," + from(kind) + "," + more, want{true, "All done.", ""}},
-			"two of them, then a person": {"running", asked + "," + work + "," + from(kind) + "," + from(kind) + "," + from("user"), want{true, "", taken}},
-		} {
-			t.Run(kind+", "+name, func(t *testing.T) {
-				var view agentView
-				if err := json.Unmarshal([]byte(`{"messages": [`+tc.view+`]}`), &view); err != nil {
-					t.Fatal(err)
-				}
-				done, got, failure := (&turn{afterInput: "dai_1"}).settled(tc.status, &view)
-				if (want{done, got, failure}) != tc.want {
-					t.Fatalf("settled = %v, %q, %q; want %+v", done, got, failure, tc.want)
-				}
-			})
-		}
+	for name, tc := range map[string]struct {
+		status, view string
+		want
+	}{
+		"still working after it":        {"running", asked + "," + work + "," + note + "," + more, want{}},
+		"replied after it":              {"idle", asked + "," + work + "," + note + "," + more + "," + reply, want{true, "All done.", ""}},
+		"it came after the reply":       {"running", asked + "," + reply + "," + note + "," + more, want{true, "All done.", ""}},
+		"two notes, then a person":      {"running", asked + "," + work + "," + note + "," + note + "," + from("user"), want{true, "", taken}},
+		"two notes, then a later reply": {"idle", asked + "," + work + "," + note + "," + note + "," + reply, want{true, "All done.", ""}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			done, got, failure := settle(t, &turn{afterInput: "dai_1"}, tc.status, tc.view, 0)
+			if (want{done, got, failure}) != tc.want {
+				t.Fatalf("settled = %v, %q, %q; want %+v", done, got, failure, tc.want)
+			}
+		})
 	}
-	// A person's message still takes the turn, as does one whose sender an older API left unsaid.
-	for _, kind := range []string{"user", "slack", "linear", ""} {
-		var view agentView
-		if err := json.Unmarshal([]byte(`{"messages": [`+asked+","+work+","+from(kind)+`]}`), &view); err != nil {
-			t.Fatal(err)
-		}
-		if done, got, failure := (&turn{afterInput: "dai_1"}).settled("running", &view); !done || got != "" || failure != taken {
+	// A person's message takes the turn, whichever way they wrote it, as does one whose sender an older API left
+	// unsaid. So does an input no running turn takes in: a trigger's, the system's, an API caller's.
+	for _, kind := range []string{"user", "slack", "linear", "", "trigger", "system", "api"} {
+		if done, got, failure := settle(t, &turn{afterInput: "dai_1"}, "running", asked+","+work+","+from(kind), 0); !done || got != "" || failure != taken {
 			t.Fatalf("settled = %v, %q, %q after a message of kind %q; want %q", done, got, failure, kind, taken)
 		}
+	}
+	// A turn seen over without a reply, a note still queued: the note opens its own turn, whose reply is not this one's.
+	stopped := &turn{afterInput: "dai_1"}
+	if done, _, _ := settle(t, stopped, "idle", asked+","+work, 1); done {
+		t.Fatal("an idle session with an input queued counted as finished")
+	}
+	if done, got, failure := settle(t, stopped, "running", asked+","+work+","+note+","+reply, 0); !done || got != "" || failure != taken {
+		t.Fatalf("settled = %v, %q, %q; want %q once the note opened its own turn", done, got, failure, taken)
 	}
 }
 
