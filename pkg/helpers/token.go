@@ -53,6 +53,16 @@ func ResolveAgentAuth(ctx context.Context, tok string) (token string, turn bool,
 	return token, false, err
 }
 
+// ResolveTurnReadAuth is ResolveOrgAuth for CI and Agent Checks reads: a Dispatch turn's token comes before the cache token (DEP-8673).
+func ResolveTurnReadAuth(ctx context.Context, tok string) (string, error) {
+	token, _, err := ResolveAgentAuth(ctx, tok)
+	return token, err
+}
+
+func OnlyATurnToken(tok string) bool {
+	return resolveStaticProjectAuth(tok) == "" && runTokenSource() == nil && turnTokenSource() != nil
+}
+
 func ResolveStaticOrgAuth(tok string) string {
 	if tok != "" {
 		return tok

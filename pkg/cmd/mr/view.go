@@ -28,7 +28,11 @@ func writeView(cmd *cobra.Command, response *code.GetMergeRequestResponse) error
 		return err
 	}
 	out := cmd.OutOrStdout()
-	if err := writeReadiness(out, response.Readiness); err != nil {
+	org := ""
+	if cmd.Flags().Changed("org") {
+		org, _ = cmd.Flags().GetString("org")
+	}
+	if err := writeReadiness(out, response.Readiness, org); err != nil {
 		return err
 	}
 	if _, err := io.WriteString(out, overlapText(response.Overlaps)); err != nil {
@@ -42,7 +46,8 @@ func writeView(cmd *cobra.Command, response *code.GetMergeRequestResponse) error
 }
 
 // writeReadiness prints nothing when the API sent no readiness: the merge request is not open, or the API predates it.
-func writeReadiness(out io.Writer, r *code.MergeRequestReadiness) error {
+// org is the --org the caller passed, repeated in the command that inspects a check.
+func writeReadiness(out io.Writer, r *code.MergeRequestReadiness, org string) error {
 	if r == nil {
 		return nil
 	}
@@ -69,6 +74,13 @@ func writeReadiness(out io.Writer, r *code.MergeRequestReadiness) error {
 			fmt.Fprintf(&b, " (%d open findings)", c.OpenFindings)
 		}
 		b.WriteByte('\n')
+		if needsInspection(c) {
+			fmt.Fprintf(&b, "    inspect: depot checks get %s", printable(c.AttemptId))
+			if org != "" {
+				fmt.Fprintf(&b, " --org %s", printable(org))
+			}
+			b.WriteByte('\n')
+		}
 	}
 	fmt.Fprintf(&b, "Approvals for this head: %d\n", len(r.CountingApprovals))
 	if r.ChecksIncomplete {
@@ -76,6 +88,16 @@ func writeReadiness(out io.Writer, r *code.MergeRequestReadiness) error {
 	}
 	_, err := io.WriteString(out, b.String())
 	return err
+}
+
+// needsInspection reports whether a check failed or left findings that depot checks get would show.
+func needsInspection(c *code.MergeRequestReadiness_AgentCheck) bool {
+	if c.AttemptId == "" {
+		return false
+	}
+	failed := c.State == code.MergeRequestCheckState_MERGE_REQUEST_CHECK_STATE_FAILED
+	findings := c.State == code.MergeRequestCheckState_MERGE_REQUEST_CHECK_STATE_FINDINGS
+	return failed || findings || c.OpenFindings > 0
 }
 
 // printableText is printable for text that keeps its line breaks.

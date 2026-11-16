@@ -117,6 +117,23 @@ func TestAPITokenURL(t *testing.T) {
 	if got, _ := ResolveProjectAuth(ctx, ""); got != "cache-token" {
 		t.Fatalf("ResolveProjectAuth = %q, want the cache token as before", got)
 	}
+	if got := ResolveStaticOrgAuth(""); got != "cache-token" {
+		t.Fatalf("ResolveStaticOrgAuth = %q, want the cache token as before", got)
+	}
+	if got, _ := ResolveCacheAuth(ctx, ""); got != "cache-token" {
+		t.Fatalf("ResolveCacheAuth = %q, want the cache token as before", got)
+	}
+	if got, _ := ResolveTurnReadAuth(ctx, ""); got != "turn-svid" {
+		t.Fatalf("ResolveTurnReadAuth = %q, want the turn token ahead of the cache token", got)
+	}
+	if got, _ := ResolveTurnReadAuth(ctx, "flag-token"); got != "flag-token" {
+		t.Fatalf("ResolveTurnReadAuth with a flag = %q", got)
+	}
+	turnTokenSource = func() *runtoken.Source { return nil }
+	if got, _ := ResolveTurnReadAuth(ctx, ""); got != "cache-token" {
+		t.Fatalf("ResolveTurnReadAuth with no token URL = %q, want the cache token as before", got)
+	}
+	turnTokenSource = func() *runtoken.Source { return runtoken.New(runtoken.EnvAPIURL, server.URL) }
 	if got := agentAuth("flag-token"); got != "flag-token false" {
 		t.Fatalf("ResolveAgentAuth with a flag = %q", got)
 	}

@@ -34,7 +34,7 @@ func NewCmdRunShow() *cobra.Command {
 				orgID = config.GetCurrentOrganization()
 			}
 
-			tokenVal, err := helpers.ResolveOrgAuth(ctx, token)
+			tokenVal, err := helpers.ResolveTurnReadAuth(ctx, token)
 			if err != nil {
 				return err
 			}
