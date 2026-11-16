@@ -181,18 +181,24 @@ func TestRendererReportsAWriteError(t *testing.T) {
 
 func TestRendererPrintsARecoveredReplyOnceAndApartFromALaterTurnsPartial(t *testing.T) {
 	for name, tc := range map[string]struct {
-		partial, want string
+		frames []string
+		want   string
 	}{
-		"its own start was streamed and its message never showed": {"", "the re" + "ply\n"},
-		"a later turn is streaming the same words":                {"the re", "the re\nthe reply\n"},
+		"its own start was streamed and its message never showed": {[]string{`"partial": "the re"`, `"partial": ""`}, "the re\nply\n"},
+		"a later turn is streaming the same words":                {[]string{`"partial": "the re"`}, "the re\nthe reply\n"},
+		"nothing was streamed":                                    {nil, "the reply\n"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			var out bytes.Buffer
 			r := NewRenderer(&out)
-			if _, err := r.Render(nil, `{"messages": [], "partial": "the re"}`); err != nil {
-				t.Fatal(err)
+			var view *agentView
+			for _, each := range tc.frames {
+				var err error
+				if view, err = r.Render(nil, `{"messages": [], `+each+`}`); err != nil {
+					t.Fatal(err)
+				}
 			}
-			if err := r.Reply("9", "the reply", tc.partial != ""); err != nil || out.String() != tc.want {
+			if err := r.Reply("9", "the reply", view != nil && view.Partial != ""); err != nil || out.String() != tc.want {
 				t.Fatalf("err = %v, transcript = %q, want %q", err, out.String(), tc.want)
 			}
 		})

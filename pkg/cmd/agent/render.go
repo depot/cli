@@ -101,6 +101,8 @@ type Renderer struct {
 	streamed string
 	open     bool
 	broken   bool
+	// ended is what a response had streamed when it stopped with no message taking its place.
+	ended string
 	// from is the input the transcript starts at; everything older is skipped until it shows up.
 	from string
 	// whole reads a message's full text by id, and full keeps each one read while the view still holds it.
@@ -271,16 +273,15 @@ func (r *Renderer) keep(view *agentView) {
 
 // Reply prints the reply a wait ends on when the transcript has not shown it, its turn having left the view.
 func (r *Renderer) Reply(id, text string, streaming bool) error {
-	switch {
-	case id == "" || !r.once("shown:"+id):
-	case streaming:
+	if id != "" && r.once("shown:"+id) {
+		// What was streamed and ended without a message in any view is this reply's start, already printed.
+		if !streaming && r.ended != "" {
+			text = strings.TrimPrefix(text, r.ended)
+		}
 		// As plain lines: a response streaming now is a later turn's, and keeps its place.
 		r.line("%s", strings.TrimSpace(text))
-	default:
-		// What was streamed and never became a message in a view is this reply's start.
-		r.finishPartial(text)
+		r.seen["message:"+id], r.ended = true, ""
 	}
-	r.seen["message:"+id] = true
 	return r.written()
 }
 
@@ -396,6 +397,9 @@ func (r *Renderer) call(callID, name, summary string) {
 func (r *Renderer) streamPartial(partial string) {
 	if partial == "" {
 		// No response is in flight, so the next partial starts fresh, on its own line.
+		if r.streamed != "" {
+			r.ended = r.streamed
+		}
 		r.streamed = ""
 		r.broken = false
 		if r.open {
@@ -418,7 +422,7 @@ func (r *Renderer) streamPartial(partial string) {
 // or only its remainder when the partial already streamed its start.
 func (r *Renderer) finishPartial(text string) {
 	streamed, broken := r.streamed, r.broken
-	r.streamed, r.broken = "", false
+	r.streamed, r.broken, r.ended = "", false, ""
 	if streamed != "" && !broken && strings.HasPrefix(text, streamed) {
 		rest := strings.TrimRight(text[len(streamed):], " \t\n")
 		fmt.Fprint(r.w, rest)
