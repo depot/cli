@@ -179,7 +179,7 @@ func TestCreditsRejectsMissingCredentialsAndInvalidFlagsBeforeRequest(t *testing
 		calls.Add(1)
 		return creditResponse(12500, "USD"), nil
 	})
-	for _, key := range []string{"DEPOT_TOKEN", "DEPOT_API_TOKEN", "DEPOT_JIT_TOKEN", "DEPOT_CACHE_TOKEN"} {
+	for _, key := range []string{"DEPOT_TOKEN", "DEPOT_API_TOKEN", "DEPOT_JIT_TOKEN", "DEPOT_CACHE_TOKEN", "DEPOT_API_TOKEN_URL"} {
 		t.Setenv(key, "")
 	}
 	viper.Set("api_token", "")

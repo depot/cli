@@ -44,9 +44,10 @@ func TestRunTokenPrecedence(t *testing.T) {
 			t.Setenv("DEPOT_CACHE_TOKEN", tc.cache)
 			viper.Set("api_token", tc.config)
 			t.Cleanup(func() { viper.Set("api_token", "") })
-			previous := runTokenSource
+			previousRun, previousTurn := runTokenSource, turnTokenSource
 			runTokenSource = func() *runtoken.Source { return nil }
-			t.Cleanup(func() { runTokenSource = previous })
+			turnTokenSource = runTokenSource
+			t.Cleanup(func() { runTokenSource, turnTokenSource = previousRun, previousTurn })
 			if tc.runToken {
 				withRunTokenServer(t)
 			}
