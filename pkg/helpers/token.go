@@ -59,6 +59,10 @@ func ResolveTurnReadAuth(ctx context.Context, tok string) (string, error) {
 	return token, err
 }
 
+func OnlyATurnToken(tok string) bool {
+	return resolveStaticProjectAuth(tok) == "" && runTokenSource() == nil && turnTokenSource() != nil
+}
+
 func ResolveStaticOrgAuth(tok string) string {
 	if tok != "" {
 		return tok

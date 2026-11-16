@@ -56,7 +56,8 @@ func serveSandbox(t *testing.T) func() []string {
 	}
 }
 
-// In a sandbox the CI and Agent Checks read commands call as the turn. Every other command sends what it did before.
+// In a sandbox the CI, Agent Checks and merge request read commands call as the turn, and a merge request change is
+// refused before anything is sent. Every other command sends what it did before.
 func TestSandboxCredentialByCommand(t *testing.T) {
 	seen := serveSandbox(t)
 	for _, tc := range []struct{ command, want string }{
@@ -86,7 +87,21 @@ func TestSandboxCredentialByCommand(t *testing.T) {
 		{"checks agents list", "cache-token"},
 		{"agent stop das_1", "cache-token"},
 		{"agent stop das_1 --archive", "cache-token"},
-		{"mr list --repo repo-1", "cache-token"},
+
+		{"mr view feature --repo repo-1", "turn-token"},
+		{"mr view --id mr-1", "turn-token"},
+		{"mr list --repo repo-1", "turn-token"},
+		{"mr threads feature --repo repo-1", "turn-token"},
+
+		{"mr create --repo repo-1 --head feature --title t", ""},
+		{"mr edit feature --repo repo-1 --title t", ""},
+		{"mr close feature --repo repo-1", ""},
+		{"mr reopen feature --repo repo-1", ""},
+		{"mr comment feature --repo repo-1 --body b", ""},
+		{"mr reply comment-1 --body b", ""},
+		{"mr resolve comment-1", ""},
+		{"mr unresolve comment-1", ""},
+		{"mr approve feature --repo repo-1", ""},
 	} {
 		t.Run(tc.command, func(t *testing.T) {
 			cmd := NewCmdRoot("test-version", "test-date")
@@ -96,10 +111,55 @@ func TestSandboxCredentialByCommand(t *testing.T) {
 			cmd.SetErr(&out)
 			cmd.SetArgs(strings.Fields(tc.command))
 			err := cmd.Execute()
+			if tc.want == "" {
+				if got := seen(); err == nil || !strings.Contains(err.Error(), "cannot be made as an agent turn") || len(got) != 0 {
+					t.Fatalf("err = %v after sending %v, want the agent turn refusal and nothing sent", err, got)
+				}
+				return
+			}
 			if got := seen(); !slices.Equal(got, []string{tc.want}) {
 				t.Fatalf("credentials sent = %v, want only %q (err: %v)", got, tc.want, err)
 			}
 		})
+	}
+}
+
+// Outside the sandbox shape (a turn token URL and nothing explicit) the merge request commands are unchanged.
+func TestMergeRequestCommandsOutsideAnAgentTurn(t *testing.T) {
+	run := func(t *testing.T, command string) error {
+		t.Helper()
+		cmd := NewCmdRoot("test-version", "test-date")
+		cmd.SilenceErrors, cmd.SilenceUsage = true, true
+		cmd.SetOut(&bytes.Buffer{})
+		cmd.SetErr(&bytes.Buffer{})
+		cmd.SetArgs(strings.Fields(command))
+		return cmd.Execute()
+	}
+	writes := []string{"mr comment feature --repo repo-1 --body b", "mr approve feature --repo repo-1", "mr resolve comment-1"}
+	for _, tc := range []struct{ name, tokenURL, env, flag, want string }{
+		{name: "cache token only", want: "cache-token"},
+		{name: "DEPOT_TOKEN beside a token URL", tokenURL: "keep", env: "env-token", want: "env-token"},
+		{name: "--token beside a token URL", tokenURL: "keep", flag: " --token flag-token", want: "flag-token"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			seen := serveSandbox(t)
+			if tc.tokenURL == "" {
+				t.Setenv("DEPOT_API_TOKEN_URL", "")
+			}
+			t.Setenv("DEPOT_TOKEN", tc.env)
+			for _, command := range append(writes, "mr list --repo repo-1") {
+				err := run(t, command+tc.flag)
+				if got := seen(); !slices.Equal(got, []string{tc.want}) {
+					t.Fatalf("%s sent %v, want only %q (err: %v)", command, got, tc.want, err)
+				}
+			}
+		})
+	}
+
+	seen := serveSandbox(t)
+	err := run(t, "mr list")
+	if got := seen(); err == nil || !strings.Contains(err.Error(), "--repo is required in an agent session") || len(got) != 0 {
+		t.Fatalf("err = %v after sending %v, want --repo asked for and nothing sent", err, got)
 	}
 }
 
@@ -119,6 +179,7 @@ func TestOnlyListedCommandsResolveATurnToken(t *testing.T) {
 		"ci/status.go":         1,
 		"ci/summary.go":        1,
 		"ci/workflow.go":       2,
+		"mr/mr.go":             1,
 	}
 	turnCalls := []string{"ResolveTurnReadAuth", "ResolveAgentAuth", "authenticateRead", "Turn"}
 	got := map[string]int{}
