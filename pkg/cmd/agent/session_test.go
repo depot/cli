@@ -276,6 +276,7 @@ func TestTurnWithNothingOfItInTheView(t *testing.T) {
 		input = `{"id": "39", "seq": 39, "role": "user", "text": "next"}, ` + work
 		// A subagent's report belongs to the turn that started it, so it is not a later input.
 		report = `{"id": "39", "seq": 39, "role": "user", "sender": {"kind": "subagent", "name": "scout"}, "text": "Installed."}, ` + work
+		opened = `{"id": "39", "seq": 39, "role": "user", "inputId": "dai_2", "joined": false, "text": "next"}, ` + work
 		// Nor is a note from another session, which joins the turn it lands in.
 		note = `{"id": "39", "seq": 39, "role": "user", "inputId": "dai_2", "sender": {"kind": "agent", "name": "helper"}, "text": "Done."}, ` + work
 	)
@@ -299,6 +300,7 @@ func TestTurnWithNothingOfItInTheView(t *testing.T) {
 		{"followed, a later input running", followed, "running", input, 0, "", ""},
 		{"followed, a later input answered", followed, "idle", input, 0, "", failedLost},
 		{"seen over, then a later input running", over, "running", input, 0, failedLost, ""},
+		{"followed, an input the view says opened a turn", followed, "running", opened, 0, failedLost, ""},
 		{"followed, a subagent report running", followed, "running", report, 0, "", ""},
 		{"followed, a subagent report idle", followed, "idle", report, 0, "", failedLost},
 		{"followed, another session's note running", followed, "running", note, 0, "", ""},
