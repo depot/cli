@@ -1,14 +1,21 @@
 package checks
 
 import (
+	"bytes"
 	"context"
 	"fmt"
-	"io"
+	"io/fs"
+	"log"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"connectrpc.com/connect"
+	"github.com/adrg/xdg"
+	"github.com/depot/cli/pkg/debuglog"
 	checksv1 "github.com/depot/cli/pkg/proto/depot/checks/v1"
 	"github.com/depot/cli/pkg/proto/depot/checks/v1/checksv1connect"
 	"github.com/spf13/viper"
@@ -36,12 +43,23 @@ func TestSandboxCallsTheAPIAsTheTurn(t *testing.T) {
 		return connect.NewResponse(&checksv1.GetCheckResponse{Check: &checksv1.Check{Id: "check", CurrentAttempt: fixtureAttempt()}}), nil
 	}))
 
+	configDir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", configDir)
+	xdg.Reload()
+	t.Cleanup(xdg.Reload)
+	debug := debuglog.Debug
+	debuglog.Debug = true
+	t.Cleanup(func() { debuglog.Debug = debug })
+	var printed bytes.Buffer
+	log.SetOutput(&printed)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+
 	run := func(args ...string) {
 		t.Helper()
 		cmd := NewCmdChecks()
 		cmd.SilenceErrors, cmd.SilenceUsage = true, true
-		cmd.SetOut(io.Discard)
-		cmd.SetErr(io.Discard)
+		cmd.SetOut(&printed)
+		cmd.SetErr(&printed)
 		cmd.SetArgs(args)
 		if err := cmd.Execute(); err != nil {
 			t.Fatal(err)
@@ -51,6 +69,16 @@ func TestSandboxCallsTheAPIAsTheTurn(t *testing.T) {
 	if sent != "Bearer turn-token" {
 		t.Fatalf("Authorization = %q, want the turn's token", sent)
 	}
+	run("get", "check", "--output", "json")
+	if strings.Contains(printed.String(), "turn-token") {
+		t.Fatalf("the turn's token was printed: %s", printed.String())
+	}
+	_ = filepath.WalkDir(configDir, func(path string, entry fs.DirEntry, _ error) error {
+		if entry != nil && !entry.IsDir() {
+			t.Errorf("a file was written to the config directory: %s", path)
+		}
+		return nil
+	})
 	run("get", "check", "--token", "flag-token")
 	if sent != "Bearer flag-token" {
 		t.Fatalf("Authorization with --token = %q, want the flag's token", sent)
