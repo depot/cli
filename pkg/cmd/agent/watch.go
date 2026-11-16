@@ -330,6 +330,11 @@ func watchOnce(ctx context.Context, c *caller, sessionID string, r *Renderer, o 
 				return false, nil
 			}
 		}
+		if done && failure == "" {
+			if err := r.Reply(t.said, reply); err != nil {
+				return false, err
+			}
+		}
 		advance()
 		if done {
 			result.Outcome, result.Reply, result.Error = outcomeSettled, reply, failure
@@ -363,7 +368,9 @@ type turn struct {
 	// said is the id of the message the last settled gave as the reply. absent: the view does not hold it.
 	said   string
 	absent bool
-	// beside are the later inputs seen unanswered while the API said the awaited one still was.
+	// held is set once the API has said the session holds the awaited input unanswered, and beside are the
+	// later inputs seen unanswered with it.
+	held   bool
 	beside []string
 	// unseen is when the wait first found the input missing from an idle session's cut view.
 	unseen time.Time
@@ -501,8 +508,10 @@ func (t *turn) recorded(status string, view *agentView) (known, done bool, reply
 		return true, true, "", ""
 	}
 	if !slices.Contains(*view.Live, t.afterInput) {
-		return false, false, "", ""
+		// Held a moment ago and in neither list now, its record has aged out: nothing is guessed in its place.
+		return t.held, t.held, "", failedLost
 	}
+	t.held = true
 	switch status {
 	case "failed":
 		return true, true, "", "the session failed"
@@ -514,10 +523,6 @@ func (t *turn) recorded(status string, view *agentView) (known, done bool, reply
 		if id := msg.InputID; id != "" && id != t.afterInput && slices.Contains(*view.Live, id) && !slices.Contains(t.beside, id) {
 			t.beside = append(t.beside, id)
 		}
-	}
-	// The turn is still followed, so the older reading can place it should the API stop saying.
-	if n := len(view.Messages); at >= 0 {
-		t.last, t.lastSeq = view.Messages[n-1].ID, view.Messages[n-1].Seq
 	}
 	return true, false, "", ""
 }

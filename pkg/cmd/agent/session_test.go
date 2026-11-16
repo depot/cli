@@ -1164,6 +1164,14 @@ func TestTurnReadsWhatTheAPIRecordsOfTheInput(t *testing.T) {
 			}
 		})
 	}
+	// Twenty newer inputs settled between two frames: the record is gone, and no later reply is taken for it.
+	var aged agentView
+	if err := json.Unmarshal([]byte(`{"messages": [`+later("user")+","+after+`], "truncated": true, "live": [], "settled": [{"inputId": "dai_2", "answer": "9"}]}`), &aged); err != nil {
+		t.Fatal(err)
+	}
+	if done, got, failure := (&turn{afterInput: "dai_1", held: true}).settled("idle", &aged); !done || got != "" || failure != failedLost {
+		t.Fatalf("settled = %v, %q, %q; want the wait to end without a reply", done, got, failure)
+	}
 	// Not taken in yet, the input is in neither list: the wait goes on as it does against an older API.
 	if _, done, _, failure := settle(t, "running", `{"id": "1", "seq": 1, "role": "user", "inputId": "dai_0", "text": "before"}`, `"live": ["dai_0"], "settled": []`); done || failure != "" {
 		t.Fatalf("settled = %v, %q; want the wait to go on for an input the session has not taken in", done, failure)
@@ -1205,6 +1213,9 @@ func TestWatchFollowsAnInputPastLaterMessagesToTheReplyTheAPINames(t *testing.T)
 		out, errOut, err := runAgent(t, "watch", "das_1", "--after-input", "dai_1", "-o", "json")
 		if err != nil || !strings.Contains(out, `"reply": "all done"`) || strings.Join(f.wholeAsked, ",") != "6" {
 			t.Fatalf("err = %v after reads %v, want the reply read by the id the API names:\n%s\n%s", err, f.wholeAsked, out, errOut)
+		}
+		if strings.Count(errOut, "all done\n") != 1 {
+			t.Fatalf("the transcript does not show the reply once:\n%s", errOut)
 		}
 	})
 	t.Run("stopped", func(t *testing.T) {

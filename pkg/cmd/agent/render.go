@@ -277,6 +277,14 @@ func (r *Renderer) Beside(n int) error {
 	return r.written()
 }
 
+// Reply prints the reply a wait ends on when the transcript has not shown it, its turn having left the view.
+func (r *Renderer) Reply(id, text string) error {
+	if id != "" && r.once("message:"+id) {
+		r.finishPartial(text)
+	}
+	return r.written()
+}
+
 func (r *Renderer) written() error {
 	if r.w.err != nil {
 		return fmt.Errorf("write transcript: %w", r.w.err)
