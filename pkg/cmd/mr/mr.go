@@ -19,7 +19,7 @@ import (
 type options struct {
 	org, token, repo string
 	json             bool
-	// turn is set when the only credential is a Dispatch turn's own.
+	// turn is set in a Dispatch sandbox whose only credential is the turn's own: nothing explicit, no login.
 	turn bool
 }
 

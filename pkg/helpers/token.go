@@ -59,7 +59,6 @@ func ResolveTurnReadAuth(ctx context.Context, tok string) (string, error) {
 	return token, err
 }
 
-// OnlyATurnToken reports a Dispatch sandbox with no credential but the turn's own: nothing explicit, no login, no run token.
 func OnlyATurnToken(tok string) bool {
 	return resolveStaticProjectAuth(tok) == "" && runTokenSource() == nil && turnTokenSource() != nil
 }
