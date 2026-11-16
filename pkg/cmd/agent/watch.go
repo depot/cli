@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 	"time"
 
@@ -348,8 +349,9 @@ type turn struct {
 	doubt string
 	// said is the id of the message the last settled gave as the reply.
 	said string
-	// over is set once the session is seen idle with the turn unanswered: an input after that opens its own turn.
-	over bool
+	// over is the newest message when the session was seen idle with the turn unanswered: an input after it
+	// opens its own turn.
+	over string
 	// unseen is when the wait first found the input missing from an idle session's cut view.
 	unseen time.Time
 }
@@ -452,7 +454,9 @@ func (t *turn) settled(status string, view *agentView) (done bool, reply, failur
 
 // unanswered reads an idle session whose turn has no reply: the turn is over, and failed if a second look agrees.
 func (t *turn) unanswered(view *agentView) {
-	t.over = true
+	if n := len(view.Messages); n > 0 {
+		t.over = view.Messages[n-1].ID
+	}
 	if view.QueuedCount == 0 {
 		t.doubt = failedNoReply
 	}
@@ -516,6 +520,10 @@ func (t *turn) answered(view *agentView, at int, input, closed bool) (reply *vie
 		}
 		return view.Messages[i].Role == "assistant" && len(view.Messages[i].ToolCalls) == 0
 	}
+	over := len(view.Messages)
+	if t.over != "" {
+		over = slices.IndexFunc(view.Messages, func(m viewMessage) bool { return m.ID == t.over })
+	}
 	for i := at + 1; i < len(view.Messages); i++ {
 		// A subagent's report joins the turn it was started in, and another session's note the turn it lands in.
 		if !view.Messages[i].outside() {
@@ -524,7 +532,7 @@ func (t *turn) answered(view *agentView, at int, input, closed bool) (reply *vie
 		if said := newest(view, i); isReply(said) {
 			return &view.Messages[said], ""
 		}
-		if view.Messages[i].note() && !t.over {
+		if view.Messages[i].note() && i <= over {
 			continue
 		}
 		return nil, "another input followed before the agent replied"

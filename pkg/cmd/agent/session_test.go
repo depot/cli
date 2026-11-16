@@ -445,6 +445,12 @@ func TestTurnKeepsWaitingPastAnotherSessionsNote(t *testing.T) {
 			t.Fatalf("settled = %v, %q, %q after a message of kind %q; want %q", done, got, failure, kind, taken)
 		}
 	}
+	// A note the idle session already showed is the turn's own, so the reply a second look finds still counts.
+	late := &turn{afterInput: "dai_1"}
+	settle(t, late, "idle", asked+","+work+","+note, 0)
+	if done, got, failure := settle(t, late, "idle", asked+","+work+","+note+","+reply, 0); !done || got != "All done." || failure != "" {
+		t.Fatalf("settled = %v, %q, %q; want the reply that followed a note already seen", done, got, failure)
+	}
 	// A turn seen over without a reply, a note queued or yet to come: the note opens its own turn, whose reply
 	// is not this one's.
 	for _, queued := range []int{0, 1} {
