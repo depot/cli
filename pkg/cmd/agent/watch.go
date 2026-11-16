@@ -282,7 +282,9 @@ func watchOnce(ctx context.Context, c *caller, sessionID string, r *Renderer, o 
 			continue
 		}
 		done, reply, failure := t.settled(status, view)
-		t.tell(r)
+		if err := t.tell(r); err != nil {
+			return false, err
+		}
 		for !done && t.doubt != "" {
 			// The status and the view are written apart, so the reply may only be late. Look once more,
 			// or for an input the view does not show, until the session has had time to pick it up.
@@ -313,7 +315,9 @@ func watchOnce(ctx context.Context, c *caller, sessionID string, r *Renderer, o 
 			if done, reply, failure = t.settled(result.Status, view); !done && t.doubt != "" && final {
 				done, failure = true, t.doubt
 			}
-			t.tell(r)
+			if err := t.tell(r); err != nil {
+				return false, err
+			}
 		}
 		if done && failure == "" {
 			// The wait ends here, so no later frame would read a reply this one could not.
@@ -459,10 +463,14 @@ func (t *turn) settled(status string, view *agentView) (done bool, reply, failur
 }
 
 // tell says once, for each later input that joined the awaited turn, that the turn's reply answers it too.
-func (t *turn) tell(r *Renderer) {
+func (t *turn) tell(r *Renderer) error {
 	for ; t.told < len(t.joined); t.told++ {
 		r.line("[a later message joined this turn; the reply will answer it too]")
 	}
+	if r.w.err != nil {
+		return fmt.Errorf("write transcript: %w", r.w.err)
+	}
+	return nil
 }
 
 // unanswered reads an idle session with no reply: over once past the input, failed if a second look agrees.
