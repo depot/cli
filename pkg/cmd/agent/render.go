@@ -41,6 +41,8 @@ type viewMessage struct {
 	ToolCalls []viewToolCall `json:"toolCalls"`
 	// TruncatedBytes is how much of the message the view left out of Text, which then ends in a note saying so.
 	TruncatedBytes int64 `json:"truncatedBytes"`
+	// Joined says, on an input's message, whether it landed in a running turn; an older API leaves it out.
+	Joined *bool `json:"joined"`
 }
 
 // outside reports whether a person or another system sent the message, rather than the session's own subagent.
@@ -48,10 +50,12 @@ func (m viewMessage) outside() bool {
 	return m.Role == "user" && m.Sender.Kind != "subagent"
 }
 
+const stoppedTool = " was aborted"
+
 // ended reports whether the turn stopped here: the model's error, or a tool call a stop cut short (harness wording).
 func (m viewMessage) ended() bool {
 	if m.Role == "tool" {
-		return m.IsError && strings.Contains(m.Text, " was aborted")
+		return m.IsError && strings.Contains(m.Text, stoppedTool)
 	}
 	return m.Role == "assistant" && m.IsError
 }

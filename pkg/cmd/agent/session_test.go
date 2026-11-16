@@ -447,6 +447,26 @@ func TestTurnRunsThroughInputsThatJoinIt(t *testing.T) {
 			})
 		}
 	}
+	// Where the view says whether an input joined, that decides: one that did not opened its own turn, however
+	// live the turn before it looks, and one that did joined, whatever the watch saw before.
+	said := func(joined bool) string {
+		return fmt.Sprintf(`{"id": "6", "role": "user", "inputId": "dai_2", "joined": %v, "text": "next"}`, joined)
+	}
+	if done, got, failure := settle(t, &turn{afterInput: "dai_1"}, "idle", asked+","+work+","+said(false)+","+reply, 0); !done || got != "" || failure != taken {
+		t.Fatalf("settled = %v, %q, %q; want %q for an input the view says opened a turn", done, got, failure, taken)
+	}
+	told := &turn{afterInput: "dai_1"}
+	settle(t, told, "idle", asked+","+work, 0)
+	if done, got, failure := settle(t, told, "idle", asked+","+work+","+said(true)+","+reply, 0); !done || got != "All done." || failure != "" {
+		t.Fatalf("settled = %v, %q, %q; want the reply for an input the view says joined", done, got, failure)
+	}
+	// A subagent's report between the idle look and the input is no step of the turn: the input still opens one.
+	idle := &turn{afterInput: "dai_1"}
+	settle(t, idle, "idle", asked+","+work, 0)
+	report := `{"id": "5b", "role": "user", "sender": {"kind": "subagent", "name": "scout"}, "text": "Installed."}`
+	if done, got, failure := settle(t, idle, "running", asked+","+work+","+report+","+note+","+reply, 0); !done || got != "" || failure != taken {
+		t.Fatalf("settled = %v, %q, %q; want %q past a subagent's report", done, got, failure, taken)
+	}
 	// A note the idle session already showed is the turn's own, so the reply a second look finds still counts.
 	late := &turn{afterInput: "dai_1"}
 	settle(t, late, "idle", asked+","+work+","+note, 0)

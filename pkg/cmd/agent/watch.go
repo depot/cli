@@ -551,10 +551,13 @@ func (t *turn) answered(view *agentView, at int, input, closed bool) (reply *vie
 		if isReply(said) {
 			return &view.Messages[said], ""
 		}
-		// An input joins the turn it lands in, whoever sent it. It opens its own when the turn before it was
-		// stopped, or was seen over just before the input.
-		stopped := said >= 0 && view.Messages[said].ended()
-		if !stopped && (over < 0 || i != over+1) {
+		// An input joins the turn it lands in, whoever sent it. The view says so where the API is new enough;
+		// else it opens its own turn when the one before it was stopped, or was seen over with no step since.
+		joins := !(said >= 0 && view.Messages[said].ended()) && (over < 0 || stepped(view, over, i))
+		if said := view.Messages[i].Joined; said != nil {
+			joins = *said
+		}
+		if joins {
 			if id := view.Messages[i].ID; !slices.Contains(t.joined, id) {
 				t.joined = append(t.joined, id)
 			}
@@ -564,7 +567,7 @@ func (t *turn) answered(view *agentView, at int, input, closed bool) (reply *vie
 	}
 	last := len(view.Messages) - 1
 	// The turn went on past where it looked over, so that look was of a session yet to pick its work up.
-	if over >= 0 && over < last {
+	if over >= 0 && stepped(view, over, len(view.Messages)) {
 		t.over = ""
 	}
 	t.last, t.lastSeq = view.Messages[last].ID, view.Messages[last].Seq
@@ -572,6 +575,15 @@ func (t *turn) answered(view *agentView, at int, input, closed bool) (reply *vie
 		return &view.Messages[said], ""
 	}
 	return nil, ""
+}
+
+// stepped reports whether the agent took a step, a message of its own or a tool's result, after from and before to;
+// a to that from had already shown counts as one.
+func stepped(view *agentView, from, to int) bool {
+	if to <= from {
+		return true
+	}
+	return slices.ContainsFunc(view.Messages[from+1:to], func(m viewMessage) bool { return m.Role != "user" })
 }
 
 // newest is the index of the last message before end that is not a subagent's report, which the agent may leave
