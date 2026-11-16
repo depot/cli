@@ -174,33 +174,23 @@ func TestRendererReportsAWriteError(t *testing.T) {
 	if pipe.writes != 1 {
 		t.Fatalf("%d writes reached a writer that had already failed", pipe.writes)
 	}
-	if err := NewRenderer(&closedPipe{}).Reply("9", "the reply", false); err == nil || !strings.Contains(err.Error(), "pipe closed") {
+	if err := NewRenderer(&closedPipe{}).Reply("9", "the reply"); err == nil || !strings.Contains(err.Error(), "pipe closed") {
 		t.Fatalf("Reply = %v, want the writer's error", err)
 	}
 }
 
-func TestRendererPrintsARecoveredReplyOnceAndApartFromALaterTurnsPartial(t *testing.T) {
-	for name, tc := range map[string]struct {
-		frames []string
-		want   string
-	}{
-		"its own start was streamed and its message never showed": {[]string{`"partial": "the re"`, `"partial": ""`}, "the re\nply\n"},
-		"a later turn is streaming the same words":                {[]string{`"partial": "the re"`}, "the re\nthe reply\n"},
-		"nothing was streamed":                                    {nil, "the reply\n"},
-	} {
-		t.Run(name, func(t *testing.T) {
-			var out bytes.Buffer
-			r := NewRenderer(&out)
-			var view *agentView
-			for _, each := range tc.frames {
-				var err error
-				if view, err = r.Render(nil, `{"messages": [], `+each+`}`); err != nil {
-					t.Fatal(err)
-				}
-			}
-			if err := r.Reply("9", "the reply", view != nil && view.Partial != ""); err != nil || out.String() != tc.want {
-				t.Fatalf("err = %v, transcript = %q, want %q", err, out.String(), tc.want)
-			}
-		})
+func TestRendererPrintsARecoveredReplyWholeUnderItsOwnHeading(t *testing.T) {
+	var out bytes.Buffer
+	r := NewRenderer(&out)
+	if _, err := r.Render(nil, `{"messages": [], "partial": "the re"}`); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		if err := r.Reply("9", "the reply"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if want := "the re\n(the reply, read by its id)\nthe reply\n"; out.String() != want {
+		t.Fatalf("transcript = %q, want %q", out.String(), want)
 	}
 }
