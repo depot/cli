@@ -456,8 +456,10 @@ func TestTurnKeepsWaitingPastAnotherSessionsNote(t *testing.T) {
 	// A session that looked idle before it picked the input up is not over: the turn runs, and its notes are its own.
 	slow := &turn{afterInput: "dai_1"}
 	settle(t, slow, "idle", asked, 0)
-	settle(t, slow, "running", asked+","+work, 0)
-	if done, got, failure := settle(t, slow, "idle", asked+","+work+","+note+","+reply, 0); !done || got != "All done." || failure != "" {
+	if done, _, failure := settle(t, slow, "running", asked+","+note, 0); done || failure != "" {
+		t.Fatalf("a note that came before the turn's first step ended the watch: %q", failure)
+	}
+	if done, got, failure := settle(t, slow, "idle", asked+","+note+","+work+","+note+","+reply, 0); !done || got != "All done." || failure != "" {
 		t.Fatalf("settled = %v, %q, %q; want the reply of a turn that began after an idle look", done, got, failure)
 	}
 	// A stop ended the turn, which the view alone shows: the note after it opened another, on a first look too.
