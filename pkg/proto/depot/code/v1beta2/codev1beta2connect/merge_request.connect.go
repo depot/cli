@@ -84,6 +84,9 @@ const (
 	// MergeRequestServiceApproveMergeRequestProcedure is the fully-qualified name of the
 	// MergeRequestService's ApproveMergeRequest RPC.
 	MergeRequestServiceApproveMergeRequestProcedure = "/depot.code.v1beta2.MergeRequestService/ApproveMergeRequest"
+	// MergeRequestServiceApproveMergeRequestAtRevisionProcedure is the fully-qualified name of the
+	// MergeRequestService's ApproveMergeRequestAtRevision RPC.
+	MergeRequestServiceApproveMergeRequestAtRevisionProcedure = "/depot.code.v1beta2.MergeRequestService/ApproveMergeRequestAtRevision"
 	// MergeRequestServiceRemoveMergeRequestApprovalProcedure is the fully-qualified name of the
 	// MergeRequestService's RemoveMergeRequestApproval RPC.
 	MergeRequestServiceRemoveMergeRequestApprovalProcedure = "/depot.code.v1beta2.MergeRequestService/RemoveMergeRequestApproval"
@@ -134,6 +137,9 @@ type MergeRequestServiceClient interface {
 	// request: approving again moves it to the current head and clears a withdrawal. Returns FailedPrecondition for a
 	// closed or merged merge request.
 	ApproveMergeRequest(context.Context, *connect.Request[v1beta2.ApproveMergeRequestRequest]) (*connect.Response[v1beta2.ApproveMergeRequestResponse], error)
+	// Approves only the reviewed head, checked atomically with the approval. Returns Aborted if the head moved.
+	// Older servers return Unimplemented without approving.
+	ApproveMergeRequestAtRevision(context.Context, *connect.Request[v1beta2.ApproveMergeRequestAtRevisionRequest]) (*connect.Response[v1beta2.ApproveMergeRequestAtRevisionResponse], error)
 	// Withdraws the caller's approval. Returns NotFound when the caller never approved; withdrawing an approval that is
 	// already withdrawn leaves it unchanged.
 	RemoveMergeRequestApproval(context.Context, *connect.Request[v1beta2.RemoveMergeRequestApprovalRequest]) (*connect.Response[v1beta2.RemoveMergeRequestApprovalResponse], error)
@@ -242,6 +248,11 @@ func NewMergeRequestServiceClient(httpClient connect.HTTPClient, baseURL string,
 			baseURL+MergeRequestServiceApproveMergeRequestProcedure,
 			opts...,
 		),
+		approveMergeRequestAtRevision: connect.NewClient[v1beta2.ApproveMergeRequestAtRevisionRequest, v1beta2.ApproveMergeRequestAtRevisionResponse](
+			httpClient,
+			baseURL+MergeRequestServiceApproveMergeRequestAtRevisionProcedure,
+			opts...,
+		),
 		removeMergeRequestApproval: connect.NewClient[v1beta2.RemoveMergeRequestApprovalRequest, v1beta2.RemoveMergeRequestApprovalResponse](
 			httpClient,
 			baseURL+MergeRequestServiceRemoveMergeRequestApprovalProcedure,
@@ -274,6 +285,7 @@ type mergeRequestServiceClient struct {
 	resolveMergeRequestThread       *connect.Client[v1beta2.ResolveMergeRequestThreadRequest, v1beta2.ResolveMergeRequestThreadResponse]
 	unresolveMergeRequestThread     *connect.Client[v1beta2.UnresolveMergeRequestThreadRequest, v1beta2.UnresolveMergeRequestThreadResponse]
 	approveMergeRequest             *connect.Client[v1beta2.ApproveMergeRequestRequest, v1beta2.ApproveMergeRequestResponse]
+	approveMergeRequestAtRevision   *connect.Client[v1beta2.ApproveMergeRequestAtRevisionRequest, v1beta2.ApproveMergeRequestAtRevisionResponse]
 	removeMergeRequestApproval      *connect.Client[v1beta2.RemoveMergeRequestApprovalRequest, v1beta2.RemoveMergeRequestApprovalResponse]
 	listMergeRequests               *connect.Client[v1beta2.ListMergeRequestsRequest, v1beta2.ListMergeRequestsResponse]
 }
@@ -370,6 +382,12 @@ func (c *mergeRequestServiceClient) ApproveMergeRequest(ctx context.Context, req
 	return c.approveMergeRequest.CallUnary(ctx, req)
 }
 
+// ApproveMergeRequestAtRevision calls
+// depot.code.v1beta2.MergeRequestService.ApproveMergeRequestAtRevision.
+func (c *mergeRequestServiceClient) ApproveMergeRequestAtRevision(ctx context.Context, req *connect.Request[v1beta2.ApproveMergeRequestAtRevisionRequest]) (*connect.Response[v1beta2.ApproveMergeRequestAtRevisionResponse], error) {
+	return c.approveMergeRequestAtRevision.CallUnary(ctx, req)
+}
+
 // RemoveMergeRequestApproval calls
 // depot.code.v1beta2.MergeRequestService.RemoveMergeRequestApproval.
 func (c *mergeRequestServiceClient) RemoveMergeRequestApproval(ctx context.Context, req *connect.Request[v1beta2.RemoveMergeRequestApprovalRequest]) (*connect.Response[v1beta2.RemoveMergeRequestApprovalResponse], error) {
@@ -424,6 +442,9 @@ type MergeRequestServiceHandler interface {
 	// request: approving again moves it to the current head and clears a withdrawal. Returns FailedPrecondition for a
 	// closed or merged merge request.
 	ApproveMergeRequest(context.Context, *connect.Request[v1beta2.ApproveMergeRequestRequest]) (*connect.Response[v1beta2.ApproveMergeRequestResponse], error)
+	// Approves only the reviewed head, checked atomically with the approval. Returns Aborted if the head moved.
+	// Older servers return Unimplemented without approving.
+	ApproveMergeRequestAtRevision(context.Context, *connect.Request[v1beta2.ApproveMergeRequestAtRevisionRequest]) (*connect.Response[v1beta2.ApproveMergeRequestAtRevisionResponse], error)
 	// Withdraws the caller's approval. Returns NotFound when the caller never approved; withdrawing an approval that is
 	// already withdrawn leaves it unchanged.
 	RemoveMergeRequestApproval(context.Context, *connect.Request[v1beta2.RemoveMergeRequestApprovalRequest]) (*connect.Response[v1beta2.RemoveMergeRequestApprovalResponse], error)
@@ -528,6 +549,11 @@ func NewMergeRequestServiceHandler(svc MergeRequestServiceHandler, opts ...conne
 		svc.ApproveMergeRequest,
 		opts...,
 	)
+	mergeRequestServiceApproveMergeRequestAtRevisionHandler := connect.NewUnaryHandler(
+		MergeRequestServiceApproveMergeRequestAtRevisionProcedure,
+		svc.ApproveMergeRequestAtRevision,
+		opts...,
+	)
 	mergeRequestServiceRemoveMergeRequestApprovalHandler := connect.NewUnaryHandler(
 		MergeRequestServiceRemoveMergeRequestApprovalProcedure,
 		svc.RemoveMergeRequestApproval,
@@ -574,6 +600,8 @@ func NewMergeRequestServiceHandler(svc MergeRequestServiceHandler, opts ...conne
 			mergeRequestServiceUnresolveMergeRequestThreadHandler.ServeHTTP(w, r)
 		case MergeRequestServiceApproveMergeRequestProcedure:
 			mergeRequestServiceApproveMergeRequestHandler.ServeHTTP(w, r)
+		case MergeRequestServiceApproveMergeRequestAtRevisionProcedure:
+			mergeRequestServiceApproveMergeRequestAtRevisionHandler.ServeHTTP(w, r)
 		case MergeRequestServiceRemoveMergeRequestApprovalProcedure:
 			mergeRequestServiceRemoveMergeRequestApprovalHandler.ServeHTTP(w, r)
 		case MergeRequestServiceListMergeRequestsProcedure:
@@ -653,6 +681,10 @@ func (UnimplementedMergeRequestServiceHandler) UnresolveMergeRequestThread(conte
 
 func (UnimplementedMergeRequestServiceHandler) ApproveMergeRequest(context.Context, *connect.Request[v1beta2.ApproveMergeRequestRequest]) (*connect.Response[v1beta2.ApproveMergeRequestResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.code.v1beta2.MergeRequestService.ApproveMergeRequest is not implemented"))
+}
+
+func (UnimplementedMergeRequestServiceHandler) ApproveMergeRequestAtRevision(context.Context, *connect.Request[v1beta2.ApproveMergeRequestAtRevisionRequest]) (*connect.Response[v1beta2.ApproveMergeRequestAtRevisionResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.code.v1beta2.MergeRequestService.ApproveMergeRequestAtRevision is not implemented"))
 }
 
 func (UnimplementedMergeRequestServiceHandler) RemoveMergeRequestApproval(context.Context, *connect.Request[v1beta2.RemoveMergeRequestApprovalRequest]) (*connect.Response[v1beta2.RemoveMergeRequestApprovalResponse], error) {
