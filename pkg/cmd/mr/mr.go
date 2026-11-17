@@ -35,6 +35,7 @@ func NewCmdMR() *cobra.Command {
 	cmd.PersistentFlags().StringVar(&o.token, "token", "", "Depot user token (or DEPOT_TOKEN)")
 	cmd.PersistentFlags().BoolVar(&o.json, "json", false, "Print the API response as JSON")
 	cmd.AddCommand(newCreate(o), newView(o), newMerge(o), newApprove(o), newComment(o), newList(o))
+	cmd.AddCommand(newDiff(o), newCommits(o), newFile(o))
 	cmd.AddCommand(newEdit(o), newClose(o), newReopen(o))
 	cmd.AddCommand(newThreads(o), newReply(o), newResolve(o, true), newResolve(o, false))
 	return cmd

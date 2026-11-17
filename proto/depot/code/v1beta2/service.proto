@@ -1,0 +1,800 @@
+syntax = "proto3";
+
+// This contract is shared by the API gateway and gx.
+
+package depot.code.v1beta2;
+
+import "depot/git/v1/storage.proto";
+import "depot/mcp/v1/options.proto";
+import "google/protobuf/timestamp.proto";
+
+// Repository management, Git reads, and guarded merges.
+// Methods taking repository_id return NotFound when that repository does not exist
+// in the authenticated organization. Malformed inputs return InvalidArgument.
+// Merge and mirror-readiness FailedPrecondition errors include google.rpc.ErrorInfo with domain "depot.code"
+// and a stable reason: MERGE_CONFLICT, UNRELATED_HISTORIES, MULTIPLE_MERGE_BASES,
+// MIRROR_NOT_READY, MIRROR_FAILED, MIRROR_REPOSITORY, REPOSITORY_ATTRIBUTES, or OBJECT_FORMAT.
+// Git operations on STATE_PENDING mirrors return FailedPrecondition with reason MIRROR_NOT_READY.
+// STATE_FAILED mirrors return FailedPrecondition with reason MIRROR_FAILED.
+// To retry a failed initial pull, delete the Depot mirror and create it again; the upstream is unchanged.
+// Page size may change between pages for every paginated method.
+// Branch-name strings support UTF-8 names only; raw non-UTF-8 refs can be listed
+// but cannot be used with methods that take branch names.
+service CodeService {
+  // Returns a page of repositories in the authenticated organization, in ascending name order.
+  // Pages do not share a frozen snapshot. Creations, deletions, and renames can
+  // affect later pages; a rename can cause a repository to be skipped or repeated.
+  // Returns InvalidArgument for invalid page tokens. Page sizes above 500 are clamped to 500.
+  rpc ListRepositories(ListRepositoriesRequest) returns (ListRepositoriesResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+    option (depot.mcp.v1.tool) = {name: "list_repositories"};
+  }
+  // Returns a repository by ID or name in the authenticated organization.
+  // Returns NotFound when no repository matches.
+  rpc GetRepository(GetRepositoryRequest) returns (GetRepositoryResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+    option (depot.mcp.v1.tool) = {name: "get_repository"};
+  }
+  // Creates a standalone repository or a mirror of a GitHub repository.
+  // Returns AlreadyExists for a name already in use, InvalidArgument for invalid
+  // names or default branches, and FailedPrecondition with ErrorInfo reason GITHUB_CONNECTION_MISSING
+  // for a missing GitHub Code Access connection.
+  // An upstream repository that is missing or hidden from the connection returns NotFound;
+  // an explicit upstream access denial returns PermissionDenied.
+  // Creation has no request deduplication. After a timeout, use `GetRepository` by name
+  // to check for creation before retrying; an existing name alone does not identify the creating request.
+  // GitHub mirror names use GitHub's canonical spelling; use `ListRepositories` if that spelling is unknown.
+  rpc CreateRepository(CreateRepositoryRequest) returns (CreateRepositoryResponse) {
+  }
+  // Deletes a Depot repository. Later calls using its ID or names return NotFound.
+  // This cannot be undone and does not modify the upstream GitHub repository of a mirror.
+  // Returns NotFound if the repository does not exist or has already been deleted.
+  rpc DeleteRepository(DeleteRepositoryRequest) returns (DeleteRepositoryResponse) {
+    option idempotency_level = IDEMPOTENT;
+  }
+
+  // Returns a page of branch or tag refs. Pages do not share a frozen snapshot.
+  // Ref additions, deletions, and tip changes can affect subsequent pages.
+  // With recent ordering, a tip change can move a ref across the page boundary,
+  // causing that ref to be skipped or returned again. Deduplicate by ref name;
+  // restart from the first page to refresh the listing.
+  // Returns InvalidArgument for invalid ref kinds or page tokens.
+  // An empty namespace returns an empty page, not NotFound.
+  rpc ListRefs(ListRefsRequest) returns (ListRefsResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+    option (depot.mcp.v1.tool) = {name: "list_refs"};
+  }
+  // Returns one ref per requested short branch name, in request order, including duplicates.
+  // Returned names are fully qualified. A missing branch has no oid.
+  // Returns InvalidArgument for invalid branch names or counts. Missing branches do not return NotFound.
+  rpc GetBranches(GetBranchesRequest) returns (GetBranchesResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+    option (depot.mcp.v1.tool) = {name: "get_branches"};
+  }
+  // Returns ahead/behind counts for branch pairs. All source and target tips in
+  // one request are resolved from the same ref snapshot. Later ref changes do not
+  // affect the comparisons; each result includes the immutable tips used.
+  // Each pair inspects at most 100000 distinct commits across both reachable histories.
+  // Exceeding that limit returns ResourceExhausted for the entire request without partial results.
+  // Returns every best common ancestor for each pair, including multiple bases in
+  // criss-cross histories. Ahead/behind counts do not require a unique merge base.
+  // Returns NotFound if a source or target branch does not exist.
+  // Returns InvalidArgument for invalid branch names or comparison counts.
+  rpc CompareBranches(CompareBranchesRequest) returns (CompareBranchesResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+    option (depot.mcp.v1.tool) = {name: "compare_branches"};
+  }
+  // Checks whether the source branch can merge into the target branch.
+  // Returns the resolved tips to use as expected IDs in `MergeBranches`.
+  // Returns NotFound if a source or target branch does not exist.
+  // Returns InvalidArgument for invalid branch names.
+  rpc CheckMergeBranches(CheckMergeBranchesRequest) returns (CheckMergeBranchesResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+    option (depot.mcp.v1.tool) = {name: "check_merge_branches"};
+  }
+  // Creates and publishes a merge commit with guarded source and target refs.
+  // MERGE_METHOD_MERGE_COMMIT creates a two-parent commit even when a fast-forward
+  // is possible, with the previous target tip first and the source tip second.
+  // If the source is already reachable from the target, returns MERGE_STATUS_ALREADY_UP_TO_DATE
+  // without creating a commit or changing either ref.
+  // MERGE_METHOD_SQUASH creates a commit with the same merged tree whose only parent is
+  // the previous target tip. The source tip is not reachable from it, so squashing the same
+  // source again after new target commits does not return MERGE_STATUS_ALREADY_UP_TO_DATE.
+  // Returns Aborted if either branch tip differs from its expected object ID,
+  // including a change during merge preparation. Both expected tips are checked
+  // atomically with the target ref update. An Aborted attempt does not update the target ref.
+  // A timeout may occur after publication; retrying the same expected tips can then return Aborted.
+  // To check integration, read the current target tip with `GetBranches`, then call `ListCommits`
+  // with head_oid set to the original expected_source_oid, exclude_reachable_from_oid set
+  // to that target tip, and page_size = 1. An empty page with no next_page_token confirms
+  // the source is integrated, but does not identify which request merged it.
+  // That walk never empties after a squash. For MERGE_METHOD_SQUASH, read the target tip with
+  // `GetCommits` instead: a squash of this source has `expectedTargetOid` as its only parent and
+  // a `depot-squash-source` header holding the hex of `expectedSourceOid`.
+  // If the result remains uncertain, check current state before issuing another merge.
+  // Returns NotFound for missing expected commit objects and InvalidArgument for invalid merge inputs.
+  // Returns FailedPrecondition with an ErrorInfo reason for conflicts, unrelated histories,
+  // multiple merge bases, unsupported attributes, unsupported object formats, or mirrors.
+  // Mirrors take changes from their upstream, so they return reason MIRROR_REPOSITORY.
+  // A missing source or target branch fails the expected-tip guard with Aborted.
+  rpc MergeBranches(MergeBranchesRequest) returns (MergeBranchesResponse) {
+    option (depot.mcp.v1.tool) = {name: "merge_branches", destructive: true};
+  }
+
+  // Returns a page from a commit walk, starting at head_oid.
+  // All-parent traversal returns children before parents. Among commits whose
+  // included children have all been returned, the newest committer timestamp comes
+  // first, with descending raw object ID bytes breaking ties. Missing timestamps sort last.
+  // First-parent traversal follows the first-parent chain regardless of timestamps.
+  // Each call inspects at most 100000 commits; reaching the inspection budget returns a continuation token.
+  // A page may be short or empty when its inspection budget is reached; use next_page_token
+  // to continue. A nonempty token always means more history remains to inspect.
+  // Returns NotFound for missing requested commit objects.
+  // Returns InvalidArgument for invalid page tokens or enum values. The merges filter requires
+  // first-parent traversal, which cannot be combined with exclude_reachable_from_oid.
+  rpc ListCommits(ListCommitsRequest) returns (ListCommitsResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+    option (depot.mcp.v1.tool) = {name: "list_commits"};
+  }
+  // Returns metadata for exact commit object IDs in request order, or for a named ref.
+  // Reads imported repository data by default. With `resolveUpstream`, resolves the
+  // current upstream ref and fetches only commit metadata, without importing repository
+  // contents or updating imported refs. Does not walk commit history.
+  // Returns NotFound if the requested ref or any requested object is missing.
+  // Returns InvalidArgument for invalid batch counts or objects that are not commits.
+  rpc GetCommits(GetCommitsRequest) returns (GetCommitsResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+    option (depot.mcp.v1.tool) = {name: "get_commits"};
+  }
+  // Returns a page of tree changes between two commits or a commit and its first
+  // parent or merge base, in ascending raw path-byte order.
+  // Changes are recursive and include leaves only: files, symlinks, and gitlinks.
+  // Replacing a file with a directory produces a deletion at the old path and
+  // additions for the directory's leaves, rather than a TYPE_CHANGED directory entry.
+  // Renames are not detected; they appear as a deletion and an addition.
+  // Returns NotFound for missing requested commit objects.
+  // Returns InvalidArgument for invalid page tokens or comparison bases.
+  rpc CompareCommits(CompareCommitsRequest) returns (CompareCommitsResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+    option (depot.mcp.v1.tool) = {name: "compare_commits"};
+  }
+  // Returns line-level changes between the trees named by two commits, or by
+  // a commit and its first parent or merge base.
+  // Changes are recursive and include leaves only: files, symlinks, and gitlinks.
+  // Replacing a file with a directory produces a deletion at the old path and
+  // additions for the directory's leaves, rather than a TYPE_CHANGED directory entry.
+  // Renames are not detected; they appear as a deletion and an addition.
+  // Returns NotFound for missing requested commit objects.
+  // Returns InvalidArgument for invalid paths, path counts, context_lines, page tokens, or comparison bases.
+  rpc DiffCommits(DiffCommitsRequest) returns (DiffCommitsResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+    option (depot.mcp.v1.tool) = {name: "diff_commits"};
+  }
+
+  // Returns a page of immediate directory entries in ascending raw path-byte order.
+  // Returns NotFound if the requested commit or directory does not exist.
+  // Returns InvalidArgument for invalid paths, page tokens, or a path that is not a directory.
+  rpc ListTree(ListTreeRequest) returns (ListTreeResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+    option (depot.mcp.v1.tool) = {name: "list_tree"};
+  }
+  // Returns a byte range from a blob object.
+  // Returns NotFound if the blob does not exist, and InvalidArgument for a non-blob object or excessive length.
+  // Returns OutOfRange when offset is beyond the blob size.
+  rpc GetBlob(GetBlobRequest) returns (GetBlobResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+    option (depot.mcp.v1.tool) = {name: "get_blob"};
+  }
+}
+
+message ListRepositoriesRequest {
+  // Number of repositories to return. Zero uses the default; values above 500 are clamped to 500.
+  // Maximum: 500. Default: 50.
+  uint32 page_size = 1;
+  // Token to fetch the next page in the authenticated organization with the same name ordering.
+  // Leave empty to fetch the first page. Invalid tokens return InvalidArgument.
+  string page_token = 2;
+}
+
+message ListRepositoriesResponse {
+  repeated Repository repositories = 1;
+  // Empty on the last page.
+  string next_page_token = 2;
+}
+
+message Repository {
+  message Standalone {}
+
+  message GitHubMirror {
+    enum State {
+      // Never returned.
+      STATE_UNSPECIFIED = 0;
+      // The initial upstream pull has not completed.
+      STATE_PENDING = 1;
+      // The initial upstream pull completed; Git operations can use the mirror.
+      STATE_READY = 2;
+      // The initial upstream pull could not start or did not complete within an hour. Delete and recreate the repository to retry.
+      STATE_FAILED = 3;
+    }
+
+    // Upstream GitHub repository in "owner/repository" format.
+    string repository = 1;
+    // Initial upstream pull state.
+    State state = 2;
+    // Time of the last successful upstream pull. Absent when unknown or no pull has succeeded.
+    google.protobuf.Timestamp last_synced_time = 3;
+  }
+
+  // Unique identifier for the repository.
+  string repository_id = 1;
+  // Primary repository name. Uniqueness and name lookups are case-sensitive.
+  // For example, "team/service".
+  string name = 2;
+  // Default branch name, without the "refs/heads/" prefix. For example, "main".
+  string default_branch = 3;
+  oneof source {
+    Standalone standalone = 4;
+    GitHubMirror github = 5;
+  }
+}
+
+message GetRepositoryRequest {
+  oneof lookup {
+    // Unique identifier for the repository. Returned by `CreateRepository`, `ListRepositories`, and `GetRepository`.
+    string repository_id = 1;
+    // Case-sensitive repository name. For example, "team/service". Active aliases are also accepted.
+    // Renaming a repository keeps the old name as an alias; additional aliases may be configured.
+    string name = 2;
+  }
+}
+
+message GetRepositoryResponse {
+  Repository repository = 1;
+}
+
+message CreateRepositoryRequest {
+  message StandaloneRepository {
+    // Required case-sensitive repository name, up to 512 UTF-16 code units.
+    // Supplementary Unicode characters count as two units. Names may contain slash-separated segments.
+    // Rejects leading/trailing slashes, empty segments, ".." anywhere (including "foo..bar"), whitespace, control characters,
+    // backslash, "?", and "#". For example, "team/service".
+    string name = 1;
+    // Required ASCII default branch name without the "refs/heads/" prefix. For example, "main".
+    // Creation retains the existing Depot ASCII ref policy; branch reads accept UTF-8 names.
+    string default_branch = 2;
+  }
+
+  message GitHubRepository {
+    // GitHub repository to mirror, in "owner/repository" format. Required.
+    // The mirror receives the canonical owner/repository name reported by GitHub.
+    string repository = 1;
+  }
+
+  oneof source {
+    // Empty repository hosted by Depot.
+    StandaloneRepository standalone = 1;
+    // GitHub repository mirrored by Depot. Requires an active GitHub Code Access connection.
+    GitHubRepository github = 2;
+  }
+}
+
+message CreateRepositoryResponse {
+  // Created repository. A new GitHub mirror starts in STATE_PENDING, or STATE_FAILED when its initial pull could not start; use `GetRepository` to check readiness.
+  Repository repository = 1;
+}
+
+message DeleteRepositoryRequest {
+  // Unique identifier for the repository to delete. Returned by `CreateRepository`, `ListRepositories`, and `GetRepository`.
+  string repository_id = 1;
+}
+
+message DeleteRepositoryResponse {}
+
+message ListRefsRequest {
+  enum RefKind {
+    // Rejected with InvalidArgument. Select branches or tags.
+    REF_KIND_UNSPECIFIED = 0;
+    REF_KIND_BRANCHES = 1;
+    REF_KIND_TAGS = 2;
+  }
+
+  enum RefOrder {
+    REF_ORDER_UNSPECIFIED = 0;
+    REF_ORDER_NAME = 1;
+    // Descending committer date of the commit referenced by a branch or peeled tag.
+    // Annotated tags are peeled recursively for sorting only. Tags pointing to trees
+    // or blobs sort after dated refs. Ties use ascending raw ref-name bytes.
+    REF_ORDER_RECENT = 2;
+  }
+
+  string repository_id = 1;
+  // Kind of refs to list: branches or tags.
+  RefKind kind = 2;
+  // Number of refs to return. Zero uses the default; values above 1000 are clamped to 1000.
+  // Maximum: 1000. Default: 100.
+  uint32 page_size = 3;
+  // Token to fetch the next page for the same repository_id, kind, and effective order.
+  // Unspecified order and name order are equivalent.
+  // Leave empty to fetch the first page. Invalid or mismatched tokens return InvalidArgument.
+  string page_token = 4;
+  // Ref ordering. Unspecified sorts by name.
+  RefOrder order = 5;
+}
+
+message ListRefsResponse {
+  repeated Ref refs = 1;
+  // Empty on the last page.
+  string next_page_token = 2;
+}
+
+message Ref {
+  // Fully-qualified Git ref name in raw bytes. May contain non-UTF-8 bytes.
+  bytes name = 1;
+  // Direct ref target. An annotated tag returns the tag object ID, not its peeled commit ID.
+  depot.git.v1.ObjectId oid = 2;
+  // Final object reached by recursively peeling an annotated tag, like Git's "^{}".
+  // Set only for annotated tags; the final object may be a commit, tree, or blob.
+  depot.git.v1.ObjectId peeled_oid = 3;
+}
+
+message GetBranchesRequest {
+  string repository_id = 1;
+  // An array of branch names without the "refs/heads/" prefix. For example, "main" or "feature/login".
+  // Requires 1 to 16 entries. Other counts return InvalidArgument.
+  repeated string names = 2;
+}
+
+message GetBranchesResponse {
+  repeated Ref refs = 1;
+}
+
+message CompareBranchesRequest {
+  message BranchComparison {
+    // Source branch name without the "refs/heads/" prefix.
+    string source_branch = 1;
+    // Target branch name without the "refs/heads/" prefix.
+    string target_branch = 2;
+  }
+
+  string repository_id = 1;
+  // An array of branch pairs to compare. Results retain request order, including duplicate pairs.
+  // Requires 1 to 16 entries. Other counts return InvalidArgument.
+  repeated BranchComparison comparisons = 2;
+}
+
+message CompareBranchesResponse {
+  message BranchSummary {
+    // Fully-qualified source ref and the immutable tip used for this comparison.
+    Ref source = 1;
+    // Fully-qualified target ref and the immutable tip used for this comparison.
+    Ref target = 2;
+    // Exact number of commits reachable from source but not target.
+    uint32 ahead = 3;
+    // Exact number of commits reachable from target but not source.
+    uint32 behind = 4;
+    // All best common ancestors, in ascending raw object ID byte order.
+    // Empty for unrelated histories; multiple entries represent criss-cross histories.
+    repeated depot.git.v1.ObjectId merge_base_oids = 5;
+  }
+
+  repeated BranchSummary summaries = 1;
+}
+
+message CheckMergeBranchesRequest {
+  string repository_id = 1;
+  // Source branch name without the "refs/heads/" prefix.
+  string source_branch = 2;
+  // Target branch name without the "refs/heads/" prefix.
+  string target_branch = 3;
+}
+
+message CheckMergeBranchesResponse {
+  enum MergeAnalysisStatus {
+    // Never returned.
+    MERGE_ANALYSIS_STATUS_UNSPECIFIED = 0;
+    MERGE_ANALYSIS_STATUS_ALREADY_UP_TO_DATE = 1;
+    MERGE_ANALYSIS_STATUS_FAST_FORWARD_POSSIBLE = 2;
+    MERGE_ANALYSIS_STATUS_CLEAN = 3;
+    MERGE_ANALYSIS_STATUS_CONFLICTING = 4;
+    MERGE_ANALYSIS_STATUS_UNRELATED_HISTORIES = 5;
+    MERGE_ANALYSIS_STATUS_UNSUPPORTED = 6;
+  }
+
+  enum MergeUnsupportedReason {
+    MERGE_UNSUPPORTED_REASON_UNSPECIFIED = 0;
+    MERGE_UNSUPPORTED_REASON_MULTIPLE_MERGE_BASES = 1;
+    // The repository uses a Git object hash format that merge analysis does not support.
+    MERGE_UNSUPPORTED_REASON_OBJECT_FORMAT = 2;
+    // A .gitattributes file in the merged directories sets an attribute that can change a merge
+    // result, such as a merge driver, -merge, binary, or conflict-marker-size.
+    MERGE_UNSUPPORTED_REASON_REPOSITORY_ATTRIBUTES = 3;
+    // The repository mirrors an upstream repository. Merge in the upstream instead.
+    MERGE_UNSUPPORTED_REASON_MIRROR_REPOSITORY = 4;
+  }
+
+  MergeAnalysisStatus status = 1;
+  // Reason merge analysis is unsupported. Set only when status is MERGE_ANALYSIS_STATUS_UNSUPPORTED.
+  // MERGE_UNSUPPORTED_REASON_UNSPECIFIED for every other status.
+  MergeUnsupportedReason unsupported_reason = 2;
+  // An array of conflicting repository-relative paths in raw Git bytes with "/"
+  // separators, sorted and deduplicated. Empty unless status is MERGE_ANALYSIS_STATUS_CONFLICTING.
+  // At most 1000 paths and 4 MiB of path bytes. Larger results retain the status and resolved tips
+  // and return the first paths with conflict_paths_truncated set.
+  repeated bytes conflict_paths = 3;
+  // Source tip used for this check. Use as `expected_source_oid` in `MergeBranches`.
+  depot.git.v1.ObjectId source_oid = 4;
+  // Target tip used for this check. Use as `expected_target_oid` in `MergeBranches`.
+  depot.git.v1.ObjectId target_oid = 5;
+  // True when conflict_paths omits additional conflicting paths because its count or byte limit was reached.
+  bool conflict_paths_truncated = 6;
+}
+
+message MergeBranchesRequest {
+  message MergeCommit {
+    // Required nonempty UTF-8 message, at most 12288 bytes, without NUL bytes.
+    // No message is generated automatically.
+    string message = 1;
+    // The API gateway sets name and email. Values from clients for those fields are ignored.
+    // The same identity and time are used for both author and committer.
+    // Clients may set timestamp_seconds and timezone_offset_minutes.
+    // An omitted or zero timestamp_seconds uses the API server's current time.
+    // Zero timezone_offset_minutes means UTC.
+    Commit.CommitIdentity author = 2;
+  }
+
+  string repository_id = 1;
+  // Source branch name without the "refs/heads/" prefix. For example, "feature/login".
+  string source_branch = 2;
+  // Source tip returned by `CheckMergeBranches`. A mismatch returns Aborted.
+  depot.git.v1.ObjectId expected_source_oid = 3;
+  // Target branch name without the "refs/heads/" prefix. For example, "main".
+  string target_branch = 4;
+  // Target tip returned by `CheckMergeBranches`. A mismatch returns Aborted.
+  depot.git.v1.ObjectId expected_target_oid = 5;
+  MergeMethod method = 6;
+  // Required merge commit metadata. Missing metadata returns InvalidArgument.
+  MergeCommit commit = 7;
+}
+
+message MergeBranchesResponse {
+  enum MergeStatus {
+    // Never returned.
+    MERGE_STATUS_UNSPECIFIED = 0;
+    MERGE_STATUS_ALREADY_UP_TO_DATE = 1;
+    MERGE_STATUS_MERGED = 2;
+  }
+
+  // Whether a new merge commit was published or the source was already integrated.
+  MergeStatus status = 1;
+  // Source tip used for the merge.
+  depot.git.v1.ObjectId source_oid = 2;
+  // Target tip before publication. Absent when status is MERGE_STATUS_ALREADY_UP_TO_DATE.
+  depot.git.v1.ObjectId previous_target_oid = 3;
+  // Published merge commit, or the unchanged target tip when already up to date.
+  depot.git.v1.ObjectId target_oid = 4;
+}
+
+enum MergeMethod {
+  // Rejected with InvalidArgument. Select a merge method.
+  MERGE_METHOD_UNSPECIFIED = 0;
+  // Creates a two-parent merge commit even when a fast-forward is possible.
+  MERGE_METHOD_MERGE_COMMIT = 1;
+  // Creates a one-parent commit on the target tip holding the merged tree, so the
+  // source branch's commits do not enter the target's history. The commit names the
+  // source tip it integrated in a `depot-squash-source` header holding the hex object ID.
+  MERGE_METHOD_SQUASH = 2;
+}
+
+message ListCommitsRequest {
+  enum CommitTraversal {
+    // Walks all parents, the same as COMMIT_TRAVERSAL_ALL_PARENTS.
+    COMMIT_TRAVERSAL_UNSPECIFIED = 0;
+    COMMIT_TRAVERSAL_ALL_PARENTS = 1;
+    COMMIT_TRAVERSAL_FIRST_PARENT = 2;
+  }
+
+  enum CommitFilter {
+    // Includes all commits, the same as COMMIT_FILTER_ALL.
+    COMMIT_FILTER_UNSPECIFIED = 0;
+    COMMIT_FILTER_ALL = 1;
+    // Includes commits with multiple parents. Requires first-parent traversal.
+    COMMIT_FILTER_MERGES = 2;
+  }
+
+  string repository_id = 1;
+  // Required commit from which to walk history.
+  depot.git.v1.ObjectId head_oid = 2;
+  // Optional commit whose reachable history is excluded. Only valid with all-parent traversal.
+  depot.git.v1.ObjectId exclude_reachable_from_oid = 3;
+  // Number of commits to return. Zero uses the default; values above 100 are clamped to 100.
+  // Maximum: 100. Default: 50.
+  uint32 page_size = 4;
+  // Token to fetch the next page for the same repository, head, excluded head, traversal, and filter.
+  // Leave empty to fetch the first page. Invalid or mismatched tokens return InvalidArgument.
+  string page_token = 5;
+  CommitTraversal traversal = 6;
+  CommitFilter filter = 7;
+}
+
+message ListCommitsResponse {
+  depot.git.v1.ObjectId head_oid = 1;
+  depot.git.v1.ObjectId exclude_reachable_from_oid = 2;
+  repeated Commit commits = 3;
+  // Token to continue inspecting history, even after a short or empty page.
+  // Empty only when the walk is complete.
+  string next_page_token = 4;
+}
+
+message GetCommitsRequest {
+  string repository_id = 1;
+  // An array of exact commit object IDs. Results retain request order, including duplicates.
+  // Requires 1 to 16 entries when `refName` is empty. Leave empty when `refName` is set.
+  repeated depot.git.v1.ObjectId commit_oids = 2;
+  // Full ref name in the repository's current imported state. For example, "refs/pull/123/merge".
+  // Mutually exclusive with `commitOids`. Maximum: 512 bytes.
+  // Resolves once per request and returns one commit with its immutable object ID.
+  // Reads imported state unless `resolveUpstream` is set. Leave empty to look up exact commit IDs.
+  string ref_name = 3;
+  // Resolve `refName` from the configured upstream and fetch only commit metadata when needed.
+  // Requires `refName`. Does not import commit contents or update the mirror's refs.
+  bool resolve_upstream = 4;
+}
+
+message GetCommitsResponse {
+  repeated Commit commits = 1;
+  // Whether this response resolved the ref from upstream. False for local reads and older servers.
+  bool upstream_resolved = 2;
+}
+
+message Commit {
+  message CommitIdentity {
+    // Raw Git identity name. May contain non-UTF-8 bytes.
+    bytes name = 1;
+    // Raw Git identity email. May contain non-UTF-8 bytes.
+    bytes email = 2;
+    // Seconds since the Unix epoch. Absent when the original identity has no timestamp.
+    optional int64 timestamp_seconds = 3;
+    sint32 timezone_offset_minutes = 4;
+  }
+
+  message Header {
+    // Git header key in raw bytes. For example, "depot-source-branch".
+    bytes key = 1;
+    // Raw header value, including embedded newlines for multiline values.
+    bytes value = 2;
+  }
+
+  depot.git.v1.ObjectId oid = 1;
+  repeated depot.git.v1.ObjectId parent_oids = 2;
+  CommitIdentity author = 3;
+  CommitIdentity committer = 4;
+  // Raw Git commit message. May contain non-UTF-8 bytes.
+  bytes message = 5;
+  // Additional Git commit headers in original order, excluding tree, parent, author, and committer.
+  // Includes other headers such as gpgsig and encoding when present. Repeated keys are preserved.
+  repeated Header headers = 6;
+}
+
+// Required comparison base. An unset oneof returns InvalidArgument.
+message CommitBase {
+  message FirstParent {}
+
+  oneof base {
+    // Compare against the head commit's first parent, or the empty tree for a root commit.
+    FirstParent first_parent = 1;
+    // Compare against this exact commit.
+    depot.git.v1.ObjectId commit_oid = 2;
+    // Compare against the single best common ancestor of the head and this commit:
+    // a common ancestor that is not an ancestor of any other common ancestor.
+    // Multiple best common ancestors return FailedPrecondition with reason MULTIPLE_MERGE_BASES.
+    // Unrelated histories return FailedPrecondition with reason UNRELATED_HISTORIES.
+    // No base is chosen arbitrarily or synthesized from multiple bases.
+    depot.git.v1.ObjectId merge_base_with_oid = 3;
+  }
+}
+
+message CompareCommitsRequest {
+  string repository_id = 1;
+  depot.git.v1.ObjectId head_oid = 2;
+  CommitBase base = 3;
+  // Number of changes to return. Zero uses the default; values above 100 are clamped to 100.
+  // Maximum: 100. Default: 100.
+  uint32 page_size = 4;
+  // Token to fetch the next page for the same repository, head, and base.
+  // Leave empty to fetch the first page. Invalid or mismatched tokens return InvalidArgument.
+  string page_token = 5;
+}
+
+message CompareCommitsResponse {
+  message TreeChange {
+    // Full repository-relative path with slash separators in raw Git bytes.
+    bytes path = 1;
+    TreeChangeKind kind = 2;
+    // Object ID and mode at the base commit. Absent for added paths.
+    TreeObject old_object = 3;
+    // Object ID and mode at the head commit. Absent for deleted paths.
+    // Modified and type-changed paths include both old_object and new_object.
+    TreeObject new_object = 4;
+  }
+
+  depot.git.v1.ObjectId head_oid = 1;
+  // Resolved comparison base. Absent when comparing a root commit against its empty first-parent tree.
+  depot.git.v1.ObjectId base_oid = 2;
+  repeated TreeChange changes = 3;
+  // Token to fetch more changes. Empty when every change is included.
+  // A page holds at most 100 changes and 4 MiB of protobuf-encoded response bytes.
+  string next_page_token = 4;
+}
+
+enum TreeChangeKind {
+  // Never returned.
+  TREE_CHANGE_KIND_UNSPECIFIED = 0;
+  TREE_CHANGE_KIND_ADDED = 1;
+  TREE_CHANGE_KIND_DELETED = 2;
+  // Content or mode changed within the same object kind, including executable-bit changes.
+  TREE_CHANGE_KIND_MODIFIED = 3;
+  // Leaf object kind changed, such as a regular file becoming a symlink or gitlink.
+  TREE_CHANGE_KIND_TYPE_CHANGED = 4;
+}
+
+message TreeObject {
+  depot.git.v1.ObjectId oid = 1;
+  TreeEntryMode mode = 2;
+}
+
+enum TreeEntryMode {
+  // Never returned.
+  TREE_ENTRY_MODE_UNSPECIFIED = 0;
+  TREE_ENTRY_MODE_DIRECTORY = 1;
+  // Regular-file modes are normalized to this value, including legacy mode 100664.
+  TREE_ENTRY_MODE_REGULAR_FILE = 2;
+  TREE_ENTRY_MODE_EXECUTABLE_FILE = 3;
+  TREE_ENTRY_MODE_SYMLINK = 4;
+  TREE_ENTRY_MODE_GITLINK = 5;
+}
+
+message DiffCommitsRequest {
+  string repository_id = 1;
+  depot.git.v1.ObjectId head_oid = 2;
+  CommitBase base = 3;
+  // An array of full repository-relative paths in raw Git bytes, separated by slashes.
+  // Matches the exact path or descendants separated by "/": "src" matches "src/a", not "src2/a".
+  // Empty selects all paths. Maximum: 100 paths, each at most 65536 bytes.
+  repeated bytes paths = 4;
+  // Unchanged lines around each change. Explicit zero omits context. Maximum: 100. Default: 3.
+  optional uint32 context_lines = 5;
+  // Token to fetch the next page for the same repository, head, base, paths, and context_lines.
+  // Leave empty to fetch the first page. Invalid or mismatched tokens return InvalidArgument.
+  string page_token = 6;
+  // Number of files to return. Zero uses the default; values above 100 are clamped to 100.
+  // Maximum: 100. Default: 100.
+  uint32 page_size = 7;
+}
+
+message DiffCommitsResponse {
+  message FileDiff {
+    TreeChangeKind kind = 1;
+    // Full repository-relative path with slash separators in raw Git bytes.
+    bytes path = 2;
+    // Object ID and mode at the base commit. Absent for added paths.
+    TreeObject old_object = 3;
+    // Object ID and mode at the head commit. Absent for deleted paths.
+    // Modified and type-changed paths include both old_object and new_object.
+    TreeObject new_object = 4;
+    // Added text lines. Zero for binary files, too-large files, gitlinks, and mode-only changes.
+    uint32 additions = 5;
+    // Deleted text lines. Zero for binary files, too-large files, gitlinks, and mode-only changes.
+    uint32 deletions = 6;
+    // Absent for gitlinks, whose change is the commit ID in old_object and new_object.
+    // Binary files use Binary; files exceeding the per-file limit use TooLarge.
+    // A mode-only file change uses Text with no hunks.
+    // If one file's encoded diff alone would exceed the page limit, use TooLarge with zero line counts.
+    FileDiffContent content = 7;
+  }
+
+  message FileDiffContent {
+    message Text {
+      repeated DiffHunk hunks = 1;
+    }
+    // Binary contents have no line-level diff.
+    message Binary {}
+    // A side exceeds the per-file limit of 1 MiB, or its encoded FileDiff would exceed the 4 MiB page limit.
+    message TooLarge {
+      uint64 old_size = 1;
+      uint64 new_size = 2;
+    }
+
+    oneof kind {
+      Text text = 1;
+      Binary binary = 2;
+      TooLarge too_large = 3;
+    }
+  }
+
+  message DiffHunk {
+    uint32 old_start = 1;
+    uint32 old_lines = 2;
+    uint32 new_start = 3;
+    uint32 new_lines = 4;
+    // Text after the second "@@". For example, the enclosing function.
+    bytes section = 5;
+    repeated DiffLine lines = 6;
+  }
+
+  enum DiffLineKind {
+    // Never returned.
+    DIFF_LINE_KIND_UNSPECIFIED = 0;
+    DIFF_LINE_KIND_CONTEXT = 1;
+    DIFF_LINE_KIND_ADDED = 2;
+    DIFF_LINE_KIND_DELETED = 3;
+  }
+
+  message DiffLine {
+    DiffLineKind kind = 1;
+    // Line content without the trailing newline.
+    bytes text = 2;
+    // False when the last line of the file has no trailing newline.
+    bool ends_with_newline = 3;
+  }
+
+  depot.git.v1.ObjectId head_oid = 1;
+  // Resolved comparison base. Absent when comparing a root commit against its empty first-parent tree.
+  depot.git.v1.ObjectId base_oid = 2;
+  repeated FileDiff files = 3;
+  // Empty when every changed file is included. A page holds at most 100
+  // files and 4 MiB of protobuf-encoded response bytes.
+  string next_page_token = 4;
+}
+
+message ListTreeRequest {
+  string repository_id = 1;
+  depot.git.v1.ObjectId commit_oid = 2;
+  // Full repository-relative directory path with slash separators in raw Git bytes.
+  // Leave empty to list the root directory. Do not use leading/trailing slashes, empty
+  // components, ".", "..", or NUL bytes. Maximum: 65536 bytes.
+  bytes path = 3;
+  // Number of directory entries to return. Zero uses the default; values above 1000 are clamped to 1000.
+  // Maximum: 1000. Default: 1000.
+  uint32 page_size = 4;
+  // Token to fetch the next page for the same repository, commit, and directory.
+  // Leave empty to fetch the first page. Invalid or mismatched tokens return InvalidArgument.
+  string page_token = 5;
+}
+
+message ListTreeResponse {
+  message TreeEntry {
+    // Full repository-relative path with slash separators. May contain non-UTF-8 bytes.
+    bytes path = 1;
+    depot.git.v1.ObjectId oid = 2;
+    TreeEntryMode mode = 3;
+    // Uncompressed object body size in bytes. Absent when unknown, including gitlinks.
+    // For directories, the tree object size rather than the total descendant file size.
+    optional uint64 size = 4;
+  }
+
+  depot.git.v1.ObjectId tree_oid = 1;
+  repeated TreeEntry entries = 2;
+  // Empty on the last page.
+  string next_page_token = 3;
+}
+
+message GetBlobRequest {
+  string repository_id = 1;
+  // Blob object ID, for example from `ListTree`, `CompareCommits`, or `DiffCommits`. Non-blob objects are rejected.
+  depot.git.v1.ObjectId blob_oid = 2;
+
+  // Byte offset from the start of the blob. Default: 0.
+  // An offset equal to the blob size returns empty content; an offset beyond it returns OutOfRange.
+  uint64 offset = 3;
+  // Maximum number of bytes to return, stopping at the end of the blob.
+  // Zero uses 1048576 (1 MiB). Values above 1048576 return InvalidArgument.
+  // Larger blobs can be read in successive ranges. Maximum: 1048576. Default: 1048576.
+  uint32 length = 4;
+}
+
+message GetBlobResponse {
+  // Total blob size in bytes.
+  uint64 size = 1;
+  // Content of the requested byte range.
+  bytes content = 2;
+}
