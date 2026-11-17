@@ -282,13 +282,19 @@ func TestApproveAndCommentUseResolvedMRAndSupportJSON(t *testing.T) {
 		}
 		return &code.ApproveMergeRequestResponse{Approval: &code.MergeRequestApproval{MergeRequestId: "mr_1", HeadOid: head}}, nil
 	})
+	rpc(t, mux, codev1beta2connect.MergeRequestServiceApproveMergeRequestAtRevisionProcedure, func(req *code.ApproveMergeRequestAtRevisionRequest) (*code.ApproveMergeRequestAtRevisionResponse, error) {
+		if req.MergeRequestId != "mr_1" || req.ExpectedHeadOid != head {
+			t.Fatalf("wrong guarded branch approval: %v", req)
+		}
+		return &code.ApproveMergeRequestAtRevisionResponse{Approval: &code.MergeRequestApproval{MergeRequestId: "mr_1", HeadOid: head}}, nil
+	})
 	rpc(t, mux, codev1beta2connect.MergeRequestServiceCreateMergeRequestCommentProcedure, func(req *code.CreateMergeRequestCommentRequest) (*code.CreateMergeRequestCommentResponse, error) {
 		if req.MergeRequestId != "mr_1" || req.Body != "Looks good\nNext line" {
 			t.Errorf("wrong comment: %v", req)
 		}
 		return &code.CreateMergeRequestCommentResponse{Comment: &code.MergeRequestComment{Id: "mrc_1", MergeRequestId: req.MergeRequestId, Body: req.Body}}, nil
 	})
-	for _, args := range [][]string{{"approve"}, {"comment", "--body", "Looks good\nNext line"}} {
+	for _, args := range [][]string{{"approve"}, {"approve", "--expected-head-oid", head}, {"comment", "--body", "Looks good\nNext line"}} {
 		out, err := execute(t, args...)
 		if err != nil || !strings.Contains(out, "mr_1") {
 			t.Fatalf("%v: %s %v", args, out, err)

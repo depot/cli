@@ -31,7 +31,9 @@ func mrServer(t *testing.T, mux *http.ServeMux, head string) *[]string {
 	var repos []string
 	rpc(t, mux, codev1beta2connect.MergeRequestServiceGetMergeRequestProcedure, func(req *code.GetMergeRequestRequest) (*code.GetMergeRequestResponse, error) {
 		repos = append(repos, req.GetHead().GetRepositoryId())
-		return &code.GetMergeRequestResponse{MergeRequest: fixture(head)}, nil
+		mr := fixture(head)
+		mr.RepositoryId = req.GetHead().GetRepositoryId()
+		return &code.GetMergeRequestResponse{MergeRequest: mr}, nil
 	})
 	rpc(t, mux, codev1beta2connect.MergeRequestServiceListMergeRequestsProcedure, func(req *code.ListMergeRequestsRequest) (*code.ListMergeRequestsResponse, error) {
 		repos = append(repos, req.RepositoryId)

@@ -389,37 +389,6 @@ func newView(o *options) *cobra.Command {
 	return cmd
 }
 
-func newApprove(o *options) *cobra.Command {
-	return &cobra.Command{Use: "approve [branch]", Short: "Approve a merge request at its current head", Args: cobra.MaximumNArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			name, err := branch(cmd, args)
-			if err != nil {
-				return err
-			}
-			if err := o.authenticate(cmd); err != nil {
-				return err
-			}
-			mr, err := o.getOpenOrRefuse(cmd, name)
-			if err != nil {
-				return err
-			}
-			resp, err := api.NewMergeRequestClient().ApproveMergeRequest(cmd.Context(), request(o, &code.ApproveMergeRequestRequest{MergeRequestId: mr.MergeRequest.Id}))
-			if err != nil {
-				return err
-			}
-			approval := resp.Msg.Approval
-			if approval == nil || approval.MergeRequestId == "" || approval.HeadOid == "" {
-				return fmt.Errorf("API returned no approval")
-			}
-			if o.json {
-				return o.writeJSON(cmd, resp.Msg)
-			}
-			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Approved %s at %s\n", approval.MergeRequestId, approval.HeadOid)
-			return err
-		},
-	}
-}
-
 func newComment(o *options) *cobra.Command {
 	var flags bodyFlags
 	cmd := &cobra.Command{Use: "comment [branch] --body <text>", Short: "Post a conversation comment", Args: cobra.MaximumNArgs(1),

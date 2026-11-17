@@ -54,6 +54,9 @@ service MergeRequestService {
   // request: approving again moves it to the current head and clears a withdrawal. Returns FailedPrecondition for a
   // closed or merged merge request.
   rpc ApproveMergeRequest(ApproveMergeRequestRequest) returns (ApproveMergeRequestResponse) {}
+  // Approves only the reviewed head, checked atomically with the approval. Returns Aborted if the head moved.
+  // Older servers return Unimplemented without approving.
+  rpc ApproveMergeRequestAtRevision(ApproveMergeRequestAtRevisionRequest) returns (ApproveMergeRequestAtRevisionResponse) {}
   // Withdraws the caller's approval. Returns NotFound when the caller never approved; withdrawing an approval that is
   // already withdrawn leaves it unchanged.
   rpc RemoveMergeRequestApproval(RemoveMergeRequestApprovalRequest) returns (RemoveMergeRequestApprovalResponse) {}
@@ -528,6 +531,16 @@ message UnresolveMergeRequestThreadResponse {
 message ApproveMergeRequestRequest {
   // Unique identifier for the merge request. Returned by `CreateMergeRequest` and `GetMergeRequest`.
   string merge_request_id = 1;
+}
+
+message ApproveMergeRequestAtRevisionRequest {
+  string merge_request_id = 1;
+  // Required full lowercase hexadecimal SHA-1 or SHA-256 of the reviewed head.
+  string expected_head_oid = 2;
+}
+
+message ApproveMergeRequestAtRevisionResponse {
+  MergeRequestApproval approval = 1;
 }
 
 message ApproveMergeRequestResponse {
