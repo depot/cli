@@ -48,7 +48,7 @@ func execute(args ...string) (string, error) {
 }
 func TestWorkflowUsageRoundTrip(t *testing.T) {
 	server(t, usageHandler{workflow: func(_ context.Context, req *connect.Request[usagev1.ListDepotCIUsageByWorkflowRequest]) (*connect.Response[usagev1.ListDepotCIUsageByWorkflowResponse], error) {
-		if req.Header().Get("Authorization") != "Bearer reader-token" || req.Header().Get("x-depot-org") != "org-a" {
+		if req.Header().Get("Authorization") != "Bearer reader-token" || req.Header().Get("x-depot-org") != "" {
 			t.Errorf("missing scoped credentials")
 		}
 		if req.Msg.GetPageToken() != "next-page" || req.Msg.GetPageSize() != 1 || strings.Join(req.Msg.Repositories, ",") != "owner/repo" || strings.Join(req.Msg.WorkflowKeys, ",") != "ci" {
@@ -59,7 +59,7 @@ func TestWorkflowUsageRoundTrip(t *testing.T) {
 		}
 		return connect.NewResponse(&usagev1.ListDepotCIUsageByWorkflowResponse{Workflows: []*usagev1.DepotCIWorkflowUsage{{Repository: "owner/repo", WorkflowKey: "ci", AttemptCount: 9007199254740993, VcpuSeconds: 120}}, NextPageToken: "more"}), nil
 	}})
-	out, err := execute("breakdown", "--product", "depot-ci", "--group-by", "workflow", "--repo", "owner/repo", "--workflow-key", "ci", "--page-size", "1", "--page-token", "next-page", "--org", "org-a", "--start", "2026-10-01T00:00:00Z", "--end", "2026-10-08T00:00:00Z", "--output", "json")
+	out, err := execute("breakdown", "--product", "depot-ci", "--group-by", "workflow", "--repo", "owner/repo", "--workflow-key", "ci", "--page-size", "1", "--page-token", "next-page", "--start", "2026-10-01T00:00:00Z", "--end", "2026-10-08T00:00:00Z", "--output", "json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,6 +103,7 @@ func TestInvalidQueriesFailBeforeNetworkOrOutput(t *testing.T) {
 		{"series", "--start", "invalid", "--end", "2026-10-08T00:00:00Z"},
 		{"series", "--start", "2026-10-08T00:00:00Z", "--end", "2026-10-01T00:00:00Z"},
 		{"series", "--product", "typo"},
+		{"series", "--org", "other-org"},
 		{"series", "--project", "project-id", "--product", "depot-ci"},
 		{"breakdown", "--product", "container-builds", "--group-by", "project", "--repo", "owner/repo"},
 		{"breakdown", "--product", "depot-ci", "--group-by", "workflow", "--workflow-path", "ci.yml"},
@@ -120,5 +121,22 @@ func TestUnsupportedServerFailsWithoutPartialJSON(t *testing.T) {
 	out, err := execute("report")
 	if connect.CodeOf(err) != connect.CodeUnimplemented || out != "" {
 		t.Fatalf("output=%q error=%v", out, err)
+	}
+}
+
+func TestRejectedCredentialsDoNotProduceUsageJSON(t *testing.T) {
+	for _, code := range []connect.Code{connect.CodeUnauthenticated, connect.CodePermissionDenied} {
+		t.Run(code.String(), func(t *testing.T) {
+			server(t, usageHandler{series: func(_ context.Context, req *connect.Request[usagev1.GetOrganizationUsageSeriesRequest]) (*connect.Response[usagev1.GetOrganizationUsageSeriesResponse], error) {
+				if req.Header().Get("Authorization") != "Bearer explicit-org-token" {
+					t.Error("--token did not override DEPOT_TOKEN")
+				}
+				return nil, connect.NewError(code, nil)
+			}})
+			out, err := execute("series", "--token", "explicit-org-token")
+			if connect.CodeOf(err) != code || out != "" {
+				t.Fatalf("output=%q error=%v", out, err)
+			}
+		})
 	}
 }

@@ -8,7 +8,6 @@ import (
 	usagev1 "buf.build/gen/go/depot/api/protocolbuffers/go/depot/core/v1"
 	"connectrpc.com/connect"
 	"github.com/depot/cli/pkg/api"
-	"github.com/depot/cli/pkg/config"
 	"github.com/depot/cli/pkg/helpers"
 	"github.com/spf13/cobra"
 	"google.golang.org/protobuf/encoding/protojson"
@@ -17,14 +16,14 @@ import (
 )
 
 type options struct {
-	org, token, start, end, output, product, group, pageToken, project string
-	products, projects, repositories, paths, keys                      []string
-	pageSize                                                           int32
+	token, start, end, output, product, group, pageToken, project string
+	products, projects, repositories, paths, keys                 []string
+	pageSize                                                      int32
 }
 
 // NewCmdUsage exposes recorded usage as protobuf JSON. It never prompts during automation.
 func NewCmdUsage() *cobra.Command {
-	cmd := &cobra.Command{Use: "usage", Short: "Analyze organization usage", Long: "Read recorded usage and UTC daily series. Values are usage quantities, not invoice amounts. All results use JSON; follow nextPageToken with the same time range and filters.", Args: cobra.NoArgs}
+	cmd := &cobra.Command{Use: "usage", Short: "Analyze organization usage", Long: "Read recorded usage and UTC daily series. Requires an organization API token or a read-only organization token in DEPOT_TOKEN or --token. The token determines the organization; depot login user tokens are not supported. Values are usage quantities, not invoice amounts. All results use JSON; follow nextPageToken with the same time range and filters.", Args: cobra.NoArgs}
 	for _, kind := range []string{"series", "breakdown", "report", "current", "agents"} {
 		cmd.AddCommand(newCommand(kind))
 	}
@@ -40,8 +39,7 @@ func newCommand(kind string) *cobra.Command {
 		RunE:    func(cmd *cobra.Command, _ []string) error { return run(cmd, kind, opts) },
 	}
 	flags := cmd.Flags()
-	flags.StringVar(&opts.org, "org", "", "Organization ID (required when user is a member of multiple organizations)")
-	flags.StringVar(&opts.token, "token", "", "Depot API token")
+	flags.StringVar(&opts.token, "token", "", "Depot organization API token (read-only tokens supported)")
 	flags.StringVarP(&opts.output, "output", "o", "json", "Output format (json)")
 	if kind != "current" {
 		flags.StringVar(&opts.start, "start", "", "Inclusive start in RFC 3339 format (default: start of current UTC month)")
@@ -81,10 +79,7 @@ func run(cmd *cobra.Command, kind string, opts options) error {
 	}
 	token := helpers.ResolveStaticOrgAuth(opts.token)
 	if token == "" {
-		return fmt.Errorf("missing API token, please run `depot login` or set DEPOT_TOKEN")
-	}
-	if opts.org == "" {
-		opts.org = config.GetCurrentOrganization()
+		return fmt.Errorf("missing organization API token: set DEPOT_TOKEN or pass --token (read-only organization tokens are supported)")
 	}
 	client := api.NewUsageAnalyticsClient()
 	ctx := cmd.Context()
@@ -92,32 +87,32 @@ func run(cmd *cobra.Command, kind string, opts options) error {
 	switch kind {
 	case "series":
 		if opts.project != "" {
-			response, err = call(ctx, token, opts.org, &usagev1.GetProjectUsageSeriesRequest{ProjectId: opts.project, TimeRange: period}, client.GetProjectUsageSeries)
+			response, err = call(ctx, token, &usagev1.GetProjectUsageSeriesRequest{ProjectId: opts.project, TimeRange: period}, client.GetProjectUsageSeries)
 		} else {
-			response, err = call(ctx, token, opts.org, &usagev1.GetOrganizationUsageSeriesRequest{TimeRange: period, Products: opts.products}, client.GetOrganizationUsageSeries)
+			response, err = call(ctx, token, &usagev1.GetOrganizationUsageSeriesRequest{TimeRange: period, Products: opts.products}, client.GetOrganizationUsageSeries)
 		}
 	case "report":
-		response, err = call(ctx, token, opts.org, &usagev1.GetUsageReportRequest{TimeRange: period}, client.GetUsageReport)
+		response, err = call(ctx, token, &usagev1.GetUsageReportRequest{TimeRange: period}, client.GetUsageReport)
 	case "current":
-		response, err = call(ctx, token, opts.org, &usagev1.GetCurrentPeriodUsageRequest{}, client.GetCurrentPeriodUsage)
+		response, err = call(ctx, token, &usagev1.GetCurrentPeriodUsageRequest{}, client.GetCurrentPeriodUsage)
 	case "agents":
-		response, err = call(ctx, token, opts.org, &usagev1.GetAgentSandboxUsageRequest{TimeRange: period}, client.GetAgentSandboxUsage)
+		response, err = call(ctx, token, &usagev1.GetAgentSandboxUsageRequest{TimeRange: period}, client.GetAgentSandboxUsage)
 	case "breakdown":
 		switch opts.product + "/" + opts.group {
 		case "container-builds/project":
-			response, err = call(ctx, token, opts.org, &usagev1.ListContainerBuildUsageByProjectRequest{TimeRange: period, PageSize: opts.pageSize, PageToken: opts.pageToken, ProjectIds: opts.projects}, client.ListContainerBuildUsageByProject)
+			response, err = call(ctx, token, &usagev1.ListContainerBuildUsageByProjectRequest{TimeRange: period, PageSize: opts.pageSize, PageToken: opts.pageToken, ProjectIds: opts.projects}, client.ListContainerBuildUsageByProject)
 		case "github-actions/repository":
-			response, err = call(ctx, token, opts.org, &usagev1.ListGithubActionsUsageByRepositoryRequest{TimeRange: period, PageSize: opts.pageSize, PageToken: opts.pageToken, Repositories: opts.repositories}, client.ListGithubActionsUsageByRepository)
+			response, err = call(ctx, token, &usagev1.ListGithubActionsUsageByRepositoryRequest{TimeRange: period, PageSize: opts.pageSize, PageToken: opts.pageToken, Repositories: opts.repositories}, client.ListGithubActionsUsageByRepository)
 		case "github-actions/runner":
-			response, err = call(ctx, token, opts.org, &usagev1.ListGithubActionsUsageByRunnerRequest{TimeRange: period, PageSize: opts.pageSize, PageToken: opts.pageToken, Repositories: opts.repositories}, client.ListGithubActionsUsageByRunner)
+			response, err = call(ctx, token, &usagev1.ListGithubActionsUsageByRunnerRequest{TimeRange: period, PageSize: opts.pageSize, PageToken: opts.pageToken, Repositories: opts.repositories}, client.ListGithubActionsUsageByRunner)
 		case "github-actions/job":
-			response, err = call(ctx, token, opts.org, &usagev1.ListGithubActionsUsageByJobRequest{TimeRange: period, PageSize: opts.pageSize, PageToken: opts.pageToken, Repositories: opts.repositories, WorkflowPaths: opts.paths}, client.ListGithubActionsUsageByJob)
+			response, err = call(ctx, token, &usagev1.ListGithubActionsUsageByJobRequest{TimeRange: period, PageSize: opts.pageSize, PageToken: opts.pageToken, Repositories: opts.repositories, WorkflowPaths: opts.paths}, client.ListGithubActionsUsageByJob)
 		case "depot-ci/repository":
-			response, err = call(ctx, token, opts.org, &usagev1.ListDepotCIUsageByRepositoryRequest{TimeRange: period, PageSize: opts.pageSize, PageToken: opts.pageToken, Repositories: opts.repositories}, client.ListDepotCIUsageByRepository)
+			response, err = call(ctx, token, &usagev1.ListDepotCIUsageByRepositoryRequest{TimeRange: period, PageSize: opts.pageSize, PageToken: opts.pageToken, Repositories: opts.repositories}, client.ListDepotCIUsageByRepository)
 		case "depot-ci/workflow":
-			response, err = call(ctx, token, opts.org, &usagev1.ListDepotCIUsageByWorkflowRequest{TimeRange: period, PageSize: opts.pageSize, PageToken: opts.pageToken, Repositories: opts.repositories, WorkflowKeys: opts.keys}, client.ListDepotCIUsageByWorkflow)
+			response, err = call(ctx, token, &usagev1.ListDepotCIUsageByWorkflowRequest{TimeRange: period, PageSize: opts.pageSize, PageToken: opts.pageToken, Repositories: opts.repositories, WorkflowKeys: opts.keys}, client.ListDepotCIUsageByWorkflow)
 		case "test-results/repository":
-			response, err = call(ctx, token, opts.org, &usagev1.ListTestResultsUsageByRepositoryRequest{TimeRange: period, PageSize: opts.pageSize, PageToken: opts.pageToken, Repositories: opts.repositories}, client.ListTestResultsUsageByRepository)
+			response, err = call(ctx, token, &usagev1.ListTestResultsUsageByRepositoryRequest{TimeRange: period, PageSize: opts.pageSize, PageToken: opts.pageToken, Repositories: opts.repositories}, client.ListTestResultsUsageByRepository)
 		}
 	}
 	if err != nil {
@@ -131,8 +126,8 @@ func run(cmd *cobra.Command, kind string, opts options) error {
 	return err
 }
 
-func call[Request any, Response any](ctx context.Context, token, org string, request *Request, method func(context.Context, *connect.Request[Request]) (*connect.Response[Response], error)) (*Response, error) {
-	response, err := method(ctx, api.WithAuthenticationAndOrg(connect.NewRequest(request), token, org))
+func call[Request any, Response any](ctx context.Context, token string, request *Request, method func(context.Context, *connect.Request[Request]) (*connect.Response[Response], error)) (*Response, error) {
+	response, err := method(ctx, api.WithAuthentication(connect.NewRequest(request), token))
 	if err != nil {
 		return nil, err
 	}
