@@ -70,7 +70,13 @@ func TestGuardedApprovalAndWithdrawalWithoutCheckout(t *testing.T) {
 	if _, err := execute(t, args...); err == nil {
 		t.Fatal("accepted a different approval head")
 	}
-	mr.State = code.MergeRequest_STATE_CLOSED
+	for _, state := range []code.MergeRequest_State{code.MergeRequest_STATE_MERGED, code.MergeRequest_STATE_CLOSED} {
+		mr.State = state
+		out, err := execute(t, args...)
+		if err == nil || !strings.Contains(err.Error(), mr.Id) || !strings.Contains(err.Error(), stateName(state)) || strings.Contains(err.Error(), "branch") || out != "" {
+			t.Fatalf("non-open approval by ID: %q, %v", out, err)
+		}
+	}
 	for _, extra := range [][]string{nil, {"--json"}} {
 		out, err := execute(t, append([]string{"approve", "--id", mr.Id, "--withdraw"}, extra...)...)
 		if err != nil || out == "" {
