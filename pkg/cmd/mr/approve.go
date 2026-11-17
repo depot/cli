@@ -14,7 +14,7 @@ func newApprove(o *options) *cobra.Command {
 	var expectedHead string
 	var withdraw bool
 	cmd := &cobra.Command{Use: "approve [branch]", Short: "Approve a merge request or withdraw your approval",
-		Long: "Approve a merge request at its current head. Pass --expected-head-oid to approve only the commit you reviewed; a newer head is refused.\nPass --id with --expected-head-oid to approve without a checkout. Use --withdraw to remove your own approval.", Args: cobra.MaximumNArgs(1),
+		Long: "Approve a merge request at its current head. Pass --expected-head-oid to approve only the commit you reviewed; a newer head is refused.\nPass --id to approve without a checkout. Use --withdraw to remove your own approval.", Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			name, err := t.check(cmd, args)
 			if err != nil {
@@ -23,9 +23,6 @@ func newApprove(o *options) *cobra.Command {
 			guarded := cmd.Flags().Changed("expected-head-oid")
 			if withdraw && guarded {
 				return fmt.Errorf("--withdraw cannot be combined with --expected-head-oid")
-			}
-			if !withdraw && t.id != "" && !guarded {
-				return fmt.Errorf("--id requires --expected-head-oid; use the head you reviewed")
 			}
 			if guarded && !mergeOID.MatchString(expectedHead) {
 				return fmt.Errorf("--expected-head-oid must be a lowercase hexadecimal SHA-1 or SHA-256 object ID")
@@ -90,7 +87,7 @@ func newApprove(o *options) *cobra.Command {
 		},
 	}
 	t.register(cmd)
-	cmd.Flags().StringVar(&expectedHead, "expected-head-oid", "", "Reviewed source commit (required with --id); a moved head is refused")
+	cmd.Flags().StringVar(&expectedHead, "expected-head-oid", "", "Approve only this reviewed source commit; a moved head is refused")
 	cmd.Flags().BoolVar(&withdraw, "withdraw", false, "Withdraw your own approval")
 	return cmd
 }

@@ -10,7 +10,7 @@ import (
 	"github.com/depot/cli/pkg/proto/depot/code/v1beta2/codev1beta2connect"
 )
 
-func TestGuardedApprovalAndWithdrawalWithoutCheckout(t *testing.T) {
+func TestApprovalAndWithdrawalWithoutCheckout(t *testing.T) {
 	t.Chdir(t.TempDir())
 	head := strings.Repeat("a", 40)
 	mux := apiServer(t)
@@ -21,7 +21,7 @@ func TestGuardedApprovalAndWithdrawalWithoutCheckout(t *testing.T) {
 		}
 		return &code.GetMergeRequestResponse{MergeRequest: mr}, nil
 	})
-	approvals, withdrawals := 0, 0
+	approvals, withdrawals, unguardedApprovals := 0, 0, 0
 	var refuse connect.Code
 	result := &code.MergeRequestApproval{MergeRequestId: mr.Id, HeadOid: head}
 	rpc(t, mux, codev1beta2connect.MergeRequestServiceApproveMergeRequestAtRevisionProcedure, func(req *code.ApproveMergeRequestAtRevisionRequest) (*code.ApproveMergeRequestAtRevisionResponse, error) {
@@ -35,8 +35,11 @@ func TestGuardedApprovalAndWithdrawalWithoutCheckout(t *testing.T) {
 		return &code.ApproveMergeRequestAtRevisionResponse{Approval: result}, nil
 	})
 	rpc(t, mux, codev1beta2connect.MergeRequestServiceApproveMergeRequestProcedure, func(req *code.ApproveMergeRequestRequest) (*code.ApproveMergeRequestResponse, error) {
-		t.Fatal("guarded approval must not fall back to current-head approval")
-		return nil, nil
+		unguardedApprovals++
+		if req.MergeRequestId != mr.Id {
+			t.Fatalf("wrong approval: %v", req)
+		}
+		return &code.ApproveMergeRequestResponse{Approval: result}, nil
 	})
 	rpc(t, mux, codev1beta2connect.MergeRequestServiceRemoveMergeRequestApprovalProcedure, func(req *code.RemoveMergeRequestApprovalRequest) (*code.RemoveMergeRequestApprovalResponse, error) {
 		withdrawals++
@@ -95,13 +98,25 @@ func TestGuardedApprovalAndWithdrawalWithoutCheckout(t *testing.T) {
 	if withdrawals != 2 || approvals != 7 {
 		t.Fatal("mutated the wrong repository")
 	}
+	if unguardedApprovals != 0 {
+		t.Fatal("guarded approval fell back to current-head approval")
+	}
+	mr.State, mr.RepositoryId = code.MergeRequest_STATE_OPEN, "repo"
+	for _, extra := range [][]string{nil, {"--json"}} {
+		out, err := execute(t, append([]string{"approve", "--id", mr.Id}, extra...)...)
+		if err != nil || !strings.Contains(out, result.HeadOid) {
+			t.Fatalf("unguarded approval: %q, %v", out, err)
+		}
+	}
+	if unguardedApprovals != 2 || approvals != 7 {
+		t.Fatalf("wrong approval counts: guarded %d, unguarded %d", approvals, unguardedApprovals)
+	}
 }
 
 func TestApprovalFlagsFailBeforeCallingAPI(t *testing.T) {
 	t.Chdir(t.TempDir())
 	apiServer(t)
 	for _, args := range [][]string{
-		{"approve", "--id", "mr_1"},
 		{"approve", "--id", "mr_1", "--expected-head-oid", "abc"},
 		{"approve", "feature", "--expected-head-oid", ""},
 		{"approve", "feature", "--id", "mr_1", "--withdraw"},
