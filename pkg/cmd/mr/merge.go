@@ -105,7 +105,10 @@ func newMerge(o *options) *cobra.Command {
 			if mr == nil || mr.Id == "" || mr.State != code.MergeRequest_STATE_MERGED || mr.MergeCommitOid == "" {
 				return fmt.Errorf("API returned no completed merge result")
 			}
-			if t.id != "" && (mr.Id != t.id || mr.HeadOid != head || mr.BaseRef != expectedBaseRef || (o.repo != "" && mr.RepositoryId != o.repo)) {
+			if baseRef != nil && mr.BaseRef != *baseRef {
+				return fmt.Errorf("API returned a merge into %q instead of %q; inspect the merge request before retrying", mr.BaseRef, *baseRef)
+			}
+			if t.id != "" && (mr.Id != t.id || mr.HeadOid != head || (o.repo != "" && mr.RepositoryId != o.repo)) {
 				return fmt.Errorf("API returned a different merge result; inspect merge request %s before retrying", t.id)
 			}
 			if o.json {
