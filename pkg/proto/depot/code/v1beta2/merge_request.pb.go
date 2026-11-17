@@ -3065,6 +3065,7 @@ type ApproveMergeRequestAtRevisionRequest struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
+	// Unique identifier for the merge request. Returned by `GetMergeRequest` and `ListMergeRequests`.
 	MergeRequestId string `protobuf:"bytes,1,opt,name=merge_request_id,json=mergeRequestId,proto3" json:"merge_request_id,omitempty"`
 	// Required full lowercase hexadecimal SHA-1 or SHA-256 of the reviewed head.
 	ExpectedHeadOid string `protobuf:"bytes,2,opt,name=expected_head_oid,json=expectedHeadOid,proto3" json:"expected_head_oid,omitempty"`

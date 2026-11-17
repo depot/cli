@@ -534,6 +534,7 @@ message ApproveMergeRequestRequest {
 }
 
 message ApproveMergeRequestAtRevisionRequest {
+  // Unique identifier for the merge request. Returned by `GetMergeRequest` and `ListMergeRequests`.
   string merge_request_id = 1;
   // Required full lowercase hexadecimal SHA-1 or SHA-256 of the reviewed head.
   string expected_head_oid = 2;
