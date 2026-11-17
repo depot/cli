@@ -8,7 +8,6 @@ import (
 	"github.com/depot/cli/pkg/api"
 	code "github.com/depot/cli/pkg/proto/depot/code/v1beta2"
 	"github.com/spf13/cobra"
-	"google.golang.org/protobuf/proto"
 )
 
 type anchorFlags struct {
@@ -62,6 +61,12 @@ func (a *anchorFlags) read(cmd *cobra.Command) (*code.MergeRequestCommentAnchor,
 	return &code.MergeRequestCommentAnchor{Path: a.path, Side: side, StartLine: start, EndLine: a.line, HeadOid: a.head, BaseOid: a.base}, nil
 }
 
+func sameCommentAnchor(a, b *code.MergeRequestCommentAnchor) bool {
+	return a.GetPath() == b.GetPath() && a.GetSide() == b.GetSide() &&
+		a.GetStartLine() == b.GetStartLine() && a.GetEndLine() == b.GetEndLine() &&
+		a.GetHeadOid() == b.GetHeadOid() && a.GetBaseOid() == b.GetBaseOid()
+}
+
 func newComment(o *options) *cobra.Command {
 	var body bodyFlags
 	var t target
@@ -105,7 +110,7 @@ func newComment(o *options) *cobra.Command {
 				return err
 			}
 			c := resp.Msg.Comment
-			if c == nil || c.Id == "" || c.MergeRequestId != mr.Id || !proto.Equal(c.Anchor, a) {
+			if c == nil || c.Id == "" || c.MergeRequestId != mr.Id || !sameCommentAnchor(c.Anchor, a) {
 				return fmt.Errorf("API did not confirm the requested comment; inspect the merge request before retrying")
 			}
 			if o.json {

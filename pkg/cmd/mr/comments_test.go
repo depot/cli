@@ -24,7 +24,13 @@ func TestCommentByIDPreservesBodyAndReviewedAnchorWithoutCheckout(t *testing.T) 
 	var saved *code.MergeRequestComment
 	rpc(t, mux, codev1beta2connect.MergeRequestServiceCreateMergeRequestCommentProcedure, func(req *code.CreateMergeRequestCommentRequest) (*code.CreateMergeRequestCommentResponse, error) {
 		saved = &code.MergeRequestComment{Id: "mrc_1", MergeRequestId: req.MergeRequestId, Body: req.Body, Anchor: req.Anchor}
-		return &code.CreateMergeRequestCommentResponse{Comment: saved}, nil
+		returned := proto.Clone(saved).(*code.MergeRequestComment)
+		if returned.Anchor == nil {
+			returned.Anchor = &code.MergeRequestCommentAnchor{}
+		} else {
+			returned.Anchor.ProtoReflect().SetUnknown([]byte{0x98, 0x06, 0x01})
+		}
+		return &code.CreateMergeRequestCommentResponse{Comment: returned}, nil
 	})
 	for _, side := range []string{"", "old", "new"} {
 		args := []string{"comment", "--id", "mr_1", "--body-file", "-", "--json", "--repo", "repo", "--org", "test-org", "--token", "local-test-token"}

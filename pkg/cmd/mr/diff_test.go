@@ -253,7 +253,7 @@ func TestDiffNamesUsesCurrentBranchAndCommitUsesFirstParent(t *testing.T) {
 	if err = json.Unmarshal([]byte(out), &page); err != nil {
 		t.Fatal(err)
 	}
-	if page.HeadOid != selected || page.BaseOid != "" || len(page.Files) != 0 {
+	if page.HeadOid != selected || page.BaseOid != "" || len(page.Files) != 0 || strings.Contains(out, `"anchorBaseOid"`) {
 		t.Fatal(out)
 	}
 }
