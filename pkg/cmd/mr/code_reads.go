@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/depot/cli/pkg/api"
 	code "github.com/depot/cli/pkg/proto/depot/code/v1beta2"
@@ -158,6 +159,9 @@ func newCommits(o *options) *cobra.Command {
 			}
 			page := commitsJSON{MergeRequestID: c.mr.Id, RepositoryID: c.mr.RepositoryId, HeadOid: hexOID(r.HeadOid), BaseOid: hexOID(r.ExcludeReachableFromOid), Commits: []commitJSON{}, NextPageToken: r.NextPageToken}
 			for _, v := range r.Commits {
+				if o.json && (!utf8.Valid(v.Message) || !utf8.Valid(v.GetAuthor().GetName()) || !utf8.Valid(v.GetAuthor().GetEmail())) {
+					return fmt.Errorf("commit %s contains non-UTF-8 metadata; JSON output is unavailable", hexOID(v.Oid))
+				}
 				item := commitJSON{Oid: hexOID(v.Oid), Message: string(v.Message), AuthorName: string(v.GetAuthor().GetName()), AuthorEmail: string(v.GetAuthor().GetEmail()), ParentOids: []string{}}
 				for _, p := range v.ParentOids {
 					item.ParentOids = append(item.ParentOids, hexOID(p))
@@ -175,7 +179,7 @@ func newCommits(o *options) *cobra.Command {
 				return writeCodeJSON(cmd, page)
 			}
 			for _, v := range page.Commits {
-				if _, err = fmt.Fprintf(cmd.OutOrStdout(), "%s %s\n", v.Oid, strings.SplitN(v.Message, "\n", 2)[0]); err != nil {
+				if _, err = fmt.Fprintf(cmd.OutOrStdout(), "%s %s\n", v.Oid, printable(strings.SplitN(v.Message, "\n", 2)[0])); err != nil {
 					return err
 				}
 			}

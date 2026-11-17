@@ -114,6 +114,7 @@ func TestCommitsContinuesEmptyPages(t *testing.T) {
 	rpc(t, mux, codev1beta2connect.MergeRequestServiceGetMergeRequestProcedure, func(*code.GetMergeRequestRequest) (*code.GetMergeRequestResponse, error) {
 		return &code.GetMergeRequestResponse{MergeRequest: mr}, nil
 	})
+	message := "Last café commit\x1b[2J\u009b31m\r\b\u202e\u2028\n\nBody"
 	calls := 0
 	rpc(t, mux, codev1beta2connect.CodeServiceListCommitsProcedure, func(r *code.ListCommitsRequest) (*code.ListCommitsResponse, error) {
 		calls++
@@ -123,7 +124,7 @@ func TestCommitsContinuesEmptyPages(t *testing.T) {
 		res := &code.ListCommitsResponse{HeadOid: testOID(head), ExcludeReachableFromOid: testOID(base), NextPageToken: "continue"}
 		if r.PageToken != "" {
 			res.NextPageToken = ""
-			res.Commits = []*code.Commit{{Oid: testOID(head), Message: []byte("Last commit\n\nBody")}}
+			res.Commits = []*code.Commit{{Oid: testOID(head), Message: []byte(message)}}
 		}
 		return res, nil
 	})
@@ -131,8 +132,19 @@ func TestCommitsContinuesEmptyPages(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if calls != 2 || !strings.Contains(out, "Last commit") {
+	if calls != 2 || out != head+" Last café commit [2J 31m    \n" {
 		t.Fatalf("lost commits: %s (%d calls)", out, calls)
+	}
+	out, err = execute(t, "commits", "--id", "mr_1", "--json", "--page-token", "continue")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var page commitsJSON
+	if err = json.Unmarshal([]byte(out), &page); err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Commits) != 1 || page.Commits[0].Message != message || strings.ContainsRune(out, '\x1b') {
+		t.Fatalf("JSON did not preserve the escaped message: %q", out)
 	}
 }
 
@@ -266,6 +278,37 @@ func TestFileRefusesOversizedOrIncompleteBlob(t *testing.T) {
 			out, err := execute(t, "file", "--id", "mr_1", "--path", "a.txt", "--json")
 			if err == nil || out != "" {
 				t.Fatalf("partial blob reported as complete: %s %v", out, err)
+			}
+		})
+	}
+}
+
+func TestCommitsJSONRefusesInvalidUTF8(t *testing.T) {
+	for _, field := range []string{"message", "author name", "author email"} {
+		t.Run(field, func(t *testing.T) {
+			t.Chdir(t.TempDir())
+			mux := apiServer(t)
+			head, base := strings.Repeat("a", 40), strings.Repeat("b", 40)
+			mr := fixture(head)
+			mr.BaseOid = base
+			rpc(t, mux, codev1beta2connect.MergeRequestServiceGetMergeRequestProcedure, func(*code.GetMergeRequestRequest) (*code.GetMergeRequestResponse, error) {
+				return &code.GetMergeRequestResponse{MergeRequest: mr}, nil
+			})
+			commit := &code.Commit{Oid: testOID(head), Message: []byte("Valid"), Author: &code.Commit_CommitIdentity{Name: []byte("René"), Email: []byte("author@example.com")}}
+			switch field {
+			case "message":
+				commit.Message = []byte{0xff}
+			case "author name":
+				commit.Author.Name = []byte{0xff}
+			case "author email":
+				commit.Author.Email = []byte{0xff}
+			}
+			rpc(t, mux, codev1beta2connect.CodeServiceListCommitsProcedure, func(*code.ListCommitsRequest) (*code.ListCommitsResponse, error) {
+				return &code.ListCommitsResponse{HeadOid: testOID(head), ExcludeReachableFromOid: testOID(base), Commits: []*code.Commit{commit}}, nil
+			})
+			out, err := execute(t, "commits", "--id", "mr_1", "--json")
+			if err == nil || !strings.Contains(err.Error(), "non-UTF-8") || out != "" {
+				t.Fatalf("silently altered %s: output=%q err=%v", field, out, err)
 			}
 		})
 	}
