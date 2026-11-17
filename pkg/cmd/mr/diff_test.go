@@ -66,8 +66,8 @@ func TestDiffRecordedRevisionsAndPages(t *testing.T) {
 		t.Fatal(err)
 	}
 	var page struct {
-		HeadOid, BaseOid, NextPageToken string
-		Files                           []struct {
+		HeadOid, BaseOid, AnchorBaseOid, NextPageToken string
+		Files                                          []struct {
 			Path, Patch, ContentKind string
 			Additions                *int
 		}
@@ -75,7 +75,7 @@ func TestDiffRecordedRevisionsAndPages(t *testing.T) {
 	if err = json.Unmarshal([]byte(out), &page); err != nil {
 		t.Fatal(err)
 	}
-	if calls != 1 || page.HeadOid != head || page.BaseOid != ancestor || page.NextPageToken != "next" || len(page.Files) != 1 || page.Files[0].Additions == nil || *page.Files[0].Additions != 1 {
+	if calls != 1 || page.HeadOid != head || page.AnchorBaseOid != base || page.BaseOid != ancestor || page.NextPageToken != "next" || len(page.Files) != 1 || page.Files[0].Additions == nil || *page.Files[0].Additions != 1 {
 		t.Fatalf("bad JSON page: %s", out)
 	}
 	out, err = execute(t, "diff", "--id", "mr_1", "--json", "--page-token", page.NextPageToken)

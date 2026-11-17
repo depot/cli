@@ -140,6 +140,8 @@ message MergeRequestComment {
   // When and by whom the thread was resolved. Set only on the comment that started a thread, while it is resolved.
   google.protobuf.Timestamp resolved_at = 61;
   MergeRequestActor resolved_by = 62;
+  // Whether the caller can edit this comment. Unset when not evaluated.
+  optional bool can_edit = 63;
 }
 
 // Lines of one file in the diff. Outdated once a commit differs from the merge request's `headOid` or `baseOid`.
