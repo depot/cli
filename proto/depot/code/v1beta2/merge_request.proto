@@ -448,6 +448,9 @@ message MergeMergeRequestWithMethodRequest {
   // Required. How the source branch is merged into the destination branch.
   // An unset or unknown value returns InvalidArgument without merging.
   Method method = 5;
+  // Expected destination branch name. For example, "main". A mismatch with the merge request's destination
+  // branch returns Aborted without merging. Leave unset to merge into the merge request's current destination.
+  optional string expected_base_ref = 6;
 }
 
 message MergeMergeRequestWithMethodResponse {

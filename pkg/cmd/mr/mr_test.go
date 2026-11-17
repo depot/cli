@@ -167,6 +167,14 @@ func TestMergeUsesSelectedLocalBranchAndRefusesStaleHead(t *testing.T) {
 		mr.State, mr.MergeCommitOid = code.MergeRequest_STATE_MERGED, strings.Repeat("a", 40)
 		return &code.MergeMergeRequestResponse{MergeRequest: mr}, nil
 	})
+	rpc(t, mux, codev1beta2connect.MergeRequestServiceMergeMergeRequestWithMethodProcedure, func(req *code.MergeMergeRequestWithMethodRequest) (*code.MergeMergeRequestWithMethodResponse, error) {
+		if req.GetExpectedBaseRef() != "main" {
+			t.Errorf("missing destination guard: %v", req)
+		}
+		mr := fixture(head)
+		mr.State, mr.MergeCommitOid, mr.BaseRef = code.MergeRequest_STATE_MERGED, strings.Repeat("a", 40), "production"
+		return &code.MergeMergeRequestWithMethodResponse{MergeRequest: mr}, nil
+	})
 	out, err := execute(t, "merge", "feature", "--json")
 	if connect.CodeOf(err) != connect.CodeAborted || !strings.Contains(err.Error(), "head branch moved") || out != "" || merged {
 		t.Fatalf("stale head should fail with no success output: %q %v", out, err)
@@ -179,6 +187,10 @@ func TestMergeUsesSelectedLocalBranchAndRefusesStaleHead(t *testing.T) {
 	out, err = execute(t, "merge", "feature", "--json")
 	if err != nil || !json.Valid([]byte(out)) || !strings.Contains(out, "mergeCommitOid") {
 		t.Fatalf("merge JSON: %q %v", out, err)
+	}
+	out, err = execute(t, "merge", "feature", "--expected-base-ref", "main", "--json")
+	if err == nil || !strings.Contains(err.Error(), "instead of") || out != "" {
+		t.Fatalf("unexpected merge destination must not report success: %q %v", out, err)
 	}
 }
 
