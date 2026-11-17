@@ -1075,7 +1075,7 @@ enum Forge {
 
 // Selects a single attempt without switching to a newer retry.
 message GetJobAttemptStepsRequest {
-  // Unique identifier for the job attempt. Returned by `GetJob`, `GetAttempt`, and `GetRun`.
+  // Unique identifier for the job attempt. Returned by `GetJob`, `GetAttempt`, and `GetRunStatus`.
   string attempt_id = 1;
 }
 

@@ -32,7 +32,7 @@ func NewCmdSteps() *cobra.Command {
 			if orgID == "" {
 				orgID = config.GetCurrentOrganization()
 			}
-			tokenVal, err := helpers.ResolveOrgAuth(cmd.Context(), token)
+			tokenVal, err := helpers.ResolveTurnReadAuth(cmd.Context(), token)
 			if err != nil {
 				return err
 			}

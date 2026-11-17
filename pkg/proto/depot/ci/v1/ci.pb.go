@@ -7600,7 +7600,7 @@ type GetJobAttemptStepsRequest struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	// Unique identifier for the job attempt. Returned by `GetJob`, `GetAttempt`, and `GetRun`.
+	// Unique identifier for the job attempt. Returned by `GetJob`, `GetAttempt`, and `GetRunStatus`.
 	AttemptId string `protobuf:"bytes,1,opt,name=attempt_id,json=attemptId,proto3" json:"attempt_id,omitempty"`
 }
 
