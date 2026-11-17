@@ -3,12 +3,12 @@ package usage
 import (
 	"context"
 	"fmt"
+	"os"
 	"time"
 
 	usagev1 "buf.build/gen/go/depot/api/protocolbuffers/go/depot/core/v1"
 	"connectrpc.com/connect"
 	"github.com/depot/cli/pkg/api"
-	"github.com/depot/cli/pkg/helpers"
 	"github.com/spf13/cobra"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
@@ -77,7 +77,10 @@ func run(cmd *cobra.Command, kind string, opts options) error {
 	if err := validate(kind, opts); err != nil {
 		return err
 	}
-	token := helpers.ResolveStaticOrgAuth(opts.token)
+	token := opts.token
+	if token == "" {
+		token = os.Getenv("DEPOT_TOKEN")
+	}
 	if token == "" {
 		return fmt.Errorf("missing organization API token: set DEPOT_TOKEN or pass --token (read-only organization tokens are supported)")
 	}

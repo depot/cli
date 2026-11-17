@@ -9,8 +9,8 @@ require (
 )
 
 require (
-	buf.build/gen/go/depot/api/connectrpc/go v1.15.0-20261103164121-2ae2cc965839.1 // indirect
-	buf.build/gen/go/depot/api/protocolbuffers/go v1.32.0-20261103164121-2ae2cc965839.1 // indirect
+	buf.build/gen/go/depot/api/connectrpc/go v1.15.0-20261104122729-5e103f054acb.1 // indirect
+	buf.build/gen/go/depot/api/protocolbuffers/go v1.32.0-20261104122729-5e103f054acb.1 // indirect
 	charm.land/bubbles/v2 v2.0.0 // indirect
 	charm.land/bubbletea/v2 v2.0.2 // indirect
 	charm.land/huh/v2 v2.0.0 // indirect

@@ -6,11 +6,13 @@ import (
 	"encoding/json"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"buf.build/gen/go/depot/api/connectrpc/go/depot/core/v1/corev1connect"
 	usagev1 "buf.build/gen/go/depot/api/protocolbuffers/go/depot/core/v1"
 	"connectrpc.com/connect"
+	"github.com/spf13/viper"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
 )
@@ -136,6 +138,32 @@ func TestRejectedCredentialsDoNotProduceUsageJSON(t *testing.T) {
 			out, err := execute("series", "--token", "explicit-org-token")
 			if connect.CodeOf(err) != code || out != "" {
 				t.Fatalf("output=%q error=%v", out, err)
+			}
+		})
+	}
+}
+
+func TestImplicitCredentialsRequireOrganizationTokenWithoutRequest(t *testing.T) {
+	for _, personalToken := range []string{"personal-login-token", ""} {
+		t.Run("personal-token="+personalToken, func(t *testing.T) {
+			var requests atomic.Int32
+			server(t, usageHandler{series: func(_ context.Context, _ *connect.Request[usagev1.GetOrganizationUsageSeriesRequest]) (*connect.Response[usagev1.GetOrganizationUsageSeriesResponse], error) {
+				requests.Add(1)
+				return nil, connect.NewError(connect.CodeUnauthenticated, nil)
+			}})
+			t.Setenv("DEPOT_TOKEN", "")
+			t.Setenv("DEPOT_JIT_TOKEN", "jit-token")
+			t.Setenv("DEPOT_CACHE_TOKEN", "cache-token")
+			previous := viper.Get("api_token")
+			viper.Set("api_token", personalToken)
+			t.Cleanup(func() { viper.Set("api_token", previous) })
+
+			out, err := execute("series")
+			if err == nil || !strings.Contains(err.Error(), "set DEPOT_TOKEN or pass --token") || out != "" {
+				t.Fatalf("expected token guidance and no output: output=%q error=%v", out, err)
+			}
+			if requests.Load() != 0 {
+				t.Fatal("sent an implicit credential to the usage API")
 			}
 		})
 	}
