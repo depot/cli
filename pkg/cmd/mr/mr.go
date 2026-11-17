@@ -37,7 +37,7 @@ func NewCmdMR() *cobra.Command {
 	cmd.AddCommand(newCreate(o), newView(o), newMerge(o), newApprove(o), newComment(o), newList(o))
 	cmd.AddCommand(newDiff(o), newCommits(o), newFile(o))
 	cmd.AddCommand(newEdit(o), newClose(o), newReopen(o))
-	cmd.AddCommand(newThreads(o), newReply(o), newResolve(o, true), newResolve(o, false))
+	cmd.AddCommand(newEditComment(o), newDeleteComment(o), newThreads(o), newReply(o), newResolve(o, true), newResolve(o, false))
 	return cmd
 }
 
@@ -389,46 +389,5 @@ func newView(o *options) *cobra.Command {
 		},
 	}
 	t.register(cmd)
-	return cmd
-}
-
-func newComment(o *options) *cobra.Command {
-	var flags bodyFlags
-	cmd := &cobra.Command{Use: "comment [branch] --body <text>", Short: "Post a conversation comment", Args: cobra.MaximumNArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			body, _, err := flags.read(cmd)
-			if err != nil {
-				return err
-			}
-			if strings.TrimSpace(body) == "" {
-				return fmt.Errorf("--body or --body-file is required and must not be blank")
-			}
-			name, err := branch(cmd, args)
-			if err != nil {
-				return err
-			}
-			if err := o.authenticate(cmd); err != nil {
-				return err
-			}
-			mr, err := o.getOpenOrRefuse(cmd, name)
-			if err != nil {
-				return err
-			}
-			resp, err := api.NewMergeRequestClient().CreateMergeRequestComment(cmd.Context(), request(o, &code.CreateMergeRequestCommentRequest{MergeRequestId: mr.MergeRequest.Id, Body: body}))
-			if err != nil {
-				return err
-			}
-			comment := resp.Msg.Comment
-			if comment == nil || comment.Id == "" {
-				return fmt.Errorf("API returned no comment")
-			}
-			if o.json {
-				return o.writeJSON(cmd, resp.Msg)
-			}
-			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Commented on %s: %s\n", comment.MergeRequestId, comment.Id)
-			return err
-		},
-	}
-	flags.register(cmd, "Comment text (required unless --body-file is set)")
 	return cmd
 }

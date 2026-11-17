@@ -27,6 +27,7 @@ type diffJSON struct {
 	RepositoryID   string         `json:"repositoryId"`
 	HeadOid        string         `json:"headOid"`
 	BaseOid        string         `json:"baseOid"`
+	AnchorBaseOid  string         `json:"anchorBaseOid,omitempty"`
 	Files          []diffFileJSON `json:"files"`
 	NextPageToken  string         `json:"nextPageToken"`
 }
@@ -167,6 +168,9 @@ func boolInt(v bool) int {
 }
 func readDiffPage(cmd *cobra.Command, o *options, c comparison, f comparisonFlags, path string, context uint32, namesOnly, patch bool) (diffJSON, error) {
 	page := diffJSON{MergeRequestID: c.mr.Id, RepositoryID: c.mr.RepositoryId, Files: []diffFileJSON{}}
+	if f.commit == "" {
+		page.AnchorBaseOid = c.mr.BaseOid
+	}
 	if namesOnly {
 		res, err := api.NewCodeClient().CompareCommits(cmd.Context(), request(o, &code.CompareCommitsRequest{RepositoryId: c.mr.RepositoryId, HeadOid: c.head, Base: c.base, PageSize: f.limit, PageToken: f.pageToken}))
 		if err != nil {
