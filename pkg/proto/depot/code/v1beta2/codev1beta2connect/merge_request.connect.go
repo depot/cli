@@ -36,6 +36,15 @@ const (
 	// MergeRequestServiceGetViewerProcedure is the fully-qualified name of the MergeRequestService's
 	// GetViewer RPC.
 	MergeRequestServiceGetViewerProcedure = "/depot.code.v1beta2.MergeRequestService/GetViewer"
+	// MergeRequestServiceSubmitMergeRequestReviewProcedure is the fully-qualified name of the
+	// MergeRequestService's SubmitMergeRequestReview RPC.
+	MergeRequestServiceSubmitMergeRequestReviewProcedure = "/depot.code.v1beta2.MergeRequestService/SubmitMergeRequestReview"
+	// MergeRequestServiceListMergeRequestReviewsProcedure is the fully-qualified name of the
+	// MergeRequestService's ListMergeRequestReviews RPC.
+	MergeRequestServiceListMergeRequestReviewsProcedure = "/depot.code.v1beta2.MergeRequestService/ListMergeRequestReviews"
+	// MergeRequestServiceWithdrawMergeRequestReviewProcedure is the fully-qualified name of the
+	// MergeRequestService's WithdrawMergeRequestReview RPC.
+	MergeRequestServiceWithdrawMergeRequestReviewProcedure = "/depot.code.v1beta2.MergeRequestService/WithdrawMergeRequestReview"
 	// MergeRequestServiceBeginMergeRequestAssetUploadProcedure is the fully-qualified name of the
 	// MergeRequestService's BeginMergeRequestAssetUpload RPC.
 	MergeRequestServiceBeginMergeRequestAssetUploadProcedure = "/depot.code.v1beta2.MergeRequestService/BeginMergeRequestAssetUpload"
@@ -102,6 +111,13 @@ const (
 type MergeRequestServiceClient interface {
 	// Reads the authenticated user's identity in the selected organization. Requires a user credential.
 	GetViewer(context.Context, *connect.Request[v1beta2.GetViewerRequest]) (*connect.Response[v1beta2.GetViewerResponse], error)
+	// Submits a human review of the exact head. Reusing a request key returns the original review without applying it again.
+	// Approve and request-changes replace the caller's prior verdict; comment preserves it. Request-changes does not block merging.
+	SubmitMergeRequestReview(context.Context, *connect.Request[v1beta2.SubmitMergeRequestReviewRequest]) (*connect.Response[v1beta2.SubmitMergeRequestReviewResponse], error)
+	// Lists human review history, including replaced and withdrawn reviews, oldest first.
+	ListMergeRequestReviews(context.Context, *connect.Request[v1beta2.ListMergeRequestReviewsRequest]) (*connect.Response[v1beta2.ListMergeRequestReviewsResponse], error)
+	// Withdraws the caller's own review without restoring an earlier verdict. History is retained.
+	WithdrawMergeRequestReview(context.Context, *connect.Request[v1beta2.WithdrawMergeRequestReviewRequest]) (*connect.Response[v1beta2.WithdrawMergeRequestReviewResponse], error)
 	// Starts or resumes a private draft upload and returns a signed storage URL to PUT the file to.
 	// Reuse `uploadKey` to retry: an unfinished upload gets a fresh URL, a finished one returns `uploaded`.
 	BeginMergeRequestAssetUpload(context.Context, *connect.Request[v1beta2.BeginMergeRequestAssetUploadRequest]) (*connect.Response[v1beta2.BeginMergeRequestAssetUploadResponse], error)
@@ -169,6 +185,24 @@ func NewMergeRequestServiceClient(httpClient connect.HTTPClient, baseURL string,
 			httpClient,
 			baseURL+MergeRequestServiceGetViewerProcedure,
 			connect.WithIdempotency(connect.IdempotencyNoSideEffects),
+			connect.WithClientOptions(opts...),
+		),
+		submitMergeRequestReview: connect.NewClient[v1beta2.SubmitMergeRequestReviewRequest, v1beta2.SubmitMergeRequestReviewResponse](
+			httpClient,
+			baseURL+MergeRequestServiceSubmitMergeRequestReviewProcedure,
+			connect.WithIdempotency(connect.IdempotencyIdempotent),
+			connect.WithClientOptions(opts...),
+		),
+		listMergeRequestReviews: connect.NewClient[v1beta2.ListMergeRequestReviewsRequest, v1beta2.ListMergeRequestReviewsResponse](
+			httpClient,
+			baseURL+MergeRequestServiceListMergeRequestReviewsProcedure,
+			connect.WithIdempotency(connect.IdempotencyNoSideEffects),
+			connect.WithClientOptions(opts...),
+		),
+		withdrawMergeRequestReview: connect.NewClient[v1beta2.WithdrawMergeRequestReviewRequest, v1beta2.WithdrawMergeRequestReviewResponse](
+			httpClient,
+			baseURL+MergeRequestServiceWithdrawMergeRequestReviewProcedure,
+			connect.WithIdempotency(connect.IdempotencyIdempotent),
 			connect.WithClientOptions(opts...),
 		),
 		beginMergeRequestAssetUpload: connect.NewClient[v1beta2.BeginMergeRequestAssetUploadRequest, v1beta2.BeginMergeRequestAssetUploadResponse](
@@ -280,6 +314,9 @@ func NewMergeRequestServiceClient(httpClient connect.HTTPClient, baseURL string,
 // mergeRequestServiceClient implements MergeRequestServiceClient.
 type mergeRequestServiceClient struct {
 	getViewer                       *connect.Client[v1beta2.GetViewerRequest, v1beta2.GetViewerResponse]
+	submitMergeRequestReview        *connect.Client[v1beta2.SubmitMergeRequestReviewRequest, v1beta2.SubmitMergeRequestReviewResponse]
+	listMergeRequestReviews         *connect.Client[v1beta2.ListMergeRequestReviewsRequest, v1beta2.ListMergeRequestReviewsResponse]
+	withdrawMergeRequestReview      *connect.Client[v1beta2.WithdrawMergeRequestReviewRequest, v1beta2.WithdrawMergeRequestReviewResponse]
 	beginMergeRequestAssetUpload    *connect.Client[v1beta2.BeginMergeRequestAssetUploadRequest, v1beta2.BeginMergeRequestAssetUploadResponse]
 	completeMergeRequestAssetUpload *connect.Client[v1beta2.CompleteMergeRequestAssetUploadRequest, v1beta2.CompleteMergeRequestAssetUploadResponse]
 	getMergeRequestAssetURL         *connect.Client[v1beta2.GetMergeRequestAssetURLRequest, v1beta2.GetMergeRequestAssetURLResponse]
@@ -305,6 +342,22 @@ type mergeRequestServiceClient struct {
 // GetViewer calls depot.code.v1beta2.MergeRequestService.GetViewer.
 func (c *mergeRequestServiceClient) GetViewer(ctx context.Context, req *connect.Request[v1beta2.GetViewerRequest]) (*connect.Response[v1beta2.GetViewerResponse], error) {
 	return c.getViewer.CallUnary(ctx, req)
+}
+
+// SubmitMergeRequestReview calls depot.code.v1beta2.MergeRequestService.SubmitMergeRequestReview.
+func (c *mergeRequestServiceClient) SubmitMergeRequestReview(ctx context.Context, req *connect.Request[v1beta2.SubmitMergeRequestReviewRequest]) (*connect.Response[v1beta2.SubmitMergeRequestReviewResponse], error) {
+	return c.submitMergeRequestReview.CallUnary(ctx, req)
+}
+
+// ListMergeRequestReviews calls depot.code.v1beta2.MergeRequestService.ListMergeRequestReviews.
+func (c *mergeRequestServiceClient) ListMergeRequestReviews(ctx context.Context, req *connect.Request[v1beta2.ListMergeRequestReviewsRequest]) (*connect.Response[v1beta2.ListMergeRequestReviewsResponse], error) {
+	return c.listMergeRequestReviews.CallUnary(ctx, req)
+}
+
+// WithdrawMergeRequestReview calls
+// depot.code.v1beta2.MergeRequestService.WithdrawMergeRequestReview.
+func (c *mergeRequestServiceClient) WithdrawMergeRequestReview(ctx context.Context, req *connect.Request[v1beta2.WithdrawMergeRequestReviewRequest]) (*connect.Response[v1beta2.WithdrawMergeRequestReviewResponse], error) {
+	return c.withdrawMergeRequestReview.CallUnary(ctx, req)
 }
 
 // BeginMergeRequestAssetUpload calls
@@ -421,6 +474,13 @@ func (c *mergeRequestServiceClient) ListMergeRequests(ctx context.Context, req *
 type MergeRequestServiceHandler interface {
 	// Reads the authenticated user's identity in the selected organization. Requires a user credential.
 	GetViewer(context.Context, *connect.Request[v1beta2.GetViewerRequest]) (*connect.Response[v1beta2.GetViewerResponse], error)
+	// Submits a human review of the exact head. Reusing a request key returns the original review without applying it again.
+	// Approve and request-changes replace the caller's prior verdict; comment preserves it. Request-changes does not block merging.
+	SubmitMergeRequestReview(context.Context, *connect.Request[v1beta2.SubmitMergeRequestReviewRequest]) (*connect.Response[v1beta2.SubmitMergeRequestReviewResponse], error)
+	// Lists human review history, including replaced and withdrawn reviews, oldest first.
+	ListMergeRequestReviews(context.Context, *connect.Request[v1beta2.ListMergeRequestReviewsRequest]) (*connect.Response[v1beta2.ListMergeRequestReviewsResponse], error)
+	// Withdraws the caller's own review without restoring an earlier verdict. History is retained.
+	WithdrawMergeRequestReview(context.Context, *connect.Request[v1beta2.WithdrawMergeRequestReviewRequest]) (*connect.Response[v1beta2.WithdrawMergeRequestReviewResponse], error)
 	// Starts or resumes a private draft upload and returns a signed storage URL to PUT the file to.
 	// Reuse `uploadKey` to retry: an unfinished upload gets a fresh URL, a finished one returns `uploaded`.
 	BeginMergeRequestAssetUpload(context.Context, *connect.Request[v1beta2.BeginMergeRequestAssetUploadRequest]) (*connect.Response[v1beta2.BeginMergeRequestAssetUploadResponse], error)
@@ -484,6 +544,24 @@ func NewMergeRequestServiceHandler(svc MergeRequestServiceHandler, opts ...conne
 		MergeRequestServiceGetViewerProcedure,
 		svc.GetViewer,
 		connect.WithIdempotency(connect.IdempotencyNoSideEffects),
+		connect.WithHandlerOptions(opts...),
+	)
+	mergeRequestServiceSubmitMergeRequestReviewHandler := connect.NewUnaryHandler(
+		MergeRequestServiceSubmitMergeRequestReviewProcedure,
+		svc.SubmitMergeRequestReview,
+		connect.WithIdempotency(connect.IdempotencyIdempotent),
+		connect.WithHandlerOptions(opts...),
+	)
+	mergeRequestServiceListMergeRequestReviewsHandler := connect.NewUnaryHandler(
+		MergeRequestServiceListMergeRequestReviewsProcedure,
+		svc.ListMergeRequestReviews,
+		connect.WithIdempotency(connect.IdempotencyNoSideEffects),
+		connect.WithHandlerOptions(opts...),
+	)
+	mergeRequestServiceWithdrawMergeRequestReviewHandler := connect.NewUnaryHandler(
+		MergeRequestServiceWithdrawMergeRequestReviewProcedure,
+		svc.WithdrawMergeRequestReview,
+		connect.WithIdempotency(connect.IdempotencyIdempotent),
 		connect.WithHandlerOptions(opts...),
 	)
 	mergeRequestServiceBeginMergeRequestAssetUploadHandler := connect.NewUnaryHandler(
@@ -593,6 +671,12 @@ func NewMergeRequestServiceHandler(svc MergeRequestServiceHandler, opts ...conne
 		switch r.URL.Path {
 		case MergeRequestServiceGetViewerProcedure:
 			mergeRequestServiceGetViewerHandler.ServeHTTP(w, r)
+		case MergeRequestServiceSubmitMergeRequestReviewProcedure:
+			mergeRequestServiceSubmitMergeRequestReviewHandler.ServeHTTP(w, r)
+		case MergeRequestServiceListMergeRequestReviewsProcedure:
+			mergeRequestServiceListMergeRequestReviewsHandler.ServeHTTP(w, r)
+		case MergeRequestServiceWithdrawMergeRequestReviewProcedure:
+			mergeRequestServiceWithdrawMergeRequestReviewHandler.ServeHTTP(w, r)
 		case MergeRequestServiceBeginMergeRequestAssetUploadProcedure:
 			mergeRequestServiceBeginMergeRequestAssetUploadHandler.ServeHTTP(w, r)
 		case MergeRequestServiceCompleteMergeRequestAssetUploadProcedure:
@@ -644,6 +728,18 @@ type UnimplementedMergeRequestServiceHandler struct{}
 
 func (UnimplementedMergeRequestServiceHandler) GetViewer(context.Context, *connect.Request[v1beta2.GetViewerRequest]) (*connect.Response[v1beta2.GetViewerResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.code.v1beta2.MergeRequestService.GetViewer is not implemented"))
+}
+
+func (UnimplementedMergeRequestServiceHandler) SubmitMergeRequestReview(context.Context, *connect.Request[v1beta2.SubmitMergeRequestReviewRequest]) (*connect.Response[v1beta2.SubmitMergeRequestReviewResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.code.v1beta2.MergeRequestService.SubmitMergeRequestReview is not implemented"))
+}
+
+func (UnimplementedMergeRequestServiceHandler) ListMergeRequestReviews(context.Context, *connect.Request[v1beta2.ListMergeRequestReviewsRequest]) (*connect.Response[v1beta2.ListMergeRequestReviewsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.code.v1beta2.MergeRequestService.ListMergeRequestReviews is not implemented"))
+}
+
+func (UnimplementedMergeRequestServiceHandler) WithdrawMergeRequestReview(context.Context, *connect.Request[v1beta2.WithdrawMergeRequestReviewRequest]) (*connect.Response[v1beta2.WithdrawMergeRequestReviewResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.code.v1beta2.MergeRequestService.WithdrawMergeRequestReview is not implemented"))
 }
 
 func (UnimplementedMergeRequestServiceHandler) BeginMergeRequestAssetUpload(context.Context, *connect.Request[v1beta2.BeginMergeRequestAssetUploadRequest]) (*connect.Response[v1beta2.BeginMergeRequestAssetUploadResponse], error) {

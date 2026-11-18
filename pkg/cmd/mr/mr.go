@@ -36,7 +36,7 @@ func NewCmdMR() *cobra.Command {
 	cmd.PersistentFlags().StringVar(&o.token, "token", "", "Depot user token (or DEPOT_TOKEN)")
 	cmd.PersistentFlags().BoolVar(&o.json, "json", false, "Print the API response as JSON")
 	cmd.AddCommand(newCreate(o), newView(o), newMerge(o), newApprove(o), newComment(o), newList(o))
-	cmd.AddCommand(newViewer(o))
+	cmd.AddCommand(newViewer(o), newReview(o), newReviews(o), newWithdrawReview(o))
 	cmd.AddCommand(newDiff(o), newCommits(o), newFile(o), newCheckout(o))
 	cmd.AddCommand(newEdit(o), newClose(o), newReopen(o))
 	cmd.AddCommand(newEditComment(o), newDeleteComment(o), newThreads(o), newReply(o), newResolve(o, true), newResolve(o, false))
@@ -85,8 +85,8 @@ func (o *options) login(cmd *cobra.Command) error {
 	// A Dispatch turn can read its member's identity and merge requests, but cannot mutate them.
 	resolve := helpers.ResolveOrgAuth
 	if o.turn = helpers.OnlyATurnToken(o.token); o.turn {
-		if name := cmd.Name(); name != "view" && name != "list" && name != "threads" && name != "viewer" {
-			return fmt.Errorf("depot mr %s cannot be made as an agent turn. `depot mr view`, `list`, `threads` and `viewer` work here. To comment on or change a merge request, use the session's Depot Code tools or ask the person", name)
+		if name := cmd.Name(); name != "view" && name != "list" && name != "threads" && name != "viewer" && name != "reviews" {
+			return fmt.Errorf("depot mr %s cannot be made as an agent turn. `depot mr view`, `list`, `threads`, `viewer` and `reviews` work here. To comment on or change a merge request, use the session's Depot Code tools or ask the person", name)
 		}
 		resolve = helpers.ResolveTurnReadAuth
 	}

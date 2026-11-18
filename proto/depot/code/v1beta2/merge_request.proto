@@ -13,6 +13,20 @@ service MergeRequestService {
     option idempotency_level = NO_SIDE_EFFECTS;
   }
 
+  // Submits a human review of the exact head. Reusing a request key returns the original review without applying it again.
+  // Approve and request-changes replace the caller's prior verdict; comment preserves it. Request-changes does not block merging.
+  rpc SubmitMergeRequestReview(SubmitMergeRequestReviewRequest) returns (SubmitMergeRequestReviewResponse) {
+    option idempotency_level = IDEMPOTENT;
+  }
+  // Lists human review history, including replaced and withdrawn reviews, oldest first.
+  rpc ListMergeRequestReviews(ListMergeRequestReviewsRequest) returns (ListMergeRequestReviewsResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+  // Withdraws the caller's own review without restoring an earlier verdict. History is retained.
+  rpc WithdrawMergeRequestReview(WithdrawMergeRequestReviewRequest) returns (WithdrawMergeRequestReviewResponse) {
+    option idempotency_level = IDEMPOTENT;
+  }
+
   // Starts or resumes a private draft upload and returns a signed storage URL to PUT the file to.
   // Reuse `uploadKey` to retry: an unfinished upload gets a fresh URL, a finished one returns `uploaded`.
   rpc BeginMergeRequestAssetUpload(BeginMergeRequestAssetUploadRequest) returns (BeginMergeRequestAssetUploadResponse) {
@@ -280,6 +294,10 @@ message GetMergeRequestResponse {
   // Actions this credential can perform on this merge request. Older servers leave this unset.
   // Permissions can change; mutations recheck authorization and the current revision.
   MergeRequestViewerPermissions viewer_permissions = 9;
+  // Whether a current human review requests changes to this head. Does not block merging.
+  bool human_changes_requested = 10;
+  // Whether this server can return human review history.
+  bool human_reviews_supported = 11;
 }
 
 // Current state of a Depot CI workflow or an agent check on a commit.
@@ -710,4 +728,57 @@ message MergeRequestViewerPermissions {
   bool can_approve = 8;
   // Whether the caller may withdraw their own approval, if one exists.
   bool can_withdraw_approval = 9;
+  // Whether human review submission is supported and authorized at the current head.
+  bool can_submit_review = 10;
+  bool can_withdraw_review = 11;
 }
+
+message MergeRequestReview {
+  enum Verdict {
+    VERDICT_UNSPECIFIED = 0;
+    VERDICT_COMMENT = 1;
+    VERDICT_APPROVE = 2;
+    VERDICT_REQUEST_CHANGES = 3;
+  }
+  string id = 1;
+  string merge_request_id = 2;
+  MergeRequestActor reviewer = 3;
+  Verdict verdict = 4;
+  string body = 5;
+  string head_oid = 6;
+  google.protobuf.Timestamp created_at = 7;
+  google.protobuf.Timestamp superseded_at = 8;
+  google.protobuf.Timestamp withdrawn_at = 9;
+  bool can_withdraw = 10;
+}
+
+message SubmitMergeRequestReviewRequest {
+  // Unique identifier for the merge request. Returned by `GetMergeRequest` and `ListMergeRequests`.
+  string merge_request_id = 1;
+  // Required lowercase hexadecimal object ID that was reviewed. A moved or deleted head is refused.
+  string expected_head_oid = 2;
+  MergeRequestReview.Verdict verdict = 3;
+  // Required for comment and request-changes. Maximum: 65535 characters.
+  string body = 4;
+  // Required client-generated key, scoped to the user and merge request. Reuse the same key and payload after an uncertain response.
+  // Can contain ASCII letters, digits, hyphens and underscores. Maximum: 128 characters.
+  string request_key = 5;
+}
+message SubmitMergeRequestReviewResponse { MergeRequestReview review = 1; }
+message ListMergeRequestReviewsRequest {
+  string merge_request_id = 1;
+  // Number of reviews per page. Maximum: 100. Default: 50.
+  uint32 page_size = 2;
+  // Token to fetch the next page. Leave empty to fetch the first page.
+  string page_token = 3;
+}
+message ListMergeRequestReviewsResponse {
+  repeated MergeRequestReview reviews = 1;
+  string next_page_token = 2;
+}
+message WithdrawMergeRequestReviewRequest {
+  string merge_request_id = 1;
+  // Unique identifier for the review. Returned by `SubmitMergeRequestReview` and `ListMergeRequestReviews`.
+  string review_id = 2;
+}
+message WithdrawMergeRequestReviewResponse { MergeRequestReview review = 1; }
