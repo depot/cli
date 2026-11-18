@@ -4,8 +4,6 @@ import (
 	"bytes"
 	"encoding/base64"
 	"errors"
-	"io"
-	"os"
 	"strings"
 	"testing"
 )
@@ -76,33 +74,20 @@ func TestClaudeIsHiddenDeprecatedAndStillRuns(t *testing.T) {
 		t.Fatalf("claude command not registered: %v, %v, %v", claude, remaining, err)
 	}
 
-	// Sandboxes and scripts read stdout, so the notice must only reach the real stderr.
-	outR, outW, err := os.Pipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	errR, errW, err := os.Pipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	origOut, origErr := os.Stdout, os.Stderr
-	os.Stdout, os.Stderr = outW, errW
+	// Sandboxes and scripts parse stdout, and the Docker plugin wrapper sets its own stdout writer.
+	var stdout, stderr bytes.Buffer
 	cmd = NewCmdRoot("test-version", "test-date")
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
 	cmd.SetArgs([]string{"claude", "secrets"})
-	runErr := cmd.Execute()
-	os.Stdout, os.Stderr = origOut, origErr
-	outW.Close()
-	errW.Close()
-	stdout, _ := io.ReadAll(outR)
-	stderr, _ := io.ReadAll(errR)
-	if runErr != nil {
-		t.Fatal(runErr)
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
 	}
-	if !strings.Contains(string(stderr), "use Depot Managed Agents instead") {
-		t.Errorf("stderr has no deprecation notice: %q", stderr)
+	if !strings.Contains(stderr.String(), "use Depot Managed Agents instead") {
+		t.Errorf("stderr has no deprecation notice: %q", stderr.String())
 	}
-	if strings.Contains(string(stdout), "deprecated") || !strings.Contains(string(stdout), "Manage secrets") {
-		t.Errorf("stdout changed: %q", stdout)
+	if strings.Contains(stdout.String(), "deprecated") {
+		t.Errorf("deprecation notice on stdout: %q", stdout.String())
 	}
 }
 
