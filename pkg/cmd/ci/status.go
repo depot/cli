@@ -52,7 +52,7 @@ Exit with code 0 for a finished run, or code 1 for a failed or cancelled run.`,
 				orgID = config.GetCurrentOrganization()
 			}
 
-			tokenVal, err := helpers.ResolveOrgAuth(ctx, token)
+			tokenVal, err := helpers.ResolveTurnReadAuth(ctx, token)
 			if err != nil {
 				return err
 			}

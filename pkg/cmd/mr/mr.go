@@ -11,6 +11,7 @@ import (
 	"github.com/depot/cli/pkg/helpers"
 	code "github.com/depot/cli/pkg/proto/depot/code/v1beta2"
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 )
@@ -18,32 +19,77 @@ import (
 type options struct {
 	org, token, repo string
 	json             bool
+	// turn is set in a Dispatch sandbox whose only credential is the turn's own: nothing explicit, no login.
+	turn bool
 }
 
 func NewCmdMR() *cobra.Command {
 	o := &options{}
 	cmd := &cobra.Command{
 		Use: "mr", Short: "Manage merge requests", Hidden: true,
-		Long: "Manage merge requests using a user token from depot login.\nPass --repo with the Depot repository ID and --org if it is not the current organization.",
+		Long: "Manage merge requests using a user token from depot login.\nEvery command infers the Depot repository from local Git remotes.\nPass --repo to select a Depot repository ID instead, and --org if it is not the current organization.",
 		RunE: func(cmd *cobra.Command, _ []string) error { return cmd.Help() },
 	}
-	cmd.PersistentFlags().StringVar(&o.repo, "repo", "", "Depot repository ID (required)")
+	cmd.PersistentFlags().StringVar(&o.repo, "repo", "", "Depot repository ID (inferred from Git remotes when omitted)")
 	cmd.PersistentFlags().StringVar(&o.org, "org", "", "Organization ID (defaults to the current organization)")
 	cmd.PersistentFlags().StringVar(&o.token, "token", "", "Depot user token (or DEPOT_TOKEN)")
 	cmd.PersistentFlags().BoolVar(&o.json, "json", false, "Print the API response as JSON")
-	cmd.AddCommand(newCreate(o), newView(o), newMerge(o), newApprove(o), newComment(o))
+	cmd.AddCommand(newCreate(o), newView(o), newMerge(o), newApprove(o), newComment(o), newList(o))
+	cmd.AddCommand(newDiff(o), newCommits(o), newFile(o))
+	cmd.AddCommand(newEdit(o), newClose(o), newReopen(o))
+	cmd.AddCommand(newEditComment(o), newDeleteComment(o), newThreads(o), newReply(o), newResolve(o, true), newResolve(o, false))
 	return cmd
 }
 
+// authenticate resolves the user token and the repository: --repo, or else the checkout's Git remotes.
 func (o *options) authenticate(cmd *cobra.Command) error {
-	if strings.TrimSpace(o.repo) == "" {
-		return fmt.Errorf("--repo is required; provide the Depot repository ID")
+	if err := o.authenticateUser(cmd); err != nil {
+		return err
 	}
+	if o.repo != "" {
+		return nil
+	}
+	if o.turn {
+		return fmt.Errorf("--repo is required in an agent session: pass the Depot repository ID from the repository list this session's Depot Code tools give")
+	}
+	repo, err := o.inferRepository(cmd)
+	if err != nil {
+		return err
+	}
+	o.repo = repo
+	return nil
+}
+
+// authenticateFor skips the repository when the merge request is named by ID: no branch lookup needs it.
+func (o *options) authenticateFor(cmd *cobra.Command, branch string) error {
+	if branch == "" {
+		return o.authenticateUser(cmd)
+	}
+	return o.authenticate(cmd)
+}
+
+func (o *options) authenticateUser(cmd *cobra.Command) error {
+	if cmd.Flags().Changed("repo") && strings.TrimSpace(o.repo) == "" {
+		return fmt.Errorf("--repo must not be blank; provide the Depot repository ID")
+	}
+	return o.login(cmd)
+}
+
+// login is authenticate for the commands that name a comment, which the API finds without a repository.
+func (o *options) login(cmd *cobra.Command) error {
 	if o.org == "" {
 		o.org = config.GetCurrentOrganization()
 	}
+	// The API takes a Dispatch turn's token on the calls of these three commands only (DEP-8674).
+	resolve := helpers.ResolveOrgAuth
+	if o.turn = helpers.OnlyATurnToken(o.token); o.turn {
+		if name := cmd.Name(); name != "view" && name != "list" && name != "threads" {
+			return fmt.Errorf("depot mr %s cannot be made as an agent turn. `depot mr view`, `list` and `threads` work here. To comment on or change a merge request, use the session's Depot Code tools or ask the person", name)
+		}
+		resolve = helpers.ResolveTurnReadAuth
+	}
 	var err error
-	o.token, err = helpers.ResolveOrgAuth(cmd.Context(), o.token)
+	o.token, err = resolve(cmd.Context(), o.token)
 	if err != nil {
 		return err
 	}
@@ -96,10 +142,60 @@ func branch(cmd *cobra.Command, args []string) (string, error) {
 	return name, nil
 }
 
+// get finds the merge request of a branch: the open one, or else the most recently created closed or merged one.
 func (o *options) get(cmd *cobra.Command, name string) (*code.GetMergeRequestResponse, error) {
-	resp, err := api.NewMergeRequestClient().GetMergeRequest(cmd.Context(), request(o, &code.GetMergeRequestRequest{
-		Lookup: &code.GetMergeRequestRequest_Head{Head: &code.GetMergeRequestRequest_HeadRef{RepositoryId: o.repo, HeadRef: name}},
-	}))
+	return o.find(cmd, name, false)
+}
+
+// getOpen finds only the open merge request of a branch: a closed or merged one is not_found.
+func (o *options) getOpen(cmd *cobra.Command, name string) (*code.GetMergeRequestResponse, error) {
+	return o.findOpen(cmd, name, false)
+}
+
+// findOpen is getOpen, plus overlaps when asked.
+func (o *options) findOpen(cmd *cobra.Command, name string, overlaps bool) (*code.GetMergeRequestResponse, error) {
+	resp, err := o.fetch(cmd, &code.GetMergeRequestRequest{Lookup: o.head(name), IncludeOverlaps: overlaps})
+	if err == nil && resp.MergeRequest.State != code.MergeRequest_STATE_OPEN {
+		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("no open merge request for branch %q", name))
+	}
+	return resp, err
+}
+
+func (o *options) head(name string) *code.GetMergeRequestRequest_Head {
+	return &code.GetMergeRequestRequest_Head{Head: &code.GetMergeRequestRequest_HeadRef{RepositoryId: o.repo, HeadRef: name}}
+}
+
+// find is get, plus readiness and overlaps when detail is set.
+func (o *options) find(cmd *cobra.Command, name string, detail bool) (*code.GetMergeRequestResponse, error) {
+	resp, err := o.fetch(cmd, &code.GetMergeRequestRequest{Lookup: o.head(name), IncludeReadiness: detail, IncludeOverlaps: detail})
+	if connect.CodeOf(err) == connect.CodeNotFound {
+		return nil, fmt.Errorf("no merge request found for branch %q in repository %s: %w", name, o.repo, err)
+	}
+	return resp, err
+}
+
+// requireState names the selected merge request when its state prevents the operation.
+func requireState(mr *code.MergeRequest, name string, want code.MergeRequest_State) error {
+	if mr.State == want {
+		return nil
+	}
+	if name == "" {
+		return fmt.Errorf("merge request %s is %s, not %s", mr.Id, stateName(mr.State), stateName(want))
+	}
+	return fmt.Errorf("merge request %s for branch %q is %s, not %s", mr.Id, name, stateName(mr.State), stateName(want))
+}
+
+// getOpenOrRefuse is get for commands that change an open merge request: it names a closed or merged one and stops.
+func (o *options) getOpenOrRefuse(cmd *cobra.Command, name string) (*code.GetMergeRequestResponse, error) {
+	found, err := o.get(cmd, name)
+	if err != nil {
+		return nil, err
+	}
+	return found, requireState(found.MergeRequest, name, code.MergeRequest_STATE_OPEN)
+}
+
+func (o *options) fetch(cmd *cobra.Command, req *code.GetMergeRequestRequest) (*code.GetMergeRequestResponse, error) {
+	resp, err := api.NewMergeRequestClient().GetMergeRequest(cmd.Context(), request(o, req))
 	if err != nil {
 		return nil, err
 	}
@@ -130,7 +226,9 @@ func writeMR(cmd *cobra.Command, mr *code.MergeRequest) error {
 }
 
 func newCreate(o *options) *cobra.Command {
-	var title, body, head string
+	var title, head, base string
+	var body bodyFlags
+	var attachmentPaths []string
 	cmd := &cobra.Command{Use: "create", Short: "Open a merge request for the current branch", Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if strings.TrimSpace(title) == "" {
@@ -144,151 +242,152 @@ func newCreate(o *options) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := o.authenticate(cmd); err != nil {
-				return err
-			}
-			resp, err := api.NewMergeRequestClient().CreateMergeRequest(cmd.Context(), request(o, &code.CreateMergeRequestRequest{
-				RepositoryId: o.repo, HeadRef: name, Title: title, Body: body,
-			}))
+			baseRef, err := baseFlag(cmd, base)
 			if err != nil {
 				return err
 			}
-			if resp.Msg.MergeRequest == nil || resp.Msg.MergeRequest.Id == "" {
-				return fmt.Errorf("API returned no merge request")
+			text, _, err := body.read(cmd)
+			if err != nil {
+				return err
 			}
-			if o.json {
-				return o.writeJSON(cmd, resp.Msg)
+			if err := o.authenticate(cmd); err != nil {
+				return err
 			}
-			return writeMR(cmd, resp.Msg.MergeRequest)
+			assets, err := readAssets(attachmentPaths)
+			if err != nil {
+				return err
+			}
+			req := &code.CreateMergeRequestRequest{RepositoryId: o.repo, HeadRef: name, Title: title, Body: text, BaseRef: baseRef}
+			if len(assets) == 0 {
+				return o.createWith(cmd, req, nil)
+			}
+			// Only an open merge request is reused; a closed or merged one leaves the branch free for a new one.
+			existing, err := o.getOpen(cmd, name)
+			if err == nil {
+				if err := baseMatches(existing.MergeRequest, baseRef); err != nil {
+					return err
+				}
+				return o.attachToExisting(cmd, existing.MergeRequest, assets)
+			}
+			if connect.CodeOf(err) != connect.CodeNotFound {
+				return err
+			}
+			return o.saveWithAssets(cmd, name, "", "merge request was not created", assets, func(uploaded, _ []attachment) error {
+				return o.createWith(cmd, req, uploaded)
+			})
 		},
 	}
 	cmd.Flags().StringVar(&title, "title", "", "Merge request title (required)")
-	cmd.Flags().StringVar(&body, "body", "", "Merge request description")
+	body.register(cmd, "Merge request description")
 	cmd.Flags().StringVar(&head, "head", "", "Source branch (defaults to the current branch)")
+	cmd.Flags().StringVar(&base, "base", "", "Destination branch (defaults to the repository default branch)")
+	cmd.Flags().SetNormalizeFunc(func(_ *pflag.FlagSet, name string) pflag.NormalizedName {
+		if name == "image" {
+			name = "attach"
+		}
+		return pflag.NormalizedName(name)
+	})
+	cmd.Flags().StringArrayVar(&attachmentPaths, "attach", nil, "Attach a file (repeatable; images, video and common document, text, code and archive files, each up to 100 MiB, at most ten per description; --image is an alias)")
 	return cmd
 }
 
+// createWith opens the merge request with the uploaded attachments appended to its description.
+func (o *options) createWith(cmd *cobra.Command, req *code.CreateMergeRequestRequest, uploaded []attachment) error {
+	withRefs := proto.Clone(req).(*code.CreateMergeRequestRequest)
+	for _, attachment := range uploaded {
+		withRefs.Body += attachment.markdown()
+	}
+	resp, err := o.create(cmd, withRefs)
+	if err != nil {
+		return err
+	}
+	// Create returns an MR opened during the uploads unchanged, without the new references.
+	refs := strings.TrimSpace(strings.TrimPrefix(withRefs.Body, req.Body))
+	if !strings.Contains(resp.MergeRequest.Body, refs) {
+		return fmt.Errorf("merge request %s was opened for this branch during the upload and the attachments were not added; run the command again", resp.MergeRequest.Id)
+	}
+	return o.writeCreated(cmd, resp)
+}
+
+// attachToExisting appends attachments to the description of the branch's open
+// merge request. CreateMergeRequest returns that MR unchanged, so it cannot attach them.
+func (o *options) attachToExisting(cmd *cobra.Command, mr *code.MergeRequest, assets []localAsset) error {
+	_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Branch %s already has merge request %s; adding attachments to its description (title and body text are unchanged)\n", mr.HeadRef, mr.Id)
+	unchanged := fmt.Sprintf("merge request %s was not changed", mr.Id)
+	return o.saveWithAssets(cmd, mr.HeadRef, mr.Id, unchanged, assets, func(uploaded, earlier []attachment) error {
+		return o.appendAttachments(cmd, mr, uploaded, earlier)
+	})
+}
+
+// appendAttachments adds uploaded to the description. earlier holds the first
+// upload of the same files, when uploaded are new copies of them.
+func (o *options) appendAttachments(cmd *cobra.Command, mr *code.MergeRequest, uploaded, earlier []attachment) error {
+	// Uploads take a while; append to the description as it is now, not as it was before them.
+	current, err := o.findOpen(cmd, mr.HeadRef, true)
+	if err != nil && connect.CodeOf(err) != connect.CodeNotFound {
+		return fmt.Errorf("attach to merge request %s: %w", mr.Id, err)
+	}
+	if err != nil || current.MergeRequest.Id != mr.Id {
+		return fmt.Errorf("merge request %s is no longer the open merge request for %s; run the command again", mr.Id, mr.HeadRef)
+	}
+	// A repeated upload returns the same URL, so a re-run adds only what is missing.
+	body := current.MergeRequest.Body
+	for index, attachment := range uploaded {
+		attached := strings.Contains(body, attachment.url) || (index < len(earlier) && strings.Contains(body, earlier[index].url))
+		if !attached {
+			body += attachment.markdown()
+		}
+	}
+	if body == current.MergeRequest.Body {
+		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Merge request %s already has these attachments; nothing to add\n", mr.Id)
+		return o.writeCreated(cmd, &code.CreateMergeRequestResponse{MergeRequest: current.MergeRequest, Overlaps: current.Overlaps})
+	}
+	resp, err := api.NewMergeRequestClient().UpdateMergeRequest(cmd.Context(), request(o, &code.UpdateMergeRequestRequest{
+		MergeRequestId: mr.Id, Body: &body,
+	}))
+	if err != nil {
+		return fmt.Errorf("attach to merge request %s: %w", mr.Id, err)
+	}
+	return o.writeCreated(cmd, &code.CreateMergeRequestResponse{MergeRequest: resp.Msg.MergeRequest, Overlaps: current.Overlaps})
+}
+
+// writeCreated prints what create produced: the merge request, then any others touching the same files.
+func (o *options) writeCreated(cmd *cobra.Command, created *code.CreateMergeRequestResponse) error {
+	if o.json {
+		return o.writeJSON(cmd, created)
+	}
+	if err := writeMR(cmd, created.MergeRequest); err != nil {
+		return err
+	}
+	if text := overlapText(created.Overlaps); text != "" {
+		_, err := fmt.Fprintf(cmd.OutOrStdout(), "\n%s", text)
+		return err
+	}
+	return nil
+}
+
 func newView(o *options) *cobra.Command {
-	return &cobra.Command{Use: "view [branch]", Short: "Show a merge request (defaults to the current branch)", Args: cobra.MaximumNArgs(1),
+	var t target
+	cmd := &cobra.Command{Use: "view [branch]", Short: "Show a merge request (defaults to the current branch)", Args: cobra.MaximumNArgs(1),
+		Long: "Show a merge request.\nA branch, by default the current one, names its open merge request, or else its most recently created closed or merged one.\nPass --id to show any other; `depot mr list --state all --head <branch>` prints the IDs.",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			name, err := branch(cmd, args)
+			name, err := t.check(cmd, args)
 			if err != nil {
 				return err
 			}
-			if err := o.authenticate(cmd); err != nil {
+			if err := o.authenticateFor(cmd, name); err != nil {
 				return err
 			}
-			response, err := o.get(cmd, name)
+			response, err := o.getWithReadiness(cmd, name, t.id)
 			if err != nil {
 				return err
 			}
 			if o.json {
 				return o.writeJSON(cmd, response)
 			}
-			return writeMR(cmd, response.MergeRequest)
+			return writeView(cmd, response)
 		},
 	}
-}
-
-func newMerge(o *options) *cobra.Command {
-	return &cobra.Command{Use: "merge [branch]", Short: "Merge the locally observed head of a branch",
-		Long: "Merge an open merge request using the local branch commit as the expected head.\nA newer remote head is refused. Update your local branch and review it before retrying.\nCI results and approvals do not block merging.", Args: cobra.MaximumNArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			name, err := branch(cmd, args)
-			if err != nil {
-				return err
-			}
-			head, err := git(cmd, "rev-parse", "--verify", "--end-of-options", "refs/heads/"+name+"^{commit}")
-			if err != nil {
-				return fmt.Errorf("cannot resolve local branch %q; check it out before merging", name)
-			}
-			if err := o.authenticate(cmd); err != nil {
-				return err
-			}
-			resp, err := api.NewMergeRequestClient().MergeMergeRequest(cmd.Context(), request(o, &code.MergeMergeRequestRequest{
-				Lookup:          &code.MergeMergeRequestRequest_Head{Head: &code.GetMergeRequestRequest_HeadRef{RepositoryId: o.repo, HeadRef: name}},
-				ExpectedHeadOid: &head,
-			}))
-			if err != nil {
-				return err
-			}
-			mr := resp.Msg.MergeRequest
-			if mr == nil || mr.Id == "" || mr.State != code.MergeRequest_STATE_MERGED || mr.MergeCommitOid == "" {
-				return fmt.Errorf("API returned no completed merge result")
-			}
-			if o.json {
-				return o.writeJSON(cmd, resp.Msg)
-			}
-			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Merged %s: %s\n", mr.Id, mr.MergeCommitOid)
-			return err
-		},
-	}
-}
-
-func newApprove(o *options) *cobra.Command {
-	return &cobra.Command{Use: "approve [branch]", Short: "Approve a merge request at its current head", Args: cobra.MaximumNArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			name, err := branch(cmd, args)
-			if err != nil {
-				return err
-			}
-			if err := o.authenticate(cmd); err != nil {
-				return err
-			}
-			mr, err := o.get(cmd, name)
-			if err != nil {
-				return err
-			}
-			resp, err := api.NewMergeRequestClient().ApproveMergeRequest(cmd.Context(), request(o, &code.ApproveMergeRequestRequest{MergeRequestId: mr.MergeRequest.Id}))
-			if err != nil {
-				return err
-			}
-			approval := resp.Msg.Approval
-			if approval == nil || approval.MergeRequestId == "" || approval.HeadOid == "" {
-				return fmt.Errorf("API returned no approval")
-			}
-			if o.json {
-				return o.writeJSON(cmd, resp.Msg)
-			}
-			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Approved %s at %s\n", approval.MergeRequestId, approval.HeadOid)
-			return err
-		},
-	}
-}
-
-func newComment(o *options) *cobra.Command {
-	var body string
-	cmd := &cobra.Command{Use: "comment [branch] --body <text>", Short: "Post a conversation comment", Args: cobra.MaximumNArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			if strings.TrimSpace(body) == "" {
-				return fmt.Errorf("--body is required and must not be blank")
-			}
-			name, err := branch(cmd, args)
-			if err != nil {
-				return err
-			}
-			if err := o.authenticate(cmd); err != nil {
-				return err
-			}
-			mr, err := o.get(cmd, name)
-			if err != nil {
-				return err
-			}
-			resp, err := api.NewMergeRequestClient().CreateMergeRequestComment(cmd.Context(), request(o, &code.CreateMergeRequestCommentRequest{MergeRequestId: mr.MergeRequest.Id, Body: body}))
-			if err != nil {
-				return err
-			}
-			comment := resp.Msg.Comment
-			if comment == nil || comment.Id == "" {
-				return fmt.Errorf("API returned no comment")
-			}
-			if o.json {
-				return o.writeJSON(cmd, resp.Msg)
-			}
-			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Commented on %s: %s\n", comment.MergeRequestId, comment.Id)
-			return err
-		},
-	}
-	cmd.Flags().StringVar(&body, "body", "", "Comment text (required)")
+	t.register(cmd)
 	return cmd
 }

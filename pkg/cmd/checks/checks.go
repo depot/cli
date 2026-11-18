@@ -32,7 +32,16 @@ func NewCmdChecks() *cobra.Command {
 	return cmd
 }
 
+// authenticateRead is authenticate for the read commands, which the API also takes a Dispatch turn's token on.
+func (o *options) authenticateRead(cmd *cobra.Command) error {
+	return o.authenticateWith(cmd, helpers.ResolveTurnReadAuth)
+}
+
 func (o *options) authenticate(cmd *cobra.Command) error {
+	return o.authenticateWith(cmd, helpers.ResolveOrgAuth)
+}
+
+func (o *options) authenticateWith(cmd *cobra.Command, resolve func(context.Context, string) (string, error)) error {
 	if o.output != "text" && o.output != "json" && !(cmd.Name() == "transcript" && o.output == "jsonl") {
 		return fmt.Errorf("unsupported output format %q", o.output)
 	}
@@ -40,7 +49,7 @@ func (o *options) authenticate(cmd *cobra.Command) error {
 		o.org = config.GetCurrentOrganization()
 	}
 	var err error
-	o.token, err = helpers.ResolveOrgAuth(cmd.Context(), o.token)
+	o.token, err = resolve(cmd.Context(), o.token)
 	if err != nil {
 		return err
 	}

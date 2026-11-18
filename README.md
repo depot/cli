@@ -22,6 +22,7 @@ Official CLI for [Depot](https://depot.dev) - you can use the CLI to build Docke
     - [`depot cache`](#depot-cache)
       - [`depot cache reset`](#depot-cache-reset)
     - [`depot checks`](#depot-checks)
+    - [`depot code repo create`](#depot-code-repo-create)
     - [`depot exec`](#depot-exec)
     - [`depot gocache`](#depot-gocache)
     - [`depot configure-docker`](#depot-configure-docker)
@@ -379,6 +380,24 @@ output and are subject to availability and retention. There is no live transcrip
 Run/retry return both IDs immediately. Exit 0 means the operation succeeded, including inspecting failed/rejected checks;
 exit 1 means input, authentication/API, download, or output failure. Review outcomes are reported in the output.
 
+### `depot code repo create`
+
+Create an empty, standalone Git repository in Depot Code using an organization owner credential:
+
+```sh
+depot code repo create my-service --org <org-id>
+depot code repo create team/service --default-branch develop --output json
+```
+
+`--org` defaults to the current organization selected with `depot org switch`.
+`--default-branch` defaults to `main`. Authentication uses the normal CLI token resolution,
+including `--token`, `DEPOT_TOKEN`, and `depot login`.
+
+The command prints the repository ID and HTTPS clone URL. `--output json` returns
+`repositoryId`, `name`, `defaultBranch`, and `cloneUrl`. It does not initialize a local
+checkout, change Git remotes, or push commits. Use regular Git after creation.
+If creation times out, check whether the repository exists before retrying.
+
 ### `depot exec`
 
 Execute a command with an injected BuildKit connection. This command launches a remote machine in Depot's infrastructure, establishes a connection to it, and makes this connection available to the specified command through an environment variable.
@@ -388,9 +407,6 @@ Execute a command with an injected BuildKit connection. This command launches a 
 ```shell
 # Run a command with access to a remote BuildKit instance
 depot exec --platform linux/amd64 docker build .
-
-# Run a Dagger command using Depot's infrastructure
-depot exec dagger run ...
 ```
 
 #### Flags for `exec`

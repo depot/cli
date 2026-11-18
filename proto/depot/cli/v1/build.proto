@@ -32,13 +32,14 @@ message CreateBuildRequest {
   optional RequiredEngine required_engine = 3;
 
   message RequiredEngine {
+    reserved 2;
+    reserved "dagger";
+
     oneof engine {
       BuildKitEngine buildkit = 1;
-      DaggerEngine dagger = 2;
     }
 
     message BuildKitEngine {}
-    message DaggerEngine { string version = 1; }
   }
 }
 
@@ -62,11 +63,13 @@ message BuildOptions {
 }
 
 enum Command {
+  reserved 4;
+  reserved "COMMAND_DAGGER";
+
   COMMAND_UNSPECIFIED = 0;
   COMMAND_BUILD = 1;
   COMMAND_BAKE = 2;
   COMMAND_BUILDX = 3;
-  COMMAND_DAGGER = 4;
   COMMAND_EXEC = 5;
   COMMAND_FLYCTL = 6;
 }

@@ -3,8 +3,11 @@ package helpers
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"strings"
 	"testing"
 
 	"github.com/depot/cli/pkg/runtoken"
@@ -17,7 +20,7 @@ func withRunTokenServer(t *testing.T) {
 		fmt.Fprint(w, `{"value":"run-svid"}`)
 	}))
 	t.Cleanup(server.Close)
-	source := runtoken.New(server.URL)
+	source := runtoken.New(runtoken.EnvURL, server.URL)
 	previous := runTokenSource
 	runTokenSource = func() *runtoken.Source { return source }
 	t.Cleanup(func() { runTokenSource = previous })
@@ -77,5 +80,90 @@ func TestResolveCacheAuthKeepsCacheToken(t *testing.T) {
 	t.Setenv("DEPOT_CACHE_TOKEN", "")
 	if got, _ := ResolveCacheAuth(context.Background(), ""); got != "run-svid" {
 		t.Fatalf("ResolveCacheAuth without a cache token = %q, want the run token", got)
+	}
+}
+
+// In a Dispatch sandbox only session commands use the turn token: every other command keeps what it resolved before.
+func TestAPITokenURL(t *testing.T) {
+	t.Setenv("DEPOT_JIT_TOKEN", "")
+	t.Setenv("DEPOT_CACHE_TOKEN", "cache-token")
+	viper.Set("api_token", "")
+	fail := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if fail {
+			http.Error(w, "no identity", http.StatusServiceUnavailable)
+			return
+		}
+		fmt.Fprint(w, `{"value":"turn-svid"}`)
+	}))
+	t.Cleanup(server.Close)
+	previousRun, previousTurn := runTokenSource, turnTokenSource
+	runTokenSource = func() *runtoken.Source { return nil }
+	turnTokenSource = func() *runtoken.Source { return runtoken.New(runtoken.EnvAPIURL, server.URL) }
+	t.Cleanup(func() { runTokenSource, turnTokenSource = previousRun, previousTurn })
+	ctx := context.Background()
+
+	t.Setenv("DEPOT_TOKEN", "")
+	agentAuth := func(flag string) string {
+		token, turn, _ := ResolveAgentAuth(ctx, flag)
+		return fmt.Sprintf("%s %v", token, turn)
+	}
+	if got := agentAuth(""); got != "turn-svid true" {
+		t.Fatalf("ResolveAgentAuth = %q, want the turn token ahead of the cache token", got)
+	}
+	if got, _ := ResolveOrgAuth(ctx, ""); got != "cache-token" {
+		t.Fatalf("ResolveOrgAuth = %q, want the cache token as before", got)
+	}
+	if got, _ := ResolveProjectAuth(ctx, ""); got != "cache-token" {
+		t.Fatalf("ResolveProjectAuth = %q, want the cache token as before", got)
+	}
+	if got := ResolveStaticOrgAuth(""); got != "cache-token" {
+		t.Fatalf("ResolveStaticOrgAuth = %q, want the cache token as before", got)
+	}
+	if got, _ := ResolveCacheAuth(ctx, ""); got != "cache-token" {
+		t.Fatalf("ResolveCacheAuth = %q, want the cache token as before", got)
+	}
+	if got, _ := ResolveTurnReadAuth(ctx, ""); got != "turn-svid" {
+		t.Fatalf("ResolveTurnReadAuth = %q, want the turn token ahead of the cache token", got)
+	}
+	if got, _ := ResolveTurnReadAuth(ctx, "flag-token"); got != "flag-token" {
+		t.Fatalf("ResolveTurnReadAuth with a flag = %q", got)
+	}
+	turnTokenSource = func() *runtoken.Source { return nil }
+	if got, _ := ResolveTurnReadAuth(ctx, ""); got != "cache-token" {
+		t.Fatalf("ResolveTurnReadAuth with no token URL = %q, want the cache token as before", got)
+	}
+	turnTokenSource = func() *runtoken.Source { return runtoken.New(runtoken.EnvAPIURL, server.URL) }
+	if got := agentAuth("flag-token"); got != "flag-token false" {
+		t.Fatalf("ResolveAgentAuth with a flag = %q", got)
+	}
+	t.Setenv("DEPOT_TOKEN", "env-token")
+	if got := agentAuth(""); got != "env-token false" {
+		t.Fatalf("ResolveAgentAuth with DEPOT_TOKEN = %q", got)
+	}
+	t.Setenv("DEPOT_TOKEN", "")
+	withRunTokenServer(t)
+	if got := agentAuth(""); got != "run-svid false" {
+		t.Fatalf("ResolveAgentAuth with both URLs = %q, want the run token", got)
+	}
+	runTokenSource = func() *runtoken.Source { return nil }
+
+	fail = true
+	if got := agentAuth(""); got != "cache-token false" {
+		t.Fatalf("ResolveAgentAuth with no turn token to fetch = %q, want the cache token", got)
+	}
+	t.Setenv("DEPOT_CACHE_TOKEN", "")
+	stderr := os.Stderr
+	read, write, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stderr = write
+	got, turn, _ := ResolveAgentAuth(ctx, "")
+	os.Stderr = stderr
+	write.Close()
+	printed, _ := io.ReadAll(read)
+	if got != "" || turn || !strings.Contains(string(printed), "error: could not fetch a token from DEPOT_API_TOKEN_URL") {
+		t.Fatalf("got token %q and stderr %q", got, printed)
 	}
 }

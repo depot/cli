@@ -15,6 +15,7 @@ import (
 	"github.com/depot/cli/pkg/cmd/checks"
 	ciCmd "github.com/depot/cli/pkg/cmd/ci"
 	claudeCmd "github.com/depot/cli/pkg/cmd/claude"
+	codeCmd "github.com/depot/cli/pkg/cmd/code"
 	dockerCmd "github.com/depot/cli/pkg/cmd/docker"
 	"github.com/depot/cli/pkg/cmd/exec"
 	"github.com/depot/cli/pkg/cmd/gocache"
@@ -34,6 +35,7 @@ import (
 	"github.com/depot/cli/pkg/cmd/registry"
 	sandboxCmd "github.com/depot/cli/pkg/cmd/sandbox"
 	testsCmd "github.com/depot/cli/pkg/cmd/tests"
+	"github.com/depot/cli/pkg/cmd/usage"
 	versionCmd "github.com/depot/cli/pkg/cmd/version"
 	"github.com/depot/cli/pkg/config"
 )
@@ -90,12 +92,14 @@ func NewCmdRoot(version, buildDate string) *cobra.Command {
 	cmd.AddCommand(registry.NewCmdRegistry())
 	cmd.AddCommand(buildkitregistryproxy.NewCmdBuildkitRegistryProxy())
 	cmd.AddCommand(org.NewCmdOrg())
+	cmd.AddCommand(usage.NewCmdUsage())
 	cmd.AddCommand(packages.NewCmdPackages())
 	cmd.AddCommand(projects.NewCmdProjects())
 	cmd.AddCommand(gocache.NewCmdGoCache())
 	cmd.AddCommand(exec.NewCmdExec())
 	cmd.AddCommand(ciCmd.NewCmdCI())
 	cmd.AddCommand(checks.NewCmdChecks())
+	cmd.AddCommand(codeCmd.NewCmdCode())
 	cmd.AddCommand(mr.NewCmdMR())
 	cmd.AddCommand(sandboxCmd.NewCmdSandbox())
 	cmd.AddCommand(testsCmd.NewCmdTests())

@@ -18,7 +18,7 @@ import (
 // generated with a version of connect newer than the one compiled into your binary. You can fix the
 // problem by either regenerating this code with an older version of connect or updating the connect
 // version compiled into your binary.
-const _ = connect.IsAtLeastVersion0_1_0
+const _ = connect.IsAtLeastVersion1_7_0
 
 const (
 	// MergeRequestServiceName is the fully-qualified name of the MergeRequestService service.
@@ -33,6 +33,15 @@ const (
 // reflection-formatted method names, remove the leading slash and convert the remaining slash to a
 // period.
 const (
+	// MergeRequestServiceBeginMergeRequestAssetUploadProcedure is the fully-qualified name of the
+	// MergeRequestService's BeginMergeRequestAssetUpload RPC.
+	MergeRequestServiceBeginMergeRequestAssetUploadProcedure = "/depot.code.v1beta2.MergeRequestService/BeginMergeRequestAssetUpload"
+	// MergeRequestServiceCompleteMergeRequestAssetUploadProcedure is the fully-qualified name of the
+	// MergeRequestService's CompleteMergeRequestAssetUpload RPC.
+	MergeRequestServiceCompleteMergeRequestAssetUploadProcedure = "/depot.code.v1beta2.MergeRequestService/CompleteMergeRequestAssetUpload"
+	// MergeRequestServiceGetMergeRequestAssetURLProcedure is the fully-qualified name of the
+	// MergeRequestService's GetMergeRequestAssetURL RPC.
+	MergeRequestServiceGetMergeRequestAssetURLProcedure = "/depot.code.v1beta2.MergeRequestService/GetMergeRequestAssetURL"
 	// MergeRequestServiceGetRepositoryReviewSettingsProcedure is the fully-qualified name of the
 	// MergeRequestService's GetRepositoryReviewSettings RPC.
 	MergeRequestServiceGetRepositoryReviewSettingsProcedure = "/depot.code.v1beta2.MergeRequestService/GetRepositoryReviewSettings"
@@ -51,6 +60,9 @@ const (
 	// MergeRequestServiceMergeMergeRequestProcedure is the fully-qualified name of the
 	// MergeRequestService's MergeMergeRequest RPC.
 	MergeRequestServiceMergeMergeRequestProcedure = "/depot.code.v1beta2.MergeRequestService/MergeMergeRequest"
+	// MergeRequestServiceMergeMergeRequestWithMethodProcedure is the fully-qualified name of the
+	// MergeRequestService's MergeMergeRequestWithMethod RPC.
+	MergeRequestServiceMergeMergeRequestWithMethodProcedure = "/depot.code.v1beta2.MergeRequestService/MergeMergeRequestWithMethod"
 	// MergeRequestServiceUpdateMergeRequestProcedure is the fully-qualified name of the
 	// MergeRequestService's UpdateMergeRequest RPC.
 	MergeRequestServiceUpdateMergeRequestProcedure = "/depot.code.v1beta2.MergeRequestService/UpdateMergeRequest"
@@ -63,16 +75,35 @@ const (
 	// MergeRequestServiceDeleteMergeRequestCommentProcedure is the fully-qualified name of the
 	// MergeRequestService's DeleteMergeRequestComment RPC.
 	MergeRequestServiceDeleteMergeRequestCommentProcedure = "/depot.code.v1beta2.MergeRequestService/DeleteMergeRequestComment"
+	// MergeRequestServiceResolveMergeRequestThreadProcedure is the fully-qualified name of the
+	// MergeRequestService's ResolveMergeRequestThread RPC.
+	MergeRequestServiceResolveMergeRequestThreadProcedure = "/depot.code.v1beta2.MergeRequestService/ResolveMergeRequestThread"
+	// MergeRequestServiceUnresolveMergeRequestThreadProcedure is the fully-qualified name of the
+	// MergeRequestService's UnresolveMergeRequestThread RPC.
+	MergeRequestServiceUnresolveMergeRequestThreadProcedure = "/depot.code.v1beta2.MergeRequestService/UnresolveMergeRequestThread"
 	// MergeRequestServiceApproveMergeRequestProcedure is the fully-qualified name of the
 	// MergeRequestService's ApproveMergeRequest RPC.
 	MergeRequestServiceApproveMergeRequestProcedure = "/depot.code.v1beta2.MergeRequestService/ApproveMergeRequest"
+	// MergeRequestServiceApproveMergeRequestAtRevisionProcedure is the fully-qualified name of the
+	// MergeRequestService's ApproveMergeRequestAtRevision RPC.
+	MergeRequestServiceApproveMergeRequestAtRevisionProcedure = "/depot.code.v1beta2.MergeRequestService/ApproveMergeRequestAtRevision"
 	// MergeRequestServiceRemoveMergeRequestApprovalProcedure is the fully-qualified name of the
 	// MergeRequestService's RemoveMergeRequestApproval RPC.
 	MergeRequestServiceRemoveMergeRequestApprovalProcedure = "/depot.code.v1beta2.MergeRequestService/RemoveMergeRequestApproval"
+	// MergeRequestServiceListMergeRequestsProcedure is the fully-qualified name of the
+	// MergeRequestService's ListMergeRequests RPC.
+	MergeRequestServiceListMergeRequestsProcedure = "/depot.code.v1beta2.MergeRequestService/ListMergeRequests"
 )
 
 // MergeRequestServiceClient is a client for the depot.code.v1beta2.MergeRequestService service.
 type MergeRequestServiceClient interface {
+	// Starts or resumes a private draft upload and returns a signed storage URL to PUT the file to.
+	// Reuse `uploadKey` to retry: an unfinished upload gets a fresh URL, a finished one returns `uploaded`.
+	BeginMergeRequestAssetUpload(context.Context, *connect.Request[v1beta2.BeginMergeRequestAssetUploadRequest]) (*connect.Response[v1beta2.BeginMergeRequestAssetUploadResponse], error)
+	// Verifies the stored file and makes the asset usable in a description. Safe to retry.
+	CompleteMergeRequestAssetUpload(context.Context, *connect.Request[v1beta2.CompleteMergeRequestAssetUploadRequest]) (*connect.Response[v1beta2.CompleteMergeRequestAssetUploadResponse], error)
+	// Returns a short-lived signed URL for an asset, as its draft author or an authorized viewer of its repository.
+	GetMergeRequestAssetURL(context.Context, *connect.Request[v1beta2.GetMergeRequestAssetURLRequest]) (*connect.Response[v1beta2.GetMergeRequestAssetURLResponse], error)
 	// Reads whether passing review agents can approve merge requests in this repository.
 	GetRepositoryReviewSettings(context.Context, *connect.Request[v1beta2.GetRepositoryReviewSettingsRequest]) (*connect.Response[v1beta2.GetRepositoryReviewSettingsResponse], error)
 	// Changes whether passing review agents can approve. Requires organization owner access.
@@ -86,6 +117,9 @@ type MergeRequestServiceClient interface {
 	// Merges an open merge request. CI results and approvals do not block merging.
 	// Returns Aborted if an expected branch tip differs. Merge conflicts and other merge refusals are returned as errors.
 	MergeMergeRequest(context.Context, *connect.Request[v1beta2.MergeMergeRequestRequest]) (*connect.Response[v1beta2.MergeMergeRequestResponse], error)
+	// Merges an open merge request with the required `method`, otherwise as `MergeMergeRequest` does.
+	// Older servers return Unimplemented without merging.
+	MergeMergeRequestWithMethod(context.Context, *connect.Request[v1beta2.MergeMergeRequestWithMethodRequest]) (*connect.Response[v1beta2.MergeMergeRequestWithMethodResponse], error)
 	// Edits the title or body, or closes or reopens a merge request.
 	UpdateMergeRequest(context.Context, *connect.Request[v1beta2.UpdateMergeRequestRequest]) (*connect.Response[v1beta2.UpdateMergeRequestResponse], error)
 	// Posts a conversation comment on a merge request. Comments are allowed on closed and merged merge requests.
@@ -96,13 +130,24 @@ type MergeRequestServiceClient interface {
 	// Deletes the caller's own comment. The comment stays in `GetMergeRequest` with `deletedAt` set and an empty body.
 	// Deleting a deleted comment succeeds without changing it.
 	DeleteMergeRequestComment(context.Context, *connect.Request[v1beta2.DeleteMergeRequestCommentRequest]) (*connect.Response[v1beta2.DeleteMergeRequestCommentResponse], error)
+	// Marks a review thread resolved, for any member of the organization. FailedPrecondition for a conversation comment.
+	ResolveMergeRequestThread(context.Context, *connect.Request[v1beta2.ResolveMergeRequestThreadRequest]) (*connect.Response[v1beta2.ResolveMergeRequestThreadResponse], error)
+	UnresolveMergeRequestThread(context.Context, *connect.Request[v1beta2.UnresolveMergeRequestThreadRequest]) (*connect.Response[v1beta2.UnresolveMergeRequestThreadResponse], error)
 	// Records the caller's approval of the merge request at its current head. Each person holds one approval per merge
 	// request: approving again moves it to the current head and clears a withdrawal. Returns FailedPrecondition for a
 	// closed or merged merge request.
 	ApproveMergeRequest(context.Context, *connect.Request[v1beta2.ApproveMergeRequestRequest]) (*connect.Response[v1beta2.ApproveMergeRequestResponse], error)
+	// Approves only the reviewed head, checked atomically with the approval. Returns Aborted if the head moved.
+	// Older servers return Unimplemented without approving.
+	ApproveMergeRequestAtRevision(context.Context, *connect.Request[v1beta2.ApproveMergeRequestAtRevisionRequest]) (*connect.Response[v1beta2.ApproveMergeRequestAtRevisionResponse], error)
 	// Withdraws the caller's approval. Returns NotFound when the caller never approved; withdrawing an approval that is
 	// already withdrawn leaves it unchanged.
 	RemoveMergeRequestApproval(context.Context, *connect.Request[v1beta2.RemoveMergeRequestApprovalRequest]) (*connect.Response[v1beta2.RemoveMergeRequestApprovalResponse], error)
+	// Returns a page of a repository's merge requests, most recently updated first; ties use descending id.
+	// Reads stored state without catching heads up with live branches, unlike `GetMergeRequest`.
+	// Pages do not share a snapshot: a merge request updated between pages can be skipped or repeated.
+	// Returns InvalidArgument for invalid page tokens, branch names or filters.
+	ListMergeRequests(context.Context, *connect.Request[v1beta2.ListMergeRequestsRequest]) (*connect.Response[v1beta2.ListMergeRequestsResponse], error)
 }
 
 // NewMergeRequestServiceClient constructs a client for the depot.code.v1beta2.MergeRequestService
@@ -115,6 +160,24 @@ type MergeRequestServiceClient interface {
 func NewMergeRequestServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) MergeRequestServiceClient {
 	baseURL = strings.TrimRight(baseURL, "/")
 	return &mergeRequestServiceClient{
+		beginMergeRequestAssetUpload: connect.NewClient[v1beta2.BeginMergeRequestAssetUploadRequest, v1beta2.BeginMergeRequestAssetUploadResponse](
+			httpClient,
+			baseURL+MergeRequestServiceBeginMergeRequestAssetUploadProcedure,
+			connect.WithIdempotency(connect.IdempotencyIdempotent),
+			connect.WithClientOptions(opts...),
+		),
+		completeMergeRequestAssetUpload: connect.NewClient[v1beta2.CompleteMergeRequestAssetUploadRequest, v1beta2.CompleteMergeRequestAssetUploadResponse](
+			httpClient,
+			baseURL+MergeRequestServiceCompleteMergeRequestAssetUploadProcedure,
+			connect.WithIdempotency(connect.IdempotencyIdempotent),
+			connect.WithClientOptions(opts...),
+		),
+		getMergeRequestAssetURL: connect.NewClient[v1beta2.GetMergeRequestAssetURLRequest, v1beta2.GetMergeRequestAssetURLResponse](
+			httpClient,
+			baseURL+MergeRequestServiceGetMergeRequestAssetURLProcedure,
+			connect.WithIdempotency(connect.IdempotencyNoSideEffects),
+			connect.WithClientOptions(opts...),
+		),
 		getRepositoryReviewSettings: connect.NewClient[v1beta2.GetRepositoryReviewSettingsRequest, v1beta2.GetRepositoryReviewSettingsResponse](
 			httpClient,
 			baseURL+MergeRequestServiceGetRepositoryReviewSettingsProcedure,
@@ -145,6 +208,11 @@ func NewMergeRequestServiceClient(httpClient connect.HTTPClient, baseURL string,
 			baseURL+MergeRequestServiceMergeMergeRequestProcedure,
 			opts...,
 		),
+		mergeMergeRequestWithMethod: connect.NewClient[v1beta2.MergeMergeRequestWithMethodRequest, v1beta2.MergeMergeRequestWithMethodResponse](
+			httpClient,
+			baseURL+MergeRequestServiceMergeMergeRequestWithMethodProcedure,
+			opts...,
+		),
 		updateMergeRequest: connect.NewClient[v1beta2.UpdateMergeRequestRequest, v1beta2.UpdateMergeRequestResponse](
 			httpClient,
 			baseURL+MergeRequestServiceUpdateMergeRequestProcedure,
@@ -165,9 +233,24 @@ func NewMergeRequestServiceClient(httpClient connect.HTTPClient, baseURL string,
 			baseURL+MergeRequestServiceDeleteMergeRequestCommentProcedure,
 			opts...,
 		),
+		resolveMergeRequestThread: connect.NewClient[v1beta2.ResolveMergeRequestThreadRequest, v1beta2.ResolveMergeRequestThreadResponse](
+			httpClient,
+			baseURL+MergeRequestServiceResolveMergeRequestThreadProcedure,
+			opts...,
+		),
+		unresolveMergeRequestThread: connect.NewClient[v1beta2.UnresolveMergeRequestThreadRequest, v1beta2.UnresolveMergeRequestThreadResponse](
+			httpClient,
+			baseURL+MergeRequestServiceUnresolveMergeRequestThreadProcedure,
+			opts...,
+		),
 		approveMergeRequest: connect.NewClient[v1beta2.ApproveMergeRequestRequest, v1beta2.ApproveMergeRequestResponse](
 			httpClient,
 			baseURL+MergeRequestServiceApproveMergeRequestProcedure,
+			opts...,
+		),
+		approveMergeRequestAtRevision: connect.NewClient[v1beta2.ApproveMergeRequestAtRevisionRequest, v1beta2.ApproveMergeRequestAtRevisionResponse](
+			httpClient,
+			baseURL+MergeRequestServiceApproveMergeRequestAtRevisionProcedure,
 			opts...,
 		),
 		removeMergeRequestApproval: connect.NewClient[v1beta2.RemoveMergeRequestApprovalRequest, v1beta2.RemoveMergeRequestApprovalResponse](
@@ -175,23 +258,53 @@ func NewMergeRequestServiceClient(httpClient connect.HTTPClient, baseURL string,
 			baseURL+MergeRequestServiceRemoveMergeRequestApprovalProcedure,
 			opts...,
 		),
+		listMergeRequests: connect.NewClient[v1beta2.ListMergeRequestsRequest, v1beta2.ListMergeRequestsResponse](
+			httpClient,
+			baseURL+MergeRequestServiceListMergeRequestsProcedure,
+			opts...,
+		),
 	}
 }
 
 // mergeRequestServiceClient implements MergeRequestServiceClient.
 type mergeRequestServiceClient struct {
-	getRepositoryReviewSettings    *connect.Client[v1beta2.GetRepositoryReviewSettingsRequest, v1beta2.GetRepositoryReviewSettingsResponse]
-	updateRepositoryReviewSettings *connect.Client[v1beta2.UpdateRepositoryReviewSettingsRequest, v1beta2.UpdateRepositoryReviewSettingsResponse]
-	createMergeRequestWithBase     *connect.Client[v1beta2.CreateMergeRequestWithBaseRequest, v1beta2.CreateMergeRequestWithBaseResponse]
-	createMergeRequest             *connect.Client[v1beta2.CreateMergeRequestRequest, v1beta2.CreateMergeRequestResponse]
-	getMergeRequest                *connect.Client[v1beta2.GetMergeRequestRequest, v1beta2.GetMergeRequestResponse]
-	mergeMergeRequest              *connect.Client[v1beta2.MergeMergeRequestRequest, v1beta2.MergeMergeRequestResponse]
-	updateMergeRequest             *connect.Client[v1beta2.UpdateMergeRequestRequest, v1beta2.UpdateMergeRequestResponse]
-	createMergeRequestComment      *connect.Client[v1beta2.CreateMergeRequestCommentRequest, v1beta2.CreateMergeRequestCommentResponse]
-	updateMergeRequestComment      *connect.Client[v1beta2.UpdateMergeRequestCommentRequest, v1beta2.UpdateMergeRequestCommentResponse]
-	deleteMergeRequestComment      *connect.Client[v1beta2.DeleteMergeRequestCommentRequest, v1beta2.DeleteMergeRequestCommentResponse]
-	approveMergeRequest            *connect.Client[v1beta2.ApproveMergeRequestRequest, v1beta2.ApproveMergeRequestResponse]
-	removeMergeRequestApproval     *connect.Client[v1beta2.RemoveMergeRequestApprovalRequest, v1beta2.RemoveMergeRequestApprovalResponse]
+	beginMergeRequestAssetUpload    *connect.Client[v1beta2.BeginMergeRequestAssetUploadRequest, v1beta2.BeginMergeRequestAssetUploadResponse]
+	completeMergeRequestAssetUpload *connect.Client[v1beta2.CompleteMergeRequestAssetUploadRequest, v1beta2.CompleteMergeRequestAssetUploadResponse]
+	getMergeRequestAssetURL         *connect.Client[v1beta2.GetMergeRequestAssetURLRequest, v1beta2.GetMergeRequestAssetURLResponse]
+	getRepositoryReviewSettings     *connect.Client[v1beta2.GetRepositoryReviewSettingsRequest, v1beta2.GetRepositoryReviewSettingsResponse]
+	updateRepositoryReviewSettings  *connect.Client[v1beta2.UpdateRepositoryReviewSettingsRequest, v1beta2.UpdateRepositoryReviewSettingsResponse]
+	createMergeRequestWithBase      *connect.Client[v1beta2.CreateMergeRequestWithBaseRequest, v1beta2.CreateMergeRequestWithBaseResponse]
+	createMergeRequest              *connect.Client[v1beta2.CreateMergeRequestRequest, v1beta2.CreateMergeRequestResponse]
+	getMergeRequest                 *connect.Client[v1beta2.GetMergeRequestRequest, v1beta2.GetMergeRequestResponse]
+	mergeMergeRequest               *connect.Client[v1beta2.MergeMergeRequestRequest, v1beta2.MergeMergeRequestResponse]
+	mergeMergeRequestWithMethod     *connect.Client[v1beta2.MergeMergeRequestWithMethodRequest, v1beta2.MergeMergeRequestWithMethodResponse]
+	updateMergeRequest              *connect.Client[v1beta2.UpdateMergeRequestRequest, v1beta2.UpdateMergeRequestResponse]
+	createMergeRequestComment       *connect.Client[v1beta2.CreateMergeRequestCommentRequest, v1beta2.CreateMergeRequestCommentResponse]
+	updateMergeRequestComment       *connect.Client[v1beta2.UpdateMergeRequestCommentRequest, v1beta2.UpdateMergeRequestCommentResponse]
+	deleteMergeRequestComment       *connect.Client[v1beta2.DeleteMergeRequestCommentRequest, v1beta2.DeleteMergeRequestCommentResponse]
+	resolveMergeRequestThread       *connect.Client[v1beta2.ResolveMergeRequestThreadRequest, v1beta2.ResolveMergeRequestThreadResponse]
+	unresolveMergeRequestThread     *connect.Client[v1beta2.UnresolveMergeRequestThreadRequest, v1beta2.UnresolveMergeRequestThreadResponse]
+	approveMergeRequest             *connect.Client[v1beta2.ApproveMergeRequestRequest, v1beta2.ApproveMergeRequestResponse]
+	approveMergeRequestAtRevision   *connect.Client[v1beta2.ApproveMergeRequestAtRevisionRequest, v1beta2.ApproveMergeRequestAtRevisionResponse]
+	removeMergeRequestApproval      *connect.Client[v1beta2.RemoveMergeRequestApprovalRequest, v1beta2.RemoveMergeRequestApprovalResponse]
+	listMergeRequests               *connect.Client[v1beta2.ListMergeRequestsRequest, v1beta2.ListMergeRequestsResponse]
+}
+
+// BeginMergeRequestAssetUpload calls
+// depot.code.v1beta2.MergeRequestService.BeginMergeRequestAssetUpload.
+func (c *mergeRequestServiceClient) BeginMergeRequestAssetUpload(ctx context.Context, req *connect.Request[v1beta2.BeginMergeRequestAssetUploadRequest]) (*connect.Response[v1beta2.BeginMergeRequestAssetUploadResponse], error) {
+	return c.beginMergeRequestAssetUpload.CallUnary(ctx, req)
+}
+
+// CompleteMergeRequestAssetUpload calls
+// depot.code.v1beta2.MergeRequestService.CompleteMergeRequestAssetUpload.
+func (c *mergeRequestServiceClient) CompleteMergeRequestAssetUpload(ctx context.Context, req *connect.Request[v1beta2.CompleteMergeRequestAssetUploadRequest]) (*connect.Response[v1beta2.CompleteMergeRequestAssetUploadResponse], error) {
+	return c.completeMergeRequestAssetUpload.CallUnary(ctx, req)
+}
+
+// GetMergeRequestAssetURL calls depot.code.v1beta2.MergeRequestService.GetMergeRequestAssetURL.
+func (c *mergeRequestServiceClient) GetMergeRequestAssetURL(ctx context.Context, req *connect.Request[v1beta2.GetMergeRequestAssetURLRequest]) (*connect.Response[v1beta2.GetMergeRequestAssetURLResponse], error) {
+	return c.getMergeRequestAssetURL.CallUnary(ctx, req)
 }
 
 // GetRepositoryReviewSettings calls
@@ -227,6 +340,12 @@ func (c *mergeRequestServiceClient) MergeMergeRequest(ctx context.Context, req *
 	return c.mergeMergeRequest.CallUnary(ctx, req)
 }
 
+// MergeMergeRequestWithMethod calls
+// depot.code.v1beta2.MergeRequestService.MergeMergeRequestWithMethod.
+func (c *mergeRequestServiceClient) MergeMergeRequestWithMethod(ctx context.Context, req *connect.Request[v1beta2.MergeMergeRequestWithMethodRequest]) (*connect.Response[v1beta2.MergeMergeRequestWithMethodResponse], error) {
+	return c.mergeMergeRequestWithMethod.CallUnary(ctx, req)
+}
+
 // UpdateMergeRequest calls depot.code.v1beta2.MergeRequestService.UpdateMergeRequest.
 func (c *mergeRequestServiceClient) UpdateMergeRequest(ctx context.Context, req *connect.Request[v1beta2.UpdateMergeRequestRequest]) (*connect.Response[v1beta2.UpdateMergeRequestResponse], error) {
 	return c.updateMergeRequest.CallUnary(ctx, req)
@@ -247,9 +366,26 @@ func (c *mergeRequestServiceClient) DeleteMergeRequestComment(ctx context.Contex
 	return c.deleteMergeRequestComment.CallUnary(ctx, req)
 }
 
+// ResolveMergeRequestThread calls depot.code.v1beta2.MergeRequestService.ResolveMergeRequestThread.
+func (c *mergeRequestServiceClient) ResolveMergeRequestThread(ctx context.Context, req *connect.Request[v1beta2.ResolveMergeRequestThreadRequest]) (*connect.Response[v1beta2.ResolveMergeRequestThreadResponse], error) {
+	return c.resolveMergeRequestThread.CallUnary(ctx, req)
+}
+
+// UnresolveMergeRequestThread calls
+// depot.code.v1beta2.MergeRequestService.UnresolveMergeRequestThread.
+func (c *mergeRequestServiceClient) UnresolveMergeRequestThread(ctx context.Context, req *connect.Request[v1beta2.UnresolveMergeRequestThreadRequest]) (*connect.Response[v1beta2.UnresolveMergeRequestThreadResponse], error) {
+	return c.unresolveMergeRequestThread.CallUnary(ctx, req)
+}
+
 // ApproveMergeRequest calls depot.code.v1beta2.MergeRequestService.ApproveMergeRequest.
 func (c *mergeRequestServiceClient) ApproveMergeRequest(ctx context.Context, req *connect.Request[v1beta2.ApproveMergeRequestRequest]) (*connect.Response[v1beta2.ApproveMergeRequestResponse], error) {
 	return c.approveMergeRequest.CallUnary(ctx, req)
+}
+
+// ApproveMergeRequestAtRevision calls
+// depot.code.v1beta2.MergeRequestService.ApproveMergeRequestAtRevision.
+func (c *mergeRequestServiceClient) ApproveMergeRequestAtRevision(ctx context.Context, req *connect.Request[v1beta2.ApproveMergeRequestAtRevisionRequest]) (*connect.Response[v1beta2.ApproveMergeRequestAtRevisionResponse], error) {
+	return c.approveMergeRequestAtRevision.CallUnary(ctx, req)
 }
 
 // RemoveMergeRequestApproval calls
@@ -258,9 +394,21 @@ func (c *mergeRequestServiceClient) RemoveMergeRequestApproval(ctx context.Conte
 	return c.removeMergeRequestApproval.CallUnary(ctx, req)
 }
 
+// ListMergeRequests calls depot.code.v1beta2.MergeRequestService.ListMergeRequests.
+func (c *mergeRequestServiceClient) ListMergeRequests(ctx context.Context, req *connect.Request[v1beta2.ListMergeRequestsRequest]) (*connect.Response[v1beta2.ListMergeRequestsResponse], error) {
+	return c.listMergeRequests.CallUnary(ctx, req)
+}
+
 // MergeRequestServiceHandler is an implementation of the depot.code.v1beta2.MergeRequestService
 // service.
 type MergeRequestServiceHandler interface {
+	// Starts or resumes a private draft upload and returns a signed storage URL to PUT the file to.
+	// Reuse `uploadKey` to retry: an unfinished upload gets a fresh URL, a finished one returns `uploaded`.
+	BeginMergeRequestAssetUpload(context.Context, *connect.Request[v1beta2.BeginMergeRequestAssetUploadRequest]) (*connect.Response[v1beta2.BeginMergeRequestAssetUploadResponse], error)
+	// Verifies the stored file and makes the asset usable in a description. Safe to retry.
+	CompleteMergeRequestAssetUpload(context.Context, *connect.Request[v1beta2.CompleteMergeRequestAssetUploadRequest]) (*connect.Response[v1beta2.CompleteMergeRequestAssetUploadResponse], error)
+	// Returns a short-lived signed URL for an asset, as its draft author or an authorized viewer of its repository.
+	GetMergeRequestAssetURL(context.Context, *connect.Request[v1beta2.GetMergeRequestAssetURLRequest]) (*connect.Response[v1beta2.GetMergeRequestAssetURLResponse], error)
 	// Reads whether passing review agents can approve merge requests in this repository.
 	GetRepositoryReviewSettings(context.Context, *connect.Request[v1beta2.GetRepositoryReviewSettingsRequest]) (*connect.Response[v1beta2.GetRepositoryReviewSettingsResponse], error)
 	// Changes whether passing review agents can approve. Requires organization owner access.
@@ -274,6 +422,9 @@ type MergeRequestServiceHandler interface {
 	// Merges an open merge request. CI results and approvals do not block merging.
 	// Returns Aborted if an expected branch tip differs. Merge conflicts and other merge refusals are returned as errors.
 	MergeMergeRequest(context.Context, *connect.Request[v1beta2.MergeMergeRequestRequest]) (*connect.Response[v1beta2.MergeMergeRequestResponse], error)
+	// Merges an open merge request with the required `method`, otherwise as `MergeMergeRequest` does.
+	// Older servers return Unimplemented without merging.
+	MergeMergeRequestWithMethod(context.Context, *connect.Request[v1beta2.MergeMergeRequestWithMethodRequest]) (*connect.Response[v1beta2.MergeMergeRequestWithMethodResponse], error)
 	// Edits the title or body, or closes or reopens a merge request.
 	UpdateMergeRequest(context.Context, *connect.Request[v1beta2.UpdateMergeRequestRequest]) (*connect.Response[v1beta2.UpdateMergeRequestResponse], error)
 	// Posts a conversation comment on a merge request. Comments are allowed on closed and merged merge requests.
@@ -284,13 +435,24 @@ type MergeRequestServiceHandler interface {
 	// Deletes the caller's own comment. The comment stays in `GetMergeRequest` with `deletedAt` set and an empty body.
 	// Deleting a deleted comment succeeds without changing it.
 	DeleteMergeRequestComment(context.Context, *connect.Request[v1beta2.DeleteMergeRequestCommentRequest]) (*connect.Response[v1beta2.DeleteMergeRequestCommentResponse], error)
+	// Marks a review thread resolved, for any member of the organization. FailedPrecondition for a conversation comment.
+	ResolveMergeRequestThread(context.Context, *connect.Request[v1beta2.ResolveMergeRequestThreadRequest]) (*connect.Response[v1beta2.ResolveMergeRequestThreadResponse], error)
+	UnresolveMergeRequestThread(context.Context, *connect.Request[v1beta2.UnresolveMergeRequestThreadRequest]) (*connect.Response[v1beta2.UnresolveMergeRequestThreadResponse], error)
 	// Records the caller's approval of the merge request at its current head. Each person holds one approval per merge
 	// request: approving again moves it to the current head and clears a withdrawal. Returns FailedPrecondition for a
 	// closed or merged merge request.
 	ApproveMergeRequest(context.Context, *connect.Request[v1beta2.ApproveMergeRequestRequest]) (*connect.Response[v1beta2.ApproveMergeRequestResponse], error)
+	// Approves only the reviewed head, checked atomically with the approval. Returns Aborted if the head moved.
+	// Older servers return Unimplemented without approving.
+	ApproveMergeRequestAtRevision(context.Context, *connect.Request[v1beta2.ApproveMergeRequestAtRevisionRequest]) (*connect.Response[v1beta2.ApproveMergeRequestAtRevisionResponse], error)
 	// Withdraws the caller's approval. Returns NotFound when the caller never approved; withdrawing an approval that is
 	// already withdrawn leaves it unchanged.
 	RemoveMergeRequestApproval(context.Context, *connect.Request[v1beta2.RemoveMergeRequestApprovalRequest]) (*connect.Response[v1beta2.RemoveMergeRequestApprovalResponse], error)
+	// Returns a page of a repository's merge requests, most recently updated first; ties use descending id.
+	// Reads stored state without catching heads up with live branches, unlike `GetMergeRequest`.
+	// Pages do not share a snapshot: a merge request updated between pages can be skipped or repeated.
+	// Returns InvalidArgument for invalid page tokens, branch names or filters.
+	ListMergeRequests(context.Context, *connect.Request[v1beta2.ListMergeRequestsRequest]) (*connect.Response[v1beta2.ListMergeRequestsResponse], error)
 }
 
 // NewMergeRequestServiceHandler builds an HTTP handler from the service implementation. It returns
@@ -299,6 +461,24 @@ type MergeRequestServiceHandler interface {
 // By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
 // and JSON codecs. They also support gzip compression.
 func NewMergeRequestServiceHandler(svc MergeRequestServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
+	mergeRequestServiceBeginMergeRequestAssetUploadHandler := connect.NewUnaryHandler(
+		MergeRequestServiceBeginMergeRequestAssetUploadProcedure,
+		svc.BeginMergeRequestAssetUpload,
+		connect.WithIdempotency(connect.IdempotencyIdempotent),
+		connect.WithHandlerOptions(opts...),
+	)
+	mergeRequestServiceCompleteMergeRequestAssetUploadHandler := connect.NewUnaryHandler(
+		MergeRequestServiceCompleteMergeRequestAssetUploadProcedure,
+		svc.CompleteMergeRequestAssetUpload,
+		connect.WithIdempotency(connect.IdempotencyIdempotent),
+		connect.WithHandlerOptions(opts...),
+	)
+	mergeRequestServiceGetMergeRequestAssetURLHandler := connect.NewUnaryHandler(
+		MergeRequestServiceGetMergeRequestAssetURLProcedure,
+		svc.GetMergeRequestAssetURL,
+		connect.WithIdempotency(connect.IdempotencyNoSideEffects),
+		connect.WithHandlerOptions(opts...),
+	)
 	mergeRequestServiceGetRepositoryReviewSettingsHandler := connect.NewUnaryHandler(
 		MergeRequestServiceGetRepositoryReviewSettingsProcedure,
 		svc.GetRepositoryReviewSettings,
@@ -329,6 +509,11 @@ func NewMergeRequestServiceHandler(svc MergeRequestServiceHandler, opts ...conne
 		svc.MergeMergeRequest,
 		opts...,
 	)
+	mergeRequestServiceMergeMergeRequestWithMethodHandler := connect.NewUnaryHandler(
+		MergeRequestServiceMergeMergeRequestWithMethodProcedure,
+		svc.MergeMergeRequestWithMethod,
+		opts...,
+	)
 	mergeRequestServiceUpdateMergeRequestHandler := connect.NewUnaryHandler(
 		MergeRequestServiceUpdateMergeRequestProcedure,
 		svc.UpdateMergeRequest,
@@ -349,9 +534,24 @@ func NewMergeRequestServiceHandler(svc MergeRequestServiceHandler, opts ...conne
 		svc.DeleteMergeRequestComment,
 		opts...,
 	)
+	mergeRequestServiceResolveMergeRequestThreadHandler := connect.NewUnaryHandler(
+		MergeRequestServiceResolveMergeRequestThreadProcedure,
+		svc.ResolveMergeRequestThread,
+		opts...,
+	)
+	mergeRequestServiceUnresolveMergeRequestThreadHandler := connect.NewUnaryHandler(
+		MergeRequestServiceUnresolveMergeRequestThreadProcedure,
+		svc.UnresolveMergeRequestThread,
+		opts...,
+	)
 	mergeRequestServiceApproveMergeRequestHandler := connect.NewUnaryHandler(
 		MergeRequestServiceApproveMergeRequestProcedure,
 		svc.ApproveMergeRequest,
+		opts...,
+	)
+	mergeRequestServiceApproveMergeRequestAtRevisionHandler := connect.NewUnaryHandler(
+		MergeRequestServiceApproveMergeRequestAtRevisionProcedure,
+		svc.ApproveMergeRequestAtRevision,
 		opts...,
 	)
 	mergeRequestServiceRemoveMergeRequestApprovalHandler := connect.NewUnaryHandler(
@@ -359,8 +559,19 @@ func NewMergeRequestServiceHandler(svc MergeRequestServiceHandler, opts ...conne
 		svc.RemoveMergeRequestApproval,
 		opts...,
 	)
+	mergeRequestServiceListMergeRequestsHandler := connect.NewUnaryHandler(
+		MergeRequestServiceListMergeRequestsProcedure,
+		svc.ListMergeRequests,
+		opts...,
+	)
 	return "/depot.code.v1beta2.MergeRequestService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
+		case MergeRequestServiceBeginMergeRequestAssetUploadProcedure:
+			mergeRequestServiceBeginMergeRequestAssetUploadHandler.ServeHTTP(w, r)
+		case MergeRequestServiceCompleteMergeRequestAssetUploadProcedure:
+			mergeRequestServiceCompleteMergeRequestAssetUploadHandler.ServeHTTP(w, r)
+		case MergeRequestServiceGetMergeRequestAssetURLProcedure:
+			mergeRequestServiceGetMergeRequestAssetURLHandler.ServeHTTP(w, r)
 		case MergeRequestServiceGetRepositoryReviewSettingsProcedure:
 			mergeRequestServiceGetRepositoryReviewSettingsHandler.ServeHTTP(w, r)
 		case MergeRequestServiceUpdateRepositoryReviewSettingsProcedure:
@@ -373,6 +584,8 @@ func NewMergeRequestServiceHandler(svc MergeRequestServiceHandler, opts ...conne
 			mergeRequestServiceGetMergeRequestHandler.ServeHTTP(w, r)
 		case MergeRequestServiceMergeMergeRequestProcedure:
 			mergeRequestServiceMergeMergeRequestHandler.ServeHTTP(w, r)
+		case MergeRequestServiceMergeMergeRequestWithMethodProcedure:
+			mergeRequestServiceMergeMergeRequestWithMethodHandler.ServeHTTP(w, r)
 		case MergeRequestServiceUpdateMergeRequestProcedure:
 			mergeRequestServiceUpdateMergeRequestHandler.ServeHTTP(w, r)
 		case MergeRequestServiceCreateMergeRequestCommentProcedure:
@@ -381,10 +594,18 @@ func NewMergeRequestServiceHandler(svc MergeRequestServiceHandler, opts ...conne
 			mergeRequestServiceUpdateMergeRequestCommentHandler.ServeHTTP(w, r)
 		case MergeRequestServiceDeleteMergeRequestCommentProcedure:
 			mergeRequestServiceDeleteMergeRequestCommentHandler.ServeHTTP(w, r)
+		case MergeRequestServiceResolveMergeRequestThreadProcedure:
+			mergeRequestServiceResolveMergeRequestThreadHandler.ServeHTTP(w, r)
+		case MergeRequestServiceUnresolveMergeRequestThreadProcedure:
+			mergeRequestServiceUnresolveMergeRequestThreadHandler.ServeHTTP(w, r)
 		case MergeRequestServiceApproveMergeRequestProcedure:
 			mergeRequestServiceApproveMergeRequestHandler.ServeHTTP(w, r)
+		case MergeRequestServiceApproveMergeRequestAtRevisionProcedure:
+			mergeRequestServiceApproveMergeRequestAtRevisionHandler.ServeHTTP(w, r)
 		case MergeRequestServiceRemoveMergeRequestApprovalProcedure:
 			mergeRequestServiceRemoveMergeRequestApprovalHandler.ServeHTTP(w, r)
+		case MergeRequestServiceListMergeRequestsProcedure:
+			mergeRequestServiceListMergeRequestsHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -393,6 +614,18 @@ func NewMergeRequestServiceHandler(svc MergeRequestServiceHandler, opts ...conne
 
 // UnimplementedMergeRequestServiceHandler returns CodeUnimplemented from all methods.
 type UnimplementedMergeRequestServiceHandler struct{}
+
+func (UnimplementedMergeRequestServiceHandler) BeginMergeRequestAssetUpload(context.Context, *connect.Request[v1beta2.BeginMergeRequestAssetUploadRequest]) (*connect.Response[v1beta2.BeginMergeRequestAssetUploadResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.code.v1beta2.MergeRequestService.BeginMergeRequestAssetUpload is not implemented"))
+}
+
+func (UnimplementedMergeRequestServiceHandler) CompleteMergeRequestAssetUpload(context.Context, *connect.Request[v1beta2.CompleteMergeRequestAssetUploadRequest]) (*connect.Response[v1beta2.CompleteMergeRequestAssetUploadResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.code.v1beta2.MergeRequestService.CompleteMergeRequestAssetUpload is not implemented"))
+}
+
+func (UnimplementedMergeRequestServiceHandler) GetMergeRequestAssetURL(context.Context, *connect.Request[v1beta2.GetMergeRequestAssetURLRequest]) (*connect.Response[v1beta2.GetMergeRequestAssetURLResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.code.v1beta2.MergeRequestService.GetMergeRequestAssetURL is not implemented"))
+}
 
 func (UnimplementedMergeRequestServiceHandler) GetRepositoryReviewSettings(context.Context, *connect.Request[v1beta2.GetRepositoryReviewSettingsRequest]) (*connect.Response[v1beta2.GetRepositoryReviewSettingsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.code.v1beta2.MergeRequestService.GetRepositoryReviewSettings is not implemented"))
@@ -418,6 +651,10 @@ func (UnimplementedMergeRequestServiceHandler) MergeMergeRequest(context.Context
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.code.v1beta2.MergeRequestService.MergeMergeRequest is not implemented"))
 }
 
+func (UnimplementedMergeRequestServiceHandler) MergeMergeRequestWithMethod(context.Context, *connect.Request[v1beta2.MergeMergeRequestWithMethodRequest]) (*connect.Response[v1beta2.MergeMergeRequestWithMethodResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.code.v1beta2.MergeRequestService.MergeMergeRequestWithMethod is not implemented"))
+}
+
 func (UnimplementedMergeRequestServiceHandler) UpdateMergeRequest(context.Context, *connect.Request[v1beta2.UpdateMergeRequestRequest]) (*connect.Response[v1beta2.UpdateMergeRequestResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.code.v1beta2.MergeRequestService.UpdateMergeRequest is not implemented"))
 }
@@ -434,10 +671,26 @@ func (UnimplementedMergeRequestServiceHandler) DeleteMergeRequestComment(context
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.code.v1beta2.MergeRequestService.DeleteMergeRequestComment is not implemented"))
 }
 
+func (UnimplementedMergeRequestServiceHandler) ResolveMergeRequestThread(context.Context, *connect.Request[v1beta2.ResolveMergeRequestThreadRequest]) (*connect.Response[v1beta2.ResolveMergeRequestThreadResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.code.v1beta2.MergeRequestService.ResolveMergeRequestThread is not implemented"))
+}
+
+func (UnimplementedMergeRequestServiceHandler) UnresolveMergeRequestThread(context.Context, *connect.Request[v1beta2.UnresolveMergeRequestThreadRequest]) (*connect.Response[v1beta2.UnresolveMergeRequestThreadResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.code.v1beta2.MergeRequestService.UnresolveMergeRequestThread is not implemented"))
+}
+
 func (UnimplementedMergeRequestServiceHandler) ApproveMergeRequest(context.Context, *connect.Request[v1beta2.ApproveMergeRequestRequest]) (*connect.Response[v1beta2.ApproveMergeRequestResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.code.v1beta2.MergeRequestService.ApproveMergeRequest is not implemented"))
 }
 
+func (UnimplementedMergeRequestServiceHandler) ApproveMergeRequestAtRevision(context.Context, *connect.Request[v1beta2.ApproveMergeRequestAtRevisionRequest]) (*connect.Response[v1beta2.ApproveMergeRequestAtRevisionResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.code.v1beta2.MergeRequestService.ApproveMergeRequestAtRevision is not implemented"))
+}
+
 func (UnimplementedMergeRequestServiceHandler) RemoveMergeRequestApproval(context.Context, *connect.Request[v1beta2.RemoveMergeRequestApprovalRequest]) (*connect.Response[v1beta2.RemoveMergeRequestApprovalResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.code.v1beta2.MergeRequestService.RemoveMergeRequestApproval is not implemented"))
+}
+
+func (UnimplementedMergeRequestServiceHandler) ListMergeRequests(context.Context, *connect.Request[v1beta2.ListMergeRequestsRequest]) (*connect.Response[v1beta2.ListMergeRequestsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.code.v1beta2.MergeRequestService.ListMergeRequests is not implemented"))
 }
