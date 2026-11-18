@@ -79,6 +79,7 @@ jobs:
         uses: pnpm/setup@v3
         with:
           version: 11.22.0
+          node-version-file: 'false'
           install: false
 
       - name: Install Node 24
