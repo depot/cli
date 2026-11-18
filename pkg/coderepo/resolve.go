@@ -1,7 +1,8 @@
-package mr
+package coderepo
 
 import (
 	"fmt"
+	"os/exec"
 	"strings"
 
 	"connectrpc.com/connect"
@@ -12,31 +13,31 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-type repositoryRemote struct {
-	name, org string
-	github    bool
+type Remote struct {
+	Name, Org string
+	GitHub    bool
 }
 
-func parseRepositoryRemote(raw string) (repositoryRemote, bool) {
+func ParseRemote(raw string) (Remote, bool) {
 	// A local path containing a colon or @ is not an scp-style remote.
 	if !strings.Contains(raw, "://") {
 		prefix, _, _ := strings.Cut(raw, ":")
 		if strings.ContainsAny(prefix, "/\\") {
-			return repositoryRemote{}, false
+			return Remote{}, false
 		}
 	}
 	host, path, ok := gitremote.SplitURL(raw)
 	if !ok {
-		return repositoryRemote{}, false
+		return Remote{}, false
 	}
 	host = strings.TrimSuffix(strings.ToLower(host), ".")
 	path = strings.Trim(path, "/")
 	if path == "" || strings.ContainsAny(path, "?#\\\r\n\t") {
-		return repositoryRemote{}, false
+		return Remote{}, false
 	}
 	for _, part := range strings.Split(path, "/") {
 		if part == "" || part == "." || part == ".." {
-			return repositoryRemote{}, false
+			return Remote{}, false
 		}
 	}
 	if host == "github.com" {
@@ -45,54 +46,54 @@ func parseRepositoryRemote(raw string) (repositoryRemote, bool) {
 		}
 		parts := strings.Split(path, "/")
 		if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
-			return repositoryRemote{}, false
+			return Remote{}, false
 		}
-		return repositoryRemote{name: strings.ToLower(path), github: true}, true
+		return Remote{Name: strings.ToLower(path), GitHub: true}, true
 	}
 	if host == "code.depot.dev" {
-		return repositoryRemote{name: path}, true
+		return Remote{Name: path}, true
 	}
 	if org, ok := strings.CutSuffix(host, ".code.depot.dev"); ok && org != "" && !strings.Contains(org, ".") {
-		return repositoryRemote{name: path, org: org}, true
+		return Remote{Name: path, Org: org}, true
 	}
-	return repositoryRemote{}, false
+	return Remote{}, false
 }
 
 func repositoryInferenceError(reason string) error {
-	return fmt.Errorf("cannot infer Depot repository: %s; use --repo with the Depot repository ID", reason)
+	return fmt.Errorf("cannot infer Depot repository: %s; use --repo for MR commands or --id for repository commands with the Depot repository ID", reason)
 }
 
 func repositoryLookupError(operation string, err error) error {
 	// Do not echo server messages or Git URLs: either can contain credentials.
-	return repositoryInferenceError(fmt.Sprintf("%s failed (%s); check --org and repository access", operation, connect.CodeOf(err)))
+	return fmt.Errorf("%s failed (%s); check --org and repository access", operation, connect.CodeOf(err))
 }
 
-func (o *options) inferRepository(cmd *cobra.Command) (string, error) {
-	if o.org == "" {
+func Infer(cmd *cobra.Command, org, token, remoteURL string) (string, error) {
+	if org == "" {
 		return "", repositoryInferenceError("select an organization with --org or `depot org switch`")
 	}
-	names, err := git(cmd, "remote")
-	if err != nil {
-		return "", repositoryInferenceError("cannot read Git remotes from this checkout")
-	}
-	var remotes []repositoryRemote
-	seen := make(map[repositoryRemote]bool)
-	for _, name := range strings.Fields(names) {
-		urls, err := git(cmd, "remote", "get-url", "--all", "--", name)
+	var urls []string
+	if remoteURL != "" {
+		urls = []string{remoteURL}
+	} else {
+		var err error
+		urls, err = remoteURLs(cmd)
 		if err != nil {
+			return "", repositoryInferenceError("cannot read Git remotes from this checkout")
+		}
+	}
+	var remotes []Remote
+	seen := make(map[Remote]bool)
+	for _, raw := range urls {
+		remote, ok := ParseRemote(raw)
+		if !ok || seen[remote] {
 			continue
 		}
-		for _, raw := range strings.Split(urls, "\n") {
-			remote, ok := parseRepositoryRemote(raw)
-			if !ok || seen[remote] {
-				continue
-			}
-			if remote.org != "" && remote.org != o.org {
-				return "", repositoryInferenceError("a Depot remote belongs to a different organization; check --org")
-			}
-			seen[remote] = true
-			remotes = append(remotes, remote)
+		if remote.Org != "" && remote.Org != org {
+			return "", repositoryInferenceError("a Depot remote belongs to a different organization; check --org")
 		}
+		seen[remote] = true
+		remotes = append(remotes, remote)
 	}
 	if len(remotes) == 0 {
 		return "", repositoryInferenceError("no supported Git remotes found")
@@ -104,7 +105,7 @@ func (o *options) inferRepository(cmd *cobra.Command) (string, error) {
 		if repo.GetId() == "" {
 			return repositoryInferenceError("no matching repository in the selected organization")
 		}
-		if repo.OrgId != o.org {
+		if repo.OrgId != org {
 			return repositoryInferenceError("resolved repository does not belong to the selected organization; check --org")
 		}
 		if target != nil && target.Id != repo.Id {
@@ -114,14 +115,14 @@ func (o *options) inferRepository(cmd *cobra.Command) (string, error) {
 		return nil
 	}
 	for _, remote := range remotes {
-		if remote.github {
+		if remote.GitHub {
 			continue
 		}
-		resp, err := client.Resolve(cmd.Context(), request(o, &gitv1.ResolveRequest{
-			Repository: &gitv1.RepositorySelector{Value: &gitv1.RepositorySelector_Name{Name: remote.name}},
+		resp, err := client.Resolve(cmd.Context(), request(token, org, &gitv1.ResolveRequest{
+			Repository: &gitv1.RepositorySelector{Value: &gitv1.RepositorySelector_Name{Name: remote.Name}},
 		}))
 		if err != nil {
-			return "", repositoryLookupError("repository lookup", err)
+			return "", repositoryInferenceError(repositoryLookupError("repository lookup", err).Error())
 		}
 		if err := selectTarget(resp.Msg.Repository); err != nil {
 			return "", err
@@ -133,8 +134,8 @@ func (o *options) inferRepository(cmd *cobra.Command) (string, error) {
 	// mirror, including when its canonical name differs from its GitHub name.
 	var unmatched []string
 	for _, remote := range remotes {
-		if remote.github && !matchesUpstream(target, remote.name) {
-			unmatched = append(unmatched, remote.name)
+		if remote.GitHub && !matchesUpstream(target, remote.Name) {
+			unmatched = append(unmatched, remote.Name)
 		}
 	}
 	if len(unmatched) > 0 {
@@ -142,7 +143,7 @@ func (o *options) inferRepository(cmd *cobra.Command) (string, error) {
 		pageToken := ""
 		seenPages := make(map[string]bool)
 		for {
-			resp, err := client.List(cmd.Context(), request(o, &gitv1.ListRequest{
+			resp, err := client.List(cmd.Context(), request(token, org, &gitv1.ListRequest{
 				PageSize: proto.Int32(500), PageToken: proto.String(pageToken),
 			}))
 			if err != nil {
@@ -151,7 +152,7 @@ func (o *options) inferRepository(cmd *cobra.Command) (string, error) {
 				if depotTarget != nil && connect.CodeOf(err) == connect.CodePermissionDenied {
 					return depotTarget.Id, nil
 				}
-				return "", repositoryLookupError("existing mirror lookup", err)
+				return "", repositoryInferenceError(repositoryLookupError("existing mirror lookup", err).Error())
 			}
 			for _, repo := range resp.Msg.Repositories {
 				for _, name := range unmatched {
@@ -185,4 +186,27 @@ func matchesUpstream(repo *gitv1.Repository, name string) bool {
 	upstream := repo.GetUpstream()
 	return upstream.GetProvider() == gitv1.UpstreamProvider_UPSTREAM_PROVIDER_GITHUB &&
 		strings.EqualFold(upstream.GetOwner()+"/"+upstream.GetName(), name)
+}
+
+func request[T any](token, org string, message *T) *connect.Request[T] {
+	return api.WithAuthenticationAndOrg(connect.NewRequest(message), token, org)
+}
+func git(cmd *cobra.Command, args ...string) (string, error) {
+	out, err := exec.CommandContext(cmd.Context(), "git", args...).Output()
+	return strings.TrimSpace(string(out)), err
+}
+
+func remoteURLs(cmd *cobra.Command) ([]string, error) {
+	names, err := git(cmd, "remote")
+	if err != nil {
+		return nil, err
+	}
+	var urls []string
+	for _, name := range strings.Fields(names) {
+		raw, err := git(cmd, "remote", "get-url", "--all", "--", name)
+		if err == nil {
+			urls = append(urls, strings.Split(raw, "\n")...)
+		}
+	}
+	return urls, nil
 }

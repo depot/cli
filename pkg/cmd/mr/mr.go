@@ -7,6 +7,7 @@ import (
 
 	"connectrpc.com/connect"
 	"github.com/depot/cli/pkg/api"
+	"github.com/depot/cli/pkg/coderepo"
 	"github.com/depot/cli/pkg/config"
 	"github.com/depot/cli/pkg/helpers"
 	code "github.com/depot/cli/pkg/proto/depot/code/v1beta2"
@@ -35,7 +36,7 @@ func NewCmdMR() *cobra.Command {
 	cmd.PersistentFlags().StringVar(&o.token, "token", "", "Depot user token (or DEPOT_TOKEN)")
 	cmd.PersistentFlags().BoolVar(&o.json, "json", false, "Print the API response as JSON")
 	cmd.AddCommand(newCreate(o), newView(o), newMerge(o), newApprove(o), newComment(o), newList(o))
-	cmd.AddCommand(newDiff(o), newCommits(o), newFile(o))
+	cmd.AddCommand(newDiff(o), newCommits(o), newFile(o), newCheckout(o))
 	cmd.AddCommand(newEdit(o), newClose(o), newReopen(o))
 	cmd.AddCommand(newEditComment(o), newDeleteComment(o), newThreads(o), newReply(o), newResolve(o, true), newResolve(o, false))
 	return cmd
@@ -52,7 +53,7 @@ func (o *options) authenticate(cmd *cobra.Command) error {
 	if o.turn {
 		return fmt.Errorf("--repo is required in an agent session: pass the Depot repository ID from the repository list this session's Depot Code tools give")
 	}
-	repo, err := o.inferRepository(cmd)
+	repo, err := coderepo.Infer(cmd, o.org, o.token, "")
 	if err != nil {
 		return err
 	}
