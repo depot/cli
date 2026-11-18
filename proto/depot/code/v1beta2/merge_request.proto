@@ -54,6 +54,9 @@ service MergeRequestService {
   // request: approving again moves it to the current head and clears a withdrawal. Returns FailedPrecondition for a
   // closed or merged merge request.
   rpc ApproveMergeRequest(ApproveMergeRequestRequest) returns (ApproveMergeRequestResponse) {}
+  // Approves only the reviewed head, checked atomically with the approval. Returns Aborted if the head moved.
+  // Older servers return Unimplemented without approving.
+  rpc ApproveMergeRequestAtRevision(ApproveMergeRequestAtRevisionRequest) returns (ApproveMergeRequestAtRevisionResponse) {}
   // Withdraws the caller's approval. Returns NotFound when the caller never approved; withdrawing an approval that is
   // already withdrawn leaves it unchanged.
   rpc RemoveMergeRequestApproval(RemoveMergeRequestApprovalRequest) returns (RemoveMergeRequestApprovalResponse) {}
@@ -137,6 +140,8 @@ message MergeRequestComment {
   // When and by whom the thread was resolved. Set only on the comment that started a thread, while it is resolved.
   google.protobuf.Timestamp resolved_at = 61;
   MergeRequestActor resolved_by = 62;
+  // Whether the caller can edit this comment. Unset when not evaluated.
+  optional bool can_edit = 63;
 }
 
 // Lines of one file in the diff. Outdated once a commit differs from the merge request's `headOid` or `baseOid`.
@@ -448,6 +453,9 @@ message MergeMergeRequestWithMethodRequest {
   // Required. How the source branch is merged into the destination branch.
   // An unset or unknown value returns InvalidArgument without merging.
   Method method = 5;
+  // Expected destination branch name. For example, "main". A mismatch with the merge request's destination
+  // branch returns Aborted without merging. Leave unset to merge into the merge request's current destination.
+  optional string expected_base_ref = 6;
 }
 
 message MergeMergeRequestWithMethodResponse {
@@ -525,6 +533,17 @@ message UnresolveMergeRequestThreadResponse {
 message ApproveMergeRequestRequest {
   // Unique identifier for the merge request. Returned by `CreateMergeRequest` and `GetMergeRequest`.
   string merge_request_id = 1;
+}
+
+message ApproveMergeRequestAtRevisionRequest {
+  // Unique identifier for the merge request. Returned by `GetMergeRequest` and `ListMergeRequests`.
+  string merge_request_id = 1;
+  // Required full lowercase hexadecimal SHA-1 or SHA-256 of the reviewed head.
+  string expected_head_oid = 2;
+}
+
+message ApproveMergeRequestAtRevisionResponse {
+  MergeRequestApproval approval = 1;
 }
 
 message ApproveMergeRequestResponse {

@@ -1,0 +1,27 @@
+syntax = "proto3";
+package depot.mcp.v1;
+
+import "google/protobuf/descriptor.proto";
+
+option go_package = "github.com/depot/api/proto/depot/mcp/v1;mcpv1";
+
+// Settings for a method that the Depot MCP server makes available as a tool. The tool is read-only when the method
+// sets `idempotency_level` to `NO_SIDE_EFFECTS`, and idempotent when it sets `NO_SIDE_EFFECTS` or `IDEMPOTENT`.
+message ToolOptions {
+  // The tool name, in lowercase snake case. Required, and must be unique on the Depot MCP server. Start with a verb,
+  // and name the product when the method name alone is unclear, such as `get_ci_job`.
+  string name = 1;
+
+  // Whether the method can delete data, overwrite existing values, cancel work, revoke access, or make another change
+  // that cannot be undone. Not valid with `NO_SIDE_EFFECTS`.
+  bool destructive = 2;
+
+  // Whether the method reaches or affects people or systems outside the caller's organization, such as making data
+  // public or granting access to an outside CI provider.
+  bool open_world = 3;
+}
+
+extend google.protobuf.MethodOptions {
+  // Makes the method available as a tool on the Depot MCP server.
+  ToolOptions tool = 52001;
+}
