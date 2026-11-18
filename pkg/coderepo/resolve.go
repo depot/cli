@@ -65,7 +65,7 @@ func repositoryInferenceError(reason string) error {
 
 func repositoryLookupError(operation string, err error) error {
 	// Do not echo server messages or Git URLs: either can contain credentials.
-	return repositoryInferenceError(fmt.Sprintf("%s failed (%s); check --org and repository access", operation, connect.CodeOf(err)))
+	return fmt.Errorf("%s failed (%s); check --org and repository access", operation, connect.CodeOf(err))
 }
 
 func Infer(cmd *cobra.Command, org, token, remoteURL string) (string, error) {
@@ -127,7 +127,7 @@ func Infer(cmd *cobra.Command, org, token, remoteURL string) (string, error) {
 			Repository: &gitv1.RepositorySelector{Value: &gitv1.RepositorySelector_Name{Name: remote.Name}},
 		}))
 		if err != nil {
-			return "", repositoryLookupError("repository lookup", err)
+			return "", repositoryInferenceError(repositoryLookupError("repository lookup", err).Error())
 		}
 		if err := selectTarget(resp.Msg.Repository); err != nil {
 			return "", err
@@ -157,7 +157,7 @@ func Infer(cmd *cobra.Command, org, token, remoteURL string) (string, error) {
 				if depotTarget != nil && connect.CodeOf(err) == connect.CodePermissionDenied {
 					return depotTarget.Id, nil
 				}
-				return "", repositoryLookupError("existing mirror lookup", err)
+				return "", repositoryInferenceError(repositoryLookupError("existing mirror lookup", err).Error())
 			}
 			for _, repo := range resp.Msg.Repositories {
 				for _, name := range unmatched {

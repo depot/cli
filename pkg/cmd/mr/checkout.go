@@ -79,13 +79,16 @@ func newCheckout(o *options) *cobra.Command {
 			if err := cleanCheckout(cmd); err != nil {
 				return err
 			}
-			// Fetch the recorded object, never a branch that may have been reused since the MR closed.
-			if _, err := git(cmd, "fetch", "--quiet", "--no-tags", "--no-write-fetch-head", "--", repo.CloneURL, mr.HeadOid); err != nil {
-				return fmt.Errorf("cannot fetch the MR's recorded head commit; check Git credentials and whether that commit is still available")
-			}
 			oid, err := git(cmd, "rev-parse", "--verify", mr.HeadOid+"^{commit}")
+			if err != nil {
+				// Fetch the recorded object, never a branch that may have been reused since the MR closed.
+				if _, err := git(cmd, "fetch", "--quiet", "--no-tags", "--no-write-fetch-head", "--", repo.CloneURL, mr.HeadOid); err != nil {
+					return fmt.Errorf("cannot fetch the MR's recorded head commit; check Git credentials and whether that commit is still available")
+				}
+				oid, err = git(cmd, "rev-parse", "--verify", mr.HeadOid+"^{commit}")
+			}
 			if err != nil || !strings.EqualFold(oid, mr.HeadOid) {
-				return fmt.Errorf("fetched object does not match the MR head commit")
+				return fmt.Errorf("local object does not match the MR head commit")
 			}
 			if !detach && !force {
 				if _, err := git(cmd, "show-ref", "--verify", "--quiet", "refs/heads/"+localBranch); err == nil {

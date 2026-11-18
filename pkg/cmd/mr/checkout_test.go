@@ -55,6 +55,8 @@ func checkoutFixture(t *testing.T) (*code.MergeRequest, string) {
 
 func TestCheckoutRecordedHeadAndPreserveLocalCommits(t *testing.T) {
 	mr, base := checkoutFixture(t)
+	runGit(t, "reflog", "expire", "--expire=now", "--all")
+	runGit(t, "prune", "--expire=now")
 	out, err := execute(t, "checkout", "--id", "mr_1", "--json")
 	if err != nil {
 		t.Fatal(err)
@@ -162,5 +164,24 @@ func TestCheckoutSettledMRUsesRecordedCommitAfterBranchReuse(t *testing.T) {
 	mr.HeadOid = strings.Repeat("f", 40)
 	if out, err := execute(t, "checkout", "--id", "mr_1", "--detach"); err == nil || out != "" {
 		t.Fatalf("missing object must fail: %s %v", out, err)
+	}
+}
+
+func TestCheckoutUsesLocalRecordedCommitWithoutFetch(t *testing.T) {
+	mr, base := checkoutFixture(t)
+	runGit(t, "config", "fetch.recurseSubmodules", "invalid")
+	if _, err := execute(t, "checkout", "--id", "mr_1"); err != nil {
+		t.Fatalf("local recorded commit should not depend on fetch: %v", err)
+	}
+	if runGit(t, "rev-parse", "HEAD") != mr.HeadOid || runGit(t, "rev-parse", "main") != base {
+		t.Fatal("did not check out the recorded local commit")
+	}
+	mr.HeadOid = strings.Repeat("f", 40)
+	before := runGit(t, "rev-parse", "HEAD")
+	if _, err := execute(t, "checkout", "--id", "mr_1"); err == nil || !strings.Contains(err.Error(), "cannot fetch") {
+		t.Fatalf("missing commit must still require a successful fetch: %v", err)
+	}
+	if runGit(t, "rev-parse", "HEAD") != before {
+		t.Fatal("failed fetch changed checkout")
 	}
 }

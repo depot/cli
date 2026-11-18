@@ -3,6 +3,7 @@ package code
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -127,6 +128,25 @@ func TestRepositoryLookupRejectsInvalidResponsesWithoutPrintingThem(t *testing.T
 			out, err := readCommand(t, "repo", "view", "--id", "repo1")
 			if err == nil || out != "" || strings.Contains(err.Error(), "\x1b") {
 				t.Fatalf("unsafe response: %q %v", out, err)
+			}
+		})
+	}
+}
+
+func TestRepositoryViewReportsLookupFailuresWithoutInferenceAdvice(t *testing.T) {
+	for _, failure := range []connect.Code{connect.CodeNotFound, connect.CodePermissionDenied, connect.CodeUnavailable} {
+		t.Run(failure.String(), func(t *testing.T) {
+			mux := readServer(t)
+			path := codev1beta2connect.CodeServiceGetRepositoryProcedure
+			mux.Handle(path, connect.NewUnaryHandler(path, func(_ context.Context, _ *connect.Request[code.GetRepositoryRequest]) (*connect.Response[code.GetRepositoryResponse], error) {
+				return nil, connect.NewError(failure, errors.New("private server detail"))
+			}))
+			for _, selector := range [][]string{{"widgets"}, {"--id", "repo1"}} {
+				out, err := readCommand(t, append([]string{"repo", "view"}, selector...)...)
+				want := "repository lookup failed (" + failure.String() + "); check --org and repository access"
+				if err == nil || err.Error() != want || out != "" {
+					t.Fatalf("expected scoped lookup error %q, got %q %v", want, out, err)
+				}
 			}
 		})
 	}
