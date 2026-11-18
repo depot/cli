@@ -28,7 +28,7 @@ func NewCmdMR() *cobra.Command {
 	o := &options{}
 	cmd := &cobra.Command{
 		Use: "mr", Short: "Manage merge requests", Hidden: true,
-		Long: "Manage merge requests using a user token from depot login.\nEvery command infers the Depot repository from local Git remotes.\nPass --repo to select a Depot repository ID instead, and --org if it is not the current organization.",
+		Long: "Manage merge requests using a user token from depot login.\nRepository commands infer the Depot repository from local Git remotes.\nPass --repo to select a Depot repository ID instead, and --org if it is not the current organization.",
 		RunE: func(cmd *cobra.Command, _ []string) error { return cmd.Help() },
 	}
 	cmd.PersistentFlags().StringVar(&o.repo, "repo", "", "Depot repository ID (inferred from Git remotes when omitted)")
@@ -36,6 +36,7 @@ func NewCmdMR() *cobra.Command {
 	cmd.PersistentFlags().StringVar(&o.token, "token", "", "Depot user token (or DEPOT_TOKEN)")
 	cmd.PersistentFlags().BoolVar(&o.json, "json", false, "Print the API response as JSON")
 	cmd.AddCommand(newCreate(o), newView(o), newMerge(o), newApprove(o), newComment(o), newList(o))
+	cmd.AddCommand(newViewer(o))
 	cmd.AddCommand(newDiff(o), newCommits(o), newFile(o), newCheckout(o))
 	cmd.AddCommand(newEdit(o), newClose(o), newReopen(o))
 	cmd.AddCommand(newEditComment(o), newDeleteComment(o), newThreads(o), newReply(o), newResolve(o, true), newResolve(o, false))
@@ -81,11 +82,11 @@ func (o *options) login(cmd *cobra.Command) error {
 	if o.org == "" {
 		o.org = config.GetCurrentOrganization()
 	}
-	// The API takes a Dispatch turn's token on the calls of these three commands only (DEP-8674).
+	// A Dispatch turn can read its member's identity and merge requests, but cannot mutate them.
 	resolve := helpers.ResolveOrgAuth
 	if o.turn = helpers.OnlyATurnToken(o.token); o.turn {
-		if name := cmd.Name(); name != "view" && name != "list" && name != "threads" {
-			return fmt.Errorf("depot mr %s cannot be made as an agent turn. `depot mr view`, `list` and `threads` work here. To comment on or change a merge request, use the session's Depot Code tools or ask the person", name)
+		if name := cmd.Name(); name != "view" && name != "list" && name != "threads" && name != "viewer" {
+			return fmt.Errorf("depot mr %s cannot be made as an agent turn. `depot mr view`, `list`, `threads` and `viewer` work here. To comment on or change a merge request, use the session's Depot Code tools or ask the person", name)
 		}
 		resolve = helpers.ResolveTurnReadAuth
 	}

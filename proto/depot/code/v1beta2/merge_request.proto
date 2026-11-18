@@ -8,6 +8,11 @@ import "google/protobuf/timestamp.proto";
 // Every method requires a user credential. Organization tokens, CI job tokens and service credentials return
 // PermissionDenied.
 service MergeRequestService {
+  // Reads the authenticated user's identity in the selected organization. Requires a user credential.
+  rpc GetViewer(GetViewerRequest) returns (GetViewerResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+
   // Starts or resumes a private draft upload and returns a signed storage URL to PUT the file to.
   // Reuse `uploadKey` to retry: an unfinished upload gets a fresh URL, a finished one returns `uploaded`.
   rpc BeginMergeRequestAssetUpload(BeginMergeRequestAssetUploadRequest) returns (BeginMergeRequestAssetUploadResponse) {
@@ -77,6 +82,8 @@ message MergeRequestActor {
   }
   Kind kind = 1;
   string id = 2;
+  // The user's current display name. Empty when no profile was resolved for this actor.
+  string display_name = 3;
 }
 
 message MergeRequest {
@@ -268,6 +275,11 @@ message GetMergeRequestResponse {
   // Other open merge requests that change the same files. Unset unless `includeOverlaps` is set and the merge request
   // is open. Always unset for a CI job.
   MergeRequestOverlaps overlaps = 7;
+  // The actor this credential writes comments as. Older servers leave this unset.
+  MergeRequestActor viewer = 8;
+  // Actions this credential can perform on this merge request. Older servers leave this unset.
+  // Permissions can change; mutations recheck authorization and the current revision.
+  MergeRequestViewerPermissions viewer_permissions = 9;
 }
 
 // Current state of a Depot CI workflow or an agent check on a commit.
@@ -673,4 +685,29 @@ message ListMergeRequestsResponse {
   repeated MergeRequest merge_requests = 1;
   // Token for the next page. Empty on the last page.
   string next_page_token = 2;
+}
+
+message GetViewerRequest {}
+
+message GetViewerResponse {
+  // Organization in which the credential was authorized.
+  string org_id = 1;
+  MergeRequestActor viewer = 2;
+}
+
+// Allowed operations for the credential and current merge request state.
+// A true value does not guarantee mergeability or waive revision and comment-ownership checks.
+message MergeRequestViewerPermissions {
+  bool can_comment = 1;
+  bool can_comment_inline = 2;
+  bool can_resolve_threads = 3;
+  // Whether the title or description can be changed. Retargeting also requires an open merge request.
+  bool can_edit = 4;
+  bool can_close = 5;
+  bool can_reopen = 6;
+  // Whether merge-commit and squash methods are authorized. Conflicts and missing refs can still prevent merging.
+  bool can_merge = 7;
+  bool can_approve = 8;
+  // Whether the caller may withdraw their own approval, if one exists.
+  bool can_withdraw_approval = 9;
 }
