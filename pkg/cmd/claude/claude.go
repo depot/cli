@@ -90,6 +90,8 @@ Subcommands:
   depot claude secrets remove GITHUB_TOKEN`,
 		Args:               cobra.ArbitraryArgs,
 		DisableFlagParsing: true,
+		Hidden:             true,
+		Deprecated:         "use Depot Managed Agents instead: https://depot.dev/docs/managed-agents/claude-code-self-hosted",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) > 0 {
 				switch args[0] {

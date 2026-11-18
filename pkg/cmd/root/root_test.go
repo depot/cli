@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/base64"
 	"errors"
+	"io"
+	"os"
 	"strings"
 	"testing"
 )
@@ -50,6 +52,57 @@ func TestMergeRequestsAreHiddenButDirectlyAvailable(t *testing.T) {
 		if !strings.Contains(out.String(), "  "+name+" ") {
 			t.Errorf("mr help does not list %s", name)
 		}
+	}
+}
+
+func TestClaudeIsHiddenDeprecatedAndStillRuns(t *testing.T) {
+	cmd := NewCmdRoot("test-version", "test-date")
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	for _, args := range [][]string{{"--help"}, {"__complete", ""}} {
+		out.Reset()
+		cmd.SetArgs(args)
+		if err := cmd.Execute(); err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(out.String(), "claude") {
+			t.Fatalf("%v lists claude:\n%s", args, out.String())
+		}
+	}
+
+	claude, remaining, err := cmd.Find([]string{"claude"})
+	if err != nil || len(remaining) != 0 || claude.Name() != "claude" {
+		t.Fatalf("claude command not registered: %v, %v, %v", claude, remaining, err)
+	}
+
+	// Sandboxes and scripts read stdout, so the notice must only reach the real stderr.
+	outR, outW, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	errR, errW, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	origOut, origErr := os.Stdout, os.Stderr
+	os.Stdout, os.Stderr = outW, errW
+	cmd = NewCmdRoot("test-version", "test-date")
+	cmd.SetArgs([]string{"claude", "secrets"})
+	runErr := cmd.Execute()
+	os.Stdout, os.Stderr = origOut, origErr
+	outW.Close()
+	errW.Close()
+	stdout, _ := io.ReadAll(outR)
+	stderr, _ := io.ReadAll(errR)
+	if runErr != nil {
+		t.Fatal(runErr)
+	}
+	if !strings.Contains(string(stderr), "use Depot Managed Agents instead") {
+		t.Errorf("stderr has no deprecation notice: %q", stderr)
+	}
+	if strings.Contains(string(stdout), "deprecated") || !strings.Contains(string(stdout), "Manage secrets") {
+		t.Errorf("stdout changed: %q", stdout)
 	}
 }
 
