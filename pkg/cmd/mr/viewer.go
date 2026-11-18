@@ -34,7 +34,11 @@ func newViewer(o *options) *cobra.Command {
 			if o.json {
 				return o.writeJSON(cmd, result)
 			}
-			_, err = fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\nOrganization: %s\n", printable(result.Viewer.Id), printable(result.Viewer.DisplayName), printable(result.OrgId))
+			user := printable(result.Viewer.Id)
+			if name := printable(result.Viewer.DisplayName); name != "" {
+				user += " (" + name + ")"
+			}
+			_, err = fmt.Fprintf(cmd.OutOrStdout(), "User: %s\nOrganization: %s\n", user, printable(result.OrgId))
 			return err
 		},
 	}
