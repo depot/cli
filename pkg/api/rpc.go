@@ -182,3 +182,7 @@ func NewDepotAgentLaunchClient() agentv1connect.DepotAgentLaunchServiceClient {
 func NewDepotAgentClient() agentv1connect.DepotAgentServiceClient {
 	return agentv1connect.NewDepotAgentServiceClient(getHTTPClient(getBaseURL()), getBaseURL(), WithUserAgent())
 }
+
+func NewCodeClient() codev1beta2connect.CodeServiceClient {
+	return codev1beta2connect.NewCodeServiceClient(getHTTPClient(getBaseURL()), getBaseURL(), WithUserAgent())
+}
