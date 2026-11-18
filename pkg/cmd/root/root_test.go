@@ -53,6 +53,44 @@ func TestMergeRequestsAreHiddenButDirectlyAvailable(t *testing.T) {
 	}
 }
 
+func TestClaudeIsHiddenDeprecatedAndStillRuns(t *testing.T) {
+	cmd := NewCmdRoot("test-version", "test-date")
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	for _, args := range [][]string{{"--help"}, {"__complete", ""}} {
+		out.Reset()
+		cmd.SetArgs(args)
+		if err := cmd.Execute(); err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(out.String(), "claude") {
+			t.Fatalf("%v lists claude:\n%s", args, out.String())
+		}
+	}
+
+	claude, remaining, err := cmd.Find([]string{"claude"})
+	if err != nil || len(remaining) != 0 || claude.Name() != "claude" {
+		t.Fatalf("claude command not registered: %v, %v, %v", claude, remaining, err)
+	}
+
+	// Sandboxes and scripts parse stdout, and the Docker plugin wrapper sets its own stdout writer.
+	var stdout, stderr bytes.Buffer
+	cmd = NewCmdRoot("test-version", "test-date")
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{"claude", "secrets"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stderr.String(), "use Depot Managed Agents instead") {
+		t.Errorf("stderr has no deprecation notice: %q", stderr.String())
+	}
+	if strings.Contains(stdout.String(), "deprecated") {
+		t.Errorf("deprecation notice on stdout: %q", stdout.String())
+	}
+}
+
 func TestBuildkitRegistryProxyIsHiddenAndRunsInternalCommand(t *testing.T) {
 	t.Setenv("CA_CERT", "invalid-base64!")
 	cmd := NewCmdRoot("test-version", "test-date")

@@ -90,7 +90,10 @@ Subcommands:
   depot claude secrets remove GITHUB_TOKEN`,
 		Args:               cobra.ArbitraryArgs,
 		DisableFlagParsing: true,
+		Hidden:             true,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// Not cobra's Deprecated: it prints to OutOrStderr, which is stdout when run as a Docker CLI plugin.
+			fmt.Fprintln(cmd.ErrOrStderr(), "depot claude is deprecated; use Depot Managed Agents instead: https://depot.dev/docs/managed-agents/claude-code-self-hosted")
 			if len(args) > 0 {
 				switch args[0] {
 				case "list-sessions":
