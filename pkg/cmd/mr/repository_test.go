@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"connectrpc.com/connect"
+	"github.com/depot/cli/pkg/coderepo"
 	code "github.com/depot/cli/pkg/proto/depot/code/v1beta2"
 	"github.com/depot/cli/pkg/proto/depot/code/v1beta2/codev1beta2connect"
 	gitv1 "github.com/depot/cli/pkg/proto/depot/git/v1"
@@ -349,7 +350,7 @@ func TestParseRepositoryRemoteRejectsLookalikesAndLocalPaths(t *testing.T) {
 		"ssh://git@code.depot.dev/widgets%0Asecret", "https://github.com/acme/.git",
 	} {
 		t.Run(raw, func(t *testing.T) {
-			if remote, ok := parseRepositoryRemote(raw); ok {
+			if remote, ok := coderepo.ParseRemote(raw); ok {
 				t.Fatalf("accepted invalid remote: %+v", remote)
 			}
 		})
