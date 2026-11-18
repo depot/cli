@@ -33,15 +33,12 @@ func newCheckout(o *options) *cobra.Command {
 			if err := o.authenticateUser(cmd); err != nil {
 				return err
 			}
-			// Even explicit MR/repository IDs must belong to the local checkout.
-			localRepo, err := coderepo.Infer(cmd, o.org, o.token, "")
-			if err != nil {
-				return err
+			if t.id == "" && o.repo == "" {
+				o.repo, err = coderepo.Infer(cmd, o.org, o.token, "")
+				if err != nil {
+					return err
+				}
 			}
-			if o.repo != "" && localRepo != o.repo {
-				return fmt.Errorf("local checkout does not match --repo")
-			}
-			o.repo = localRepo
 			var found *code.GetMergeRequestResponse
 			if t.id != "" {
 				found, err = o.getByID(cmd, t.id)
@@ -52,8 +49,12 @@ func newCheckout(o *options) *cobra.Command {
 				return err
 			}
 			mr := found.MergeRequest
-			if mr.RepositoryId != localRepo || (t.id != "" && mr.Id != t.id) {
+			if (o.repo != "" && mr.RepositoryId != o.repo) || (t.id != "" && mr.Id != t.id) {
 				return fmt.Errorf("merge request does not match the selected repository or ID")
+			}
+			fetchURL, err := coderepo.CheckoutRemote(cmd, o.org, o.token, mr.RepositoryId)
+			if err != nil {
+				return err
 			}
 			if !detach && (mr.State != code.MergeRequest_STATE_OPEN || mr.HeadBranchDeleted) {
 				return fmt.Errorf("merge request is closed, merged or its head branch was deleted; use --detach to inspect its recorded commit")
@@ -73,8 +74,11 @@ func newCheckout(o *options) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if !detach && localBranch == repo.DefaultBranch {
+			if !detach && strings.EqualFold(localBranch, repo.DefaultBranch) {
 				return fmt.Errorf("refusing to reset the repository default branch; choose --branch or --detach")
+			}
+			if fetchURL == "" {
+				fetchURL = repo.CloneURL
 			}
 			if err := cleanCheckout(cmd); err != nil {
 				return err
@@ -82,7 +86,7 @@ func newCheckout(o *options) *cobra.Command {
 			oid, err := git(cmd, "rev-parse", "--verify", mr.HeadOid+"^{commit}")
 			if err != nil {
 				// Fetch the recorded object, never a branch that may have been reused since the MR closed.
-				if _, err := git(cmd, "fetch", "--quiet", "--no-tags", "--no-write-fetch-head", "--", repo.CloneURL, mr.HeadOid); err != nil {
+				if _, err := git(cmd, "fetch", "--quiet", "--no-tags", "--", fetchURL, mr.HeadOid); err != nil {
 					return fmt.Errorf("cannot fetch the MR's recorded head commit; check Git credentials and whether that commit is still available")
 				}
 				oid, err = git(cmd, "rev-parse", "--verify", mr.HeadOid+"^{commit}")

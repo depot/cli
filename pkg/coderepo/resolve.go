@@ -76,15 +76,10 @@ func Infer(cmd *cobra.Command, org, token, remoteURL string) (string, error) {
 	if remoteURL != "" {
 		urls = []string{remoteURL}
 	} else {
-		names, err := git(cmd, "remote")
+		var err error
+		urls, err = remoteURLs(cmd)
 		if err != nil {
 			return "", repositoryInferenceError("cannot read Git remotes from this checkout")
-		}
-		for _, name := range strings.Fields(names) {
-			raw, err := git(cmd, "remote", "get-url", "--all", "--", name)
-			if err == nil {
-				urls = append(urls, strings.Split(raw, "\n")...)
-			}
 		}
 	}
 	var remotes []Remote
@@ -199,4 +194,19 @@ func request[T any](token, org string, message *T) *connect.Request[T] {
 func git(cmd *cobra.Command, args ...string) (string, error) {
 	out, err := exec.CommandContext(cmd.Context(), "git", args...).Output()
 	return strings.TrimSpace(string(out)), err
+}
+
+func remoteURLs(cmd *cobra.Command) ([]string, error) {
+	names, err := git(cmd, "remote")
+	if err != nil {
+		return nil, err
+	}
+	var urls []string
+	for _, name := range strings.Fields(names) {
+		raw, err := git(cmd, "remote", "get-url", "--all", "--", name)
+		if err == nil {
+			urls = append(urls, strings.Split(raw, "\n")...)
+		}
+	}
+	return urls, nil
 }
