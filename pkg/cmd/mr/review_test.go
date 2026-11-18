@@ -69,3 +69,41 @@ func TestReviewHistoryAndWithdrawalWithoutCheckout(t *testing.T) {
 		t.Fatalf("%q, %v", out, err)
 	}
 }
+
+func TestReviewRefusesNonOpenRequestsButAllowsExplicitReplay(t *testing.T) {
+	t.Chdir(t.TempDir())
+	mux := apiServer(t)
+	head := strings.Repeat("a", 40)
+	current := fixture(head)
+	rpc(t, mux, codev1beta2connect.MergeRequestServiceGetMergeRequestProcedure, func(*code.GetMergeRequestRequest) (*code.GetMergeRequestResponse, error) {
+		return &code.GetMergeRequestResponse{MergeRequest: current}, nil
+	})
+	calls := 0
+	rpc(t, mux, codev1beta2connect.MergeRequestServiceSubmitMergeRequestReviewProcedure, func(req *code.SubmitMergeRequestReviewRequest) (*code.SubmitMergeRequestReviewResponse, error) {
+		calls++
+		if req.RequestKey != "retry-1" || req.ExpectedHeadOid != head {
+			t.Errorf("unexpected new submission: %v", req)
+		}
+		return &code.SubmitMergeRequestReviewResponse{Review: &code.MergeRequestReview{Id: "mrr_1", MergeRequestId: current.Id, HeadOid: head, Verdict: req.Verdict}}, nil
+	})
+	for _, state := range []code.MergeRequest_State{code.MergeRequest_STATE_CLOSED, code.MergeRequest_STATE_MERGED} {
+		current.State = state
+		for _, target := range [][]string{{"--id", current.Id}, {"feature"}} {
+			args := append([]string{"review", "--approve"}, target...)
+			for _, partial := range [][]string{nil, {"--request-key", "retry-1"}, {"--expected-head-oid", head}} {
+				before := calls
+				out, err := execute(t, append(append([]string{}, args...), partial...)...)
+				if err == nil || !strings.Contains(err.Error(), stateName(state)) || out != "" || calls != before {
+					t.Fatalf("new review of %s: %q, %v, calls %d -> %d", state, out, err, before, calls)
+				}
+			}
+			out, err := execute(t, append(args, "--request-key", "retry-1", "--expected-head-oid", head)...)
+			if err != nil || !strings.Contains(out, "mrr_1") {
+				t.Fatalf("explicit replay of %s: %q, %v", state, out, err)
+			}
+		}
+	}
+	if calls != 4 {
+		t.Fatalf("expected four explicit replays, got %d", calls)
+	}
+}

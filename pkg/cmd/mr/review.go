@@ -68,6 +68,12 @@ func newReview(o *options) *cobra.Command {
 			if (t.id != "" && mr.Id != t.id) || (o.repo != "" && mr.RepositoryId != o.repo) {
 				return fmt.Errorf("API returned a different merge request or repository")
 			}
+			// An explicit retry can recover a persisted review after the MR closes; the API refuses new writes.
+			if !cmd.Flags().Changed("request-key") || !cmd.Flags().Changed("expected-head-oid") {
+				if err := requireState(mr, name, code.MergeRequest_STATE_OPEN); err != nil {
+					return err
+				}
+			}
 			if head == "" {
 				head = mr.HeadOid
 			}
