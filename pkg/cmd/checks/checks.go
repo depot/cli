@@ -32,7 +32,16 @@ func NewCmdChecks() *cobra.Command {
 	return cmd
 }
 
+// authenticateRead is authenticate for the read commands, which the API also takes a Dispatch turn's token on.
+func (o *options) authenticateRead(cmd *cobra.Command) error {
+	return o.authenticateWith(cmd, helpers.ResolveTurnReadAuth)
+}
+
 func (o *options) authenticate(cmd *cobra.Command) error {
+	return o.authenticateWith(cmd, helpers.ResolveOrgAuth)
+}
+
+func (o *options) authenticateWith(cmd *cobra.Command, resolve func(context.Context, string) (string, error)) error {
 	if o.output != "text" && o.output != "json" && !(cmd.Name() == "transcript" && o.output == "jsonl") {
 		return fmt.Errorf("unsupported output format %q", o.output)
 	}
@@ -40,7 +49,7 @@ func (o *options) authenticate(cmd *cobra.Command) error {
 		o.org = config.GetCurrentOrganization()
 	}
 	var err error
-	o.token, err = helpers.ResolveOrgAuth(cmd.Context(), o.token)
+	o.token, err = resolve(cmd.Context(), o.token)
 	if err != nil {
 		return err
 	}
@@ -73,11 +82,23 @@ func parseRepo(value string) (*checksv1.RepositorySelector, error) {
 	if !ok || strings.TrimSpace(name) == "" || strings.TrimSpace(name) != name || strings.ContainsAny(name, "\r\n\t") {
 		return nil, fmt.Errorf("repository must be <forge>:<name>, for example github:depot/api")
 	}
-	switch forge {
+	forge, err := parseForge(forge)
+	if err != nil {
+		return nil, err
+	}
+	return &checksv1.RepositorySelector{Forge: forge, Name: name}, nil
+}
+
+func parseForge(value string) (string, error) {
+	switch value {
 	case "github", "cursor-origin", "code":
-		return &checksv1.RepositorySelector{Forge: forge, Name: name}, nil
+		return value, nil
+	case "origin":
+		return "cursor-origin", nil
+	case "depot":
+		return "code", nil
 	default:
-		return nil, fmt.Errorf("unsupported repository forge %q; use github, cursor-origin, or code", forge)
+		return "", fmt.Errorf("unsupported repository forge %q; use github, origin (cursor-origin), or depot (code)", value)
 	}
 }
 

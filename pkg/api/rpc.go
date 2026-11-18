@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"buf.build/gen/go/depot/api/connectrpc/go/depot/core/v1/corev1connect"
+	"buf.build/gen/go/depot/api/connectrpc/go/depot/registry/v1beta1/registryv1beta1connect"
 	"connectrpc.com/connect"
 	"github.com/depot/cli/pkg/proto/depot/agent/v1/agentv1connect"
 	"github.com/depot/cli/pkg/proto/depot/build/v1/buildv1connect"
@@ -16,6 +17,9 @@ import (
 	"github.com/depot/cli/pkg/proto/depot/ci/v1/civ1connect"
 	"github.com/depot/cli/pkg/proto/depot/cli/v1/cliv1connect"
 	"github.com/depot/cli/pkg/proto/depot/cli/v1beta1/cliv1beta1connect"
+	"github.com/depot/cli/pkg/proto/depot/code/v1beta2/codev1beta2connect"
+	"github.com/depot/cli/pkg/proto/depot/git/v1/gitv1connect"
+	"github.com/depot/cli/pkg/runtoken"
 	"golang.org/x/net/http2"
 )
 
@@ -39,6 +43,14 @@ func NewOrganizationsClient() corev1connect.OrganizationServiceClient {
 	return corev1connect.NewOrganizationServiceClient(getHTTPClient(getBaseURL()), getBaseURL(), WithUserAgent())
 }
 
+func NewCreditClient() corev1connect.CreditServiceClient {
+	return corev1connect.NewCreditServiceClient(getHTTPClient(getBaseURL()), getBaseURL(), WithUserAgent())
+}
+
+func NewBillingClient() corev1connect.BillingServiceClient {
+	return corev1connect.NewBillingServiceClient(getHTTPClient(getBaseURL()), getBaseURL(), WithUserAgent())
+}
+
 func NewSDKProjectsClient() corev1connect.ProjectServiceClient {
 	return corev1connect.NewProjectServiceClient(getHTTPClient(getBaseURL()), getBaseURL(), WithUserAgent())
 }
@@ -57,6 +69,11 @@ func NewSessionClient() agentv1connect.SessionServiceClient {
 
 func NewSandboxClient() agentv1connect.SandboxServiceClient {
 	return agentv1connect.NewSandboxServiceClient(getHTTPClient(getBaseURL()), getBaseURL(), WithUserAgent())
+}
+
+// NewSDKRegistryClient addresses the public organization Registry API.
+func NewSDKRegistryClient() registryv1beta1connect.RegistryServiceClient {
+	return registryv1beta1connect.NewRegistryServiceClient(getHTTPClient(getBaseURL()), getBaseURL(), WithUserAgent())
 }
 
 func NewRegistryClient() buildv1connect.RegistryServiceClient {
@@ -88,6 +105,14 @@ func NewReviewAgentClient() checksv1connect.ReviewAgentServiceClient {
 	return checksv1connect.NewReviewAgentServiceClient(getHTTPClient(getBaseURL()), getBaseURL(), WithUserAgent())
 }
 
+func NewGitRepositoryClient() gitv1connect.RepositoryServiceClient {
+	return gitv1connect.NewRepositoryServiceClient(getHTTPClient(getBaseURL()), getBaseURL(), WithUserAgent())
+}
+
+func NewMergeRequestClient() codev1beta2connect.MergeRequestServiceClient {
+	return codev1beta2connect.NewMergeRequestServiceClient(getHTTPClient(getBaseURL()), getBaseURL(), WithUserAgent())
+}
+
 func WithAuthentication[T any](req *connect.Request[T], token string) *connect.Request[T] {
 	req.Header().Add("Authorization", "Bearer "+token)
 	return req
@@ -106,19 +131,19 @@ func WithAuthenticationAndOrg[T any](req *connect.Request[T], token, orgID strin
 func getHTTPClient(baseURL string) *http.Client {
 	if strings.HasPrefix(baseURL, "http://") {
 		// Configure h2c (HTTP/2 over cleartext) for non-TLS connections
-		return &http.Client{
+		return runtoken.WrapClient(&http.Client{
 			Transport: &http2.Transport{
 				AllowHTTP: true,
 				DialTLS: func(network, addr string, _ *tls.Config) (net.Conn, error) {
 					return net.Dial(network, addr)
 				},
 			},
-		}
+		})
 	}
 
 	t, ok := http.DefaultTransport.(*http.Transport)
 	if !ok {
-		return http.DefaultClient
+		return runtoken.WrapClient(http.DefaultClient)
 	}
 
 	transport := t.Clone()
@@ -131,7 +156,7 @@ func getHTTPClient(baseURL string) *http.Client {
 		Transport: transport,
 	}
 
-	return racingClient
+	return runtoken.WrapClient(racingClient)
 }
 
 func getBaseURL() string {
@@ -152,4 +177,12 @@ func getExecBaseURL() string {
 
 func NewDepotAgentLaunchClient() agentv1connect.DepotAgentLaunchServiceClient {
 	return agentv1connect.NewDepotAgentLaunchServiceClient(getHTTPClient(getBaseURL()), getBaseURL(), WithUserAgent())
+}
+
+func NewDepotAgentClient() agentv1connect.DepotAgentServiceClient {
+	return agentv1connect.NewDepotAgentServiceClient(getHTTPClient(getBaseURL()), getBaseURL(), WithUserAgent())
+}
+
+func NewCodeClient() codev1beta2connect.CodeServiceClient {
+	return codev1beta2connect.NewCodeServiceClient(getHTTPClient(getBaseURL()), getBaseURL(), WithUserAgent())
 }

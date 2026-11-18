@@ -285,6 +285,6 @@ const upstreamBuildkitImage = "moby/buildkit:v0.13.2"
 // only the Depot buildkit exporter returns: fast --load through the registry
 // proxy, and --sbom-dir.
 func requiresDepotBuildkit(s scenario) bool {
-	fastLoad := slices.Contains(s.Args, "--load") && !s.API.LoadUsingRegistry
+	fastLoad := slices.Contains(s.Args, "--load") && (!s.API.LoadUsingRegistry || s.API.PullInfoFails)
 	return fastLoad || slices.Contains(s.Args, "--sbom-dir")
 }

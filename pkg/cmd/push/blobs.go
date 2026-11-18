@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/depot/cli/pkg/runtoken"
 	"github.com/opencontainers/go-digest"
 )
 
@@ -48,7 +49,7 @@ func PushBlob(ctx context.Context, depotToken string, blob *BlobToPush) error {
 		}
 		req.Header.Add("Authorization", "Bearer "+depotToken)
 		req.Header.Set("Content-Type", "application/json")
-		resp, err := http.DefaultClient.Do(req)
+		resp, err := runtoken.WrapClient(http.DefaultClient).Do(req)
 		if err != nil {
 			return err
 		}

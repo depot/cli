@@ -87,8 +87,8 @@ func TestSplitTestsSendsAuthHeader(t *testing.T) {
 	}
 }
 
-func TestReportTestResultsSendsAuthHeader(t *testing.T) {
-	handler := &testResultsHandler{}
+func TestReportTestResultsRetriesNotFoundWithAuth(t *testing.T) {
+	handler := &testResultsHandler{reportError: connect.NewError(connect.CodeNotFound, nil)}
 	setupTestResultsServer(t, handler)
 
 	resp, err := ReportTestResults(
@@ -105,6 +105,9 @@ func TestReportTestResultsSendsAuthHeader(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	if handler.reportCalls != 2 {
+		t.Fatalf("expected 2 calls, got %d", handler.reportCalls)
+	}
 	if handler.authorization != "Bearer oidc-token-1" {
 		t.Fatalf("expected auth header %q, got %q", "Bearer oidc-token-1", handler.authorization)
 	}
@@ -119,6 +122,16 @@ func TestReportTestResultsSendsAuthHeader(t *testing.T) {
 	}
 	if resp.GetFilesProcessed() != 1 || resp.GetTestsReported() != 2 {
 		t.Fatalf("expected report response counts, got files=%d tests=%d", resp.GetFilesProcessed(), resp.GetTestsReported())
+	}
+}
+
+func TestReportTestResultsDoesNotRetryPermissionDenied(t *testing.T) {
+	handler := &testResultsHandler{reportError: connect.NewError(connect.CodePermissionDenied, nil)}
+	setupTestResultsServer(t, handler)
+
+	_, err := ReportTestResults(context.Background(), "token-1", &testresultsv1.ReportTestResultsRequest{})
+	if connect.CodeOf(err) != connect.CodePermissionDenied || handler.reportCalls != 1 {
+		t.Fatalf("expected permission denied after one call, got %v after %d", err, handler.reportCalls)
 	}
 }
 
@@ -144,6 +157,8 @@ type testResultsHandler struct {
 	request       *testresultsv1.ListTestResultsRequest
 	reportRequest *testresultsv1.ReportTestResultsRequest
 	splitRequest  *testresultsv1.SplitTestsRequest
+	reportError   error
+	reportCalls   int
 }
 
 func (h *testResultsHandler) ReportTestResults(
@@ -153,6 +168,10 @@ func (h *testResultsHandler) ReportTestResults(
 	h.authorization = req.Header().Get("Authorization")
 	h.orgID = req.Header().Get("x-depot-org")
 	h.reportRequest = req.Msg
+	h.reportCalls++
+	if h.reportCalls == 1 && h.reportError != nil {
+		return nil, h.reportError
+	}
 	return connect.NewResponse(&testresultsv1.ReportTestResultsResponse{
 		FilesProcessed: 1,
 		TestsReported:  2,

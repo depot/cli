@@ -30,6 +30,7 @@ type apiBehavior struct {
 	Gzip               bool
 	LoadUsingRegistry  bool
 	PullFails          bool
+	PullInfoFails      bool
 	CancelAfter        time.Duration
 	CreateBuildCode    connect.Code
 	ConnectionCode     connect.Code
@@ -335,6 +336,9 @@ func (a *fakeAPI) GetPullInfo(ctx context.Context, req *connect.Request[cliv1.Ge
 		return nil, err
 	}
 	s.record("GetPullInfo", req.Msg)
+	if s.behavior.PullInfoFails {
+		return nil, connect.NewError(connect.CodeUnavailable, errors.New("pull credentials unavailable"))
+	}
 	repository := s.project
 	if s.behavior.PullFails {
 		repository = "missing/" + s.project

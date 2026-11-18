@@ -109,7 +109,7 @@ ID, use --job and --workflow to disambiguate by workflow job key.`,
 				orgID = config.GetCurrentOrganization()
 			}
 
-			tokenVal, err := helpers.ResolveOrgAuth(ctx, token)
+			tokenVal, err := helpers.ResolveTurnReadAuth(ctx, token)
 			if err != nil {
 				return err
 			}

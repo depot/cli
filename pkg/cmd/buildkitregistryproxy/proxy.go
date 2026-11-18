@@ -1,4 +1,4 @@
-package registry
+package buildkitregistryproxy
 
 import (
 	"bytes"
@@ -28,17 +28,14 @@ import (
 	"google.golang.org/grpc/keepalive"
 )
 
-func NewCmdRegistry() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:    "registry",
-		Short:  "Run a local registry",
+func NewCmdBuildkitRegistryProxy() *cobra.Command {
+	return &cobra.Command{
+		Use:    "buildkit-registry-proxy",
+		Short:  "Run the internal registry proxy for fast image loading",
 		Hidden: true,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return run()
-		},
+		Args:   cobra.NoArgs,
+		RunE:   func(cmd *cobra.Command, args []string) error { return run() },
 	}
-
-	return cmd
 }
 
 func run() error {

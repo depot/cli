@@ -3,6 +3,7 @@ package checks
 import (
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/depot/cli/pkg/api"
 	checksv1 "github.com/depot/cli/pkg/proto/depot/checks/v1"
@@ -12,29 +13,50 @@ import (
 func newList(o *options) *cobra.Command {
 	p := &pagination{}
 	req := &checksv1.ListChecksRequest{}
-	var repo string
+	var repo, forge string
 	cmd := &cobra.Command{
 		Use: "list", Aliases: []string{"ls"}, Short: "List checks across review agents", Args: cobra.NoArgs,
 		Long:    "List checks across review agents, following API pages internally up to the requested number of results (50 by default).",
-		Example: "  depot checks list --repo github:depot/api --branch main\n  depot checks list --outcome failed -n 100 --output json",
+		Example: "  depot checks list --repo depot/api --branch main\n  depot checks list --forge github --repo depot/api\n  depot checks list --repo depot:tools\n  depot checks list --outcome failed -n 100 --output json",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if err := p.validate(); err != nil {
 				return err
 			}
-			if repo != "" {
+			if cmd.Flags().Changed("forge") {
 				var err error
-				req.Repo, err = parseRepo(repo)
+				req.Forge, err = parseForge(forge)
 				if err != nil {
 					return err
+				}
+			}
+			if cmd.Flags().Changed("repo") {
+				qualified := strings.Contains(repo, ":")
+				selector := repo
+				if !qualified {
+					selector = "github:" + repo
+				}
+				var err error
+				req.Repo, err = parseRepo(selector)
+				if err != nil {
+					return err
+				}
+				if !qualified {
+					req.Repo.Forge = ""
+				}
+				if req.Forge != "" {
+					if qualified && req.Repo.Forge != req.Forge {
+						return fmt.Errorf("--forge conflicts with the forge in --repo")
+					}
+					req.Repo.Forge = req.Forge
 				}
 			}
 			if req.Branch != "" && req.Repo == nil {
 				return fmt.Errorf("--branch requires --repo")
 			}
-			if req.Outcome != "" && !slices.Contains([]string{"running", "done", "passed", "findings", "rejected", "resolved", "failed"}, req.Outcome) {
+			if req.Outcome != "" && !slices.Contains([]string{"running", "done", "passed", "findings", "rejected", "resolved", "failed", "cancelled", "superseded"}, req.Outcome) {
 				return fmt.Errorf("invalid --outcome %q", req.Outcome)
 			}
-			if err := o.authenticate(cmd); err != nil {
+			if err := o.authenticateRead(cmd); err != nil {
 				return err
 			}
 			client := api.NewCheckClient()
@@ -73,10 +95,11 @@ func newList(o *options) *cobra.Command {
 	}
 	p.flags(cmd)
 	cmd.Flags().StringVar(&req.AgentId, "agent", "", "Filter by review agent ID")
-	cmd.Flags().StringVar(&repo, "repo", "", "Filter by <forge>:<repository>, e.g. github:depot/api")
+	cmd.Flags().StringVar(&repo, "repo", "", "Repository name across forges, or <forge>:<repository>")
+	cmd.Flags().StringVar(&forge, "forge", "", "Repository forge: github, origin (cursor-origin), or depot (code)")
 	cmd.Flags().StringVar(&req.Branch, "branch", "", "Exact branch name (requires --repo)")
 	cmd.Flags().StringVar(&req.Sha, "sha", "", "Head or base commit SHA prefix")
-	cmd.Flags().StringVar(&req.Outcome, "outcome", "", "Filter: running, done, passed, findings, rejected, resolved, failed")
+	cmd.Flags().StringVar(&req.Outcome, "outcome", "", "Filter: running, done, passed, findings, rejected, resolved, failed, cancelled, superseded")
 	cmd.Flags().StringVar(&req.Query, "query", "", "Search agent names, repositories, branches, and SHA prefixes")
 	return cmd
 }
@@ -85,7 +108,7 @@ func newGet(o *options) *cobra.Command {
 	return &cobra.Command{
 		Use: "get <check-id | attempt-id>", Aliases: []string{"show"}, Short: "Show a check's latest attempt or an exact execution", Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := o.authenticate(cmd); err != nil {
+			if err := o.authenticateRead(cmd); err != nil {
 				return err
 			}
 			attempt, err := selectAttempt(cmd.Context(), o, args[0])
@@ -108,7 +131,7 @@ func newAttempts(o *options) *cobra.Command {
 			if err := p.validate(); err != nil {
 				return err
 			}
-			if err := o.authenticate(cmd); err != nil {
+			if err := o.authenticateRead(cmd); err != nil {
 				return err
 			}
 			selected, err := selectAttempt(cmd.Context(), o, args[0])

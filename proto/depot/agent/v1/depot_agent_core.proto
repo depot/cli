@@ -15,6 +15,8 @@ service DepotAgentService {
   rpc SendInput(SendInputRequest) returns (SendInputResponse);
   // Returns a session and the latest view of its conversation.
   rpc GetSession(GetSessionRequest) returns (GetSessionResponse);
+  // Returns the whole text of one message of a session's conversation. The view cuts long messages short.
+  rpc GetSessionMessage(GetSessionMessageRequest) returns (GetSessionMessageResponse);
   // Lists the organization's sessions, newest first.
   rpc ListDepotAgentSessions(ListDepotAgentSessionsRequest) returns (ListDepotAgentSessionsResponse);
   // Streams the session's view each time it changes.
@@ -217,6 +219,22 @@ message GetSessionResponse {
   uint64 view_seq = 3;
   // What each feature adds to the session, by feature name.
   map<string, bytes> contributions = 4;
+}
+
+message GetSessionMessageRequest {
+  // Unique identifier for the session. Returned by `CreateSession` and `ListDepotAgentSessions`.
+  string session_id = 1;
+  // Unique identifier for the message within the session: the `id` of an entry of `messages` in `viewJson`.
+  string message_id = 2;
+}
+
+message GetSessionMessageResponse {
+  // Who wrote the message: "user", "assistant" or "tool".
+  string role = 1;
+  // Text of the message. Maximum: 3 MiB, so the response fits a 4 MiB gRPC message; a longer tool result keeps its end, any other message its start.
+  string text = 2;
+  // Bytes of the message left out of `text`. Zero when `text` is the whole message.
+  uint64 truncated_bytes = 3;
 }
 
 message ListDepotAgentSessionsRequest {

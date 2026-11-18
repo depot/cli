@@ -8,6 +8,7 @@ import (
 	"github.com/depot/cli/pkg/api"
 	"github.com/depot/cli/pkg/config"
 	"github.com/depot/cli/pkg/oidc"
+	"github.com/depot/cli/pkg/runtoken"
 )
 
 func ResolveOrgAuth(ctx context.Context, tok string) (string, error) {
@@ -20,6 +21,46 @@ func ResolveOrgAuth(ctx context.Context, tok string) (string, error) {
 	}
 
 	return "", nil
+}
+
+// ResolveCacheAuth is ResolveOrgAuth for cache tools, which keep a cache token over a run token that expires mid-build.
+func ResolveCacheAuth(ctx context.Context, tok string) (string, error) {
+	token, err := ResolveOrgAuth(ctx, tok)
+	if source := runTokenSource(); err == nil && source != nil && source.Minted(token) {
+		if cacheToken := resolveJITToken(); cacheToken != "" {
+			return cacheToken, nil
+		}
+	}
+	return token, err
+}
+
+// ResolveAgentAuth is ResolveOrgAuth for the session RPCs the API takes a Dispatch turn's own token on (DEP-8577):
+// inside a turn that token comes before the cache token, and turn reports that it is the one returned.
+func ResolveAgentAuth(ctx context.Context, tok string) (token string, turn bool, err error) {
+	if token = resolveStaticProjectAuth(tok); token != "" {
+		return token, false, nil
+	}
+	if token = resolveRunToken(ctx); token != "" {
+		return token, false, nil
+	}
+	if token = mintToken(ctx, turnTokenSource()); token != "" {
+		return token, true, nil
+	}
+	if token = resolveJITToken(); token != "" || !IsTerminal() {
+		return token, false, nil
+	}
+	token, err = authorizeDevice(ctx)
+	return token, false, err
+}
+
+// ResolveTurnReadAuth is ResolveOrgAuth for CI and Agent Checks reads: a Dispatch turn's token comes before the cache token (DEP-8673).
+func ResolveTurnReadAuth(ctx context.Context, tok string) (string, error) {
+	token, _, err := ResolveAgentAuth(ctx, tok)
+	return token, err
+}
+
+func OnlyATurnToken(tok string) bool {
+	return resolveStaticProjectAuth(tok) == "" && runTokenSource() == nil && turnTokenSource() != nil
 }
 
 func ResolveStaticOrgAuth(tok string) string {
@@ -35,11 +76,19 @@ func ResolveStaticOrgAuth(tok string) string {
 		return token
 	}
 
+	if token := resolveRunToken(context.Background()); token != "" {
+		return token
+	}
+
 	return resolveJITToken()
 }
 
 func ResolveProjectAuth(ctx context.Context, tok string) (string, error) {
 	if token := resolveStaticProjectAuth(tok); token != "" {
+		return token, nil
+	}
+
+	if token := resolveRunToken(ctx); token != "" {
 		return token, nil
 	}
 
@@ -124,6 +173,28 @@ func resolveOIDCToken(ctx context.Context) string {
 	}
 
 	return ""
+}
+
+var (
+	runTokenSource  = runtoken.Default
+	turnTokenSource = runtoken.Turn
+)
+
+// resolveRunToken mints a managed run's own token; the API client refreshes it per request.
+func resolveRunToken(ctx context.Context) string {
+	return mintToken(ctx, runTokenSource())
+}
+
+func mintToken(ctx context.Context, source *runtoken.Source) string {
+	if source == nil {
+		return ""
+	}
+	token, err := source.Token(ctx)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return ""
+	}
+	return token
 }
 
 func resolveJITToken() string {

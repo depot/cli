@@ -60,7 +60,7 @@ func RunProxyImage(ctx context.Context, dockerapi docker.APIClient, config *Prox
 				fmt.Sprintf("MANIFEST=%s", base64.StdEncoding.EncodeToString(config.RawManifest)),
 				fmt.Sprintf("CONFIG=%s", base64.StdEncoding.EncodeToString(config.RawConfig)),
 			},
-			Cmd: []string{"registry"},
+			Cmd: []string{"buildkit-registry-proxy"},
 			Healthcheck: &container.HealthConfig{
 				Test:        []string{"CMD", "curl", "-f", "http://localhost:8888/v2"},
 				Timeout:     time.Second,

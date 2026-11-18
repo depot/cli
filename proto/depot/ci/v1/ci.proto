@@ -96,6 +96,8 @@ service CIService {
 service MigrationService {
   rpc GetInstallation(GetInstallationRequest) returns (GetInstallationResponse) {}
   rpc ImportSecretsAndVars(ImportSecretsAndVarsRequest) returns (ImportSecretsAndVarsResponse) {}
+  // Reports whether the organization's Entire installations grant Depot access to a repository.
+  rpc GetEntireRepositoryAccess(GetEntireRepositoryAccessRequest) returns (GetEntireRepositoryAccessResponse) {}
 }
 
 message GetInstallationRequest {
@@ -105,6 +107,18 @@ message GetInstallationRequest {
 
 message GetInstallationResponse {
   repeated Installation installations = 1;
+}
+
+message GetEntireRepositoryAccessRequest {
+  // Entire repository name, as the `namespace/project/name` path of its clone URL. For example, "et/acme/api".
+  string repo = 1;
+}
+
+message GetEntireRepositoryAccessResponse {
+  // Whether the organization has an active Entire installation. False when Entire is not enabled for the organization.
+  bool installed = 1;
+  // Whether one of the organization's Entire installations grants Depot access to `repo`.
+  bool repo_accessible = 2;
 }
 
 message ImportSecretsAndVarsRequest {
@@ -1053,4 +1067,5 @@ enum Forge {
   FORGE_GITHUB = 1;
   FORGE_ORIGIN = 2;
   FORGE_DEPOT_CODE = 3;
+  FORGE_ENTIRE = 4;
 }

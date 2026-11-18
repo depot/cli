@@ -53,10 +53,6 @@ func newSandboxPty() *cobra.Command {
 			sessionID, err := cmd.Flags().GetString("session-id")
 			cobra.CheckErr(err)
 
-			if sessionID == "" {
-				return fmt.Errorf("session-id is required")
-			}
-
 			cwd, err := cmd.Flags().GetString("cwd")
 			cobra.CheckErr(err)
 
@@ -72,7 +68,7 @@ func newSandboxPty() *cobra.Command {
 				envMap[k] = v
 			}
 
-			return pty.Run(ctx, pty.SessionOptions{
+			err = pty.Run(ctx, pty.SessionOptions{
 				Token:     token,
 				OrgID:     orgID,
 				SandboxID: sandboxID,
@@ -80,11 +76,12 @@ func newSandboxPty() *cobra.Command {
 				Cwd:       cwd,
 				Env:       envMap,
 			})
+			return sandboxPtyError(err, sandboxID)
 		},
 	}
 
 	cmd.Flags().String("sandbox-id", "", "ID of the compute to execute the command against")
-	cmd.Flags().String("session-id", "", "The session the compute belongs to")
+	cmd.Flags().String("session-id", "", "The session the compute belongs to; leave unset for an agent sandbox")
 	cmd.Flags().String("cwd", "", "Workdir within the compute. If not provided or invalid, home directory is used.")
 	cmd.Flags().StringArray("env", nil, "Environment variables to set (KEY=VALUE), can be specified multiple times.")
 

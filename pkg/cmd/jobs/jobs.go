@@ -124,7 +124,7 @@ Use the returned nextPageToken with --page-token to retrieve another page.`,
 		cmd.Use = "jobs [job-id]"
 		cmd.Short = "List or inspect GitHub Actions jobs run on Depot"
 		cmd.Args = cobra.MaximumNArgs(1)
-		cmd.Long += "\n\nSupply a job ID and one --repo to inspect a job. Step timings are not\navailable from the API. Use jobs metrics for individual job CPU and memory\nmetrics, or jobs analytics for aggregate metrics."
+		cmd.Long += "\n\nSupply a job ID and one --repo to inspect a job. Step timings are not\navailable from the API. Use jobs metrics for individual job CPU, memory, and OOM\nmetrics, or jobs analytics for aggregate metrics."
 	}
 	if allowGet {
 		cmd.Example = `  depot jobs --repo acme/api --output json
@@ -157,7 +157,10 @@ Use the returned nextPageToken with --page-token to retrieve another page.`,
 			if o.output == "json" {
 				return writeJSON(cmd.OutOrStdout(), resp)
 			}
-			return writeJob(cmd.OutOrStdout(), resp.Job)
+			if err := writeJob(cmd.OutOrStdout(), resp.Job); err != nil {
+				return err
+			}
+			return writeOOM(cmd.OutOrStdout(), resp.GetOom())
 		}
 		tr, err := p.timeRange()
 		if err != nil {
