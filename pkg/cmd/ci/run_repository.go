@@ -217,3 +217,14 @@ func resolveRunRepository(dir, explicitRepo, forgeFlag string) (runRepository, e
 	}
 	return detected[0], nil
 }
+
+// checkoutName is the repository name a job's actions/checkout uses: jobs see an
+// Entire repository as owner/name, without its namespace.
+func (r runRepository) checkoutName() string {
+	if r.forge == civ1.Forge_FORGE_ENTIRE {
+		if _, name, ok := strings.Cut(r.repo, "/"); ok {
+			return name
+		}
+	}
+	return r.repo
+}

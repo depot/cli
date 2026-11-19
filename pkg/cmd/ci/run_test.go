@@ -807,3 +807,19 @@ func TestInjectPatchStep_prefersWorkflowCheckoutOverRepositoryExpression(t *test
 		t.Fatalf("step after workflow repository checkout = %#v, want the patch step", steps[2])
 	}
 }
+
+func TestRunRepositoryCheckoutName(t *testing.T) {
+	cases := []struct {
+		repository runRepository
+		want       string
+	}{
+		{runRepository{forge: civ1.Forge_FORGE_ENTIRE, repo: "gh/acme/api"}, "acme/api"},
+		{runRepository{forge: civ1.Forge_FORGE_GITHUB, repo: "acme/api"}, "acme/api"},
+		{runRepository{forge: civ1.Forge_FORGE_DEPOT_CODE, repo: "api"}, "api"},
+	}
+	for _, c := range cases {
+		if got := c.repository.checkoutName(); got != c.want {
+			t.Errorf("checkoutName(%v) = %q, want %q", c.repository, got, c.want)
+		}
+	}
+}

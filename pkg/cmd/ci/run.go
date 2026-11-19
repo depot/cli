@@ -189,14 +189,14 @@ Use --forge depot to run a Depot Code repository.`,
 
 				// Inject patch step into each selected job that has actions/checkout
 				for _, jobName := range selectedJobs {
-					injectPatchStep(jobs, jobName, patch.mergeBase, patchWorkspacePath(patch), repository.forge, repository.repo)
+					injectPatchStep(jobs, jobName, patch.mergeBase, patchWorkspacePath(patch), repository.forge, repository.checkoutName())
 				}
 			}
 
 			// Insert tmate debug step if requested
 			if sshAfterStep > 0 {
 				jobName := jobNames[0]
-				if err := injectTmateStep(jobs, jobName, sshAfterStep, patch != nil, repository.repo); err != nil {
+				if err := injectTmateStep(jobs, jobName, sshAfterStep, patch != nil, repository.checkoutName()); err != nil {
 					return err
 				}
 			}
