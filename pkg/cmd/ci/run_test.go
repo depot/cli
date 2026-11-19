@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -439,7 +440,7 @@ func TestInjectPatchStep_appliesDownloadedPatch(t *testing.T) {
 			jobs := patchStepJobs()
 			sum := sha256.Sum256([]byte(patchBytes))
 			path := fmt.Sprintf("patch/abc123/%x", sum[:8])
-			injectPatchStep(jobs, "build", patch.mergeBase, path, civ1.Forge_FORGE_GITHUB)
+			injectPatchStep(jobs, "build", patch.mergeBase, path, civ1.Forge_FORGE_GITHUB, "acme/app")
 			steps := jobs["build"].(map[string]interface{})["steps"].([]interface{})
 			script := steps[1].(map[string]interface{})["run"].(string)
 			// Isolate the generated script's temporary file from other test runs.
@@ -499,7 +500,7 @@ if [ "$DOWNLOAD_FAILS" = "true" ]; then exit 22; fi
 
 func TestInjectPatchStep_pinsCheckoutToMergeBase(t *testing.T) {
 	jobs := patchStepJobs()
-	injectPatchStep(jobs, "build", "abc123", "patch/abc123/def", civ1.Forge_FORGE_GITHUB)
+	injectPatchStep(jobs, "build", "abc123", "patch/abc123/def", civ1.Forge_FORGE_GITHUB, "acme/app")
 
 	steps := jobs["build"].(map[string]interface{})["steps"].([]interface{})
 	if len(steps) != 3 {
@@ -641,7 +642,7 @@ jobs:
 // so a Depot Code run must not add one.
 func TestInjectPatchStep_leavesDepotCodeCheckoutUntouched(t *testing.T) {
 	jobs := patchStepJobs()
-	injectPatchStep(jobs, "build", "abc123", "patch/abc123/def", civ1.Forge_FORGE_DEPOT_CODE)
+	injectPatchStep(jobs, "build", "abc123", "patch/abc123/def", civ1.Forge_FORGE_DEPOT_CODE, "acme/app")
 
 	steps := jobs["build"].(map[string]interface{})["steps"].([]interface{})
 	if len(steps) != 3 {
@@ -653,5 +654,239 @@ func TestInjectPatchStep_leavesDepotCodeCheckoutUntouched(t *testing.T) {
 	}
 	if steps[1].(map[string]interface{})["name"] != "Apply local patch from Depot Cache" {
 		t.Fatalf("step after checkout = %#v, want the patch step", steps[1])
+	}
+}
+
+func crossRepoCheckout() map[string]interface{} {
+	return map[string]interface{}{
+		"uses": "actions/checkout@v4",
+		"with": map[string]interface{}{
+			"repository": "android/testing-samples",
+			"ref":        "8c9df3a534ef99e44d481d96c00a5fc1970f7c70",
+		},
+	}
+}
+
+func TestInjectPatchStep_skipsCheckoutOfOtherRepository(t *testing.T) {
+	jobs := map[string]interface{}{
+		"build": map[string]interface{}{
+			"steps": []interface{}{
+				crossRepoCheckout(),
+				map[string]interface{}{"uses": "actions/checkout@v4"},
+				map[string]interface{}{"run": "make test"},
+			},
+		},
+	}
+	injectPatchStep(jobs, "build", "abc123", "patch/abc123/def", civ1.Forge_FORGE_GITHUB, "acme/app")
+
+	steps := jobs["build"].(map[string]interface{})["steps"].([]interface{})
+	if len(steps) != 4 {
+		t.Fatalf("got %d steps, want 4", len(steps))
+	}
+	other := steps[0].(map[string]interface{})["with"].(map[string]interface{})
+	if other["ref"] != "8c9df3a534ef99e44d481d96c00a5fc1970f7c70" {
+		t.Fatalf("other repository ref = %v, want it unchanged", other["ref"])
+	}
+	own, ok := steps[1].(map[string]interface{})["with"].(map[string]interface{})
+	if !ok || own["ref"] != "abc123" {
+		t.Fatalf("workflow repository checkout = %#v, want ref abc123", steps[1])
+	}
+	if steps[2].(map[string]interface{})["name"] != "Apply local patch from Depot Cache" {
+		t.Fatalf("step after workflow repository checkout = %#v, want the patch step", steps[2])
+	}
+}
+
+func TestInjectPatchStep_onlyOtherRepositoryCheckout_skipsInjection(t *testing.T) {
+	jobs := map[string]interface{}{
+		"build": map[string]interface{}{
+			"steps": []interface{}{
+				crossRepoCheckout(),
+				map[string]interface{}{"run": "make test"},
+			},
+		},
+	}
+	injectPatchStep(jobs, "build", "abc123", "patch/abc123/def", civ1.Forge_FORGE_GITHUB, "acme/app")
+
+	steps := jobs["build"].(map[string]interface{})["steps"].([]interface{})
+	if len(steps) != 2 {
+		t.Fatalf("got %d steps, want 2 (no patch step)", len(steps))
+	}
+	other := steps[0].(map[string]interface{})["with"].(map[string]interface{})
+	if other["ref"] != "8c9df3a534ef99e44d481d96c00a5fc1970f7c70" {
+		t.Fatalf("other repository ref = %v, want it unchanged", other["ref"])
+	}
+}
+
+func TestInjectPatchStep_matchesWorkflowRepositoryIgnoringCase(t *testing.T) {
+	jobs := map[string]interface{}{
+		"build": map[string]interface{}{
+			"steps": []interface{}{
+				map[string]interface{}{
+					"uses": "actions/checkout@v4",
+					"with": map[string]interface{}{"repository": "Acme/App"},
+				},
+				map[string]interface{}{"run": "make test"},
+			},
+		},
+	}
+	injectPatchStep(jobs, "build", "abc123", "patch/abc123/def", civ1.Forge_FORGE_GITHUB, "acme/app")
+
+	steps := jobs["build"].(map[string]interface{})["steps"].([]interface{})
+	if len(steps) != 3 {
+		t.Fatalf("got %d steps, want 3", len(steps))
+	}
+	if steps[0].(map[string]interface{})["with"].(map[string]interface{})["ref"] != "abc123" {
+		t.Fatalf("checkout = %#v, want ref abc123", steps[0])
+	}
+}
+
+func TestInjectTmateStep_followsWorkflowRepositoryCheckout(t *testing.T) {
+	jobs := map[string]interface{}{
+		"build": map[string]interface{}{
+			"steps": []interface{}{
+				crossRepoCheckout(),
+				map[string]interface{}{"uses": "actions/checkout@v4"},
+				map[string]interface{}{"run": "make test"},
+			},
+		},
+	}
+	injectPatchStep(jobs, "build", "abc123", "patch/abc123/def", civ1.Forge_FORGE_GITHUB, "acme/app")
+	// Step 1 is the other repository's checkout, which comes before the patch step.
+	if err := injectTmateStep(jobs, "build", 1, true, "acme/app"); err != nil {
+		t.Fatal(err)
+	}
+
+	steps := jobs["build"].(map[string]interface{})["steps"].([]interface{})
+	var got []string
+	for _, raw := range steps {
+		step := raw.(map[string]interface{})
+		switch {
+		case step["name"] != nil:
+			got = append(got, step["name"].(string))
+		case step["run"] != nil:
+			got = append(got, step["run"].(string))
+		default:
+			got = append(got, step["uses"].(string))
+		}
+	}
+	want := []string{
+		"actions/checkout@v4",
+		"mxschmitt/action-tmate@v3",
+		"actions/checkout@v4",
+		"Apply local patch from Depot Cache",
+		"make test",
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("steps = %q, want %q", got, want)
+	}
+}
+
+func TestInjectPatchStep_prefersWorkflowCheckoutOverRepositoryExpression(t *testing.T) {
+	jobs := map[string]interface{}{
+		"build": map[string]interface{}{
+			"steps": []interface{}{
+				map[string]interface{}{
+					"uses": "actions/checkout@v4",
+					"with": map[string]interface{}{
+						"repository": "${{ github.repository_owner }}/shared-config",
+						"ref":        "v1",
+					},
+				},
+				map[string]interface{}{"uses": "actions/checkout@v4"},
+				map[string]interface{}{"run": "make test"},
+			},
+		},
+	}
+	injectPatchStep(jobs, "build", "abc123", "patch/abc123/def", civ1.Forge_FORGE_GITHUB, "acme/app")
+
+	steps := jobs["build"].(map[string]interface{})["steps"].([]interface{})
+	if steps[0].(map[string]interface{})["with"].(map[string]interface{})["ref"] != "v1" {
+		t.Fatalf("expression checkout = %#v, want ref v1", steps[0])
+	}
+	if steps[2].(map[string]interface{})["name"] != "Apply local patch from Depot Cache" {
+		t.Fatalf("step after workflow repository checkout = %#v, want the patch step", steps[2])
+	}
+}
+
+func TestRunRepositoryCheckoutName(t *testing.T) {
+	cases := []struct {
+		repository runRepository
+		want       string
+	}{
+		{runRepository{forge: civ1.Forge_FORGE_ENTIRE, repo: "gh/acme/api"}, "acme/api"},
+		{runRepository{forge: civ1.Forge_FORGE_GITHUB, repo: "acme/api"}, "acme/api"},
+		{runRepository{forge: civ1.Forge_FORGE_DEPOT_CODE, repo: "api"}, ""},
+	}
+	for _, c := range cases {
+		if got := c.repository.checkoutName(); got != c.want {
+			t.Errorf("checkoutName(%v) = %q, want %q", c.repository, got, c.want)
+		}
+	}
+}
+
+func TestInjectPatchStep_depotCodePatchesFirstCheckout(t *testing.T) {
+	jobs := map[string]interface{}{
+		"build": map[string]interface{}{
+			"steps": []interface{}{
+				map[string]interface{}{
+					"uses": "actions/checkout@v4",
+					"with": map[string]interface{}{"repository": "acme/api"},
+				},
+				map[string]interface{}{"run": "make test"},
+			},
+		},
+	}
+	repo := runRepository{forge: civ1.Forge_FORGE_DEPOT_CODE, repo: "api"}
+	injectPatchStep(jobs, "build", "abc123", "patch/abc123/def", repo.forge, repo.checkoutName())
+
+	steps := jobs["build"].(map[string]interface{})["steps"].([]interface{})
+	if len(steps) != 3 || steps[1].(map[string]interface{})["name"] != "Apply local patch from Depot Cache" {
+		t.Fatalf("steps = %#v, want the patch step after the checkout", steps)
+	}
+}
+
+func TestInjectPatchStep_onlyRepositoryExpressionCheckout_skipsInjection(t *testing.T) {
+	jobs := map[string]interface{}{
+		"build": map[string]interface{}{
+			"steps": []interface{}{
+				map[string]interface{}{
+					"uses": "actions/checkout@v4",
+					"with": map[string]interface{}{
+						"repository": "${{ github.repository_owner }}/shared-config",
+						"ref":        "v1",
+					},
+				},
+				map[string]interface{}{"run": "make test"},
+			},
+		},
+	}
+	injectPatchStep(jobs, "build", "abc123", "patch/abc123/def", civ1.Forge_FORGE_GITHUB, "acme/app")
+
+	steps := jobs["build"].(map[string]interface{})["steps"].([]interface{})
+	if len(steps) != 2 {
+		t.Fatalf("got %d steps, want 2 (no patch step)", len(steps))
+	}
+	if steps[0].(map[string]interface{})["with"].(map[string]interface{})["ref"] != "v1" {
+		t.Fatalf("expression checkout = %#v, want ref v1", steps[0])
+	}
+}
+
+func TestInjectPatchStep_matchesGithubRepositoryExpression(t *testing.T) {
+	jobs := map[string]interface{}{
+		"build": map[string]interface{}{
+			"steps": []interface{}{
+				map[string]interface{}{
+					"uses": "actions/checkout@v4",
+					"with": map[string]interface{}{"repository": "${{ github.repository }}"},
+				},
+				map[string]interface{}{"run": "make test"},
+			},
+		},
+	}
+	injectPatchStep(jobs, "build", "abc123", "patch/abc123/def", civ1.Forge_FORGE_GITHUB, "acme/app")
+
+	steps := jobs["build"].(map[string]interface{})["steps"].([]interface{})
+	if len(steps) != 3 || steps[0].(map[string]interface{})["with"].(map[string]interface{})["ref"] != "abc123" {
+		t.Fatalf("steps = %#v, want the checkout pinned and patched", steps)
 	}
 }
