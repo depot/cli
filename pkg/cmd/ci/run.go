@@ -547,9 +547,11 @@ func resolveJobDeps(allJobs map[string]interface{}, requested []string) map[stri
 }
 
 // workflowCheckoutIndex returns the first actions/checkout step that checks out
-// repo. Only a literal repository input can name another repository; an
-// expression usually resolves to the workflow's own.
+// repo: one with no repository input, ${{ github.repository }}, or a literal
+// equal to repo. Failing that, it falls back to the first checkout whose
+// repository is some other expression, since that may still resolve to repo.
 func workflowCheckoutIndex(steps []interface{}, repo string) int {
+	fallback := -1
 	for i, stepRaw := range steps {
 		step, ok := stepRaw.(map[string]interface{})
 		if !ok {
@@ -559,14 +561,16 @@ func workflowCheckoutIndex(steps []interface{}, repo string) int {
 		if !ok || !strings.HasPrefix(uses, "actions/checkout") {
 			continue
 		}
-		if with, ok := step["with"].(map[string]interface{}); ok {
-			if other, ok := with["repository"].(string); ok && !strings.Contains(other, "${{") && !strings.EqualFold(other, repo) {
-				continue
-			}
+		with, _ := step["with"].(map[string]interface{})
+		other, ok := with["repository"].(string)
+		switch {
+		case !ok, strings.EqualFold(other, repo), strings.ReplaceAll(other, " ", "") == "${{github.repository}}":
+			return i
+		case strings.Contains(other, "${{") && fallback == -1:
+			fallback = i
 		}
-		return i
 	}
-	return -1
+	return fallback
 }
 
 func injectPatchStep(jobs map[string]interface{}, jobName, mergeBase, workspacePatchPath string, forge civ1.Forge, repo string) {
@@ -592,7 +596,7 @@ func injectPatchStep(jobs map[string]interface{}, jobName, mergeBase, workspaceP
 
 	checkoutIndex := workflowCheckoutIndex(steps, repo)
 	if checkoutIndex == -1 {
-		fmt.Printf("Job %q: no actions/checkout step for %s, local changes not applied\n", jobName, repo)
+		fmt.Fprintf(os.Stderr, "Warning: job %q has no actions/checkout step for %s; local changes were not applied.\n", jobName, repo)
 		return
 	}
 

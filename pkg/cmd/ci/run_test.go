@@ -780,3 +780,30 @@ func TestInjectTmateStep_followsWorkflowRepositoryCheckout(t *testing.T) {
 		t.Fatalf("steps = %q, want %q", got, want)
 	}
 }
+
+func TestInjectPatchStep_prefersWorkflowCheckoutOverRepositoryExpression(t *testing.T) {
+	jobs := map[string]interface{}{
+		"build": map[string]interface{}{
+			"steps": []interface{}{
+				map[string]interface{}{
+					"uses": "actions/checkout@v4",
+					"with": map[string]interface{}{
+						"repository": "${{ github.repository_owner }}/shared-config",
+						"ref":        "v1",
+					},
+				},
+				map[string]interface{}{"uses": "actions/checkout@v4"},
+				map[string]interface{}{"run": "make test"},
+			},
+		},
+	}
+	injectPatchStep(jobs, "build", "abc123", "patch/abc123/def", civ1.Forge_FORGE_GITHUB, "acme/app")
+
+	steps := jobs["build"].(map[string]interface{})["steps"].([]interface{})
+	if steps[0].(map[string]interface{})["with"].(map[string]interface{})["ref"] != "v1" {
+		t.Fatalf("expression checkout = %#v, want ref v1", steps[0])
+	}
+	if steps[2].(map[string]interface{})["name"] != "Apply local patch from Depot Cache" {
+		t.Fatalf("step after workflow repository checkout = %#v, want the patch step", steps[2])
+	}
+}
