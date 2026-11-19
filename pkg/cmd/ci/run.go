@@ -189,14 +189,14 @@ Use --forge depot to run a Depot Code repository.`,
 
 				// Inject patch step into each selected job that has actions/checkout
 				for _, jobName := range selectedJobs {
-					injectPatchStep(jobs, jobName, patch.mergeBase, patchWorkspacePath(patch), repository.forge)
+					injectPatchStep(jobs, jobName, patch.mergeBase, patchWorkspacePath(patch), repository.forge, repository.repo)
 				}
 			}
 
 			// Insert tmate debug step if requested
 			if sshAfterStep > 0 {
 				jobName := jobNames[0]
-				if err := injectTmateStep(jobs, jobName, sshAfterStep, patch != nil); err != nil {
+				if err := injectTmateStep(jobs, jobName, sshAfterStep, patch != nil, repository.repo); err != nil {
 					return err
 				}
 			}
@@ -546,7 +546,30 @@ func resolveJobDeps(allJobs map[string]interface{}, requested []string) map[stri
 	return needed
 }
 
-func injectPatchStep(jobs map[string]interface{}, jobName, mergeBase, workspacePatchPath string, forge civ1.Forge) {
+// workflowCheckoutIndex returns the first actions/checkout step that checks out
+// repo. Only a literal repository input can name another repository; an
+// expression usually resolves to the workflow's own.
+func workflowCheckoutIndex(steps []interface{}, repo string) int {
+	for i, stepRaw := range steps {
+		step, ok := stepRaw.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		uses, ok := step["uses"].(string)
+		if !ok || !strings.HasPrefix(uses, "actions/checkout") {
+			continue
+		}
+		if with, ok := step["with"].(map[string]interface{}); ok {
+			if other, ok := with["repository"].(string); ok && !strings.Contains(other, "${{") && !strings.EqualFold(other, repo) {
+				continue
+			}
+		}
+		return i
+	}
+	return -1
+}
+
+func injectPatchStep(jobs map[string]interface{}, jobName, mergeBase, workspacePatchPath string, forge civ1.Forge, repo string) {
 	jobRaw, ok := jobs[jobName]
 	if !ok {
 		return
@@ -567,21 +590,9 @@ func injectPatchStep(jobs map[string]interface{}, jobName, mergeBase, workspaceP
 		return
 	}
 
-	checkoutIndex := -1
-	for i, stepRaw := range steps {
-		step, ok := stepRaw.(map[string]interface{})
-		if !ok {
-			continue
-		}
-		uses, ok := step["uses"].(string)
-		if ok && strings.HasPrefix(uses, "actions/checkout") {
-			checkoutIndex = i
-			break
-		}
-	}
-
+	checkoutIndex := workflowCheckoutIndex(steps, repo)
 	if checkoutIndex == -1 {
-		fmt.Printf("Job %q: no actions/checkout step, skipping patch injection\n", jobName)
+		fmt.Printf("Job %q: no actions/checkout step for %s, local changes not applied\n", jobName, repo)
 		return
 	}
 
@@ -623,7 +634,7 @@ echo "Patch applied successfully"`, cacheBaseURL, workspacePatchPath),
 	job["steps"] = newSteps
 }
 
-func injectTmateStep(jobs map[string]interface{}, jobName string, afterStep int, patchInjected bool) error {
+func injectTmateStep(jobs map[string]interface{}, jobName string, afterStep int, patchInjected bool, repo string) error {
 	jobRaw, ok := jobs[jobName]
 	if !ok {
 		return fmt.Errorf("job %q not found", jobName)
@@ -651,19 +662,7 @@ func injectTmateStep(jobs map[string]interface{}, jobName string, afterStep int,
 	insertAt := afterStep
 	if patchInjected {
 		// Find checkout index to adjust for the injected patch step
-		checkoutIndex := -1
-		for i, stepRaw := range steps {
-			step, ok := stepRaw.(map[string]interface{})
-			if !ok {
-				continue
-			}
-			uses, ok := step["uses"].(string)
-			if ok && strings.HasPrefix(uses, "actions/checkout") {
-				checkoutIndex = i
-				break
-			}
-		}
-
+		checkoutIndex := workflowCheckoutIndex(steps, repo)
 		if checkoutIndex != -1 && afterStep > checkoutIndex {
 			insertAt = afterStep + 1
 		}
