@@ -548,7 +548,7 @@ func resolveJobDeps(allJobs map[string]interface{}, requested []string) map[stri
 
 // workflowCheckoutIndex returns the first actions/checkout step that checks out
 // repo: one with no repository input, ${{ github.repository }}, or a literal
-// equal to repo. Failing that, it falls back to the first checkout whose
+// equal to repo. An empty repo matches every checkout. Failing that, it falls back to the first checkout whose
 // repository is some other expression, since that may still resolve to repo.
 func workflowCheckoutIndex(steps []interface{}, repo string) int {
 	fallback := -1
@@ -564,7 +564,7 @@ func workflowCheckoutIndex(steps []interface{}, repo string) int {
 		with, _ := step["with"].(map[string]interface{})
 		other, ok := with["repository"].(string)
 		switch {
-		case !ok, strings.EqualFold(other, repo), strings.ReplaceAll(other, " ", "") == "${{github.repository}}":
+		case repo == "", !ok, strings.EqualFold(other, repo), strings.ReplaceAll(other, " ", "") == "${{github.repository}}":
 			return i
 		case strings.Contains(other, "${{") && fallback == -1:
 			fallback = i
@@ -596,7 +596,7 @@ func injectPatchStep(jobs map[string]interface{}, jobName, mergeBase, workspaceP
 
 	checkoutIndex := workflowCheckoutIndex(steps, repo)
 	if checkoutIndex == -1 {
-		fmt.Fprintf(os.Stderr, "Warning: job %q has no actions/checkout step for %s; local changes were not applied.\n", jobName, repo)
+		fmt.Fprintf(os.Stderr, "Warning: job %q has no actions/checkout step for the workflow repository; local changes were not applied.\n", jobName)
 		return
 	}
 

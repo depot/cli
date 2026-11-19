@@ -815,11 +815,32 @@ func TestRunRepositoryCheckoutName(t *testing.T) {
 	}{
 		{runRepository{forge: civ1.Forge_FORGE_ENTIRE, repo: "gh/acme/api"}, "acme/api"},
 		{runRepository{forge: civ1.Forge_FORGE_GITHUB, repo: "acme/api"}, "acme/api"},
-		{runRepository{forge: civ1.Forge_FORGE_DEPOT_CODE, repo: "api"}, "api"},
+		{runRepository{forge: civ1.Forge_FORGE_DEPOT_CODE, repo: "api"}, ""},
 	}
 	for _, c := range cases {
 		if got := c.repository.checkoutName(); got != c.want {
 			t.Errorf("checkoutName(%v) = %q, want %q", c.repository, got, c.want)
 		}
+	}
+}
+
+func TestInjectPatchStep_depotCodePatchesFirstCheckout(t *testing.T) {
+	jobs := map[string]interface{}{
+		"build": map[string]interface{}{
+			"steps": []interface{}{
+				map[string]interface{}{
+					"uses": "actions/checkout@v4",
+					"with": map[string]interface{}{"repository": "acme/api"},
+				},
+				map[string]interface{}{"run": "make test"},
+			},
+		},
+	}
+	repo := runRepository{forge: civ1.Forge_FORGE_DEPOT_CODE, repo: "api"}
+	injectPatchStep(jobs, "build", "abc123", "patch/abc123/def", repo.forge, repo.checkoutName())
+
+	steps := jobs["build"].(map[string]interface{})["steps"].([]interface{})
+	if len(steps) != 3 || steps[1].(map[string]interface{})["name"] != "Apply local patch from Depot Cache" {
+		t.Fatalf("steps = %#v, want the patch step after the checkout", steps)
 	}
 }
