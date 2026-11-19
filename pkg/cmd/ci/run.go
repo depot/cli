@@ -548,10 +548,9 @@ func resolveJobDeps(allJobs map[string]interface{}, requested []string) map[stri
 
 // workflowCheckoutIndex returns the first actions/checkout step that checks out
 // repo: one with no repository input, ${{ github.repository }}, or a literal
-// equal to repo. An empty repo matches every checkout. Failing that, it falls back to the first checkout whose
-// repository is some other expression, since that may still resolve to repo.
+// equal to repo. Other expressions may name any repository, so they never
+// match. An empty repo matches every checkout.
 func workflowCheckoutIndex(steps []interface{}, repo string) int {
-	fallback := -1
 	for i, stepRaw := range steps {
 		step, ok := stepRaw.(map[string]interface{})
 		if !ok {
@@ -563,14 +562,11 @@ func workflowCheckoutIndex(steps []interface{}, repo string) int {
 		}
 		with, _ := step["with"].(map[string]interface{})
 		other, ok := with["repository"].(string)
-		switch {
-		case repo == "", !ok, strings.EqualFold(other, repo), strings.ReplaceAll(other, " ", "") == "${{github.repository}}":
+		if repo == "" || !ok || strings.EqualFold(other, repo) || strings.ReplaceAll(other, " ", "") == "${{github.repository}}" {
 			return i
-		case strings.Contains(other, "${{") && fallback == -1:
-			fallback = i
 		}
 	}
-	return fallback
+	return -1
 }
 
 func injectPatchStep(jobs map[string]interface{}, jobName, mergeBase, workspacePatchPath string, forge civ1.Forge, repo string) {

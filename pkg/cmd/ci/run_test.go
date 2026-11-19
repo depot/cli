@@ -844,3 +844,49 @@ func TestInjectPatchStep_depotCodePatchesFirstCheckout(t *testing.T) {
 		t.Fatalf("steps = %#v, want the patch step after the checkout", steps)
 	}
 }
+
+func TestInjectPatchStep_onlyRepositoryExpressionCheckout_skipsInjection(t *testing.T) {
+	jobs := map[string]interface{}{
+		"build": map[string]interface{}{
+			"steps": []interface{}{
+				map[string]interface{}{
+					"uses": "actions/checkout@v4",
+					"with": map[string]interface{}{
+						"repository": "${{ github.repository_owner }}/shared-config",
+						"ref":        "v1",
+					},
+				},
+				map[string]interface{}{"run": "make test"},
+			},
+		},
+	}
+	injectPatchStep(jobs, "build", "abc123", "patch/abc123/def", civ1.Forge_FORGE_GITHUB, "acme/app")
+
+	steps := jobs["build"].(map[string]interface{})["steps"].([]interface{})
+	if len(steps) != 2 {
+		t.Fatalf("got %d steps, want 2 (no patch step)", len(steps))
+	}
+	if steps[0].(map[string]interface{})["with"].(map[string]interface{})["ref"] != "v1" {
+		t.Fatalf("expression checkout = %#v, want ref v1", steps[0])
+	}
+}
+
+func TestInjectPatchStep_matchesGithubRepositoryExpression(t *testing.T) {
+	jobs := map[string]interface{}{
+		"build": map[string]interface{}{
+			"steps": []interface{}{
+				map[string]interface{}{
+					"uses": "actions/checkout@v4",
+					"with": map[string]interface{}{"repository": "${{ github.repository }}"},
+				},
+				map[string]interface{}{"run": "make test"},
+			},
+		},
+	}
+	injectPatchStep(jobs, "build", "abc123", "patch/abc123/def", civ1.Forge_FORGE_GITHUB, "acme/app")
+
+	steps := jobs["build"].(map[string]interface{})["steps"].([]interface{})
+	if len(steps) != 3 || steps[0].(map[string]interface{})["with"].(map[string]interface{})["ref"] != "abc123" {
+		t.Fatalf("steps = %#v, want the checkout pinned and patched", steps)
+	}
+}
