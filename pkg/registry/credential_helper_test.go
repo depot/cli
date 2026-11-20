@@ -24,7 +24,9 @@ func TestCredentialHelperTimeout(t *testing.T) {
 		// stderr is closed so the abandoned helper does not hold the test's output open.
 		"hang": "exec 2>/dev/null\nsleep 10\n",
 		"slow": "sleep 1.5\necho '{\"Username\":\"slow-user\",\"Secret\":\"slow-secret\"}'\n",
-		"fast": "echo '{\"Username\":\"fast-user\",\"Secret\":\"fast-secret\"}'\n",
+		// Hangs past the limit on its first call only, then answers.
+		"flaky": "if [ ! -e \"$0.called\" ]; then touch \"$0.called\"; exec 2>/dev/null; sleep 3; fi\necho '{\"Username\":\"flaky-user\",\"Secret\":\"flaky-secret\"}'\n",
+		"fast":  "echo '{\"Username\":\"fast-user\",\"Secret\":\"fast-secret\"}'\n",
 	}
 	for name, body := range helpers {
 		path := filepath.Join(binDir, "docker-credential-"+name)
@@ -33,7 +35,7 @@ func TestCredentialHelperTimeout(t *testing.T) {
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
 	configDir := t.TempDir()
-	dockerConfig := `{"credsStore":"hang","credHelpers":{"slow.example.com":"slow","fast.example.com":"fast"}}`
+	dockerConfig := `{"credsStore":"hang","credHelpers":{"slow.example.com":"slow","fast.example.com":"fast","flaky-a.example.com":"flaky","flaky-b.example.com":"flaky"}}`
 	require.NoError(t, os.WriteFile(filepath.Join(configDir, "config.json"), []byte(dockerConfig), 0o600))
 	previousDir := config.Dir()
 	config.SetDir(configDir)
@@ -107,12 +109,24 @@ func TestCredentialHelperTimeout(t *testing.T) {
 	require.NoError(t, r.err)
 	require.Equal(t, "slow-secret", r.resp.Secret, "a helper that answers before the limit must still be used")
 
+	flakyStart := time.Now()
+	r = <-call("flaky-a.example.com")
+	require.NoError(t, r.err)
+	require.Empty(t, r.resp.Secret)
+	r = <-call("flaky-b.example.com")
+	require.NoError(t, r.err)
+	require.Empty(t, r.resp.Secret, "a host whose helper is hung is not asked again right away")
+	time.Sleep(time.Until(flakyStart.Add(4 * time.Second)))
+	r = <-call("flaky-b.example.com")
+	require.NoError(t, r.err)
+	require.Equal(t, "flaky-secret", r.resp.Secret, "a helper that answers again must be used again")
+
 	require.True(t, ok, "auth provider must accept the build progress logger")
 	logMu.Lock()
 	defer logMu.Unlock()
 	var timeoutLines []string
 	for _, line := range logLines {
-		if strings.Contains(line, "did not respond") {
+		if strings.Contains(line, "docker-credential-hang did not respond") {
 			timeoutLines = append(timeoutLines, line)
 		}
 	}

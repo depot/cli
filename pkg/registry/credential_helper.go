@@ -43,6 +43,10 @@ type credentialEntry struct {
 	authConfig    types.AuthConfig
 	err           error
 	timeoutLogged bool
+	// loading is true while a goroutine owns this lookup.
+	loading bool
+	// previous is the last answered lookup, used if a refresh times out.
+	previous *credentialEntry
 }
 
 func newCredentialLookup(cfg *configfile.ConfigFile) *credentialLookup {
@@ -74,8 +78,16 @@ func (l *credentialLookup) get(ctx context.Context, host string) (types.AuthConf
 
 	l.mu.Lock()
 	entry := l.entries[host]
-	if entry == nil || entry.expired() {
-		entry = &credentialEntry{done: make(chan struct{}), deadline: time.Now().Add(credentialHelperTimeout)}
+	// A lookup that never ran (helper hung or busy) is retried once the helper answers again.
+	if entry == nil || entry.expired() || (!entry.loading && !entry.answered() && !l.hungHelpers[helper]) {
+		next := &credentialEntry{done: make(chan struct{}), deadline: time.Now().Add(credentialHelperTimeout)}
+		if entry != nil {
+			next.previous = entry.previous
+			if entry.answered() {
+				next.previous = entry
+			}
+		}
+		entry = next
 		l.entries[host] = entry
 		if l.hungHelpers[helper] {
 			entry.deadline = time.Now()
@@ -85,6 +97,7 @@ func (l *credentialLookup) get(ctx context.Context, host string) (types.AuthConf
 				slot = make(chan struct{}, 1)
 				l.helperSlots[helper] = slot
 			}
+			entry.loading = true
 			go l.load(entry, slot, helper, key)
 		}
 	}
@@ -109,6 +122,11 @@ func (l *credentialLookup) get(ctx context.Context, host string) (types.AuthConf
 	}
 	if helper != "" {
 		l.hungHelpers[helper] = true
+	}
+	if entry.previous != nil {
+		previous := entry.previous
+		l.mu.Unlock()
+		return previous.authConfig, previous.err
 	}
 	logTimeout := !entry.timeoutLogged
 	entry.timeoutLogged = true
@@ -136,6 +154,9 @@ func (l *credentialLookup) load(entry *credentialEntry, slot chan struct{}, help
 	case slot <- struct{}{}:
 	case <-timer.C:
 		// The helper is still busy with an earlier host and has not answered.
+		l.mu.Lock()
+		entry.loading = false
+		l.mu.Unlock()
 		return
 	}
 	authConfig, err := l.config.GetAuthConfig(key)
@@ -143,16 +164,21 @@ func (l *credentialLookup) load(entry *credentialEntry, slot chan struct{}, help
 
 	l.mu.Lock()
 	entry.authConfig, entry.err, entry.loadedAt = authConfig, err, time.Now()
+	entry.loading = false
 	delete(l.hungHelpers, helper)
 	close(entry.done)
 	l.mu.Unlock()
 }
 
-// expired is called with credentialLookup.mu held.
+// expired and answered are called with credentialLookup.mu held.
 func (e *credentialEntry) expired() bool {
+	return e.answered() && time.Since(e.loadedAt) > credentialCacheTTL
+}
+
+func (e *credentialEntry) answered() bool {
 	select {
 	case <-e.done:
-		return time.Since(e.loadedAt) > credentialCacheTTL
+		return true
 	default:
 		return false
 	}
