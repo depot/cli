@@ -18,6 +18,7 @@ import (
 	"github.com/moby/buildkit/session"
 	"github.com/moby/buildkit/session/auth"
 	"github.com/moby/buildkit/session/auth/authprovider"
+	"github.com/moby/buildkit/util/progress/progresswriter"
 	"github.com/pkg/errors"
 	"google.golang.org/grpc"
 )
@@ -37,19 +38,55 @@ const defaultTokenExpiration = 10
 const buildkitDefaultTokenExpiration = 60
 
 // dockerAuthServer is the buildkit Docker auth provider with the Depot
-// default token expiration.
+// default token expiration and a time limit on Docker credential helpers.
 type dockerAuthServer struct {
 	auth.AuthServer
+	credentials *credentialLookup
 }
 
-func newDockerAuthServer(cfg *configfile.ConfigFile) auth.AuthServer {
+func newDockerAuthServer(cfg *configfile.ConfigFile) *dockerAuthServer {
+	credentials := newCredentialLookup(cfg)
 	inner := authprovider.NewDockerAuthProvider(authprovider.DockerAuthProviderConfig{
-		AuthConfigProvider: authprovider.LoadAuthConfig(cfg),
+		AuthConfigProvider: func(_ context.Context, host string, _ []string, _ authprovider.ExpireCachedAuthCheck) (types.AuthConfig, error) {
+			return credentials.cached(host)
+		},
 	})
-	return dockerAuthServer{AuthServer: inner.(auth.AuthServer)}
+	return &dockerAuthServer{AuthServer: inner.(auth.AuthServer), credentials: credentials}
 }
 
-func (s dockerAuthServer) FetchToken(ctx context.Context, req *auth.FetchTokenRequest) (*auth.FetchTokenResponse, error) {
+// SetLogger receives the build progress logger, which buildx hands to every
+// session attachable that implements it.
+func (s *dockerAuthServer) SetLogger(logger progresswriter.Logger) {
+	s.credentials.setLogger(logger)
+}
+
+// Each call waits for the credential helper before the inner provider takes
+// its lock, so a hung helper for one host cannot hold up other hosts.
+func (s *dockerAuthServer) Credentials(ctx context.Context, req *auth.CredentialsRequest) (*auth.CredentialsResponse, error) {
+	if _, err := s.credentials.get(ctx, req.Host); err != nil {
+		return nil, err
+	}
+	return s.AuthServer.Credentials(ctx, req)
+}
+
+func (s *dockerAuthServer) GetTokenAuthority(ctx context.Context, req *auth.GetTokenAuthorityRequest) (*auth.GetTokenAuthorityResponse, error) {
+	if _, err := s.credentials.get(ctx, req.Host); err != nil {
+		return nil, err
+	}
+	return s.AuthServer.GetTokenAuthority(ctx, req)
+}
+
+func (s *dockerAuthServer) VerifyTokenAuthority(ctx context.Context, req *auth.VerifyTokenAuthorityRequest) (*auth.VerifyTokenAuthorityResponse, error) {
+	if _, err := s.credentials.get(ctx, req.Host); err != nil {
+		return nil, err
+	}
+	return s.AuthServer.VerifyTokenAuthority(ctx, req)
+}
+
+func (s *dockerAuthServer) FetchToken(ctx context.Context, req *auth.FetchTokenRequest) (*auth.FetchTokenResponse, error) {
+	if _, err := s.credentials.get(ctx, req.Host); err != nil {
+		return nil, err
+	}
 	resp, err := s.AuthServer.FetchToken(ctx, req)
 	if err == nil && resp.ExpiresIn == buildkitDefaultTokenExpiration {
 		resp.ExpiresIn = defaultTokenExpiration
@@ -58,7 +95,7 @@ func (s dockerAuthServer) FetchToken(ctx context.Context, req *auth.FetchTokenRe
 }
 
 type AuthProvider struct {
-	inner       auth.AuthServer
+	inner       *dockerAuthServer
 	credentials []build.Credential
 }
 
@@ -83,6 +120,10 @@ func ReplaceDockerAuth(credentials []build.Credential, as []session.Attachable) 
 	}
 
 	return as
+}
+
+func (a *AuthProvider) SetLogger(logger progresswriter.Logger) {
+	a.inner.SetLogger(logger)
 }
 
 func (a *AuthProvider) Register(server *grpc.Server) {
@@ -204,7 +245,7 @@ func (a *AuthProvider) VerifyTokenAuthority(ctx context.Context, req *auth.Verif
 // DepotAuthProvider wraps the Docker auth provider to add support for
 // DEPOT_PUSH_REGISTRY_AUTH environment variables.
 type DepotAuthProvider struct {
-	inner auth.AuthServer
+	inner *dockerAuthServer
 }
 
 // NewDockerAuthProviderWithDepotAuth creates a new Docker auth provider that supports
@@ -212,6 +253,10 @@ type DepotAuthProvider struct {
 func NewDockerAuthProviderWithDepotAuth() session.Attachable {
 	dockerConfig := config.LoadDefaultConfigFile(os.Stderr)
 	return &DepotAuthProvider{inner: newDockerAuthServer(dockerConfig)}
+}
+
+func (a *DepotAuthProvider) SetLogger(logger progresswriter.Logger) {
+	a.inner.SetLogger(logger)
 }
 
 func (a *DepotAuthProvider) Register(server *grpc.Server) {
