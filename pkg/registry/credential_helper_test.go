@@ -26,7 +26,9 @@ func TestCredentialHelperTimeout(t *testing.T) {
 		"slow": "sleep 1.5\necho '{\"Username\":\"slow-user\",\"Secret\":\"slow-secret\"}'\n",
 		// Hangs past the limit on its first call only, then answers.
 		"flaky": "if [ ! -e \"$0.called\" ]; then touch \"$0.called\"; exec 2>/dev/null; sleep 3; fi\necho '{\"Username\":\"flaky-user\",\"Secret\":\"flaky-secret\"}'\n",
-		"fast":  "echo '{\"Username\":\"fast-user\",\"Secret\":\"fast-secret\"}'\n",
+		// Fails on its first call only.
+		"broken": "if [ ! -e \"$0.called\" ]; then touch \"$0.called\"; exit 1; fi\necho '{\"Username\":\"broken-user\",\"Secret\":\"broken-secret\"}'\n",
+		"fast":   "echo '{\"Username\":\"fast-user\",\"Secret\":\"fast-secret\"}'\n",
 	}
 	for name, body := range helpers {
 		path := filepath.Join(binDir, "docker-credential-"+name)
@@ -35,7 +37,7 @@ func TestCredentialHelperTimeout(t *testing.T) {
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
 	configDir := t.TempDir()
-	dockerConfig := `{"credsStore":"hang","credHelpers":{"slow.example.com":"slow","fast.example.com":"fast","flaky-a.example.com":"flaky","flaky-b.example.com":"flaky"}}`
+	dockerConfig := `{"credsStore":"hang","credHelpers":{"slow.example.com":"slow","fast.example.com":"fast","flaky-a.example.com":"flaky","flaky-b.example.com":"flaky","broken.example.com":"broken"}}`
 	require.NoError(t, os.WriteFile(filepath.Join(configDir, "config.json"), []byte(dockerConfig), 0o600))
 	previousDir := config.Dir()
 	config.SetDir(configDir)
@@ -108,6 +110,12 @@ func TestCredentialHelperTimeout(t *testing.T) {
 	r := <-call("slow.example.com")
 	require.NoError(t, r.err)
 	require.Equal(t, "slow-secret", r.resp.Secret, "a helper that answers before the limit must still be used")
+
+	r = <-call("broken.example.com")
+	require.Error(t, r.err)
+	r = <-call("broken.example.com")
+	require.NoError(t, r.err)
+	require.Equal(t, "broken-secret", r.resp.Secret, "a helper error must not be cached")
 
 	flakyStart := time.Now()
 	r = <-call("flaky-a.example.com")

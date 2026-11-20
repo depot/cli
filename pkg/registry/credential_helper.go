@@ -83,7 +83,7 @@ func (l *credentialLookup) get(ctx context.Context, host string) (types.AuthConf
 		next := &credentialEntry{done: make(chan struct{}), deadline: time.Now().Add(credentialHelperTimeout)}
 		if entry != nil {
 			next.previous = entry.previous
-			if entry.answered() {
+			if entry.answered() && entry.err == nil {
 				next.previous = entry
 			}
 		}
@@ -120,7 +120,8 @@ func (l *credentialLookup) get(ctx context.Context, host string) (types.AuthConf
 		return entry.authConfig, entry.err
 	default:
 	}
-	if helper != "" {
+	// Only a call still holding the helper's slot proves it is hung; its load clears the flag.
+	if helper != "" && len(l.helperSlots[helper]) > 0 {
 		l.hungHelpers[helper] = true
 	}
 	if entry.previous != nil {
@@ -188,9 +189,10 @@ func (l *credentialLookup) load(entry *credentialEntry, slot chan struct{}, help
 	l.mu.Unlock()
 }
 
-// expired and answered are called with credentialLookup.mu held.
+// expired and answered are called with credentialLookup.mu held. Errors are
+// not cached, so the next call asks the helper again.
 func (e *credentialEntry) expired() bool {
-	return e.answered() && time.Since(e.loadedAt) > credentialCacheTTL
+	return e.answered() && (e.err != nil || time.Since(e.loadedAt) > credentialCacheTTL)
 }
 
 func (e *credentialEntry) answered() bool {
