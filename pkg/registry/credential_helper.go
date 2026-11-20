@@ -147,6 +147,24 @@ func (l *credentialLookup) get(ctx context.Context, host string) (types.AuthConf
 	return types.AuthConfig{}, nil
 }
 
+// cached returns what get last found for host without running a helper. The
+// inner provider calls it while holding its lock, after get has waited.
+func (l *credentialLookup) cached(host string) (types.AuthConfig, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	entry := l.entries[host]
+	switch {
+	case entry == nil:
+		return types.AuthConfig{}, nil
+	case entry.answered():
+		return entry.authConfig, entry.err
+	case entry.previous != nil:
+		return entry.previous.authConfig, entry.previous.err
+	default:
+		return types.AuthConfig{}, nil
+	}
+}
+
 func (l *credentialLookup) load(entry *credentialEntry, slot chan struct{}, helper, key string) {
 	timer := time.NewTimer(time.Until(entry.deadline))
 	defer timer.Stop()

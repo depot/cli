@@ -47,8 +47,8 @@ type dockerAuthServer struct {
 func newDockerAuthServer(cfg *configfile.ConfigFile) *dockerAuthServer {
 	credentials := newCredentialLookup(cfg)
 	inner := authprovider.NewDockerAuthProvider(authprovider.DockerAuthProviderConfig{
-		AuthConfigProvider: func(ctx context.Context, host string, _ []string, _ authprovider.ExpireCachedAuthCheck) (types.AuthConfig, error) {
-			return credentials.get(ctx, host)
+		AuthConfigProvider: func(_ context.Context, host string, _ []string, _ authprovider.ExpireCachedAuthCheck) (types.AuthConfig, error) {
+			return credentials.cached(host)
 		},
 	})
 	return &dockerAuthServer{AuthServer: inner.(auth.AuthServer), credentials: credentials}
