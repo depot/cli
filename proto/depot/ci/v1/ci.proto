@@ -45,7 +45,9 @@ service CIService {
   rpc GetJobAttemptMetrics(GetJobAttemptMetricsRequest) returns (GetJobAttemptMetricsResponse) {}
 
   // Returns recorded execution steps and timings for one job attempt. Requires CI read access. Historical attempts may have no recorded steps; log timestamps are never substituted for step timings.
-  rpc GetJobAttemptSteps(GetJobAttemptStepsRequest) returns (GetJobAttemptStepsResponse) {}
+  rpc GetJobAttemptSteps(GetJobAttemptStepsRequest) returns (GetJobAttemptStepsResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
 
   // GetJobMetrics returns per-attempt CPU and memory metric summaries for one job
   rpc GetJobMetrics(GetJobMetricsRequest) returns (GetJobMetricsResponse) {}
@@ -1113,7 +1115,7 @@ message JobAttemptStep {
   optional string started_at = 7;
   // Completion time, in RFC 3339 format. Absent when no valid completion time was reported.
   optional string completed_at = 8;
-  // Elapsed milliseconds between the reported start and completion. Absent for running, skipped, missing, or inconsistent timestamps. Includes retry delays when a worker reports an overall step interval.
+  // Elapsed milliseconds between the reported start and completion. Absent for running, skipped, missing, or inconsistent timestamps. Includes retry delays when a worker reports an overall step interval. Cache hits report time spent in this attempt, not time saved by the cache.
   optional int64 duration_ms = 9;
   // Number of step execution attempts reported on completion. Zero when unknown; individual retry intervals are not exposed.
   uint32 attempt = 10;

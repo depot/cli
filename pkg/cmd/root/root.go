@@ -1,6 +1,7 @@
 package root
 
 import (
+	"errors"
 	"os"
 
 	"github.com/spf13/cobra"
@@ -14,7 +15,6 @@ import (
 	cargoCmd "github.com/depot/cli/pkg/cmd/cargo"
 	"github.com/depot/cli/pkg/cmd/checks"
 	ciCmd "github.com/depot/cli/pkg/cmd/ci"
-	claudeCmd "github.com/depot/cli/pkg/cmd/claude"
 	codeCmd "github.com/depot/cli/pkg/cmd/code"
 	dockerCmd "github.com/depot/cli/pkg/cmd/docker"
 	"github.com/depot/cli/pkg/cmd/exec"
@@ -77,7 +77,7 @@ func NewCmdRoot(version, buildDate string) *cobra.Command {
 	cmd.AddCommand(buildCmd.NewCmdBuild())
 	cmd.AddCommand(cacheCmd.NewCmdCache())
 	cmd.AddCommand(cargoCmd.NewCmdCargo())
-	cmd.AddCommand(claudeCmd.NewCmdClaude())
+	cmd.AddCommand(newRetiredClaudeCommand())
 	cmd.AddCommand(image.NewCmdImage())
 	cmd.AddCommand(initCmd.NewCmdInit())
 	cmd.AddCommand(list.NewCmdList())
@@ -105,4 +105,19 @@ func NewCmdRoot(version, buildDate string) *cobra.Command {
 	cmd.AddCommand(testsCmd.NewCmdTests())
 
 	return cmd
+}
+
+func newRetiredClaudeCommand() *cobra.Command {
+	const message = "depot claude has been retired; use Depot Managed Agents instead: https://depot.dev/docs/managed-agents/claude-code-self-hosted"
+	return &cobra.Command{
+		Use:                "claude",
+		Short:              "Use Depot Managed Agents instead",
+		Long:               message,
+		Hidden:             true,
+		DisableFlagParsing: true,
+		Args:               cobra.ArbitraryArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return errors.New(message)
+		},
+	}
 }

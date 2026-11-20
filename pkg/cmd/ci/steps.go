@@ -15,18 +15,24 @@ import (
 
 // NewCmdSteps returns recorded execution timings for one specific CI attempt.
 func NewCmdSteps() *cobra.Command {
-	var orgID, token, output string
+	var orgID, token, output, attemptID string
 	cmd := &cobra.Command{
 		Use:     "steps <attempt-id>",
 		Short:   "Fetch CI step status and timing",
-		Long:    "Fetch recorded execution steps for one CI job attempt. Missing timings remain absent; log timestamps are not used to estimate duration.",
-		Args:    cobra.ExactArgs(1),
-		Example: "  depot ci steps att_123\n  depot ci steps att_123 --output json",
+		Long:    "Fetch recorded execution steps for one CI job attempt. Missing timings remain absent; log timestamps are not used to estimate duration. Cache hits report time spent in this attempt, not time saved.",
+		Args:    cobra.MaximumNArgs(1),
+		Example: "  depot ci steps att_123\n  depot ci steps --attempt att_123 --output json",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := validateTextOrJSONOutput(output); err != nil {
 				return err
 			}
-			if strings.TrimSpace(args[0]) == "" {
+			if len(args) == 1 {
+				if cmd.Flags().Changed("attempt") {
+					return fmt.Errorf("positional attempt ID cannot be combined with --attempt")
+				}
+				attemptID = args[0]
+			}
+			if strings.TrimSpace(attemptID) == "" {
 				return fmt.Errorf("attempt ID is required")
 			}
 			if orgID == "" {
@@ -39,7 +45,7 @@ func NewCmdSteps() *cobra.Command {
 			if tokenVal == "" {
 				return fmt.Errorf("missing API token, please run `depot login`")
 			}
-			resp, err := api.CIGetJobAttemptSteps(cmd.Context(), tokenVal, orgID, args[0])
+			resp, err := api.CIGetJobAttemptSteps(cmd.Context(), tokenVal, orgID, attemptID)
 			if err != nil {
 				return fmt.Errorf("failed to get CI steps: %w", err)
 			}
@@ -66,17 +72,22 @@ func NewCmdSteps() *cobra.Command {
 				return err
 			}
 			w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 4, 2, ' ', 0)
-			fmt.Fprintln(w, "STEP\tID\tKEY\tNAME\tSTATUS\tRESULT\tDURATION\tSTARTED\tCOMPLETED")
+			fmt.Fprintln(w, "STEP\tID\tKEY\tNAME\tSTATUS\tRESULT\tATTEMPTS\tDURATION\tSTARTED\tCOMPLETED")
 			for _, step := range resp.Steps {
 				duration := "-"
 				if step.DurationMs != nil {
 					duration = fmt.Sprintf("%d.%03ds", step.GetDurationMs()/1000, step.GetDurationMs()%1000)
 				}
-				fmt.Fprintf(w, "%d\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", step.Number, stepDisplayText(step.StepId), stepDisplayText(step.StepKey), stepDisplayText(step.Name), stepDisplayText(step.Status), stepDisplayText(step.Conclusion), duration, stepDisplayText(step.GetStartedAt()), stepDisplayText(step.GetCompletedAt()))
+				attempts := "-"
+				if step.Attempt != 0 {
+					attempts = fmt.Sprint(step.Attempt)
+				}
+				fmt.Fprintf(w, "%d\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", step.Number, stepDisplayText(step.StepId), stepDisplayText(step.StepKey), stepDisplayText(step.Name), stepDisplayText(step.Status), stepDisplayText(step.Conclusion), attempts, duration, stepDisplayText(step.GetStartedAt()), stepDisplayText(step.GetCompletedAt()))
 			}
 			return w.Flush()
 		},
 	}
+	cmd.Flags().StringVar(&attemptID, "attempt", "", "Job attempt ID (alternative to the positional argument)")
 	cmd.Flags().StringVar(&orgID, "org", "", "Organization ID")
 	cmd.Flags().StringVar(&token, "token", "", "Depot API token")
 	cmd.Flags().StringVarP(&output, "output", "o", "text", "Output format (text, json)")

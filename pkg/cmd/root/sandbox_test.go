@@ -91,6 +91,7 @@ func TestSandboxCredentialByCommand(t *testing.T) {
 
 		{"mr view feature --repo repo-1", "turn-token"},
 		{"mr view --id mr-1", "turn-token"},
+		{"mr viewer", "turn-token"},
 		{"mr list --repo repo-1", "turn-token"},
 		{"mr threads feature --repo repo-1", "turn-token"},
 

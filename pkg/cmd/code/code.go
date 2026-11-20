@@ -11,7 +11,7 @@ func NewCmdCode() *cobra.Command {
 		Use: "repo", Aliases: []string{"repos", "repositories"}, Short: "Manage Git repositories",
 		RunE: func(cmd *cobra.Command, _ []string) error { return cmd.Help() },
 	}
-	repo.AddCommand(newCreate())
+	repo.AddCommand(newCreate(), newView(), newList())
 	cmd.AddCommand(repo)
 	return cmd
 }

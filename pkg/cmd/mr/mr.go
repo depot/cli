@@ -7,6 +7,7 @@ import (
 
 	"connectrpc.com/connect"
 	"github.com/depot/cli/pkg/api"
+	"github.com/depot/cli/pkg/coderepo"
 	"github.com/depot/cli/pkg/config"
 	"github.com/depot/cli/pkg/helpers"
 	code "github.com/depot/cli/pkg/proto/depot/code/v1beta2"
@@ -27,7 +28,7 @@ func NewCmdMR() *cobra.Command {
 	o := &options{}
 	cmd := &cobra.Command{
 		Use: "mr", Short: "Manage merge requests", Hidden: true,
-		Long: "Manage merge requests using a user token from depot login.\nEvery command infers the Depot repository from local Git remotes.\nPass --repo to select a Depot repository ID instead, and --org if it is not the current organization.",
+		Long: "Manage merge requests using a user token from depot login.\nRepository commands infer the Depot repository from local Git remotes.\nPass --repo to select a Depot repository ID instead, and --org if it is not the current organization.",
 		RunE: func(cmd *cobra.Command, _ []string) error { return cmd.Help() },
 	}
 	cmd.PersistentFlags().StringVar(&o.repo, "repo", "", "Depot repository ID (inferred from Git remotes when omitted)")
@@ -35,8 +36,10 @@ func NewCmdMR() *cobra.Command {
 	cmd.PersistentFlags().StringVar(&o.token, "token", "", "Depot user token (or DEPOT_TOKEN)")
 	cmd.PersistentFlags().BoolVar(&o.json, "json", false, "Print the API response as JSON")
 	cmd.AddCommand(newCreate(o), newView(o), newMerge(o), newApprove(o), newComment(o), newList(o))
+	cmd.AddCommand(newViewer(o))
+	cmd.AddCommand(newDiff(o), newCommits(o), newFile(o), newCheckout(o))
 	cmd.AddCommand(newEdit(o), newClose(o), newReopen(o))
-	cmd.AddCommand(newThreads(o), newReply(o), newResolve(o, true), newResolve(o, false))
+	cmd.AddCommand(newEditComment(o), newDeleteComment(o), newThreads(o), newReply(o), newResolve(o, true), newResolve(o, false))
 	return cmd
 }
 
@@ -51,7 +54,7 @@ func (o *options) authenticate(cmd *cobra.Command) error {
 	if o.turn {
 		return fmt.Errorf("--repo is required in an agent session: pass the Depot repository ID from the repository list this session's Depot Code tools give")
 	}
-	repo, err := o.inferRepository(cmd)
+	repo, err := coderepo.Infer(cmd, o.org, o.token, "")
 	if err != nil {
 		return err
 	}
@@ -79,11 +82,11 @@ func (o *options) login(cmd *cobra.Command) error {
 	if o.org == "" {
 		o.org = config.GetCurrentOrganization()
 	}
-	// The API takes a Dispatch turn's token on the calls of these three commands only (DEP-8674).
+	// A Dispatch turn can read its member's identity and merge requests, but cannot mutate them.
 	resolve := helpers.ResolveOrgAuth
 	if o.turn = helpers.OnlyATurnToken(o.token); o.turn {
-		if name := cmd.Name(); name != "view" && name != "list" && name != "threads" {
-			return fmt.Errorf("depot mr %s cannot be made as an agent turn. `depot mr view`, `list` and `threads` work here. To comment on or change a merge request, use the session's Depot Code tools or ask the person", name)
+		if name := cmd.Name(); name != "view" && name != "list" && name != "threads" && name != "viewer" {
+			return fmt.Errorf("depot mr %s cannot be made as an agent turn. `depot mr view`, `list`, `threads` and `viewer` work here. To comment on or change a merge request, use the session's Depot Code tools or ask the person", name)
 		}
 		resolve = helpers.ResolveTurnReadAuth
 	}
@@ -173,10 +176,13 @@ func (o *options) find(cmd *cobra.Command, name string, detail bool) (*code.GetM
 	return resp, err
 }
 
-// requireState refuses a merge request that a branch lookup found in another state than want.
+// requireState names the selected merge request when its state prevents the operation.
 func requireState(mr *code.MergeRequest, name string, want code.MergeRequest_State) error {
 	if mr.State == want {
 		return nil
+	}
+	if name == "" {
+		return fmt.Errorf("merge request %s is %s, not %s", mr.Id, stateName(mr.State), stateName(want))
 	}
 	return fmt.Errorf("merge request %s for branch %q is %s, not %s", mr.Id, name, stateName(mr.State), stateName(want))
 }
@@ -385,135 +391,5 @@ func newView(o *options) *cobra.Command {
 		},
 	}
 	t.register(cmd)
-	return cmd
-}
-
-func newMerge(o *options) *cobra.Command {
-	var squash bool
-	cmd := &cobra.Command{Use: "merge [branch]", Short: "Merge the locally observed head of a branch",
-		Long: "Merge an open merge request using the local branch commit as the expected head.\nA newer remote head is refused. Update your local branch and review it before retrying.\nCI results and approvals do not block merging.\nBy default the branch lands as a merge commit. Pass --squash to land it as one commit, with the merge request title and description as its message; your branch is not changed.", Args: cobra.MaximumNArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			name, err := branch(cmd, args)
-			if err != nil {
-				return err
-			}
-			head, err := git(cmd, "rev-parse", "--verify", "--end-of-options", "refs/heads/"+name+"^{commit}")
-			if err != nil {
-				return fmt.Errorf("cannot resolve local branch %q; check it out before merging", name)
-			}
-			if err := o.authenticate(cmd); err != nil {
-				return err
-			}
-			lookup := &code.GetMergeRequestRequest_HeadRef{RepositoryId: o.repo, HeadRef: name}
-			client := api.NewMergeRequestClient()
-			out := &code.MergeMergeRequestResponse{}
-			if squash {
-				// Squash has its own method, which an older server refuses instead of silently landing a merge commit.
-				resp, err := client.MergeMergeRequestWithMethod(cmd.Context(), request(o, &code.MergeMergeRequestWithMethodRequest{
-					Lookup:          &code.MergeMergeRequestWithMethodRequest_Head{Head: lookup},
-					ExpectedHeadOid: &head,
-					Method:          code.MergeMergeRequestWithMethodRequest_METHOD_SQUASH,
-				}))
-				if connect.CodeOf(err) == connect.CodeUnimplemented {
-					return fmt.Errorf("this server does not support --squash; nothing was merged: %w", err)
-				}
-				if err != nil {
-					return err
-				}
-				out.MergeRequest = resp.Msg.MergeRequest
-			} else {
-				resp, err := client.MergeMergeRequest(cmd.Context(), request(o, &code.MergeMergeRequestRequest{
-					Lookup:          &code.MergeMergeRequestRequest_Head{Head: lookup},
-					ExpectedHeadOid: &head,
-				}))
-				if err != nil {
-					return err
-				}
-				out = resp.Msg
-			}
-			mr := out.MergeRequest
-			if mr == nil || mr.Id == "" || mr.State != code.MergeRequest_STATE_MERGED || mr.MergeCommitOid == "" {
-				return fmt.Errorf("API returned no completed merge result")
-			}
-			if o.json {
-				return o.writeJSON(cmd, out)
-			}
-			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Merged %s: %s\n", mr.Id, mr.MergeCommitOid)
-			return err
-		},
-	}
-	cmd.Flags().BoolVar(&squash, "squash", false, "Land the branch as one commit instead of a merge commit")
-	return cmd
-}
-
-func newApprove(o *options) *cobra.Command {
-	return &cobra.Command{Use: "approve [branch]", Short: "Approve a merge request at its current head", Args: cobra.MaximumNArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			name, err := branch(cmd, args)
-			if err != nil {
-				return err
-			}
-			if err := o.authenticate(cmd); err != nil {
-				return err
-			}
-			mr, err := o.getOpenOrRefuse(cmd, name)
-			if err != nil {
-				return err
-			}
-			resp, err := api.NewMergeRequestClient().ApproveMergeRequest(cmd.Context(), request(o, &code.ApproveMergeRequestRequest{MergeRequestId: mr.MergeRequest.Id}))
-			if err != nil {
-				return err
-			}
-			approval := resp.Msg.Approval
-			if approval == nil || approval.MergeRequestId == "" || approval.HeadOid == "" {
-				return fmt.Errorf("API returned no approval")
-			}
-			if o.json {
-				return o.writeJSON(cmd, resp.Msg)
-			}
-			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Approved %s at %s\n", approval.MergeRequestId, approval.HeadOid)
-			return err
-		},
-	}
-}
-
-func newComment(o *options) *cobra.Command {
-	var flags bodyFlags
-	cmd := &cobra.Command{Use: "comment [branch] --body <text>", Short: "Post a conversation comment", Args: cobra.MaximumNArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			body, _, err := flags.read(cmd)
-			if err != nil {
-				return err
-			}
-			if strings.TrimSpace(body) == "" {
-				return fmt.Errorf("--body or --body-file is required and must not be blank")
-			}
-			name, err := branch(cmd, args)
-			if err != nil {
-				return err
-			}
-			if err := o.authenticate(cmd); err != nil {
-				return err
-			}
-			mr, err := o.getOpenOrRefuse(cmd, name)
-			if err != nil {
-				return err
-			}
-			resp, err := api.NewMergeRequestClient().CreateMergeRequestComment(cmd.Context(), request(o, &code.CreateMergeRequestCommentRequest{MergeRequestId: mr.MergeRequest.Id, Body: body}))
-			if err != nil {
-				return err
-			}
-			comment := resp.Msg.Comment
-			if comment == nil || comment.Id == "" {
-				return fmt.Errorf("API returned no comment")
-			}
-			if o.json {
-				return o.writeJSON(cmd, resp.Msg)
-			}
-			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Commented on %s: %s\n", comment.MergeRequestId, comment.Id)
-			return err
-		},
-	}
-	flags.register(cmd, "Comment text (required unless --body-file is set)")
 	return cmd
 }

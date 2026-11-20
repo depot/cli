@@ -18,7 +18,7 @@ import (
 // generated with a version of connect newer than the one compiled into your binary. You can fix the
 // problem by either regenerating this code with an older version of connect or updating the connect
 // version compiled into your binary.
-const _ = connect.IsAtLeastVersion0_1_0
+const _ = connect.IsAtLeastVersion1_7_0
 
 const (
 	// CIServiceName is the fully-qualified name of the CIService service.
@@ -250,7 +250,8 @@ func NewCIServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...c
 		getJobAttemptSteps: connect.NewClient[v1.GetJobAttemptStepsRequest, v1.GetJobAttemptStepsResponse](
 			httpClient,
 			baseURL+CIServiceGetJobAttemptStepsProcedure,
-			opts...,
+			connect.WithIdempotency(connect.IdempotencyNoSideEffects),
+			connect.WithClientOptions(opts...),
 		),
 		getJobMetrics: connect.NewClient[v1.GetJobMetricsRequest, v1.GetJobMetricsResponse](
 			httpClient,
@@ -595,7 +596,8 @@ func NewCIServiceHandler(svc CIServiceHandler, opts ...connect.HandlerOption) (s
 	cIServiceGetJobAttemptStepsHandler := connect.NewUnaryHandler(
 		CIServiceGetJobAttemptStepsProcedure,
 		svc.GetJobAttemptSteps,
-		opts...,
+		connect.WithIdempotency(connect.IdempotencyNoSideEffects),
+		connect.WithHandlerOptions(opts...),
 	)
 	cIServiceGetJobMetricsHandler := connect.NewUnaryHandler(
 		CIServiceGetJobMetricsProcedure,

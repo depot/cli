@@ -54,8 +54,8 @@ func TestStepsJSONUsesAuthenticatedAttemptAndPreservesMissingAndZero(t *testing.
 		if req.Msg.AttemptId != "attempt-a" || req.Header().Get("Authorization") != "Bearer test-token" || req.Header().Get("X-Depot-Org") != "org-a" {
 			t.Fatalf("incorrect request: %v, headers: %v", req.Msg, req.Header())
 		}
-		return &civ1.GetJobAttemptStepsResponse{AttemptId: "attempt-a", Available: true, Complete: true, Steps: []*civ1.JobAttemptStep{
-			{StepKey: "key-1", StepId: "build", Number: 1, Name: "Build", Status: "completed", DurationMs: proto.Int64(0)},
+		return &civ1.GetJobAttemptStepsResponse{AttemptId: "attempt-a", JobId: "job-a", AttemptStatus: "finished", Available: true, Complete: true, Truncated: true, Steps: []*civ1.JobAttemptStep{
+			{StepKey: "key-1", StepId: "build", Number: 1, Name: "Build", Status: "completed", Conclusion: "success", StartedAt: proto.String("2026-11-20T12:00:00Z"), CompletedAt: proto.String("2026-11-20T12:00:00Z"), Attempt: 3, DurationMs: proto.Int64(0)},
 			{StepKey: "key-2", Number: 2, Name: "Skipped", Status: "completed", Conclusion: "skipped"},
 		}}, nil
 	})
@@ -67,19 +67,31 @@ func TestStepsJSONUsesAuthenticatedAttemptAndPreservesMissingAndZero(t *testing.
 	if err := json.Unmarshal([]byte(out), &document); err != nil {
 		t.Fatal(err)
 	}
+	for key, expected := range map[string]any{"attempt_id": "attempt-a", "job_id": "job-a", "attempt_status": "finished", "available": true, "complete": true, "truncated": true} {
+		if document[key] != expected {
+			t.Fatalf("%s = %v, want %v", key, document[key], expected)
+		}
+	}
 	steps := document["steps"].([]any)
+	for key, expected := range map[string]any{"step_key": "key-1", "step_id": "build", "number": float64(1), "attempt": float64(3), "started_at": "2026-11-20T12:00:00Z", "completed_at": "2026-11-20T12:00:00Z"} {
+		if steps[0].(map[string]any)[key] != expected {
+			t.Fatalf("%s = %v, want %v", key, steps[0].(map[string]any)[key], expected)
+		}
+	}
 	if steps[0].(map[string]any)["duration_ms"] != "0" {
 		t.Fatalf("zero duration lost: %s", out)
 	}
-	if _, present := steps[1].(map[string]any)["duration_ms"]; present {
-		t.Fatalf("missing duration fabricated: %s", out)
+	for _, key := range []string{"duration_ms", "started_at", "completed_at"} {
+		if _, present := steps[1].(map[string]any)[key]; present {
+			t.Fatalf("missing %s fabricated: %s", key, out)
+		}
 	}
 }
 
 func TestStepsTextShowsCoverageAndSanitizesWorkerNames(t *testing.T) {
 	stepsServer(t, func(*connect.Request[civ1.GetJobAttemptStepsRequest]) (*civ1.GetJobAttemptStepsResponse, error) {
 		return &civ1.GetJobAttemptStepsResponse{Available: true, Truncated: true, Steps: []*civ1.JobAttemptStep{
-			{Number: 1, Name: "Build\x1b[31m\nInjected", DurationMs: proto.Int64(1234)},
+			{Number: 1, Name: "Build\x1b[31m\nInjected", Attempt: 3, DurationMs: proto.Int64(1234)},
 			{Number: 2, Name: "Still running", Status: "in_progress"},
 		}}, nil
 	})
@@ -87,7 +99,7 @@ func TestStepsTextShowsCoverageAndSanitizesWorkerNames(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, text := range []string{"Progress snapshot", "Partial result", "1.234s", "Still running"} {
+	for _, text := range []string{"Progress snapshot", "Partial result", "ATTEMPTS", "1.234s", "Still running"} {
 		if !strings.Contains(out, text) {
 			t.Fatalf("missing %q: %s", text, out)
 		}
@@ -115,7 +127,7 @@ func TestStepsRejectsInvalidInputBeforeRequest(t *testing.T) {
 		t.Fatal("unexpected network call")
 		return nil, nil
 	})
-	for _, args := range [][]string{{}, {"one", "two"}, {" "}, {"attempt-a", "--output", "csv"}} {
+	for _, args := range [][]string{{}, {"one", "two"}, {" "}, {"attempt-a", "--output", "csv"}, {"--attempt", " "}, {"attempt-a", "--attempt", "attempt-b"}, {"attempt-a", "--attempt", ""}} {
 		out, err := runSteps(args...)
 		if err == nil || out != "" {
 			t.Fatalf("args %v: output %q, error %v", args, out, err)
@@ -134,5 +146,21 @@ func TestStepsServerErrorsDoNotPrintPartialJSON(t *testing.T) {
 				t.Fatalf("output %q, error %v", out, err)
 			}
 		})
+	}
+}
+
+func TestStepsAttemptFlagKeepsTheSelectedAttempt(t *testing.T) {
+	stepsServer(t, func(req *connect.Request[civ1.GetJobAttemptStepsRequest]) (*civ1.GetJobAttemptStepsResponse, error) {
+		if req.Msg.AttemptId != "older-attempt" {
+			t.Fatalf("wrong attempt: %s", req.Msg.AttemptId)
+		}
+		return &civ1.GetJobAttemptStepsResponse{AttemptId: req.Msg.AttemptId, Available: true, Complete: true}, nil
+	})
+	out, err := runSteps("--attempt", "older-attempt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "The worker reported no execution steps.") || strings.Contains(out, "No step timings were recorded") {
+		t.Fatalf("observed empty snapshot confused with unavailable history: %s", out)
 	}
 }
