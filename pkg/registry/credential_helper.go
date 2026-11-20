@@ -69,17 +69,14 @@ func (l *credentialLookup) setLogger(logger progresswriter.Logger) {
 // get returns the auth config for host, or an empty one if the helper does
 // not answer in time.
 func (l *credentialLookup) get(ctx context.Context, host string) (types.AuthConfig, error) {
-	key := host
-	if host == authprovider.DockerHubRegistryHost {
-		key = authprovider.DockerHubConfigfileKey
-	}
+	key := configKey(host)
 	helper := l.config.CredentialsStore
 	if h, ok := l.config.CredentialHelpers[key]; ok {
 		helper = h
 	}
 
 	l.mu.Lock()
-	entry := l.entries[host]
+	entry := l.entries[key]
 	// A lookup that never ran (helper hung or busy) is retried once the helper answers again.
 	if entry == nil || entry.expired() || (!entry.loading && !entry.answered() && !l.hungHelpers[helper]) {
 		next := &credentialEntry{done: make(chan struct{}), deadline: time.Now().Add(credentialHelperTimeout)}
@@ -90,7 +87,7 @@ func (l *credentialLookup) get(ctx context.Context, host string) (types.AuthConf
 			}
 		}
 		entry = next
-		l.entries[host] = entry
+		l.entries[key] = entry
 		if l.hungHelpers[helper] {
 			entry.deadline = time.Now()
 		} else {
@@ -156,7 +153,7 @@ func (l *credentialLookup) get(ctx context.Context, host string) (types.AuthConf
 func (l *credentialLookup) cached(host string) (types.AuthConfig, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	entry := l.entries[host]
+	entry := l.entries[configKey(host)]
 	switch {
 	case entry == nil:
 		return types.AuthConfig{}, nil
@@ -208,4 +205,13 @@ func (e *credentialEntry) answered() bool {
 	default:
 		return false
 	}
+}
+
+// configKey maps a registry host to its Docker config key, accepting either
+// form so get and cached agree however the caller names Docker Hub.
+func configKey(host string) string {
+	if host == authprovider.DockerHubRegistryHost {
+		return authprovider.DockerHubConfigfileKey
+	}
+	return host
 }

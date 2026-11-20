@@ -143,3 +143,25 @@ func TestCredentialHelperTimeout(t *testing.T) {
 	require.Contains(t, timeoutLines[0], "registry-1.docker.io")
 	require.Contains(t, timeoutLines[0], "continuing without credentials")
 }
+
+func TestCredentialHelperDockerHub(t *testing.T) {
+	binDir := t.TempDir()
+	helper := "#!/bin/sh\necho '{\"Username\":\"hub-user\",\"Secret\":\"hub-secret\"}'\n"
+	require.NoError(t, os.WriteFile(filepath.Join(binDir, "docker-credential-hub"), []byte(helper), 0o755))
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	configDir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(configDir, "config.json"), []byte(`{"credsStore":"hub"}`), 0o600))
+	previousDir := config.Dir()
+	config.SetDir(configDir)
+	t.Cleanup(func() { config.SetDir(previousDir) })
+
+	t.Setenv("DEPOT_PUSH_REGISTRY_USERNAME", "")
+	t.Setenv("DEPOT_PUSH_REGISTRY_PASSWORD", "")
+	t.Setenv("DEPOT_PUSH_REGISTRY_AUTH", "")
+
+	server := NewDockerAuthProviderWithDepotAuth().(auth.AuthServer)
+	resp, err := server.Credentials(context.Background(), &auth.CredentialsRequest{Host: "registry-1.docker.io"})
+	require.NoError(t, err)
+	require.Equal(t, "hub-secret", resp.Secret)
+}
