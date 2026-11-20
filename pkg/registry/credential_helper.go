@@ -43,8 +43,10 @@ type credentialEntry struct {
 	authConfig    types.AuthConfig
 	err           error
 	timeoutLogged bool
-	// loading is true while a goroutine owns this lookup.
+	// loading is true while a goroutine owns this lookup; running once it is
+	// calling the helper.
 	loading bool
+	running bool
 	// previous is the last answered lookup, used if a refresh times out.
 	previous *credentialEntry
 }
@@ -120,8 +122,9 @@ func (l *credentialLookup) get(ctx context.Context, host string) (types.AuthConf
 		return entry.authConfig, entry.err
 	default:
 	}
-	// Only a call still holding the helper's slot proves it is hung; its load clears the flag.
-	if helper != "" && len(l.helperSlots[helper]) > 0 {
+	// Only this lookup's own helper call still running proves the helper is
+	// hung; its load clears the flag when the call returns.
+	if helper != "" && entry.running {
 		l.hungHelpers[helper] = true
 	}
 	if entry.previous != nil {
@@ -171,6 +174,9 @@ func (l *credentialLookup) load(entry *credentialEntry, slot chan struct{}, help
 	defer timer.Stop()
 	select {
 	case slot <- struct{}{}:
+		l.mu.Lock()
+		entry.running = true
+		l.mu.Unlock()
 	case <-timer.C:
 		// The helper is still busy with an earlier host and has not answered.
 		l.mu.Lock()
@@ -183,7 +189,7 @@ func (l *credentialLookup) load(entry *credentialEntry, slot chan struct{}, help
 
 	l.mu.Lock()
 	entry.authConfig, entry.err, entry.loadedAt = authConfig, err, time.Now()
-	entry.loading = false
+	entry.loading, entry.running = false, false
 	delete(l.hungHelpers, helper)
 	close(entry.done)
 	l.mu.Unlock()
