@@ -16,6 +16,7 @@ func NewCmdOrg() *cobra.Command {
 	cmd.AddCommand(NewCmdSwitch())
 	cmd.AddCommand(NewCmdShow())
 	cmd.AddCommand(NewCmdCredits())
+	cmd.AddCommand(NewCmdInvoices())
 
 	return cmd
 }

@@ -1,6 +1,7 @@
 package root
 
 import (
+	"errors"
 	"os"
 
 	"github.com/spf13/cobra"
@@ -15,7 +16,7 @@ import (
 	cargoCmd "github.com/depot/cli/pkg/cmd/cargo"
 	"github.com/depot/cli/pkg/cmd/checks"
 	ciCmd "github.com/depot/cli/pkg/cmd/ci"
-	claudeCmd "github.com/depot/cli/pkg/cmd/claude"
+	codeCmd "github.com/depot/cli/pkg/cmd/code"
 	dockerCmd "github.com/depot/cli/pkg/cmd/docker"
 	"github.com/depot/cli/pkg/cmd/exec"
 	"github.com/depot/cli/pkg/cmd/gocache"
@@ -25,6 +26,7 @@ import (
 	"github.com/depot/cli/pkg/cmd/list"
 	loginCmd "github.com/depot/cli/pkg/cmd/login"
 	logout "github.com/depot/cli/pkg/cmd/logout"
+	"github.com/depot/cli/pkg/cmd/mr"
 	"github.com/depot/cli/pkg/cmd/org"
 	"github.com/depot/cli/pkg/cmd/packages"
 	"github.com/depot/cli/pkg/cmd/projects"
@@ -34,6 +36,7 @@ import (
 	"github.com/depot/cli/pkg/cmd/registry"
 	sandboxCmd "github.com/depot/cli/pkg/cmd/sandbox"
 	testsCmd "github.com/depot/cli/pkg/cmd/tests"
+	"github.com/depot/cli/pkg/cmd/usage"
 	versionCmd "github.com/depot/cli/pkg/cmd/version"
 	"github.com/depot/cli/pkg/config"
 )
@@ -76,7 +79,7 @@ func NewCmdRoot(version, buildDate string) *cobra.Command {
 	cmd.AddCommand(builds.NewCmdBuilds())
 	cmd.AddCommand(cacheCmd.NewCmdCache())
 	cmd.AddCommand(cargoCmd.NewCmdCargo())
-	cmd.AddCommand(claudeCmd.NewCmdClaude())
+	cmd.AddCommand(newRetiredClaudeCommand())
 	cmd.AddCommand(image.NewCmdImage())
 	cmd.AddCommand(initCmd.NewCmdInit())
 	cmd.AddCommand(list.NewCmdList())
@@ -91,14 +94,32 @@ func NewCmdRoot(version, buildDate string) *cobra.Command {
 	cmd.AddCommand(registry.NewCmdRegistry())
 	cmd.AddCommand(buildkitregistryproxy.NewCmdBuildkitRegistryProxy())
 	cmd.AddCommand(org.NewCmdOrg())
+	cmd.AddCommand(usage.NewCmdUsage())
 	cmd.AddCommand(packages.NewCmdPackages())
 	cmd.AddCommand(projects.NewCmdProjects())
 	cmd.AddCommand(gocache.NewCmdGoCache())
 	cmd.AddCommand(exec.NewCmdExec())
 	cmd.AddCommand(ciCmd.NewCmdCI())
 	cmd.AddCommand(checks.NewCmdChecks())
+	cmd.AddCommand(codeCmd.NewCmdCode())
+	cmd.AddCommand(mr.NewCmdMR())
 	cmd.AddCommand(sandboxCmd.NewCmdSandbox())
 	cmd.AddCommand(testsCmd.NewCmdTests())
 
 	return cmd
+}
+
+func newRetiredClaudeCommand() *cobra.Command {
+	const message = "depot claude has been retired; use Depot Managed Agents instead: https://depot.dev/docs/managed-agents/claude-code-self-hosted"
+	return &cobra.Command{
+		Use:                "claude",
+		Short:              "Use Depot Managed Agents instead",
+		Long:               message,
+		Hidden:             true,
+		DisableFlagParsing: true,
+		Args:               cobra.ArbitraryArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return errors.New(message)
+		},
+	}
 }

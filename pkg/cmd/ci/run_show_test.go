@@ -36,6 +36,7 @@ func TestRunShowFlagValidation(t *testing.T) {
 			t.Setenv("DEPOT_TOKEN", "")
 			t.Setenv("DEPOT_JIT_TOKEN", "")
 			t.Setenv("DEPOT_CACHE_TOKEN", "")
+			t.Setenv("DEPOT_API_TOKEN_URL", "")
 			viper.Set("api_token", "")
 			cmd := NewCmdRunShow()
 			cmd.SetArgs(tt.args)

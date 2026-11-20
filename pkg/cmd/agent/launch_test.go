@@ -15,6 +15,7 @@ import (
 	"github.com/depot/cli/pkg/proto/depot/agent/v1/agentv1connect"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
+	"google.golang.org/protobuf/proto"
 )
 
 func serveLaunch(t *testing.T, handle func(*connect.Request[agentv1.LaunchRequest]) (*agentv1.LaunchResponse, error)) {
@@ -31,7 +32,7 @@ func serveLaunch(t *testing.T, handle func(*connect.Request[agentv1.LaunchReques
 	server := httptest.NewServer(h2c.NewHandler(mux, &http2.Server{}))
 	t.Cleanup(server.Close)
 	t.Setenv("DEPOT_API_URL", server.URL)
-	for _, name := range []string{"DEPOT_TOKEN", "DEPOT_ORG_ID", "GITHUB_RUN_ID", "GITHUB_REPOSITORY", "GITHUB_JOB"} {
+	for _, name := range []string{"DEPOT_TOKEN", "DEPOT_ORG_ID", "GITHUB_RUN_ID", "GITHUB_RUN_ATTEMPT", "GITHUB_REPOSITORY", "GITHUB_JOB"} {
 		t.Setenv(name, "")
 	}
 }
@@ -81,22 +82,28 @@ func TestLaunchSendsTheRequestAndPrintsTheSessionURL(t *testing.T) {
 	}
 }
 
-func TestLaunchInCIDerivesAStableKeyPerLaunch(t *testing.T) {
-	var keys []string
+// Two matrix legs see the same job environment, so only a key the caller passes may join their launches.
+func TestLaunchFromTwoMatrixLegsStartsTwoSessionsUnlessTheyShareAKey(t *testing.T) {
+	var keys []*string
 	serveLaunch(t, func(req *connect.Request[agentv1.LaunchRequest]) (*agentv1.LaunchResponse, error) {
-		keys = append(keys, req.Msg.GetClientRequestId())
+		keys = append(keys, req.Msg.ClientRequestId)
 		return launched("session-1"), nil
 	})
 	t.Setenv("GITHUB_RUN_ID", "123")
+	t.Setenv("GITHUB_RUN_ATTEMPT", "1")
 	t.Setenv("GITHUB_REPOSITORY", "acme/app")
 	t.Setenv("GITHUB_JOB", "review")
-	for _, message := range []string{"Review this", "Review this", "Summarize this"} {
-		if _, err := execute(t, "public-agent-code-review", "--source", "depot-code:acme/app", "--message", message, "--token", "t"); err != nil {
+	launch := []string{"public-agent-code-review", "--source", "depot-code:acme/app", "--message", "Review this", "--token", "t"}
+	for _, extra := range [][]string{nil, nil, {"--client-request-id", "review-123-0"}, {"--client-request-id", "review-123-1"}, {"--client-request-id", "review-123-1"}} {
+		if _, err := execute(t, append(append([]string{}, launch...), extra...)...); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if !strings.HasPrefix(keys[0], "ci:") || len(keys[0]) > 191 || keys[0] != keys[1] || keys[0] == keys[2] {
-		t.Fatalf("keys = %v", keys)
+	if keys[0] != nil || keys[1] != nil {
+		t.Fatalf("two legs launched with keys %v and %v, want none so each starts a session", keys[0], keys[1])
+	}
+	if *keys[2] != "review-123-0" || *keys[3] != "review-123-1" || *keys[4] != *keys[3] {
+		t.Fatalf("explicit keys = %q %q %q", *keys[2], *keys[3], *keys[4])
 	}
 }
 
@@ -149,8 +156,26 @@ func TestLaunchWithoutAnOrgPrintsTheSessionID(t *testing.T) {
 	}
 }
 
+func TestParseSourceTakesOnePartDepotCodeNames(t *testing.T) {
+	for value, want := range map[string]*agentv1.DepotAgentLaunchSource{
+		"depot-code:app":           {Kind: "depot-code", Repository: "app"},
+		"depot-code:app@feature/x": {Kind: "depot-code", Repository: "app", Ref: proto.String("feature/x")},
+		"depot-code:acme/app@v1":   {Kind: "depot-code", Repository: "acme/app", Ref: proto.String("v1")},
+	} {
+		got, err := parseSource(value)
+		if err != nil {
+			t.Errorf("parseSource(%q): %v", value, err)
+		} else if !proto.Equal(got, want) {
+			t.Errorf("parseSource(%q) = %v, want %v", value, got, want)
+		}
+	}
+}
+
 func TestParseSourceRejectsMalformedValues(t *testing.T) {
-	for _, value := range []string{"acme/app", "depot-code:acme", "depot-code:/app", ":acme/app", "depot-code:acme/app@"} {
+	for _, value := range []string{
+		"acme/app", "github:acme", "depot-code:", "depot-code:@main", "depot-code:app@", "depot-code:acme/", "depot-code:/app",
+		":acme/app", ":app", "depot-code:acme/app@",
+	} {
 		if _, err := parseSource(value); err == nil {
 			t.Errorf("parseSource(%q) succeeded", value)
 		}

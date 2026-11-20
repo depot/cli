@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+case "$(uname -m)" in
+  x86_64) depot_arch=amd64 ;;
+  aarch64) depot_arch=arm64 ;;
+  *) echo 'Unsupported Depot CLI architecture' >&2; exit 1 ;;
+esac
+
+# The official download resolver advances only after release binaries are available.
+depot_url="$(curl -fsS --connect-timeout 10 --max-time 60 --retry 2 -o /dev/null -w '%{redirect_url}' \
+  "https://dl.depot.dev/cli/download/linux/$depot_arch/latest")"
+depot_release="${depot_url%/*}"
+depot_tag="${depot_release##*/}"
+[[ "$depot_tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo 'Invalid Depot CLI release tag' >&2; exit 1; }
+depot_version="${depot_tag#v}"
+# Keep the managed-run wrapper (and its token/proxy handling) in front of the CLI.
+depot_bin=/usr/local/lib/depot-run/depot
+if [[ ! -x "$depot_bin" ]] || ! "$depot_bin" --version | grep -Fq "depot version $depot_version "; then
+  depot_tmp="$(mktemp -d)"
+  trap 'rm -rf "$depot_tmp"' EXIT
+  depot_archive="depot_${depot_version}_linux_${depot_arch}.tar.gz"
+  depot_release="https://dl-cdn.depot.dev/cli/v${depot_version}"
+  curl -fsS --connect-timeout 10 --max-time 60 --retry 2 "$depot_release/$depot_archive" -o "$depot_tmp/$depot_archive"
+  curl -fsS --connect-timeout 10 --max-time 60 --retry 2 "$depot_release/depot_${depot_version}_checksums.txt" -o "$depot_tmp/checksums.txt"
+  (cd "$depot_tmp" && grep " $depot_archive\$" checksums.txt | sha256sum -c -)
+  tar -xzf "$depot_tmp/$depot_archive" -C "$depot_tmp" bin/depot
+  sudo install -D -m755 "$depot_tmp/bin/depot" "$depot_bin"
+fi
+if [[ ! -e /usr/local/bin/depot ]] || [[ "$(head -c4 /usr/local/bin/depot)" == $'\x7fELF' ]]; then
+  sudo ln -sfn "$depot_bin" /usr/local/bin/depot
+fi
+
+echo "Depot CLI $depot_version is installed at $depot_bin"

@@ -189,14 +189,14 @@ Use --forge depot to run a Depot Code repository.`,
 
 				// Inject patch step into each selected job that has actions/checkout
 				for _, jobName := range selectedJobs {
-					injectPatchStep(jobs, jobName, patch.mergeBase, patchWorkspacePath(patch), repository.forge)
+					injectPatchStep(jobs, jobName, patch.mergeBase, patchWorkspacePath(patch), repository.forge, repository.checkoutName())
 				}
 			}
 
 			// Insert tmate debug step if requested
 			if sshAfterStep > 0 {
 				jobName := jobNames[0]
-				if err := injectTmateStep(jobs, jobName, sshAfterStep, patch != nil); err != nil {
+				if err := injectTmateStep(jobs, jobName, sshAfterStep, patch != nil, repository.checkoutName()); err != nil {
 					return err
 				}
 			}
@@ -546,7 +546,30 @@ func resolveJobDeps(allJobs map[string]interface{}, requested []string) map[stri
 	return needed
 }
 
-func injectPatchStep(jobs map[string]interface{}, jobName, mergeBase, workspacePatchPath string, forge civ1.Forge) {
+// workflowCheckoutIndex returns the first actions/checkout step that checks out
+// repo: one with no repository input, ${{ github.repository }}, or a literal
+// equal to repo. Other expressions may name any repository, so they never
+// match. An empty repo matches every checkout.
+func workflowCheckoutIndex(steps []interface{}, repo string) int {
+	for i, stepRaw := range steps {
+		step, ok := stepRaw.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		uses, ok := step["uses"].(string)
+		if !ok || !strings.HasPrefix(uses, "actions/checkout") {
+			continue
+		}
+		with, _ := step["with"].(map[string]interface{})
+		other, ok := with["repository"].(string)
+		if repo == "" || !ok || strings.EqualFold(other, repo) || strings.ReplaceAll(other, " ", "") == "${{github.repository}}" {
+			return i
+		}
+	}
+	return -1
+}
+
+func injectPatchStep(jobs map[string]interface{}, jobName, mergeBase, workspacePatchPath string, forge civ1.Forge, repo string) {
 	jobRaw, ok := jobs[jobName]
 	if !ok {
 		return
@@ -567,21 +590,9 @@ func injectPatchStep(jobs map[string]interface{}, jobName, mergeBase, workspaceP
 		return
 	}
 
-	checkoutIndex := -1
-	for i, stepRaw := range steps {
-		step, ok := stepRaw.(map[string]interface{})
-		if !ok {
-			continue
-		}
-		uses, ok := step["uses"].(string)
-		if ok && strings.HasPrefix(uses, "actions/checkout") {
-			checkoutIndex = i
-			break
-		}
-	}
-
+	checkoutIndex := workflowCheckoutIndex(steps, repo)
 	if checkoutIndex == -1 {
-		fmt.Printf("Job %q: no actions/checkout step, skipping patch injection\n", jobName)
+		fmt.Fprintf(os.Stderr, "Warning: job %q has no actions/checkout step for the workflow repository; local changes were not applied.\n", jobName)
 		return
 	}
 
@@ -623,7 +634,7 @@ echo "Patch applied successfully"`, cacheBaseURL, workspacePatchPath),
 	job["steps"] = newSteps
 }
 
-func injectTmateStep(jobs map[string]interface{}, jobName string, afterStep int, patchInjected bool) error {
+func injectTmateStep(jobs map[string]interface{}, jobName string, afterStep int, patchInjected bool, repo string) error {
 	jobRaw, ok := jobs[jobName]
 	if !ok {
 		return fmt.Errorf("job %q not found", jobName)
@@ -651,19 +662,7 @@ func injectTmateStep(jobs map[string]interface{}, jobName string, afterStep int,
 	insertAt := afterStep
 	if patchInjected {
 		// Find checkout index to adjust for the injected patch step
-		checkoutIndex := -1
-		for i, stepRaw := range steps {
-			step, ok := stepRaw.(map[string]interface{})
-			if !ok {
-				continue
-			}
-			uses, ok := step["uses"].(string)
-			if ok && strings.HasPrefix(uses, "actions/checkout") {
-				checkoutIndex = i
-				break
-			}
-		}
-
+		checkoutIndex := workflowCheckoutIndex(steps, repo)
 		if checkoutIndex != -1 && afterStep > checkoutIndex {
 			insertAt = afterStep + 1
 		}
@@ -844,7 +843,7 @@ func NewCmdRunList() *cobra.Command {
 				orgID = config.GetCurrentOrganization()
 			}
 
-			tokenVal, err := helpers.ResolveOrgAuth(ctx, token)
+			tokenVal, err := helpers.ResolveTurnReadAuth(ctx, token)
 			if err != nil {
 				return err
 			}

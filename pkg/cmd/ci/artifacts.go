@@ -80,7 +80,7 @@ func NewCmdArtifactsList() *cobra.Command {
 			if orgID == "" {
 				orgID = config.GetCurrentOrganization()
 			}
-			tokenVal, err := helpers.ResolveOrgAuth(ctx, token)
+			tokenVal, err := helpers.ResolveTurnReadAuth(ctx, token)
 			if err != nil {
 				return err
 			}
@@ -139,7 +139,7 @@ func NewCmdArtifactsDownload() *cobra.Command {
 			if orgID == "" {
 				orgID = config.GetCurrentOrganization()
 			}
-			tokenVal, err := helpers.ResolveOrgAuth(ctx, token)
+			tokenVal, err := helpers.ResolveTurnReadAuth(ctx, token)
 			if err != nil {
 				return err
 			}

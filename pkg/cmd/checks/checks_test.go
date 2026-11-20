@@ -297,6 +297,25 @@ func TestListCollectsUpToLimitAndPreservesFilters(t *testing.T) {
 	}
 }
 
+func TestListSendsEveryAPIOutcome(t *testing.T) {
+	for _, value := range []string{"running", "done", "passed", "findings", "rejected", "resolved", "failed", "cancelled", "superseded"} {
+		t.Run(value, func(t *testing.T) {
+			mux := localAPI(t)
+			var sent string
+			serveRPC(t, mux, checksv1connect.CheckServiceListChecksProcedure, func(req *checksv1.ListChecksRequest) (*checksv1.ListChecksResponse, error) {
+				sent = req.Outcome
+				return &checksv1.ListChecksResponse{}, nil
+			})
+			if _, err := execute(t, "list", "--outcome", value, "-o", "json"); err != nil {
+				t.Fatal(err)
+			}
+			if sent != value {
+				t.Fatalf("sent outcome %q, want %q", sent, value)
+			}
+		})
+	}
+}
+
 func TestListRepositoryFilters(t *testing.T) {
 	for _, scenario := range []struct {
 		name, forge, repoForge string

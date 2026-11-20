@@ -2,11 +2,11 @@ package ci
 
 import (
 	"fmt"
-	"net/url"
 	"os/exec"
 	"slices"
 	"strings"
 
+	"github.com/depot/cli/pkg/gitremote"
 	civ1 "github.com/depot/cli/pkg/proto/depot/ci/v1"
 )
 
@@ -41,7 +41,7 @@ func isEntireHost(host string) bool {
 }
 
 func parseRunRepository(remoteURL string) (runRepository, bool) {
-	host, path, ok := splitGitRemoteURL(strings.TrimSpace(remoteURL))
+	host, path, ok := gitremote.SplitURL(strings.TrimSpace(remoteURL))
 	if !ok {
 		return runRepository{}, false
 	}
@@ -89,29 +89,6 @@ func parseRunRepository(remoteURL string) (runRepository, bool) {
 		return runRepository{}, false
 	}
 	return runRepository{forge: forge, repo: path}, true
-}
-
-func splitGitRemoteURL(remoteURL string) (host, path string, ok bool) {
-	if !strings.Contains(remoteURL, "://") {
-		colon := strings.IndexByte(remoteURL, ':')
-		if colon <= 0 || colon == len(remoteURL)-1 {
-			return "", "", false
-		}
-		hostPart := remoteURL[:colon]
-		if at := strings.LastIndexByte(hostPart, '@'); at >= 0 {
-			hostPart = hostPart[at+1:]
-		}
-		return hostPart, remoteURL[colon+1:], hostPart != ""
-	}
-
-	parsed, err := url.Parse(remoteURL)
-	if err != nil || parsed.Hostname() == "" || (parsed.Scheme != "https" && parsed.Scheme != "ssh" && parsed.Scheme != "entire") {
-		return "", "", false
-	}
-	if parsed.Scheme == "entire" && !isEntireHost(strings.ToLower(parsed.Hostname())) {
-		return "", "", false
-	}
-	return parsed.Hostname(), parsed.Path, true
 }
 
 func detectRunRepositories(dir string) (*runRepository, []runRepository) {
@@ -239,4 +216,20 @@ func resolveRunRepository(dir, explicitRepo, forgeFlag string) (runRepository, e
 		return runRepository{}, fmt.Errorf("multiple repositories found for the selected forge; use --repo to select one")
 	}
 	return detected[0], nil
+}
+
+// checkoutName is the repository name a job's actions/checkout uses: jobs see an
+// Entire repository as owner/name, without its namespace. It is empty for Depot
+// Code, whose run name can differ from the remote's and which only checks out
+// its own repository, so every checkout there counts.
+func (r runRepository) checkoutName() string {
+	switch r.forge {
+	case civ1.Forge_FORGE_DEPOT_CODE:
+		return ""
+	case civ1.Forge_FORGE_ENTIRE:
+		if _, name, ok := strings.Cut(r.repo, "/"); ok {
+			return name
+		}
+	}
+	return r.repo
 }
