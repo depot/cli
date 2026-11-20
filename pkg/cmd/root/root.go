@@ -11,6 +11,7 @@ import (
 	"github.com/depot/cli/pkg/cmd/blog"
 	buildCmd "github.com/depot/cli/pkg/cmd/build"
 	"github.com/depot/cli/pkg/cmd/buildkitregistryproxy"
+	"github.com/depot/cli/pkg/cmd/builds"
 	cacheCmd "github.com/depot/cli/pkg/cmd/cache"
 	cargoCmd "github.com/depot/cli/pkg/cmd/cargo"
 	"github.com/depot/cli/pkg/cmd/checks"
@@ -75,6 +76,7 @@ func NewCmdRoot(version, buildDate string) *cobra.Command {
 	cmd.AddCommand(bakeCmd.NewCmdBake())
 	cmd.AddCommand(blog.NewCmdBlog())
 	cmd.AddCommand(buildCmd.NewCmdBuild())
+	cmd.AddCommand(builds.NewCmdBuilds())
 	cmd.AddCommand(cacheCmd.NewCmdCache())
 	cmd.AddCommand(cargoCmd.NewCmdCargo())
 	cmd.AddCommand(newRetiredClaudeCommand())
