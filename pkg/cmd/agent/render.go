@@ -24,6 +24,16 @@ type agentView struct {
 	// QueuedCount is the true number of queued inputs; Queued holds at most the first few.
 	QueuedCount int  `json:"queuedCount"`
 	Truncated   bool `json:"truncated"`
+	// Live are the inputs the session holds unanswered. Settled are the newest it will not answer further, each
+	// with the id of its answer or else why it has none. An older API sends neither.
+	Live    *[]string     `json:"live"`
+	Settled []viewSettled `json:"settled"`
+}
+
+type viewSettled struct {
+	InputID    string `json:"inputId"`
+	Answer     string `json:"answer"`
+	Unanswered string `json:"unanswered"`
 }
 
 type viewMessage struct {
@@ -159,8 +169,8 @@ func (r *Renderer) Render(session *agentv1.DepotAgentSession, viewJSON string) (
 	if session != nil {
 		r.status(status)
 	}
-	if r.w.err != nil {
-		return nil, fmt.Errorf("write transcript: %w", r.w.err)
+	if err := r.written(); err != nil {
+		return nil, err
 	}
 	return view, nil
 }
@@ -194,6 +204,7 @@ func (r *Renderer) renderView(view *agentView) {
 	}
 	for i := range view.Messages {
 		if msg := &view.Messages[i]; msg.ID != "" && r.once("message:"+msg.ID) {
+			r.seen["shown:"+msg.ID] = true
 			err := r.fill(msg)
 			r.renderMessage(*msg)
 			if err != nil {
@@ -256,6 +267,24 @@ func (r *Renderer) keep(view *agentView) {
 			delete(r.unread, id)
 		}
 	}
+}
+
+// Reply prints the reply a wait ends on when the transcript has not shown its message, its turn having left the
+// view. It is printed whole under its own heading: no partial response can be known to be this reply's start.
+func (r *Renderer) Reply(id, text string) error {
+	if id != "" && r.once("shown:"+id) {
+		r.seen["message:"+id] = true
+		r.line("(the reply, read by its id)")
+		r.line("%s", strings.TrimSpace(text))
+	}
+	return r.written()
+}
+
+func (r *Renderer) written() error {
+	if r.w.err != nil {
+		return fmt.Errorf("write transcript: %w", r.w.err)
+	}
+	return nil
 }
 
 // Recover reads again the reply with this id if a failed read left it cut, with the tries it has left, and returns its text.

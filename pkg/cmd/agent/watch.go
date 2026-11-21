@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 	"time"
 
@@ -310,10 +311,25 @@ func watchOnce(ctx context.Context, c *caller, sessionID string, r *Renderer, o 
 				done, failure = true, t.doubt
 			}
 		}
-		if done && failure == "" {
+		if done && failure == "" && (t.absent || t.cut && !r.seen["shown:"+t.said]) {
+			// The API names a reply the transcript has not shown, and the view does not hold the whole of it.
+			text, read := r.full[t.said]
+			if !read {
+				var err error
+				if text, err = wholeMessage(ctx, c, sessionID, t.said); err != nil {
+					return false, fmt.Errorf("read the reply to %s: %w", t.afterInput, err)
+				}
+			}
+			_, reply, failure = replied(viewMessage{Text: text})
+		} else if done && failure == "" {
 			// The wait ends here, so no later frame would read a reply this one could not.
 			if reply = r.Recover(ctx, view, t.said, reply); ctx.Err() != nil {
 				return false, nil
+			}
+		}
+		if done && failure == "" {
+			if err := r.Reply(t.said, reply); err != nil {
+				return false, err
 			}
 		}
 		advance()
@@ -346,13 +362,17 @@ type turn struct {
 	// doubt is why the turn counts as failed if a second look still shows what the last frame did:
 	// the turn over without a reply at its end, as an interrupt leaves it, or gone from the view.
 	doubt string
-	// said is the id of the message the last settled gave as the reply.
-	said string
+	// said is the id of the message the last settled gave as the reply. absent: the view does not hold it.
+	// cut: the view holds it cut short.
+	said   string
+	absent bool
+	cut    bool
 	// unseen is when the wait first found the input missing from an idle session's cut view.
 	unseen time.Time
 }
 
 const (
+	failedStopped = "the turn was stopped before the agent replied"
 	failedNoReply = "the turn ended without a reply"
 	failedLost    = "the session moved past the input before its reply was seen"
 	failedUnseen  = "the input is not in the session's view: its turn is too old to show, or the session never picked it up"
@@ -377,10 +397,13 @@ func (t *turn) passed(view *agentView) bool {
 
 // settled reports whether the wait is over, with the agent's reply, or with why the turn counts as failed.
 func (t *turn) settled(status string, view *agentView) (done bool, reply, failure string) {
-	t.doubt, t.said = "", ""
+	t.doubt, t.said, t.absent, t.cut = "", "", false, false
 	// A read made beside the stream can be ahead of frames the stream has yet to deliver; those say nothing new.
 	if n := len(viewMessages(view)); t.last != "" && n > 0 && view.Messages[n-1].Seq < t.lastSeq {
 		return false, "", ""
+	}
+	if known, done, reply, failure := t.recorded(status, view); known {
+		return done, reply, failure
 	}
 	at, input := t.place(view)
 	if t.afterInput != "" && !input {
@@ -450,6 +473,56 @@ func (t *turn) settled(status string, view *agentView) (done bool, reply, failur
 	}
 	t.said = view.Messages[last].ID
 	return replied(view.Messages[last])
+}
+
+// recorded reads what the API itself records of the awaited input: the message that answered it, why it has
+// none, or that the session still holds it unanswered. Whatever else was sent meanwhile then decides nothing.
+// known is false only when the API records nothing of its inputs, as an older one does not (DEP-8781).
+func (t *turn) recorded(status string, view *agentView) (known, done bool, reply, failure string) {
+	if t.afterInput == "" || view == nil || view.Live == nil {
+		return false, false, "", ""
+	}
+	for _, input := range view.Settled {
+		switch {
+		case input.InputID != t.afterInput:
+			continue
+		case input.Answer == "" && input.Unanswered == "aborted":
+			return true, true, "", failedStopped
+		case input.Answer == "":
+			return true, true, "", failedNoReply + " (" + input.Unanswered + ")"
+		}
+		// An answer is never an error: a turn that ended in one is recorded as unanswered.
+		t.said = input.Answer
+		for _, msg := range view.Messages {
+			if msg.ID == input.Answer {
+				t.cut = msg.TruncatedBytes > 0
+				done, reply, failure = replied(viewMessage{Text: msg.Text})
+				return true, done, reply, failure
+			}
+		}
+		t.absent = true
+		return true, true, "", ""
+	}
+	switch {
+	case status == "failed":
+		return true, true, "", "the session failed"
+	case status == "archived":
+		return true, true, "", "the session was archived"
+	case slices.Contains(*view.Live, t.afterInput):
+	case shown(view, t.afterInput):
+		// Its message shows and neither list names it: it settled too long ago to be listed. A second look
+		// confirms it, and no later reply is taken for this one's.
+		t.doubt = failedLost
+	case view.QueuedCount > 0:
+	case status == "idle", status == "waiting_input":
+		// Not handed to the session yet: an idle one is given the time it has to pick an input up.
+		t.doubt = failedUnseen
+	}
+	return true, false, "", ""
+}
+
+func shown(view *agentView, inputID string) bool {
+	return slices.ContainsFunc(view.Messages, func(msg viewMessage) bool { return msg.InputID == inputID })
 }
 
 // lost is the one place that reads a view showing nothing of the awaited turn. gone: the turn was being followed

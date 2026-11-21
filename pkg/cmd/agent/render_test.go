@@ -174,4 +174,23 @@ func TestRendererReportsAWriteError(t *testing.T) {
 	if pipe.writes != 1 {
 		t.Fatalf("%d writes reached a writer that had already failed", pipe.writes)
 	}
+	if err := NewRenderer(&closedPipe{}).Reply("9", "the reply"); err == nil || !strings.Contains(err.Error(), "pipe closed") {
+		t.Fatalf("Reply = %v, want the writer's error", err)
+	}
+}
+
+func TestRendererPrintsARecoveredReplyWholeUnderItsOwnHeading(t *testing.T) {
+	var out bytes.Buffer
+	r := NewRenderer(&out)
+	if _, err := r.Render(nil, `{"messages": [], "partial": "the re"}`); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		if err := r.Reply("9", "the reply"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if want := "the re\n(the reply, read by its id)\nthe reply\n"; out.String() != want {
+		t.Fatalf("transcript = %q, want %q", out.String(), want)
+	}
 }

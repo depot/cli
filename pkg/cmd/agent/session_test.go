@@ -1094,3 +1094,166 @@ func TestWatchReportsACancelledContext(t *testing.T) {
 		}
 	}
 }
+
+// With an API that records what became of each input, the wait reads that and nothing else: a later message,
+// whoever sent it, neither ends the wait nor lends it a reply (DEP-8781).
+func TestTurnReadsWhatTheAPIRecordsOfTheInput(t *testing.T) {
+	const (
+		asked   = `{"id": "3", "seq": 3, "role": "user", "inputId": "dai_1", "text": "hello"}`
+		working = `{"id": "4", "seq": 4, "role": "assistant", "text": "Looking.", "toolCalls": [{"callId": "t"}]}, {"id": "5", "seq": 5, "role": "tool", "callId": "t", "text": "ok"}`
+		reply   = `{"id": "7", "seq": 7, "role": "assistant", "text": "the reply"}`
+		after   = `{"id": "9", "seq": 9, "role": "assistant", "text": "a later reply"}`
+	)
+	later := func(kind string) string {
+		return `{"id": "6", "seq": 6, "role": "user", "inputId": "dai_2", "sender": {"kind": "` + kind + `"}, "text": "next"}`
+	}
+	settle := func(t *testing.T, status, messages, rest string) (*turn, bool, string, string) {
+		t.Helper()
+		var view agentView
+		if err := json.Unmarshal([]byte(`{"messages": [`+messages+`], `+rest+`}`), &view); err != nil {
+			t.Fatal(err)
+		}
+		tn := &turn{afterInput: "dai_1"}
+		done, got, failure := tn.settled(status, &view)
+		return tn, done, got, failure
+	}
+	for _, kind := range []string{"user", "slack", "linear", "agent", "trigger", "system", "api"} {
+		t.Run("a later message from "+kind, func(t *testing.T) {
+			for _, status := range []string{"running", "idle"} {
+				tn, done, got, failure := settle(t, status, asked+","+working+","+later(kind), `"live": ["dai_1", "dai_2"]`)
+				if tn.doubt != "" || done || got != "" || failure != "" {
+					t.Fatalf("%s: settled = %v, %q, %q; want the wait to go on past the later message", status, done, got, failure)
+				}
+			}
+			// One reply answered both, or each got its own: either way the awaited input's is the one named.
+			for name, rest := range map[string]string{
+				"one reply for both": `"live": [], "settled": [{"inputId": "dai_1", "answer": "7"}, {"inputId": "dai_2", "answer": "7"}]`,
+				"a reply each":       `"live": [], "settled": [{"inputId": "dai_1", "answer": "7"}, {"inputId": "dai_2", "answer": "9"}]`,
+				"the later one runs": `"live": ["dai_2"], "settled": [{"inputId": "dai_1", "answer": "7"}]`,
+			} {
+				if _, done, got, failure := settle(t, "idle", asked+","+later(kind)+","+reply+","+after, rest); !done || got != "the reply" || failure != "" {
+					t.Fatalf("%s: settled = %v, %q, %q; want the reply the API names", name, done, got, failure)
+				}
+			}
+			// An API that records nothing of its inputs is read as before.
+			if _, done, _, failure := settle(t, "running", asked+","+working+","+later(kind), `"tools": []`); !done || failure != "another input followed before the agent replied" {
+				t.Fatalf("without the record: settled = %v, %q; want the wait to end as it did", done, failure)
+			}
+		})
+	}
+	for name, tc := range map[string]struct {
+		status, messages, rest, want string
+		absent                       bool
+	}{
+		"stopped":                    {"idle", asked + "," + working, `"live": [], "settled": [{"inputId": "dai_1", "unanswered": "aborted"}]`, failedStopped, false},
+		"ended in a model error":     {"idle", asked, `"live": [], "settled": [{"inputId": "dai_1", "unanswered": "model_error"}]`, failedNoReply + " (model_error)", false},
+		"the session failed":         {"failed", asked + "," + working, `"live": ["dai_1"]`, "the session failed", false},
+		"the reply left the view":    {"idle", after, `"truncated": true, "live": [], "settled": [{"inputId": "dai_1", "answer": "7"}]`, "", true},
+		"the input left the view":    {"idle", working + "," + reply, `"truncated": true, "live": [], "settled": [{"inputId": "dai_1", "answer": "7"}]`, "", false},
+		"an empty reply":             {"idle", asked + `,{"id": "7", "seq": 7, "role": "assistant", "text": ""}`, `"live": [], "settled": [{"inputId": "dai_1", "answer": "7"}]`, "the agent's reply was empty", false},
+		"answered, though it failed": {"failed", asked + "," + reply, `"live": [], "settled": [{"inputId": "dai_1", "answer": "7"}]`, "", false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			tn, done, got, failure := settle(t, tc.status, tc.messages, tc.rest)
+			wantReply := ""
+			if tc.want == "" && !tc.absent {
+				wantReply = "the reply"
+			}
+			if !done || failure != tc.want || got != wantReply || tn.absent != tc.absent {
+				t.Fatalf("settled = %v, %q, %q (absent %v); want %q, %q (absent %v)", done, got, failure, tn.absent, wantReply, tc.want, tc.absent)
+			}
+		})
+	}
+	// Its own message still shows, so it was handed over, and neither list names it: its record aged out.
+	if tn, done, got, _ := settle(t, "running", asked+","+later("user")+","+after, `"live": ["dai_2"], "settled": []`); done || got != "" || tn.doubt != failedLost {
+		t.Fatalf("settled = %v, %q with doubt %q; want a second look, then a failure that takes no later reply", done, got, tn.doubt)
+	}
+	// In neither list, the input is not handed over yet or settled too long ago to be listed. A later input's
+	// reply is not taken for it: a working session is waited on, and an idle one given time to say.
+	other := `{"id": "1", "seq": 1, "role": "user", "inputId": "dai_0", "text": "before"},` + after
+	for status, doubt := range map[string]string{"running": "", "idle": failedUnseen} {
+		if tn, done, got, failure := settle(t, status, other, `"live": [], "settled": [{"inputId": "dai_0", "answer": "9"}]`); done || got != "" || failure != "" || tn.doubt != doubt {
+			t.Fatalf("%s: settled = %v, %q, %q with doubt %q; want the wait to go on with doubt %q", status, done, got, failure, tn.doubt, doubt)
+		}
+	}
+}
+
+func TestWatchFollowsAnInputPastLaterMessagesToTheReplyTheAPINames(t *testing.T) {
+	const (
+		asked = `{"id": "3", "seq": 3, "role": "user", "inputId": "dai_1", "text": "hello"}`
+		note  = `{"id": "4", "seq": 4, "role": "user", "inputId": "dai_2", "sender": {"kind": "agent"}, "text": "lane one is done"}`
+		more  = `{"id": "5", "seq": 5, "role": "user", "inputId": "dai_3", "sender": {"kind": "user"}, "text": "and this"}`
+		reply = `{"id": "6", "seq": 6, "role": "assistant", "text": "all done"}`
+	)
+	view := func(messages, rest string) string {
+		return `{"messages": [` + messages + `], "tools": [], ` + rest + `}`
+	}
+	both := `"live": [], "settled": [{"inputId": "dai_1", "answer": "6"}, {"inputId": "dai_2", "answer": "6"}, {"inputId": "dai_3", "answer": "6"}]`
+	frames := []*agentv1.WatchSessionResponse{
+		frame("running", "c1", view(asked, `"live": ["dai_1"]`)),
+		frame("running", "c2", view(asked+","+note, `"live": ["dai_1", "dai_2"]`)),
+		// Idle for a moment between steps, with the input still unanswered.
+		frame("idle", "c3", view(asked+","+note+","+more, `"live": ["dai_1", "dai_2", "dai_3"]`)),
+		frame("idle", "c4", view(asked+","+note+","+more+","+reply, both)),
+	}
+	t.Run("in the view", func(t *testing.T) {
+		serveAgent(t, &fakeAgent{frames: [][]*agentv1.WatchSessionResponse{frames}})
+		out, errOut, err := runAgent(t, "watch", "das_1", "--after-input", "dai_1", "-o", "json")
+		if err != nil || !strings.Contains(out, `"reply": "all done"`) || !strings.Contains(out, `"outcome": "settled"`) {
+			t.Fatalf("err = %v, want the reply:\n%s\n%s", err, out, errOut)
+		}
+		if !strings.Contains(errOut, "> lane one is done") || !strings.Contains(errOut, "> and this") {
+			t.Fatalf("the transcript does not carry the later messages:\n%s", errOut)
+		}
+	})
+	t.Run("no longer in the view", func(t *testing.T) {
+		gone := frame("idle", "c4", view(more, `"truncated": true, `+both))
+		f := &fakeAgent{frames: [][]*agentv1.WatchSessionResponse{append(frames[:3:3], gone)}, whole: map[string]*agentv1.GetSessionMessageResponse{"6": {Role: "assistant", Text: "all done"}}}
+		serveAgent(t, f)
+		out, errOut, err := runAgent(t, "watch", "das_1", "--after-input", "dai_1", "-o", "json")
+		if err != nil || !strings.Contains(out, `"reply": "all done"`) || strings.Join(f.wholeAsked, ",") != "6" {
+			t.Fatalf("err = %v after reads %v, want the reply read by the id the API names:\n%s\n%s", err, f.wholeAsked, out, errOut)
+		}
+		if strings.Count(errOut, "all done\n") != 1 {
+			t.Fatalf("the transcript does not show the reply once:\n%s", errOut)
+		}
+	})
+	t.Run("watched only after the input left the view", func(t *testing.T) {
+		late := frame("idle", "c1", view(more+","+reply, `"truncated": true, `+both))
+		serveAgent(t, &fakeAgent{frames: [][]*agentv1.WatchSessionResponse{{late}}})
+		out, _, err := runAgent(t, "watch", "das_1", "--after-input", "dai_1")
+		if err != nil || strings.Count(out, "all done\n") != 1 || strings.Contains(out, "and this") {
+			t.Fatalf("err = %v, want the reply alone in the transcript, once:\n%s", err, out)
+		}
+	})
+	t.Run("a long reply, watched only after the input left the view", func(t *testing.T) {
+		cut := `{"id": "6", "seq": 6, "role": "assistant", "text": "all\n[5 bytes truncated]", "truncatedBytes": 5}`
+		f := &fakeAgent{frames: [][]*agentv1.WatchSessionResponse{{frame("idle", "c1", view(more+","+cut, `"truncated": true, `+both))}}, whole: map[string]*agentv1.GetSessionMessageResponse{"6": {Role: "assistant", Text: "all done"}}}
+		serveAgent(t, f)
+		out, _, err := runAgent(t, "watch", "das_1", "--after-input", "dai_1")
+		if err != nil || strings.Count(out, "all done\n") != 1 || strings.Contains(out, "truncated") || strings.Join(f.wholeAsked, ",") != "6" {
+			t.Fatalf("err = %v after reads %v, want the whole reply, read once:\n%s", err, f.wholeAsked, out)
+		}
+	})
+	t.Run("a long reply whose first reads failed", func(t *testing.T) {
+		retryDelay = time.Millisecond
+		t.Cleanup(func() { retryDelay = time.Second })
+		cut := `{"id": "6", "seq": 6, "role": "assistant", "text": "all\n[5 bytes truncated]", "truncatedBytes": 5}`
+		down := connect.NewError(connect.CodeUnavailable, errors.New("try again"))
+		f := &fakeAgent{frames: [][]*agentv1.WatchSessionResponse{{frame("idle", "c1", view(asked+","+cut, both))}}, wholeErrs: []error{down, down, down}, whole: map[string]*agentv1.GetSessionMessageResponse{"6": {Role: "assistant", Text: "all done"}}}
+		serveAgent(t, f)
+		out, _, err := runAgent(t, "watch", "das_1", "--after-input", "dai_1")
+		if err != nil || !strings.Contains(out, "(the whole reply, read on a later try)\nall done\n") {
+			t.Fatalf("err = %v, want the transcript to carry the whole reply once it could be read:\n%s", err, out)
+		}
+	})
+	t.Run("stopped", func(t *testing.T) {
+		stopped := frame("idle", "c4", view(asked+","+note, `"live": ["dai_2"], "settled": [{"inputId": "dai_1", "unanswered": "aborted"}]`))
+		serveAgent(t, &fakeAgent{frames: [][]*agentv1.WatchSessionResponse{append(frames[:2:2], stopped)}})
+		out, _, err := runAgent(t, "watch", "das_1", "--after-input", "dai_1", "-o", "json")
+		var status cli.StatusError
+		if !errors.As(err, &status) || status.StatusCode != 1 || !strings.Contains(out, failedStopped) {
+			t.Fatalf("err = %v, want exit 1 saying the turn was stopped:\n%s", err, out)
+		}
+	})
+}
