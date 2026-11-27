@@ -306,7 +306,7 @@ func TestCreateSendsTheMessageAndPrintsTheSession(t *testing.T) {
 }
 
 func TestCreateWatchWaitsForTheReplyAcrossReconnects(t *testing.T) {
-	asked, said := []*agentv1.GetSessionInputResponse{became("placed"), became("answered", "4")}, map[string]*agentv1.GetSessionMessageResponse{"4": {Role: "assistant", Text: "hi there"}}
+	asked, said := []*agentv1.GetSessionInputResponse{became("pending"), became("answered", "4")}, map[string]*agentv1.GetSessionMessageResponse{"4": {Role: "assistant", Text: "hi there"}}
 	f := &fakeAgent{frames: [][]*agentv1.WatchSessionResponse{
 		{frame("idle", "c1", viewBefore), frame("running", "c2", viewAsked)},
 		{frame("idle", "c3", viewReplied)},
@@ -340,7 +340,7 @@ func TestWatchReconnectsAfterAGoAway(t *testing.T) {
 		{frame("idle", "c3", viewReplied)},
 	}
 	accepted := serveAgent(t, &fakeAgent{holdWatch: true, frames: frames})
-	asked, said := []*agentv1.GetSessionInputResponse{became("placed"), became("answered", "4")}, map[string]*agentv1.GetSessionMessageResponse{"4": {Role: "assistant", Text: "hi there"}}
+	asked, said := []*agentv1.GetSessionInputResponse{became("pending"), became("answered", "4")}, map[string]*agentv1.GetSessionMessageResponse{"4": {Role: "assistant", Text: "hi there"}}
 
 	// What the client makes of it is the error the watch has to count as worth another try.
 	stream, err := newCaller("tok", "org-1").client.WatchSession(context.Background(), connect.NewRequest(&agentv1.WatchSessionRequest{SessionId: "das_1"}))
@@ -574,6 +574,41 @@ func TestWatchEndsOnWhatTheAPISaysBecameOfTheInput(t *testing.T) {
 			if tc.code == 0 {
 				var result watchResult
 				if err != nil || json.Unmarshal([]byte(out), &result) != nil || result.Outcome != outcomeSettled || result.Reply != tc.want {
+					t.Fatalf("err = %v, out = %s; want the reply %q", err, out, tc.want)
+				}
+			} else if !errors.As(err, &status) || status.StatusCode != tc.code || !strings.Contains(status.Status, tc.want) {
+				t.Fatalf("err = %#v, want exit %d with %q", err, tc.code, tc.want)
+			}
+		})
+	}
+}
+
+// The API's answer is taken as the reply only when it is something the agent said, and a read that fails does not lose it.
+func TestWatchChecksTheAnswerTheAPINames(t *testing.T) {
+	retryDelay, replyGrace = time.Millisecond, 10*time.Millisecond
+	t.Cleanup(func() { retryDelay, replyGrace = time.Second, 10*time.Second })
+	cut := `{"messages": [{"id": "3", "role": "user", "inputId": "dai_1", "text": "hello"}, {"id": "6", "role": "assistant", "text": "all\n[6 bytes truncated]", "truncatedBytes": 6}], "tools": []}`
+	step := `{"messages": [{"id": "3", "role": "user", "inputId": "dai_1", "text": "hello"}, {"id": "4", "role": "assistant", "text": "Let me look.", "toolCalls": [{"callId": "t", "name": "bash"}]}], "tools": []}`
+	down := connect.NewError(connect.CodeUnavailable, errors.New("try again"))
+	for name, tc := range map[string]struct {
+		fake *fakeAgent
+		view string
+		code int
+		want string
+	}{
+		"the record says placed when the session comes to rest": {&fakeAgent{inputs: []*agentv1.GetSessionInputResponse{became("placed"), became("answered", "4")}}, viewReplied, 0, "hi there"},
+		"the read by id fails on every try":                     {&fakeAgent{inputs: []*agentv1.GetSessionInputResponse{became("answered", "6")}, wholeErrs: []error{down, down, down, down, down, down}}, cut, 0, "all\n[6 bytes truncated]"},
+		"the answer calls a tool":                               {&fakeAgent{inputs: []*agentv1.GetSessionInputResponse{became("answered", "4")}}, step, 1, failedNoReply},
+		"the answer out of the view is not the agent's":         {&fakeAgent{inputs: []*agentv1.GetSessionInputResponse{became("answered", "9")}, whole: map[string]*agentv1.GetSessionMessageResponse{"9": {Role: "tool", Text: "ok"}}}, viewBefore, 1, failedNoReply},
+	} {
+		t.Run(name, func(t *testing.T) {
+			tc.fake.frames = [][]*agentv1.WatchSessionResponse{{frame("idle", "c1", tc.view)}}
+			serveAgent(t, tc.fake)
+			out, _, err := runAgent(t, "watch", "das_1", "--after-input", "dai_1", "-o", "json")
+			var status cli.StatusError
+			var result watchResult
+			if tc.code == 0 {
+				if err != nil || json.Unmarshal([]byte(out), &result) != nil || result.Reply != tc.want {
 					t.Fatalf("err = %v, out = %s; want the reply %q", err, out, tc.want)
 				}
 			} else if !errors.As(err, &status) || status.StatusCode != tc.code || !strings.Contains(status.Status, tc.want) {

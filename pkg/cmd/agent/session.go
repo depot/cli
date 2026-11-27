@@ -278,7 +278,8 @@ reply of the agent is read whole; -o json prints the view as the API returns it.
 			}
 			if f.output == "text" {
 				r := NewRenderer(cmd.OutOrStdout()).Whole(func(messageID string) (string, error) {
-					return wholeMessage(cmd.Context(), c, args[0], messageID)
+					text, _, err := wholeMessage(cmd.Context(), c, args[0], messageID)
+					return text, err
 				})
 				_, err := r.Render(resp.Msg.GetSession(), resp.Msg.GetViewJson())
 				return err

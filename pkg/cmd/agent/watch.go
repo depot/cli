@@ -120,7 +120,11 @@ func watchAndReport(cmd *cobra.Command, c *caller, output, sessionID string, o w
 	}
 	result, err := watchSession(cmd.Context(), c, sessionID, NewRenderer(transcript).From(o.afterInput), o)
 	if err != nil {
-		err = c.refused(err, "WatchSession")
+		rpc := "WatchSession"
+		if named := (*rpcError)(nil); errors.As(err, &named) {
+			rpc = named.rpc
+		}
+		err = c.refused(err, rpc)
 		if o.did != "" && cmd.Context().Err() == nil {
 			err = fmt.Errorf("%w\nSession %s %s and is not being watched; read its reply with `depot agent logs %s`", err, sessionID, o.did, sessionID)
 		}
@@ -169,8 +173,12 @@ func watchSession(ctx context.Context, c *caller, sessionID string, r *Renderer,
 		deadline, cancel = context.WithTimeout(ctx, o.timeout)
 		defer cancel()
 	}
-	r.Whole(func(messageID string) (string, error) { return wholeMessage(deadline, c, sessionID, messageID) })
-	t := &turn{}
+	t := &turn{roles: map[string]string{}}
+	r.Whole(func(messageID string) (string, error) {
+		text, role, err := wholeMessage(deadline, c, sessionID, messageID)
+		t.roles[messageID] = role
+		return text, err
+	})
 	cursor, failures := "", 0
 	for {
 		before, opened := cursor, time.Now()
@@ -247,7 +255,7 @@ func watchOnce(ctx context.Context, c *caller, sessionID string, r *Renderer, o 
 		if o.afterInput != "" {
 			// A frame that only streams more of a reply cannot change what became of the input.
 			if at := status + ":" + newestID(view); at != t.asked {
-				if done, reply, failure, err = awaited(ctx, c, sessionID, o.afterInput, status, view, r); err != nil {
+				if done, reply, failure, err = awaited(ctx, c, sessionID, o.afterInput, status, view, r, t, true); err != nil {
 					return false, err
 				}
 				if ctx.Err() != nil {
@@ -301,31 +309,44 @@ func watchOnce(ctx context.Context, c *caller, sessionID string, r *Renderer, o 
 	return false, nil
 }
 
+// rpcError names the call that failed under a watch, so a refused token is reported against that call.
+type rpcError struct {
+	rpc string
+	err error
+}
+
+func (e *rpcError) Error() string { return e.err.Error() }
+func (e *rpcError) Unwrap() error { return e.err }
+
 // awaited asks the API what became of the input being waited for. The API reads its answer off what the session
 // stored, so nothing here is worked out from the messages around it.
-func awaited(ctx context.Context, c *caller, sessionID, inputID, status string, view *agentView, r *Renderer) (done bool, reply, failure string, err error) {
+func awaited(ctx context.Context, c *caller, sessionID, inputID, status string, view *agentView, r *Renderer, t *turn, look bool) (done bool, reply, failure string, err error) {
 	resp, err := c.client.GetSessionInput(ctx, authed(c, &agentv1.GetSessionInputRequest{SessionId: sessionID, InputId: inputID}))
 	if err != nil {
-		return false, "", "", fmt.Errorf("get input %s: %w", inputID, err)
+		return false, "", "", &rpcError{"GetSessionInput", fmt.Errorf("get input %s: %w", inputID, err)}
 	}
 	switch resp.Msg.GetOutcome() {
 	case "answered":
 		id := resp.Msg.GetAnswerMessageId()
-		// A reply the frame holds whole is already in the transcript and needs no read.
-		for _, msg := range viewMessages(view) {
-			if msg.ID == id && msg.TruncatedBytes == 0 {
-				done, reply, failure = replied(msg)
-				return done, reply, failure, nil
+		var shown *viewMessage
+		for i, msg := range viewMessages(view) {
+			if msg.ID == id {
+				shown = &view.Messages[i]
 			}
 		}
+		// A reply the frame holds whole is already in the transcript and needs no read.
+		if shown != nil && shown.TruncatedBytes == 0 {
+			return answer(shown.Role, len(shown.ToolCalls) > 0 && !shown.IsError, *shown)
+		}
 		text, err := r.Reply(id)
-		if err != nil {
-			return false, "", "", fmt.Errorf("get message %s: %w", id, err)
+		switch {
+		case err != nil && shown != nil:
+			// The read by id failed on every try; the frame's cut text is still the reply.
+			return answer(shown.Role, len(shown.ToolCalls) > 0 && !shown.IsError, *shown)
+		case err != nil:
+			return false, "", "", &rpcError{"GetSessionMessage", fmt.Errorf("get message %s: %w", id, err)}
 		}
-		if strings.TrimSpace(text) == "" {
-			return true, "", "the agent's reply was empty", nil
-		}
-		return true, text, "", nil
+		return answer(t.roles[id], shown != nil && len(shown.ToolCalls) > 0, viewMessage{Text: text})
 	case "unanswered":
 		switch resp.Msg.GetReason() {
 		case "aborted":
@@ -342,8 +363,28 @@ func awaited(ctx context.Context, c *caller, sessionID, inputID, status string, 
 		return true, "", "the session failed", nil
 	case "archived":
 		return true, "", "the session was archived", nil
+	case "idle", "waiting_input":
+		// A session at rest while the record still says its run holds the input: the two are written apart, so look once more.
+		if look && resp.Msg.GetOutcome() == "placed" {
+			select {
+			case <-ctx.Done():
+				return false, "", "", nil
+			case <-time.After(replyGrace):
+			}
+			return awaited(ctx, c, sessionID, inputID, status, view, r, t, false)
+		}
 	}
 	return false, "", "", nil
+}
+
+// answer is the wait's end for the message the API names as the answer. Only what the agent itself said last counts
+// as a reply: a message of another role, or one that calls a tool, is a run that ended without one.
+func answer(role string, calls bool, msg viewMessage) (done bool, reply, failure string, err error) {
+	if (role != "" && role != "assistant") || calls {
+		return true, "", failedNoReply, nil
+	}
+	done, reply, failure = replied(msg)
+	return done, reply, failure, nil
 }
 
 // turn decides, frame by frame, whether the session has finished its work.
@@ -355,6 +396,8 @@ type turn struct {
 	said string
 	// asked is the status and newest message of the last frame the API was asked about the awaited input for.
 	asked string
+	// roles is who wrote each message read by its id.
+	roles map[string]string
 }
 
 func newestID(view *agentView) string {
@@ -427,7 +470,7 @@ func replied(msg viewMessage) (done bool, reply, failure string) {
 
 // wholeMessage reads the full text of a message the view cut short. Past the API's own limit the text is still cut,
 // and ends in the same note the view puts there.
-func wholeMessage(ctx context.Context, c *caller, sessionID, messageID string) (string, error) {
+func wholeMessage(ctx context.Context, c *caller, sessionID, messageID string) (text, role string, err error) {
 	for failures := 1; ; failures++ {
 		// Each try has its own time, so one that hangs leaves the others theirs.
 		try, cancel := context.WithTimeout(ctx, wholeMessageTimeout)
@@ -438,14 +481,14 @@ func wholeMessage(ctx context.Context, c *caller, sessionID, messageID string) (
 			if cut := resp.Msg.GetTruncatedBytes(); cut > 0 {
 				text += fmt.Sprintf("\n[%d bytes truncated]", cut)
 			}
-			return text, nil
+			return text, resp.Msg.GetRole(), nil
 		}
 		if !retryable(err) || failures >= wholeMessageTries {
-			return "", err
+			return "", "", err
 		}
 		select {
 		case <-ctx.Done():
-			return "", err
+			return "", "", err
 		case <-time.After(retryDelay):
 		}
 	}
