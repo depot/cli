@@ -597,11 +597,12 @@ func TestWatchChecksTheAnswerTheAPINames(t *testing.T) {
 		code int
 		want string
 	}{
-		"the answer is an error too long for the view":          {&fakeAgent{inputs: []*agentv1.GetSessionInputResponse{became("answered", "6")}, whole: map[string]*agentv1.GetSessionMessageResponse{"6": {Role: "assistant", Text: "all of it"}}}, cutErr, 1, "reply was an error: all of it"},
-		"the record says placed when the session comes to rest": {&fakeAgent{inputs: []*agentv1.GetSessionInputResponse{became("placed"), became("answered", "4")}}, viewReplied, 0, "hi there"},
-		"the read by id fails on every try":                     {&fakeAgent{inputs: []*agentv1.GetSessionInputResponse{became("answered", "6")}, wholeErrs: []error{down, down, down, down, down, down}}, cut, 0, "all\n[6 bytes truncated]"},
-		"the answer calls a tool":                               {&fakeAgent{inputs: []*agentv1.GetSessionInputResponse{became("answered", "4")}}, step, 1, failedNoReply},
-		"the answer out of the view is not the agent's":         {&fakeAgent{inputs: []*agentv1.GetSessionInputResponse{became("answered", "9")}, whole: map[string]*agentv1.GetSessionMessageResponse{"9": {Role: "tool", Text: "ok"}}}, viewBefore, 1, failedNoReply},
+		"the answer is an error too long for the view":                       {&fakeAgent{inputs: []*agentv1.GetSessionInputResponse{became("answered", "6")}, whole: map[string]*agentv1.GetSessionMessageResponse{"6": {Role: "assistant", Text: "all of it"}}}, cutErr, 1, "reply was an error: all of it"},
+		"the record says placed when the session comes to rest":              {&fakeAgent{inputs: []*agentv1.GetSessionInputResponse{became("placed"), became("answered", "4")}}, viewReplied, 0, "hi there"},
+		"the record still says placed after every look at a resting session": {&fakeAgent{inputs: []*agentv1.GetSessionInputResponse{became("placed")}}, viewReplied, 1, failedNoReply},
+		"the read by id fails on every try":                                  {&fakeAgent{inputs: []*agentv1.GetSessionInputResponse{became("answered", "6")}, wholeErrs: []error{down, down, down, down, down, down}}, cut, 0, "all\n[6 bytes truncated]"},
+		"the answer calls a tool":                                            {&fakeAgent{inputs: []*agentv1.GetSessionInputResponse{became("answered", "4")}}, step, 1, failedNoReply},
+		"the answer out of the view is not the agent's":                      {&fakeAgent{inputs: []*agentv1.GetSessionInputResponse{became("answered", "9")}, whole: map[string]*agentv1.GetSessionMessageResponse{"9": {Role: "tool", Text: "ok"}}}, viewBefore, 1, failedNoReply},
 	} {
 		t.Run(name, func(t *testing.T) {
 			tc.fake.frames = [][]*agentv1.WatchSessionResponse{{frame("idle", "c1", tc.view)}}
@@ -634,8 +635,8 @@ func TestWatchPrintsAReplyWhoseInputLeftTheView(t *testing.T) {
 				whole:  map[string]*agentv1.GetSessionMessageResponse{"2": {Role: "assistant", Text: "the reply"}},
 			})
 			out, _, err := runAgent(t, "watch", "das_1", "--after-input", "dai_1")
-			if err != nil || strings.Count(out, "the reply") != 1 {
-				t.Fatalf("err = %v, out = %q; want the reply printed once", err, out)
+			if err != nil || strings.Count(out, "the reply") != 1 || !strings.HasSuffix(strings.TrimSpace(out), "the reply\n[idle]") {
+				t.Fatalf("err = %v, out = %q; want the reply printed once, with the status after it", err, out)
 			}
 		})
 	}

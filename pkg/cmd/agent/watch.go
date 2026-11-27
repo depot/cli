@@ -341,28 +341,34 @@ func awaited(ctx context.Context, c *caller, sessionID, inputID, status string, 
 				shown = &view.Messages[i]
 			}
 		}
-		// The input left the view before the watch saw it, so nothing of its run was printed: print the reply.
-		if r.from != "" && shown != nil {
-			defer func() {
-				if reply != "" {
-					r.line("%s", strings.TrimSpace(reply))
-				}
-			}()
+		// Nothing is printed until the answer is known to be a reply. Late: the input left the view before the watch
+		// saw it, so nothing of its run was printed.
+		late := r.from != "" && shown != nil
+		cut := func() (bool, string, string, error) {
+			done, reply, failure, err = answer(shown.Role, len(shown.ToolCalls) > 0 && !shown.IsError, *shown)
+			if late && reply != "" {
+				r.Said(id, reply, true)
+			}
+			return done, reply, failure, err
 		}
 		// A reply the frame holds whole is already in the transcript and needs no read.
 		if shown != nil && shown.TruncatedBytes == 0 {
-			return answer(shown.Role, len(shown.ToolCalls) > 0 && !shown.IsError, *shown)
+			return cut()
 		}
 		text, err := r.Reply(id)
 		switch {
 		case err != nil && shown != nil:
 			// The read by id failed on every try; the frame's cut text is still the reply.
-			return answer(shown.Role, len(shown.ToolCalls) > 0 && !shown.IsError, *shown)
+			return cut()
 		case err != nil:
 			return false, "", "", &rpcError{"GetSessionMessage", fmt.Errorf("get message %s: %w", id, err)}
 		}
 		failed := shown != nil && shown.IsError
-		return answer(t.roles[id], shown != nil && len(shown.ToolCalls) > 0 && !failed, viewMessage{Text: text, IsError: failed})
+		done, reply, failure, err = answer(t.roles[id], shown != nil && len(shown.ToolCalls) > 0 && !failed, viewMessage{Text: text, IsError: failed})
+		if reply != "" {
+			r.Said(id, reply, late)
+		}
+		return done, reply, failure, err
 	case "unanswered":
 		switch resp.Msg.GetReason() {
 		case "aborted":
@@ -380,8 +386,12 @@ func awaited(ctx context.Context, c *caller, sessionID, inputID, status string, 
 	case "archived":
 		return true, "", "the session was archived", nil
 	case "idle", "waiting_input":
-		// A session at rest while the record still says its run holds the input: the two are written apart, so look again.
-		if looks > 0 && resp.Msg.GetOutcome() == "placed" {
+		// A session at rest while the record still says its run holds the input: the two are written apart, so look again,
+		// and count the run as ended without a reply when the record never settles.
+		if resp.Msg.GetOutcome() == "placed" {
+			if looks == 0 {
+				return true, "", failedNoReply, nil
+			}
 			select {
 			case <-ctx.Done():
 				return false, "", "", nil
