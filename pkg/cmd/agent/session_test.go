@@ -541,7 +541,7 @@ func TestWatchReadsTheWholeReplyBeforeAWaitThatEndsOnItsFrame(t *testing.T) {
 	}
 }
 
-// A watch on an input ends on what the API says became of it, whatever the view shows and whoever wrote since.
+// A watch on an input ends on what the API says became of it, whatever the view shows.
 func TestWatchEndsOnWhatTheAPISaysBecameOfTheInput(t *testing.T) {
 	later := strings.Replace(viewReplied, `], "tools"`, `, {"id": "5", "role": "user", "inputId": "dai_2", "text": "next"}, {"id": "6", "role": "assistant", "text": "later reply"}], "tools"`, 1)
 	hi := map[string]*agentv1.GetSessionMessageResponse{"4": {Role: "assistant", Text: "hi there"}, "9": {Role: "assistant", Text: "read by its id"}, "0": {Role: "assistant", Text: " "}}

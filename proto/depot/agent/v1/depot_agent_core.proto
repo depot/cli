@@ -231,18 +231,18 @@ message GetSessionInputRequest {
 }
 
 message GetSessionInputResponse {
-  // What became of the message. Can be "pending" (the agent has not read it), "placed" (the agent is working on a
-  // turn that holds it), "answered", "unanswered" (the turn ended and it will get no answer) or "withdrawn" (it was
-  // cancelled before the agent read it). "answered" and "unanswered" are final, except that an "unanswered" message
-  // of a failed session can be picked up again when the session next runs.
+  // What became of the message: "pending" (not yet read), "placed" (in a run that has not ended), "answered", "unanswered" or "withdrawn" (cancelled unread).
   string outcome = 1;
-  // Set when `outcome` is "answered": the last message of the turn that held this message. `GetSessionMessage`
-  // takes it. Messages that shared a turn share this answer.
+  // Set when `outcome` is "answered": the last message of the run that settled this one. `GetSessionMessage` takes it.
   optional string answer_message_id = 2;
   // Set when `outcome` is "unanswered": why. For example, "aborted" after a stop, or "model_error".
   optional string reason = 3;
   // Set when `outcome` is "unanswered" and the reason has more to say, such as the model's error. Maximum: 4 KiB.
   optional string detail = 4;
+  // Set when `outcome` is "answered": this message as the agent read it. `GetSessionMessage` takes it.
+  optional string message_id = 5;
+  // Set when `outcome` is "answered": the inputs this run settled together with this one.
+  repeated string shared_input_ids = 6;
 }
 
 message GetSessionMessageRequest {
