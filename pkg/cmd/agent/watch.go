@@ -388,7 +388,7 @@ func awaited(ctx context.Context, c *caller, sessionID, inputID, status string, 
 	case "idle", "waiting_input":
 		// A session at rest while the record still says its run holds the input: the two are written apart, so look again,
 		// and count the run as ended without a reply when the record never settles.
-		if resp.Msg.GetOutcome() == "placed" {
+		if resp.Msg.GetOutcome() == "placed" && !busy(view) {
 			if looks == 0 {
 				return true, "", failedNoReply, nil
 			}
@@ -397,10 +397,35 @@ func awaited(ctx context.Context, c *caller, sessionID, inputID, status string, 
 				return false, "", "", nil
 			case <-time.After(replyGrace):
 			}
+			again, err := c.client.GetSession(ctx, authed(c, &agentv1.GetSessionRequest{SessionId: sessionID}))
+			if err != nil {
+				return false, "", "", &rpcError{"GetSession", fmt.Errorf("get session %s: %w", sessionID, err)}
+			}
+			if view, err = r.Render(again.Msg.GetSession(), again.Msg.GetViewJson()); err != nil || ctx.Err() != nil {
+				return false, "", "", err
+			}
+			// A session that has gone back to work is left to its later frames.
+			if status = again.Msg.GetSession().GetStatus(); status == "running" || status == "" {
+				return false, "", "", nil
+			}
 			return awaited(ctx, c, sessionID, inputID, status, view, r, t, looks-1)
 		}
 	}
 	return false, "", "", nil
+}
+
+// busy reports whether the view shows work under way, whatever the status says: a reply being written, a model call
+// to be tried again, or a tool still running.
+func busy(view *agentView) bool {
+	if view == nil {
+		return false
+	}
+	for _, tool := range view.Tools {
+		if tool.Status != "done" {
+			return true
+		}
+	}
+	return view.Partial != "" || view.Retry != nil
 }
 
 // answer is the wait's end for the message the API names as the answer. Only what the agent itself said last counts
