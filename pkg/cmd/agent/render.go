@@ -299,7 +299,7 @@ func (r *Renderer) Reply(id string) (string, error) {
 
 // Said prints a reply the transcript has not shown whole: its turn outgrew the view, its read failed, or (late) its
 // input left the view. The status line the frame already printed is repeated, so it still closes the turn.
-func (r *Renderer) Said(id, text string, late bool) {
+func (r *Renderer) Said(id, text string, late bool) error {
 	switch {
 	case r.once("message:" + id):
 		r.finishPartial(text)
@@ -310,11 +310,15 @@ func (r *Renderer) Said(id, text string, late bool) {
 	case late:
 		r.line("%s", strings.TrimSpace(text))
 	default:
-		return
+		return nil
 	}
 	if r.lastStatus != "" {
 		r.line("[%s]", r.lastStatus)
 	}
+	if r.w.err != nil {
+		return fmt.Errorf("write transcript: %w", r.w.err)
+	}
+	return nil
 }
 
 // From starts the transcript at the message of this input, leaving out the session's earlier turns.

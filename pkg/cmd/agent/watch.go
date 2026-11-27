@@ -351,7 +351,7 @@ func awaited(ctx context.Context, c *caller, sessionID, inputID, status string, 
 		cut := func() (bool, string, string, error) {
 			done, reply, failure, err = answer(shown.Role, len(shown.ToolCalls) > 0 && !shown.IsError, *shown)
 			if late && reply != "" {
-				r.Said(id, reply, true)
+				err = r.Said(id, reply, true)
 			}
 			return done, reply, failure, err
 		}
@@ -370,7 +370,7 @@ func awaited(ctx context.Context, c *caller, sessionID, inputID, status string, 
 		failed := shown != nil && shown.IsError
 		done, reply, failure, err = answer(t.roles[id], shown != nil && len(shown.ToolCalls) > 0 && !failed, viewMessage{Text: text, IsError: failed})
 		if reply != "" {
-			r.Said(id, reply, late)
+			err = r.Said(id, reply, late)
 		}
 		return done, reply, failure, err
 	case "unanswered":

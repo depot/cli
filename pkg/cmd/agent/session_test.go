@@ -645,6 +645,16 @@ func TestWatchPrintsAReplyWhoseInputLeftTheView(t *testing.T) {
 	}
 }
 
+type brokenWriter struct{}
+
+func (brokenWriter) Write([]byte) (int, error) { return 0, errors.New("pipe closed") }
+
+func TestSaidReturnsAFailedWrite(t *testing.T) {
+	if err := NewRenderer(brokenWriter{}).Said("9", "the reply", false); err == nil || !strings.Contains(err.Error(), "pipe closed") {
+		t.Fatalf("err = %v, want the failed write", err)
+	}
+}
+
 func TestWatchUntilIdleExitCodes(t *testing.T) {
 	replyGrace = 10 * time.Millisecond
 	t.Cleanup(func() { replyGrace = 10 * time.Second })
