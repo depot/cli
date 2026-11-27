@@ -589,6 +589,7 @@ func TestWatchChecksTheAnswerTheAPINames(t *testing.T) {
 	t.Cleanup(func() { retryDelay, replyGrace = time.Second, 10*time.Second })
 	cut := `{"messages": [{"id": "3", "role": "user", "inputId": "dai_1", "text": "hello"}, {"id": "6", "role": "assistant", "text": "all\n[6 bytes truncated]", "truncatedBytes": 6}], "tools": []}`
 	step := `{"messages": [{"id": "3", "role": "user", "inputId": "dai_1", "text": "hello"}, {"id": "4", "role": "assistant", "text": "Let me look.", "toolCalls": [{"callId": "t", "name": "bash"}]}], "tools": []}`
+	cutErr := strings.Replace(cut, `"truncatedBytes": 6`, `"truncatedBytes": 6, "isError": true`, 1)
 	down := connect.NewError(connect.CodeUnavailable, errors.New("try again"))
 	for name, tc := range map[string]struct {
 		fake *fakeAgent
@@ -596,6 +597,7 @@ func TestWatchChecksTheAnswerTheAPINames(t *testing.T) {
 		code int
 		want string
 	}{
+		"the answer is an error too long for the view":          {&fakeAgent{inputs: []*agentv1.GetSessionInputResponse{became("answered", "6")}, whole: map[string]*agentv1.GetSessionMessageResponse{"6": {Role: "assistant", Text: "all of it"}}}, cutErr, 1, "reply was an error: all of it"},
 		"the record says placed when the session comes to rest": {&fakeAgent{inputs: []*agentv1.GetSessionInputResponse{became("placed"), became("answered", "4")}}, viewReplied, 0, "hi there"},
 		"the read by id fails on every try":                     {&fakeAgent{inputs: []*agentv1.GetSessionInputResponse{became("answered", "6")}, wholeErrs: []error{down, down, down, down, down, down}}, cut, 0, "all\n[6 bytes truncated]"},
 		"the answer calls a tool":                               {&fakeAgent{inputs: []*agentv1.GetSessionInputResponse{became("answered", "4")}}, step, 1, failedNoReply},

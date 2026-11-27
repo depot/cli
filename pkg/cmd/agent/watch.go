@@ -254,7 +254,11 @@ func watchOnce(ctx context.Context, c *caller, sessionID string, r *Renderer, o 
 		var reply, failure string
 		if o.afterInput != "" {
 			// A frame that only streams more of a reply cannot change what became of the input.
-			if at := status + ":" + newestID(view); at != t.asked {
+			queued := 0
+			if view != nil {
+				queued = view.QueuedCount
+			}
+			if at := fmt.Sprintf("%s:%s:%d", status, newestID(view), queued); at != t.asked {
 				if done, reply, failure, err = awaited(ctx, c, sessionID, o.afterInput, status, view, r, t, true); err != nil {
 					return false, err
 				}
@@ -346,7 +350,8 @@ func awaited(ctx context.Context, c *caller, sessionID, inputID, status string, 
 		case err != nil:
 			return false, "", "", &rpcError{"GetSessionMessage", fmt.Errorf("get message %s: %w", id, err)}
 		}
-		return answer(t.roles[id], shown != nil && len(shown.ToolCalls) > 0, viewMessage{Text: text})
+		failed := shown != nil && shown.IsError
+		return answer(t.roles[id], shown != nil && len(shown.ToolCalls) > 0 && !failed, viewMessage{Text: text, IsError: failed})
 	case "unanswered":
 		switch resp.Msg.GetReason() {
 		case "aborted":
