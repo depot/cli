@@ -259,13 +259,16 @@ func watchOnce(ctx context.Context, c *caller, sessionID string, r *Renderer, o 
 				queued = view.QueuedCount
 			}
 			if at := fmt.Sprintf("%s:%s:%d", status, newestID(view), queued); at != t.asked {
-				if done, reply, failure, err = awaited(ctx, c, sessionID, o.afterInput, status, view, r, t, true); err != nil {
+				if done, reply, failure, err = awaited(ctx, c, sessionID, o.afterInput, status, view, r, t, restLooks); err != nil {
 					return false, err
 				}
 				if ctx.Err() != nil {
 					return false, nil
 				}
-				t.asked = at
+				// At rest with the input still open, the next frame asks again whatever it shows.
+				if done || (status != "idle" && status != "waiting_input") {
+					t.asked = at
+				}
 			}
 		} else {
 			done, reply, failure = t.settled(status, view)
@@ -324,7 +327,7 @@ func (e *rpcError) Unwrap() error { return e.err }
 
 // awaited asks the API what became of the input being waited for. The API reads its answer off what the session
 // stored, so nothing here is worked out from the messages around it.
-func awaited(ctx context.Context, c *caller, sessionID, inputID, status string, view *agentView, r *Renderer, t *turn, look bool) (done bool, reply, failure string, err error) {
+func awaited(ctx context.Context, c *caller, sessionID, inputID, status string, view *agentView, r *Renderer, t *turn, looks int) (done bool, reply, failure string, err error) {
 	resp, err := c.client.GetSessionInput(ctx, authed(c, &agentv1.GetSessionInputRequest{SessionId: sessionID, InputId: inputID}))
 	if err != nil {
 		return false, "", "", &rpcError{"GetSessionInput", fmt.Errorf("get input %s: %w", inputID, err)}
@@ -340,6 +343,10 @@ func awaited(ctx context.Context, c *caller, sessionID, inputID, status string, 
 		}
 		// A reply the frame holds whole is already in the transcript and needs no read.
 		if shown != nil && shown.TruncatedBytes == 0 {
+			// The input left the view before the watch saw it, so nothing of its run was printed.
+			if r.from != "" && !shown.IsError {
+				r.line("%s", strings.TrimSpace(shown.Text))
+			}
 			return answer(shown.Role, len(shown.ToolCalls) > 0 && !shown.IsError, *shown)
 		}
 		text, err := r.Reply(id)
@@ -369,14 +376,14 @@ func awaited(ctx context.Context, c *caller, sessionID, inputID, status string, 
 	case "archived":
 		return true, "", "the session was archived", nil
 	case "idle", "waiting_input":
-		// A session at rest while the record still says its run holds the input: the two are written apart, so look once more.
-		if look && resp.Msg.GetOutcome() == "placed" {
+		// A session at rest while the record still says its run holds the input: the two are written apart, so look again.
+		if looks > 0 && resp.Msg.GetOutcome() == "placed" {
 			select {
 			case <-ctx.Done():
 				return false, "", "", nil
 			case <-time.After(replyGrace):
 			}
-			return awaited(ctx, c, sessionID, inputID, status, view, r, t, false)
+			return awaited(ctx, c, sessionID, inputID, status, view, r, t, looks-1)
 		}
 	}
 	return false, "", "", nil
@@ -411,6 +418,9 @@ func newestID(view *agentView) string {
 	}
 	return ""
 }
+
+// restLooks is how many more times a watch reads an input that a session at rest still holds.
+const restLooks = 3
 
 const failedNoReply = "the turn ended without a reply"
 
