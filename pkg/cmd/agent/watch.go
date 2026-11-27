@@ -341,12 +341,16 @@ func awaited(ctx context.Context, c *caller, sessionID, inputID, status string, 
 				shown = &view.Messages[i]
 			}
 		}
+		// The input left the view before the watch saw it, so nothing of its run was printed: print the reply.
+		if r.from != "" && shown != nil {
+			defer func() {
+				if reply != "" {
+					r.line("%s", strings.TrimSpace(reply))
+				}
+			}()
+		}
 		// A reply the frame holds whole is already in the transcript and needs no read.
 		if shown != nil && shown.TruncatedBytes == 0 {
-			// The input left the view before the watch saw it, so nothing of its run was printed.
-			if r.from != "" && !shown.IsError {
-				r.line("%s", strings.TrimSpace(shown.Text))
-			}
 			return answer(shown.Role, len(shown.ToolCalls) > 0 && !shown.IsError, *shown)
 		}
 		text, err := r.Reply(id)

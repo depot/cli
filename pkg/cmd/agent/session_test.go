@@ -620,6 +620,27 @@ func TestWatchChecksTheAnswerTheAPINames(t *testing.T) {
 	}
 }
 
+// The transcript is all a text watch prints, so a reply whose input has left the view is still printed.
+func TestWatchPrintsAReplyWhoseInputLeftTheView(t *testing.T) {
+	retryDelay = time.Millisecond
+	t.Cleanup(func() { retryDelay = time.Second })
+	whole := `{"messages": [{"id": "2", "role": "assistant", "text": "the reply"}], "tools": []}`
+	cut := `{"messages": [{"id": "2", "role": "assistant", "text": "the\n[6 bytes truncated]", "truncatedBytes": 6}], "tools": []}`
+	for name, view := range map[string]string{"whole in the frame": whole, "cut in the frame": cut} {
+		t.Run(name, func(t *testing.T) {
+			serveAgent(t, &fakeAgent{
+				frames: [][]*agentv1.WatchSessionResponse{{frame("idle", "c1", view)}},
+				inputs: []*agentv1.GetSessionInputResponse{became("answered", "2")},
+				whole:  map[string]*agentv1.GetSessionMessageResponse{"2": {Role: "assistant", Text: "the reply"}},
+			})
+			out, _, err := runAgent(t, "watch", "das_1", "--after-input", "dai_1")
+			if err != nil || strings.Count(out, "the reply") != 1 {
+				t.Fatalf("err = %v, out = %q; want the reply printed once", err, out)
+			}
+		})
+	}
+}
+
 func TestWatchUntilIdleExitCodes(t *testing.T) {
 	replyGrace = 10 * time.Millisecond
 	t.Cleanup(func() { replyGrace = 10 * time.Second })
