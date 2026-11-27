@@ -265,6 +265,9 @@ func watchOnce(ctx context.Context, c *caller, sessionID string, r *Renderer, o 
 				if ctx.Err() != nil {
 					return false, nil
 				}
+				if t.status != "" {
+					result.Status, t.status = t.status, ""
+				}
 				// At rest with the input still open, the next frame asks again whatever it shows.
 				if done || (status != "idle" && status != "waiting_input") {
 					t.asked = at
@@ -405,7 +408,8 @@ func awaited(ctx context.Context, c *caller, sessionID, inputID, status string, 
 				return false, "", "", err
 			}
 			// A session that has gone back to work is left to its later frames.
-			if status = again.Msg.GetSession().GetStatus(); status == "running" || status == "" {
+			status = again.Msg.GetSession().GetStatus()
+			if t.status = status; status == "running" || status == "" {
 				return false, "", "", nil
 			}
 			return awaited(ctx, c, sessionID, inputID, status, view, r, t, looks-1)
@@ -447,6 +451,8 @@ type turn struct {
 	said string
 	// asked is the status and newest message of the last frame the API was asked about the awaited input for.
 	asked string
+	// status is what an extra look read the session's status as, for the watch to report.
+	status string
 	// roles is who wrote each message read by its id.
 	roles map[string]string
 }
