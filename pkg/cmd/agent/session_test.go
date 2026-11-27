@@ -5,12 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
-	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -49,6 +47,11 @@ type fakeAgent struct {
 	wholeAsked []string
 	// wholeHangs holds that many whole-message reads open until their caller gives up.
 	wholeHangs int
+	// inputs are what the API says became of the awaited input, one per read; the last one stays.
+	inputs   []*agentv1.GetSessionInputResponse
+	inputErr error
+	// byWatch serves inputs by how many watch calls there have been, however many frames each one got through.
+	byWatch bool
 	// afterFrames runs once a watch call has sent its frames.
 	afterFrames func(call int)
 	mu          sync.Mutex
@@ -77,6 +80,39 @@ func (f *fakeAgent) GetSessionMessage(ctx context.Context, req *connect.Request[
 		return connect.NewResponse(msg), nil
 	}
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("unimplemented"))
+}
+
+func (f *fakeAgent) GetSessionInput(context.Context, *connect.Request[agentv1.GetSessionInputRequest]) (*connect.Response[agentv1.GetSessionInputResponse], error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.inputErr != nil {
+		return nil, f.inputErr
+	}
+	if len(f.inputs) == 0 {
+		return nil, connect.NewError(connect.CodeUnimplemented, errors.New("unimplemented"))
+	}
+	first := f.inputs[0]
+	if f.byWatch {
+		first = f.inputs[max(min(len(f.watches), len(f.inputs)), 1)-1]
+	} else if len(f.inputs) > 1 {
+		f.inputs = f.inputs[1:]
+	}
+	return connect.NewResponse(first), nil
+}
+
+// became is what the API says of an input: its outcome, then the answer's message id or the reason and its detail.
+func became(outcome string, more ...string) *agentv1.GetSessionInputResponse {
+	resp := &agentv1.GetSessionInputResponse{Outcome: outcome}
+	switch {
+	case outcome == "answered":
+		resp.AnswerMessageId = &more[0]
+	case len(more) > 0:
+		resp.Reason = &more[0]
+		if len(more) > 1 {
+			resp.Detail = &more[1]
+		}
+	}
+	return resp
 }
 
 func (f *fakeAgent) watchCount() int {
@@ -235,160 +271,6 @@ const (
 const viewLater = `{"messages": [{"id": "3", "role": "user", "inputId": "dai_1", "text": "hello"}, {"id": "4", "role": "assistant", "text": "hi there"},
 	{"id": "5", "role": "user", "inputId": "dai_2", "text": "next"}]}`
 
-// A long turn pushes its input out of the bounded view. The turn is then followed by the messages already seen in it.
-func TestTurnOutOfACutView(t *testing.T) {
-	settle := func(waiting *turn, status, messages string) (bool, string, string) {
-		t.Helper()
-		var view agentView
-		if err := json.Unmarshal([]byte(`{"messages": [`+messages+`], "truncated": true}`), &view); err != nil {
-			t.Fatal(err)
-		}
-		return waiting.settled(status, &view)
-	}
-	const (
-		asked = `{"id": "3", "role": "user", "inputId": "dai_1", "text": "hello"}`
-		step  = `{"id": "4", "role": "assistant", "text": "Looking.", "toolCalls": [{"callId": "t"}]}, {"id": "5", "role": "tool", "callId": "t", "text": "ok"}`
-		reply = `{"id": "9", "role": "assistant", "text": "done"}`
-	)
-	waiting := &turn{afterInput: "dai_1"}
-	settle(waiting, "running", reply)
-	if done, _, _ := settle(waiting, "idle", reply); done {
-		t.Fatal("another turn's reply settled an input that was never seen")
-	}
-	settle(waiting, "running", asked+","+step)
-	if done, got, failure := settle(waiting, "idle", step+","+reply); !done || got != "done" || failure != "" {
-		t.Fatalf("settled = %v, %q, %q after the input left the view", done, got, failure)
-	}
-
-	// A view that shares nothing with what was seen may have dropped a later input along with this one.
-	lost := &turn{afterInput: "dai_1"}
-	settle(lost, "running", asked+","+step)
-	if done, got, failure := settle(lost, "idle", reply); done || lost.doubt != failedLost {
-		t.Fatalf("settled = %v, %q, %q with doubt %q on a view that no longer connects to the turn", done, got, failure, lost.doubt)
-	}
-}
-
-// Every reading of a view that shows nothing of the awaited turn, by what the wait knew and what the session is doing.
-func TestTurnWithNothingOfItInTheView(t *testing.T) {
-	seq := func(n int64) *int64 { return &n }
-	const (
-		work  = `{"id": "40", "seq": 40, "role": "tool", "text": "ok"}, {"id": "41", "seq": 41, "role": "assistant", "text": "done"}`
-		input = `{"id": "39", "seq": 39, "role": "user", "text": "next"}, ` + work
-		// A subagent's report belongs to the turn that started it, so it is not a later input.
-		report = `{"id": "39", "seq": 39, "role": "user", "sender": {"kind": "subagent", "name": "scout"}, "text": "Installed."}, ` + work
-	)
-	followed := func() *turn { return &turn{afterInput: "dai_1", last: "9", lastSeq: 9} }
-	passed := func() *turn { return &turn{afterInput: "dai_1", base: seq(9)} }
-	framed := func() *turn { return &turn{afterInput: "dai_1", base: seq(41), framed: true} }
-	shown := func() *turn { return &turn{afterInput: "dai_1", base: seq(41)} }
-	for _, tc := range []struct {
-		name             string
-		turn             func() *turn
-		status, messages string
-		queued           int
-		failure, doubt   string
-	}{
-		{"followed, still running", followed, "running", work, 0, "", ""},
-		{"followed, starting", followed, "starting", work, 0, "", ""},
-		{"followed, idle", followed, "idle", work, 0, "", failedLost},
-		{"followed, waiting for input", followed, "waiting_input", work, 0, "", failedLost},
-		{"followed, idle with an input queued", followed, "idle", work, 1, "", ""},
-		{"followed, a later input running", followed, "running", input, 0, failedLost, ""},
-		{"followed, a later input answered", followed, "idle", input, 0, failedLost, ""},
-		{"followed, a subagent report running", followed, "running", report, 0, "", ""},
-		{"followed, a subagent report idle", followed, "idle", report, 0, "", failedLost},
-		{"followed, session failed", followed, "failed", work, 0, "the session failed", ""},
-		{"followed, session archived", followed, "archived", work, 0, "the session was archived", ""},
-		{"never seen and passed, running", passed, "running", work, 0, "", ""},
-		{"never seen and passed, idle", passed, "idle", work, 0, "", failedLost},
-		{"never seen and passed, another input shows", passed, "running", input, 0, "", ""},
-		{"never seen and passed, idle with an input queued", passed, "idle", work, 1, "", ""},
-		{"never seen, base from a frame, idle", framed, "idle", work, 0, "", failedUnseen},
-		{"never seen, base from a frame, running", framed, "running", work, 0, "", ""},
-		{"never seen, base from the caller, idle", shown, "idle", work, 0, "", ""},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			var view agentView
-			raw := fmt.Sprintf(`{"messages": [%s], "truncated": true, "queuedCount": %d}`, tc.messages, tc.queued)
-			if err := json.Unmarshal([]byte(raw), &view); err != nil {
-				t.Fatal(err)
-			}
-			waiting := tc.turn()
-			done, reply, failure := waiting.settled(tc.status, &view)
-			if done != (tc.failure != "") || reply != "" || failure != tc.failure || waiting.doubt != tc.doubt {
-				t.Fatalf("settled = %v, %q, %q with doubt %q; want failure %q, doubt %q", done, reply, failure, waiting.doubt, tc.failure, tc.doubt)
-			}
-		})
-	}
-}
-
-// Whatever the agent says after a later input answers that input, even when the awaited one never got a reply.
-func TestTurnDoesNotTakeALaterInputsReply(t *testing.T) {
-	const (
-		asked   = `{"id": "3", "role": "user", "inputId": "dai_1", "text": "hello"}`
-		working = `{"id": "4", "role": "assistant", "text": "Looking.", "toolCalls": [{"callId": "t"}]}, {"id": "5", "role": "tool", "callId": "t", "isError": true, "text": "interrupted"}`
-		later   = `{"id": "6", "role": "user", "inputId": "dai_2", "text": "next"}`
-		reply   = `{"id": "7", "role": "assistant", "text": "later reply"}`
-		want    = "another input followed before the agent replied"
-	)
-	for name, tc := range map[string]struct {
-		status, view, last string
-	}{
-		"the later input has its reply":    {"idle", asked + "," + working + "," + later + "," + reply, ""},
-		"the later input is running":       {"running", asked + "," + working + "," + later, ""},
-		"the later input directly follows": {"idle", asked + "," + later + "," + reply, ""},
-		"the session failed on the later":  {"failed", asked + "," + working + "," + later + "," + reply, ""},
-		"the input has left the cut view":  {"idle", `{"id": "5", "role": "tool", "callId": "t", "text": "interrupted"},` + later + "," + reply, "5"},
-	} {
-		t.Run(name, func(t *testing.T) {
-			var view agentView
-			if err := json.Unmarshal([]byte(`{"messages": [`+tc.view+`], "truncated": `+strconv.FormatBool(tc.last != "")+`}`), &view); err != nil {
-				t.Fatal(err)
-			}
-			done, reply, failure := (&turn{afterInput: "dai_1", last: tc.last}).settled(tc.status, &view)
-			if !done || reply != "" || failure != want {
-				t.Fatalf("settled = %v, %q, %q; want a failure saying %q", done, reply, failure, want)
-			}
-		})
-	}
-	var cut agentView
-	if err := json.Unmarshal([]byte(`{"messages": [{"id": "4", "role": "assistant", "text": "hi there"},`+later+","+reply+`], "truncated": true}`), &cut); err != nil {
-		t.Fatal(err)
-	}
-	if done, got, failure := (&turn{afterInput: "dai_1", last: "4"}).settled("idle", &cut); !done || got != "hi there" || failure != "" {
-		t.Fatalf("settled = %v, %q, %q; want the reply left above the later input", done, got, failure)
-	}
-}
-
-func TestTurnKeepsWaitingPastASubagentReport(t *testing.T) {
-	const (
-		asked  = `{"id": "3", "role": "user", "inputId": "dai_1", "text": "hello"}`
-		work   = `{"id": "4", "role": "assistant", "text": "Looking.", "toolCalls": [{"callId": "t"}]}, {"id": "5", "role": "tool", "callId": "t", "text": "started"}`
-		report = `{"id": "6", "role": "user", "sender": {"kind": "subagent", "name": "scout"}, "text": "Installed."}`
-		reply  = `{"id": "7", "role": "assistant", "text": "All done."}`
-	)
-	for name, tc := range map[string]struct {
-		status, view, want string
-		done               bool
-	}{
-		"still working after the report": {"running", asked + "," + work + "," + report, "", false},
-		"replied after the report":       {"idle", asked + "," + work + "," + report + "," + reply, "All done.", true},
-		"report after the reply":         {"idle", asked + "," + reply + "," + report, "All done.", true},
-		"report, then another input":     {"running", asked + "," + reply + "," + report + `, {"id": "8", "role": "user", "inputId": "dai_2", "text": "next"}`, "All done.", true},
-	} {
-		t.Run(name, func(t *testing.T) {
-			var view agentView
-			if err := json.Unmarshal([]byte(`{"messages": [`+tc.view+`]}`), &view); err != nil {
-				t.Fatal(err)
-			}
-			done, got, failure := (&turn{afterInput: "dai_1"}).settled(tc.status, &view)
-			if done != tc.done || got != tc.want || failure != "" {
-				t.Fatalf("settled = %v, %q, %q; want %v, %q and no failure", done, got, failure, tc.done, tc.want)
-			}
-		})
-	}
-}
-
 func TestWatchJSONNeedsAWaitToReport(t *testing.T) {
 	f := &fakeAgent{}
 	serveAgent(t, f)
@@ -424,10 +306,11 @@ func TestCreateSendsTheMessageAndPrintsTheSession(t *testing.T) {
 }
 
 func TestCreateWatchWaitsForTheReplyAcrossReconnects(t *testing.T) {
+	asked, said := []*agentv1.GetSessionInputResponse{became("pending"), became("answered", "4")}, map[string]*agentv1.GetSessionMessageResponse{"4": {Role: "assistant", Text: "hi there"}}
 	f := &fakeAgent{frames: [][]*agentv1.WatchSessionResponse{
 		{frame("idle", "c1", viewBefore), frame("running", "c2", viewAsked)},
 		{frame("idle", "c3", viewReplied)},
-	}}
+	}, inputs: asked, byWatch: true, whole: said}
 	serveAgent(t, f)
 	out, errOut, err := runAgent(t, "create", "hello", "--watch", "-o", "json")
 	if err != nil {
@@ -457,6 +340,7 @@ func TestWatchReconnectsAfterAGoAway(t *testing.T) {
 		{frame("idle", "c3", viewReplied)},
 	}
 	accepted := serveAgent(t, &fakeAgent{holdWatch: true, frames: frames})
+	asked, said := []*agentv1.GetSessionInputResponse{became("pending"), became("answered", "4")}, map[string]*agentv1.GetSessionMessageResponse{"4": {Role: "assistant", Text: "hi there"}}
 
 	// What the client makes of it is the error the watch has to count as worth another try.
 	stream, err := newCaller("tok", "org-1").client.WatchSession(context.Background(), connect.NewRequest(&agentv1.WatchSessionRequest{SessionId: "das_1"}))
@@ -473,7 +357,7 @@ func TestWatchReconnectsAfterAGoAway(t *testing.T) {
 	}
 	_ = stream.Close()
 
-	f := &fakeAgent{holdWatch: true, frames: frames}
+	f := &fakeAgent{holdWatch: true, frames: frames, inputs: asked, byWatch: true, whole: said}
 	f.afterFrames = func(call int) {
 		if call == 0 {
 			accepted.goAway(t)
@@ -513,6 +397,7 @@ func TestWatchReadsTheWholeOfALongReply(t *testing.T) {
 		t.Helper()
 		// The second frame is the same view again: a reply already read is not read twice.
 		f.frames = [][]*agentv1.WatchSessionResponse{{frame("running", "c1", cut), frame("idle", "c2", cut)}}
+		f.inputs = []*agentv1.GetSessionInputResponse{became("placed"), became("answered", "6")}
 		serveAgent(t, f)
 		out, errOut, err := runAgent(t, "create", "hello", "--watch", "-o", "json")
 		if err != nil {
@@ -555,15 +440,6 @@ func TestWatchReadsTheWholeOfALongReply(t *testing.T) {
 		f := &fakeAgent{whole: map[string]*agentv1.GetSessionMessageResponse{"6": {Role: "assistant", Text: long, TruncatedBytes: 7}}}
 		if result, _ := run(t, f); result.Reply != long+"\n[7 bytes truncated]" {
 			t.Fatalf("reply ends %q, want the note that it is still cut", result.Reply[len(result.Reply)-40:])
-		}
-	})
-	t.Run("an API without the read", func(t *testing.T) {
-		result, transcript := run(t, &fakeAgent{})
-		if result.Outcome != outcomeSettled || result.Reply != "all of it. all\n[10986 bytes truncated]" {
-			t.Fatalf("unexpected result %+v, want the cut reply", result)
-		}
-		if !strings.Contains(transcript, "(the rest of this reply could not be read: ") {
-			t.Fatalf("transcript does not say the reply is cut short:\n%s", transcript)
 		}
 	})
 }
@@ -616,7 +492,7 @@ func TestRendererReadsAReplyAgainWithoutRestartingTheNextTurnsStream(t *testing.
 func TestWatchTimesOutWhenTheWholeReplyReadOutlastsTheWait(t *testing.T) {
 	const cut = `{"messages": [{"id": "3", "seq": 3, "role": "user", "inputId": "dai_1", "text": "hello"},
 		{"id": "6", "seq": 6, "role": "assistant", "text": "all\n[6 bytes truncated]", "truncatedBytes": 6}], "tools": []}`
-	f := &fakeAgent{wholeHangs: 100, frames: [][]*agentv1.WatchSessionResponse{{frame("idle", "c1", cut)}}}
+	f := &fakeAgent{wholeHangs: 100, frames: [][]*agentv1.WatchSessionResponse{{frame("idle", "c1", cut)}}, inputs: []*agentv1.GetSessionInputResponse{became("answered", "6")}}
 	serveAgent(t, f)
 	out, _, err := runAgent(t, "watch", "das_1", "--after-input", "dai_1", "--timeout", "200ms", "-o", "json")
 	var status cli.StatusError
@@ -648,6 +524,10 @@ func TestWatchReadsTheWholeReplyBeforeAWaitThatEndsOnItsFrame(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			f.whole = map[string]*agentv1.GetSessionMessageResponse{"6": {Role: "assistant", Text: "all of it"}, "2": {Role: "assistant", Text: "earlier, whole"}, "8": {Role: "assistant", Text: "the next turn's"}}
 			most := len(f.wholeErrs) + 2
+			f.inputs = []*agentv1.GetSessionInputResponse{became("answered", "6")}
+			if len(f.frames[0]) > 1 {
+				f.inputs = []*agentv1.GetSessionInputResponse{became("pending"), became("pending"), became("answered", "6")}
+			}
 			serveAgent(t, f)
 			out, errOut, err := runAgent(t, "watch", "das_1", "--after-input", "dai_1", "--until-idle", "-o", "json")
 			if err != nil || !strings.Contains(out, `"reply": "all of it"`) {
@@ -661,7 +541,107 @@ func TestWatchReadsTheWholeReplyBeforeAWaitThatEndsOnItsFrame(t *testing.T) {
 	}
 }
 
-func TestWatchExitCodes(t *testing.T) {
+// A watch on an input ends on what the API says became of it, whatever the view shows.
+func TestWatchEndsOnWhatTheAPISaysBecameOfTheInput(t *testing.T) {
+	later := strings.Replace(viewReplied, `], "tools"`, `, {"id": "5", "role": "user", "inputId": "dai_2", "text": "next"}, {"id": "6", "role": "assistant", "text": "later reply"}], "tools"`, 1)
+	hi := map[string]*agentv1.GetSessionMessageResponse{"4": {Role: "assistant", Text: "hi there"}, "9": {Role: "assistant", Text: "read by its id"}, "0": {Role: "assistant", Text: " "}}
+	for name, tc := range map[string]struct {
+		status, view string
+		input        *agentv1.GetSessionInputResponse
+		code         int
+		want         string
+	}{
+		"answered":                              {"idle", viewReplied, became("answered", "4"), 0, "hi there"},
+		"answered, a later turn has replied":    {"idle", later, became("answered", "4"), 0, "hi there"},
+		"answered, a later turn is running":     {"running", viewLater, became("answered", "4"), 0, "hi there"},
+		"answered, then the session failed":     {"failed", viewReplied, became("answered", "4"), 0, "hi there"},
+		"answered, the reply out of the view":   {"idle", viewBefore, became("answered", "9"), 0, "read by its id"},
+		"an empty reply":                        {"idle", viewReplied, became("answered", "0"), 1, "the agent's reply was empty"},
+		"stopped":                               {"idle", viewAsked, became("unanswered", "aborted"), 1, "the turn was stopped before the agent replied"},
+		"model error":                           {"idle", viewAsked, became("unanswered", "model_error", "overloaded"), 1, "the agent's reply was an error: overloaded"},
+		"no answer for another reason":          {"idle", viewAsked, became("unanswered", "reset"), 1, "the turn ended without a reply: reset"},
+		"cancelled unread":                      {"archived", viewBefore, became("withdrawn"), 1, "the input was cancelled before the agent took it"},
+		"placed in a session that failed":       {"failed", viewAsked, became("placed"), 1, "the session failed"},
+		"pending in a session that is archived": {"archived", viewBefore, became("pending"), 1, "the session was archived"},
+		"pending while the session is idle":     {"idle", viewBefore, became("pending"), 2, "Timed out after 200ms"},
+		"placed, a later message in the view":   {"running", later, became("placed"), 2, "Timed out after 200ms"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := &fakeAgent{holdWatch: true, frames: [][]*agentv1.WatchSessionResponse{{frame(tc.status, "c1", tc.view)}}, inputs: []*agentv1.GetSessionInputResponse{tc.input}, whole: hi}
+			serveAgent(t, f)
+			out, _, err := runAgent(t, "watch", "das_1", "--after-input", "dai_1", "--timeout", "200ms", "-o", "json")
+			var status cli.StatusError
+			if tc.code == 0 {
+				var result watchResult
+				if err != nil || json.Unmarshal([]byte(out), &result) != nil || result.Outcome != outcomeSettled || result.Reply != tc.want {
+					t.Fatalf("err = %v, out = %s; want the reply %q", err, out, tc.want)
+				}
+			} else if !errors.As(err, &status) || status.StatusCode != tc.code || !strings.Contains(status.Status, tc.want) {
+				t.Fatalf("err = %#v, want exit %d with %q", err, tc.code, tc.want)
+			}
+		})
+	}
+}
+
+// The API's answer is taken as the reply only when it is something the agent said, and a read that fails does not lose it.
+func TestWatchChecksTheAnswerTheAPINames(t *testing.T) {
+	retryDelay, replyGrace = time.Millisecond, 10*time.Millisecond
+	t.Cleanup(func() { retryDelay, replyGrace = time.Second, 10*time.Second })
+	cut := `{"messages": [{"id": "3", "role": "user", "inputId": "dai_1", "text": "hello"}, {"id": "6", "role": "assistant", "text": "all\n[6 bytes truncated]", "truncatedBytes": 6}], "tools": []}`
+	step := `{"messages": [{"id": "3", "role": "user", "inputId": "dai_1", "text": "hello"}, {"id": "4", "role": "assistant", "text": "Let me look.", "toolCalls": [{"callId": "t", "name": "bash"}]}], "tools": []}`
+	cutErr := strings.Replace(cut, `"truncatedBytes": 6`, `"truncatedBytes": 6, "isError": true`, 1)
+	down := connect.NewError(connect.CodeUnavailable, errors.New("try again"))
+	for name, tc := range map[string]struct {
+		fake *fakeAgent
+		view string
+		code int
+		want string
+	}{
+		"the answer is an error too long for the view":          {&fakeAgent{inputs: []*agentv1.GetSessionInputResponse{became("answered", "6")}, whole: map[string]*agentv1.GetSessionMessageResponse{"6": {Role: "assistant", Text: "all of it"}}}, cutErr, 1, "reply was an error: all of it"},
+		"the record says placed when the session comes to rest": {&fakeAgent{inputs: []*agentv1.GetSessionInputResponse{became("placed"), became("answered", "4")}}, viewReplied, 0, "hi there"},
+		"the read by id fails on every try":                     {&fakeAgent{inputs: []*agentv1.GetSessionInputResponse{became("answered", "6")}, wholeErrs: []error{down, down, down, down, down, down}}, cut, 0, "all\n[6 bytes truncated]"},
+		"the answer calls a tool":                               {&fakeAgent{inputs: []*agentv1.GetSessionInputResponse{became("answered", "4")}}, step, 1, failedNoReply},
+		"the answer out of the view is not the agent's":         {&fakeAgent{inputs: []*agentv1.GetSessionInputResponse{became("answered", "9")}, whole: map[string]*agentv1.GetSessionMessageResponse{"9": {Role: "tool", Text: "ok"}}}, viewBefore, 1, failedNoReply},
+	} {
+		t.Run(name, func(t *testing.T) {
+			tc.fake.frames = [][]*agentv1.WatchSessionResponse{{frame("idle", "c1", tc.view)}}
+			serveAgent(t, tc.fake)
+			out, _, err := runAgent(t, "watch", "das_1", "--after-input", "dai_1", "-o", "json")
+			var status cli.StatusError
+			var result watchResult
+			if tc.code == 0 {
+				if err != nil || json.Unmarshal([]byte(out), &result) != nil || result.Reply != tc.want {
+					t.Fatalf("err = %v, out = %s; want the reply %q", err, out, tc.want)
+				}
+			} else if !errors.As(err, &status) || status.StatusCode != tc.code || !strings.Contains(status.Status, tc.want) {
+				t.Fatalf("err = %#v, want exit %d with %q", err, tc.code, tc.want)
+			}
+		})
+	}
+}
+
+// The transcript is all a text watch prints, so a reply whose input has left the view is still printed.
+func TestWatchPrintsAReplyWhoseInputLeftTheView(t *testing.T) {
+	retryDelay = time.Millisecond
+	t.Cleanup(func() { retryDelay = time.Second })
+	whole := `{"messages": [{"id": "2", "role": "assistant", "text": "the reply"}], "tools": []}`
+	cut := `{"messages": [{"id": "2", "role": "assistant", "text": "the\n[6 bytes truncated]", "truncatedBytes": 6}], "tools": []}`
+	for name, view := range map[string]string{"whole in the frame": whole, "cut in the frame": cut} {
+		t.Run(name, func(t *testing.T) {
+			serveAgent(t, &fakeAgent{
+				frames: [][]*agentv1.WatchSessionResponse{{frame("idle", "c1", view)}},
+				inputs: []*agentv1.GetSessionInputResponse{became("answered", "2")},
+				whole:  map[string]*agentv1.GetSessionMessageResponse{"2": {Role: "assistant", Text: "the reply"}},
+			})
+			out, _, err := runAgent(t, "watch", "das_1", "--after-input", "dai_1")
+			if err != nil || strings.Count(out, "the reply") != 1 {
+				t.Fatalf("err = %v, out = %q; want the reply printed once", err, out)
+			}
+		})
+	}
+}
+
+func TestWatchUntilIdleExitCodes(t *testing.T) {
 	replyGrace = 10 * time.Millisecond
 	t.Cleanup(func() { replyGrace = 10 * time.Second })
 	interrupted := `{"messages": [{"id": "3", "role": "user", "inputId": "dai_1", "text": "hello"}, {"id": "4", "role": "tool", "toolName": "bash", "text": "killed"}], "tools": []}`
@@ -694,10 +674,6 @@ func TestWatchExitCodes(t *testing.T) {
 			},
 			code: 1, want: "the turn ended without a reply",
 		},
-		"a later input got the reply": {
-			fake: &fakeAgent{frames: [][]*agentv1.WatchSessionResponse{{frame("idle", "c1", strings.Replace(interrupted, `], "tools"`, `, {"id": "5", "role": "user", "inputId": "dai_2", "text": "next"}, {"id": "6", "role": "assistant", "text": "later reply"}], "tools"`, 1))}}},
-			code: 1, want: "another input followed before the agent replied",
-		},
 		"timeout": {
 			fake: &fakeAgent{holdWatch: true, frames: [][]*agentv1.WatchSessionResponse{{frame("running", "c1", viewAsked)}}},
 			args: []string{"--timeout", "200ms"},
@@ -706,7 +682,7 @@ func TestWatchExitCodes(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			serveAgent(t, tc.fake)
-			_, _, err := runAgent(t, append([]string{"watch", "das_1", "--after-input", "dai_1"}, tc.args...)...)
+			_, _, err := runAgent(t, append([]string{"watch", "das_1", "--until-idle"}, tc.args...)...)
 			var status cli.StatusError
 			if !errors.As(err, &status) || status.StatusCode != tc.code || !strings.Contains(status.Status, tc.want) {
 				t.Fatalf("err = %#v, want exit %d with %q", err, tc.code, tc.want)
@@ -759,7 +735,7 @@ func TestWatchReplaysAFrameWhoseSessionReadFailed(t *testing.T) {
 	retryDelay, replyGrace = time.Millisecond, time.Millisecond
 	t.Cleanup(func() { retryDelay, replyGrace = time.Second, 10*time.Second })
 	unanswered := []*agentv1.WatchSessionResponse{frame("idle", "c1", viewAsked)}
-	f := &fakeAgent{getErr: connect.NewError(connect.CodeUnavailable, errors.New("read broke"))}
+	f := &fakeAgent{inputErr: connect.NewError(connect.CodeUnavailable, errors.New("read broke"))}
 	for range maxWatchFailures {
 		f.frames = append(f.frames, unanswered)
 	}
@@ -789,33 +765,24 @@ func TestWatchKeepsReconnectingAStreamThatWasHeldOpen(t *testing.T) {
 
 func TestTurnSettled(t *testing.T) {
 	for name, tc := range map[string]struct {
-		input, status, view string
-		done                bool
-		reply               string
+		status, view string
+		done         bool
+		reply        string
 	}{
-		"idle before the input shows":    {"dai_1", "idle", viewBefore, false, ""},
-		"input shown, no reply yet":      {"dai_1", "idle", viewAsked, false, ""},
-		"replied":                        {"dai_1", "idle", viewReplied, true, "hi there"},
-		"replied, waiting for input":     {"dai_1", "waiting_input", viewReplied, true, "hi there"},
-		"still running":                  {"dai_1", "running", viewReplied, false, ""},
-		"replied, another input queued":  {"dai_1", "idle", strings.Replace(viewReplied, `"queuedCount": 0`, `"queuedCount": 1`, 1), true, "hi there"},
-		"no input: an input queued":      {"", "idle", strings.Replace(viewReplied, `"queuedCount": 0`, `"queuedCount": 1`, 1), false, ""},
-		"reply still streaming":          {"dai_1", "idle", strings.Replace(viewReplied, `"tools": []`, `"partial": "and", "tools": []`, 1), false, ""},
-		"tool still running":             {"dai_1", "idle", strings.Replace(viewReplied, `"tools": []`, `"tools": [{"callId": "t", "status": "running"}]`, 1), false, ""},
-		"no input: idle is enough":       {"", "idle", viewBefore, true, "earlier reply"},
-		"replied, then archived":         {"dai_1", "archived", viewReplied, true, "hi there"},
-		"replied, then failed":           {"dai_1", "failed", viewReplied, true, "hi there"},
-		"replied, a later turn failed":   {"dai_1", "failed", viewLater, true, "hi there"},
-		"a later turn is running":        {"dai_1", "running", viewLater, true, "hi there"},
-		"a later turn has replied":       {"dai_1", "idle", strings.Replace(viewLater, `]}`, `, {"id": "6", "role": "assistant", "text": "later reply"}]}`, 1), true, "hi there"},
-		"no input: idle without a reply": {"", "idle", viewAsked, false, ""},
+		"idle is enough":        {"idle", viewBefore, true, "earlier reply"},
+		"waiting for input":     {"waiting_input", viewReplied, true, "hi there"},
+		"still running":         {"running", viewReplied, false, ""},
+		"an input queued":       {"idle", strings.Replace(viewReplied, `"queuedCount": 0`, `"queuedCount": 1`, 1), false, ""},
+		"reply still streaming": {"idle", strings.Replace(viewReplied, `"tools": []`, `"partial": "and", "tools": []`, 1), false, ""},
+		"tool still running":    {"idle", strings.Replace(viewReplied, `"tools": []`, `"tools": [{"callId": "t", "status": "running"}]`, 1), false, ""},
+		"idle without a reply":  {"idle", viewAsked, false, ""},
 	} {
 		t.Run(name, func(t *testing.T) {
 			var view agentView
 			if err := json.Unmarshal([]byte(tc.view), &view); err != nil {
 				t.Fatal(err)
 			}
-			done, reply, failure := (&turn{afterInput: tc.input}).settled(tc.status, &view)
+			done, reply, failure := (&turn{}).settled(tc.status, &view)
 			if done != tc.done || reply != tc.reply || failure != "" {
 				t.Fatalf("settled = %v, %q, %q; want %v, %q", done, reply, failure, tc.done, tc.reply)
 			}
@@ -944,139 +911,6 @@ func TestSendWatchRejectsASubagent(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "--subagent") || len(f.watches) != 0 {
 		t.Fatalf("err = %v, watches = %d", err, len(f.watches))
 	}
-}
-
-// A turn can outgrow the bounded view before the first frame arrives, and nothing later brings its input back.
-func TestTurnFailsAnInputTheCutViewDroppedUnseen(t *testing.T) {
-	const gone = `{"messages": [{"id": "40", "seq": 40, "role": "tool", "text": "ok"}, {"id": "41", "seq": 41, "role": "assistant", "text": "done"}], "truncated": true}`
-	settle := func(tn *turn, status, raw string) string {
-		t.Helper()
-		var view agentView
-		if err := json.Unmarshal([]byte(raw), &view); err != nil {
-			t.Fatal(err)
-		}
-		if done, reply, failure := tn.settled(status, &view); done {
-			t.Fatalf("settled = %q, %q on a view that does not show the input", reply, failure)
-		}
-		return tn.doubt
-	}
-	if doubt := settle(&turn{afterInput: "dai_1", base: beforeFirst()}, "idle", gone); doubt != failedLost {
-		t.Fatalf("doubt = %q for a first input the view dropped, want %q", doubt, failedLost)
-	}
-	// Without a base from the caller the first frame gives one, and only newer messages count.
-	later := &turn{afterInput: "dai_1"}
-	for range 2 {
-		if doubt := settle(later, "idle", gone); doubt != failedUnseen {
-			t.Fatalf("doubt = %q on the cut view the session already had, want %q", doubt, failedUnseen)
-		}
-	}
-	if doubt := settle(later, "running", gone); doubt != "" {
-		t.Fatalf("doubt = %q while the session is running", doubt)
-	}
-	newer := `{"messages": [{"id": "90", "seq": 90, "role": "assistant", "text": "done"}], "truncated": true`
-	if doubt := settle(later, "idle", newer+`, "queuedCount": 1}`); doubt != "" {
-		t.Fatalf("doubt = %q while an input is still queued", doubt)
-	}
-	if doubt := settle(later, "idle", newer+`}`); doubt != failedLost {
-		t.Fatalf("doubt = %q once the view holds only newer messages, want %q", doubt, failedLost)
-	}
-}
-
-func TestWatchFailsAnInputTheCutViewDroppedUnseen(t *testing.T) {
-	replyGrace = time.Millisecond
-	t.Cleanup(func() { replyGrace = 10 * time.Second })
-	const gone = `{"messages": [{"id": "41", "seq": 41, "role": "assistant", "text": "done"}], "truncated": true}`
-	for name, args := range map[string][]string{
-		"create": {"create", "hello", "--watch", "--timeout", "2s"},
-		"send":   {"send", "das_1", "hello", "--watch", "--timeout", "2s"},
-	} {
-		t.Run(name, func(t *testing.T) {
-			// GetSession serves both the read before the send and the second look.
-			f := &fakeAgent{holdWatch: true, frames: [][]*agentv1.WatchSessionResponse{{frame("idle", "c1", gone)}}}
-			if f.got = (&agentv1.GetSessionResponse{Session: &agentv1.DepotAgentSession{Status: "idle"}, ViewJson: gone}); name == "send" {
-				f.gots = []*agentv1.GetSessionResponse{{Session: &agentv1.DepotAgentSession{Status: "idle"}, ViewJson: viewBefore}}
-			}
-			serveAgent(t, f)
-			_, _, err := runAgent(t, args...)
-			var status cli.StatusError
-			if !errors.As(err, &status) || status.StatusCode != 1 || !strings.Contains(status.Status, failedLost) {
-				t.Fatalf("err = %#v, want exit 1 with %q", err, failedLost)
-			}
-		})
-	}
-}
-
-// A watch started on its own cannot tell an input sent a moment ago from one whose turn the view has dropped,
-// so an idle session gets a while to pick the input up before the wait fails.
-func TestWatchGivesAnInputOutOfTheCutViewTimeToBePickedUp(t *testing.T) {
-	replyGrace, pickupGrace, pickupPoll = time.Millisecond, 20*time.Millisecond, 5*time.Millisecond
-	t.Cleanup(func() { replyGrace, pickupGrace, pickupPoll = 10*time.Second, 2*time.Minute, 5*time.Second })
-	const gone = `{"messages": [{"id": "41", "seq": 41, "role": "assistant", "text": "done"}], "truncated": true}`
-	const shown = `{"messages": [{"id": "42", "seq": 42, "role": "user", "text": "hi", "inputId": "dai_1"}, {"id": "43", "seq": 43, "role": "assistant", "text": "hello"}], "truncated": true}`
-	idle := func(view string) *agentv1.GetSessionResponse {
-		return &agentv1.GetSessionResponse{Session: &agentv1.DepotAgentSession{Status: "idle"}, ViewJson: view}
-	}
-	watch := func(f *fakeAgent) (string, error) {
-		f.holdWatch, f.frames = true, [][]*agentv1.WatchSessionResponse{{frame("idle", "c1", gone)}}
-		serveAgent(t, f)
-		stdout, _, err := runAgent(t, "watch", "das_1", "--after-input", "dai_1", "--timeout", "2s")
-		return stdout, err
-	}
-	t.Run("never shows", func(t *testing.T) {
-		_, err := watch(&fakeAgent{got: idle(gone)})
-		var status cli.StatusError
-		if !errors.As(err, &status) || status.StatusCode != 1 || !strings.Contains(status.Status, failedUnseen) {
-			t.Fatalf("err = %#v, want exit 1 with %q", err, failedUnseen)
-		}
-	})
-	t.Run("a send the API had already taken", func(t *testing.T) {
-		// A repeated --client-request-id returns the first send's input, whose turn the view may no longer show.
-		f := &fakeAgent{got: idle(gone), sentStatus: "submitted", holdWatch: true}
-		f.frames = [][]*agentv1.WatchSessionResponse{{frame("idle", "c1", gone)}}
-		serveAgent(t, f)
-		_, _, err := runAgent(t, "send", "das_1", "hi", "--client-request-id", "again", "--watch", "--timeout", "2s")
-		var status cli.StatusError
-		if !errors.As(err, &status) || status.StatusCode != 1 || !strings.Contains(status.Status, failedUnseen) {
-			t.Fatalf("err = %#v, want exit 1 with %q", err, failedUnseen)
-		}
-	})
-	t.Run("frames older than the read", func(t *testing.T) {
-		const turn = `{"id": "42", "seq": 42, "role": "user", "text": "hi", "inputId": "dai_1"}, {"id": "43", "seq": 43, "role": "tool", "text": "ok"}`
-		const working = `{"messages": [` + turn + `], "truncated": true}`
-		const replied = `{"messages": [` + turn + `, {"id": "44", "seq": 44, "role": "assistant", "text": "hello"}], "truncated": true}`
-		const stale = `{"messages": [{"id": "40", "seq": 40, "role": "assistant", "text": "earlier"}, {"id": "41", "seq": 41, "role": "assistant", "text": "done"}], "truncated": true}`
-		f := &fakeAgent{holdWatch: true, got: &agentv1.GetSessionResponse{Session: &agentv1.DepotAgentSession{Status: "running"}, ViewJson: working}}
-		// The stream still holds the frame from before the input showed when the read has already seen its turn.
-		f.frames = [][]*agentv1.WatchSessionResponse{{frame("idle", "c1", gone), frame("idle", "c2", stale), frame("idle", "c3", replied)}}
-		serveAgent(t, f)
-		stdout, _, err := runAgent(t, "watch", "das_1", "--after-input", "dai_1", "--timeout", "2s")
-		if err != nil || !strings.Contains(stdout, "hello") {
-			t.Fatalf("err = %v, stdout = %q, want the reply after the stale frame", err, stdout)
-		}
-		if strings.Contains(stdout, "earlier") || strings.Count(stdout, "[idle]") != 2 {
-			t.Fatalf("stdout = %q, want nothing printed from the stale frame", stdout)
-		}
-	})
-	t.Run("reads that fail now and then", func(t *testing.T) {
-		retryDelay, streamHeld, pickupGrace = time.Millisecond, 10*time.Millisecond, 200*time.Millisecond
-		t.Cleanup(func() { retryDelay, streamHeld = time.Second, 30*time.Second })
-		f := &fakeAgent{holdWatch: true, got: idle(gone), getErrEvery: 4, getErr: connect.NewError(connect.CodeUnavailable, errors.New("read broke"))}
-		for range 200 {
-			f.frames = append(f.frames, []*agentv1.WatchSessionResponse{frame("idle", "c1", gone)})
-		}
-		serveAgent(t, f)
-		_, _, err := runAgent(t, "watch", "das_1", "--after-input", "dai_1", "--timeout", "3s")
-		var status cli.StatusError
-		if !errors.As(err, &status) || status.StatusCode != 1 || !strings.Contains(status.Status, failedUnseen) {
-			t.Fatalf("err = %#v, want exit 1 with %q: a reconnect must not start the window over", err, failedUnseen)
-		}
-	})
-	t.Run("picked up", func(t *testing.T) {
-		stdout, err := watch(&fakeAgent{gots: []*agentv1.GetSessionResponse{idle(gone)}, got: idle(shown)})
-		if err != nil || !strings.Contains(stdout, "hello") {
-			t.Fatalf("err = %v, stdout = %q, want the reply once the session picked the input up", err, stdout)
-		}
-	})
 }
 
 func TestWatchReportsACancelledContext(t *testing.T) {

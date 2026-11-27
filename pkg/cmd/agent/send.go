@@ -119,10 +119,6 @@ func runSend(cmd *cobra.Command, o *sendOptions, args []string) error {
 	if err != nil {
 		return err
 	}
-	var base *int64
-	if o.watch {
-		base = newestSeq(cmd.Context(), c, sessionID)
-	}
 	resp, err := c.client.SendInput(cmd.Context(), authed(c, req))
 	if err != nil {
 		if o.key != "" && connect.CodeOf(err) == connect.CodeNotFound {
@@ -157,12 +153,7 @@ func runSend(cmd *cobra.Command, o *sendOptions, args []string) error {
 	if !o.watch {
 		return nil
 	}
-	// A repeated client request ID returns the input of the first send. Once the session has taken that one,
-	// what was read just now is not from before it, so the watch finds its own base.
-	if status != "" && status != "pending" {
-		base = nil
-	}
-	wait := watchOptions{afterInput: resp.Msg.GetInput().GetInputId(), untilIdle: true, timeout: o.timeout, base: base, did: "got the message"}
+	wait := watchOptions{afterInput: resp.Msg.GetInput().GetInputId(), untilIdle: true, timeout: o.timeout, did: "got the message"}
 	if status == "cancelled" {
 		return report(cmd, c, o.output, sessionID, wait, watchResult{SessionID: sessionID, InputID: wait.afterInput, Status: "archived", Outcome: outcomeFailed, Error: cancelled})
 	}
