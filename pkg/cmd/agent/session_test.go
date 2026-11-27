@@ -50,6 +50,8 @@ type fakeAgent struct {
 	// inputs are what the API says became of the awaited input, one per read; the last one stays.
 	inputs   []*agentv1.GetSessionInputResponse
 	inputErr error
+	// byWatch serves inputs by how many watch calls there have been, however many frames each one got through.
+	byWatch bool
 	// afterFrames runs once a watch call has sent its frames.
 	afterFrames func(call int)
 	mu          sync.Mutex
@@ -90,7 +92,9 @@ func (f *fakeAgent) GetSessionInput(context.Context, *connect.Request[agentv1.Ge
 		return nil, connect.NewError(connect.CodeUnimplemented, errors.New("unimplemented"))
 	}
 	first := f.inputs[0]
-	if len(f.inputs) > 1 {
+	if f.byWatch {
+		first = f.inputs[max(min(len(f.watches), len(f.inputs)), 1)-1]
+	} else if len(f.inputs) > 1 {
 		f.inputs = f.inputs[1:]
 	}
 	return connect.NewResponse(first), nil
@@ -302,11 +306,11 @@ func TestCreateSendsTheMessageAndPrintsTheSession(t *testing.T) {
 }
 
 func TestCreateWatchWaitsForTheReplyAcrossReconnects(t *testing.T) {
-	asked, said := []*agentv1.GetSessionInputResponse{became("pending"), became("placed"), became("answered", "4")}, map[string]*agentv1.GetSessionMessageResponse{"4": {Role: "assistant", Text: "hi there"}}
+	asked, said := []*agentv1.GetSessionInputResponse{became("placed"), became("answered", "4")}, map[string]*agentv1.GetSessionMessageResponse{"4": {Role: "assistant", Text: "hi there"}}
 	f := &fakeAgent{frames: [][]*agentv1.WatchSessionResponse{
 		{frame("idle", "c1", viewBefore), frame("running", "c2", viewAsked)},
 		{frame("idle", "c3", viewReplied)},
-	}, inputs: asked, whole: said}
+	}, inputs: asked, byWatch: true, whole: said}
 	serveAgent(t, f)
 	out, errOut, err := runAgent(t, "create", "hello", "--watch", "-o", "json")
 	if err != nil {
@@ -336,7 +340,7 @@ func TestWatchReconnectsAfterAGoAway(t *testing.T) {
 		{frame("idle", "c3", viewReplied)},
 	}
 	accepted := serveAgent(t, &fakeAgent{holdWatch: true, frames: frames})
-	asked, said := []*agentv1.GetSessionInputResponse{became("pending"), became("placed"), became("answered", "4")}, map[string]*agentv1.GetSessionMessageResponse{"4": {Role: "assistant", Text: "hi there"}}
+	asked, said := []*agentv1.GetSessionInputResponse{became("placed"), became("answered", "4")}, map[string]*agentv1.GetSessionMessageResponse{"4": {Role: "assistant", Text: "hi there"}}
 
 	// What the client makes of it is the error the watch has to count as worth another try.
 	stream, err := newCaller("tok", "org-1").client.WatchSession(context.Background(), connect.NewRequest(&agentv1.WatchSessionRequest{SessionId: "das_1"}))
@@ -353,7 +357,7 @@ func TestWatchReconnectsAfterAGoAway(t *testing.T) {
 	}
 	_ = stream.Close()
 
-	f := &fakeAgent{holdWatch: true, frames: frames, inputs: asked, whole: said}
+	f := &fakeAgent{holdWatch: true, frames: frames, inputs: asked, byWatch: true, whole: said}
 	f.afterFrames = func(call int) {
 		if call == 0 {
 			accepted.goAway(t)

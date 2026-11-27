@@ -245,11 +245,15 @@ func watchOnce(ctx context.Context, c *caller, sessionID string, r *Renderer, o 
 		var done bool
 		var reply, failure string
 		if o.afterInput != "" {
-			if done, reply, failure, err = awaited(ctx, c, sessionID, o.afterInput, status, r); err != nil {
-				return false, err
-			}
-			if ctx.Err() != nil {
-				return false, nil
+			// A frame that only streams more of a reply cannot change what became of the input.
+			if at := status + ":" + newestID(view); at != t.asked {
+				if done, reply, failure, err = awaited(ctx, c, sessionID, o.afterInput, status, view, r); err != nil {
+					return false, err
+				}
+				if ctx.Err() != nil {
+					return false, nil
+				}
+				t.asked = at
 			}
 		} else {
 			done, reply, failure = t.settled(status, view)
@@ -299,16 +303,24 @@ func watchOnce(ctx context.Context, c *caller, sessionID string, r *Renderer, o 
 
 // awaited asks the API what became of the input being waited for. The API reads its answer off what the session
 // stored, so nothing here is worked out from the messages around it.
-func awaited(ctx context.Context, c *caller, sessionID, inputID, status string, r *Renderer) (done bool, reply, failure string, err error) {
+func awaited(ctx context.Context, c *caller, sessionID, inputID, status string, view *agentView, r *Renderer) (done bool, reply, failure string, err error) {
 	resp, err := c.client.GetSessionInput(ctx, authed(c, &agentv1.GetSessionInputRequest{SessionId: sessionID, InputId: inputID}))
 	if err != nil {
 		return false, "", "", fmt.Errorf("get input %s: %w", inputID, err)
 	}
 	switch resp.Msg.GetOutcome() {
 	case "answered":
-		text, err := r.Reply(resp.Msg.GetAnswerMessageId())
+		id := resp.Msg.GetAnswerMessageId()
+		// A reply the frame holds whole is already in the transcript and needs no read.
+		for _, msg := range viewMessages(view) {
+			if msg.ID == id && msg.TruncatedBytes == 0 {
+				done, reply, failure = replied(msg)
+				return done, reply, failure, nil
+			}
+		}
+		text, err := r.Reply(id)
 		if err != nil {
-			return false, "", "", fmt.Errorf("get message %s: %w", resp.Msg.GetAnswerMessageId(), err)
+			return false, "", "", fmt.Errorf("get message %s: %w", id, err)
 		}
 		if strings.TrimSpace(text) == "" {
 			return true, "", "the agent's reply was empty", nil
@@ -341,6 +353,15 @@ type turn struct {
 	doubt string
 	// said is the id of the message the last settled gave as the reply.
 	said string
+	// asked is the status and newest message of the last frame the API was asked about the awaited input for.
+	asked string
+}
+
+func newestID(view *agentView) string {
+	if n := len(viewMessages(view)); n > 0 {
+		return view.Messages[n-1].ID
+	}
+	return ""
 }
 
 const failedNoReply = "the turn ended without a reply"
