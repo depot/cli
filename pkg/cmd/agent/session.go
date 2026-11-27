@@ -164,7 +164,7 @@ Use ` + "`depot agent launch`" + ` to start a published agent on a repository.`,
 				return err
 			}
 			sessionID := resp.Msg.GetSession().GetSessionId()
-			wait := watchOptions{afterInput: resp.Msg.GetInput().GetInputId(), untilIdle: true, timeout: timeout, base: beforeFirst(), did: "was created"}
+			wait := watchOptions{afterInput: resp.Msg.GetInput().GetInputId(), untilIdle: true, timeout: timeout, did: "was created"}
 			if watch && f.output == "json" {
 				return watchAndReport(cmd, c, f.output, sessionID, wait)
 			}

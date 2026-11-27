@@ -17,6 +17,8 @@ service DepotAgentService {
   rpc GetSession(GetSessionRequest) returns (GetSessionResponse);
   // Returns the whole text of one message of a session's conversation. The view cuts long messages short.
   rpc GetSessionMessage(GetSessionMessageRequest) returns (GetSessionMessageResponse);
+  // Returns what became of one message sent to a session, from the session's stored record of it.
+  rpc GetSessionInput(GetSessionInputRequest) returns (GetSessionInputResponse);
   // Lists the organization's sessions, newest first.
   rpc ListDepotAgentSessions(ListDepotAgentSessionsRequest) returns (ListDepotAgentSessionsResponse);
   // Streams the session's view each time it changes.
@@ -219,6 +221,28 @@ message GetSessionResponse {
   uint64 view_seq = 3;
   // What each feature adds to the session, by feature name.
   map<string, bytes> contributions = 4;
+}
+
+message GetSessionInputRequest {
+  // Unique identifier for the session. Returned by `CreateSession` and `ListDepotAgentSessions`.
+  string session_id = 1;
+  // Unique identifier for the message. Returned by `CreateSession` and `SendInput`.
+  string input_id = 2;
+}
+
+message GetSessionInputResponse {
+  // What became of the message. Can be "pending" (the agent has not read it), "placed" (the agent is working on a
+  // turn that holds it), "answered", "unanswered" (the turn ended and it will get no answer) or "withdrawn" (it was
+  // cancelled before the agent read it). "answered" and "unanswered" are final, except that an "unanswered" message
+  // of a failed session can be picked up again when the session next runs.
+  string outcome = 1;
+  // Set when `outcome` is "answered": the last message of the turn that held this message. `GetSessionMessage`
+  // takes it. Messages that shared a turn share this answer.
+  optional string answer_message_id = 2;
+  // Set when `outcome` is "unanswered": why. For example, "aborted" after a stop, or "model_error".
+  optional string reason = 3;
+  // Set when `outcome` is "unanswered" and the reason has more to say, such as the model's error. Maximum: 4 KiB.
+  optional string detail = 4;
 }
 
 message GetSessionMessageRequest {
