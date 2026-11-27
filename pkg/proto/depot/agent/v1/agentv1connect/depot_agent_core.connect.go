@@ -47,6 +47,9 @@ const (
 	// DepotAgentServiceGetSessionMessageProcedure is the fully-qualified name of the
 	// DepotAgentService's GetSessionMessage RPC.
 	DepotAgentServiceGetSessionMessageProcedure = "/depot.agent.v1.DepotAgentService/GetSessionMessage"
+	// DepotAgentServiceGetSessionInputProcedure is the fully-qualified name of the DepotAgentService's
+	// GetSessionInput RPC.
+	DepotAgentServiceGetSessionInputProcedure = "/depot.agent.v1.DepotAgentService/GetSessionInput"
 	// DepotAgentServiceListDepotAgentSessionsProcedure is the fully-qualified name of the
 	// DepotAgentService's ListDepotAgentSessions RPC.
 	DepotAgentServiceListDepotAgentSessionsProcedure = "/depot.agent.v1.DepotAgentService/ListDepotAgentSessions"
@@ -99,6 +102,8 @@ type DepotAgentServiceClient interface {
 	GetSession(context.Context, *connect.Request[v1.GetSessionRequest]) (*connect.Response[v1.GetSessionResponse], error)
 	// Returns the whole text of one message of a session's conversation. The view cuts long messages short.
 	GetSessionMessage(context.Context, *connect.Request[v1.GetSessionMessageRequest]) (*connect.Response[v1.GetSessionMessageResponse], error)
+	// Returns what became of one message sent to a session, from the session's stored record of it.
+	GetSessionInput(context.Context, *connect.Request[v1.GetSessionInputRequest]) (*connect.Response[v1.GetSessionInputResponse], error)
 	// Lists the organization's sessions, newest first.
 	ListDepotAgentSessions(context.Context, *connect.Request[v1.ListDepotAgentSessionsRequest]) (*connect.Response[v1.ListDepotAgentSessionsResponse], error)
 	// Streams the session's view each time it changes.
@@ -142,6 +147,11 @@ func NewDepotAgentServiceClient(httpClient connect.HTTPClient, baseURL string, o
 			baseURL+DepotAgentServiceGetSessionMessageProcedure,
 			opts...,
 		),
+		getSessionInput: connect.NewClient[v1.GetSessionInputRequest, v1.GetSessionInputResponse](
+			httpClient,
+			baseURL+DepotAgentServiceGetSessionInputProcedure,
+			opts...,
+		),
 		listDepotAgentSessions: connect.NewClient[v1.ListDepotAgentSessionsRequest, v1.ListDepotAgentSessionsResponse](
 			httpClient,
 			baseURL+DepotAgentServiceListDepotAgentSessionsProcedure,
@@ -176,6 +186,7 @@ type depotAgentServiceClient struct {
 	sendInput              *connect.Client[v1.SendInputRequest, v1.SendInputResponse]
 	getSession             *connect.Client[v1.GetSessionRequest, v1.GetSessionResponse]
 	getSessionMessage      *connect.Client[v1.GetSessionMessageRequest, v1.GetSessionMessageResponse]
+	getSessionInput        *connect.Client[v1.GetSessionInputRequest, v1.GetSessionInputResponse]
 	listDepotAgentSessions *connect.Client[v1.ListDepotAgentSessionsRequest, v1.ListDepotAgentSessionsResponse]
 	watchSession           *connect.Client[v1.WatchSessionRequest, v1.WatchSessionResponse]
 	interruptSession       *connect.Client[v1.InterruptSessionRequest, v1.InterruptSessionResponse]
@@ -201,6 +212,11 @@ func (c *depotAgentServiceClient) GetSession(ctx context.Context, req *connect.R
 // GetSessionMessage calls depot.agent.v1.DepotAgentService.GetSessionMessage.
 func (c *depotAgentServiceClient) GetSessionMessage(ctx context.Context, req *connect.Request[v1.GetSessionMessageRequest]) (*connect.Response[v1.GetSessionMessageResponse], error) {
 	return c.getSessionMessage.CallUnary(ctx, req)
+}
+
+// GetSessionInput calls depot.agent.v1.DepotAgentService.GetSessionInput.
+func (c *depotAgentServiceClient) GetSessionInput(ctx context.Context, req *connect.Request[v1.GetSessionInputRequest]) (*connect.Response[v1.GetSessionInputResponse], error) {
+	return c.getSessionInput.CallUnary(ctx, req)
 }
 
 // ListDepotAgentSessions calls depot.agent.v1.DepotAgentService.ListDepotAgentSessions.
@@ -239,6 +255,8 @@ type DepotAgentServiceHandler interface {
 	GetSession(context.Context, *connect.Request[v1.GetSessionRequest]) (*connect.Response[v1.GetSessionResponse], error)
 	// Returns the whole text of one message of a session's conversation. The view cuts long messages short.
 	GetSessionMessage(context.Context, *connect.Request[v1.GetSessionMessageRequest]) (*connect.Response[v1.GetSessionMessageResponse], error)
+	// Returns what became of one message sent to a session, from the session's stored record of it.
+	GetSessionInput(context.Context, *connect.Request[v1.GetSessionInputRequest]) (*connect.Response[v1.GetSessionInputResponse], error)
 	// Lists the organization's sessions, newest first.
 	ListDepotAgentSessions(context.Context, *connect.Request[v1.ListDepotAgentSessionsRequest]) (*connect.Response[v1.ListDepotAgentSessionsResponse], error)
 	// Streams the session's view each time it changes.
@@ -278,6 +296,11 @@ func NewDepotAgentServiceHandler(svc DepotAgentServiceHandler, opts ...connect.H
 		svc.GetSessionMessage,
 		opts...,
 	)
+	depotAgentServiceGetSessionInputHandler := connect.NewUnaryHandler(
+		DepotAgentServiceGetSessionInputProcedure,
+		svc.GetSessionInput,
+		opts...,
+	)
 	depotAgentServiceListDepotAgentSessionsHandler := connect.NewUnaryHandler(
 		DepotAgentServiceListDepotAgentSessionsProcedure,
 		svc.ListDepotAgentSessions,
@@ -313,6 +336,8 @@ func NewDepotAgentServiceHandler(svc DepotAgentServiceHandler, opts ...connect.H
 			depotAgentServiceGetSessionHandler.ServeHTTP(w, r)
 		case DepotAgentServiceGetSessionMessageProcedure:
 			depotAgentServiceGetSessionMessageHandler.ServeHTTP(w, r)
+		case DepotAgentServiceGetSessionInputProcedure:
+			depotAgentServiceGetSessionInputHandler.ServeHTTP(w, r)
 		case DepotAgentServiceListDepotAgentSessionsProcedure:
 			depotAgentServiceListDepotAgentSessionsHandler.ServeHTTP(w, r)
 		case DepotAgentServiceWatchSessionProcedure:
@@ -346,6 +371,10 @@ func (UnimplementedDepotAgentServiceHandler) GetSession(context.Context, *connec
 
 func (UnimplementedDepotAgentServiceHandler) GetSessionMessage(context.Context, *connect.Request[v1.GetSessionMessageRequest]) (*connect.Response[v1.GetSessionMessageResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.agent.v1.DepotAgentService.GetSessionMessage is not implemented"))
+}
+
+func (UnimplementedDepotAgentServiceHandler) GetSessionInput(context.Context, *connect.Request[v1.GetSessionInputRequest]) (*connect.Response[v1.GetSessionInputResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("depot.agent.v1.DepotAgentService.GetSessionInput is not implemented"))
 }
 
 func (UnimplementedDepotAgentServiceHandler) ListDepotAgentSessions(context.Context, *connect.Request[v1.ListDepotAgentSessionsRequest]) (*connect.Response[v1.ListDepotAgentSessionsResponse], error) {

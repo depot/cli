@@ -164,7 +164,7 @@ Use ` + "`depot agent launch`" + ` to start a published agent on a repository.`,
 				return err
 			}
 			sessionID := resp.Msg.GetSession().GetSessionId()
-			wait := watchOptions{afterInput: resp.Msg.GetInput().GetInputId(), untilIdle: true, timeout: timeout, base: beforeFirst(), did: "was created"}
+			wait := watchOptions{afterInput: resp.Msg.GetInput().GetInputId(), untilIdle: true, timeout: timeout, did: "was created"}
 			if watch && f.output == "json" {
 				return watchAndReport(cmd, c, f.output, sessionID, wait)
 			}
@@ -278,7 +278,8 @@ reply of the agent is read whole; -o json prints the view as the API returns it.
 			}
 			if f.output == "text" {
 				r := NewRenderer(cmd.OutOrStdout()).Whole(func(messageID string) (string, error) {
-					return wholeMessage(cmd.Context(), c, args[0], messageID)
+					text, _, err := wholeMessage(cmd.Context(), c, args[0], messageID)
+					return text, err
 				})
 				_, err := r.Render(resp.Msg.GetSession(), resp.Msg.GetViewJson())
 				return err

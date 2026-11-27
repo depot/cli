@@ -289,6 +289,38 @@ func (r *Renderer) fill(msg *viewMessage) error {
 	return nil
 }
 
+// Reply returns the whole text of the message with this id, read by the id unless a frame already read it.
+func (r *Renderer) Reply(id string) (string, error) {
+	if text, held := r.full[id]; held {
+		return text, nil
+	}
+	return r.whole(id)
+}
+
+// Said prints a reply the transcript has not shown whole: its turn outgrew the view, its read failed, or (late) its
+// input left the view. The status line the frame already printed is repeated, so it still closes the turn.
+func (r *Renderer) Said(id, text string, late bool) error {
+	switch {
+	case r.once("message:" + id):
+		r.finishPartial(text)
+	case r.unread[id] > 0:
+		delete(r.unread, id)
+		r.line("(the whole reply, read on a later try)")
+		r.line("%s", strings.TrimSpace(text))
+	case late:
+		r.line("%s", strings.TrimSpace(text))
+	default:
+		return nil
+	}
+	if r.lastStatus != "" {
+		r.line("[%s]", r.lastStatus)
+	}
+	if r.w.err != nil {
+		return fmt.Errorf("write transcript: %w", r.w.err)
+	}
+	return nil
+}
+
 // From starts the transcript at the message of this input, leaving out the session's earlier turns.
 func (r *Renderer) From(inputID string) *Renderer {
 	r.from = inputID

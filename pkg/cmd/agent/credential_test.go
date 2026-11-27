@@ -80,6 +80,7 @@ func TestEachRPCGetsTheCredentialTheAPITakes(t *testing.T) {
 			got:    &agentv1.GetSessionResponse{Session: session, ViewJson: long, ViewSeq: 7},
 			frames: [][]*agentv1.WatchSessionResponse{{frame("idle", "c1", long)}},
 			whole:  map[string]*agentv1.GetSessionMessageResponse{"6": {Role: "assistant", Text: "whole"}},
+			inputs: []*agentv1.GetSessionInputResponse{became("answered", "6")},
 		}
 	}
 	launch := []string{"launch", "an-agent@v1", "--source", "github:acme/lib", "--message", "hello"}
@@ -89,14 +90,14 @@ func TestEachRPCGetsTheCredentialTheAPITakes(t *testing.T) {
 		want map[string]string
 	}{
 		{"create", []string{"create", "hello"}, map[string]string{"CreateSession": "turn-token"}},
-		{"create --watch", []string{"create", "hello", "--watch"}, map[string]string{"CreateSession": "turn-token", "WatchSession": "turn-token", "GetSessionMessage": "turn-token"}},
+		{"create --watch", []string{"create", "hello", "--watch"}, map[string]string{"CreateSession": "turn-token", "WatchSession": "turn-token", "GetSessionInput": "turn-token", "GetSessionMessage": "turn-token"}},
 		{"list", []string{"list"}, map[string]string{"ListDepotAgentSessions": "turn-token"}},
 		{"logs", []string{"logs", "das_1"}, map[string]string{"GetSession": "turn-token", "GetSessionMessage": "turn-token"}},
 		{"watch", []string{"watch", "das_1", "--until-idle"}, map[string]string{"WatchSession": "turn-token", "GetSessionMessage": "turn-token"}},
 		{"stop", []string{"stop", "das_1"}, map[string]string{"InterruptSession": "cache-token"}},
 		{"stop --archive", []string{"stop", "das_1", "--archive"}, map[string]string{"ArchiveSession": "cache-token"}},
 		{"send", []string{"send", "das_1", "hello"}, map[string]string{"SendInput": "turn-token"}},
-		{"send --watch", []string{"send", "das_1", "hello", "--watch"}, map[string]string{"GetSession": "turn-token", "SendInput": "turn-token", "WatchSession": "turn-token", "GetSessionMessage": "turn-token"}},
+		{"send --watch", []string{"send", "das_1", "hello", "--watch"}, map[string]string{"SendInput": "turn-token", "WatchSession": "turn-token", "GetSessionInput": "turn-token", "GetSessionMessage": "turn-token"}},
 		{"launch", launch, map[string]string{"Launch": "turn-token"}},
 		{"launch --watch", append(launch, "--watch"), map[string]string{"Launch": "turn-token", "WatchSession": "turn-token", "GetSessionMessage": "turn-token"}},
 	} {
@@ -136,7 +137,7 @@ func TestAnAPIThatRefusesTheTurnTokenIsNamedAndLeavesNothingUnsaid(t *testing.T)
 		{"watch", []string{"watch", "das_1", "--until-idle"}, "WatchSession", "", map[string]string{"WatchSession": "turn-token"}},
 		{"create --watch", []string{"create", "hello", "--watch", "-o", "json"}, "WatchSession", "Session das_1 was created", map[string]string{"CreateSession": "turn-token", "WatchSession": "turn-token"}},
 		{"send", []string{"send", "das_1", "hello"}, "SendInput", "", map[string]string{"SendInput": "turn-token"}},
-		{"send --watch", []string{"send", "das_1", "hello", "--watch"}, "SendInput", "", map[string]string{"GetSession": "turn-token", "SendInput": "turn-token"}},
+		{"send --watch", []string{"send", "das_1", "hello", "--watch"}, "SendInput", "", map[string]string{"SendInput": "turn-token"}},
 		{"launch", launch, "Launch", "", map[string]string{"Launch": "turn-token"}},
 		{"launch --watch", append(launch, "--watch"), "Launch", "", map[string]string{"Launch": "turn-token"}},
 	} {
