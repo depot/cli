@@ -259,14 +259,15 @@ func watchOnce(ctx context.Context, c *caller, sessionID string, r *Renderer, o 
 				queued = view.QueuedCount
 			}
 			if at := fmt.Sprintf("%s:%s:%d", status, newestID(view), queued); at != t.asked {
-				if done, reply, failure, err = awaited(ctx, c, sessionID, o.afterInput, status, view, r, t, restLooks); err != nil {
+				done, reply, failure, err = awaited(ctx, c, sessionID, o.afterInput, status, view, r, t, restLooks)
+				if t.status != "" {
+					result.Status, t.status = t.status, ""
+				}
+				if err != nil {
 					return false, err
 				}
 				if ctx.Err() != nil {
 					return false, nil
-				}
-				if t.status != "" {
-					result.Status, t.status = t.status, ""
 				}
 				// At rest with the input still open, the next frame asks again whatever it shows.
 				if done || (status != "idle" && status != "waiting_input") {
